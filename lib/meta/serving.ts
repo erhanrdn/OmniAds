@@ -509,7 +509,7 @@ function rebuildAccountRowsFromCampaignRows(input: {
   campaignRows: MetaCampaignDailyRow[];
   existingAccountRows?: MetaAccountDailyRow[];
   accountProfiles?: Record<string, { name?: string | null; timezone?: string | null; currency?: string | null }> | null;
-}) {
+}): MetaAccountDailyRow[] {
   const existingByKey = new Map(
     (input.existingAccountRows ?? []).map((row) => [
       `${row.providerAccountId}:${row.date}`,
@@ -528,6 +528,7 @@ function rebuildAccountRowsFromCampaignRows(input: {
     const latest = campaignRows.at(-1) ?? campaignRows[0]!;
     const existing = existingByKey.get(key);
     const profile = input.accountProfiles?.[latest.providerAccountId];
+    const truthVersion = Math.max(existing?.truthVersion ?? 1, latest.truthVersion ?? 1);
     const spend = r2(campaignRows.reduce((sum, row) => sum + row.spend, 0));
     const revenue = r2(campaignRows.reduce((sum, row) => sum + row.revenue, 0));
     const conversions = campaignRows.reduce((sum, row) => sum + row.conversions, 0);
@@ -553,6 +554,11 @@ function rebuildAccountRowsFromCampaignRows(input: {
       ctr: impressions > 0 ? r2((clicks / impressions) * 100) : null,
       cpc: clicks > 0 ? r2(spend / clicks) : null,
       sourceSnapshotId: existing?.sourceSnapshotId ?? latest.sourceSnapshotId ?? null,
+      truthState: "finalized" as const,
+      truthVersion,
+      finalizedAt: new Date().toISOString(),
+      validationStatus: "passed" as const,
+      sourceRunId: latest.sourceRunId ?? existing?.sourceRunId ?? null,
       createdAt: existing?.createdAt,
       updatedAt: existing?.updatedAt,
     };
@@ -1285,6 +1291,10 @@ async function persistRepairedCampaignRows(rows: MetaCampaignDailyRow[]) {
         is_optimization_goal_mixed = ${row.isOptimizationGoalMixed},
         is_bid_strategy_mixed = ${row.isBidStrategyMixed},
         is_bid_value_mixed = ${row.isBidValueMixed},
+        truth_state = 'finalized',
+        validation_status = 'passed',
+        finalized_at = now(),
+        source_run_id = COALESCE(${row.sourceRunId ?? null}, source_run_id),
         updated_at = now()
       WHERE business_id = ${row.businessId}
         AND provider_account_id = ${row.providerAccountId}
@@ -1318,6 +1328,10 @@ async function persistRepairedAdSetRows(rows: MetaAdSetDailyRow[]) {
         is_optimization_goal_mixed = ${row.isOptimizationGoalMixed},
         is_bid_strategy_mixed = ${row.isBidStrategyMixed},
         is_bid_value_mixed = ${row.isBidValueMixed},
+        truth_state = 'finalized',
+        validation_status = 'passed',
+        finalized_at = now(),
+        source_run_id = COALESCE(${row.sourceRunId ?? null}, source_run_id),
         updated_at = now()
       WHERE business_id = ${row.businessId}
         AND provider_account_id = ${row.providerAccountId}

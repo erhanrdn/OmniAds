@@ -35,6 +35,8 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork: vi.fn(),
+  syncMetaRepairRange: vi.fn(),
+  syncMetaToday: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/shopify-sync", () => ({
@@ -177,10 +179,17 @@ describe("POST /api/sync/refresh", () => {
     expect(payload.error).toBe("unsupported_provider_for_refresh");
   });
 
-  it("rejects deprecated mode and range fields", async () => {
+  it("accepts Meta range refresh payloads", async () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    } as never);
 
     const response = await POST(
       buildRequest({
@@ -191,8 +200,15 @@ describe("POST /api/sync/refresh", () => {
         endDate: "2026-03-02",
       })
     );
+    const payload = await response.json();
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(202);
+    expect(payload.status).toBe("started");
+    expect(metaSync.syncMetaRepairRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-02",
+    });
   });
 
   it("returns not found for unknown businesses", async () => {

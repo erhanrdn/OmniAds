@@ -32,6 +32,7 @@ import {
   getMetaCampaignDailyCoverage,
   getMetaCreativeDailyCoverage,
   getMetaIncompleteCoreDates,
+  getMetaDirtyRecentDates,
   getMetaPartitionStatesForDate,
   getMetaQueueComposition,
   getMetaPartitionHealth,
@@ -455,8 +456,11 @@ function addDays(date: Date, days: number) {
 }
 
 const META_RECENT_SOURCE_SET = new Set([
+  "finalize_day",
   "priority_window",
+  "repair_recent_day",
   "yesterday",
+  "today_observe",
   "today",
   "request_runtime",
   "recent",
@@ -547,8 +551,11 @@ export async function buildMetaWorkerLeasePlan(input: {
         sources: [
           "recent",
           "recent_recovery",
+          "repair_recent_day",
+          "today_observe",
           "today",
           "priority_window",
+          "finalize_day",
           "request_runtime",
           "manual_refresh",
         ],
@@ -967,6 +974,7 @@ async function syncMetaPartitionDay(input: {
   businessId: string;
   providerAccountId: string;
   day: string;
+  source: string;
   scopes: MetaWarehouseScope[];
   partitionId: string;
   workerId: string;
@@ -984,6 +992,23 @@ async function syncMetaPartitionDay(input: {
     day: normalizedDay,
   });
   const beforeCoverage = coverageState;
+  const sourceTodayWindow = normalizedDay === getMetaReferenceToday(credentials);
+  const authoritativeHistoricalSource = new Set([
+    "yesterday",
+    "finalize_day",
+    "repair_recent_day",
+    "priority_window",
+    "manual_refresh",
+    "recent",
+    "recent_recovery",
+  ]);
+  const truthState =
+    sourceTodayWindow && !authoritativeHistoricalSource.has(input.source)
+      ? "provisional"
+      : "finalized";
+  const freshStart =
+    truthState === "finalized" &&
+    authoritativeHistoricalSource.has(input.source);
 
   if (
     input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope)) &&
@@ -998,6 +1023,9 @@ async function syncMetaPartitionDay(input: {
       leaseEpoch: input.leaseEpoch,
       attemptCount: input.attemptCount + 1,
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
+      freshStart,
+      truthState,
+      sourceRunId: input.partitionId,
     });
     if (bulkResult.memoryInstrumentation?.oversizeWarning) {
       console.warn("[meta-sync] oversized_partition_detected", {
@@ -1110,6 +1138,8 @@ async function syncMetaPartitionDay(input: {
     partitionDate: normalizedDay,
     scopes: input.scopes,
     sourceTodayWindow: normalizedDay === getMetaReferenceToday(credentials),
+    truthState,
+    source: input.source,
     productCoreCompleteBefore: beforeCoverage.productCoreComplete,
     productCoreCompleteAfter: afterCoverage.productCoreComplete,
     creativesCompleteBefore: beforeCoverage.creativesComplete,
@@ -1312,12 +1342,21 @@ async function enqueueMetaMaintenancePartitions(
   const recentDates = enumerateDays(toIsoDate(recentStart), endDate, true).filter(
     (date) => date !== endDate,
   );
+  const dirtyRecentStart = addDays(
+    new Date(`${endDate}T00:00:00Z`),
+    -6,
+  );
+  const dirtyRecentDates = await getMetaDirtyRecentDates({
+    businessId,
+    startDate: toIsoDate(dirtyRecentStart),
+    endDate,
+  }).catch(() => []);
   let queued = 0;
   queued += await enqueueMetaDates({
     businessId,
     accountIds: credentials.accountIds,
     dates: [endDate],
-    triggerSource: "yesterday",
+    triggerSource: "finalize_day",
     lane: "maintenance",
     scopes: META_CORE_PARTITION_QUEUE_SCOPES,
     priority: 70,
@@ -1326,16 +1365,27 @@ async function enqueueMetaMaintenancePartitions(
     businessId,
     accountIds: credentials.accountIds,
     dates: recentDates,
-    triggerSource: "recent",
+    triggerSource: "repair_recent_day",
     lane: "maintenance",
     scopes: META_CORE_PARTITION_QUEUE_SCOPES,
     priority: 50,
   });
+  if (dirtyRecentDates.length > 0) {
+    queued += await enqueueMetaDates({
+      businessId,
+      accountIds: credentials.accountIds,
+      dates: Array.from(new Set(dirtyRecentDates.map((row) => row.date))),
+      triggerSource: "repair_recent_day",
+      lane: "maintenance",
+      scopes: META_CORE_PARTITION_QUEUE_SCOPES,
+      priority: 80,
+    });
+  }
   queued += await enqueueMetaDates({
     businessId,
     accountIds: credentials.accountIds,
     dates: [today],
-    triggerSource: "today",
+    triggerSource: "today_observe",
     lane: "maintenance",
     scopes: META_CORE_PARTITION_QUEUE_SCOPES,
     priority: 60,
@@ -1847,6 +1897,7 @@ async function processMetaPartition(input: {
       businessId: input.partition.businessId,
       providerAccountId: input.partition.providerAccountId,
       day: input.partition.partitionDate,
+      source: input.partition.source,
       scopes,
       partitionId,
       workerId: input.workerId,
@@ -2374,8 +2425,11 @@ export async function consumeMetaQueuedWork(
             sources: [
               "recent",
               "recent_recovery",
+              "repair_recent_day",
+              "today_observe",
               "today",
               "priority_window",
+              "finalize_day",
               "request_runtime",
               "manual_refresh",
             ],
@@ -2666,8 +2720,8 @@ export async function syncMetaToday(
     businessId,
     startDate: today,
     endDate: today,
-    triggerSource: "today",
-    syncType: "today_refresh",
+    triggerSource: "today_observe",
+    syncType: "today_observe",
     lane: "maintenance",
     scopes: META_CORE_PARTITION_QUEUE_SCOPES,
     priority: 60,
@@ -2683,8 +2737,10 @@ export async function syncMetaRepairRange(input: {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
-    triggerSource: "priority_window",
-    syncType: "repair_window",
+    triggerSource:
+      input.startDate === input.endDate ? "finalize_day" : "priority_window",
+    syncType:
+      input.startDate === input.endDate ? "finalize_range" : "repair_window",
     lane: "maintenance",
     scopes: META_CORE_PARTITION_QUEUE_SCOPES,
     priority: 90,

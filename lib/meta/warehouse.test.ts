@@ -118,7 +118,7 @@ describe("meta warehouse ownership safety", () => {
     const query = queries.join("\n");
     expect(query).toContain("WHEN 'priority_window' THEN 700");
     expect(query).toContain("WHEN 'yesterday' THEN 675");
-    expect(query).toContain("WHEN source = 'priority_window'");
+    expect(query).toContain("WHEN source IN ('priority_window', 'finalize_day')");
     expect(query).toContain("THEN partition_date");
     expect(query).toContain("WHEN source IN ('historical', 'historical_recovery', 'initial_connect')");
     expect(query).toContain("END DESC");

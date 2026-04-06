@@ -29,7 +29,11 @@ import type {
 
 const META_SOURCE_PRIORITY_SQL = `
   CASE source
+    WHEN 'finalize_day' THEN 725
     WHEN 'priority_window' THEN 700
+    WHEN 'repair_recent_day' THEN 690
+    WHEN 'today_observe' THEN 660
+    WHEN 'yesterday' THEN 655
     WHEN 'today' THEN 650
     WHEN 'request_runtime' THEN 625
     WHEN 'recent' THEN 600
@@ -64,6 +68,11 @@ function normalizeTimestamp(value: unknown) {
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function withinToleranceForDirtyDate(left: number, right: number) {
+  const tolerance = Math.max(0.01, Math.abs(left) * 0.001);
+  return Math.abs(left - right) <= tolerance;
 }
 
 function parseTimestampMs(value: unknown) {
@@ -356,10 +365,16 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
     DO UPDATE SET
       priority = GREATEST(meta_sync_partitions.priority, EXCLUDED.priority),
       source = CASE
+        WHEN meta_sync_partitions.source = 'finalize_day' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'finalize_day' THEN EXCLUDED.source
         WHEN meta_sync_partitions.source = 'priority_window' THEN meta_sync_partitions.source
         WHEN EXCLUDED.source = 'priority_window' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'repair_recent_day' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'repair_recent_day' THEN EXCLUDED.source
         WHEN meta_sync_partitions.source = 'yesterday' THEN meta_sync_partitions.source
         WHEN EXCLUDED.source = 'yesterday' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'today_observe' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'today_observe' THEN EXCLUDED.source
         WHEN meta_sync_partitions.source = 'today' THEN meta_sync_partitions.source
         WHEN EXCLUDED.source = 'today' THEN EXCLUDED.source
         WHEN meta_sync_partitions.source = 'request_runtime' THEN meta_sync_partitions.source
@@ -372,10 +387,13 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       END,
       status = CASE
         WHEN EXCLUDED.source IN (
+          'finalize_day',
           'priority_window',
+          'repair_recent_day',
           'yesterday',
           'recent',
           'recent_recovery',
+          'today_observe',
           'today',
           'request_runtime',
           'historical_recovery'
@@ -386,9 +404,12 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       END,
       lease_owner = CASE
         WHEN EXCLUDED.source IN (
+          'finalize_day',
           'priority_window',
+          'repair_recent_day',
           'recent',
           'recent_recovery',
+          'today_observe',
           'today',
           'request_runtime',
           'historical_recovery'
@@ -399,9 +420,12 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       END,
       lease_expires_at = CASE
         WHEN EXCLUDED.source IN (
+          'finalize_day',
           'priority_window',
+          'repair_recent_day',
           'recent',
           'recent_recovery',
+          'today_observe',
           'today',
           'request_runtime',
           'historical_recovery'
@@ -412,9 +436,12 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       END,
       last_error = CASE
         WHEN EXCLUDED.source IN (
+          'finalize_day',
           'priority_window',
+          'repair_recent_day',
           'recent',
           'recent_recovery',
+          'today_observe',
           'today',
           'request_runtime',
           'historical_recovery'
@@ -425,9 +452,12 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       END,
       next_retry_at = CASE
         WHEN EXCLUDED.source IN (
+          'finalize_day',
           'priority_window',
+          'repair_recent_day',
           'recent',
           'recent_recovery',
+          'today_observe',
           'today',
           'request_runtime',
           'historical_recovery'
@@ -505,8 +535,11 @@ export async function leaseMetaSyncPartitions(input: {
       ORDER BY
         priority DESC,
         CASE source
+          WHEN 'finalize_day' THEN 725
           WHEN 'priority_window' THEN 700
+          WHEN 'repair_recent_day' THEN 690
           WHEN 'yesterday' THEN 675
+          WHEN 'today_observe' THEN 660
           WHEN 'today' THEN 650
           WHEN 'request_runtime' THEN 625
           WHEN 'recent' THEN 600
@@ -519,14 +552,14 @@ export async function leaseMetaSyncPartitions(input: {
           ELSE 100
         END DESC,
         CASE
-          WHEN source = 'priority_window'
+          WHEN source IN ('priority_window', 'finalize_day')
             THEN NULL
           WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
             THEN partition_date
           ELSE NULL
         END DESC,
         CASE
-          WHEN source = 'priority_window'
+          WHEN source IN ('priority_window', 'finalize_day')
             THEN partition_date
           WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
             THEN NULL
@@ -2295,12 +2328,12 @@ export async function getMetaQueueHealth(input: { businessId: string }) {
       COUNT(*) FILTER (WHERE lane = 'extended' AND status IN ('leased', 'running')) AS extended_leased_partitions,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('recent', 'recent_recovery', 'today', 'priority_window', 'request_runtime', 'manual_refresh')
+          AND source IN ('recent', 'recent_recovery', 'repair_recent_day', 'today', 'today_observe', 'priority_window', 'finalize_day', 'request_runtime', 'manual_refresh')
           AND status = 'queued'
       ) AS extended_recent_queue_depth,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('recent', 'recent_recovery', 'today', 'priority_window', 'request_runtime', 'manual_refresh')
+          AND source IN ('recent', 'recent_recovery', 'repair_recent_day', 'today', 'today_observe', 'priority_window', 'finalize_day', 'request_runtime', 'manual_refresh')
           AND status IN ('leased', 'running')
       ) AS extended_recent_leased_partitions,
       COUNT(*) FILTER (
@@ -2595,7 +2628,10 @@ export async function requeueMetaRetryableFailedPartitions(input: {
         AND COALESCE(next_retry_at, now()) <= now()
       ORDER BY
         CASE source
+          WHEN 'finalize_day' THEN 725
           WHEN 'priority_window' THEN 700
+          WHEN 'repair_recent_day' THEN 690
+          WHEN 'today_observe' THEN 660
           WHEN 'today' THEN 650
           WHEN 'request_runtime' THEN 625
           WHEN 'recent' THEN 600
@@ -3057,7 +3093,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 18;
+        const offset = index * 23;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3076,9 +3112,14 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId
+          row.sourceSnapshotId,
+          row.truthState ?? "finalized",
+          row.truthVersion ?? 1,
+          row.finalizedAt ?? null,
+          row.validationStatus ?? "passed",
+          row.sourceRunId ?? null
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},now())`;
       })
       .join(", ");
     await sql.query(
@@ -3102,6 +3143,11 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           ctr,
           cpc,
           source_snapshot_id,
+          truth_state,
+          truth_version,
+          finalized_at,
+          validation_status,
+          source_run_id,
           updated_at
         )
         VALUES ${placeholders}
@@ -3121,6 +3167,16 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           ctr = EXCLUDED.ctr,
           cpc = EXCLUDED.cpc,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
+          truth_state = EXCLUDED.truth_state,
+          truth_version = CASE
+            WHEN meta_account_daily.truth_state = EXCLUDED.truth_state
+              AND COALESCE(meta_account_daily.validation_status, 'passed') = COALESCE(EXCLUDED.validation_status, 'passed')
+              THEN GREATEST(COALESCE(meta_account_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1))
+            ELSE GREATEST(COALESCE(meta_account_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1)) + 1
+          END,
+          finalized_at = EXCLUDED.finalized_at,
+          validation_status = EXCLUDED.validation_status,
+          source_run_id = EXCLUDED.source_run_id,
           updated_at = now()
       `,
       values
@@ -3136,7 +3192,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 36;
+        const offset = index * 41;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3173,9 +3229,14 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId
+          row.sourceSnapshotId,
+          row.truthState ?? "finalized",
+          row.truthVersion ?? 1,
+          row.finalizedAt ?? null,
+          row.validationStatus ?? "passed",
+          row.sourceRunId ?? null
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},now())`;
       })
       .join(", ");
     await sql.query(
@@ -3217,6 +3278,11 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         ctr,
         cpc,
         source_snapshot_id,
+        truth_state,
+        truth_version,
+        finalized_at,
+        validation_status,
+        source_run_id,
         updated_at
       )
       VALUES ${placeholders}
@@ -3253,6 +3319,16 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        truth_state = EXCLUDED.truth_state,
+        truth_version = CASE
+          WHEN meta_campaign_daily.truth_state = EXCLUDED.truth_state
+            AND COALESCE(meta_campaign_daily.validation_status, 'passed') = COALESCE(EXCLUDED.validation_status, 'passed')
+            THEN GREATEST(COALESCE(meta_campaign_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1))
+          ELSE GREATEST(COALESCE(meta_campaign_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1)) + 1
+        END,
+        finalized_at = EXCLUDED.finalized_at,
+        validation_status = EXCLUDED.validation_status,
+        source_run_id = EXCLUDED.source_run_id,
         updated_at = now()
     `,
       values
@@ -3268,7 +3344,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 35;
+        const offset = index * 40;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3304,9 +3380,14 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId
+          row.sourceSnapshotId,
+          row.truthState ?? "finalized",
+          row.truthVersion ?? 1,
+          row.finalizedAt ?? null,
+          row.validationStatus ?? "passed",
+          row.sourceRunId ?? null
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},now())`;
       })
       .join(", ");
     await sql.query(
@@ -3347,6 +3428,11 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         ctr,
         cpc,
         source_snapshot_id,
+        truth_state,
+        truth_version,
+        finalized_at,
+        validation_status,
+        source_run_id,
         updated_at
       )
       VALUES ${placeholders}
@@ -3382,6 +3468,16 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        truth_state = EXCLUDED.truth_state,
+        truth_version = CASE
+          WHEN meta_adset_daily.truth_state = EXCLUDED.truth_state
+            AND COALESCE(meta_adset_daily.validation_status, 'passed') = COALESCE(EXCLUDED.validation_status, 'passed')
+            THEN GREATEST(COALESCE(meta_adset_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1))
+          ELSE GREATEST(COALESCE(meta_adset_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1)) + 1
+        END,
+        finalized_at = EXCLUDED.finalized_at,
+        validation_status = EXCLUDED.validation_status,
+        source_run_id = EXCLUDED.source_run_id,
         updated_at = now()
     `,
       values
@@ -3580,6 +3676,7 @@ export async function getMetaAccountDailyRange(input: {
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
+  includeProvisional?: boolean;
 }): Promise<MetaAccountDailyRow[]> {
   await runMigrations();
   const sql = getDb();
@@ -3603,6 +3700,11 @@ export async function getMetaAccountDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      truth_state,
+      truth_version,
+      finalized_at,
+      validation_status,
+      source_run_id,
       created_at,
       updated_at
     FROM meta_account_daily
@@ -3612,6 +3714,11 @@ export async function getMetaAccountDailyRange(input: {
       AND (
         ${input.providerAccountIds ?? null}::text[] IS NULL
         OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.includeProvisional ?? false}::boolean = TRUE
+        OR truth_state IS NULL
+        OR truth_state = 'finalized'
       )
     ORDER BY date ASC, provider_account_id ASC
   ` as Array<{
@@ -3633,6 +3740,11 @@ export async function getMetaAccountDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
+    truth_state: string | null;
+    truth_version: number | null;
+    finalized_at: string | null;
+    validation_status: string | null;
+    source_run_id: string | null;
     created_at: string;
     updated_at: string;
   }>;
@@ -3656,6 +3768,14 @@ export async function getMetaAccountDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     sourceSnapshotId: row.source_snapshot_id,
+    truthState: row.truth_state == null ? undefined : (row.truth_state as MetaAccountDailyRow["truthState"]),
+    truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
+    finalizedAt: row.finalized_at,
+    validationStatus:
+      row.validation_status == null
+        ? undefined
+        : (row.validation_status as MetaAccountDailyRow["validationStatus"]),
+    sourceRunId: row.source_run_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -3713,11 +3833,90 @@ export async function getMetaCheckpointHealth(input: {
   };
 }
 
+export async function getMetaDirtyRecentDates(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    WITH campaign_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        ROUND(SUM(spend)::numeric, 2) AS campaign_spend,
+        COUNT(DISTINCT campaign_id)::int AS campaign_count,
+        BOOL_AND(COALESCE(truth_state, 'finalized') = 'finalized') AS campaigns_finalized
+      FROM meta_campaign_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      GROUP BY provider_account_id, date
+    ),
+    adset_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT adset_id)::int AS adset_count,
+        BOOL_AND(COALESCE(truth_state, 'finalized') = 'finalized') AS adsets_finalized
+      FROM meta_adset_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      GROUP BY provider_account_id, date
+    )
+    SELECT
+      account.date::text AS date,
+      account.provider_account_id,
+      account.spend AS account_spend,
+      COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend,
+      COALESCE(campaign_totals.campaign_count, 0) AS campaign_count,
+      COALESCE(adset_totals.adset_count, 0) AS adset_count,
+      COALESCE(account.truth_state, 'finalized') AS account_truth_state,
+      COALESCE(account.validation_status, 'passed') AS account_validation_status,
+      COALESCE(campaign_totals.campaigns_finalized, false) AS campaigns_finalized,
+      COALESCE(adset_totals.adsets_finalized, false) AS adsets_finalized
+    FROM meta_account_daily account
+    LEFT JOIN campaign_totals
+      ON campaign_totals.provider_account_id = account.provider_account_id
+      AND campaign_totals.date = account.date
+    LEFT JOIN adset_totals
+      ON adset_totals.provider_account_id = account.provider_account_id
+      AND adset_totals.date = account.date
+    WHERE account.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR account.provider_account_id = ${input.providerAccountId ?? null})
+      AND account.date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+    ORDER BY account.date DESC, account.provider_account_id ASC
+  ` as Array<Record<string, unknown>>;
+
+  return rows
+    .filter((row) => {
+      const accountSpend = Number(row.account_spend ?? 0);
+      const campaignSpend = Number(row.campaign_spend ?? 0);
+      return (
+        String(row.account_truth_state ?? "finalized") !== "finalized" ||
+        String(row.account_validation_status ?? "passed") !== "passed" ||
+        !Boolean(row.campaigns_finalized) ||
+        !Boolean(row.adsets_finalized) ||
+        !withinToleranceForDirtyDate(accountSpend, campaignSpend) ||
+        Number(row.campaign_count ?? 0) <= 0 ||
+        Number(row.adset_count ?? 0) <= 0
+      );
+    })
+    .map((row) => ({
+      date: String(row.date),
+      providerAccountId: String(row.provider_account_id),
+    }));
+}
+
 export async function getMetaCampaignDailyRange(input: {
   businessId: string;
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
+  includeProvisional?: boolean;
 }): Promise<MetaCampaignDailyRow[]> {
   await runMigrations();
   const sql = getDb();
@@ -3759,6 +3958,11 @@ export async function getMetaCampaignDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      truth_state,
+      truth_version,
+      finalized_at,
+      validation_status,
+      source_run_id,
       created_at,
       updated_at
     FROM meta_campaign_daily
@@ -3768,6 +3972,11 @@ export async function getMetaCampaignDailyRange(input: {
       AND (
         ${input.providerAccountIds ?? null}::text[] IS NULL
         OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.includeProvisional ?? false}::boolean = TRUE
+        OR truth_state IS NULL
+        OR truth_state = 'finalized'
       )
     ORDER BY date ASC, provider_account_id ASC, campaign_id ASC
   ` as Array<{
@@ -3807,6 +4016,11 @@ export async function getMetaCampaignDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
+    truth_state: string | null;
+    truth_version: number | null;
+    finalized_at: string | null;
+    validation_status: string | null;
+    source_run_id: string | null;
     created_at: string;
     updated_at: string;
   }>;
@@ -3848,6 +4062,14 @@ export async function getMetaCampaignDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     sourceSnapshotId: row.source_snapshot_id,
+    truthState: row.truth_state == null ? undefined : (row.truth_state as MetaCampaignDailyRow["truthState"]),
+    truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
+    finalizedAt: row.finalized_at,
+    validationStatus:
+      row.validation_status == null
+        ? undefined
+        : (row.validation_status as MetaCampaignDailyRow["validationStatus"]),
+    sourceRunId: row.source_run_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -3859,6 +4081,7 @@ export async function getMetaAdSetDailyRange(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
   campaignIds?: string[] | null;
+  includeProvisional?: boolean;
 }): Promise<MetaAdSetDailyRow[]> {
   await runMigrations();
   const sql = getDb();
@@ -3899,6 +4122,11 @@ export async function getMetaAdSetDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      truth_state,
+      truth_version,
+      finalized_at,
+      validation_status,
+      source_run_id,
       created_at,
       updated_at
     FROM meta_adset_daily
@@ -3912,6 +4140,11 @@ export async function getMetaAdSetDailyRange(input: {
       AND (
         ${input.campaignIds ?? null}::text[] IS NULL
         OR campaign_id = ANY(${input.campaignIds ?? null}::text[])
+      )
+      AND (
+        ${input.includeProvisional ?? false}::boolean = TRUE
+        OR truth_state IS NULL
+        OR truth_state = 'finalized'
       )
     ORDER BY date ASC, provider_account_id ASC, campaign_id ASC, adset_id ASC
   ` as Array<{
@@ -3950,6 +4183,11 @@ export async function getMetaAdSetDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
+    truth_state: string | null;
+    truth_version: number | null;
+    finalized_at: string | null;
+    validation_status: string | null;
+    source_run_id: string | null;
     created_at: string;
     updated_at: string;
   }>;
@@ -3990,6 +4228,14 @@ export async function getMetaAdSetDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     sourceSnapshotId: row.source_snapshot_id,
+    truthState: row.truth_state == null ? undefined : (row.truth_state as MetaAdSetDailyRow["truthState"]),
+    truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
+    finalizedAt: row.finalized_at,
+    validationStatus:
+      row.validation_status == null
+        ? undefined
+        : (row.validation_status as MetaAdSetDailyRow["validationStatus"]),
+    sourceRunId: row.source_run_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));

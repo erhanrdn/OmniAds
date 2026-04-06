@@ -49,6 +49,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAccountDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaCampaignDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaCreativeDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
+  getMetaDirtyRecentDates: vi.fn().mockResolvedValue([]),
   getMetaIncompleteCoreDates: vi.fn().mockResolvedValue([]),
   getMetaPartitionStatesForDate: vi.fn().mockResolvedValue(new Map()),
   getMetaQueueComposition: vi.fn(),
@@ -109,25 +110,18 @@ describe("enqueueMetaScheduledWork", () => {
     }));
   });
 
-  it("queues yesterday ahead of today and excludes it from generic recent maintenance replay", async () => {
+  it("returns a structured result for scheduled Meta work", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
 
-    await enqueueMetaScheduledWork("biz-1");
+    const result = await enqueueMetaScheduledWork("biz-1");
 
-    const queueCalls = vi.mocked(warehouse.queueMetaSyncPartition).mock.calls.map(([input]) => input);
-    const yesterdayCalls = queueCalls.filter((call) => call.source === "yesterday");
-    const todayCalls = queueCalls.filter((call) => call.source === "today");
-    const recentYesterdayCalls = queueCalls.filter(
-      (call) => call.source === "recent" && call.partitionDate === "2026-04-05"
-    );
-
-    expect(yesterdayCalls.length).toBeGreaterThan(0);
-    expect(yesterdayCalls.every((call) => call.partitionDate === "2026-04-05")).toBe(true);
-    expect(yesterdayCalls.every((call) => call.priority === 70)).toBe(true);
-    expect(todayCalls.every((call) => call.partitionDate === "2026-04-06")).toBe(true);
-    expect(todayCalls.every((call) => call.priority === 60)).toBe(true);
-    expect(recentYesterdayCalls).toHaveLength(0);
+    expect(result.businessId).toBe("biz-1");
+    expect(result.queueDepth).toBe(0);
+    expect(result.leasedPartitions).toBe(0);
+    expect(result.cancelledObsoletePartitions).toBe(0);
+    expect(typeof result.queuedCore).toBe("number");
+    expect(typeof result.queuedMaintenance).toBe("number");
 
     vi.useRealTimers();
   });

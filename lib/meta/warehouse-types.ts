@@ -2,6 +2,10 @@ export type MetaSyncType =
   | "initial_backfill"
   | "incremental_recent"
   | "today_refresh"
+  | "today_observe"
+  | "finalize_day"
+  | "finalize_range"
+  | "repair_recent_day"
   | "repair_window"
   | "reconnect_backfill";
 
@@ -21,10 +25,24 @@ export type MetaSyncPartitionSource =
   | "recent"
   | "recent_recovery"
   | "today"
+  | "today_observe"
+  | "finalize_day"
+  | "repair_recent_day"
   | "priority_window"
   | "request_runtime"
   | "initial_connect"
   | "manual_refresh";
+
+export type MetaWarehouseTruthState =
+  | "provisional"
+  | "finalized"
+  | "repair_pending"
+  | "repair_failed";
+
+export type MetaWarehouseValidationStatus =
+  | "pending"
+  | "passed"
+  | "failed";
 
 export type MetaPartitionStatus =
   | "queued"
@@ -75,6 +93,11 @@ export interface MetaWarehouseBaseRow extends MetaWarehouseMetricSet {
   accountTimezone: string;
   accountCurrency: string;
   sourceSnapshotId: string | null;
+  truthState?: MetaWarehouseTruthState;
+  truthVersion?: number;
+  finalizedAt?: string | null;
+  validationStatus?: MetaWarehouseValidationStatus;
+  sourceRunId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

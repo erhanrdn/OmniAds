@@ -14,6 +14,7 @@
  */
 
 import { getIntegration } from "@/lib/integrations";
+import { getDb } from "@/lib/db";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   appendMetaConfigSnapshots,
@@ -41,11 +42,14 @@ import {
   upsertMetaCampaignDailyRows,
 } from "@/lib/meta/warehouse";
 import type {
+  MetaAccountDailyRow,
   MetaAdSetDailyRow,
   MetaCampaignDailyRow,
   MetaRawSnapshotStatus,
   MetaSyncCheckpointRecord,
   MetaSyncType,
+  MetaWarehouseTruthState,
+  MetaWarehouseValidationStatus,
   MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
 
@@ -367,6 +371,110 @@ function parseNum(input: string | undefined): number {
 
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function withinMetaTruthTolerance(sourceValue: number, warehouseValue: number) {
+  const tolerance = Math.max(0.01, Math.abs(sourceValue) * 0.001);
+  return Math.abs(sourceValue - warehouseValue) <= tolerance;
+}
+
+async function resetMetaPartitionFreshState(partitionId: string) {
+  if (!process.env.DATABASE_URL) return;
+  const sql = getDb();
+  await sql`DELETE FROM meta_raw_snapshots WHERE partition_id = ${partitionId}::uuid`;
+  await sql`DELETE FROM meta_sync_checkpoints WHERE partition_id = ${partitionId}::uuid`;
+}
+
+async function fetchMetaAccountDaySpend(input: {
+  accountId: string;
+  accessToken: string;
+  since: string;
+  until: string;
+}) {
+  const url = new URL(`https://graph.facebook.com/v25.0/${input.accountId}/insights`);
+  url.searchParams.set("level", "account");
+  url.searchParams.set("fields", "spend");
+  url.searchParams.set(
+    "time_range",
+    JSON.stringify({ since: input.since, until: input.until }),
+  );
+  url.searchParams.set("time_increment", "1");
+  url.searchParams.set("access_token", input.accessToken);
+  const res = await fetch(url.toString(), {
+    cache: "no-store",
+    signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new Error(`meta_account_aggregate_fetch_failed:${res.status}`);
+  }
+  const json = (await res.json()) as MetaGraphCollectionResponse<{ spend?: string }>;
+  return r2(parseNum(json.data?.[0]?.spend));
+}
+
+function buildAccountDailyRowFromCampaignRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  accountName: string | null;
+  accountTimezone: string;
+  accountCurrency: string;
+  sourceSnapshotId: string | null;
+  truthState: MetaWarehouseTruthState;
+  truthVersion: number;
+  finalizedAt: string | null;
+  validationStatus: MetaWarehouseValidationStatus;
+  sourceRunId: string | null;
+  campaignRows: MetaCampaignDailyRow[];
+}): MetaAccountDailyRow {
+  const totals = input.campaignRows.reduce(
+    (acc, row) => {
+      acc.spend += row.spend;
+      acc.impressions += row.impressions;
+      acc.clicks += row.clicks;
+      acc.reach += row.reach;
+      acc.conversions += row.conversions;
+      acc.revenue += row.revenue;
+      return acc;
+    },
+    {
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      reach: 0,
+      conversions: 0,
+      revenue: 0,
+    },
+  );
+  const roas = totals.spend > 0 ? r2(totals.revenue / totals.spend) : 0;
+  const cpa = totals.conversions > 0 ? r2(totals.spend / totals.conversions) : null;
+  const ctr = totals.impressions > 0 ? r2((totals.clicks / totals.impressions) * 100) : null;
+  const cpc = totals.clicks > 0 ? r2(totals.spend / totals.clicks) : null;
+  const frequency = totals.reach > 0 ? r2(totals.impressions / totals.reach) : null;
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    date: input.date,
+    accountName: input.accountName,
+    accountTimezone: input.accountTimezone,
+    accountCurrency: input.accountCurrency,
+    spend: r2(totals.spend),
+    impressions: totals.impressions,
+    clicks: totals.clicks,
+    reach: totals.reach,
+    frequency,
+    conversions: totals.conversions,
+    revenue: r2(totals.revenue),
+    roas,
+    cpa,
+    ctr,
+    cpc,
+    sourceSnapshotId: input.sourceSnapshotId,
+    truthState: input.truthState,
+    truthVersion: input.truthVersion,
+    finalizedAt: input.finalizedAt,
+    validationStatus: input.validationStatus,
+    sourceRunId: input.sourceRunId,
+  };
 }
 
 function applyConfigPayloadToDailyRow<
@@ -1280,19 +1388,36 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   leaseEpoch: number;
   attemptCount: number;
   leaseMinutes?: number;
+  freshStart?: boolean;
+  truthState?: MetaWarehouseTruthState;
+  sourceRunId?: string | null;
 }) : Promise<MetaBulkCoreSyncResult> {
   const normalizedDay = normalizeMetaApiDate(input.day);
   const profile = input.credentials.accountProfiles[input.accountId];
+  const accountToday = getTodayIsoForTimeZone(profile?.timezone ?? "UTC");
+  const truthState =
+    input.truthState ?? (normalizedDay === accountToday ? "provisional" : "finalized");
+  const finalizedAt = truthState === "finalized" ? new Date().toISOString() : null;
+  const validationStatus: MetaWarehouseValidationStatus =
+    truthState === "finalized" ? "passed" : "pending";
+  const sourceRunId = input.sourceRunId ?? input.partitionId;
   const checkpointScope = "core_ad_insights";
   const endpointName = getMetaBulkCoreEndpointName();
-  const checkpoint = await getMetaSyncCheckpoint({
-    partitionId: input.partitionId,
-    checkpointScope,
-  });
-  const restoredPages = await listMetaRawSnapshotsForPartition({
-    partitionId: input.partitionId,
-    endpointName,
-  });
+  if (input.freshStart) {
+    await resetMetaPartitionFreshState(input.partitionId);
+  }
+  const checkpoint = input.freshStart
+    ? null
+    : await getMetaSyncCheckpoint({
+        partitionId: input.partitionId,
+        checkpointScope,
+      });
+  const restoredPages = input.freshStart
+    ? []
+    : await listMetaRawSnapshotsForPartition({
+        partitionId: input.partitionId,
+        endpointName,
+      });
   const aggregates = {
     account: createEmptyTotals() as MetaAggregateTotals & { frequencySum?: number; frequencyWeight?: number },
     campaigns: new Map<string, MetaAggregateTotals & { name?: string | null; status?: string | null; frequencySum?: number; frequencyWeight?: number }>(),
@@ -1485,7 +1610,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         })
       : Promise.resolve(new Map<string, MetaConfigSnapshotPayload>()),
   ]);
-  const accountMetrics = deriveWarehouseMetrics(aggregates.account);
   const sourceSnapshotId = latestSnapshotId;
   const adsetPayloadsByCampaign = new Map<string, MetaConfigSnapshotPayload[]>();
   const adsetRows: MetaAdSetDailyRow[] = Array.from(aggregates.adsets.entries()).map(([adsetId, value]): MetaAdSetDailyRow => {
@@ -1543,6 +1667,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       ctr: metrics.ctr,
       cpc: metrics.cpc,
       sourceSnapshotId,
+      truthState,
+      truthVersion: 1,
+      finalizedAt,
+      validationStatus,
+      sourceRunId,
     };
     return applyConfigPayloadToDailyRow(baseRow, configPayload);
   });
@@ -1589,6 +1718,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         ctr: metrics.ctr,
         cpc: metrics.cpc,
         sourceSnapshotId,
+        truthState,
+        truthVersion: 1,
+        finalizedAt,
+        validationStatus,
+        sourceRunId,
       },
       campaignConfig: campaignConfigs.get(campaignId) ?? null,
       latestCampaignSnapshot: latestCampaignSnapshots.get(campaignId) ?? null,
@@ -1622,30 +1756,50 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       cpc: metrics.cpc,
       sourceSnapshotId,
       payloadJson: value.payloadJson ?? null,
+      truthState,
+      truthVersion: 1,
+      finalizedAt,
+      validationStatus,
+      sourceRunId,
     };
   });
   const accountRows = [
-    {
+    buildAccountDailyRowFromCampaignRows({
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
       date: normalizedDay,
       accountName: profile?.name ?? null,
       accountTimezone: profile?.timezone ?? "UTC",
       accountCurrency: profile?.currency ?? input.credentials.currency,
-      spend: aggregates.account.spend,
-      impressions: aggregates.account.impressions,
-      clicks: aggregates.account.clicks,
-      reach: aggregates.account.reach || aggregates.account.impressions,
-      frequency: accountMetrics.frequency,
-      conversions: aggregates.account.conversions,
-      revenue: aggregates.account.revenue,
-      roas: accountMetrics.roas,
-      cpa: accountMetrics.cpa,
-      ctr: accountMetrics.ctr,
-      cpc: accountMetrics.cpc,
       sourceSnapshotId,
-    },
+      truthState,
+      truthVersion: 1,
+      finalizedAt,
+      validationStatus,
+      sourceRunId,
+      campaignRows,
+    }),
   ];
+  if (truthState === "finalized") {
+    const sourceAccountSpend = await fetchMetaAccountDaySpend({
+      accountId: input.accountId,
+      accessToken: input.credentials.accessToken,
+      since: normalizedDay,
+      until: normalizedDay,
+    });
+    const rebuiltAccountSpend = accountRows[0]?.spend ?? 0;
+    const rebuiltCampaignSpend = r2(
+      campaignRows.reduce((sum, row) => sum + row.spend, 0),
+    );
+    if (
+      !withinMetaTruthTolerance(sourceAccountSpend, rebuiltAccountSpend) ||
+      !withinMetaTruthTolerance(sourceAccountSpend, rebuiltCampaignSpend)
+    ) {
+      throw new Error(
+        `Meta finalized truth validation failed for ${normalizedDay}: source=${sourceAccountSpend}, account=${rebuiltAccountSpend}, campaigns=${rebuiltCampaignSpend}`,
+      );
+    }
+  }
 
   const incompleteCampaignTruth = collectIncompleteCampaignTruth({
     rows: campaignRows,

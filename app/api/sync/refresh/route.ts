@@ -7,6 +7,7 @@ import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
+import { syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
 
 /**
  * POST /api/sync/refresh
@@ -222,6 +223,11 @@ async function releaseDurableRefreshLock(input: {
 async function runSyncForProvider(
   businessId: string,
   provider: string,
+  input?: {
+    mode?: string | null;
+    startDate?: string | null;
+    endDate?: string | null;
+  },
 ): Promise<{ provider: string; result: unknown }> {
   switch (provider) {
     case "google_ads":
@@ -236,6 +242,22 @@ async function runSyncForProvider(
         },
       };
     case "meta":
+      if (input?.mode === "today") {
+        return {
+          provider,
+          result: await syncMetaToday(businessId),
+        };
+      }
+      if (input?.startDate && input?.endDate) {
+        return {
+          provider,
+          result: await syncMetaRepairRange({
+            businessId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+          }),
+        };
+      }
       const metaResult = await runMetaRepairCycle(businessId);
       return {
         provider,
@@ -338,16 +360,34 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (mode != null || startDate != null || endDate != null) {
+  if (provider !== "meta" && (mode != null || startDate != null || endDate != null)) {
     return NextResponse.json(
-      { error: "mode, startDate and endDate are no longer supported by this endpoint." },
+      { error: "mode, startDate and endDate are only supported for Meta refreshes." },
       { status: 400 },
     );
+  }
+  if (provider === "meta") {
+    const hasPartialRange =
+      (startDate != null && endDate == null) || (startDate == null && endDate != null);
+    if (hasPartialRange) {
+      return NextResponse.json(
+        { error: "startDate and endDate must be provided together for Meta refreshes." },
+        { status: 400 },
+      );
+    }
+    if (mode != null && !["today", "repair", "finalize_range"].includes(mode)) {
+      return NextResponse.json(
+        { error: "unsupported_meta_refresh_mode" },
+        { status: 400 },
+      );
+    }
   }
 
   // Zaten çalışan bir job varsa tekrar başlatma
   const alreadyRunning = await isJobAlreadyRunning(businessId, provider);
   const hasRepairableIssues = await hasRepairableProviderIssues(businessId, provider);
+  const explicitMetaRangeRefresh =
+    provider === "meta" && startDate != null && endDate != null;
   const metaConsumerRunning =
     provider === "meta"
       ? await hasMetaQueueConsumerRunning(businessId).catch(() => false)
@@ -355,7 +395,12 @@ export async function POST(request: NextRequest) {
   const inFlightRefreshKeys = getInFlightRefreshKeys();
   const refreshKey = getRefreshKey(businessId, provider);
   const refreshAlreadyInFlight = inFlightRefreshKeys.has(refreshKey);
-  if (refreshAlreadyInFlight || ((!hasRepairableIssues) && (alreadyRunning || metaConsumerRunning))) {
+  if (
+    refreshAlreadyInFlight ||
+    (!explicitMetaRangeRefresh &&
+      (!hasRepairableIssues) &&
+      (alreadyRunning || metaConsumerRunning))
+  ) {
     if (access.kind === "admin") {
       await logAdminAction({
         adminId: access.session.user.id,
@@ -417,7 +462,11 @@ export async function POST(request: NextRequest) {
   let syncResult: Awaited<ReturnType<typeof runSyncForProvider>>;
   inFlightRefreshKeys.add(refreshKey);
   try {
-    syncResult = await runSyncForProvider(businessId, provider);
+    syncResult = await runSyncForProvider(businessId, provider, {
+      mode: mode ?? null,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    });
   } catch (err) {
     console.error("[sync-refresh] background_sync_failed", {
       businessId,
