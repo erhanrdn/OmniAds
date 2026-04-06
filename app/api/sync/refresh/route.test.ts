@@ -426,6 +426,56 @@ describe("POST /api/sync/refresh", () => {
     });
   });
 
+  it("returns processing for an accepted Meta finalize_range refresh even when no new partitions were queued", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: {},
+      verificationState: "processing",
+    } as never);
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "finalize_range",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      status: "processing",
+      provider: "meta",
+      result: {
+        businessId: "biz",
+        attempted: 1,
+        succeeded: 0,
+        failed: 0,
+        skipped: true,
+      },
+      truthReadiness: expect.objectContaining({
+        truthReady: false,
+        state: "processing",
+      }),
+    });
+  });
+
   it("returns already_running when Google Ads enqueue finds existing backlog without new work", async () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
@@ -573,6 +623,54 @@ describe("POST /api/sync/refresh", () => {
         action: "sync.refresh",
         meta: expect.objectContaining({ duplicateReason: "durable_refresh_lock" }),
       })
+    );
+  });
+
+  it("does not report already_running when a Meta range refresh reacquires the durable lock and progresses", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "admin",
+      session: { user: { id: "admin_1" } } as never,
+    });
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: { processing: 1 },
+      verificationState: "processing",
+    } as never);
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "finalize_range",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        status: "processing",
+        provider: "meta",
+      }),
+    );
+    expect(adminLogger.logAdminAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "sync.refresh",
+        meta: expect.objectContaining({ outcome: "processing" }),
+      }),
     );
   });
 

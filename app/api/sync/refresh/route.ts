@@ -326,6 +326,26 @@ function isBacklogOnlySyncResult(provider: string, result: unknown): boolean {
   return false;
 }
 
+function isAcceptedMetaHistoricalRefreshResult(result: unknown): result is {
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  skipped: boolean;
+} {
+  if (!result || typeof result !== "object") return false;
+  const value = result as {
+    attempted?: number;
+    succeeded?: number;
+    failed?: number;
+    skipped?: boolean;
+  };
+  return (
+    Number.isFinite(value.attempted) &&
+    Number(value.attempted) > 0 &&
+    typeof value.skipped === "boolean"
+  );
+}
+
 async function getMetaRefreshCompletionStatus(input: {
   businessId: string;
   mode?: string | null;
@@ -549,6 +569,9 @@ export async function POST(request: NextRequest) {
     startDate != null &&
     endDate != null &&
     startDate === endDate;
+  const acceptedMetaHistoricalRefresh =
+    explicitMetaRangeRefresh &&
+    isAcceptedMetaHistoricalRefreshResult(syncResult.result);
   if (explicitSingleDayMetaRefresh && !metaConsumerRunning) {
     await Promise.resolve(consumeMetaQueuedWork(businessId)).catch((error) => {
       console.warn("[sync-refresh] meta_inline_consume_failed", {
@@ -579,7 +602,10 @@ export async function POST(request: NextRequest) {
         targetId: businessId,
         meta: {
           provider,
-          outcome: metaCompletion?.status ?? "already_running",
+          outcome:
+            acceptedMetaHistoricalRefresh
+              ? metaCompletion?.status ?? "processing"
+              : metaCompletion?.status ?? "already_running",
           result: syncResult.result,
         },
       });
@@ -593,7 +619,10 @@ export async function POST(request: NextRequest) {
 
     const payload: Record<string, unknown> = {
       ok: true,
-      status: metaCompletion?.status ?? "already_running",
+      status:
+        acceptedMetaHistoricalRefresh
+          ? metaCompletion?.status ?? "processing"
+          : metaCompletion?.status ?? "already_running",
       provider: syncResult.provider,
       result: syncResult.result,
     };
