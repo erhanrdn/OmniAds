@@ -134,4 +134,16 @@ jobs:
 
             log "Running external smoke test"
             assert_header_contains "https://adsecute.com/about" "200 OK"
+
+            log "Checking Docker disk usage before cleanup"
+            docker system df
+
+            log "Pruning unused Docker images"
+            docker image prune -f
+
+            log "Pruning unused Docker build cache"
+            docker builder prune -af
+
+            log "Checking Docker disk usage after cleanup"
+            docker system df
           EOF
