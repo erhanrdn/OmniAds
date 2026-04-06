@@ -75,6 +75,41 @@ function withinToleranceForDirtyDate(left: number, right: number) {
   return Math.abs(left - right) <= tolerance;
 }
 
+let cachedMetaTruthLifecycleColumnsAvailable: boolean | null = null;
+let cachedMetaTruthLifecycleColumnsAvailablePromise: Promise<boolean> | null = null;
+
+async function hasMetaTruthLifecycleColumns() {
+  if (cachedMetaTruthLifecycleColumnsAvailable != null) {
+    return cachedMetaTruthLifecycleColumnsAvailable;
+  }
+  if (cachedMetaTruthLifecycleColumnsAvailablePromise) {
+    return cachedMetaTruthLifecycleColumnsAvailablePromise;
+  }
+  cachedMetaTruthLifecycleColumnsAvailablePromise = (async () => {
+    try {
+      const sql = getDb();
+      const rows = await sql`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'meta_account_daily'
+            AND column_name = 'truth_state'
+        ) AS present
+      ` as Array<{ present: boolean }>;
+      const present = Boolean(rows[0]?.present);
+      cachedMetaTruthLifecycleColumnsAvailable = present;
+      return present;
+    } catch {
+      cachedMetaTruthLifecycleColumnsAvailable = false;
+      return false;
+    } finally {
+      cachedMetaTruthLifecycleColumnsAvailablePromise = null;
+    }
+  })();
+  return cachedMetaTruthLifecycleColumnsAvailablePromise;
+}
+
 function parseTimestampMs(value: unknown) {
   const normalized = normalizeTimestamp(value);
   if (!normalized) return null;
@@ -3089,11 +3124,12 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows)) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 23;
+        const offset = index * (supportsTruthLifecycle ? 23 : 18);
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3112,18 +3148,23 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId,
-          row.truthState ?? "finalized",
-          row.truthVersion ?? 1,
-          row.finalizedAt ?? null,
-          row.validationStatus ?? "passed",
-          row.sourceRunId ?? null
+          row.sourceSnapshotId
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},now())`;
+        if (supportsTruthLifecycle) {
+          values.push(
+            row.truthState ?? "finalized",
+            row.truthVersion ?? 1,
+            row.finalizedAt ?? null,
+            row.validationStatus ?? "passed",
+            row.sourceRunId ?? null
+          );
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},now())`;
+        }
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},now())`;
       })
       .join(", ");
-    await sql.query(
-      `
+    const query = supportsTruthLifecycle
+      ? `
         INSERT INTO meta_account_daily (
           business_id,
           provider_account_id,
@@ -3178,9 +3219,49 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           validation_status = EXCLUDED.validation_status,
           source_run_id = EXCLUDED.source_run_id,
           updated_at = now()
-      `,
-      values
-    );
+      `
+      : `
+        INSERT INTO meta_account_daily (
+          business_id,
+          provider_account_id,
+          date,
+          account_name,
+          account_timezone,
+          account_currency,
+          spend,
+          impressions,
+          clicks,
+          reach,
+          frequency,
+          conversions,
+          revenue,
+          roas,
+          cpa,
+          ctr,
+          cpc,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, date) DO UPDATE SET
+          account_name = EXCLUDED.account_name,
+          account_timezone = EXCLUDED.account_timezone,
+          account_currency = EXCLUDED.account_currency,
+          spend = EXCLUDED.spend,
+          impressions = EXCLUDED.impressions,
+          clicks = EXCLUDED.clicks,
+          reach = EXCLUDED.reach,
+          frequency = EXCLUDED.frequency,
+          conversions = EXCLUDED.conversions,
+          revenue = EXCLUDED.revenue,
+          roas = EXCLUDED.roas,
+          cpa = EXCLUDED.cpa,
+          ctr = EXCLUDED.ctr,
+          cpc = EXCLUDED.cpc,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `;
+    await sql.query(query, values);
   }
 }
 
@@ -3188,11 +3269,12 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows, 200)) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 41;
+        const offset = index * (supportsTruthLifecycle ? 41 : 36);
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3229,18 +3311,23 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId,
-          row.truthState ?? "finalized",
-          row.truthVersion ?? 1,
-          row.finalizedAt ?? null,
-          row.validationStatus ?? "passed",
-          row.sourceRunId ?? null
+          row.sourceSnapshotId
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},now())`;
+        if (supportsTruthLifecycle) {
+          values.push(
+            row.truthState ?? "finalized",
+            row.truthVersion ?? 1,
+            row.finalizedAt ?? null,
+            row.validationStatus ?? "passed",
+            row.sourceRunId ?? null
+          );
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},now())`;
+        }
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},now())`;
       })
       .join(", ");
-    await sql.query(
-      `
+    const query = supportsTruthLifecycle
+      ? `
       INSERT INTO meta_campaign_daily (
         business_id,
         provider_account_id,
@@ -3330,9 +3417,84 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         validation_status = EXCLUDED.validation_status,
         source_run_id = EXCLUDED.source_run_id,
         updated_at = now()
-    `,
-      values
-    );
+    `
+      : `
+      INSERT INTO meta_campaign_daily (
+        business_id,
+        provider_account_id,
+        date,
+        campaign_id,
+        campaign_name_current,
+        campaign_name_historical,
+        campaign_status,
+        objective,
+        buying_type,
+        optimization_goal,
+        bid_strategy_type,
+        bid_strategy_label,
+        manual_bid_amount,
+        bid_value,
+        bid_value_format,
+        daily_budget,
+        lifetime_budget,
+        is_budget_mixed,
+        is_config_mixed,
+        is_optimization_goal_mixed,
+        is_bid_strategy_mixed,
+        is_bid_value_mixed,
+        account_timezone,
+        account_currency,
+        spend,
+        impressions,
+        clicks,
+        reach,
+        frequency,
+        conversions,
+        revenue,
+        roas,
+        cpa,
+        ctr,
+        cpc,
+        source_snapshot_id,
+        updated_at
+      )
+      VALUES ${placeholders}
+      ON CONFLICT (business_id, provider_account_id, date, campaign_id) DO UPDATE SET
+        campaign_name_current = EXCLUDED.campaign_name_current,
+        campaign_name_historical = EXCLUDED.campaign_name_historical,
+        campaign_status = EXCLUDED.campaign_status,
+        objective = COALESCE(EXCLUDED.objective, meta_campaign_daily.objective),
+        buying_type = EXCLUDED.buying_type,
+        optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_campaign_daily.optimization_goal),
+        bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_campaign_daily.bid_strategy_type),
+        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_campaign_daily.bid_strategy_label),
+        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_campaign_daily.manual_bid_amount),
+        bid_value = COALESCE(EXCLUDED.bid_value, meta_campaign_daily.bid_value),
+        bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_campaign_daily.bid_value_format),
+        daily_budget = COALESCE(EXCLUDED.daily_budget, meta_campaign_daily.daily_budget),
+        lifetime_budget = COALESCE(EXCLUDED.lifetime_budget, meta_campaign_daily.lifetime_budget),
+        is_budget_mixed = EXCLUDED.is_budget_mixed OR meta_campaign_daily.is_budget_mixed,
+        is_config_mixed = EXCLUDED.is_config_mixed OR meta_campaign_daily.is_config_mixed,
+        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed OR meta_campaign_daily.is_optimization_goal_mixed,
+        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed OR meta_campaign_daily.is_bid_strategy_mixed,
+        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed OR meta_campaign_daily.is_bid_value_mixed,
+        account_timezone = EXCLUDED.account_timezone,
+        account_currency = EXCLUDED.account_currency,
+        spend = EXCLUDED.spend,
+        impressions = EXCLUDED.impressions,
+        clicks = EXCLUDED.clicks,
+        reach = EXCLUDED.reach,
+        frequency = EXCLUDED.frequency,
+        conversions = EXCLUDED.conversions,
+        revenue = EXCLUDED.revenue,
+        roas = EXCLUDED.roas,
+        cpa = EXCLUDED.cpa,
+        ctr = EXCLUDED.ctr,
+        cpc = EXCLUDED.cpc,
+        source_snapshot_id = EXCLUDED.source_snapshot_id,
+        updated_at = now()
+    `;
+    await sql.query(query, values);
   }
 }
 
@@ -3340,11 +3502,12 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows, 200)) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 40;
+        const offset = index * (supportsTruthLifecycle ? 40 : 35);
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -3380,18 +3543,23 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId,
-          row.truthState ?? "finalized",
-          row.truthVersion ?? 1,
-          row.finalizedAt ?? null,
-          row.validationStatus ?? "passed",
-          row.sourceRunId ?? null
+          row.sourceSnapshotId
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},now())`;
+        if (supportsTruthLifecycle) {
+          values.push(
+            row.truthState ?? "finalized",
+            row.truthVersion ?? 1,
+            row.finalizedAt ?? null,
+            row.validationStatus ?? "passed",
+            row.sourceRunId ?? null
+          );
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},now())`;
+        }
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},now())`;
       })
       .join(", ");
-    await sql.query(
-      `
+    const query = supportsTruthLifecycle
+      ? `
       INSERT INTO meta_adset_daily (
         business_id,
         provider_account_id,
@@ -3479,9 +3647,82 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         validation_status = EXCLUDED.validation_status,
         source_run_id = EXCLUDED.source_run_id,
         updated_at = now()
-    `,
-      values
-    );
+    `
+      : `
+      INSERT INTO meta_adset_daily (
+        business_id,
+        provider_account_id,
+        date,
+        campaign_id,
+        adset_id,
+        adset_name_current,
+        adset_name_historical,
+        adset_status,
+        optimization_goal,
+        bid_strategy_type,
+        bid_strategy_label,
+        manual_bid_amount,
+        bid_value,
+        bid_value_format,
+        daily_budget,
+        lifetime_budget,
+        is_budget_mixed,
+        is_config_mixed,
+        is_optimization_goal_mixed,
+        is_bid_strategy_mixed,
+        is_bid_value_mixed,
+        account_timezone,
+        account_currency,
+        spend,
+        impressions,
+        clicks,
+        reach,
+        frequency,
+        conversions,
+        revenue,
+        roas,
+        cpa,
+        ctr,
+        cpc,
+        source_snapshot_id,
+        updated_at
+      )
+      VALUES ${placeholders}
+      ON CONFLICT (business_id, provider_account_id, date, adset_id) DO UPDATE SET
+        campaign_id = EXCLUDED.campaign_id,
+        adset_name_current = EXCLUDED.adset_name_current,
+        adset_name_historical = EXCLUDED.adset_name_historical,
+        adset_status = EXCLUDED.adset_status,
+        optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_adset_daily.optimization_goal),
+        bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_adset_daily.bid_strategy_type),
+        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_adset_daily.bid_strategy_label),
+        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_adset_daily.manual_bid_amount),
+        bid_value = COALESCE(EXCLUDED.bid_value, meta_adset_daily.bid_value),
+        bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_adset_daily.bid_value_format),
+        daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget),
+        lifetime_budget = COALESCE(EXCLUDED.lifetime_budget, meta_adset_daily.lifetime_budget),
+        is_budget_mixed = EXCLUDED.is_budget_mixed OR meta_adset_daily.is_budget_mixed,
+        is_config_mixed = EXCLUDED.is_config_mixed OR meta_adset_daily.is_config_mixed,
+        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed OR meta_adset_daily.is_optimization_goal_mixed,
+        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed OR meta_adset_daily.is_bid_strategy_mixed,
+        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed OR meta_adset_daily.is_bid_value_mixed,
+        account_timezone = EXCLUDED.account_timezone,
+        account_currency = EXCLUDED.account_currency,
+        spend = EXCLUDED.spend,
+        impressions = EXCLUDED.impressions,
+        clicks = EXCLUDED.clicks,
+        reach = EXCLUDED.reach,
+        frequency = EXCLUDED.frequency,
+        conversions = EXCLUDED.conversions,
+        revenue = EXCLUDED.revenue,
+        roas = EXCLUDED.roas,
+        cpa = EXCLUDED.cpa,
+        ctr = EXCLUDED.ctr,
+        cpc = EXCLUDED.cpc,
+        source_snapshot_id = EXCLUDED.source_snapshot_id,
+        updated_at = now()
+    `;
+    await sql.query(query, values);
   }
 }
 
@@ -3680,7 +3921,9 @@ export async function getMetaAccountDailyRange(input: {
 }): Promise<MetaAccountDailyRow[]> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
+  const rows = supportsTruthLifecycle
+    ? await sql`
     SELECT
       business_id,
       provider_account_id,
@@ -3721,7 +3964,73 @@ export async function getMetaAccountDailyRange(input: {
         OR truth_state = 'finalized'
       )
     ORDER BY date ASC, provider_account_id ASC
-  ` as Array<{
+  `
+    : typeof sql.query === "function"
+      ? await sql.query(
+      `
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      account_name,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      created_at,
+      updated_at
+    FROM meta_account_daily
+    WHERE business_id = $1
+      AND date >= $2
+      AND date <= $3
+      AND ($4::text[] IS NULL OR provider_account_id = ANY($4::text[]))
+    ORDER BY date ASC, provider_account_id ASC
+  `,
+      [input.businessId, normalizeDate(input.startDate), normalizeDate(input.endDate), input.providerAccountIds ?? null]
+    )
+      : await sql`
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      account_name,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      created_at,
+      updated_at
+    FROM meta_account_daily
+    WHERE business_id = ${input.businessId}
+      AND date >= ${normalizeDate(input.startDate)}
+      AND date <= ${normalizeDate(input.endDate)}
+      AND (
+        ${input.providerAccountIds ?? null}::text[] IS NULL
+        OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+    ORDER BY date ASC, provider_account_id ASC
+  `;
+  const typedRows = rows as Array<{
     business_id: string;
     provider_account_id: string;
     date: string;
@@ -3740,16 +4049,16 @@ export async function getMetaAccountDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
-    truth_state: string | null;
-    truth_version: number | null;
-    finalized_at: string | null;
-    validation_status: string | null;
-    source_run_id: string | null;
+    truth_state?: string | null;
+    truth_version?: number | null;
+    finalized_at?: string | null;
+    validation_status?: string | null;
+    source_run_id?: string | null;
     created_at: string;
     updated_at: string;
   }>;
 
-  return rows.map((row) => ({
+  return typedRows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
     date: row.date,
@@ -3841,7 +4150,9 @@ export async function getMetaDirtyRecentDates(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
+  const rows = supportsTruthLifecycle
+    ? await sql`
     WITH campaign_totals AS (
       SELECT
         provider_account_id,
@@ -3889,9 +4200,108 @@ export async function getMetaDirtyRecentDates(input: {
       AND (${input.providerAccountId ?? null}::text IS NULL OR account.provider_account_id = ${input.providerAccountId ?? null})
       AND account.date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
     ORDER BY account.date DESC, account.provider_account_id ASC
-  ` as Array<Record<string, unknown>>;
+  `
+    : typeof sql.query === "function"
+      ? await sql.query(
+      `
+    WITH campaign_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        ROUND(SUM(spend)::numeric, 2) AS campaign_spend,
+        COUNT(DISTINCT campaign_id)::int AS campaign_count
+      FROM meta_campaign_daily
+      WHERE business_id = $1
+        AND ($2::text IS NULL OR provider_account_id = $2)
+        AND date BETWEEN $3 AND $4
+      GROUP BY provider_account_id, date
+    ),
+    adset_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT adset_id)::int AS adset_count
+      FROM meta_adset_daily
+      WHERE business_id = $1
+        AND ($2::text IS NULL OR provider_account_id = $2)
+        AND date BETWEEN $3 AND $4
+      GROUP BY provider_account_id, date
+    )
+    SELECT
+      account.date::text AS date,
+      account.provider_account_id,
+      account.spend AS account_spend,
+      COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend,
+      COALESCE(campaign_totals.campaign_count, 0) AS campaign_count,
+      COALESCE(adset_totals.adset_count, 0) AS adset_count,
+      'finalized' AS account_truth_state,
+      'passed' AS account_validation_status,
+      true AS campaigns_finalized,
+      true AS adsets_finalized
+    FROM meta_account_daily account
+    LEFT JOIN campaign_totals
+      ON campaign_totals.provider_account_id = account.provider_account_id
+      AND campaign_totals.date = account.date
+    LEFT JOIN adset_totals
+      ON adset_totals.provider_account_id = account.provider_account_id
+      AND adset_totals.date = account.date
+    WHERE account.business_id = $1
+      AND ($2::text IS NULL OR account.provider_account_id = $2)
+      AND account.date BETWEEN $3 AND $4
+    ORDER BY account.date DESC, account.provider_account_id ASC
+  `,
+      [input.businessId, input.providerAccountId ?? null, normalizeDate(input.startDate), normalizeDate(input.endDate)]
+    )
+      : await sql`
+    WITH campaign_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        ROUND(SUM(spend)::numeric, 2) AS campaign_spend,
+        COUNT(DISTINCT campaign_id)::int AS campaign_count
+      FROM meta_campaign_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      GROUP BY provider_account_id, date
+    ),
+    adset_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT adset_id)::int AS adset_count
+      FROM meta_adset_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      GROUP BY provider_account_id, date
+    )
+    SELECT
+      account.date::text AS date,
+      account.provider_account_id,
+      account.spend AS account_spend,
+      COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend,
+      COALESCE(campaign_totals.campaign_count, 0) AS campaign_count,
+      COALESCE(adset_totals.adset_count, 0) AS adset_count,
+      'finalized' AS account_truth_state,
+      'passed' AS account_validation_status,
+      true AS campaigns_finalized,
+      true AS adsets_finalized
+    FROM meta_account_daily account
+    LEFT JOIN campaign_totals
+      ON campaign_totals.provider_account_id = account.provider_account_id
+      AND campaign_totals.date = account.date
+    LEFT JOIN adset_totals
+      ON adset_totals.provider_account_id = account.provider_account_id
+      AND adset_totals.date = account.date
+    WHERE account.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR account.provider_account_id = ${input.providerAccountId ?? null})
+      AND account.date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+    ORDER BY account.date DESC, account.provider_account_id ASC
+  `;
+  const typedRows = rows as Array<Record<string, unknown>>;
 
-  return rows
+  return typedRows
     .filter((row) => {
       const accountSpend = Number(row.account_spend ?? 0);
       const campaignSpend = Number(row.campaign_spend ?? 0);
@@ -3920,7 +4330,9 @@ export async function getMetaCampaignDailyRange(input: {
 }): Promise<MetaCampaignDailyRow[]> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
+  const rows = supportsTruthLifecycle
+    ? await sql`
     SELECT
       business_id,
       provider_account_id,
@@ -3979,7 +4391,109 @@ export async function getMetaCampaignDailyRange(input: {
         OR truth_state = 'finalized'
       )
     ORDER BY date ASC, provider_account_id ASC, campaign_id ASC
-  ` as Array<{
+  `
+    : typeof sql.query === "function"
+      ? await sql.query(
+      `
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      campaign_id,
+      campaign_name_current,
+      campaign_name_historical,
+      campaign_status,
+      objective,
+      buying_type,
+      optimization_goal,
+      bid_strategy_type,
+      bid_strategy_label,
+      manual_bid_amount,
+      bid_value,
+      bid_value_format,
+      daily_budget,
+      lifetime_budget,
+      is_budget_mixed,
+      is_config_mixed,
+      is_optimization_goal_mixed,
+      is_bid_strategy_mixed,
+      is_bid_value_mixed,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      created_at,
+      updated_at
+    FROM meta_campaign_daily
+    WHERE business_id = $1
+      AND date >= $2
+      AND date <= $3
+      AND ($4::text[] IS NULL OR provider_account_id = ANY($4::text[]))
+    ORDER BY date ASC, provider_account_id ASC, campaign_id ASC
+  `,
+      [input.businessId, normalizeDate(input.startDate), normalizeDate(input.endDate), input.providerAccountIds ?? null]
+    )
+      : await sql`
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      campaign_id,
+      campaign_name_current,
+      campaign_name_historical,
+      campaign_status,
+      objective,
+      buying_type,
+      optimization_goal,
+      bid_strategy_type,
+      bid_strategy_label,
+      manual_bid_amount,
+      bid_value,
+      bid_value_format,
+      daily_budget,
+      lifetime_budget,
+      is_budget_mixed,
+      is_config_mixed,
+      is_optimization_goal_mixed,
+      is_bid_strategy_mixed,
+      is_bid_value_mixed,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      created_at,
+      updated_at
+    FROM meta_campaign_daily
+    WHERE business_id = ${input.businessId}
+      AND date >= ${normalizeDate(input.startDate)}
+      AND date <= ${normalizeDate(input.endDate)}
+      AND (
+        ${input.providerAccountIds ?? null}::text[] IS NULL
+        OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+    ORDER BY date ASC, provider_account_id ASC, campaign_id ASC
+  `;
+  const typedRows = rows as Array<{
     business_id: string;
     provider_account_id: string;
     date: string;
@@ -4016,16 +4530,16 @@ export async function getMetaCampaignDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
-    truth_state: string | null;
-    truth_version: number | null;
-    finalized_at: string | null;
-    validation_status: string | null;
-    source_run_id: string | null;
+    truth_state?: string | null;
+    truth_version?: number | null;
+    finalized_at?: string | null;
+    validation_status?: string | null;
+    source_run_id?: string | null;
     created_at: string;
     updated_at: string;
   }>;
 
-  return rows.map((row) => ({
+  return typedRows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
     date: row.date,
@@ -4085,7 +4599,9 @@ export async function getMetaAdSetDailyRange(input: {
 }): Promise<MetaAdSetDailyRow[]> {
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
+  const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
+  const rows = supportsTruthLifecycle
+    ? await sql`
     SELECT
       business_id,
       provider_account_id,
@@ -4147,7 +4663,112 @@ export async function getMetaAdSetDailyRange(input: {
         OR truth_state = 'finalized'
       )
     ORDER BY date ASC, provider_account_id ASC, campaign_id ASC, adset_id ASC
-  ` as Array<{
+  `
+    : typeof sql.query === "function"
+      ? await sql.query(
+      `
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      campaign_id,
+      adset_id,
+      adset_name_current,
+      adset_name_historical,
+      adset_status,
+      optimization_goal,
+      bid_strategy_type,
+      bid_strategy_label,
+      manual_bid_amount,
+      bid_value,
+      bid_value_format,
+      daily_budget,
+      lifetime_budget,
+      is_budget_mixed,
+      is_config_mixed,
+      is_optimization_goal_mixed,
+      is_bid_strategy_mixed,
+      is_bid_value_mixed,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      created_at,
+      updated_at
+    FROM meta_adset_daily
+    WHERE business_id = $1
+      AND date >= $2
+      AND date <= $3
+      AND ($4::text[] IS NULL OR provider_account_id = ANY($4::text[]))
+      AND ($5::text[] IS NULL OR campaign_id = ANY($5::text[]))
+    ORDER BY date ASC, provider_account_id ASC, campaign_id ASC, adset_id ASC
+  `,
+      [input.businessId, normalizeDate(input.startDate), normalizeDate(input.endDate), input.providerAccountIds ?? null, input.campaignIds ?? null]
+    )
+      : await sql`
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      campaign_id,
+      adset_id,
+      adset_name_current,
+      adset_name_historical,
+      adset_status,
+      optimization_goal,
+      bid_strategy_type,
+      bid_strategy_label,
+      manual_bid_amount,
+      bid_value,
+      bid_value_format,
+      daily_budget,
+      lifetime_budget,
+      is_budget_mixed,
+      is_config_mixed,
+      is_optimization_goal_mixed,
+      is_bid_strategy_mixed,
+      is_bid_value_mixed,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      created_at,
+      updated_at
+    FROM meta_adset_daily
+    WHERE business_id = ${input.businessId}
+      AND date >= ${normalizeDate(input.startDate)}
+      AND date <= ${normalizeDate(input.endDate)}
+      AND (
+        ${input.providerAccountIds ?? null}::text[] IS NULL
+        OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.campaignIds ?? null}::text[] IS NULL
+        OR campaign_id = ANY(${input.campaignIds ?? null}::text[])
+      )
+    ORDER BY date ASC, provider_account_id ASC, campaign_id ASC, adset_id ASC
+  `;
+  const typedRows = rows as Array<{
     business_id: string;
     provider_account_id: string;
     date: string;
@@ -4183,16 +4804,16 @@ export async function getMetaAdSetDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
-    truth_state: string | null;
-    truth_version: number | null;
-    finalized_at: string | null;
-    validation_status: string | null;
-    source_run_id: string | null;
+    truth_state?: string | null;
+    truth_version?: number | null;
+    finalized_at?: string | null;
+    validation_status?: string | null;
+    source_run_id?: string | null;
     created_at: string;
     updated_at: string;
   }>;
 
-  return rows.map((row) => ({
+  return typedRows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
     date: row.date,

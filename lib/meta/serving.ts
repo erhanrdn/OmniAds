@@ -1291,10 +1291,6 @@ async function persistRepairedCampaignRows(rows: MetaCampaignDailyRow[]) {
         is_optimization_goal_mixed = ${row.isOptimizationGoalMixed},
         is_bid_strategy_mixed = ${row.isBidStrategyMixed},
         is_bid_value_mixed = ${row.isBidValueMixed},
-        truth_state = 'finalized',
-        validation_status = 'passed',
-        finalized_at = now(),
-        source_run_id = COALESCE(${row.sourceRunId ?? null}, source_run_id),
         updated_at = now()
       WHERE business_id = ${row.businessId}
         AND provider_account_id = ${row.providerAccountId}
@@ -1328,10 +1324,6 @@ async function persistRepairedAdSetRows(rows: MetaAdSetDailyRow[]) {
         is_optimization_goal_mixed = ${row.isOptimizationGoalMixed},
         is_bid_strategy_mixed = ${row.isBidStrategyMixed},
         is_bid_value_mixed = ${row.isBidValueMixed},
-        truth_state = 'finalized',
-        validation_status = 'passed',
-        finalized_at = now(),
-        source_run_id = COALESCE(${row.sourceRunId ?? null}, source_run_id),
         updated_at = now()
       WHERE business_id = ${row.businessId}
         AND provider_account_id = ${row.providerAccountId}
