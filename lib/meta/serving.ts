@@ -1,6 +1,6 @@
 /**
- * Historical Meta serving must use warehouse/read models.
- * Snapshots may repair missing warehouse config before rows are served.
+ * Historical Meta serving is read-only.
+ * Snapshots may fill response-time gaps, but serving must never persist warehouse mutations.
  */
 
 import { resolveMetaCredentials } from "@/lib/api/meta";
@@ -21,13 +21,10 @@ import {
   getMetaAccountDailyCoverage,
   getMetaAccountDailyRange,
   getMetaAdSetDailyRange,
+  getMetaBreakdownDailyRange,
   getMetaCampaignDailyRange,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
-  getMetaRawSnapshotsForWindow,
-  upsertMetaAccountDailyRows,
-  upsertMetaAdSetDailyRows,
-  upsertMetaCampaignDailyRows,
 } from "@/lib/meta/warehouse";
 import {
   type MetaAccountDailyRow,
@@ -505,7 +502,7 @@ export async function getMetaWarehouseSummary(input: {
   };
 }
 
-function rebuildAccountRowsFromCampaignRows(input: {
+export function rebuildAccountRowsFromCampaignRows(input: {
   campaignRows: MetaCampaignDailyRow[];
   existingAccountRows?: MetaAccountDailyRow[];
   accountProfiles?: Record<string, { name?: string | null; timezone?: string | null; currency?: string | null }> | null;
@@ -563,11 +560,6 @@ function rebuildAccountRowsFromCampaignRows(input: {
       updatedAt: existing?.updatedAt,
     };
   });
-}
-
-async function persistRepairedAccountRows(rows: MetaAccountDailyRow[]) {
-  if (rows.length === 0) return;
-  await upsertMetaAccountDailyRows(rows);
 }
 
 export async function getMetaWarehouseTrends(input: {
@@ -1116,7 +1108,7 @@ function mergePreviousConfig(
   };
 }
 
-async function repairCampaignRowsFromSnapshots(input: {
+export async function repairCampaignRowsFromSnapshots(input: {
   businessId: string;
   rows: MetaCampaignDailyRow[];
 }) {
@@ -1174,25 +1166,10 @@ async function repairCampaignRowsFromSnapshots(input: {
     );
   });
 
-  const changedRows = repairedRows.filter((row, index) => {
-    const prev = input.rows[index];
-    return (
-      row.manualBidAmount !== prev.manualBidAmount ||
-      row.bidValue !== prev.bidValue ||
-      row.bidValueFormat !== prev.bidValueFormat ||
-      row.dailyBudget !== prev.dailyBudget ||
-      row.lifetimeBudget !== prev.lifetimeBudget ||
-      row.objective !== prev.objective ||
-      row.optimizationGoal !== prev.optimizationGoal ||
-      row.bidStrategyType !== prev.bidStrategyType ||
-      row.bidStrategyLabel !== prev.bidStrategyLabel
-    );
-  });
-  if (changedRows.length > 0) await persistRepairedCampaignRows(changedRows);
   return repairedRows;
 }
 
-async function repairAdSetRowsFromSnapshots(input: {
+export async function repairAdSetRowsFromSnapshots(input: {
   businessId: string;
   rows: MetaAdSetDailyRow[];
 }) {
@@ -1249,176 +1226,7 @@ async function repairAdSetRowsFromSnapshots(input: {
     );
   });
 
-  const changedRows = repairedRows.filter((row, index) => {
-    const prev = input.rows[index];
-    return (
-      row.manualBidAmount !== prev.manualBidAmount ||
-      row.bidValue !== prev.bidValue ||
-      row.bidValueFormat !== prev.bidValueFormat ||
-      row.dailyBudget !== prev.dailyBudget ||
-      row.lifetimeBudget !== prev.lifetimeBudget ||
-      row.optimizationGoal !== prev.optimizationGoal ||
-      row.bidStrategyType !== prev.bidStrategyType ||
-      row.bidStrategyLabel !== prev.bidStrategyLabel
-    );
-  });
-  if (changedRows.length > 0) await persistRepairedAdSetRows(changedRows);
   return repairedRows;
-}
-
-async function persistRepairedCampaignRows(rows: MetaCampaignDailyRow[]) {
-  if (rows.length === 0) return;
-  if (!process.env.DATABASE_URL) {
-    await upsertMetaCampaignDailyRows(rows);
-    return;
-  }
-  const sql = getDb();
-  for (const row of rows) {
-    await sql`
-      UPDATE meta_campaign_daily
-      SET
-        objective = ${row.objective},
-        optimization_goal = ${row.optimizationGoal},
-        bid_strategy_type = ${row.bidStrategyType},
-        bid_strategy_label = ${row.bidStrategyLabel},
-        manual_bid_amount = ${row.manualBidAmount},
-        bid_value = ${row.bidValue},
-        bid_value_format = ${row.bidValueFormat},
-        daily_budget = ${row.dailyBudget},
-        lifetime_budget = ${row.lifetimeBudget},
-        is_budget_mixed = ${row.isBudgetMixed},
-        is_config_mixed = ${row.isConfigMixed},
-        is_optimization_goal_mixed = ${row.isOptimizationGoalMixed},
-        is_bid_strategy_mixed = ${row.isBidStrategyMixed},
-        is_bid_value_mixed = ${row.isBidValueMixed},
-        updated_at = now()
-      WHERE business_id = ${row.businessId}
-        AND provider_account_id = ${row.providerAccountId}
-        AND date = ${row.date}::date
-        AND campaign_id = ${row.campaignId}
-    `;
-  }
-}
-
-async function persistRepairedAdSetRows(rows: MetaAdSetDailyRow[]) {
-  if (rows.length === 0) return;
-  if (!process.env.DATABASE_URL) {
-    await upsertMetaAdSetDailyRows(rows);
-    return;
-  }
-  const sql = getDb();
-  for (const row of rows) {
-    await sql`
-      UPDATE meta_adset_daily
-      SET
-        optimization_goal = ${row.optimizationGoal},
-        bid_strategy_type = ${row.bidStrategyType},
-        bid_strategy_label = ${row.bidStrategyLabel},
-        manual_bid_amount = ${row.manualBidAmount},
-        bid_value = ${row.bidValue},
-        bid_value_format = ${row.bidValueFormat},
-        daily_budget = ${row.dailyBudget},
-        lifetime_budget = ${row.lifetimeBudget},
-        is_budget_mixed = ${row.isBudgetMixed},
-        is_config_mixed = ${row.isConfigMixed},
-        is_optimization_goal_mixed = ${row.isOptimizationGoalMixed},
-        is_bid_strategy_mixed = ${row.isBidStrategyMixed},
-        is_bid_value_mixed = ${row.isBidValueMixed},
-        updated_at = now()
-      WHERE business_id = ${row.businessId}
-        AND provider_account_id = ${row.providerAccountId}
-        AND date = ${row.date}::date
-        AND adset_id = ${row.adsetId}
-    `;
-  }
-}
-
-export async function repairMetaWarehouseTruthRange(input: {
-  businessId: string;
-  startDate: string;
-  endDate: string;
-  providerAccountIds?: string[] | null;
-}) {
-  const [accountRows, campaignRows, adsetRows, credentials] = await Promise.all([
-    getMetaAccountDailyRange(input),
-    getMetaCampaignDailyRange(input),
-    getMetaAdSetDailyRange(input),
-    resolveMetaCredentials(input.businessId).catch(() => null),
-  ]);
-  const existingAccountRows = accountRows ?? [];
-
-  const [repairedCampaignRows, repairedAdSetRows] = await Promise.all([
-    repairCampaignRowsFromSnapshots({
-      businessId: input.businessId,
-      rows: campaignRows,
-    }),
-    repairAdSetRowsFromSnapshots({
-      businessId: input.businessId,
-      rows: adsetRows,
-    }),
-  ]);
-  const repairedAccountRows = rebuildAccountRowsFromCampaignRows({
-    campaignRows: repairedCampaignRows,
-    existingAccountRows,
-    accountProfiles: credentials?.accountProfiles ?? null,
-  });
-  const changedAccountRows = repairedAccountRows.filter((row) => {
-    const prev = existingAccountRows.find(
-      (candidate) =>
-        candidate.providerAccountId === row.providerAccountId &&
-        candidate.date === row.date,
-    );
-    return (
-      !prev ||
-      row.spend !== prev.spend ||
-      row.revenue !== prev.revenue ||
-      row.conversions !== prev.conversions ||
-      row.impressions !== prev.impressions ||
-      row.clicks !== prev.clicks ||
-      row.reach !== prev.reach ||
-      row.roas !== prev.roas ||
-      row.cpa !== prev.cpa ||
-      row.ctr !== prev.ctr ||
-      row.cpc !== prev.cpc
-    );
-  });
-  if (changedAccountRows.length > 0) {
-    await persistRepairedAccountRows(changedAccountRows);
-  }
-
-  return {
-    accountRowsScanned: existingAccountRows.length,
-    campaignRowsScanned: campaignRows.length,
-    adsetRowsScanned: adsetRows.length,
-    accountRowsChanged: changedAccountRows.length,
-    campaignRowsChanged: repairedCampaignRows.filter((row, index) => {
-      const prev = campaignRows[index];
-      return (
-        row.objective !== prev?.objective ||
-        row.optimizationGoal !== prev?.optimizationGoal ||
-        row.bidStrategyType !== prev?.bidStrategyType ||
-        row.bidStrategyLabel !== prev?.bidStrategyLabel ||
-        row.manualBidAmount !== prev?.manualBidAmount ||
-        row.bidValue !== prev?.bidValue ||
-        row.bidValueFormat !== prev?.bidValueFormat ||
-        row.dailyBudget !== prev?.dailyBudget ||
-        row.lifetimeBudget !== prev?.lifetimeBudget
-      );
-    }).length,
-    adsetRowsChanged: repairedAdSetRows.filter((row, index) => {
-      const prev = adsetRows[index];
-      return (
-        row.optimizationGoal !== prev?.optimizationGoal ||
-        row.bidStrategyType !== prev?.bidStrategyType ||
-        row.bidStrategyLabel !== prev?.bidStrategyLabel ||
-        row.manualBidAmount !== prev?.manualBidAmount ||
-        row.bidValue !== prev?.bidValue ||
-        row.bidValueFormat !== prev?.bidValueFormat ||
-        row.dailyBudget !== prev?.dailyBudget ||
-        row.lifetimeBudget !== prev?.lifetimeBudget
-      );
-    }).length,
-  };
 }
 
 function toObservedTimestamp(date: string) {
@@ -1782,86 +1590,19 @@ export async function getMetaWarehouseAdSets(input: {
     .sort((a, b) => b.spend - a.spend);
 }
 
-function parseSnapshotNumber(value: unknown) {
-  const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : 0;
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function extractSnapshotActionValue(actions: unknown, actionType: string) {
-  if (!Array.isArray(actions)) return 0;
-  const row = actions.find(
-    (item) =>
-      item &&
-      typeof item === "object" &&
-      "action_type" in item &&
-      (item as { action_type?: string }).action_type === actionType
-  ) as { value?: unknown } | undefined;
-  return parseSnapshotNumber(row?.value);
-}
-
-function aggregateBreakdownSnapshotRows(
-  payloads: unknown[],
-  keyFn: (row: Record<string, unknown>) => { key: string; label: string }
-) {
-  const byKey = new Map<
-    string,
-    { key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }
-  >();
-
-  for (const payload of payloads) {
-    if (!Array.isArray(payload)) continue;
-    for (const item of payload) {
-      if (!item || typeof item !== "object") continue;
-      const row = item as Record<string, unknown>;
-      const { key, label } = keyFn(row);
-      const spend = parseSnapshotNumber(row.spend);
-      const clicks = parseSnapshotNumber(row.clicks);
-      const impressions = parseSnapshotNumber(row.impressions);
-      const purchases = Math.round(extractSnapshotActionValue(row.actions, "purchase"));
-      const purchaseValue = extractSnapshotActionValue(row.action_values, "purchase");
-      const purchaseRoas = extractSnapshotActionValue(row.purchase_roas, "omni_purchase");
-      const revenue = purchaseValue > 0 ? purchaseValue : spend * purchaseRoas;
-      const existing = byKey.get(key);
-      if (existing) {
-        existing.spend = r2(existing.spend + spend);
-        existing.purchases += purchases;
-        existing.revenue = r2(existing.revenue + revenue);
-        existing.clicks += clicks;
-        existing.impressions += impressions;
-      } else {
-        byKey.set(key, {
-          key,
-          label,
-          spend: r2(spend),
-          purchases,
-          revenue: r2(revenue),
-          clicks,
-          impressions,
-        });
-      }
-    }
-  }
-
-  return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
-}
-
 export async function getMetaWarehouseBreakdowns(input: {
   businessId: string;
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseBreakdownsResponse> {
-  const [snapshots, campaigns, adsets] = await Promise.all([
-    getMetaRawSnapshotsForWindow({
+  const [breakdownRows, campaigns, adsets] = await Promise.all([
+    getMetaBreakdownDailyRange({
       businessId: input.businessId,
       providerAccountIds: input.providerAccountIds,
       startDate: input.startDate,
       endDate: input.endDate,
-      endpointNames: [
-        "breakdown_age",
-        "breakdown_country",
-        "breakdown_publisher_platform,platform_position,impression_device",
-      ],
+      breakdownTypes: ["age", "country", "placement"],
     }),
     getMetaWarehouseCampaigns(input),
     getMetaWarehouseAdSets({
@@ -1873,40 +1614,39 @@ export async function getMetaWarehouseBreakdowns(input: {
     }).catch(() => []),
   ]);
 
-  const agePayloads = snapshots
-    .filter((row) => row.endpoint_name === "breakdown_age")
-    .map((row) => row.payload_json);
-  const locationPayloads = snapshots
-    .filter((row) => row.endpoint_name === "breakdown_country")
-    .map((row) => row.payload_json);
-  const placementPayloads = snapshots
-    .filter((row) => row.endpoint_name === "breakdown_publisher_platform,platform_position,impression_device")
-    .map((row) => row.payload_json);
+  const aggregateRows = (kind: "age" | "country" | "placement") => {
+    const byKey = new Map<string, { key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>();
+    for (const row of breakdownRows.filter((candidate) => candidate.breakdownType === kind)) {
+      const existing = byKey.get(row.breakdownKey);
+      if (existing) {
+        existing.spend = r2(existing.spend + row.spend);
+        existing.purchases += row.conversions;
+        existing.revenue = r2(existing.revenue + row.revenue);
+        existing.clicks += row.clicks;
+        existing.impressions += row.impressions;
+      } else {
+        byKey.set(row.breakdownKey, {
+          key: row.breakdownKey,
+          label: row.breakdownLabel,
+          spend: row.spend,
+          purchases: row.conversions,
+          revenue: row.revenue,
+          clicks: row.clicks,
+          impressions: row.impressions,
+        });
+      }
+    }
+    return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
+  };
 
   return {
     freshness: buildFreshnessFromRows(
-      snapshots.map((row) => ({ updatedAt: row.updated_at })),
-      snapshots.length > 0 ? "ready" : "syncing"
+      breakdownRows.map((row) => ({ updatedAt: row.updatedAt })),
+      breakdownRows.length > 0 ? "ready" : "syncing"
     ),
-    age: aggregateBreakdownSnapshotRows(agePayloads, (row) => ({
-      key: String(row.age ?? "unknown"),
-      label: String(row.age ?? "Unknown"),
-    })),
-    location: aggregateBreakdownSnapshotRows(locationPayloads, (row) => ({
-      key: String(row.country ?? "unknown"),
-      label: String(row.country ?? "Unknown"),
-    })),
-    placement: aggregateBreakdownSnapshotRows(placementPayloads, (row) => {
-      const parts = [
-        row.publisher_platform,
-        row.platform_position,
-        row.impression_device,
-      ].filter(Boolean);
-      return {
-        key: parts.map((value) => String(value)).join("|") || "unknown",
-        label: parts.map((value) => String(value)).join(" • ") || "Unknown",
-      };
-    }),
+    age: aggregateRows("age"),
+    location: aggregateRows("country"),
+    placement: aggregateRows("placement"),
     budget: {
       campaign: campaigns.rows.map((row) => ({
         key: row.campaignId,

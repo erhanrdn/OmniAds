@@ -21,24 +21,27 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAccountDailyCoverage: vi.fn(),
   getMetaAccountDailyRange: vi.fn(),
   getMetaAdSetDailyRange: vi.fn(),
+  getMetaBreakdownDailyRange: vi.fn(),
   getMetaCampaignDailyRange: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
-  getMetaRawSnapshotsForWindow: vi.fn(),
   upsertMetaAccountDailyRows: vi.fn(),
   upsertMetaAdSetDailyRows: vi.fn(),
   upsertMetaCampaignDailyRows: vi.fn(),
+  replaceMetaAccountDailySlice: vi.fn(),
+  replaceMetaAdSetDailySlice: vi.fn(),
+  replaceMetaCampaignDailySlice: vi.fn(),
 }));
 
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const constraints = await import("@/lib/meta/constraints");
 const warehouse = await import("@/lib/meta/warehouse");
 const apiMeta = await import("@/lib/api/meta");
+const { repairMetaWarehouseTruthRange } = await import("@/lib/meta/repair");
 const {
   getMetaWarehouseSummary,
   getMetaWarehouseAdSets,
   getMetaWarehouseCampaignTable,
-  repairMetaWarehouseTruthRange,
 } = await import("@/lib/meta/serving");
 
 describe("meta historical serving", () => {
@@ -494,7 +497,7 @@ describe("meta historical serving", () => {
     expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
   });
 
-  it("repairs missing campaign bid values from latest snapshots and persists them", async () => {
+  it("repairs missing campaign bid values from latest snapshots without persisting them from serving", async () => {
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -573,20 +576,10 @@ describe("meta historical serving", () => {
       bidValue: 2200,
       bidValueFormat: "currency",
     });
-    expect(warehouse.upsertMetaCampaignDailyRows).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          campaignId: "cmp-1",
-          objective: "OUTCOME_SALES",
-          manualBidAmount: 2200,
-          bidValue: 2200,
-          bidValueFormat: "currency",
-        }),
-      ])
-    );
+    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
   });
 
-  it("repairs missing adset target roas values from latest snapshots and persists them", async () => {
+  it("repairs missing adset target roas values from latest snapshots without persisting them from serving", async () => {
     vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -664,15 +657,7 @@ describe("meta historical serving", () => {
       bidValue: 2.5,
       bidValueFormat: "roas",
     });
-    expect(warehouse.upsertMetaAdSetDailyRows).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          adsetId: "adset-1",
-          bidValue: 2.5,
-          bidValueFormat: "roas",
-        }),
-      ])
-    );
+    expect(warehouse.upsertMetaAdSetDailyRows).not.toHaveBeenCalled();
   });
 
   it("derives adset previous bid and budget fields from warehouse history", async () => {
@@ -809,7 +794,7 @@ describe("meta historical serving", () => {
     });
   });
 
-  it("repairs missing campaign and adset config from current Meta config fetch and persists it", async () => {
+  it("repairs missing campaign and adset config from current Meta config fetch without persisting it from serving", async () => {
     vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
       businessId: "biz-1",
       accessToken: "token-1",
@@ -958,24 +943,8 @@ describe("meta historical serving", () => {
       bidValue: 4,
       dailyBudget: 8,
     });
-    expect(warehouse.upsertMetaCampaignDailyRows).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          campaignId: "cmp-1",
-          objective: "OUTCOME_SALES",
-          bidValue: 5,
-        }),
-      ])
-    );
-    expect(warehouse.upsertMetaAdSetDailyRows).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          adsetId: "adset-1",
-          optimizationGoal: "Purchase",
-          bidValue: 4,
-        }),
-      ])
-    );
+    expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
+    expect(warehouse.upsertMetaAdSetDailyRows).not.toHaveBeenCalled();
   });
 
   it("repairs an entire warehouse date range and reports changed row counts", async () => {

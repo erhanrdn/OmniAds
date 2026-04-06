@@ -3,7 +3,7 @@ import { configureOperationalScriptRuntime } from "./_operational-runtime";
 async function main() {
   configureOperationalScriptRuntime();
   const { syncMetaRepairRange } = await import("@/lib/sync/meta-sync");
-  const { repairMetaWarehouseTruthRange } = await import("@/lib/meta/serving");
+  const { repairMetaWarehouseTruthRange } = await import("@/lib/meta/repair");
 
   const businessId = process.argv[2];
   const startDate = process.argv[3];

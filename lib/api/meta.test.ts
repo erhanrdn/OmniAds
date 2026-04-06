@@ -23,10 +23,14 @@ vi.mock("@/lib/meta/warehouse", () => ({
   buildMetaSyncCheckpointHash: vi.fn(() => "checkpoint-hash"),
   getMetaSyncCheckpoint: vi.fn(),
   heartbeatMetaPartitionLease: vi.fn().mockResolvedValue(true),
-  listMetaRawSnapshotsForPartition: vi.fn().mockResolvedValue([]),
+  listMetaRawSnapshotsForRun: vi.fn().mockResolvedValue([]),
   buildMetaRawSnapshotHash: vi.fn(() => "snapshot-hash"),
   createMetaSyncJob: vi.fn(),
   persistMetaRawSnapshot: vi.fn().mockResolvedValue("snapshot-id"),
+  replaceMetaAccountDailySlice: vi.fn().mockResolvedValue(undefined),
+  replaceMetaCampaignDailySlice: vi.fn().mockResolvedValue(undefined),
+  replaceMetaAdSetDailySlice: vi.fn().mockResolvedValue(undefined),
+  replaceMetaBreakdownDailySlice: vi.fn().mockResolvedValue(undefined),
   upsertMetaSyncCheckpoint: vi.fn().mockResolvedValue("checkpoint-id"),
   updateMetaSyncJob: vi.fn(),
   upsertMetaAccountDailyRows: vi.fn().mockResolvedValue(undefined),
@@ -44,12 +48,21 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
-    vi.mocked(warehouse.listMetaRawSnapshotsForPartition).mockResolvedValue([]);
+    vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([]);
     vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
     vi.mocked(warehouse.upsertMetaAccountDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaCampaignDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdSetDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdDailyRows).mockResolvedValue(undefined);
+    vi.mocked(warehouse.replaceMetaAccountDailySlice).mockImplementation(async (input) => {
+      await warehouse.upsertMetaAccountDailyRows(input.rows as never);
+    });
+    vi.mocked(warehouse.replaceMetaCampaignDailySlice).mockImplementation(async (input) => {
+      await warehouse.upsertMetaCampaignDailyRows(input.rows as never);
+    });
+    vi.mocked(warehouse.replaceMetaAdSetDailySlice).mockImplementation(async (input) => {
+      await warehouse.upsertMetaAdSetDailyRows(input.rows as never);
+    });
     vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue("checkpoint-hash");
     vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
     vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(undefined);

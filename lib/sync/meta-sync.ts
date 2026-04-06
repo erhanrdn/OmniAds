@@ -1626,6 +1626,7 @@ async function cancelDeprecatedMetaPartition(input: {
   const checkpoint = await getMetaSyncCheckpoint({
     partitionId: input.partition.id,
     checkpointScope: input.partition.scope,
+    runId: input.runId ?? input.partition.id,
   }).catch(() => null);
 
   if (checkpoint) {

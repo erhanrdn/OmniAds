@@ -70,7 +70,10 @@ export type MetaWarehouseScope =
   | "campaign_daily"
   | "adset_daily"
   | "ad_daily"
-  | "creative_daily";
+  | "creative_daily"
+  | "breakdown_daily";
+
+export type MetaBreakdownType = "age" | "country" | "placement";
 
 export interface MetaWarehouseMetricSet {
   spend: number;
@@ -200,6 +203,7 @@ export interface MetaRawSnapshotRecord {
   entityScope: string;
   partitionId?: string | null;
   checkpointId?: string | null;
+  runId?: string | null;
   pageIndex?: number | null;
   providerCursor?: string | null;
   startDate: string;
@@ -236,6 +240,7 @@ export interface MetaSyncCheckpointRecord {
   businessId: string;
   providerAccountId: string;
   checkpointScope: string;
+  runId?: string | null;
   phase: MetaSyncCheckpointPhase;
   status: MetaSyncCheckpointStatus;
   pageIndex: number;
@@ -255,6 +260,12 @@ export interface MetaSyncCheckpointRecord {
   finishedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface MetaBreakdownDailyRow extends MetaWarehouseBaseRow {
+  breakdownType: MetaBreakdownType;
+  breakdownKey: string;
+  breakdownLabel: string;
 }
 
 export interface MetaSyncPartitionRecord {

@@ -11,6 +11,8 @@ import type {
   MetaAccountDailyRow,
   MetaAdDailyRow,
   MetaAdSetDailyRow,
+  MetaBreakdownDailyRow,
+  MetaBreakdownType,
   MetaCampaignDailyRow,
   MetaCreativeDailyRow,
   MetaPartitionStatus,
@@ -26,6 +28,10 @@ import type {
   MetaWarehouseMetricSet,
   MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
+import {
+  type MetaFinalizationCompletenessProof,
+  assertMetaFinalizationCompletenessProof,
+} from "@/lib/meta/finalization-proof";
 
 const META_SOURCE_PRIORITY_SQL = `
   CASE source
@@ -73,6 +79,22 @@ function toNumber(value: unknown) {
 function withinToleranceForDirtyDate(left: number, right: number) {
   const tolerance = Math.max(0.01, Math.abs(left) * 0.001);
   return Math.abs(left - right) <= tolerance;
+}
+
+async function runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
+  const sql = getDb();
+  if (typeof sql.query !== "function") {
+    return fn();
+  }
+  await sql.query("BEGIN");
+  try {
+    const result = await fn();
+    await sql.query("COMMIT");
+    return result;
+  } catch (error) {
+    await sql.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  }
 }
 
 let cachedMetaTruthLifecycleColumnsAvailable: boolean | null = null;
@@ -1851,6 +1873,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       business_id,
       provider_account_id,
       checkpoint_scope,
+      run_id,
       phase,
       status,
       page_index,
@@ -1875,6 +1898,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
       ${input.businessId},
       ${input.providerAccountId},
       ${input.checkpointScope},
+      ${input.runId ?? null},
       ${input.phase},
       ${input.status},
       ${input.pageIndex},
@@ -1898,6 +1922,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
     DO UPDATE SET
       phase = EXCLUDED.phase,
       status = EXCLUDED.status,
+      run_id = EXCLUDED.run_id,
       page_index = EXCLUDED.page_index,
       next_page_url = EXCLUDED.next_page_url,
       provider_cursor = EXCLUDED.provider_cursor,
@@ -1923,6 +1948,7 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
 export async function getMetaSyncCheckpoint(input: {
   partitionId: string;
   checkpointScope: string;
+  runId: string;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -1931,6 +1957,7 @@ export async function getMetaSyncCheckpoint(input: {
     FROM meta_sync_checkpoints
     WHERE partition_id = ${input.partitionId}
       AND checkpoint_scope = ${input.checkpointScope}
+      AND run_id = ${input.runId}
     LIMIT 1
   ` as Array<Record<string, unknown>>;
   const row = rows[0];
@@ -1941,6 +1968,7 @@ export async function getMetaSyncCheckpoint(input: {
     businessId: String(row.business_id),
     providerAccountId: String(row.provider_account_id),
     checkpointScope: String(row.checkpoint_scope),
+    runId: row.run_id ? String(row.run_id) : null,
     phase: String(row.phase) as MetaSyncCheckpointRecord["phase"],
     status: String(row.status) as MetaSyncCheckpointRecord["status"],
     pageIndex: toNumber(row.page_index),
@@ -1991,9 +2019,10 @@ export async function getLatestMetaCheckpointForPartition(input: {
   };
 }
 
-export async function listMetaRawSnapshotsForPartition(input: {
+export async function listMetaRawSnapshotsForRun(input: {
   partitionId: string;
   endpointName: string;
+  runId: string;
 }) {
   await runMigrations();
   const sql = getDb();
@@ -2010,6 +2039,7 @@ export async function listMetaRawSnapshotsForPartition(input: {
       fetched_at
     FROM meta_raw_snapshots
     WHERE partition_id = ${input.partitionId}
+      AND run_id = ${input.runId}
       AND endpoint_name = ${input.endpointName}
     ORDER BY COALESCE(page_index, 0) ASC, fetched_at ASC
   ` as unknown) as Array<{
@@ -2109,6 +2139,7 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
       provider_account_id,
       partition_id,
       checkpoint_id,
+      run_id,
       endpoint_name,
       entity_scope,
       page_index,
@@ -2131,6 +2162,7 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
       ${input.providerAccountId},
       ${input.partitionId ?? null},
       ${input.checkpointId ?? null},
+      ${input.runId ?? null},
       ${input.endpointName},
       ${input.entityScope},
       ${input.pageIndex ?? null},
@@ -3726,6 +3758,174 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
   }
 }
 
+export async function replaceMetaAccountDailySlice(input: {
+  rows: MetaAccountDailyRow[];
+  proof: MetaFinalizationCompletenessProof;
+}) {
+  if (input.rows.length === 0) return;
+  const slice = {
+    businessId: input.rows[0]!.businessId,
+    providerAccountId: input.rows[0]!.providerAccountId,
+    date: normalizeDate(input.rows[0]!.date),
+    scope: "account",
+  } as const;
+  assertMetaFinalizationCompletenessProof(input.proof, slice);
+  await runInTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      DELETE FROM meta_account_daily
+      WHERE business_id = ${slice.businessId}
+        AND provider_account_id = ${slice.providerAccountId}
+        AND date = ${slice.date}::date
+    `;
+    await upsertMetaAccountDailyRows(input.rows);
+  });
+}
+
+export async function replaceMetaCampaignDailySlice(input: {
+  rows: MetaCampaignDailyRow[];
+  proof: MetaFinalizationCompletenessProof;
+}) {
+  if (input.rows.length === 0) return;
+  const slice = {
+    businessId: input.rows[0]!.businessId,
+    providerAccountId: input.rows[0]!.providerAccountId,
+    date: normalizeDate(input.rows[0]!.date),
+    scope: "campaign",
+  } as const;
+  assertMetaFinalizationCompletenessProof(input.proof, slice);
+  await runInTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      DELETE FROM meta_campaign_daily
+      WHERE business_id = ${slice.businessId}
+        AND provider_account_id = ${slice.providerAccountId}
+        AND date = ${slice.date}::date
+    `;
+    await upsertMetaCampaignDailyRows(input.rows);
+  });
+}
+
+export async function replaceMetaAdSetDailySlice(input: {
+  rows: MetaAdSetDailyRow[];
+  proof: MetaFinalizationCompletenessProof;
+}) {
+  if (input.rows.length === 0) return;
+  const slice = {
+    businessId: input.rows[0]!.businessId,
+    providerAccountId: input.rows[0]!.providerAccountId,
+    date: normalizeDate(input.rows[0]!.date),
+    scope: "adset",
+  } as const;
+  assertMetaFinalizationCompletenessProof(input.proof, slice);
+  await runInTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      DELETE FROM meta_adset_daily
+      WHERE business_id = ${slice.businessId}
+        AND provider_account_id = ${slice.providerAccountId}
+        AND date = ${slice.date}::date
+    `;
+    await upsertMetaAdSetDailyRows(input.rows);
+  });
+}
+
+export async function replaceMetaBreakdownDailySlice(input: {
+  rows: MetaBreakdownDailyRow[];
+  proof: MetaFinalizationCompletenessProof;
+}) {
+  const first = input.rows[0];
+  if (!first) return;
+  const slice = {
+    businessId: first.businessId,
+    providerAccountId: first.providerAccountId,
+    date: normalizeDate(first.date),
+    scope: "breakdown",
+  } as const;
+  assertMetaFinalizationCompletenessProof(input.proof, slice);
+  await runInTransaction(async () => {
+    const sql = getDb();
+    await sql`
+      DELETE FROM meta_breakdown_daily
+      WHERE business_id = ${slice.businessId}
+        AND provider_account_id = ${slice.providerAccountId}
+        AND date = ${slice.date}::date
+    `;
+    await upsertMetaBreakdownDailyRows(input.rows);
+  });
+}
+
+export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]) {
+  if (rows.length === 0) return;
+  await runMigrations();
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 250)) {
+    const values: unknown[] = [];
+    const placeholders = chunk.map((row, index) => {
+      const offset = index * 25;
+      values.push(
+        row.businessId,
+        row.providerAccountId,
+        normalizeDate(row.date),
+        row.breakdownType,
+        row.breakdownKey,
+        row.breakdownLabel,
+        row.accountTimezone,
+        row.accountCurrency,
+        row.spend,
+        row.impressions,
+        row.clicks,
+        row.reach,
+        row.frequency,
+        row.conversions,
+        row.revenue,
+        row.roas,
+        row.cpa,
+        row.ctr,
+        row.cpc,
+        row.sourceSnapshotId,
+        row.truthState ?? "finalized",
+        row.truthVersion ?? 1,
+        row.finalizedAt ?? null,
+        row.validationStatus ?? "passed",
+        row.sourceRunId ?? null,
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},now())`;
+    }).join(", ");
+    await sql.query(
+      `INSERT INTO meta_breakdown_daily (
+        business_id, provider_account_id, date, breakdown_type, breakdown_key, breakdown_label,
+        account_timezone, account_currency, spend, impressions, clicks, reach, frequency,
+        conversions, revenue, roas, cpa, ctr, cpc, source_snapshot_id, truth_state, truth_version,
+        finalized_at, validation_status, source_run_id, updated_at
+      ) VALUES ${placeholders}
+      ON CONFLICT (business_id, provider_account_id, date, breakdown_type, breakdown_key) DO UPDATE SET
+        breakdown_label = EXCLUDED.breakdown_label,
+        account_timezone = EXCLUDED.account_timezone,
+        account_currency = EXCLUDED.account_currency,
+        spend = EXCLUDED.spend,
+        impressions = EXCLUDED.impressions,
+        clicks = EXCLUDED.clicks,
+        reach = EXCLUDED.reach,
+        frequency = EXCLUDED.frequency,
+        conversions = EXCLUDED.conversions,
+        revenue = EXCLUDED.revenue,
+        roas = EXCLUDED.roas,
+        cpa = EXCLUDED.cpa,
+        ctr = EXCLUDED.ctr,
+        cpc = EXCLUDED.cpc,
+        source_snapshot_id = EXCLUDED.source_snapshot_id,
+        truth_state = EXCLUDED.truth_state,
+        truth_version = EXCLUDED.truth_version,
+        finalized_at = EXCLUDED.finalized_at,
+        validation_status = EXCLUDED.validation_status,
+        source_run_id = EXCLUDED.source_run_id,
+        updated_at = now()`,
+      values
+    );
+  }
+}
+
 export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
   if (rows.length === 0) return;
   await runMigrations();
@@ -4859,6 +5059,93 @@ export async function getMetaAdSetDailyRange(input: {
     sourceRunId: row.source_run_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  }));
+}
+
+export async function getMetaBreakdownDailyRange(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+  breakdownTypes?: MetaBreakdownType[] | null;
+  includeProvisional?: boolean;
+}): Promise<MetaBreakdownDailyRow[]> {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      business_id,
+      provider_account_id,
+      date,
+      breakdown_type,
+      breakdown_key,
+      breakdown_label,
+      account_timezone,
+      account_currency,
+      spend,
+      impressions,
+      clicks,
+      reach,
+      frequency,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr,
+      cpc,
+      source_snapshot_id,
+      truth_state,
+      truth_version,
+      finalized_at,
+      validation_status,
+      source_run_id,
+      created_at,
+      updated_at
+    FROM meta_breakdown_daily
+    WHERE business_id = ${input.businessId}
+      AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      AND (
+        ${input.providerAccountIds ?? null}::text[] IS NULL
+        OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[])
+      )
+      AND (
+        ${input.breakdownTypes ?? null}::text[] IS NULL
+        OR breakdown_type = ANY(${input.breakdownTypes ?? null}::text[])
+      )
+      AND (
+        ${input.includeProvisional ?? false}::boolean = TRUE
+        OR COALESCE(truth_state, 'finalized') = 'finalized'
+      )
+    ORDER BY date ASC, provider_account_id ASC, breakdown_type ASC, breakdown_key ASC
+  ` as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    date: String(row.date),
+    breakdownType: String(row.breakdown_type) as MetaBreakdownType,
+    breakdownKey: String(row.breakdown_key),
+    breakdownLabel: String(row.breakdown_label),
+    accountTimezone: String(row.account_timezone),
+    accountCurrency: String(row.account_currency),
+    spend: Number(row.spend ?? 0),
+    impressions: Number(row.impressions ?? 0),
+    clicks: Number(row.clicks ?? 0),
+    reach: Number(row.reach ?? 0),
+    frequency: row.frequency == null ? null : Number(row.frequency),
+    conversions: Number(row.conversions ?? 0),
+    revenue: Number(row.revenue ?? 0),
+    roas: Number(row.roas ?? 0),
+    cpa: row.cpa == null ? null : Number(row.cpa),
+    ctr: row.ctr == null ? null : Number(row.ctr),
+    cpc: row.cpc == null ? null : Number(row.cpc),
+    sourceSnapshotId: row.source_snapshot_id ? String(row.source_snapshot_id) : null,
+    truthState: row.truth_state == null ? undefined : (String(row.truth_state) as MetaBreakdownDailyRow["truthState"]),
+    truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
+    finalizedAt: row.finalized_at ? String(row.finalized_at) : null,
+    validationStatus: row.validation_status == null ? undefined : (String(row.validation_status) as MetaBreakdownDailyRow["validationStatus"]),
+    sourceRunId: row.source_run_id ? String(row.source_run_id) : null,
+    createdAt: row.created_at ? String(row.created_at) : undefined,
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined,
   }));
 }
 

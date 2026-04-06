@@ -827,8 +827,11 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_scope
           ON meta_sync_checkpoints (business_id, provider_account_id, checkpoint_scope, status, updated_at DESC)`.catch(() => {}),
         sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS lease_epoch BIGINT`.catch(() => {}),
+        sql`ALTER TABLE meta_sync_checkpoints ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition_epoch
           ON meta_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition_run
+          ON meta_sync_checkpoints (partition_id, checkpoint_scope, run_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_worker_heartbeats (
           worker_id          TEXT PRIMARY KEY,
           instance_type      TEXT NOT NULL,
@@ -924,9 +927,12 @@ export async function runMigrations(options?: {
           ON meta_raw_snapshots (partition_id, endpoint_name, page_index)`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS partition_id UUID REFERENCES meta_sync_partitions(id) ON DELETE CASCADE`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS checkpoint_id UUID REFERENCES meta_sync_checkpoints(id) ON DELETE SET NULL`.catch(() => {}),
+        sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS run_id TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS page_index INTEGER`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS provider_cursor TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_raw_snapshots ADD COLUMN IF NOT EXISTS response_headers JSONB NOT NULL DEFAULT '{}'::jsonb`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_raw_snapshots_partition_run_endpoint
+          ON meta_raw_snapshots (partition_id, run_id, endpoint_name, page_index)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_account_daily (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,
@@ -1083,6 +1089,41 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_breakdown_daily (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          date                DATE NOT NULL,
+          breakdown_type      TEXT NOT NULL,
+          breakdown_key       TEXT NOT NULL,
+          breakdown_label     TEXT NOT NULL,
+          account_timezone    TEXT NOT NULL,
+          account_currency    TEXT NOT NULL,
+          spend               DOUBLE PRECISION NOT NULL DEFAULT 0,
+          impressions         BIGINT NOT NULL DEFAULT 0,
+          clicks              BIGINT NOT NULL DEFAULT 0,
+          reach               BIGINT NOT NULL DEFAULT 0,
+          frequency           DOUBLE PRECISION,
+          conversions         DOUBLE PRECISION NOT NULL DEFAULT 0,
+          revenue             DOUBLE PRECISION NOT NULL DEFAULT 0,
+          roas                DOUBLE PRECISION NOT NULL DEFAULT 0,
+          cpa                 DOUBLE PRECISION,
+          ctr                 DOUBLE PRECISION,
+          cpc                 DOUBLE PRECISION,
+          source_snapshot_id  UUID REFERENCES meta_raw_snapshots(id) ON DELETE SET NULL,
+          truth_state         TEXT NOT NULL DEFAULT 'finalized',
+          truth_version       INTEGER NOT NULL DEFAULT 1,
+          finalized_at        TIMESTAMPTZ,
+          validation_status   TEXT NOT NULL DEFAULT 'passed',
+          source_run_id       TEXT,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, date, breakdown_type, breakdown_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_breakdown_daily_business_date
+          ON meta_breakdown_daily (business_id, date DESC, breakdown_type)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_breakdown_daily_account_date
+          ON meta_breakdown_daily (provider_account_id, date DESC, breakdown_type)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_ad_daily (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,

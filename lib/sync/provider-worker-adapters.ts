@@ -392,6 +392,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
       await getMetaSyncCheckpoint({
         partitionId: input.partition.partitionId,
         checkpointScope: input.partition.scope,
+        runId: input.partition.partitionId,
       })
     );
   },
@@ -423,6 +424,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
     const currentCheckpoint = await getMetaSyncCheckpoint({
       partitionId: partition.partitionId,
       checkpointScope: partition.scope,
+      runId: partition.partitionId,
     });
     const normalized = normalizeCheckpointChunk(mapMetaCheckpoint(currentCheckpoint), input.chunk);
     const upsertInput: MetaSyncCheckpointRecord = {
