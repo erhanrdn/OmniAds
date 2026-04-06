@@ -100,7 +100,7 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("lease_epoch = partition.lease_epoch + 1"))).toBe(true);
   });
 
-  it("prioritizes priority_window partitions newest-first and keeps yesterday ahead of today", async () => {
+  it("prioritizes newest dates first across priority and historical meta partitions", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
@@ -121,6 +121,7 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain("WHEN source = 'priority_window'");
     expect(query).toContain("THEN partition_date");
     expect(query).toContain("WHEN source IN ('historical', 'historical_recovery', 'initial_connect')");
+    expect(query).toContain("END DESC");
   });
 
   it("preserves existing non-null meta config truth when an incoming row is sparse", async () => {

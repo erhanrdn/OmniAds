@@ -521,7 +521,7 @@ export async function leaseMetaSyncPartitions(input: {
           WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
             THEN partition_date
           ELSE NULL
-        END ASC,
+        END DESC,
         CASE
           WHEN source = 'priority_window'
             THEN partition_date
