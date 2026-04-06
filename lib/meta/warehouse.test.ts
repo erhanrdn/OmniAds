@@ -23,6 +23,7 @@ const {
   getMetaCampaignDailyRange,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
+  replaceMetaBreakdownDailySlice,
   replayMetaDeadLetterPartitions,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
@@ -30,6 +31,7 @@ const {
 } = await import(
   "@/lib/meta/warehouse"
 );
+const { createMetaFinalizationCompletenessProof } = await import("@/lib/meta/finalization-proof");
 
 describe("meta warehouse ownership safety", () => {
   beforeEach(() => {
@@ -249,6 +251,112 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("AND lease_epoch = "))).toBe(true);
     expect(calls.at(0)).toContain(7);
     expect(calls.at(0)).toContain(15);
+  });
+
+  it("replaces only the targeted breakdown_type slice", async () => {
+    const templateCalls: unknown[][] = [];
+    const queryCalls: string[] = [];
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      templateCalls.push(values);
+      return [];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        queryCalls.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await replaceMetaBreakdownDailySlice({
+      slice: {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        breakdownType: "age",
+      },
+      rows: [
+        {
+          businessId: "biz-1",
+          providerAccountId: "acct-1",
+          date: "2026-04-03",
+          breakdownType: "age",
+          breakdownKey: "25-34",
+          breakdownLabel: "25-34",
+          accountTimezone: "UTC",
+          accountCurrency: "USD",
+          spend: 10,
+          impressions: 100,
+          clicks: 5,
+          reach: 90,
+          frequency: 1.1,
+          conversions: 1,
+          revenue: 20,
+          roas: 2,
+          cpa: 10,
+          ctr: 5,
+          cpc: 2,
+          sourceSnapshotId: "snapshot-1",
+          truthState: "finalized",
+          truthVersion: 1,
+          finalizedAt: "2026-04-03T00:00:00.000Z",
+          validationStatus: "passed",
+          sourceRunId: "run-1",
+        },
+      ],
+      proof: createMetaFinalizationCompletenessProof({
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        scope: "breakdown",
+        sourceRunId: "run-1",
+        complete: true,
+        validationStatus: "passed",
+      }),
+    });
+
+    expect(templateCalls).toHaveLength(1);
+    expect(templateCalls[0]).toContain("age");
+    expect(queryCalls.some((query) => query.includes("INSERT INTO meta_breakdown_daily"))).toBe(true);
+  });
+
+  it("supports authoritative empty breakdown slice replacement", async () => {
+    const templateCalls: unknown[][] = [];
+    const queryCalls: string[] = [];
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      templateCalls.push(values);
+      return [];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        queryCalls.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await replaceMetaBreakdownDailySlice({
+      slice: {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        breakdownType: "country",
+      },
+      rows: [],
+      proof: createMetaFinalizationCompletenessProof({
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        scope: "breakdown",
+        sourceRunId: "run-2",
+        complete: true,
+        validationStatus: "passed",
+      }),
+    });
+
+    expect(templateCalls).toHaveLength(1);
+    expect(templateCalls[0]).toContain("country");
+    expect(queryCalls).toEqual(["BEGIN", "COMMIT"]);
   });
 
   it("fails partition completion when the lease epoch is stale", async () => {

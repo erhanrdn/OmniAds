@@ -1793,23 +1793,30 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       campaignRows,
     }),
   ];
+  const sourceAccountSpend = truthState === "finalized"
+    ? await fetchMetaAccountDaySpend({
+        accountId: input.accountId,
+        accessToken: input.credentials.accessToken,
+        since: normalizedDay,
+        until: normalizedDay,
+      })
+    : null;
+  const zeroSpendFinalizedDay =
+    truthState === "finalized" && sourceAccountSpend != null
+      ? withinMetaTruthTolerance(sourceAccountSpend, 0)
+      : false;
   if (truthState === "finalized") {
-    const sourceAccountSpend = await fetchMetaAccountDaySpend({
-      accountId: input.accountId,
-      accessToken: input.credentials.accessToken,
-      since: normalizedDay,
-      until: normalizedDay,
-    });
+    const finalizedSourceAccountSpend = sourceAccountSpend ?? 0;
     const rebuiltAccountSpend = accountRows[0]?.spend ?? 0;
     const rebuiltCampaignSpend = r2(
       campaignRows.reduce((sum, row) => sum + row.spend, 0),
     );
     if (
-      !withinMetaTruthTolerance(sourceAccountSpend, rebuiltAccountSpend) ||
-      !withinMetaTruthTolerance(sourceAccountSpend, rebuiltCampaignSpend)
+      !withinMetaTruthTolerance(finalizedSourceAccountSpend, rebuiltAccountSpend) ||
+      !withinMetaTruthTolerance(finalizedSourceAccountSpend, rebuiltCampaignSpend)
     ) {
       throw new Error(
-        `Meta finalized truth validation failed for ${normalizedDay}: source=${sourceAccountSpend}, account=${rebuiltAccountSpend}, campaigns=${rebuiltCampaignSpend}`,
+        `Meta finalized truth validation failed for ${normalizedDay}: source=${finalizedSourceAccountSpend}, account=${rebuiltAccountSpend}, campaigns=${rebuiltCampaignSpend}`,
       );
     }
   }
@@ -1820,7 +1827,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         date: normalizedDay,
         scope: "account",
         sourceRunId,
-        complete: accountRows.length === 1 && campaignRows.length > 0,
+        complete: accountRows.length === 1 && (campaignRows.length > 0 || zeroSpendFinalizedDay),
         validationStatus,
       })
     : null;
@@ -1831,7 +1838,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         date: normalizedDay,
         scope: "campaign",
         sourceRunId,
-        complete: campaignRows.length > 0,
+        complete: campaignRows.length > 0 || zeroSpendFinalizedDay,
         validationStatus,
       })
     : null;
@@ -2383,6 +2390,12 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     validationStatus: "passed",
   });
   await replaceMetaBreakdownDailySlice({
+    slice: {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      breakdownType,
+    },
     rows: breakdownRows,
     proof: breakdownProof,
   });

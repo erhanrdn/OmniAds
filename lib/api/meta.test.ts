@@ -42,7 +42,12 @@ vi.mock("@/lib/meta/warehouse", () => ({
 const warehouse = await import("@/lib/meta/warehouse");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 const configuration = await import("@/lib/meta/configuration");
-const { getAdSets, getCampaigns, syncMetaAccountCoreWarehouseDay } = await import("@/lib/api/meta");
+const {
+  getAdSets,
+  getCampaigns,
+  syncMetaAccountBreakdownWarehouseDay,
+  syncMetaAccountCoreWarehouseDay,
+} = await import("@/lib/api/meta");
 
 describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
@@ -437,6 +442,148 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       lastSuccessfulEntityKey: null,
       leaseEpoch: 17,
     });
+  });
+
+  it("allows zero-spend finalized days to complete without campaign rows", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ spend: "0" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: {
+              currency: "USD",
+              timezone: "UTC",
+              name: "Account 1",
+            },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-zero",
+        workerId: "worker-1",
+        leaseEpoch: 21,
+        attemptCount: 1,
+        leaseMinutes: 15,
+      }),
+    ).resolves.toMatchObject({
+      campaignRowsWritten: 0,
+      accountRowsWritten: 1,
+    });
+
+    expect(warehouse.replaceMetaAccountDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rows: [
+          expect.objectContaining({
+            spend: 0,
+          }),
+        ],
+      }),
+    );
+    expect(warehouse.replaceMetaCampaignDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rows: [],
+      }),
+    );
+  });
+
+  it("rejects positive-spend finalized days when campaign rows are empty", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ spend: "10" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: {
+              currency: "USD",
+              timezone: "UTC",
+              name: "Account 1",
+            },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-positive",
+        workerId: "worker-1",
+        leaseEpoch: 22,
+        attemptCount: 1,
+        leaseMinutes: 15,
+      }),
+    ).rejects.toThrow("Meta finalized truth validation failed");
   });
 
   it("writes normalized config fields into campaign_daily and adset_daily rows during core sync", async () => {
@@ -1080,5 +1227,77 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
 
     expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaAccountDailyRows).not.toHaveBeenCalled();
+  });
+});
+
+describe("syncMetaAccountBreakdownWarehouseDay", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
+    vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
+  });
+
+  it("replaces only the targeted breakdown slice with explicit metadata", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                age: "25-34",
+                spend: "3.25",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "32.5",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncMetaAccountBreakdownWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-breakdown",
+      workerId: "worker-1",
+      leaseEpoch: 31,
+      attemptCount: 1,
+      breakdowns: "breakdown_age",
+      endpointName: "breakdown_age",
+      positiveSpendAdIds: [],
+      leaseMinutes: 15,
+    });
+
+    expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        slice: {
+          businessId: "biz-1",
+          providerAccountId: "act_1",
+          date: "2026-04-03",
+          breakdownType: "age",
+        },
+      }),
+    );
   });
 });

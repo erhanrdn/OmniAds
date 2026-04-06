@@ -3831,18 +3831,33 @@ export async function replaceMetaAdSetDailySlice(input: {
 }
 
 export async function replaceMetaBreakdownDailySlice(input: {
+  slice: {
+    businessId: string;
+    providerAccountId: string;
+    date: string;
+    breakdownType: MetaBreakdownType;
+  };
   rows: MetaBreakdownDailyRow[];
   proof: MetaFinalizationCompletenessProof;
 }) {
-  const first = input.rows[0];
-  if (!first) return;
   const slice = {
-    businessId: first.businessId,
-    providerAccountId: first.providerAccountId,
-    date: normalizeDate(first.date),
+    businessId: input.slice.businessId,
+    providerAccountId: input.slice.providerAccountId,
+    date: normalizeDate(input.slice.date),
+    breakdownType: input.slice.breakdownType,
     scope: "breakdown",
   } as const;
   assertMetaFinalizationCompletenessProof(input.proof, slice);
+  for (const row of input.rows) {
+    if (
+      row.businessId !== slice.businessId ||
+      row.providerAccountId !== slice.providerAccountId ||
+      normalizeDate(row.date) !== slice.date ||
+      row.breakdownType !== slice.breakdownType
+    ) {
+      throw new Error("meta_breakdown_slice_mismatch");
+    }
+  }
   await runInTransaction(async () => {
     const sql = getDb();
     await sql`
@@ -3850,8 +3865,11 @@ export async function replaceMetaBreakdownDailySlice(input: {
       WHERE business_id = ${slice.businessId}
         AND provider_account_id = ${slice.providerAccountId}
         AND date = ${slice.date}::date
+        AND breakdown_type = ${slice.breakdownType}
     `;
-    await upsertMetaBreakdownDailyRows(input.rows);
+    if (input.rows.length > 0) {
+      await upsertMetaBreakdownDailyRows(input.rows);
+    }
   });
 }
 
