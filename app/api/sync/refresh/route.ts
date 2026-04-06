@@ -7,7 +7,7 @@ import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
-import { syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
+import { consumeMetaQueuedWork, syncMetaRepairRange, syncMetaToday } from "@/lib/sync/meta-sync";
 
 /**
  * POST /api/sync/refresh
@@ -499,6 +499,23 @@ export async function POST(request: NextRequest) {
     );
   } finally {
     inFlightRefreshKeys.delete(refreshKey);
+  }
+
+  const explicitSingleDayMetaRefresh =
+    provider === "meta" &&
+    startDate != null &&
+    endDate != null &&
+    startDate === endDate;
+  if (explicitSingleDayMetaRefresh && !metaConsumerRunning) {
+    await consumeMetaQueuedWork(businessId).catch((error) => {
+      console.warn("[sync-refresh] meta_inline_consume_failed", {
+        businessId,
+        provider,
+        startDate,
+        endDate,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   if (isBacklogOnlySyncResult(provider, syncResult.result)) {

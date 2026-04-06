@@ -35,6 +35,7 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork: vi.fn(),
+  consumeMetaQueuedWork: vi.fn(),
   syncMetaRepairRange: vi.fn(),
   syncMetaToday: vi.fn(),
 }));
@@ -209,6 +210,45 @@ describe("POST /api/sync/refresh", () => {
       startDate: "2026-03-01",
       endDate: "2026-03-02",
     });
+    expect(metaSync.consumeMetaQueuedWork).not.toHaveBeenCalled();
+  });
+
+  it("runs an inline Meta consume fallback for explicit single-day refreshes when no consumer is active", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    } as never);
+    vi.mocked(metaSync.consumeMetaQueuedWork).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    } as never);
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "repair",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+      })
+    );
+
+    expect(response.status).toBe(202);
+    expect(metaSync.syncMetaRepairRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-05",
+      endDate: "2026-04-05",
+    });
+    expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalledWith("biz");
   });
 
   it("returns not found for unknown businesses", async () => {
