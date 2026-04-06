@@ -166,12 +166,12 @@ describe("sync status pill resolver", () => {
     });
   });
 
-  it("renders an active pill for Google Ads when core data is usable despite advisor backlog", () => {
+  it("renders a core-live pill for Google Ads when core data is usable despite advisor backlog", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({
         connected: true,
         assignedAccountIds: ["acc_1"],
-        state: "syncing",
+        state: "advisor_not_ready",
         panel: {
           coreUsable: true,
           extendedLimited: true,
@@ -186,9 +186,9 @@ describe("sync status pill resolver", () => {
         },
       } as never)
     ).toMatchObject({
-      label: "Active",
-      tone: "success",
-      state: "active",
+      label: "Core live",
+      tone: "info",
+      state: "syncing",
     });
   });
 
@@ -220,7 +220,7 @@ describe("sync status pill resolver", () => {
     });
   });
 
-  it("prefers Google Ads attention state over 100 percent progress", () => {
+  it("does not present advisor_not_ready as a blocking attention state", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({
         connected: true,
@@ -233,9 +233,28 @@ describe("sync status pill resolver", () => {
         },
       } as never)
     ).toMatchObject({
-      label: "Needs attention",
-      tone: "warning",
-      state: "needs_attention",
+      label: "Core live",
+      tone: "info",
+      state: "syncing",
+    });
+  });
+
+  it("renders a partially ready pill for Google Ads when extended selected-range surfaces lag", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "partial",
+        advisorProgress: {
+          visible: true,
+          percent: 72,
+          summary: "Preparing",
+        },
+      } as never)
+    ).toMatchObject({
+      label: "72% Partially ready",
+      tone: "info",
+      state: "syncing",
     });
   });
 });

@@ -66,6 +66,12 @@ export interface GoogleAdsProgressState {
   summary: string;
 }
 
+export interface GoogleAdsStatusDomainSummary {
+  state: "syncing" | "partial" | "ready" | "advisor_not_ready";
+  label: string;
+  detail: string;
+}
+
 export interface GoogleAdsStatusResponse {
   state:
     | "not_connected"
@@ -261,6 +267,11 @@ export interface GoogleAdsStatusResponse {
     detail: string;
     surfaceStates: GoogleAdsPanelSurfaceState[];
   } | null;
+  domains?: {
+    core: GoogleAdsStatusDomainSummary;
+    selectedRange: GoogleAdsStatusDomainSummary;
+    advisor: GoogleAdsStatusDomainSummary;
+  } | null;
   extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
   recentExtendedReady?: boolean;
   historicalExtendedReady?: boolean;
@@ -268,7 +279,7 @@ export interface GoogleAdsStatusResponse {
   rangeCompletionBySurface?: Record<
     string,
     {
-      recent: GoogleAdsExtendedRangeCompletion;
+      selectedRange: GoogleAdsExtendedRangeCompletion;
       historical: GoogleAdsExtendedRangeCompletion;
     }
   > | null;

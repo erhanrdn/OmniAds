@@ -65,7 +65,11 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
 
 vi.mock("@/lib/google-ads/status-machine", () => ({
   decideGoogleAdsAdvisorReadiness: vi.fn(() => ({ ready: false, notReady: true })),
-  decideGoogleAdsFullSyncPriority: vi.fn(() => "normal"),
+  decideGoogleAdsFullSyncPriority: vi.fn(() => ({
+    required: false,
+    reason: null,
+    targetScopes: [],
+  })),
   decideGoogleAdsStatusState: vi.fn(() => "not_connected"),
 }));
 
@@ -170,8 +174,8 @@ describe("GET /api/google-ads/status", () => {
         sourceReason: null,
       },
     });
-    vi.mocked(warehouse.getLatestGoogleAdsSyncHealth).mockResolvedValue(null);
-    vi.mocked(warehouse.getGoogleAdsCheckpointHealth).mockResolvedValue(null);
+    vi.mocked(warehouse.getLatestGoogleAdsSyncHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getGoogleAdsCheckpointHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsDailyCoverage).mockResolvedValue({
       completed_days: 365,
       ready_through_date: "2026-03-30",
@@ -179,8 +183,8 @@ describe("GET /api/google-ads/status", () => {
       total_rows: 10,
     } as never);
     vi.mocked(warehouse.getGoogleAdsCoveredDates).mockResolvedValue([] as never);
-    vi.mocked(warehouse.getGoogleAdsAdvisorQueueHealth).mockResolvedValue(null);
-    vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValue(null);
+    vi.mocked(warehouse.getGoogleAdsAdvisorQueueHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsSyncState).mockResolvedValue([]);
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
 
@@ -215,5 +219,37 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");
+  });
+
+  it("returns selected-range readiness for all visible Google Ads extended surfaces", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/google-ads/status?businessId=biz&startDate=2026-03-01&endDate=2026-03-30"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.panel.surfaceStates.map((entry: { scope: string }) => entry.scope)).toEqual([
+      "search_term_daily",
+      "product_daily",
+      "asset_daily",
+      "asset_group_daily",
+      "geo_daily",
+      "device_daily",
+      "audience_daily",
+    ]);
+    expect(payload.rangeCompletionBySurface).toMatchObject({
+      search_term_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+      product_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+      asset_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+      asset_group_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+      geo_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+      device_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+      audience_daily: { selectedRange: expect.any(Object), historical: expect.any(Object) },
+    });
+    expect(payload.domains).toHaveProperty("core");
+    expect(payload.domains).toHaveProperty("selectedRange");
+    expect(payload.domains).toHaveProperty("advisor");
   });
 });

@@ -62,6 +62,7 @@ import type {
   GoogleAdsExtendedRangeCompletion,
   GoogleAdsPanelRecoveryMode,
   GoogleAdsPanelSurfaceState,
+  GoogleAdsStatusDomainSummary,
 } from "@/lib/google-ads/status-types";
 
 function isGeneralReopenEnabled() {
@@ -306,6 +307,95 @@ function buildAdvisorBlockingMessage(input: {
   return "Advisor snapshot can be generated as soon as you request a refresh.";
 }
 
+function buildGoogleAdsStatusDomains(input: {
+  coreUsable: boolean;
+  selectedRangeCoreIncomplete: boolean;
+  selectedRangePendingSurfaces: string[];
+  advisorReady: boolean;
+  advisorNotReady: boolean;
+  connected: boolean;
+  assignedAccountCount: number;
+}): {
+  core: GoogleAdsStatusDomainSummary;
+  selectedRange: GoogleAdsStatusDomainSummary;
+  advisor: GoogleAdsStatusDomainSummary;
+} {
+  const core =
+    !input.connected
+      ? {
+          state: "syncing" as const,
+          label: "Not connected",
+          detail: "Connect Google Ads to unlock reporting.",
+        }
+      : input.assignedAccountCount === 0
+        ? {
+            state: "syncing" as const,
+            label: "Assignment required",
+            detail: "Assign a Google Ads account before reporting can become usable.",
+          }
+        : input.coreUsable
+          ? {
+              state: "ready" as const,
+              label: "Core reporting usable",
+              detail: "Campaign spend and reporting coverage are ready to use.",
+            }
+          : {
+              state: "syncing" as const,
+              label: "Core reporting syncing",
+              detail: "Campaign spend and reporting coverage are still preparing.",
+            };
+
+  const selectedRange =
+    !input.coreUsable || input.selectedRangeCoreIncomplete
+      ? {
+          state: "syncing" as const,
+          label: "Selected range syncing",
+          detail: "Selected-range campaign coverage is still preparing.",
+        }
+      : input.selectedRangePendingSurfaces.length > 0
+        ? {
+            state: "partial" as const,
+            label: "Selected range partial",
+            detail: `Extended selected-range coverage is still preparing for ${input.selectedRangePendingSurfaces.join(", ")}.`,
+          }
+        : {
+            state: "ready" as const,
+            label: "Selected range ready",
+            detail: "Visible selected-range surfaces are ready.",
+          };
+
+  const advisor =
+    !input.connected || input.assignedAccountCount === 0
+      ? {
+          state: "syncing" as const,
+          label: "Advisor unavailable",
+          detail: "Connect and assign Google Ads before advisor analysis can prepare.",
+        }
+      : input.advisorReady
+        ? {
+            state: "ready" as const,
+            label: "Advisor ready",
+            detail: "Canonical 90-day advisor coverage is ready.",
+          }
+        : input.advisorNotReady
+          ? {
+              state: "advisor_not_ready" as const,
+              label: "Advisor preparing",
+              detail: "Canonical 90-day advisor coverage is still syncing.",
+            }
+          : {
+              state: "syncing" as const,
+              label: "Advisor syncing",
+              detail: "Advisor readiness is still being evaluated.",
+            };
+
+  return {
+    core,
+    selectedRange,
+    advisor,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
@@ -521,7 +611,6 @@ export async function GET(request: NextRequest) {
     initialBackfillEnd,
     GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS
   );
-  const recentExtendedStart = addDaysToIsoDate(initialBackfillEnd, -13);
   const totalDays = dayCountInclusive(initialBackfillStart, initialBackfillEnd);
 
   const [accountCoverage, campaignCoverage] =
@@ -612,33 +701,6 @@ export async function GET(request: NextRequest) {
           }),
         ])
       : [null, null, null, null, null, null, null];
-  const [recentSearchTermCoverage, recentProductCoverage, recentAssetCoverage] =
-      await Promise.all([
-          readGoogleAdsStatusCoverage({
-            scope: "search_term_daily",
-            businessId: businessId!,
-            providerAccountId: null,
-            startDate: recentExtendedStart,
-            endDate: initialBackfillEnd,
-            timeoutMs: 30_000,
-          }),
-          readGoogleAdsStatusCoverage({
-            scope: "product_daily",
-            businessId: businessId!,
-            providerAccountId: null,
-            startDate: recentExtendedStart,
-            endDate: initialBackfillEnd,
-            timeoutMs: 30_000,
-          }),
-          readGoogleAdsStatusCoverage({
-            scope: "asset_daily",
-            businessId: businessId!,
-            providerAccountId: null,
-            startDate: recentExtendedStart,
-            endDate: initialBackfillEnd,
-            timeoutMs: 30_000,
-          }),
-        ]);
   const allStateScopes = [
     "account_daily",
     "campaign_daily",
@@ -800,7 +862,7 @@ export async function GET(request: NextRequest) {
     selectedRangeTotalDays && selectedRangeTotalDays > 0
       ? Math.min(100, Math.round((selectedRangeCompletedDays / selectedRangeTotalDays) * 100))
       : null;
-  const selectedRangeIncomplete =
+  const selectedRangeCoreIncomplete =
     Boolean(selectedRangeTotalDays) &&
     selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
   const backgroundRunningJobs = Number(queueHealth?.leasedPartitions ?? 0);
@@ -833,7 +895,7 @@ export async function GET(request: NextRequest) {
           completedDays: selectedRangeCompletedDays,
           totalDays: selectedRangeTotalDays,
           isActive:
-            selectedRangeIncomplete &&
+            selectedRangeCoreIncomplete &&
             (priorityRunningJobs > 0 ||
               (latestPriorityActivityAt != null &&
                 Date.now() - new Date(String(latestPriorityActivityAt)).getTime() < 10 * 60 * 1000)),
@@ -1097,66 +1159,49 @@ export async function GET(request: NextRequest) {
     advisorMissingSurfaces,
   });
   const coreUsable = coreReadiness.coreUsable;
-  const rangeCompletionBySurface = {
-    search_term_daily: {
-      recent: toRangeCompletion({
-        completedDays: recentSearchTermCoverage?.completed_days ?? 0,
-        totalDays: dayCountInclusive(recentExtendedStart, initialBackfillEnd),
-        readyThroughDate: recentSearchTermCoverage?.ready_through_date ?? null,
-      }),
-      historical: toRangeCompletion({
-        completedDays:
-          extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")
-            ?.completedDays ?? 0,
-        totalDays:
-          extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")
-            ?.totalDays ?? effectiveHistoricalTotalDays,
-        readyThroughDate:
-          extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")
-            ?.readyThroughDate ?? null,
-      }),
-    },
-    product_daily: {
-      recent: toRangeCompletion({
-        completedDays: recentProductCoverage?.completed_days ?? 0,
-        totalDays: dayCountInclusive(recentExtendedStart, initialBackfillEnd),
-        readyThroughDate: recentProductCoverage?.ready_through_date ?? null,
-      }),
-      historical: toRangeCompletion({
-        completedDays:
-          extendedScopeSummaries.find((summary) => summary.scope === "product_daily")
-            ?.completedDays ?? 0,
-        totalDays:
-          extendedScopeSummaries.find((summary) => summary.scope === "product_daily")
-            ?.totalDays ?? effectiveHistoricalTotalDays,
-        readyThroughDate:
-          extendedScopeSummaries.find((summary) => summary.scope === "product_daily")
-            ?.readyThroughDate ?? null,
-      }),
-    },
-    asset_daily: {
-      recent: toRangeCompletion({
-        completedDays: recentAssetCoverage?.completed_days ?? 0,
-        totalDays: dayCountInclusive(recentExtendedStart, initialBackfillEnd),
-        readyThroughDate: recentAssetCoverage?.ready_through_date ?? null,
-      }),
-      historical: toRangeCompletion({
-        completedDays:
-          extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")
-            ?.completedDays ?? 0,
-        totalDays:
-          extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")
-            ?.totalDays ?? effectiveHistoricalTotalDays,
-        readyThroughDate:
-          extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")
-            ?.readyThroughDate ?? null,
-      }),
-    },
+  const selectedCoverageByScope = {
+    search_term_daily: selectedSearchTermCoverage,
+    product_daily: selectedProductCoverage,
+    asset_daily: selectedAssetCoverage,
+    asset_group_daily: selectedAssetGroupCoverage,
+    geo_daily: selectedGeoCoverage,
+    device_daily: selectedDeviceCoverage,
+    audience_daily: selectedAudienceCoverage,
   } as const;
+  const rangeCompletionBySurface = Object.fromEntries(
+    (Object.keys(selectedCoverageByScope) as Array<keyof typeof selectedCoverageByScope>).map(
+      (scope) => {
+        const historicalSummary = extendedScopeSummaries.find(
+          (summary) => summary.scope === scope
+        );
+        return [
+          scope,
+          {
+            selectedRange: toRangeCompletion({
+              completedDays: selectedCoverageByScope[scope]?.completed_days ?? 0,
+              totalDays: selectedRangeTotalDays ?? 0,
+              readyThroughDate: selectedCoverageByScope[scope]?.ready_through_date ?? null,
+            }),
+            historical: toRangeCompletion({
+              completedDays: historicalSummary?.completedDays ?? 0,
+              totalDays: historicalSummary?.totalDays ?? effectiveHistoricalTotalDays,
+              readyThroughDate: historicalSummary?.readyThroughDate ?? null,
+            }),
+          },
+        ];
+      }
+    )
+  ) as Record<
+    keyof typeof selectedCoverageByScope,
+    {
+      selectedRange: GoogleAdsExtendedRangeCompletion;
+      historical: GoogleAdsExtendedRangeCompletion;
+    }
+  >;
   const recentGapCountByScope = Object.fromEntries(
     Object.entries(rangeCompletionBySurface).map(([scope, surface]) => [
       scope,
-      Math.max(0, surface.recent.totalDays - surface.recent.completedDays),
+      Math.max(0, surface.selectedRange.totalDays - surface.selectedRange.completedDays),
     ])
   );
   const recentRepairRowsByScope = new Map(
@@ -1229,7 +1274,7 @@ export async function GET(request: NextRequest) {
     ])
   );
   const recentExtendedReady = Object.values(rangeCompletionBySurface).every(
-    (surface) => surface.recent.ready
+    (surface) => surface.selectedRange.ready
   );
   const historicalExtendedReady = Object.values(rangeCompletionBySurface).every(
     (surface) => surface.historical.ready
@@ -1256,38 +1301,40 @@ export async function GET(request: NextRequest) {
     ? 100
     : Math.max(0, Math.min(99, Math.round(averageHistoricalCompletionRatio * 100)));
   const historicalProgressSummary = "Historical sync continues in the background.";
-  const majorSurfaceStates = [
+  const surfaceLabels: Record<keyof typeof selectedCoverageByScope, string> = {
+    search_term_daily: "Search intelligence",
+    product_daily: "Product performance",
+    asset_daily: "Asset performance",
+    asset_group_daily: "Asset group coverage",
+    geo_daily: "Geo performance",
+    device_daily: "Device performance",
+    audience_daily: "Audience performance",
+  };
+  const majorSurfaceStates = (
+    Object.keys(selectedCoverageByScope) as Array<keyof typeof selectedCoverageByScope>
+  ).map((scope) =>
     buildPanelSurfaceState({
-      scope: "search_term_daily",
-      label: "Search intelligence",
-      completedDays: selectedSearchTermCoverage?.completed_days ?? extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.completedDays ?? 0,
-      totalDays: selectedRangeTotalDays ?? extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.totalDays ?? effectiveHistoricalTotalDays,
-      readyThroughDate: selectedSearchTermCoverage?.ready_through_date ?? extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.readyThroughDate ?? null,
-      latestBackgroundActivityAt: extendedScopeSummaries.find((summary) => summary.scope === "search_term_daily")?.latestBackgroundActivityAt ?? null,
+      scope,
+      label: surfaceLabels[scope],
+      completedDays:
+        selectedCoverageByScope[scope]?.completed_days ??
+        extendedScopeSummaries.find((summary) => summary.scope === scope)?.completedDays ??
+        0,
+      totalDays:
+        selectedRangeTotalDays ??
+        extendedScopeSummaries.find((summary) => summary.scope === scope)?.totalDays ??
+        effectiveHistoricalTotalDays,
+      readyThroughDate:
+        selectedCoverageByScope[scope]?.ready_through_date ??
+        extendedScopeSummaries.find((summary) => summary.scope === scope)?.readyThroughDate ??
+        null,
+      latestBackgroundActivityAt:
+        extendedScopeSummaries.find((summary) => summary.scope === scope)
+          ?.latestBackgroundActivityAt ?? null,
       currentMode,
       canaryEligible,
-    }),
-    buildPanelSurfaceState({
-      scope: "product_daily",
-      label: "Product performance",
-      completedDays: selectedProductCoverage?.completed_days ?? extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.completedDays ?? 0,
-      totalDays: selectedRangeTotalDays ?? extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.totalDays ?? effectiveHistoricalTotalDays,
-      readyThroughDate: selectedProductCoverage?.ready_through_date ?? extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.readyThroughDate ?? null,
-      latestBackgroundActivityAt: extendedScopeSummaries.find((summary) => summary.scope === "product_daily")?.latestBackgroundActivityAt ?? null,
-      currentMode,
-      canaryEligible,
-    }),
-    buildPanelSurfaceState({
-      scope: "asset_daily",
-      label: "Asset performance",
-      completedDays: selectedAssetCoverage?.completed_days ?? extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.completedDays ?? 0,
-      totalDays: selectedRangeTotalDays ?? extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.totalDays ?? effectiveHistoricalTotalDays,
-      readyThroughDate: selectedAssetCoverage?.ready_through_date ?? extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.readyThroughDate ?? null,
-      latestBackgroundActivityAt: extendedScopeSummaries.find((summary) => summary.scope === "asset_daily")?.latestBackgroundActivityAt ?? null,
-      currentMode,
-      canaryEligible,
-    }),
-  ];
+    })
+  );
   const extendedLimited = majorSurfaceStates.some((surface) => surface.state !== "ready");
   const panelHeadline =
     coreUsable && extendedLimited
@@ -1310,7 +1357,7 @@ export async function GET(request: NextRequest) {
         ? "extended_normal"
         : "extended_recovery";
   const extendedRecentReadyThroughDate = Object.values(rangeCompletionBySurface)
-    .map((surface) => surface.recent.readyThroughDate)
+    .map((surface) => surface.selectedRange.readyThroughDate)
     .filter((value): value is string => Boolean(value))
     .sort((a, b) => a.localeCompare(b))[0] ?? null;
   const extendedRecoveryBlockReason = getGoogleAdsExtendedRecoveryBlockReason({
@@ -1383,6 +1430,7 @@ export async function GET(request: NextRequest) {
   const overallState = decideGoogleAdsStatusState({
       connected,
       assignedAccountCount: accountIds.length,
+      coreUsable,
       historicalQueuePaused,
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
       advisorRelevantDeadLetterPartitions,
@@ -1391,7 +1439,10 @@ export async function GET(request: NextRequest) {
       latestSyncStatus: effectiveLatestSync?.status ? String(effectiveLatestSync.status) : null,
       runningJobs,
       staleRunningJobs,
-      selectedRangeIncomplete,
+      selectedRangeCoreIncomplete,
+      visibleSelectedRangePendingSurfaces: majorSurfaceStates
+        .filter((surface) => surface.state !== "ready")
+        .map((surface) => surface.scope),
       historicalProgressPercent,
       needsBootstrap,
       productPendingSurfaces,
@@ -1399,6 +1450,17 @@ export async function GET(request: NextRequest) {
       advisorMissingSurfaces,
       advisorNotReady,
     });
+  const domains = buildGoogleAdsStatusDomains({
+    coreUsable,
+    selectedRangeCoreIncomplete,
+    selectedRangePendingSurfaces: majorSurfaceStates
+      .filter((surface) => surface.state !== "ready")
+      .map((surface) => surface.scope),
+    advisorReady,
+    advisorNotReady,
+    connected,
+    assignedAccountCount: accountIds.length,
+  });
   const latestGoogleActivityAt =
     queueHealth?.latestCoreActivityAt ??
     queueHealth?.latestExtendedActivityAt ??
@@ -1443,7 +1505,7 @@ export async function GET(request: NextRequest) {
     warehouseRowCount: Number(warehouseStats?.row_count ?? 0),
     warehousePartial:
       selectedRangeTotalDays != null
-        ? Boolean(selectedRangeIncomplete)
+        ? Boolean(selectedRangeCoreIncomplete)
         : overallCompletedDays < effectiveHistoricalTotalDays,
     syncState: overallState,
     selectedCurrentDay: false,
@@ -1486,7 +1548,7 @@ export async function GET(request: NextRequest) {
                 completedDays: selectedRangeCompletedDays,
                 totalDays: selectedRangeTotalDays,
                 readyThroughDate: selectedRangeCoverage?.ready_through_date ?? null,
-                isComplete: !selectedRangeIncomplete,
+                isComplete: !selectedRangeCoreIncomplete,
               }
             : null,
         accountDaily: {
@@ -1658,6 +1720,7 @@ export async function GET(request: NextRequest) {
       detail: panelDetail,
       surfaceStates: majorSurfaceStates,
     },
+    domains,
     extendedRecoveryState,
     recentExtendedReady,
     historicalExtendedReady,

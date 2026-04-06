@@ -115,7 +115,6 @@ export interface ProductRow {
   conversions: number;
   statusLabel?: "scale" | "stable" | "test" | "reduce";
   contributionState?: "positive" | "neutral" | "negative";
-  sourceType?: "product" | "campaign_proxy";
 }
 
 export interface ProductsResponse {

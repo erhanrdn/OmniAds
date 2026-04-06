@@ -60,6 +60,16 @@ function buildSyncingPill(percent: number, label = "Syncing"): SyncStatusPillSta
   };
 }
 
+function buildInfoPill(label: string): SyncStatusPillState {
+  return {
+    visible: true,
+    label,
+    tone: "info",
+    percent: null,
+    state: "syncing",
+  };
+}
+
 function buildActivePill(label = "Active"): SyncStatusPillState {
   return {
     visible: true,
@@ -162,30 +172,47 @@ export function resolveGoogleAdsSyncStatusPill(
     status.state === "action_required" ||
     status.state === "paused" ||
     status.state === "stale" ||
-    status.state === "advisor_not_ready" ||
     status.operations?.progressState === "blocked";
 
   if (isAttentionState) {
     return buildAttentionPill();
   }
 
-  if (status.panel?.coreUsable) {
+  if (status.state === "ready") {
     return buildActivePill();
+  }
+
+  if (status.state === "advisor_not_ready") {
+    return buildInfoPill("Core live");
+  }
+
+  if (status.state === "partial") {
+    if (typeof percent === "number" && percent < 100) {
+      return buildSyncingPill(percent, "Partially ready");
+    }
+    return buildInfoPill("Partially ready");
+  }
+
+  if (status.panel?.coreUsable) {
+    if (typeof percent === "number" && percent < 100) {
+      return buildSyncingPill(percent, "Core live");
+    }
+    return buildInfoPill("Core live");
   }
 
   if (typeof percent === "number" && percent < 100) {
     return buildSyncingPill(percent);
   }
 
-  if (status.state === "ready" || percent === 100) {
+  if (percent === 100) {
     return buildActivePill();
   }
 
-  if ((status.state === "syncing" || status.state === "partial") && typeof percent === "number") {
+  if (status.state === "syncing" && typeof percent === "number") {
     return buildSyncingPill(percent);
   }
 
-  if (status.state === "syncing" || status.state === "partial") {
+  if (status.state === "syncing") {
     return buildAttentionPill();
   }
 

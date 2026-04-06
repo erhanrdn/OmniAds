@@ -126,23 +126,17 @@ function getGoogleAdsSyncEmptyState(
     };
   }
   if (
-    status.state === "advisor_not_ready" ||
     status.state === "syncing" ||
     status.state === "partial" ||
     status.state === "stale"
   ) {
     const readyThrough = status.latestSync?.readyThroughDate;
     return {
-      title:
-        status.state === "advisor_not_ready"
-          ? `${areaLabel} is waiting for advisor support`
-          : `${areaLabel} is still preparing`,
+      title: `${areaLabel} is still preparing`,
       description:
-        status.state === "advisor_not_ready"
-          ? "Core history is ready. Search term and product history are still syncing for advisor analysis."
-          : readyThrough
-            ? `Historical data is syncing in the background. Ready through ${readyThrough}.`
-            : "Historical data is syncing in the background. This section will fill in progressively.",
+        readyThrough
+          ? `Historical data is syncing in the background. Ready through ${readyThrough}.`
+          : "Historical data is syncing in the background. This section will fill in progressively.",
     };
   }
   return {
@@ -184,7 +178,7 @@ function SurfaceRecoveryNotice({
   surface: GoogleAdsPanelSurfaceState | null | undefined;
   rangeCompletion?:
     | {
-        recent: {
+        selectedRange: {
           completedDays: number;
           totalDays: number;
           readyThroughDate: string | null;
@@ -221,8 +215,8 @@ function SurfaceRecoveryNotice({
           </span>
         ) : null}
         {rangeCompletion ? (
-          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-            Recent {rangeCompletion.recent.completedDays}/{rangeCompletion.recent.totalDays} {rangeCompletion.recent.ready ? "ready" : "backfilling"}
+        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+            Selected range {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
         {rangeCompletion ? (
@@ -237,6 +231,45 @@ function SurfaceRecoveryNotice({
           Latest background activity {surface.latestBackgroundActivityAt}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function getDomainBadgeClass(
+  state: NonNullable<GoogleAdsStatusResponse["domains"]>["core"]["state"]
+) {
+  switch (state) {
+    case "ready":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "partial":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "advisor_not_ready":
+      return "border-sky-200 bg-sky-50 text-sky-800";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function StatusDomainRow({
+  label,
+  summary,
+}: {
+  label: string;
+  summary: NonNullable<GoogleAdsStatusResponse["domains"]>["core"] | null | undefined;
+}) {
+  if (!summary) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "rounded-full border px-2 py-0.5 font-medium",
+          getDomainBadgeClass(summary.state)
+        )}
+      >
+        {summary.label}
+      </span>
+      <span className="text-muted-foreground">{summary.detail}</span>
     </div>
   );
 }
@@ -789,43 +822,10 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     asset.assetGroupName ??
     "Unnamed asset";
 
-  const productRows = useMemo(() => {
-    const rawRows = [...(productsData?.rows ?? [])].map((row) => ({
-      ...row,
-      sourceType: "product" as const,
-    }));
-
-    if (rawRows.length > 0) {
-      return rawRows.sort((a, b) => b.spend - a.spend);
-    }
-
-    // Fallback: keep the panel actionable when product-level feed data is unavailable.
-    return sortedRows.map((campaign) => ({
-      itemId: campaign.id,
-      title: `${campaign.name} (campaign proxy)`,
-      spend: campaign.spend,
-      revenue: campaign.revenue,
-      roas: campaign.roas,
-      conversions: campaign.conversions,
-      statusLabel:
-        campaign.actionState === "scale"
-          ? "scale"
-          : campaign.actionState === "reduce"
-          ? "reduce"
-          : campaign.actionState === "test"
-          ? "test"
-          : "stable",
-      contributionState:
-        campaign.revenue > campaign.spend
-          ? "positive"
-          : campaign.revenue < campaign.spend
-          ? "negative"
-          : "neutral",
-      sourceType: "campaign_proxy" as const,
-    }));
-  }, [productsData?.rows, sortedRows]);
-
-  const hasRealProductRows = (productsData?.rows?.length ?? 0) > 0;
+  const productRows = useMemo(
+    () => [...(productsData?.rows ?? [])].sort((a, b) => b.spend - a.spend),
+    [productsData?.rows]
+  );
 
   const totalProductSpend = productRows.reduce((sum, row) => sum + Number(row.spend ?? 0), 0);
   const totalProductRevenue = productRows.reduce((sum, row) => sum + Number(row.revenue ?? 0), 0);
@@ -915,13 +915,38 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const searchSurfaceState = panelSurfaceLookup.get("search_term_daily") ?? null;
   const productSurfaceState = panelSurfaceLookup.get("product_daily") ?? null;
   const assetSurfaceState = panelSurfaceLookup.get("asset_daily") ?? null;
+  const assetGroupSurfaceState = panelSurfaceLookup.get("asset_group_daily") ?? null;
+  const audienceSurfaceState = panelSurfaceLookup.get("audience_daily") ?? null;
+  const geoSurfaceState = panelSurfaceLookup.get("geo_daily") ?? null;
+  const deviceSurfaceState = panelSurfaceLookup.get("device_daily") ?? null;
   const searchRangeCompletion = syncStatus?.rangeCompletionBySurface?.search_term_daily ?? null;
   const productRangeCompletion = syncStatus?.rangeCompletionBySurface?.product_daily ?? null;
   const assetRangeCompletion = syncStatus?.rangeCompletionBySurface?.asset_daily ?? null;
+  const assetGroupRangeCompletion =
+    syncStatus?.rangeCompletionBySurface?.asset_group_daily ?? null;
+  const audienceRangeCompletion =
+    syncStatus?.rangeCompletionBySurface?.audience_daily ?? null;
+  const geoRangeCompletion = syncStatus?.rangeCompletionBySurface?.geo_daily ?? null;
+  const deviceRangeCompletion = syncStatus?.rangeCompletionBySurface?.device_daily ?? null;
 
   const summaryEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Campaign data");
   const insightsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Search insights", searchSurfaceState);
-  const assetGroupEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset groups and audiences");
+  const assetGroupEmptyState = getGoogleAdsSyncEmptyState(
+    syncStatus,
+    "Asset groups",
+    assetGroupSurfaceState
+  );
+  const audienceEmptyState = getGoogleAdsSyncEmptyState(
+    syncStatus,
+    "Audience performance",
+    audienceSurfaceState
+  );
+  const geoEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Geo performance", geoSurfaceState);
+  const deviceEmptyState = getGoogleAdsSyncEmptyState(
+    syncStatus,
+    "Device performance",
+    deviceSurfaceState
+  );
   const productsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Product performance", productSurfaceState);
   const assetsEmptyState = getGoogleAdsSyncEmptyState(syncStatus, "Asset performance", assetSurfaceState);
   const campaignScopeLabel = isLoading
@@ -1147,8 +1172,13 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           </div>
         </div>
       </div>
-
-      {null}
+      <div className="rounded-xl border border-border/70 bg-card/70 p-3">
+        <div className="space-y-1.5">
+          <StatusDomainRow label="Core" summary={syncStatus?.domains?.core} />
+          <StatusDomainRow label="Selected range" summary={syncStatus?.domains?.selectedRange} />
+          <StatusDomainRow label="Advisor" summary={syncStatus?.domains?.advisor} />
+        </div>
+      </div>
 
       {activePanel === "summary" && <section className="mb-6">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
@@ -1285,7 +1315,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           )}
 
           <p className="text-xs text-muted-foreground">Search terms and when/where ads appeared metrics</p>
-          <SurfaceRecoveryNotice surface={searchSurfaceState} rangeCompletion={searchRangeCompletion} />
+          <div className="space-y-2">
+            <SurfaceRecoveryNotice surface={searchSurfaceState} rangeCompletion={searchRangeCompletion} />
+            <SurfaceRecoveryNotice surface={geoSurfaceState} rangeCompletion={geoRangeCompletion} />
+            <SurfaceRecoveryNotice surface={deviceSurfaceState} rangeCompletion={deviceRangeCompletion} />
+          </div>
           {isSearchTermsLoading || isGeoLoading || isDevicesLoading ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
           ) : scopedSearchTerms.length === 0 && topGeoRows.length === 0 && topDeviceRows.length === 0 ? (
@@ -1393,7 +1427,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <p className="text-xs font-semibold tracking-tight">When and where ads showed - Locations</p>
                   <div className="mt-2 space-y-1.5">
                     {topGeoRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">No geo data in this range.</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {geoSurfaceState && geoSurfaceState.state !== "ready"
+                          ? geoSurfaceState.message
+                          : geoEmptyState.description}
+                      </p>
                     ) : (
                       topGeoRows.map((row, index) => (
                         <div
@@ -1412,7 +1450,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                   <p className="text-xs font-semibold tracking-tight">When and where ads showed - Devices</p>
                   <div className="mt-2 space-y-1.5">
                     {topDeviceRows.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">No device data in this range.</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {deviceSurfaceState && deviceSurfaceState.state !== "ready"
+                          ? deviceSurfaceState.message
+                          : deviceEmptyState.description}
+                      </p>
                     ) : (
                       topDeviceRows.map((row, index) => (
                         <div
@@ -1435,13 +1477,28 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       {activePanel === "assetGroupAudience" ? (
         <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
           <p className="text-xs text-muted-foreground">Asset group performance, search theme alignment, and audience risks by campaign</p>
+          <div className="space-y-2">
+            <SurfaceRecoveryNotice
+              surface={assetGroupSurfaceState}
+              rangeCompletion={assetGroupRangeCompletion}
+            />
+            <SurfaceRecoveryNotice
+              surface={audienceSurfaceState}
+              rangeCompletion={audienceRangeCompletion}
+            />
+          </div>
           {isAssetGroupsLoading || isAudiencesLoading ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)}</div>
-          ) : campaignSignalCards.length === 0 ? (
-            <EmptyState title={assetGroupEmptyState.title} description={assetGroupEmptyState.description} />
           ) : (
-            <div className="max-h-[520px] space-y-2.5 overflow-auto pr-1">
-              {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
+            <div className="space-y-3">
+              {campaignSignalCards.length === 0 ? (
+                <EmptyState
+                  title={assetGroupEmptyState.title}
+                  description={assetGroupEmptyState.description}
+                />
+              ) : (
+                <div className="max-h-[420px] space-y-2.5 overflow-auto pr-1">
+                  {campaignSignalCards.map(({ campaign, groups, totalThemes, alignedThemes, themeAlignment, weakAudienceSegments, audienceRows }) => (
                     <div key={campaign.id} className="rounded-lg border border-border/70 bg-card p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
@@ -1493,8 +1550,48 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       );
                     })}
                   </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              <div className="rounded-lg border border-border/70 bg-card p-3">
+                <p className="text-xs font-semibold tracking-tight">Audience signals</p>
+                {(() => {
+                  const rows = [...(audiencesData?.rows ?? [])]
+                    .sort((a, b) => b.spend - a.spend)
+                    .slice(0, 8);
+                  if (rows.length === 0) {
+                    return (
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        {audienceSurfaceState && audienceSurfaceState.state !== "ready"
+                          ? audienceSurfaceState.message
+                          : audienceEmptyState.description}
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="mt-2 space-y-1.5">
+                      {rows.map((row, index) => (
+                        <div
+                          key={`${row.campaign ?? "audience"}-${row.type}-${index}`}
+                          className="flex items-center justify-between rounded-md border border-border/70 bg-muted/20 px-2 py-1.5 text-[11px]"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{row.type}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">
+                              {row.campaign ?? "Campaign signal"}
+                            </p>
+                          </div>
+                          <span className="text-muted-foreground">
+                            Spend {fmtCurrency(row.spend)} · ROAS {fmtRoas(row.roas)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
           {assetGroupAdvisor?.sections.length ? (
@@ -1512,7 +1609,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
 
       {activePanel === "products" ? (
         <section className="space-y-3 rounded-xl border border-border/70 bg-card p-3">
-          <p className="text-xs text-muted-foreground">Product-level spend, revenue, ROAS, and action status</p>
+          <p className="text-xs text-muted-foreground">Product-level spend, revenue, ROAS, and contribution status from product truth</p>
           <SurfaceRecoveryNotice surface={productSurfaceState} rangeCompletion={productRangeCompletion} />
           {isProductsLoading ? (
             <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>

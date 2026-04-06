@@ -3,6 +3,7 @@ import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 export interface GoogleAdsStatusDecisionInput {
   connected: boolean;
   assignedAccountCount: number;
+  coreUsable: boolean;
   historicalQueuePaused: boolean;
   deadLetterPartitions: number;
   advisorRelevantDeadLetterPartitions?: number;
@@ -11,7 +12,8 @@ export interface GoogleAdsStatusDecisionInput {
   latestSyncStatus?: string | null;
   runningJobs: number;
   staleRunningJobs: number;
-  selectedRangeIncomplete: boolean;
+  selectedRangeCoreIncomplete: boolean;
+  visibleSelectedRangePendingSurfaces: string[];
   historicalProgressPercent: number;
   needsBootstrap: boolean;
   productPendingSurfaces: string[];
@@ -94,15 +96,21 @@ export function decideGoogleAdsStatusState(
   if (input.latestSyncStatus === "failed" && input.runningJobs === 0) return "action_required";
   if (input.staleRunningJobs > 0) return "stale";
   if (
-    input.advisorNotReady ||
     input.latestSyncStatus === "running" ||
     input.runningJobs > 0 ||
     input.needsBootstrap ||
-    input.selectedRangeIncomplete
+    !input.coreUsable ||
+    input.selectedRangeCoreIncomplete
   ) {
     return "syncing";
   }
-  if (!input.selectedRangeIncomplete && input.historicalProgressPercent >= 100) return "ready";
-  if (input.productPendingSurfaces.length > 0) return "partial";
+  if (input.visibleSelectedRangePendingSurfaces.length > 0) return "partial";
+  if (input.advisorNotReady) return "advisor_not_ready";
+  if (
+    input.productPendingSurfaces.length > 0 &&
+    input.historicalProgressPercent < 100
+  ) {
+    return "partial";
+  }
   return "ready";
 }

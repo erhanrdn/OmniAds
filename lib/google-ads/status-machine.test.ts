@@ -45,6 +45,7 @@ describe("decideGoogleAdsStatusState", () => {
   const baseInput = {
     connected: true,
     assignedAccountCount: 1,
+    coreUsable: true,
     historicalQueuePaused: false,
     deadLetterPartitions: 0,
     advisorRelevantDeadLetterPartitions: 0,
@@ -53,7 +54,8 @@ describe("decideGoogleAdsStatusState", () => {
     latestSyncStatus: null,
     runningJobs: 0,
     staleRunningJobs: 0,
-    selectedRangeIncomplete: false,
+    selectedRangeCoreIncomplete: false,
+    visibleSelectedRangePendingSurfaces: [],
     historicalProgressPercent: 100,
     needsBootstrap: false,
     productPendingSurfaces: [],
@@ -61,7 +63,7 @@ describe("decideGoogleAdsStatusState", () => {
     advisorMissingSurfaces: [],
     supportWindowMissingCount: 0,
     advisorNotReady: false,
-  } as const;
+  };
 
   it("returns ready for a fully prepared workspace", () => {
     expect(decideGoogleAdsStatusState({ ...baseInput })).toBe("ready");
@@ -71,17 +73,34 @@ describe("decideGoogleAdsStatusState", () => {
     expect(
       decideGoogleAdsStatusState({
         ...baseInput,
-        historicalProgressPercent: 80,
-        productPendingSurfaces: ["campaign_daily"],
+        visibleSelectedRangePendingSurfaces: ["product_daily"],
       })
     ).toBe("partial");
   });
 
-  it("keeps the provider syncing instead of exposing advisor_not_ready as top-level sync state", () => {
+  it("returns advisor_not_ready when the page is usable but canonical advisor inputs lag", () => {
     expect(
       decideGoogleAdsStatusState({
         ...baseInput,
         advisorNotReady: true,
+      })
+    ).toBe("advisor_not_ready");
+  });
+
+  it("keeps the provider syncing while core reporting is not yet usable", () => {
+    expect(
+      decideGoogleAdsStatusState({
+        ...baseInput,
+        coreUsable: false,
+      })
+    ).toBe("syncing");
+  });
+
+  it("keeps the provider syncing while selected-range core coverage is incomplete", () => {
+    expect(
+      decideGoogleAdsStatusState({
+        ...baseInput,
+        selectedRangeCoreIncomplete: true,
       })
     ).toBe("syncing");
   });
