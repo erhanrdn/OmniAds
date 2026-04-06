@@ -2,6 +2,8 @@ import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { getMetaQueueComposition } from "@/lib/meta/warehouse";
+import { getMetaAuthoritativeBusinessOpsSnapshot } from "@/lib/meta/warehouse";
+import { buildMetaStateCheckOutput } from "@/lib/meta/authoritative-ops";
 
 loadEnvConfig(process.cwd());
 
@@ -30,8 +32,9 @@ async function main() {
 
   await runMigrations();
   const sql = getDb();
-  const [queueComposition, results] = await Promise.all([
+  const [queueComposition, authoritativeSnapshot, results] = await Promise.all([
     getMetaQueueComposition({ businessId }).catch(() => null),
+    getMetaAuthoritativeBusinessOpsSnapshot({ businessId }).catch(() => null),
     Promise.all(
       SCOPES.map(async (scope) => {
         const [stateRows, partitionRows] = (await Promise.all([
@@ -86,6 +89,9 @@ async function main() {
         businessId,
         capturedAt: new Date().toISOString(),
         queueComposition,
+        authoritative: authoritativeSnapshot
+          ? buildMetaStateCheckOutput(authoritativeSnapshot)
+          : null,
         results,
       },
       null,

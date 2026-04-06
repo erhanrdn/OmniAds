@@ -14,7 +14,11 @@ import {
   runGoogleAdsTargetedRepair,
 } from "@/lib/sync/google-ads-sync";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
-import { cleanupMetaPartitionOrchestration, replayMetaDeadLetterPartitions } from "@/lib/meta/warehouse";
+import {
+  cleanupMetaPartitionOrchestration,
+  getMetaAuthoritativeBusinessOpsSnapshot,
+  replayMetaDeadLetterPartitions,
+} from "@/lib/meta/warehouse";
 import { enqueueMetaScheduledWork, refreshMetaSyncStateForBusiness } from "@/lib/sync/meta-sync";
 import type { MetaWarehouseScope } from "@/lib/meta/warehouse-types";
 
@@ -117,8 +121,11 @@ export async function POST(request: NextRequest) {
         const result = await cleanupMetaPartitionOrchestration({
           businessId: body.businessId,
         });
+        const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({
+          businessId: body.businessId,
+        }).catch(() => null);
         await logRecovery("completed", { result });
-        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
+        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result, authoritative });
       }
 
       if (body.action === "replay_dead_letter") {
@@ -131,6 +138,9 @@ export async function POST(request: NextRequest) {
           scope,
         });
         const scheduled = await enqueueMetaScheduledWork(body.businessId);
+        const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({
+          businessId: body.businessId,
+        }).catch(() => null);
         await logRecovery("completed", {
           scope,
           outcome: result.outcome,
@@ -149,19 +159,26 @@ export async function POST(request: NextRequest) {
           result: result.partitions,
           outcome: result.outcome,
           scheduled,
+          authoritative,
         });
       }
 
       if (body.action === "refresh_state") {
         await refreshMetaSyncStateForBusiness({ businessId: body.businessId });
+        const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({
+          businessId: body.businessId,
+        }).catch(() => null);
         await logRecovery("completed");
-        return NextResponse.json({ ok: true, action: body.action, provider: body.provider });
+        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, authoritative });
       }
 
       if (body.action === "reschedule") {
         const result = await enqueueMetaScheduledWork(body.businessId);
+        const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({
+          businessId: body.businessId,
+        }).catch(() => null);
         await logRecovery("completed", { result });
-        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result });
+        return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result, authoritative });
       }
     }
 

@@ -8,6 +8,7 @@ import { runMigrations } from "@/lib/migrations";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
 import { getMetaLiveCampaignRows } from "@/lib/meta/live";
+import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 
 export interface MetaCampaignRow {
   id: string;
@@ -111,6 +112,19 @@ export interface MetaCampaignsResponse {
   notReadyReason?: string | null;
 }
 
+function getHistoricalVerificationReason(input: {
+  verificationState?: string | null;
+  fallbackReason: string;
+}) {
+  if (input.verificationState === "failed") {
+    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
+  }
+  if (input.verificationState === "repair_required") {
+    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
+  }
+  return input.fallbackReason;
+}
+
 function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
@@ -198,12 +212,19 @@ export async function GET(request: NextRequest) {
 
   const integration = await getIntegration(businessId, "meta").catch(() => null);
   const connected = integration?.status === "connected";
-
   const rangeContext = await getMetaRangePreparationContext({
     businessId,
     startDate: resolvedStart,
     endDate: resolvedEnd,
   });
+  const historicalTruth =
+    !rangeContext.isSelectedCurrentDay && connected
+      ? await getMetaSelectedRangeTruthReadiness({
+          businessId,
+          startDate: resolvedStart,
+          endDate: resolvedEnd,
+        }).catch(() => null)
+      : null;
 
   let rows: MetaCampaignRow[] = [];
   try {
@@ -219,8 +240,14 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           status: "ok",
           rows,
-          isPartial: false,
-          notReadyReason: null,
+          isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+          notReadyReason:
+            historicalTruth && !historicalTruth.truthReady
+              ? getHistoricalVerificationReason({
+                  verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                  fallbackReason: "Campaign warehouse data is still being prepared for the requested range.",
+                })
+              : null,
         } satisfies MetaCampaignsResponse);
       }
     }
@@ -254,9 +281,21 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     status: "ok",
     rows,
-    isPartial: rows.length === 0,
+    isPartial: historicalTruth ? !historicalTruth.truthReady : rows.length === 0,
     notReadyReason:
-      rows.length === 0
+      historicalTruth
+        ? historicalTruth.truthReady
+          ? null
+          : getHistoricalVerificationReason({
+              verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+              fallbackReason: getMetaPartialReason({
+                isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason: "Campaign warehouse data is still being prepared for the requested range.",
+              }),
+            })
+        : rows.length === 0
         ? connected
           ? getMetaPartialReason({
               isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,

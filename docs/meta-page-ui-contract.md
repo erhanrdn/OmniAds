@@ -163,6 +163,16 @@ These fields still exist in current contracts, but they are not the canonical so
 - Route-level `isPartial` and `notReadyReason` fields from page data routes
   - Still exist on route payloads such as `/api/meta/campaigns`, `/api/meta/summary`, `/api/meta/breakdowns`, and `/api/meta/adsets`.
   - They are compatibility signals, not the canonical selected-range page completeness contract.
+  - For historical non-today ranges they must mirror the canonical selected-range truth instead of deriving readiness from row presence alone.
+
+## Historical Verified Truth
+
+- When `META_AUTHORITATIVE_FINALIZATION_V2` is enabled, historical non-today Meta page routes only treat published verified truth as finalized.
+- `pageReadiness` remains the canonical selected-range contract.
+- Historical route payloads may still expose compatibility fields such as `isPartial` and `notReadyReason`, but those fields must mirror canonical selected-range truth.
+- Historical status semantics use the verification states `processing`, `finalized_verified`, `failed`, and `repair_required`.
+- Historical status payloads may expose provenance fields such as `sourceFetchedAt`, `publishedAt`, `verificationState`, and `asOf`.
+- Current-day Meta account-day behavior remains live and timezone-driven.
 
 ## Not part of the current Meta page contract
 

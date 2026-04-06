@@ -78,6 +78,58 @@ jobs:
               return 1
             }
 
+            container_health_status() {
+              container_id="$1"
+              docker inspect "${container_id}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
+            }
+
+            wait_for_container_health() {
+              container_id="$1"
+              label="$2"
+              attempts="$3"
+              sleep_seconds="$4"
+
+              attempt=1
+              while [ "$attempt" -le "$attempts" ]; do
+                status="$(container_health_status "${container_id}")"
+                echo "${label}_health_status=${status} attempt=${attempt}/${attempts}"
+                if [ "${status}" = "healthy" ] || [ "${status}" = "none" ]; then
+                  return 0
+                fi
+
+                sleep "${sleep_seconds}"
+                attempt=$((attempt + 1))
+              done
+
+              docker inspect "${container_id}" --format '{{json .State.Health}}' || true
+              docker logs --tail=120 "${container_id}" || true
+              return 1
+            }
+
+            wait_for_meta_worker_heartbeat() {
+              container_id="$1"
+              min_heartbeat_after="$2"
+              attempts="$3"
+              sleep_seconds="$4"
+
+              attempt=1
+              while [ "$attempt" -le "$attempts" ]; do
+                if docker exec "${container_id}" node --import tsx scripts/sync-worker-healthcheck.ts \
+                  --provider-scope meta \
+                  --online-window-minutes 5 \
+                  --min-online-workers 1 \
+                  --min-heartbeat-after "${min_heartbeat_after}"; then
+                  return 0
+                fi
+
+                sleep "${sleep_seconds}"
+                attempt=$((attempt + 1))
+              done
+
+              docker logs --tail=200 "${container_id}" || true
+              return 1
+            }
+
             log "Fetching latest main"
             git fetch --prune origin main
             git reset --hard origin/main
@@ -103,6 +155,8 @@ jobs:
             docker compose run --rm --no-deps web node --import tsx scripts/run-migrations.ts
 
             log "Recreating services from the freshly built image"
+            ROLLOUT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "ROLLOUT_STARTED_AT=${ROLLOUT_STARTED_AT}"
             docker compose up -d --force-recreate --remove-orphans web worker
             docker compose ps
 
@@ -119,6 +173,10 @@ jobs:
             test "${WEB_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
             test "${WORKER_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
 
+            log "Waiting for container health checks"
+            wait_for_container_health "${WEB_CONTAINER_ID}" "web" 20 3
+            wait_for_container_health "${WORKER_CONTAINER_ID}" "worker" 20 3
+
             log "Verifying running web container contents"
             docker exec "${WEB_CONTAINER_ID}" sh -lc '
               set -euo pipefail
@@ -126,6 +184,9 @@ jobs:
               test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
               grep -n "\"/about\"" /app/proxy.ts
             '
+
+            log "Waiting for fresh Meta worker heartbeat after rollout"
+            wait_for_meta_worker_heartbeat "${WORKER_CONTAINER_ID}" "${ROLLOUT_STARTED_AT}" 20 5
 
             log "Waiting for runtime build info endpoint"
             BUILD_INFO_JSON=""

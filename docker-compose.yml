@@ -17,6 +17,19 @@ services:
       HOSTNAME: 0.0.0.0
     ports:
       - "127.0.0.1:3000:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >
+          fetch('http://127.0.0.1:3000/api/build-info').then((response) => {
+            if (!response.ok) process.exit(1);
+          }).catch(() => process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
 
   worker:
     image: adsecute:latest
@@ -35,3 +48,20 @@ services:
       SYNC_WORKER_MODE: "1"
     depends_on:
       - web
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - --import
+        - tsx
+        - scripts/sync-worker-healthcheck.ts
+        - --provider-scope
+        - meta
+        - --online-window-minutes
+        - "5"
+        - --min-online-workers
+        - "1"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s

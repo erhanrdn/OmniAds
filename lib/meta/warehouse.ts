@@ -8,6 +8,14 @@ import type {
   ProviderReclaimDisposition,
 } from "@/lib/sync/provider-orchestration";
 import type {
+  MetaAuthoritativeBusinessOpsSnapshot,
+  MetaAuthoritativeDayVerification,
+  MetaAuthoritativeLatestPublishRecord,
+  MetaAuthoritativeRecentFailureRecord,
+  MetaAuthoritativePublicationPointerRecord,
+  MetaAuthoritativeReconciliationEventRecord,
+  MetaAuthoritativeSliceVersionRecord,
+  MetaAuthoritativeSourceManifestRecord,
   MetaAccountDailyRow,
   MetaAdDailyRow,
   MetaAdSetDailyRow,
@@ -31,6 +39,7 @@ import type {
   MetaWarehouseDataState,
   MetaWarehouseFreshness,
   MetaWarehouseMetricSet,
+  MetaPublishedVerificationSummary,
   MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
 import {
@@ -79,6 +88,25 @@ function normalizeTimestamp(value: unknown) {
 function toNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getTodayIsoForTimeZone(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function addIsoDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function withinToleranceForDirtyDate(left: number, right: number) {
@@ -310,6 +338,197 @@ function chunkRows<T>(rows: T[], size = 250) {
   return chunks;
 }
 
+function enumerateIsoDays(startDate: string, endDate: string) {
+  const days: string[] = [];
+  const start = new Date(`${normalizeDate(startDate)}T00:00:00Z`);
+  const end = new Date(`${normalizeDate(endDate)}T00:00:00Z`);
+  for (
+    let cursor = new Date(start);
+    cursor <= end;
+    cursor = new Date(cursor.getTime() + 86_400_000)
+  ) {
+    days.push(cursor.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+export function buildMetaAuthoritativePublicationLookup(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    day: normalizeDate(input.day),
+    surface: input.surface,
+  };
+}
+
+function mapMetaAuthoritativeSourceManifestRow(row: {
+  id: string;
+  business_id: string;
+  provider_account_id: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  account_timezone: string;
+  source_kind: string;
+  source_window_kind: MetaAuthoritativeSourceManifestRecord["sourceWindowKind"];
+  run_id: string | null;
+  fetch_status: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+  fresh_start_applied: boolean;
+  checkpoint_reset_applied: boolean;
+  raw_snapshot_watermark: string | null;
+  source_spend: number | null;
+  validation_basis_version: string | null;
+  meta_json: Record<string, unknown> | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}): MetaAuthoritativeSourceManifestRecord {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
+    day: normalizeDate(row.day),
+    surface: row.surface,
+    accountTimezone: row.account_timezone,
+    sourceKind: row.source_kind,
+    sourceWindowKind: row.source_window_kind,
+    runId: row.run_id,
+    fetchStatus: row.fetch_status,
+    freshStartApplied: Boolean(row.fresh_start_applied),
+    checkpointResetApplied: Boolean(row.checkpoint_reset_applied),
+    rawSnapshotWatermark: row.raw_snapshot_watermark,
+    sourceSpend: row.source_spend == null ? null : Number(row.source_spend),
+    validationBasisVersion: row.validation_basis_version,
+    metaJson: row.meta_json ?? {},
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMetaAuthoritativeSliceVersionRow(row: {
+  id: string;
+  business_id: string;
+  provider_account_id: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  manifest_id: string | null;
+  candidate_version: number;
+  state: MetaAuthoritativeSliceVersionRecord["state"];
+  truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+  validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+  status: MetaAuthoritativeSliceVersionRecord["status"];
+  staged_row_count: number | null;
+  aggregated_spend: number | null;
+  validation_summary: Record<string, unknown> | null;
+  source_run_id: string | null;
+  stage_started_at: string | null;
+  stage_completed_at: string | null;
+  published_at: string | null;
+  superseded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}): MetaAuthoritativeSliceVersionRecord {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
+    day: normalizeDate(row.day),
+    surface: row.surface,
+    manifestId: row.manifest_id,
+    candidateVersion: Number(row.candidate_version ?? 0),
+    state: row.state,
+    truthState: row.truth_state,
+    validationStatus: row.validation_status,
+    status: row.status,
+    stagedRowCount: row.staged_row_count == null ? null : Number(row.staged_row_count),
+    aggregatedSpend: row.aggregated_spend == null ? null : Number(row.aggregated_spend),
+    validationSummary: row.validation_summary ?? {},
+    sourceRunId: row.source_run_id,
+    stageStartedAt: row.stage_started_at,
+    stageCompletedAt: row.stage_completed_at,
+    publishedAt: row.published_at,
+    supersededAt: row.superseded_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMetaAuthoritativePublicationPointerRow(row: {
+  id: string;
+  business_id: string;
+  provider_account_id: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  active_slice_version_id: string;
+  published_by_run_id: string | null;
+  publication_reason: string;
+  published_at: string;
+  created_at: string;
+  updated_at: string;
+}): MetaAuthoritativePublicationPointerRecord {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
+    day: normalizeDate(row.day),
+    surface: row.surface,
+    activeSliceVersionId: row.active_slice_version_id,
+    publishedByRunId: row.published_by_run_id,
+    publicationReason: row.publication_reason,
+    publishedAt: row.published_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMetaAuthoritativeReconciliationEventRow(row: {
+  id: string;
+  business_id: string;
+  provider_account_id: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  slice_version_id: string | null;
+  manifest_id: string | null;
+  event_kind: string;
+  severity: MetaAuthoritativeReconciliationEventRecord["severity"];
+  source_spend: number | null;
+  warehouse_account_spend: number | null;
+  warehouse_campaign_spend: number | null;
+  tolerance_applied: number | null;
+  result: MetaAuthoritativeReconciliationEventRecord["result"];
+  details_json: Record<string, unknown> | null;
+  created_at: string;
+}): MetaAuthoritativeReconciliationEventRecord {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
+    day: normalizeDate(row.day),
+    surface: row.surface,
+    sliceVersionId: row.slice_version_id,
+    manifestId: row.manifest_id,
+    eventKind: row.event_kind,
+    severity: row.severity,
+    sourceSpend: row.source_spend == null ? null : Number(row.source_spend),
+    warehouseAccountSpend:
+      row.warehouse_account_spend == null ? null : Number(row.warehouse_account_spend),
+    warehouseCampaignSpend:
+      row.warehouse_campaign_spend == null ? null : Number(row.warehouse_campaign_spend),
+    toleranceApplied:
+      row.tolerance_applied == null ? null : Number(row.tolerance_applied),
+    result: row.result,
+    detailsJson: row.details_json ?? {},
+    createdAt: row.created_at,
+  };
+}
+
 export function buildMetaRawSnapshotHash(input: {
   businessId: string;
   providerAccountId: string;
@@ -345,6 +564,1333 @@ export function emptyMetaWarehouseMetrics(): MetaWarehouseMetricSet {
     cpa: null,
     ctr: null,
     cpc: null,
+  };
+}
+
+export async function createMetaAuthoritativeSourceManifest(
+  input: MetaAuthoritativeSourceManifestRecord,
+) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO meta_authoritative_source_manifests (
+      business_id,
+      provider_account_id,
+      day,
+      surface,
+      account_timezone,
+      source_kind,
+      source_window_kind,
+      run_id,
+      fetch_status,
+      fresh_start_applied,
+      checkpoint_reset_applied,
+      raw_snapshot_watermark,
+      source_spend,
+      validation_basis_version,
+      meta_json,
+      started_at,
+      completed_at,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${normalizeDate(input.day)},
+      ${input.surface},
+      ${input.accountTimezone},
+      ${input.sourceKind},
+      ${input.sourceWindowKind},
+      ${input.runId ?? null},
+      ${input.fetchStatus},
+      ${input.freshStartApplied ?? false},
+      ${input.checkpointResetApplied ?? false},
+      ${input.rawSnapshotWatermark ?? null},
+      ${input.sourceSpend ?? null},
+      ${input.validationBasisVersion ?? null},
+      ${JSON.stringify(input.metaJson ?? {})}::jsonb,
+      ${input.startedAt ?? null},
+      ${input.completedAt ?? null},
+      now()
+    )
+    RETURNING *
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    account_timezone: string;
+    source_kind: string;
+    source_window_kind: MetaAuthoritativeSourceManifestRecord["sourceWindowKind"];
+    run_id: string | null;
+    fetch_status: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+    fresh_start_applied: boolean;
+    checkpoint_reset_applied: boolean;
+    raw_snapshot_watermark: string | null;
+    source_spend: number | null;
+    validation_basis_version: string | null;
+    meta_json: Record<string, unknown> | null;
+    started_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSourceManifestRow(rows[0]) : null;
+}
+
+export async function updateMetaAuthoritativeSourceManifest(input: {
+  manifestId: string;
+  fetchStatus?: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+  rawSnapshotWatermark?: string | null;
+  sourceSpend?: number | null;
+  validationBasisVersion?: string | null;
+  metaJson?: Record<string, unknown>;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const metaJsonPatch = input.metaJson == null ? null : JSON.stringify(input.metaJson);
+  const rows = await sql`
+    UPDATE meta_authoritative_source_manifests
+    SET
+      fetch_status = COALESCE(${input.fetchStatus ?? null}, fetch_status),
+      raw_snapshot_watermark = COALESCE(${input.rawSnapshotWatermark ?? null}, raw_snapshot_watermark),
+      source_spend = COALESCE(${input.sourceSpend ?? null}, source_spend),
+      validation_basis_version = COALESCE(${input.validationBasisVersion ?? null}, validation_basis_version),
+      meta_json = CASE
+        WHEN ${metaJsonPatch}::jsonb IS NULL THEN meta_json
+        ELSE COALESCE(meta_json, '{}'::jsonb) || ${metaJsonPatch}::jsonb
+      END,
+      started_at = COALESCE(${input.startedAt ?? null}, started_at),
+      completed_at = COALESCE(${input.completedAt ?? null}, completed_at),
+      updated_at = now()
+    WHERE id = ${input.manifestId}
+    RETURNING *
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    account_timezone: string;
+    source_kind: string;
+    source_window_kind: MetaAuthoritativeSourceManifestRecord["sourceWindowKind"];
+    run_id: string | null;
+    fetch_status: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+    fresh_start_applied: boolean;
+    checkpoint_reset_applied: boolean;
+    raw_snapshot_watermark: string | null;
+    source_spend: number | null;
+    validation_basis_version: string | null;
+    meta_json: Record<string, unknown> | null;
+    started_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSourceManifestRow(rows[0]) : null;
+}
+
+export async function getLatestMetaAuthoritativeSourceManifest(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT *
+    FROM meta_authoritative_source_manifests
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day = ${normalizeDate(input.day)}
+      AND surface = ${input.surface}
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    account_timezone: string;
+    source_kind: string;
+    source_window_kind: MetaAuthoritativeSourceManifestRecord["sourceWindowKind"];
+    run_id: string | null;
+    fetch_status: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+    fresh_start_applied: boolean;
+    checkpoint_reset_applied: boolean;
+    raw_snapshot_watermark: string | null;
+    source_spend: number | null;
+    validation_basis_version: string | null;
+    meta_json: Record<string, unknown> | null;
+    started_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSourceManifestRow(rows[0]) : null;
+}
+
+export async function reserveNextMetaAuthoritativeCandidateVersion(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT COALESCE(MAX(candidate_version), 0) + 1 AS next_candidate_version
+    FROM meta_authoritative_slice_versions
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day = ${normalizeDate(input.day)}
+      AND surface = ${input.surface}
+  ` as Array<{ next_candidate_version: number }>;
+  return Number(rows[0]?.next_candidate_version ?? 1);
+}
+
+export async function createMetaAuthoritativeSliceVersion(
+  input: Omit<MetaAuthoritativeSliceVersionRecord, "candidateVersion"> & {
+    candidateVersion?: number;
+  },
+) {
+  await runMigrations();
+  const sql = getDb();
+  const candidateVersion =
+    input.candidateVersion ??
+    (await reserveNextMetaAuthoritativeCandidateVersion({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      day: input.day,
+      surface: input.surface,
+    }));
+  const rows = await sql`
+    INSERT INTO meta_authoritative_slice_versions (
+      business_id,
+      provider_account_id,
+      day,
+      surface,
+      manifest_id,
+      candidate_version,
+      state,
+      truth_state,
+      validation_status,
+      status,
+      staged_row_count,
+      aggregated_spend,
+      validation_summary,
+      source_run_id,
+      stage_started_at,
+      stage_completed_at,
+      published_at,
+      superseded_at,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${normalizeDate(input.day)},
+      ${input.surface},
+      ${input.manifestId ?? null},
+      ${candidateVersion},
+      ${input.state},
+      ${input.truthState},
+      ${input.validationStatus},
+      ${input.status},
+      ${input.stagedRowCount ?? null},
+      ${input.aggregatedSpend ?? null},
+      ${JSON.stringify(input.validationSummary ?? {})}::jsonb,
+      ${input.sourceRunId ?? null},
+      ${input.stageStartedAt ?? null},
+      ${input.stageCompletedAt ?? null},
+      ${input.publishedAt ?? null},
+      ${input.supersededAt ?? null},
+      now()
+    )
+    RETURNING *
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    manifest_id: string | null;
+    candidate_version: number;
+    state: MetaAuthoritativeSliceVersionRecord["state"];
+    truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+    validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+    status: MetaAuthoritativeSliceVersionRecord["status"];
+    staged_row_count: number | null;
+    aggregated_spend: number | null;
+    validation_summary: Record<string, unknown> | null;
+    source_run_id: string | null;
+    stage_started_at: string | null;
+    stage_completed_at: string | null;
+    published_at: string | null;
+    superseded_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
+}
+
+export async function updateMetaAuthoritativeSliceVersion(input: {
+  sliceVersionId: string;
+  state?: MetaAuthoritativeSliceVersionRecord["state"];
+  truthState?: MetaAuthoritativeSliceVersionRecord["truthState"];
+  validationStatus?: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+  status?: MetaAuthoritativeSliceVersionRecord["status"];
+  stagedRowCount?: number | null;
+  aggregatedSpend?: number | null;
+  validationSummary?: Record<string, unknown>;
+  sourceRunId?: string | null;
+  stageStartedAt?: string | null;
+  stageCompletedAt?: string | null;
+  publishedAt?: string | null;
+  supersededAt?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const validationSummaryPatch =
+    input.validationSummary == null ? null : JSON.stringify(input.validationSummary);
+  const rows = await sql`
+    UPDATE meta_authoritative_slice_versions
+    SET
+      state = COALESCE(${input.state ?? null}, state),
+      truth_state = COALESCE(${input.truthState ?? null}, truth_state),
+      validation_status = COALESCE(${input.validationStatus ?? null}, validation_status),
+      status = COALESCE(${input.status ?? null}, status),
+      staged_row_count = COALESCE(${input.stagedRowCount ?? null}, staged_row_count),
+      aggregated_spend = COALESCE(${input.aggregatedSpend ?? null}, aggregated_spend),
+      validation_summary = CASE
+        WHEN ${validationSummaryPatch}::jsonb IS NULL THEN validation_summary
+        ELSE COALESCE(validation_summary, '{}'::jsonb) || ${validationSummaryPatch}::jsonb
+      END,
+      source_run_id = COALESCE(${input.sourceRunId ?? null}, source_run_id),
+      stage_started_at = COALESCE(${input.stageStartedAt ?? null}, stage_started_at),
+      stage_completed_at = COALESCE(${input.stageCompletedAt ?? null}, stage_completed_at),
+      published_at = COALESCE(${input.publishedAt ?? null}, published_at),
+      superseded_at = COALESCE(${input.supersededAt ?? null}, superseded_at),
+      updated_at = now()
+    WHERE id = ${input.sliceVersionId}
+    RETURNING *
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    manifest_id: string | null;
+    candidate_version: number;
+    state: MetaAuthoritativeSliceVersionRecord["state"];
+    truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+    validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+    status: MetaAuthoritativeSliceVersionRecord["status"];
+    staged_row_count: number | null;
+    aggregated_spend: number | null;
+    validation_summary: Record<string, unknown> | null;
+    source_run_id: string | null;
+    stage_started_at: string | null;
+    stage_completed_at: string | null;
+    published_at: string | null;
+    superseded_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
+}
+
+export async function getLatestMetaAuthoritativeSliceVersion(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT *
+    FROM meta_authoritative_slice_versions
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day = ${normalizeDate(input.day)}
+      AND surface = ${input.surface}
+    ORDER BY candidate_version DESC, created_at DESC
+    LIMIT 1
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    manifest_id: string | null;
+    candidate_version: number;
+    state: MetaAuthoritativeSliceVersionRecord["state"];
+    truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+    validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+    status: MetaAuthoritativeSliceVersionRecord["status"];
+    staged_row_count: number | null;
+    aggregated_spend: number | null;
+    validation_summary: Record<string, unknown> | null;
+    source_run_id: string | null;
+    stage_started_at: string | null;
+    stage_completed_at: string | null;
+    published_at: string | null;
+    superseded_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
+}
+
+export async function supersedeMetaAuthoritativeSliceVersions(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  excludeSliceVersionId?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE meta_authoritative_slice_versions
+    SET
+      state = 'superseded',
+      status = 'superseded',
+      superseded_at = COALESCE(superseded_at, now()),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day = ${normalizeDate(input.day)}
+      AND surface = ${input.surface}
+      AND (${input.excludeSliceVersionId ?? null}::uuid IS NULL OR id <> ${input.excludeSliceVersionId ?? null}::uuid)
+      AND status <> 'superseded'
+    RETURNING *
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    manifest_id: string | null;
+    candidate_version: number;
+    state: MetaAuthoritativeSliceVersionRecord["state"];
+    truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+    validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+    status: MetaAuthoritativeSliceVersionRecord["status"];
+    staged_row_count: number | null;
+    aggregated_spend: number | null;
+    validation_summary: Record<string, unknown> | null;
+    source_run_id: string | null;
+    stage_started_at: string | null;
+    stage_completed_at: string | null;
+    published_at: string | null;
+    superseded_at: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows.map(mapMetaAuthoritativeSliceVersionRow);
+}
+
+export async function publishMetaAuthoritativeSliceVersion(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  sliceVersionId: string;
+  publishedByRunId?: string | null;
+  publicationReason: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  return runInTransaction(async () => {
+    await sql`
+      UPDATE meta_authoritative_slice_versions
+      SET
+        state = 'superseded',
+        status = 'superseded',
+        superseded_at = COALESCE(superseded_at, now()),
+        updated_at = now()
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND day = ${normalizeDate(input.day)}
+        AND surface = ${input.surface}
+        AND id <> ${input.sliceVersionId}::uuid
+        AND status = 'published'
+    `;
+
+    await sql`
+      UPDATE meta_authoritative_slice_versions
+      SET
+        state = 'finalized_verified',
+        truth_state = 'finalized',
+        validation_status = 'passed',
+        status = 'published',
+        published_at = now(),
+        updated_at = now()
+      WHERE id = ${input.sliceVersionId}::uuid
+    `;
+
+    const rows = await sql`
+      INSERT INTO meta_authoritative_publication_pointers (
+        business_id,
+        provider_account_id,
+        day,
+        surface,
+        active_slice_version_id,
+        published_by_run_id,
+        publication_reason,
+        published_at,
+        updated_at
+      )
+      VALUES (
+        ${input.businessId},
+        ${input.providerAccountId},
+        ${normalizeDate(input.day)},
+        ${input.surface},
+        ${input.sliceVersionId}::uuid,
+        ${input.publishedByRunId ?? null},
+        ${input.publicationReason},
+        now(),
+        now()
+      )
+      ON CONFLICT (business_id, provider_account_id, day, surface)
+      DO UPDATE SET
+        active_slice_version_id = EXCLUDED.active_slice_version_id,
+        published_by_run_id = EXCLUDED.published_by_run_id,
+        publication_reason = EXCLUDED.publication_reason,
+        published_at = now(),
+        updated_at = now()
+      RETURNING *
+    ` as Array<{
+      id: string;
+      business_id: string;
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      active_slice_version_id: string;
+      published_by_run_id: string | null;
+      publication_reason: string;
+      published_at: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+    return rows[0] ? mapMetaAuthoritativePublicationPointerRow(rows[0]) : null;
+  });
+}
+
+export async function getMetaActivePublishedSliceVersion(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      pointer.*,
+      slice.candidate_version,
+      slice.state,
+      slice.truth_state,
+      slice.validation_status,
+      slice.status,
+      slice.manifest_id,
+      slice.staged_row_count,
+      slice.aggregated_spend,
+      slice.validation_summary,
+      slice.source_run_id,
+      slice.stage_started_at,
+      slice.stage_completed_at,
+      slice.superseded_at,
+      slice.created_at AS slice_created_at,
+      slice.updated_at AS slice_updated_at
+    FROM meta_authoritative_publication_pointers pointer
+    INNER JOIN meta_authoritative_slice_versions slice
+      ON slice.id = pointer.active_slice_version_id
+    WHERE pointer.business_id = ${input.businessId}
+      AND pointer.provider_account_id = ${input.providerAccountId}
+      AND pointer.day = ${normalizeDate(input.day)}
+      AND pointer.surface = ${input.surface}
+    LIMIT 1
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    active_slice_version_id: string;
+    published_by_run_id: string | null;
+    publication_reason: string;
+    published_at: string;
+    created_at: string;
+    updated_at: string;
+    candidate_version: number;
+    state: MetaAuthoritativeSliceVersionRecord["state"];
+    truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+    validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+    status: MetaAuthoritativeSliceVersionRecord["status"];
+    manifest_id: string | null;
+    staged_row_count: number | null;
+    aggregated_spend: number | null;
+    validation_summary: Record<string, unknown> | null;
+    source_run_id: string | null;
+    stage_started_at: string | null;
+    stage_completed_at: string | null;
+    superseded_at: string | null;
+    slice_created_at: string;
+    slice_updated_at: string;
+  }>;
+  if (!rows[0]) return null;
+  return {
+    publication: mapMetaAuthoritativePublicationPointerRow(rows[0]),
+    sliceVersion: mapMetaAuthoritativeSliceVersionRow({
+      id: rows[0].active_slice_version_id,
+      business_id: rows[0].business_id,
+      provider_account_id: rows[0].provider_account_id,
+      day: rows[0].day,
+      surface: rows[0].surface,
+      manifest_id: rows[0].manifest_id,
+      candidate_version: rows[0].candidate_version,
+      state: rows[0].state,
+      truth_state: rows[0].truth_state,
+      validation_status: rows[0].validation_status,
+      status: rows[0].status,
+      staged_row_count: rows[0].staged_row_count,
+      aggregated_spend: rows[0].aggregated_spend,
+      validation_summary: rows[0].validation_summary,
+      source_run_id: rows[0].source_run_id,
+      stage_started_at: rows[0].stage_started_at,
+      stage_completed_at: rows[0].stage_completed_at,
+      published_at: rows[0].published_at,
+      superseded_at: rows[0].superseded_at,
+      created_at: rows[0].slice_created_at,
+      updated_at: rows[0].slice_updated_at,
+    }),
+  };
+}
+
+export async function createMetaAuthoritativeReconciliationEvent(
+  input: MetaAuthoritativeReconciliationEventRecord,
+) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO meta_authoritative_reconciliation_events (
+      business_id,
+      provider_account_id,
+      day,
+      surface,
+      slice_version_id,
+      manifest_id,
+      event_kind,
+      severity,
+      source_spend,
+      warehouse_account_spend,
+      warehouse_campaign_spend,
+      tolerance_applied,
+      result,
+      details_json
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${normalizeDate(input.day)},
+      ${input.surface},
+      ${input.sliceVersionId ?? null}::uuid,
+      ${input.manifestId ?? null}::uuid,
+      ${input.eventKind},
+      ${input.severity},
+      ${input.sourceSpend ?? null},
+      ${input.warehouseAccountSpend ?? null},
+      ${input.warehouseCampaignSpend ?? null},
+      ${input.toleranceApplied ?? null},
+      ${input.result},
+      ${JSON.stringify(input.detailsJson ?? {})}::jsonb
+    )
+    RETURNING *
+  ` as Array<{
+    id: string;
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    slice_version_id: string | null;
+    manifest_id: string | null;
+    event_kind: string;
+    severity: MetaAuthoritativeReconciliationEventRecord["severity"];
+    source_spend: number | null;
+    warehouse_account_spend: number | null;
+    warehouse_campaign_spend: number | null;
+    tolerance_applied: number | null;
+    result: MetaAuthoritativeReconciliationEventRecord["result"];
+    details_json: Record<string, unknown> | null;
+    created_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeReconciliationEventRow(rows[0]) : null;
+}
+
+export async function getMetaPublishedVerificationSummary(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds: string[];
+  surfaces: MetaWarehouseScope[];
+}): Promise<MetaPublishedVerificationSummary> {
+  const providerAccountIds = Array.from(new Set(input.providerAccountIds.filter(Boolean)));
+  const surfaces = Array.from(new Set(input.surfaces));
+  const totalDays = enumerateIsoDays(input.startDate, input.endDate).length;
+  if (providerAccountIds.length === 0 || surfaces.length === 0 || totalDays === 0) {
+    return {
+      verificationState: "processing",
+      truthReady: false,
+      totalDays,
+      completedCoreDays: 0,
+      sourceFetchedAt: null,
+      publishedAt: null,
+      asOf: null,
+      publishedSlices: 0,
+      totalExpectedSlices: 0,
+      reasonCounts: {},
+      publishedKeysBySurface: {},
+    };
+  }
+
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    WITH latest_slice AS (
+      SELECT *
+      FROM (
+        SELECT
+          slice.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY slice.business_id, slice.provider_account_id, slice.day, slice.surface
+            ORDER BY slice.candidate_version DESC, slice.created_at DESC, slice.id DESC
+          ) AS row_num
+        FROM meta_authoritative_slice_versions slice
+        WHERE slice.business_id = ${input.businessId}
+          AND slice.provider_account_id = ANY(${providerAccountIds}::text[])
+          AND slice.day >= ${normalizeDate(input.startDate)}
+          AND slice.day <= ${normalizeDate(input.endDate)}
+          AND slice.surface = ANY(${surfaces}::text[])
+      ) ranked
+      WHERE row_num = 1
+    )
+    SELECT
+      latest_slice.business_id,
+      latest_slice.provider_account_id,
+      latest_slice.day,
+      latest_slice.surface,
+      latest_slice.id AS latest_slice_id,
+      latest_slice.state AS latest_state,
+      latest_slice.status AS latest_status,
+      latest_slice.validation_status AS latest_validation_status,
+      latest_slice.published_at AS latest_slice_published_at,
+      manifest.completed_at AS source_fetched_at,
+      pointer.active_slice_version_id,
+      pointer.published_at,
+      published_slice.state AS published_state,
+      published_slice.status AS published_status
+    FROM latest_slice
+    LEFT JOIN meta_authoritative_source_manifests manifest
+      ON manifest.id = latest_slice.manifest_id
+    LEFT JOIN meta_authoritative_publication_pointers pointer
+      ON pointer.business_id = latest_slice.business_id
+      AND pointer.provider_account_id = latest_slice.provider_account_id
+      AND pointer.day = latest_slice.day
+      AND pointer.surface = latest_slice.surface
+    LEFT JOIN meta_authoritative_slice_versions published_slice
+      ON published_slice.id = pointer.active_slice_version_id
+  ` as Array<{
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    latest_slice_id: string | null;
+    latest_state: string | null;
+    latest_status: string | null;
+    latest_validation_status: string | null;
+    latest_slice_published_at: string | null;
+    source_fetched_at: string | null;
+    active_slice_version_id: string | null;
+    published_at: string | null;
+    published_state: string | null;
+    published_status: string | null;
+  }>;
+
+  const rowByKey = new Map(
+    rows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
+  const days = enumerateIsoDays(input.startDate, input.endDate);
+  const publishedKeysBySurface = {} as Partial<Record<MetaWarehouseScope, string[]>>;
+  const reasonCounts: Record<string, number> = {};
+  let publishedSlices = 0;
+  let completedCoreDays = 0;
+  let sourceFetchedAt: string | null = null;
+  let publishedAt: string | null = null;
+  let failed = false;
+  let repairRequired = false;
+  let processing = false;
+
+  for (const day of days) {
+    let dayComplete = true;
+    for (const providerAccountId of providerAccountIds) {
+      for (const surface of surfaces) {
+        const key = `${providerAccountId}:${day}:${surface}`;
+        const row = rowByKey.get(key);
+        const isPublished =
+          row?.active_slice_version_id != null &&
+          row.published_status === "published" &&
+          row.published_state === "finalized_verified";
+        if (isPublished) {
+          publishedSlices += 1;
+          publishedKeysBySurface[surface] = [
+            ...(publishedKeysBySurface[surface] ?? []),
+            `${providerAccountId}:${day}`,
+          ];
+          if (!sourceFetchedAt || (row?.source_fetched_at ?? "") > sourceFetchedAt) {
+            sourceFetchedAt = row?.source_fetched_at ?? sourceFetchedAt;
+          }
+          if (!publishedAt || (row?.published_at ?? "") > publishedAt) {
+            publishedAt = row?.published_at ?? publishedAt;
+          }
+          continue;
+        }
+        dayComplete = false;
+        if (row?.latest_state === "repair_required") {
+          repairRequired = true;
+          reasonCounts.repair_required = (reasonCounts.repair_required ?? 0) + 1;
+        } else if (
+          row?.latest_state === "failed" ||
+          row?.latest_status === "failed" ||
+          row?.latest_validation_status === "failed"
+        ) {
+          failed = true;
+          reasonCounts.failed = (reasonCounts.failed ?? 0) + 1;
+        } else {
+          processing = true;
+          reasonCounts.processing = (reasonCounts.processing ?? 0) + 1;
+        }
+      }
+    }
+    if (dayComplete) {
+      completedCoreDays += 1;
+    }
+  }
+
+  const totalExpectedSlices = days.length * providerAccountIds.length * surfaces.length;
+  const verificationState =
+    publishedSlices === totalExpectedSlices
+      ? "finalized_verified"
+      : failed
+        ? "failed"
+        : repairRequired
+          ? "repair_required"
+          : "processing";
+  const asOf = publishedAt ?? sourceFetchedAt ?? null;
+
+  return {
+    verificationState,
+    truthReady: verificationState === "finalized_verified",
+    totalDays: days.length,
+    completedCoreDays,
+    sourceFetchedAt,
+    publishedAt,
+    asOf,
+    publishedSlices,
+    totalExpectedSlices,
+    reasonCounts,
+    publishedKeysBySurface,
+  };
+}
+
+export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
+  businessId: string;
+  latestPublishLimit?: number;
+}): Promise<MetaAuthoritativeBusinessOpsSnapshot> {
+  await runMigrations();
+  const sql = getDb();
+  const latestPublishLimit = Math.max(1, input.latestPublishLimit ?? 10);
+
+  const [
+    manifestRows,
+    progressionRows,
+    latestPublishRows,
+    failureRows,
+    accountRows,
+    recentCoreRows,
+  ] = await Promise.all([
+    sql`
+      SELECT fetch_status, COUNT(*)::int AS count
+      FROM meta_authoritative_source_manifests
+      WHERE business_id = ${input.businessId}
+      GROUP BY fetch_status
+    ` as unknown as Array<{ fetch_status: string; count: number }>,
+    sql`
+      WITH published_days AS (
+        SELECT COUNT(DISTINCT CONCAT(pointer.provider_account_id, ':', pointer.day))::int AS published_days
+        FROM meta_authoritative_publication_pointers pointer
+        INNER JOIN meta_authoritative_slice_versions slice
+          ON slice.id = pointer.active_slice_version_id
+        WHERE pointer.business_id = ${input.businessId}
+          AND pointer.surface = 'account_daily'
+          AND slice.validation_status = 'passed'
+          AND slice.status = 'published'
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'queued')::int AS queued,
+        COUNT(*) FILTER (WHERE status IN ('leased', 'running'))::int AS leased,
+        COUNT(*) FILTER (WHERE status = 'failed')::int AS retryable_failed,
+        COUNT(*) FILTER (WHERE status = 'dead_letter')::int AS dead_letter,
+        COUNT(*) FILTER (
+          WHERE status IN ('leased', 'running')
+            AND updated_at < now() - interval '15 minutes'
+        )::int AS stale_leases,
+        COUNT(*) FILTER (
+          WHERE source IN ('finalize_day', 'finalize_range', 'manual_refresh', 'repair_recent_day')
+            AND status IN ('queued', 'leased', 'running', 'failed', 'dead_letter')
+        )::int AS repair_backlog,
+        COALESCE((SELECT published_days FROM published_days), 0)::int AS published
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+    ` as unknown as Array<Record<string, unknown>>,
+    sql`
+      SELECT
+        pointer.provider_account_id,
+        pointer.day,
+        pointer.surface,
+        pointer.published_at,
+        manifest.source_kind,
+        manifest.fetch_status AS manifest_fetch_status,
+        CASE
+          WHEN slice.validation_status = 'passed' AND slice.status = 'published'
+            THEN 'finalized_verified'
+          WHEN latest_failure.result = 'failed'
+            THEN 'failed'
+          WHEN latest_failure.result = 'repair_required'
+            THEN 'repair_required'
+          ELSE 'processing'
+        END AS verification_state
+      FROM meta_authoritative_publication_pointers pointer
+      INNER JOIN meta_authoritative_slice_versions slice
+        ON slice.id = pointer.active_slice_version_id
+      LEFT JOIN meta_authoritative_source_manifests manifest
+        ON manifest.id = slice.manifest_id
+      LEFT JOIN LATERAL (
+        SELECT result
+        FROM meta_authoritative_reconciliation_events event
+        WHERE event.business_id = pointer.business_id
+          AND event.provider_account_id = pointer.provider_account_id
+          AND event.day = pointer.day
+          AND event.surface = pointer.surface
+        ORDER BY event.created_at DESC
+        LIMIT 1
+      ) latest_failure ON TRUE
+      WHERE pointer.business_id = ${input.businessId}
+        AND pointer.surface IN ('account_daily', 'campaign_daily')
+      ORDER BY pointer.published_at DESC
+      LIMIT ${latestPublishLimit}
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      published_at: string | null;
+      source_kind: string | null;
+      manifest_fetch_status: string | null;
+      verification_state: string;
+    }>,
+    sql`
+      SELECT
+        provider_account_id,
+        day,
+        surface,
+        result,
+        event_kind,
+        severity,
+        COALESCE(
+          details_json ->> 'reason',
+          details_json ->> 'error',
+          details_json ->> 'message',
+          details_json ->> 'failureReason'
+        ) AS reason,
+        created_at
+      FROM meta_authoritative_reconciliation_events
+      WHERE business_id = ${input.businessId}
+        AND result IN ('failed', 'repair_required')
+        AND created_at > now() - interval '24 hours'
+      ORDER BY created_at DESC
+      LIMIT 20
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      result: "failed" | "repair_required" | "passed" | "superseded";
+      event_kind: string;
+      severity: "info" | "warning" | "error";
+      reason: string | null;
+      created_at: string;
+    }>,
+    sql`
+      WITH manifest_accounts AS (
+        SELECT DISTINCT ON (provider_account_id)
+          provider_account_id,
+          COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
+        FROM meta_authoritative_source_manifests
+        WHERE business_id = ${input.businessId}
+        ORDER BY provider_account_id, updated_at DESC
+      ),
+      warehouse_accounts AS (
+        SELECT DISTINCT ON (provider_account_id)
+          provider_account_id,
+          COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
+        FROM meta_account_daily
+        WHERE business_id = ${input.businessId}
+        ORDER BY provider_account_id, date DESC, updated_at DESC
+      )
+      SELECT
+        COALESCE(manifest_accounts.provider_account_id, warehouse_accounts.provider_account_id) AS provider_account_id,
+        COALESCE(manifest_accounts.account_timezone, warehouse_accounts.account_timezone, 'UTC') AS account_timezone
+      FROM manifest_accounts
+      FULL OUTER JOIN warehouse_accounts
+        ON warehouse_accounts.provider_account_id = manifest_accounts.provider_account_id
+      WHERE COALESCE(manifest_accounts.provider_account_id, warehouse_accounts.provider_account_id) IS NOT NULL
+      ORDER BY provider_account_id
+    ` as unknown as Array<{ provider_account_id: string; account_timezone: string }>,
+    sql`
+      SELECT
+        pointer.provider_account_id,
+        pointer.day,
+        pointer.surface,
+        pointer.published_at,
+        slice.validation_status,
+        latest_failure.result AS latest_failure_result
+      FROM meta_authoritative_publication_pointers pointer
+      INNER JOIN meta_authoritative_slice_versions slice
+        ON slice.id = pointer.active_slice_version_id
+      LEFT JOIN LATERAL (
+        SELECT result
+        FROM meta_authoritative_reconciliation_events event
+        WHERE event.business_id = pointer.business_id
+          AND event.provider_account_id = pointer.provider_account_id
+          AND event.day = pointer.day
+          AND event.surface = pointer.surface
+        ORDER BY event.created_at DESC
+        LIMIT 1
+      ) latest_failure ON TRUE
+      WHERE pointer.business_id = ${input.businessId}
+        AND pointer.surface IN ('account_daily', 'campaign_daily')
+        AND pointer.day >= ${addIsoDays(new Date().toISOString().slice(0, 10), -5)}
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      published_at: string | null;
+      validation_status: string | null;
+      latest_failure_result: string | null;
+    }>,
+  ]);
+
+  const manifestCounts = {
+    pending: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    superseded: 0,
+    total: 0,
+  };
+  for (const row of manifestRows) {
+    const key = String(row.fetch_status ?? "") as keyof typeof manifestCounts;
+    if (key in manifestCounts && key !== "total") {
+      manifestCounts[key] = toNumber(row.count);
+      manifestCounts.total += toNumber(row.count);
+    }
+  }
+
+  const progressionRow = progressionRows[0] ?? {};
+  const recentCoreByKey = new Map(
+    recentCoreRows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
+
+  const d1Accounts = accountRows.map((row) => {
+    const expectedDay = addIsoDays(getTodayIsoForTimeZone(row.account_timezone || "UTC"), -1);
+    const accountRow = recentCoreByKey.get(`${row.provider_account_id}:${expectedDay}:account_daily`);
+    const campaignRow = recentCoreByKey.get(`${row.provider_account_id}:${expectedDay}:campaign_daily`);
+    const finalized =
+      accountRow?.validation_status === "passed" &&
+      campaignRow?.validation_status === "passed";
+    const failureResult =
+      accountRow?.latest_failure_result === "failed" ||
+      campaignRow?.latest_failure_result === "failed"
+        ? "failed"
+        : accountRow?.latest_failure_result === "repair_required" ||
+            campaignRow?.latest_failure_result === "repair_required"
+          ? "repair_required"
+          : null;
+    const publishedAtCandidates = [accountRow?.published_at, campaignRow?.published_at].filter(
+      (value): value is string => Boolean(value),
+    );
+    const verificationState =
+      finalized
+        ? "finalized_verified"
+        : failureResult === "failed"
+          ? "failed"
+          : failureResult === "repair_required"
+            ? "repair_required"
+            : "processing";
+    return {
+      providerAccountId: row.provider_account_id,
+      accountTimezone: row.account_timezone || "UTC",
+      expectedDay,
+      verificationState: verificationState as MetaPublishedVerificationSummary["verificationState"],
+      publishedAt: publishedAtCandidates.sort((a, b) => b.localeCompare(a))[0] ?? null,
+      breached: verificationState !== "finalized_verified",
+    };
+  });
+
+  return {
+    businessId: input.businessId,
+    capturedAt: new Date().toISOString(),
+    manifestCounts,
+    progression: {
+      queued: toNumber(progressionRow.queued),
+      leased: toNumber(progressionRow.leased),
+      published: toNumber(progressionRow.published),
+      retryableFailed: toNumber(progressionRow.retryable_failed),
+      deadLetter: toNumber(progressionRow.dead_letter),
+      staleLeases: toNumber(progressionRow.stale_leases),
+      repairBacklog: toNumber(progressionRow.repair_backlog),
+    },
+    latestPublishes: latestPublishRows.map(
+      (row): MetaAuthoritativeLatestPublishRecord => ({
+        providerAccountId: row.provider_account_id,
+        day: normalizeDate(row.day),
+        surface: row.surface,
+        publishedAt: normalizeTimestamp(row.published_at),
+        verificationState:
+          row.verification_state === "failed" || row.verification_state === "repair_required"
+            ? row.verification_state
+            : row.verification_state === "finalized_verified"
+              ? "finalized_verified"
+              : "processing",
+        sourceKind: row.source_kind,
+        manifestFetchStatus: (row.manifest_fetch_status as MetaAuthoritativeSourceManifestRecord["fetchStatus"] | null) ?? null,
+      }),
+    ),
+    d1FinalizeSla: {
+      totalAccounts: d1Accounts.length,
+      breachedAccounts: d1Accounts.filter((row) => row.breached).length,
+      accounts: d1Accounts,
+    },
+    validationFailures24h: failureRows.length,
+    recentFailures: failureRows.map(
+      (row): MetaAuthoritativeRecentFailureRecord => ({
+        providerAccountId: row.provider_account_id,
+        day: normalizeDate(row.day),
+        surface: row.surface,
+        result: row.result,
+        eventKind: row.event_kind,
+        severity: row.severity,
+        reason: row.reason,
+        createdAt: normalizeTimestamp(row.created_at) ?? row.created_at,
+      }),
+    ),
+    lastSuccessfulPublishAt:
+      latestPublishRows
+        .filter((row) => row.verification_state === "finalized_verified" && row.published_at)
+        .map((row) => normalizeTimestamp(row.published_at))
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => b.localeCompare(a))[0] ?? null,
+  };
+}
+
+export async function getMetaAuthoritativeDayVerification(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+}): Promise<MetaAuthoritativeDayVerification> {
+  await runMigrations();
+  const sql = getDb();
+  const day = normalizeDate(input.day);
+  const surfaces: MetaWarehouseScope[] = ["account_daily", "campaign_daily", "adset_daily"];
+  const [manifestRows, latestFailureRows, partitionRows, verification] = await Promise.all([
+    sql`
+      WITH latest_manifests AS (
+        SELECT *
+        FROM (
+          SELECT
+            manifest.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY manifest.surface
+              ORDER BY manifest.updated_at DESC, manifest.id DESC
+            ) AS row_num
+          FROM meta_authoritative_source_manifests manifest
+          WHERE manifest.business_id = ${input.businessId}
+            AND manifest.provider_account_id = ${input.providerAccountId}
+            AND manifest.day = ${day}
+            AND manifest.surface = ANY(${surfaces}::text[])
+        ) ranked
+        WHERE row_num = 1
+      )
+      SELECT *
+      FROM latest_manifests
+    ` as unknown as Array<{
+      id: string;
+      business_id: string;
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      account_timezone: string;
+      source_kind: string;
+      source_window_kind: MetaAuthoritativeSourceManifestRecord["sourceWindowKind"];
+      run_id: string | null;
+      fetch_status: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+      fresh_start_applied: boolean;
+      checkpoint_reset_applied: boolean;
+      raw_snapshot_watermark: string | null;
+      source_spend: number | null;
+      validation_basis_version: string | null;
+      meta_json: Record<string, unknown> | null;
+      started_at: string | null;
+      completed_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }>,
+    sql`
+      SELECT
+        provider_account_id,
+        day,
+        surface,
+        result,
+        event_kind,
+        severity,
+        COALESCE(
+          details_json ->> 'reason',
+          details_json ->> 'error',
+          details_json ->> 'message',
+          details_json ->> 'failureReason'
+        ) AS reason,
+        created_at
+      FROM meta_authoritative_reconciliation_events
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND day = ${day}
+        AND result IN ('failed', 'repair_required')
+      ORDER BY created_at DESC
+      LIMIT 1
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      result: "failed" | "repair_required" | "passed" | "superseded";
+      event_kind: string;
+      severity: "info" | "warning" | "error";
+      reason: string | null;
+      created_at: string;
+    }>,
+    sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'queued')::int AS queued_partitions,
+        COUNT(*) FILTER (WHERE status IN ('leased', 'running'))::int AS leased_partitions,
+        COUNT(*) FILTER (
+          WHERE status IN ('leased', 'running')
+            AND updated_at < now() - interval '15 minutes'
+        )::int AS stale_leases,
+        COUNT(*) FILTER (WHERE status = 'dead_letter')::int AS dead_letters,
+        COUNT(*) FILTER (
+          WHERE source IN ('finalize_day', 'finalize_range', 'manual_refresh', 'repair_recent_day')
+            AND status IN ('queued', 'leased', 'running', 'failed', 'dead_letter')
+        )::int AS repair_backlog
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND partition_date = ${day}
+    ` as unknown as Array<Record<string, unknown>>,
+    getMetaPublishedVerificationSummary({
+      businessId: input.businessId,
+      startDate: day,
+      endDate: day,
+      providerAccountIds: [input.providerAccountId],
+      surfaces: ["account_daily", "campaign_daily"],
+    }),
+  ]);
+
+  const manifestsBySurface = new Map(
+    manifestRows.map((row) => [row.surface, mapMetaAuthoritativeSourceManifestRow(row)]),
+  );
+  const surfacesState = await Promise.all(
+    surfaces.map(async (surface) => ({
+      surface,
+      manifest: manifestsBySurface.get(surface) ?? null,
+      publication: await getMetaActivePublishedSliceVersion({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day,
+        surface,
+      }),
+    })),
+  );
+
+  const allManifests = surfacesState.map((row) => row.manifest).filter(Boolean);
+  const sourceManifestState =
+    allManifests.length === 0
+      ? "missing"
+      : allManifests.some((row) => row?.fetchStatus === "failed")
+        ? "failed"
+        : allManifests.some((row) => row?.fetchStatus === "running")
+          ? "running"
+          : allManifests.some((row) => row?.fetchStatus === "pending")
+            ? "pending"
+            : allManifests.every((row) => row?.fetchStatus === "completed")
+              ? "completed"
+              : "superseded";
+  const accountPublication = surfacesState.find((row) => row.surface === "account_daily")?.publication ?? null;
+  const lastFailure = latestFailureRows[0]
+    ? {
+        providerAccountId: latestFailureRows[0].provider_account_id,
+        day: normalizeDate(latestFailureRows[0].day),
+        surface: latestFailureRows[0].surface,
+        result: latestFailureRows[0].result,
+        eventKind: latestFailureRows[0].event_kind,
+        severity: latestFailureRows[0].severity,
+        reason: latestFailureRows[0].reason,
+        createdAt: normalizeTimestamp(latestFailureRows[0].created_at) ?? latestFailureRows[0].created_at,
+      }
+    : null;
+  const partitionRow = partitionRows[0] ?? {};
+
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    day,
+    verificationState: verification.verificationState,
+    sourceManifestState,
+    validationState: verification.verificationState,
+    activePublication: accountPublication
+      ? {
+          publishedAt: accountPublication.publication.publishedAt ?? null,
+          publicationReason: accountPublication.publication.publicationReason ?? null,
+          activeSliceVersionId: accountPublication.publication.activeSliceVersionId ?? null,
+        }
+      : null,
+    surfaces: surfacesState,
+    lastFailure,
+    repairBacklog: toNumber(partitionRow.repair_backlog),
+    deadLetters: toNumber(partitionRow.dead_letters),
+    staleLeases: toNumber(partitionRow.stale_leases),
+    queuedPartitions: toNumber(partitionRow.queued_partitions),
+    leasedPartitions: toNumber(partitionRow.leased_partitions),
   };
 }
 
@@ -3851,16 +5397,7 @@ export async function replaceMetaAccountDailySlice(input: {
     scope: "account",
   } as const;
   assertMetaFinalizationCompletenessProof(input.proof, slice);
-  await runInTransaction(async () => {
-    const sql = getDb();
-    await sql`
-      DELETE FROM meta_account_daily
-      WHERE business_id = ${slice.businessId}
-        AND provider_account_id = ${slice.providerAccountId}
-        AND date = ${slice.date}::date
-    `;
-    await upsertMetaAccountDailyRows(input.rows);
-  });
+  await upsertMetaAccountDailyRows(input.rows);
 }
 
 export async function replaceMetaCampaignDailySlice(input: {
@@ -3877,13 +5414,15 @@ export async function replaceMetaCampaignDailySlice(input: {
   assertMetaFinalizationCompletenessProof(input.proof, slice);
   await runInTransaction(async () => {
     const sql = getDb();
+    await upsertMetaCampaignDailyRows(input.rows);
+    const campaignIds = input.rows.map((row) => row.campaignId);
     await sql`
       DELETE FROM meta_campaign_daily
       WHERE business_id = ${slice.businessId}
         AND provider_account_id = ${slice.providerAccountId}
         AND date = ${slice.date}::date
+        AND NOT (campaign_id = ANY(${campaignIds}::text[]))
     `;
-    await upsertMetaCampaignDailyRows(input.rows);
   });
 }
 
@@ -3901,13 +5440,15 @@ export async function replaceMetaAdSetDailySlice(input: {
   assertMetaFinalizationCompletenessProof(input.proof, slice);
   await runInTransaction(async () => {
     const sql = getDb();
+    await upsertMetaAdSetDailyRows(input.rows);
+    const adsetIds = input.rows.map((row) => row.adsetId);
     await sql`
       DELETE FROM meta_adset_daily
       WHERE business_id = ${slice.businessId}
         AND provider_account_id = ${slice.providerAccountId}
         AND date = ${slice.date}::date
+        AND NOT (adset_id = ANY(${adsetIds}::text[]))
     `;
-    await upsertMetaAdSetDailyRows(input.rows);
   });
 }
 

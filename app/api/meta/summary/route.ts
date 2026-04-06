@@ -12,6 +12,19 @@ export interface MetaSummaryRouteResponse extends Awaited<ReturnType<typeof getM
   notReadyReason?: string | null;
 }
 
+function getHistoricalVerificationReason(input: {
+  verificationState?: string | null;
+  fallbackReason: string;
+}) {
+  if (input.verificationState === "failed") {
+    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
+  }
+  if (input.verificationState === "repair_required") {
+    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
+  }
+  return input.fallbackReason;
+}
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
@@ -80,11 +93,14 @@ export async function GET(request: NextRequest) {
       ...payload,
       isPartial: Boolean(payload.isPartial),
       notReadyReason: payload.isPartial
-        ? getMetaPartialReason({
-            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-            currentDateInTimezone: rangeContext.currentDateInTimezone,
-            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-            defaultReason: "Warehouse data is still being prepared for the requested range.",
+        ? getHistoricalVerificationReason({
+            verificationState: payload.verification?.verificationState ?? null,
+            fallbackReason: getMetaPartialReason({
+              isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              defaultReason: "Warehouse data is still being prepared for the requested range.",
+            }),
           })
         : null,
     } satisfies MetaSummaryRouteResponse,

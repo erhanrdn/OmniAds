@@ -36,11 +36,16 @@ vi.mock("@/lib/meta/serving", () => ({
   getMetaWarehouseBreakdowns: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/meta-sync", () => ({
+  getMetaSelectedRangeTruthReadiness: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const readiness = await import("@/lib/meta/readiness");
 const serving = await import("@/lib/meta/serving");
+const metaSync = await import("@/lib/sync/meta-sync");
 
 describe("GET /api/meta/breakdowns", () => {
   beforeEach(() => {
@@ -61,6 +66,18 @@ describe("GET /api/meta/breakdowns", () => {
       currentDateInTimezone: "2026-04-05",
       primaryAccountTimezone: "UTC",
     });
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: true,
+      state: "finalized_verified",
+      verificationState: "finalized_verified",
+      completedCoreDays: 3,
+      totalDays: 3,
+      blockingReasons: [],
+      reasonCounts: {},
+      sourceFetchedAt: "2026-04-05T00:00:00Z",
+      publishedAt: "2026-04-05T00:05:00Z",
+      asOf: "2026-04-05T00:05:00Z",
+    } as never);
   });
 
   it("returns the visible breakdown sections used by the current page", async () => {
@@ -105,5 +122,74 @@ describe("GET /api/meta/breakdowns", () => {
     expect(payload).toHaveProperty("budget");
     expect(payload).toHaveProperty("audience");
     expect(payload).toHaveProperty("products");
+  });
+
+  it("does not surface unpublished historical breakdown truth when warehouse payload is partial under v2", async () => {
+    vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
+      age: [],
+      location: [],
+      placement: [],
+      budget: { campaign: [], adset: [] },
+      verification: {
+        verificationState: "processing",
+        sourceFetchedAt: "2026-04-05T00:00:00Z",
+        publishedAt: null,
+        asOf: "2026-04-05T00:00:00Z",
+      },
+      isPartial: true,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      verificationState: "processing",
+      completedCoreDays: 0,
+      totalDays: 3,
+      blockingReasons: ["non_finalized"],
+      reasonCounts: { processing: 1 },
+      sourceFetchedAt: "2026-04-05T00:00:00Z",
+      publishedAt: null,
+      asOf: "2026-04-05T00:00:00Z",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&startDate=2026-04-01&endDate=2026-04-03"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.age).toEqual([]);
+    expect(payload.location).toEqual([]);
+    expect(payload.placement).toEqual([]);
+    expect(payload.isPartial).toBe(true);
+    expect(payload.notReadyReason).toContain("prepared");
+  });
+
+  it("keeps current-day breakdown behavior unchanged", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: true,
+      currentDateInTimezone: "2026-04-05",
+      primaryAccountTimezone: "UTC",
+    });
+    vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
+      age: [{ key: "18-24", label: "18-24", spend: 10, purchases: 1, revenue: 20, clicks: 4, impressions: 80 }],
+      location: [],
+      placement: [],
+      budget: { campaign: [], adset: [] },
+      isPartial: false,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&startDate=2026-04-05&endDate=2026-04-05"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(metaSync.getMetaSelectedRangeTruthReadiness).not.toHaveBeenCalled();
+    expect(payload.isPartial).toBe(false);
+    expect(payload.age).toHaveLength(1);
   });
 });

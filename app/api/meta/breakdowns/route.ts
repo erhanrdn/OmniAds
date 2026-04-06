@@ -8,6 +8,7 @@ import { runMigrations } from "@/lib/migrations";
 import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseBreakdowns } from "@/lib/meta/serving";
+import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
 
@@ -69,6 +70,19 @@ export interface MetaBreakdownsResponse {
   };
   isPartial?: boolean;
   notReadyReason?: string | null;
+}
+
+function getHistoricalVerificationReason(input: {
+  verificationState?: string | null;
+  fallbackReason: string;
+}) {
+  if (input.verificationState === "failed") {
+    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
+  }
+  if (input.verificationState === "repair_required") {
+    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
+  }
+  return input.fallbackReason;
 }
 
 function toISODate(d: Date) {
@@ -294,6 +308,14 @@ export async function GET(request: NextRequest) {
     endDate,
     referenceToday: rangeContext.currentDateInTimezone,
   });
+  const historicalTruth =
+    !rangeContext.isSelectedCurrentDay
+      ? await getMetaSelectedRangeTruthReadiness({
+          businessId: businessId!,
+          startDate,
+          endDate,
+        }).catch(() => null)
+      : null;
 
   try {
     const warehouse = await getMetaWarehouseBreakdowns({
@@ -325,8 +347,14 @@ export async function GET(request: NextRequest) {
           reason:
             "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
         },
-        isPartial: false,
-        notReadyReason: null,
+        isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+        notReadyReason:
+          historicalTruth && !historicalTruth.truthReady
+            ? getHistoricalVerificationReason({
+                verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                fallbackReason: "Breakdown warehouse data is still being prepared for the requested range.",
+              })
+            : null,
       } satisfies MetaBreakdownsResponse);
     }
   } catch (error) {
@@ -354,13 +382,25 @@ export async function GET(request: NextRequest) {
       reason:
         "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
     },
-    isPartial: true,
+    isPartial: historicalTruth ? !historicalTruth.truthReady : true,
     notReadyReason: breakdownGuardrail.message ??
-      getMetaPartialReason({
-        isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-        currentDateInTimezone: rangeContext.currentDateInTimezone,
-        primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-        defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
-      }),
+      (historicalTruth
+        ? historicalTruth.truthReady
+          ? null
+          : getHistoricalVerificationReason({
+              verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+              fallbackReason: getMetaPartialReason({
+                isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
+              }),
+            })
+        : getMetaPartialReason({
+            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+            currentDateInTimezone: rangeContext.currentDateInTimezone,
+            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+            defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
+          })),
   } satisfies MetaBreakdownsResponse);
 }

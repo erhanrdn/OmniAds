@@ -4,6 +4,10 @@ async function main() {
   configureOperationalScriptRuntime();
   const { refreshMetaSyncStateForBusiness } =
     await import("@/lib/sync/meta-sync");
+  const { getMetaAuthoritativeBusinessOpsSnapshot } =
+    await import("@/lib/meta/warehouse");
+  const { buildMetaStateCheckOutput } =
+    await import("@/lib/meta/authoritative-ops");
   const businessId = process.argv[2];
   if (!businessId) {
     console.error(
@@ -12,7 +16,18 @@ async function main() {
     process.exit(1);
   }
   await refreshMetaSyncStateForBusiness({ businessId });
-  console.log(JSON.stringify({ businessId, ok: true }, null, 2));
+  const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({ businessId }).catch(() => null);
+  console.log(
+    JSON.stringify(
+      {
+        businessId,
+        ok: true,
+        authoritative: snapshot ? buildMetaStateCheckOutput(snapshot) : null,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 main().catch((error) => {

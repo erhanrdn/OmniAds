@@ -187,6 +187,19 @@ function buildPageSurfaceState(input: {
   return "partial";
 }
 
+function getHistoricalVerificationReason(input: {
+  verificationState?: string | null;
+  fallbackReason: string;
+}) {
+  if (input.verificationState === "failed") {
+    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
+  }
+  if (input.verificationState === "repair_required") {
+    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
+  }
+  return input.fallbackReason;
+}
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
@@ -445,24 +458,6 @@ export async function GET(request: NextRequest) {
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
-  const selectedRangeCoreCompletedDays = minCompletedDays(
-    [selectedRangeCoverage?.completed_days ?? 0, selectedRangeCampaignCoverage?.completed_days ?? 0],
-    selectedRangeTotalDays
-  );
-  const selectedRangeIncomplete =
-    Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
-  const selectedRangeCoreReadyThroughDate = earliestReadyThroughDate([
-    selectedRangeCoverage?.ready_through_date ?? null,
-    selectedRangeCampaignCoverage?.ready_through_date ?? null,
-  ]);
-  const selectedRangeBreakdownReadyThroughDate =
-    selectedRangeRequested
-      ? META_BREAKDOWN_ENDPOINTS.map(
-          (endpointName) => selectedRangeBreakdownCoverageByEndpoint?.get(endpointName)?.ready_through_date ?? null
-        )
-          .filter((value): value is string => Boolean(value))
-          .sort((a, b) => a.localeCompare(b))[0] ?? null
-      : null;
   const selectedRangeIsToday =
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
@@ -474,6 +469,33 @@ export async function GET(request: NextRequest) {
           startDate: selectedStartDate,
           endDate: selectedEndDate,
         }).catch(() => null)
+      : null;
+  const selectedRangeCoreCompletedDays = minCompletedDays(
+    [
+      selectedRangeTruth && !selectedRangeIsToday
+        ? selectedRangeTruth.completedCoreDays
+        : selectedRangeCoverage?.completed_days ?? 0,
+      selectedRangeTruth && !selectedRangeIsToday
+        ? selectedRangeTruth.completedCoreDays
+        : selectedRangeCampaignCoverage?.completed_days ?? 0,
+    ],
+    selectedRangeTotalDays
+  );
+  const selectedRangeIncomplete =
+    selectedRangeTruth && !selectedRangeIsToday
+      ? !selectedRangeTruth.truthReady
+      : Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
+  const selectedRangeCoreReadyThroughDate = earliestReadyThroughDate([
+    selectedRangeCoverage?.ready_through_date ?? null,
+    selectedRangeCampaignCoverage?.ready_through_date ?? null,
+  ]);
+  const selectedRangeBreakdownReadyThroughDate =
+    selectedRangeRequested
+      ? META_BREAKDOWN_ENDPOINTS.map(
+          (endpointName) => selectedRangeBreakdownCoverageByEndpoint?.get(endpointName)?.ready_through_date ?? null
+        )
+          .filter((value): value is string => Boolean(value))
+          .sort((a, b) => a.localeCompare(b))[0] ?? null
       : null;
   const selectedRangeBreakdownGuardrailBlocked =
     selectedRangeRequested && selectedEndDate && selectedStartDate
@@ -598,12 +620,18 @@ export async function GET(request: NextRequest) {
     totalDays: historicalTotalDays,
     latestSyncType: latestSync?.sync_type ? String(latestSync.sync_type) : null,
   });
+  const selectedRangeVerificationState =
+    selectedRangeTruth?.verificationState ?? selectedRangeTruth?.state ?? null;
 
   const selectedRangeStillPreparing = Boolean(selectedRangeRequested && selectedRangeIncomplete);
   const overallSyncActive =
     connected &&
     accountIds.length > 0 &&
     (
+      (!selectedRangeIsToday &&
+        selectedRangeRequested &&
+        (selectedRangeVerificationState === "processing" ||
+          selectedRangeVerificationState === "repair_required")) ||
       historicalArchiveCompletedDays < historicalTotalDays ||
       (queueHealth?.leasedPartitions ?? 0) > 0 ||
       (queueHealth?.queueDepth ?? 0) > 0 ||
@@ -700,15 +728,19 @@ export async function GET(request: NextRequest) {
       ? connected && accountIds.length > 0 && (accountCoverage?.completed_days ?? 0) > 0
       : selectedRangeIsToday
       ? currentDayLive?.summaryAvailable === true
-      : Boolean(selectedRangeTotalDays) &&
-        (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+      : selectedRangeTruth
+        ? selectedRangeTruth.truthReady
+        : Boolean(selectedRangeTotalDays) &&
+          (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const campaignsReady =
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (campaignCoverage?.completed_days ?? 0) > 0
       : selectedRangeIsToday
       ? currentDayLive?.campaignsAvailable === true
-      : Boolean(selectedRangeTotalDays) &&
-        (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+      : selectedRangeTruth
+        ? selectedRangeTruth.truthReady
+        : Boolean(selectedRangeTotalDays) &&
+          (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const summarySurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -719,7 +751,10 @@ export async function GET(request: NextRequest) {
           ? "Recent summary warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
           ? "Summary data for the current Meta account day is still preparing."
-          : "Summary warehouse data is still being prepared for the selected range.";
+          : getHistoricalVerificationReason({
+              verificationState: selectedRangeVerificationState,
+              fallbackReason: "Summary warehouse data is still being prepared for the selected range.",
+            });
   const campaignsSurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -730,14 +765,26 @@ export async function GET(request: NextRequest) {
           ? "Recent campaign warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
           ? "Campaign data for the current Meta account day is still preparing."
-          : "Campaign warehouse data is still being prepared for the selected range.";
+          : getHistoricalVerificationReason({
+              verificationState: selectedRangeVerificationState,
+              fallbackReason: "Campaign warehouse data is still being prepared for the selected range.",
+            });
   const breakdownRequiredSurfaces = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
       const coverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
-      const ready = coverage.isComplete;
+      const ready = selectedRangeIsToday
+        ? coverage.isComplete
+        : coverage.isComplete && (selectedRangeTruth ? selectedRangeTruth.truthReady : true);
       const blockedReason =
         coverage.isBlocked && coverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${coverage.supportStartDate} onward for the selected range.`
+          : !selectedRangeIsToday &&
+              (selectedRangeVerificationState === "failed" ||
+                selectedRangeVerificationState === "repair_required")
+            ? getHistoricalVerificationReason({
+                verificationState: selectedRangeVerificationState,
+                fallbackReason: `${surface.label} breakdown data is still being prepared for the selected range.`,
+              })
           : null;
       const reason = !connected
         ? "Meta integration is not connected."
@@ -865,8 +912,13 @@ export async function GET(request: NextRequest) {
     ? "not_connected"
     : accountIds.length === 0
       ? "connected_no_assignment"
-      : (queueHealth?.deadLetterPartitions ?? 0) > 0
+      : !selectedRangeIsToday &&
+          selectedRangeRequested &&
+          (selectedRangeVerificationState === "failed" ||
+            selectedRangeVerificationState === "repair_required")
         ? "action_required"
+        : (queueHealth?.deadLetterPartitions ?? 0) > 0
+          ? "action_required"
         : staleLeasedQueue
           ? "stale"
         : stateMissingWhileQueued

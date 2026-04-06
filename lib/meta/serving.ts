@@ -23,6 +23,7 @@ import {
   getMetaAdSetDailyRange,
   getMetaBreakdownDailyRange,
   getMetaCampaignDailyRange,
+  getMetaPublishedVerificationSummary,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
 } from "@/lib/meta/warehouse";
@@ -30,10 +31,13 @@ import {
   type MetaAccountDailyRow,
   type MetaAdSetDailyRow,
   type MetaCampaignDailyRow,
+  type MetaHistoricalVerificationState,
+  type MetaPublishedVerificationSummary,
   type MetaWarehouseFreshness,
 } from "@/lib/meta/warehouse-types";
 import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive, getHistoricalWindowStart } from "@/lib/meta/history";
 import { buildConfigSnapshotPayload } from "@/lib/meta/configuration";
+import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -96,6 +100,12 @@ export interface MetaWarehouseSummaryResponse {
     state: "ready" | "syncing" | "partial";
   };
   isPartial?: boolean;
+  verification?: {
+    verificationState: MetaHistoricalVerificationState;
+    sourceFetchedAt: string | null;
+    publishedAt: string | null;
+    asOf: string | null;
+  } | null;
   totals: {
     spend: number;
     revenue: number;
@@ -136,12 +146,14 @@ export interface MetaWarehouseTrendPoint {
 export interface MetaWarehouseTrendResponse {
   freshness: MetaWarehouseFreshness;
   isPartial?: boolean;
+  verification?: MetaWarehouseSummaryResponse["verification"];
   points: MetaWarehouseTrendPoint[];
 }
 
 export interface MetaWarehouseCampaignResponse {
   freshness: MetaWarehouseFreshness;
   isPartial?: boolean;
+  verification?: MetaWarehouseSummaryResponse["verification"];
   rows: Array<{
     providerAccountId: string;
     campaignId: string;
@@ -296,6 +308,8 @@ export interface MetaWarehouseAdSetTableRow {
 
 export interface MetaWarehouseBreakdownsResponse {
   freshness: MetaWarehouseFreshness;
+  isPartial?: boolean;
+  verification?: MetaWarehouseSummaryResponse["verification"];
   age: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
   location: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
   placement: Array<{ key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>;
@@ -305,16 +319,98 @@ export interface MetaWarehouseBreakdownsResponse {
   };
 }
 
+function buildVerificationMetadata(
+  verification: MetaPublishedVerificationSummary | null | undefined,
+) {
+  if (!verification) return null;
+  return {
+    verificationState: verification.verificationState,
+    sourceFetchedAt: verification.sourceFetchedAt,
+    publishedAt: verification.publishedAt,
+    asOf: verification.asOf,
+  };
+}
+
+function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string }>(
+  rows: T[],
+  verification: MetaPublishedVerificationSummary | null | undefined,
+  surface: "account_daily" | "campaign_daily" | "adset_daily",
+) {
+  const keys = new Set(verification?.publishedKeysBySurface[surface] ?? []);
+  if (keys.size === 0) return [] as T[];
+  return rows.filter((row) => keys.has(`${row.providerAccountId}:${row.date}`));
+}
+
+function filterBreakdownRowsToPublishedKeys<
+  T extends {
+    providerAccountId: string;
+    date: string;
+    breakdownType: string;
+  },
+>(input: {
+  rows: T[];
+  verification: MetaPublishedVerificationSummary | null | undefined;
+  requiredBreakdownTypes: string[];
+}) {
+  const publishedKeys = new Set(
+    input.verification?.publishedKeysBySurface.account_daily ?? [],
+  );
+  if (publishedKeys.size === 0) return [] as T[];
+
+  const requiredTypes = new Set(input.requiredBreakdownTypes);
+  const breakdownTypesByKey = new Map<string, Set<string>>();
+  for (const row of input.rows) {
+    const key = `${row.providerAccountId}:${row.date}`;
+    if (!publishedKeys.has(key)) continue;
+    const types = breakdownTypesByKey.get(key);
+    if (types) {
+      types.add(row.breakdownType);
+    } else {
+      breakdownTypesByKey.set(key, new Set([row.breakdownType]));
+    }
+  }
+
+  return input.rows.filter((row) => {
+    const key = `${row.providerAccountId}:${row.date}`;
+    if (!publishedKeys.has(key)) return false;
+    const presentTypes = breakdownTypesByKey.get(key);
+    if (!presentTypes) return false;
+    for (const requiredType of requiredTypes) {
+      if (!presentTypes.has(requiredType)) return false;
+    }
+    return true;
+  });
+}
+
 export async function getMetaWarehouseSummary(input: {
   businessId: string;
   startDate: string;
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseSummaryResponse> {
-  const [rows, campaignRows] = await Promise.all([
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const [rawRows, rawCampaignRows, verification] = await Promise.all([
     getMetaAccountDailyRange(input),
     getMetaCampaignDailyRange(input),
+    v2Enabled
+      ? getMetaPublishedVerificationSummary({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          providerAccountIds,
+          surfaces: ["account_daily", "campaign_daily"],
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
+  const rows = v2Enabled
+    ? filterRowsToPublishedKeys(rawRows, verification, "account_daily")
+    : rawRows;
+  const campaignRows = v2Enabled
+    ? filterRowsToPublishedKeys(rawCampaignRows, verification, "campaign_daily")
+    : rawCampaignRows;
   const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
   const empty = emptyMetaWarehouseMetrics();
   const accountRowsByProvider = new Map(rows.map((row) => [row.providerAccountId, row]));
@@ -485,7 +581,8 @@ export async function getMetaWarehouseSummary(input: {
       readyThroughDate: historicalCoverage?.ready_through_date ?? null,
       state: historicalState,
     },
-    isPartial: summaryRows.length === 0,
+    isPartial: v2Enabled ? !verification?.truthReady : summaryRows.length === 0,
+    verification: buildVerificationMetadata(verification),
     totals: {
       spend: r2(totals.spend),
       revenue: r2(totals.revenue),
@@ -568,7 +665,25 @@ export async function getMetaWarehouseTrends(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseTrendResponse> {
-  const rows = await getMetaAccountDailyRange(input);
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const [rawRows, verification] = await Promise.all([
+    getMetaAccountDailyRange(input),
+    v2Enabled
+      ? getMetaPublishedVerificationSummary({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          providerAccountIds,
+          surfaces: ["account_daily"],
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const rows = v2Enabled
+    ? filterRowsToPublishedKeys(rawRows, verification, "account_daily")
+    : rawRows;
   const byDate = new Map<string, MetaAccountDailyRow[]>();
   for (const row of rows) {
     const list = byDate.get(row.date);
@@ -602,7 +717,8 @@ export async function getMetaWarehouseTrends(input: {
     freshness: {
       ...buildFreshnessFromRows(points.map((point) => ({ updatedAt: point.date })), rows.length > 0 ? "ready" : "stale"),
     },
-    isPartial: rows.length === 0,
+    isPartial: v2Enabled ? !verification?.truthReady : rows.length === 0,
+    verification: buildVerificationMetadata(verification),
     points,
   };
 }
@@ -613,7 +729,25 @@ export async function getMetaWarehouseCampaigns(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseCampaignResponse> {
-  const rows = await getMetaCampaignDailyRange(input);
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const [rawRows, verification] = await Promise.all([
+    getMetaCampaignDailyRange(input),
+    v2Enabled
+      ? getMetaPublishedVerificationSummary({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          providerAccountIds,
+          surfaces: ["campaign_daily"],
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const rows = v2Enabled
+    ? filterRowsToPublishedKeys(rawRows, verification, "campaign_daily")
+    : rawRows;
   const byCampaign = new Map<string, MetaCampaignDailyRow[]>();
   for (const row of rows) {
     const key = `${row.providerAccountId}:${row.campaignId}`;
@@ -652,8 +786,9 @@ export async function getMetaWarehouseCampaigns(input: {
     freshness: {
       ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "stale"),
     },
-    isPartial: rows.length === 0,
-  rows: aggregated.sort((a, b) => b.spend - a.spend),
+    isPartial: v2Enabled ? !verification?.truthReady : rows.length === 0,
+    verification: buildVerificationMetadata(verification),
+    rows: aggregated.sort((a, b) => b.spend - a.spend),
   };
 }
 
@@ -1431,10 +1566,29 @@ export async function getMetaWarehouseCampaignTable(input: {
   providerAccountIds?: string[] | null;
   includePrev?: boolean;
 }): Promise<MetaWarehouseCampaignTableRow[]> {
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const verification = v2Enabled
+    ? await getMetaPublishedVerificationSummary({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds,
+        surfaces: ["campaign_daily"],
+      }).catch(() => null)
+    : null;
   const payload = await getMetaWarehouseCampaigns(input);
   const campaignDailyRows = await repairCampaignRowsFromSnapshots({
     businessId: input.businessId,
-    rows: await getMetaCampaignDailyRange(input),
+    rows: v2Enabled
+      ? filterRowsToPublishedKeys(
+          await getMetaCampaignDailyRange(input),
+          verification,
+          "campaign_daily",
+        )
+      : await getMetaCampaignDailyRange(input),
   });
   const campaignHistoryByKey = new Map<string, MetaCampaignDailyRow[]>();
   for (const row of campaignDailyRows) {
@@ -1528,9 +1682,34 @@ export async function getMetaWarehouseAdSets(input: {
   providerAccountIds?: string[] | null;
   includePrev?: boolean;
 }): Promise<MetaWarehouseAdSetTableRow[]> {
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const verification = v2Enabled
+    ? await getMetaPublishedVerificationSummary({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds,
+        surfaces: ["adset_daily"],
+      }).catch(() => null)
+    : null;
   const rows = await repairAdSetRowsFromSnapshots({
     businessId: input.businessId,
-    rows: await getMetaAdSetDailyRange({
+    rows: v2Enabled
+      ? filterRowsToPublishedKeys(
+          await getMetaAdSetDailyRange({
+            businessId: input.businessId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+            providerAccountIds: input.providerAccountIds,
+            campaignIds: input.campaignId ? [input.campaignId] : null,
+          }),
+          verification,
+          "adset_daily",
+        )
+      : await getMetaAdSetDailyRange({
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -1596,13 +1775,18 @@ export async function getMetaWarehouseBreakdowns(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseBreakdownsResponse> {
-  const [breakdownRows, campaigns, adsets] = await Promise.all([
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const requestedBreakdownTypes = ["age", "country", "placement"] as const;
+  const [rawBreakdownRows, campaigns, adsets, verification] = await Promise.all([
     getMetaBreakdownDailyRange({
       businessId: input.businessId,
       providerAccountIds: input.providerAccountIds,
       startDate: input.startDate,
       endDate: input.endDate,
-      breakdownTypes: ["age", "country", "placement"],
+      breakdownTypes: [...requestedBreakdownTypes],
     }),
     getMetaWarehouseCampaigns(input),
     getMetaWarehouseAdSets({
@@ -1612,7 +1796,23 @@ export async function getMetaWarehouseBreakdowns(input: {
       providerAccountIds: input.providerAccountIds,
       campaignId: "",
     }).catch(() => []),
+    v2Enabled
+      ? getMetaPublishedVerificationSummary({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          providerAccountIds,
+          surfaces: ["account_daily", "campaign_daily"],
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
+  const breakdownRows = v2Enabled
+    ? filterBreakdownRowsToPublishedKeys({
+        rows: rawBreakdownRows,
+        verification,
+        requiredBreakdownTypes: [...requestedBreakdownTypes],
+      })
+    : rawBreakdownRows;
 
   const aggregateRows = (kind: "age" | "country" | "placement") => {
     const byKey = new Map<string, { key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>();
@@ -1644,6 +1844,8 @@ export async function getMetaWarehouseBreakdowns(input: {
       breakdownRows.map((row) => ({ updatedAt: row.updatedAt })),
       breakdownRows.length > 0 ? "ready" : "syncing"
     ),
+    isPartial: v2Enabled ? !verification?.truthReady : breakdownRows.length === 0,
+    verification: buildVerificationMetadata(verification),
     age: aggregateRows("age"),
     location: aggregateRows("country"),
     placement: aggregateRows("placement"),

@@ -15,18 +15,28 @@ vi.mock("@/lib/sync/worker-health", () => ({
 const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
+  buildMetaAuthoritativePublicationLookup,
   cleanupMetaPartitionOrchestration,
   completeMetaPartition,
   completeMetaPartitionAttempt,
+  createMetaAuthoritativeReconciliationEvent,
+  createMetaAuthoritativeSliceVersion,
+  createMetaAuthoritativeSourceManifest,
   createMetaSyncRun,
+  getMetaAuthoritativeBusinessOpsSnapshot,
+  getMetaAuthoritativeDayVerification,
+  getMetaActivePublishedSliceVersion,
   getMetaAdSetDailyRange,
   getMetaCampaignDailyRange,
   getMetaDirtyRecentDates,
   getMetaRecentAuthoritativeSliceGuard,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
+  publishMetaAuthoritativeSliceVersion,
   replaceMetaBreakdownDailySlice,
   replayMetaDeadLetterPartitions,
+  reserveNextMetaAuthoritativeCandidateVersion,
+  supersedeMetaAuthoritativeSliceVersions,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
   upsertMetaSyncCheckpoint,
@@ -40,6 +50,22 @@ describe("meta warehouse ownership safety", () => {
     vi.resetAllMocks();
     vi.mocked(workerHealth.recordSyncReclaimEvents).mockResolvedValue(undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+  });
+
+  it("builds a normalized authoritative publication lookup key", () => {
+    expect(
+      buildMetaAuthoritativePublicationLookup({
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        day: "2026-04-06T14:15:16.000Z",
+        surface: "campaign_daily",
+      }),
+    ).toEqual({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-06",
+      surface: "campaign_daily",
+    });
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {
@@ -1147,6 +1173,491 @@ describe("meta warehouse ownership safety", () => {
     expect(queries[1]).toContain(
       "attempt_count = GREATEST(meta_sync_runs.attempt_count, EXCLUDED.attempt_count)"
     );
+  });
+
+  it("creates authoritative manifest, candidate, and reconciliation records", async () => {
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          id: "manifest-1",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          day: "2026-04-05",
+          surface: "account_daily",
+          account_timezone: "America/Los_Angeles",
+          source_kind: "finalize_day",
+          source_window_kind: "d_minus_1",
+          run_id: "run-1",
+          fetch_status: "running",
+          fresh_start_applied: true,
+          checkpoint_reset_applied: true,
+          raw_snapshot_watermark: "snap-42",
+          source_spend: 10,
+          validation_basis_version: "v1",
+          meta_json: { step: "fetch" },
+          started_at: "2026-04-06T00:00:00.000Z",
+          completed_at: null,
+          created_at: "2026-04-06T00:00:00.000Z",
+          updated_at: "2026-04-06T00:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([{ next_candidate_version: 3 }])
+      .mockResolvedValueOnce([
+        {
+          id: "slice-3",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          day: "2026-04-05",
+          surface: "account_daily",
+          manifest_id: "manifest-1",
+          candidate_version: 3,
+          state: "finalizing",
+          truth_state: "finalized",
+          validation_status: "pending",
+          status: "staging",
+          staged_row_count: 12,
+          aggregated_spend: 10,
+          validation_summary: { fresh: true },
+          source_run_id: "run-1",
+          stage_started_at: "2026-04-06T00:01:00.000Z",
+          stage_completed_at: null,
+          published_at: null,
+          superseded_at: null,
+          created_at: "2026-04-06T00:01:00.000Z",
+          updated_at: "2026-04-06T00:01:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "event-1",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          day: "2026-04-05",
+          surface: "account_daily",
+          slice_version_id: "slice-3",
+          manifest_id: "manifest-1",
+          event_kind: "validation_started",
+          severity: "info",
+          source_spend: 10,
+          warehouse_account_spend: 10,
+          warehouse_campaign_spend: 10,
+          tolerance_applied: 0.01,
+          result: "passed",
+          details_json: { source: "meta" },
+          created_at: "2026-04-06T00:02:00.000Z",
+        },
+      ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const manifest = await createMetaAuthoritativeSourceManifest({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "account_daily",
+      accountTimezone: "America/Los_Angeles",
+      sourceKind: "finalize_day",
+      sourceWindowKind: "d_minus_1",
+      runId: "run-1",
+      fetchStatus: "running",
+      freshStartApplied: true,
+      checkpointResetApplied: true,
+      rawSnapshotWatermark: "snap-42",
+      sourceSpend: 10,
+      validationBasisVersion: "v1",
+      metaJson: { step: "fetch" },
+      startedAt: "2026-04-06T00:00:00.000Z",
+    });
+
+    const candidateVersion = await reserveNextMetaAuthoritativeCandidateVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "account_daily",
+    });
+
+    const slice = await createMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "account_daily",
+      manifestId: "manifest-1",
+      candidateVersion,
+      state: "finalizing",
+      truthState: "finalized",
+      validationStatus: "pending",
+      status: "staging",
+      stagedRowCount: 12,
+      aggregatedSpend: 10,
+      validationSummary: { fresh: true },
+      sourceRunId: "run-1",
+      stageStartedAt: "2026-04-06T00:01:00.000Z",
+    });
+
+    const event = await createMetaAuthoritativeReconciliationEvent({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "account_daily",
+      sliceVersionId: "slice-3",
+      manifestId: "manifest-1",
+      eventKind: "validation_started",
+      severity: "info",
+      sourceSpend: 10,
+      warehouseAccountSpend: 10,
+      warehouseCampaignSpend: 10,
+      toleranceApplied: 0.01,
+      result: "passed",
+      detailsJson: { source: "meta" },
+    });
+
+    expect(manifest?.fetchStatus).toBe("running");
+    expect(candidateVersion).toBe(3);
+    expect(slice?.candidateVersion).toBe(3);
+    expect(event?.result).toBe("passed");
+  });
+
+  it("publishes a candidate through the active publication pointer", async () => {
+    const templateCalls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      templateCalls.push(strings.join(" "));
+      return [
+        {
+          id: "pub-1",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          day: "2026-04-05",
+          surface: "campaign_daily",
+          active_slice_version_id: "slice-4",
+          published_by_run_id: "run-4",
+          publication_reason: "manual_refresh",
+          published_at: "2026-04-06T00:03:00.000Z",
+          created_at: "2026-04-06T00:03:00.000Z",
+          updated_at: "2026-04-06T00:03:00.000Z",
+        },
+      ];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async () => []),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const publication = await publishMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "campaign_daily",
+      sliceVersionId: "slice-4",
+      publishedByRunId: "run-4",
+      publicationReason: "manual_refresh",
+    });
+
+    expect(publication?.activeSliceVersionId).toBe("slice-4");
+    expect(templateCalls.some((query) => query.includes("UPDATE meta_authoritative_slice_versions"))).toBe(true);
+    expect(
+      templateCalls.some((query) =>
+        query.includes("INSERT INTO meta_authoritative_publication_pointers"),
+      ),
+    ).toBe(true);
+  });
+
+  it("looks up the active published slice version for a historical surface", async () => {
+    const sql = vi.fn(async () => [
+      {
+        id: "pub-1",
+        business_id: "biz-1",
+        provider_account_id: "acct-1",
+        day: "2026-04-05",
+        surface: "adset_daily",
+        active_slice_version_id: "slice-9",
+        published_by_run_id: "run-9",
+        publication_reason: "finalize_day",
+        published_at: "2026-04-06T00:03:00.000Z",
+        created_at: "2026-04-06T00:03:00.000Z",
+        updated_at: "2026-04-06T00:03:00.000Z",
+        candidate_version: 9,
+        state: "finalized_verified",
+        truth_state: "finalized",
+        validation_status: "passed",
+        status: "published",
+        manifest_id: "manifest-9",
+        staged_row_count: 44,
+        aggregated_spend: 123.45,
+        validation_summary: { passed: true },
+        source_run_id: "run-9",
+        stage_started_at: "2026-04-06T00:01:00.000Z",
+        stage_completed_at: "2026-04-06T00:02:00.000Z",
+        superseded_at: null,
+        slice_created_at: "2026-04-06T00:01:00.000Z",
+        slice_updated_at: "2026-04-06T00:03:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getMetaActivePublishedSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "adset_daily",
+    });
+
+    expect(result?.publication.activeSliceVersionId).toBe("slice-9");
+    expect(result?.sliceVersion.status).toBe("published");
+    expect(result?.sliceVersion.candidateVersion).toBe(9);
+  });
+
+  it("supersedes older candidate versions for the same publication key", async () => {
+    const sql = vi.fn(async () => [
+      {
+        id: "slice-old",
+        business_id: "biz-1",
+        provider_account_id: "acct-1",
+        day: "2026-04-05",
+        surface: "account_daily",
+        manifest_id: "manifest-1",
+        candidate_version: 1,
+        state: "superseded",
+        truth_state: "finalized",
+        validation_status: "passed",
+        status: "superseded",
+        staged_row_count: 1,
+        aggregated_spend: 1,
+        validation_summary: {},
+        source_run_id: "run-1",
+        stage_started_at: null,
+        stage_completed_at: null,
+        published_at: null,
+        superseded_at: "2026-04-06T00:04:00.000Z",
+        created_at: "2026-04-06T00:01:00.000Z",
+        updated_at: "2026-04-06T00:04:00.000Z",
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await supersedeMetaAuthoritativeSliceVersions({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "account_daily",
+      excludeSliceVersionId: "slice-new",
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("superseded");
+    expect(rows[0]?.state).toBe("superseded");
+  });
+  it("builds a business-wide authoritative ops snapshot", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("GROUP BY fetch_status")) {
+        return [
+          { fetch_status: "completed", count: 3 },
+          { fetch_status: "failed", count: 1 },
+          { fetch_status: "pending", count: 1 },
+        ];
+      }
+      if (query.includes("WITH published_days AS")) {
+        return [
+          {
+            queued: 2,
+            leased: 1,
+            retryable_failed: 1,
+            dead_letter: 1,
+            stale_leases: 1,
+            repair_backlog: 2,
+            published: 4,
+          },
+        ];
+      }
+      if (query.includes("ORDER BY pointer.published_at DESC")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            published_at: "2026-04-06T00:10:00.000Z",
+            source_kind: "finalize_day",
+            manifest_fetch_status: "completed",
+            verification_state: "finalized_verified",
+          },
+        ];
+      }
+      if (query.includes("LIMIT 20")) {
+        return [
+          {
+            provider_account_id: "act_2",
+            day: "2026-04-05",
+            surface: "campaign_daily",
+            result: "repair_required",
+            event_kind: "totals_mismatch",
+            severity: "error",
+            reason: "campaign drift",
+            created_at: "2026-04-06T00:11:00.000Z",
+          },
+        ];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [
+          { provider_account_id: "act_1", account_timezone: "UTC" },
+          { provider_account_id: "act_2", account_timezone: "UTC" },
+        ];
+      }
+      if (query.includes("latest_failure_result")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            published_at: "2026-04-06T00:10:00.000Z",
+            validation_status: "passed",
+            latest_failure_result: null,
+          },
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "campaign_daily",
+            published_at: "2026-04-06T00:10:00.000Z",
+            validation_status: "passed",
+            latest_failure_result: null,
+          },
+          {
+            provider_account_id: "act_2",
+            day: "2026-04-05",
+            surface: "account_daily",
+            published_at: null,
+            validation_status: null,
+            latest_failure_result: "repair_required",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({
+      businessId: "biz-1",
+      latestPublishLimit: 5,
+    });
+
+    expect(snapshot.manifestCounts.total).toBe(5);
+    expect(snapshot.progression.published).toBe(4);
+    expect(snapshot.validationFailures24h).toBe(1);
+    expect(snapshot.latestPublishes[0]).toMatchObject({
+      providerAccountId: "act_1",
+      verificationState: "finalized_verified",
+    });
+    expect(snapshot.d1FinalizeSla.totalAccounts).toBe(2);
+  });
+
+  it("builds day-level authoritative verification with manifest and publication provenance", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH latest_manifests AS")) {
+        return [
+          {
+            id: "manifest-1",
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            account_timezone: "UTC",
+            source_kind: "manual_refresh",
+            source_window_kind: "historical",
+            run_id: "run-1",
+            fetch_status: "completed",
+            fresh_start_applied: false,
+            checkpoint_reset_applied: false,
+            raw_snapshot_watermark: null,
+            source_spend: 12,
+            validation_basis_version: "v1",
+            meta_json: {},
+            started_at: "2026-04-06T00:00:00.000Z",
+            completed_at: "2026-04-06T00:01:00.000Z",
+            created_at: "2026-04-06T00:00:00.000Z",
+            updated_at: "2026-04-06T00:01:00.000Z",
+          },
+        ];
+      }
+      if (query.includes("result IN ('failed', 'repair_required')")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            result: "failed",
+            event_kind: "totals_mismatch",
+            severity: "error",
+            reason: "source mismatch",
+            created_at: "2026-04-06T00:02:00.000Z",
+          },
+        ];
+      }
+      if (query.includes("queued_partitions")) {
+        return [
+          {
+            queued_partitions: 1,
+            leased_partitions: 0,
+            stale_leases: 0,
+            dead_letters: 1,
+            repair_backlog: 2,
+          },
+        ];
+      }
+      if (query.includes("WITH latest_slice AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            latest_slice_id: "slice-1",
+            latest_state: "failed",
+            latest_status: "failed",
+            latest_validation_status: "failed",
+            latest_slice_published_at: null,
+            source_fetched_at: "2026-04-06T00:01:00.000Z",
+            active_slice_version_id: null,
+            published_at: null,
+            published_state: null,
+            published_status: null,
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "campaign_daily",
+            latest_slice_id: "slice-2",
+            latest_state: "failed",
+            latest_status: "failed",
+            latest_validation_status: "failed",
+            latest_slice_published_at: null,
+            source_fetched_at: "2026-04-06T00:01:00.000Z",
+            active_slice_version_id: null,
+            published_at: null,
+            published_state: null,
+            published_status: null,
+          },
+        ];
+      }
+      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) {
+        return [];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const report = await getMetaAuthoritativeDayVerification({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      day: "2026-04-05",
+    });
+
+    expect(report.businessId).toBe("biz-1");
+    expect(report.sourceManifestState).toBe("completed");
+    expect(report.verificationState).toBe("failed");
+    expect(report.lastFailure?.reason).toBe("source mismatch");
+    expect(report.deadLetters).toBe(1);
+    expect(report.repairBacklog).toBe(2);
   });
 });
 

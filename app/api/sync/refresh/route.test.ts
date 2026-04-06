@@ -218,6 +218,7 @@ describe("POST /api/sync/refresh", () => {
       businessId: "biz",
       startDate: "2026-03-01",
       endDate: "2026-03-02",
+      triggerSource: "manual_refresh",
     });
     expect(metaSync.getMetaSelectedRangeTruthReadiness).toHaveBeenCalledWith({
       businessId: "biz",
@@ -240,7 +241,7 @@ describe("POST /api/sync/refresh", () => {
     } as never);
     vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
       truthReady: true,
-      state: "finalized",
+      state: "finalized_verified",
       totalDays: 1,
       completedCoreDays: 1,
       blockingReasons: [],
@@ -259,7 +260,7 @@ describe("POST /api/sync/refresh", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(202);
-    expect(payload.status).toBe("finalized");
+    expect(payload.status).toBe("finalized_verified");
   });
 
   it("runs an inline Meta consume fallback for explicit single-day refreshes when no consumer is active", async () => {
@@ -296,6 +297,7 @@ describe("POST /api/sync/refresh", () => {
       businessId: "biz",
       startDate: "2026-04-05",
       endDate: "2026-04-05",
+      triggerSource: "manual_refresh",
     });
     expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalledWith("biz");
   });

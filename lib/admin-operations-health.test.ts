@@ -453,6 +453,124 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.summary.googleAdsOldestQueuedPartition).toBe("2026-03-20");
     expect(payload.summary.topIssue).toBe("Google Ads health unavailable");
   });
+
+  it("surfaces authoritative meta publish, sla, and failure provenance", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "IwaStore",
+          queue_depth: 4,
+          leased_partitions: 1,
+          retryable_failed_partitions: 1,
+          stale_lease_partitions: 1,
+          dead_letter_partitions: 1,
+          state_row_count: 3,
+          current_day_reference: "2026-04-05",
+          oldest_queued_partition: "2026-04-04",
+          latest_partition_activity_at: "2026-04-05T09:00:00.000Z",
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: "2026-04-05T09:05:00.000Z",
+          latest_progress_heartbeat_at: "2026-04-05T09:05:00.000Z",
+          last_successful_page_index: 3,
+          checkpoint_failures: 1,
+          today_account_rows: 2,
+          today_adset_rows: 2,
+          account_completed_days: 100,
+          adset_completed_days: 100,
+          creative_completed_days: 80,
+          ad_completed_days: 80,
+        },
+      ],
+      metaAuthoritativeSnapshots: [
+        {
+          businessId: "biz-meta",
+          capturedAt: "2026-04-05T10:00:00.000Z",
+          manifestCounts: {
+            pending: 1,
+            running: 0,
+            completed: 3,
+            failed: 1,
+            superseded: 0,
+            total: 5,
+          },
+          progression: {
+            queued: 4,
+            leased: 1,
+            published: 7,
+            retryableFailed: 1,
+            deadLetter: 1,
+            staleLeases: 1,
+            repairBacklog: 3,
+          },
+          latestPublishes: [
+            {
+              providerAccountId: "act_1",
+              day: "2026-04-04",
+              surface: "account_daily",
+              publishedAt: "2026-04-05T08:59:00.000Z",
+              verificationState: "finalized_verified",
+              sourceKind: "finalize_day",
+              manifestFetchStatus: "completed",
+            },
+          ],
+          d1FinalizeSla: {
+            totalAccounts: 2,
+            breachedAccounts: 1,
+            accounts: [
+              {
+                providerAccountId: "act_1",
+                accountTimezone: "UTC",
+                expectedDay: "2026-04-04",
+                verificationState: "finalized_verified",
+                publishedAt: "2026-04-05T08:59:00.000Z",
+                breached: false,
+              },
+              {
+                providerAccountId: "act_2",
+                accountTimezone: "UTC",
+                expectedDay: "2026-04-04",
+                verificationState: "repair_required",
+                publishedAt: null,
+                breached: true,
+              },
+            ],
+          },
+          validationFailures24h: 2,
+          recentFailures: [
+            {
+              providerAccountId: "act_2",
+              day: "2026-04-04",
+              surface: "campaign_daily",
+              result: "repair_required",
+              eventKind: "totals_mismatch",
+              severity: "error",
+              reason: "campaign spend drift",
+              createdAt: "2026-04-05T09:01:00.000Z",
+            },
+          ],
+          lastSuccessfulPublishAt: "2026-04-05T08:59:00.000Z",
+        },
+      ],
+    });
+
+    expect(payload.summary.metaSourceManifestCount).toBe(5);
+    expect(payload.summary.metaPublishedProgression).toBe(7);
+    expect(payload.summary.metaValidationFailures24h).toBe(2);
+    expect(payload.summary.metaRepairBacklog).toBe(3);
+    expect(payload.summary.metaStaleLeasePartitions).toBe(1);
+    expect(payload.summary.metaD1FinalizeSlaBreaches).toBe(1);
+    expect(payload.summary.metaLastSuccessfulPublishAt).toBe("2026-04-05T08:59:00.000Z");
+    expect(payload.metaBusinesses?.[0]?.sourceManifestCounts?.failed).toBe(1);
+    expect(payload.metaBusinesses?.[0]?.latestAuthoritativePublishes?.[0]?.providerAccountId).toBe("act_1");
+    expect(payload.metaBusinesses?.[0]?.d1FinalizeSla?.breachedAccounts).toBe(1);
+    expect(payload.metaBusinesses?.[0]?.validationFailures24h).toBe(2);
+    expect(payload.metaBusinesses?.[0]?.repairBacklog).toBe(3);
+    expect(payload.metaBusinesses?.[0]?.lastSuccessfulPublishAt).toBe("2026-04-05T08:59:00.000Z");
+  });
 });
 
 describe("buildAdminRevenueRisk", () => {

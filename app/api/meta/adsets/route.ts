@@ -7,6 +7,7 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseAdSets } from "@/lib/meta/serving";
 import { getMetaLiveAdSets } from "@/lib/meta/live";
+import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 
 // ── Demo stub ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,19 @@ export interface MetaAdSetsResponse {
   notReadyReason?: string | null;
 }
 
+function getHistoricalVerificationReason(input: {
+  verificationState?: string | null;
+  fallbackReason: string;
+}) {
+  if (input.verificationState === "failed") {
+    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
+  }
+  if (input.verificationState === "repair_required") {
+    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
+  }
+  return input.fallbackReason;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
@@ -140,6 +154,14 @@ export async function GET(request: NextRequest) {
     startDate: resolvedStart,
     endDate: resolvedEnd,
   });
+  const historicalTruth =
+    !rangeContext.isSelectedCurrentDay && connected
+      ? await getMetaSelectedRangeTruthReadiness({
+          businessId: businessId!,
+          startDate: resolvedStart,
+          endDate: resolvedEnd,
+        }).catch(() => null)
+      : null;
   try {
     if (rangeContext.isSelectedCurrentDay && connected) {
       const liveRows = await getMetaLiveAdSets({
@@ -171,8 +193,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         status: "ok",
         rows: warehouseRows,
-        isPartial: false,
-        notReadyReason: null,
+        isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+        notReadyReason:
+          historicalTruth && !historicalTruth.truthReady
+            ? getHistoricalVerificationReason({
+                verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
+              })
+            : null,
       } satisfies MetaAdSetsResponse);
     }
   } catch (error) {
@@ -195,8 +223,14 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           status: "ok",
           rows: warehouseRows,
-          isPartial: false,
-          notReadyReason: null,
+          isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+          notReadyReason:
+            historicalTruth && !historicalTruth.truthReady
+              ? getHistoricalVerificationReason({
+                  verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+                  fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
+                })
+              : null,
         } satisfies MetaAdSetsResponse);
       }
     } catch {
@@ -206,14 +240,26 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     status: "ok",
     rows: [],
-    isPartial: true,
-    notReadyReason: connected
-      ? getMetaPartialReason({
-          isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-          currentDateInTimezone: rangeContext.currentDateInTimezone,
-          primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-          defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
-        })
-      : "Meta integration is not connected. Historical warehouse data will appear here once available.",
+    isPartial: historicalTruth ? !historicalTruth.truthReady : true,
+    notReadyReason: historicalTruth
+      ? historicalTruth.truthReady
+        ? null
+        : getHistoricalVerificationReason({
+            verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
+            fallbackReason: getMetaPartialReason({
+              isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
+            }),
+          })
+      : connected
+        ? getMetaPartialReason({
+            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
+            currentDateInTimezone: rangeContext.currentDateInTimezone,
+            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+            defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
+          })
+        : "Meta integration is not connected. Historical warehouse data will appear here once available.",
   } satisfies MetaAdSetsResponse);
 }

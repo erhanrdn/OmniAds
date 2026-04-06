@@ -24,9 +24,19 @@ This document defines the product guardrails for Meta ingestion and serving.
 
 - Meta read routes do not start sync work.
 - They return current warehouse truth only.
-- `isPartial` means the requested range is not fully ready yet.
+- When `META_AUTHORITATIVE_FINALIZATION_V2` is enabled, non-today historical routes must read only from published verified truth.
+- Provisional or staged historical truth must never appear as finalized.
+- `isPartial` is a compatibility field and must mirror canonical selected-range truth rather than row presence alone.
 - `notReadyReason` must explain whether the cause is:
   - current-day still preparing
   - selected range still preparing
+  - authoritative verification failed
+  - repair is required before finalization
   - Meta breakdown history limit
   - missing connection or assignment
+
+## Refresh Contract
+
+- Historical Meta refresh success means fresh source-authoritative fetch, validation, and publish completed for the requested range.
+- Historical refresh/status responses must not report success from enqueue or job existence alone.
+- Historical refresh/status semantics use `processing`, `finalized_verified`, `failed`, and `repair_required`.

@@ -260,6 +260,7 @@ async function runSyncForProvider(
             businessId,
             startDate: input.startDate,
             endDate: input.endDate,
+            triggerSource: "manual_refresh",
           }),
         };
       }
@@ -346,8 +347,18 @@ async function getMetaRefreshCompletionStatus(input: {
   if (!truthReadiness) {
     return { status: "processing" as const, truthReadiness: null };
   }
+  const historicalStatus =
+    truthReadiness.verificationState ??
+    truthReadiness.state ??
+    "processing";
   return {
-    status: truthReadiness.truthReady ? ("finalized" as const) : ("processing" as const),
+    status: truthReadiness.truthReady
+      ? ("finalized_verified" as const)
+      : historicalStatus === "failed"
+        ? ("failed" as const)
+        : historicalStatus === "repair_required"
+          ? ("repair_required" as const)
+          : ("processing" as const),
     truthReadiness,
   };
 }

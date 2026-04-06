@@ -1,14 +1,17 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildMetaDailyCoverageLookup,
   buildMetaFairnessLeasePlan,
   buildMetaFollowupLeasePlan,
   buildMetaLaneProgressEvidence,
   getDeprecatedMetaPartitionCancellationReason,
   getMetaExtendedHistoricalFairnessLimit,
   getMetaHistoricalCoreFairnessLimit,
+  isMetaAuthoritativeHistoricalSource,
   logMetaQueueVisibility,
   resolveMetaHistoricalReplaySource,
+  shouldBypassMetaCoverageShortCircuit,
 } from "@/lib/sync/meta-sync";
 
 afterEach(() => {
@@ -299,5 +302,34 @@ describe("logMetaQueueVisibility", () => {
         queueDepth: 5,
       }),
     );
+  });
+});
+
+describe("authoritative finalization gating", () => {
+  it("scopes daily coverage lookup by business, account, and day", () => {
+    expect(
+      buildMetaDailyCoverageLookup({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        day: "2026-04-06T09:10:11.000Z",
+      }),
+    ).toEqual({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      day: "2026-04-06",
+    });
+  });
+
+  it("treats manual refresh as an authoritative historical source", () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+
+    expect(isMetaAuthoritativeHistoricalSource("manual_refresh")).toBe(true);
+    expect(
+      shouldBypassMetaCoverageShortCircuit({
+        source: "manual_refresh",
+        truthState: "finalized",
+        businessId: "biz-1",
+      }),
+    ).toBe(true);
   });
 });

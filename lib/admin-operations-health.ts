@@ -1,4 +1,5 @@
 import { getDb, getDbWithTimeout } from "@/lib/db";
+import { getMetaAuthoritativeBusinessOpsSnapshot } from "@/lib/meta/warehouse";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
 import {
@@ -8,6 +9,7 @@ import {
   type ProviderProgressState,
   type ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
+import type { MetaAuthoritativeBusinessOpsSnapshot } from "@/lib/meta/warehouse-types";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
@@ -68,6 +70,13 @@ export interface AdminSyncHealthPayload {
     metaLeasedPartitions?: number;
     metaDeadLetterPartitions?: number;
     metaOldestQueuedPartition?: string | null;
+    metaSourceManifestCount?: number;
+    metaPublishedProgression?: number;
+    metaValidationFailures24h?: number;
+    metaRepairBacklog?: number;
+    metaStaleLeasePartitions?: number;
+    metaLastSuccessfulPublishAt?: string | null;
+    metaD1FinalizeSlaBreaches?: number;
     workerOnline?: boolean;
     workerInstances?: number;
     workerLastHeartbeatAt?: string | null;
@@ -195,6 +204,14 @@ export interface AdminSyncHealthPayload {
     historicalExtendedReady?: boolean;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     stallFingerprints?: ProviderStallFingerprint[];
+    sourceManifestCounts?: MetaAuthoritativeBusinessOpsSnapshot["manifestCounts"];
+    latestAuthoritativePublishes?: MetaAuthoritativeBusinessOpsSnapshot["latestPublishes"];
+    d1FinalizeSla?: MetaAuthoritativeBusinessOpsSnapshot["d1FinalizeSla"];
+    validationFailures24h?: number;
+    recentFailures?: MetaAuthoritativeBusinessOpsSnapshot["recentFailures"];
+    repairBacklog?: number;
+    queuedVsLeasedVsPublished?: MetaAuthoritativeBusinessOpsSnapshot["progression"];
+    lastSuccessfulPublishAt?: string | null;
   }>;
 }
 
@@ -644,6 +661,7 @@ export function buildAdminSyncHealth(input: {
   googleAdsHealthError?: string | null;
   googleAdsHealthSummary?: GoogleAdsHealthSummaryRow | null;
   metaHealth?: RawMetaHealthRow[];
+  metaAuthoritativeSnapshots?: MetaAuthoritativeBusinessOpsSnapshot[];
   workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
@@ -662,6 +680,13 @@ export function buildAdminSyncHealth(input: {
   let metaLeasedPartitions = 0;
   let metaDeadLetterPartitions = 0;
   let metaOldestQueuedPartition: string | null = null;
+  let metaSourceManifestCount = 0;
+  let metaPublishedProgression = 0;
+  let metaValidationFailures24h = 0;
+  let metaRepairBacklog = 0;
+  let metaStaleLeasePartitions = 0;
+  let metaLastSuccessfulPublishAt: string | null = null;
+  let metaD1FinalizeSlaBreaches = 0;
   let googleAdsCircuitBreakerBusinesses = 0;
   let googleAdsCompactedPartitions = 0;
   let googleAdsBudgetPressureMax = 0;
@@ -674,6 +699,11 @@ export function buildAdminSyncHealth(input: {
   const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
   const metaBusinesses: NonNullable<AdminSyncHealthPayload["metaBusinesses"]> = [];
   let latestProgressHeartbeatAt: string | null = null;
+  const metaSnapshotsByBusiness = new Map(
+    (input.metaAuthoritativeSnapshots ?? [])
+      .filter((snapshot): snapshot is MetaAuthoritativeBusinessOpsSnapshot => Boolean(snapshot))
+      .map((snapshot) => [snapshot.businessId, snapshot]),
+  );
 
   for (const row of input.jobs) {
     const triggeredMs = new Date(row.triggered_at).getTime();
@@ -1185,6 +1215,15 @@ export function buildAdminSyncHealth(input: {
       historicalExtendedReady,
       progressState,
       stallFingerprints,
+      sourceManifestCounts: metaSnapshotsByBusiness.get(row.business_id)?.manifestCounts,
+      latestAuthoritativePublishes: metaSnapshotsByBusiness.get(row.business_id)?.latestPublishes ?? [],
+      d1FinalizeSla: metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla,
+      validationFailures24h: metaSnapshotsByBusiness.get(row.business_id)?.validationFailures24h ?? 0,
+      recentFailures: metaSnapshotsByBusiness.get(row.business_id)?.recentFailures ?? [],
+      repairBacklog: metaSnapshotsByBusiness.get(row.business_id)?.progression.repairBacklog ?? 0,
+      queuedVsLeasedVsPublished: metaSnapshotsByBusiness.get(row.business_id)?.progression,
+      lastSuccessfulPublishAt:
+        metaSnapshotsByBusiness.get(row.business_id)?.lastSuccessfulPublishAt ?? null,
     });
 
     if (
@@ -1201,6 +1240,20 @@ export function buildAdminSyncHealth(input: {
     metaQueueDepth += queueDepth;
     metaLeasedPartitions += leasedPartitions;
     metaDeadLetterPartitions += deadLetterPartitions;
+    metaSourceManifestCount += metaSnapshotsByBusiness.get(row.business_id)?.manifestCounts.total ?? 0;
+    metaPublishedProgression += metaSnapshotsByBusiness.get(row.business_id)?.progression.published ?? 0;
+    metaValidationFailures24h += metaSnapshotsByBusiness.get(row.business_id)?.validationFailures24h ?? 0;
+    metaRepairBacklog += metaSnapshotsByBusiness.get(row.business_id)?.progression.repairBacklog ?? 0;
+    metaStaleLeasePartitions += metaSnapshotsByBusiness.get(row.business_id)?.progression.staleLeases ?? 0;
+    metaD1FinalizeSlaBreaches += metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla.breachedAccounts ?? 0;
+    const snapshotPublishAt = metaSnapshotsByBusiness.get(row.business_id)?.lastSuccessfulPublishAt ?? null;
+    if (
+      snapshotPublishAt &&
+      (!metaLastSuccessfulPublishAt ||
+        snapshotPublishAt.localeCompare(metaLastSuccessfulPublishAt) > 0)
+    ) {
+      metaLastSuccessfulPublishAt = snapshotPublishAt;
+    }
     if (
       row.oldest_queued_partition &&
       (!metaOldestQueuedPartition ||
@@ -1449,6 +1502,13 @@ export function buildAdminSyncHealth(input: {
       metaLeasedPartitions,
       metaDeadLetterPartitions,
       metaOldestQueuedPartition,
+      metaSourceManifestCount,
+      metaPublishedProgression,
+      metaValidationFailures24h,
+      metaRepairBacklog,
+      metaStaleLeasePartitions,
+      metaLastSuccessfulPublishAt,
+      metaD1FinalizeSlaBreaches,
       workerOnline: (input.workerHealth?.onlineWorkers ?? 0) > 0,
       workerInstances: input.workerHealth?.workerInstances ?? 0,
       workerLastHeartbeatAt: input.workerHealth?.lastHeartbeatAt ?? null,
@@ -2153,6 +2213,11 @@ export async function getAdminOperationsHealth() {
         workers: [],
       })),
     ]);
+  const metaAuthoritativeSnapshots = await Promise.all(
+    metaHealth.map((row) =>
+      getMetaAuthoritativeBusinessOpsSnapshot({ businessId: row.business_id }).catch(() => null),
+    ),
+  );
 
   const authHealth = buildAdminAuthHealth(authRows);
   const syncHealth = buildAdminSyncHealth({
@@ -2163,6 +2228,9 @@ export async function getAdminOperationsHealth() {
     googleAdsHealthError: googleAdsHealthResult.error,
     googleAdsHealthSummary: googleAdsHealthResult.summary,
     metaHealth,
+    metaAuthoritativeSnapshots: metaAuthoritativeSnapshots.filter(
+      (snapshot): snapshot is MetaAuthoritativeBusinessOpsSnapshot => Boolean(snapshot),
+    ),
     workerHealth,
   });
   const revenueRisk = buildAdminRevenueRisk({

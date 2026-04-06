@@ -1,7 +1,13 @@
+import { configureOperationalScriptRuntime } from "./_operational-runtime";
 import { replayMetaDeadLetterPartitions } from "@/lib/meta/warehouse";
 import { syncMetaReports } from "@/lib/sync/meta-sync";
 
 async function main() {
+  configureOperationalScriptRuntime();
+  const { getMetaAuthoritativeBusinessOpsSnapshot } =
+    await import("@/lib/meta/warehouse");
+  const { buildMetaStateCheckOutput } =
+    await import("@/lib/meta/authoritative-ops");
   const businessId = process.argv[2];
   const scope = process.argv[3] ?? null;
   if (!businessId) {
@@ -10,6 +16,7 @@ async function main() {
   }
   const result = await replayMetaDeadLetterPartitions({ businessId, scope: scope as never });
   const syncResult = await syncMetaReports(businessId);
+  const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({ businessId }).catch(() => null);
   console.log(
     JSON.stringify(
       {
@@ -20,6 +27,7 @@ async function main() {
         skippedActiveLeaseCount: result.skippedActiveLeaseCount,
         result: result.partitions,
         syncResult,
+        authoritative: snapshot ? buildMetaStateCheckOutput(snapshot) : null,
       },
       null,
       2

@@ -4,6 +4,7 @@ import {
   syncMetaAccountBreakdownWarehouseDay,
   syncMetaAccountCoreWarehouseDay,
 } from "@/lib/api/meta";
+import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
 import { syncMetaCreativesWarehouseDay } from "@/lib/meta/creatives-warehouse";
 import {
   META_PRODUCT_CORE_PARTITION_SCOPE,
@@ -34,6 +35,7 @@ import {
   getMetaIncompleteCoreDates,
   getMetaDirtyRecentDates,
   getMetaPartitionStatesForDate,
+  getMetaPublishedVerificationSummary,
   getMetaRecentAuthoritativeSliceGuard,
   getMetaQueueComposition,
   getMetaPartitionHealth,
@@ -68,6 +70,7 @@ import {
   META_WAREHOUSE_HISTORY_DAYS,
   dayCountInclusive,
 } from "@/lib/meta/history";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
@@ -1107,6 +1110,39 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaSelectedRangeTruthReadiness> {
+  if (isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)) {
+    const assignments = await getProviderAccountAssignments(
+      input.businessId,
+      "meta",
+    ).catch(() => null);
+    const providerAccountIds = assignments?.account_ids ?? [];
+    const verification = await getMetaPublishedVerificationSummary({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds,
+      surfaces: ["account_daily", "campaign_daily"],
+    }).catch(() => null);
+    if (verification) {
+      return {
+        truthReady: verification.truthReady,
+        state: verification.verificationState,
+        totalDays: verification.totalDays,
+        completedCoreDays: verification.completedCoreDays,
+        blockingReasons:
+          verification.verificationState === "failed"
+            ? ["validation_failed"]
+            : verification.verificationState === "repair_required"
+              ? ["non_finalized"]
+              : [],
+        reasonCounts: verification.reasonCounts,
+        sourceFetchedAt: verification.sourceFetchedAt,
+        publishedAt: verification.publishedAt,
+        verificationState: verification.verificationState,
+        asOf: verification.asOf,
+      };
+    }
+  }
   const totalDays = dayCountInclusive(input.startDate, input.endDate);
   const slowPathDates = enumerateDays(input.startDate, input.endDate, false);
   const [accountCoverage, campaignCoverage, adsetCoverage, dirtyRows] =
@@ -1164,25 +1200,26 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
 
 async function getMetaDailyCoverageState(input: {
   businessId: string;
+  providerAccountId: string;
   day: string;
 }) {
   const [accountCoverage, campaignCoverage, creativeCoverage] =
     await Promise.all([
       getMetaAccountDailyCoverage({
         businessId: input.businessId,
-        providerAccountId: null,
+        providerAccountId: input.providerAccountId,
         startDate: input.day,
         endDate: input.day,
       }).catch(() => null),
       getMetaCampaignDailyCoverage({
         businessId: input.businessId,
-        providerAccountId: null,
+        providerAccountId: input.providerAccountId,
         startDate: input.day,
         endDate: input.day,
       }).catch(() => null),
       getMetaAdDailyCoverage({
         businessId: input.businessId,
-        providerAccountId: null,
+        providerAccountId: input.providerAccountId,
         startDate: input.day,
         endDate: input.day,
       }).catch(() => null),
@@ -1197,6 +1234,42 @@ async function getMetaDailyCoverageState(input: {
     productCoreComplete,
     creativesComplete,
   };
+}
+
+export function buildMetaDailyCoverageLookup(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+}) {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    day: normalizeMetaPartitionDate(input.day),
+  };
+}
+
+export function isMetaAuthoritativeHistoricalSource(source: string) {
+  return new Set([
+    "yesterday",
+    "finalize_day",
+    "repair_recent_day",
+    "priority_window",
+    "manual_refresh",
+    "recent",
+    "recent_recovery",
+  ]).has(source);
+}
+
+export function shouldBypassMetaCoverageShortCircuit(input: {
+  source: string;
+  truthState: "provisional" | "finalized";
+  businessId: string;
+}) {
+  return (
+    input.truthState === "finalized" &&
+    isMetaAuthoritativeHistoricalSource(input.source) &&
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)
+  );
 }
 
 async function syncMetaPartitionDay(input: {
@@ -1218,31 +1291,30 @@ async function syncMetaPartitionDay(input: {
   }
   const assignedAccountIds = credentials.accountIds;
   const coverageState = await getMetaDailyCoverageState({
-    businessId: input.businessId,
-    day: normalizedDay,
+    ...buildMetaDailyCoverageLookup({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      day: normalizedDay,
+    }),
   });
   const beforeCoverage = coverageState;
   const sourceTodayWindow = normalizedDay === getMetaReferenceToday(credentials);
-  const authoritativeHistoricalSource = new Set([
-    "yesterday",
-    "finalize_day",
-    "repair_recent_day",
-    "priority_window",
-    "manual_refresh",
-    "recent",
-    "recent_recovery",
-  ]);
   const truthState =
-    sourceTodayWindow && !authoritativeHistoricalSource.has(input.source)
+    sourceTodayWindow && !isMetaAuthoritativeHistoricalSource(input.source)
       ? "provisional"
       : "finalized";
   const freshStart =
     truthState === "finalized" &&
-    authoritativeHistoricalSource.has(input.source);
+    isMetaAuthoritativeHistoricalSource(input.source);
+  const forceAuthoritativeRefetch = shouldBypassMetaCoverageShortCircuit({
+    source: input.source,
+    truthState,
+    businessId: input.businessId,
+  });
 
   if (
     input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope)) &&
-    !coverageState.productCoreComplete
+    (forceAuthoritativeRefetch || !coverageState.productCoreComplete)
   ) {
     const bulkResult = await syncMetaAccountCoreWarehouseDay({
       credentials,
@@ -1256,6 +1328,7 @@ async function syncMetaPartitionDay(input: {
       freshStart,
       truthState,
       sourceRunId: input.partitionId,
+      source: input.source,
     });
     if (bulkResult.memoryInstrumentation?.oversizeWarning) {
       console.warn("[meta-sync] oversized_partition_detected", {
@@ -1358,8 +1431,11 @@ async function syncMetaPartitionDay(input: {
   }
 
   const afterCoverage = await getMetaDailyCoverageState({
-    businessId: input.businessId,
-    day: normalizedDay,
+    ...buildMetaDailyCoverageLookup({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      day: normalizedDay,
+    }),
   });
 
   console.info("[meta-sync] partition_day_result", {
@@ -3094,12 +3170,14 @@ export async function syncMetaRepairRange(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  triggerSource?: MetaSyncPartitionSource;
 }): Promise<MetaSyncResult> {
   return enqueueMetaRangeJob({
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
     triggerSource:
+      input.triggerSource ??
       input.startDate === input.endDate ? "finalize_day" : "priority_window",
     syncType:
       input.startDate === input.endDate ? "finalize_range" : "repair_window",

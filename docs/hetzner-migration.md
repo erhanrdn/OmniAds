@@ -27,6 +27,8 @@ Important:
 
 - Set `NEXT_PUBLIC_APP_URL` to the final production domain.
 - Add `CRON_SECRET`.
+- Set `META_AUTHORITATIVE_FINALIZATION_V2=0` for the first code deploy.
+- When you are ready for a canary, set `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>` and then flip `META_AUTHORITATIVE_FINALIZATION_V2=1`.
 - Keep your existing database values unless you are also migrating the database away from Neon.
 
 ## 3. Build and run the containers
@@ -36,6 +38,9 @@ docker compose build
 docker compose up -d
 docker compose logs -f web
 docker compose logs -f worker
+docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q web)"
+docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q worker)"
+npm run sync:worker-health -- --provider-scope meta --online-window-minutes 5
 ```
 
 The app listens internally on `127.0.0.1:3000`.
@@ -98,6 +103,7 @@ These must match the public Hetzner domain exactly.
 Check:
 
 - `https://your-domain.com/login`
+- `http://127.0.0.1:3000/api/build-info`
 - login/session flow
 - database-backed pages
 - OAuth reconnect flows
@@ -132,5 +138,10 @@ Important:
 ## Notes specific to this repo
 
 - The worker is important. If `npm run worker:start` is not running, sync jobs can silently stall.
+- The deploy workflow now waits for both container health checks and a fresh Meta worker heartbeat before it reports success.
+- For Meta authoritative finalization rollout, use three stages:
+  1. shadow mode: deploy with `META_AUTHORITATIVE_FINALIZATION_V2=0`
+  2. allowlisted canary: `META_AUTHORITATIVE_FINALIZATION_V2=1` with `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>`
+  3. full rollout: clear `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` after canary and `T0 + 24h` validation pass
 - The app uses `NEXT_PUBLIC_APP_URL` in multiple OAuth and metadata paths, so set it before going live.
 - Runtime migrations are guarded by `ENABLE_RUNTIME_MIGRATIONS`. Leave it disabled unless you explicitly want app boot to run migrations.

@@ -23,6 +23,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAdSetDailyRange: vi.fn(),
   getMetaBreakdownDailyRange: vi.fn(),
   getMetaCampaignDailyRange: vi.fn(),
+  getMetaPublishedVerificationSummary: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
   upsertMetaAccountDailyRows: vi.fn(),
@@ -42,17 +43,21 @@ const {
   getMetaWarehouseSummary,
   getMetaWarehouseAdSets,
   getMetaWarehouseCampaignTable,
+  getMetaWarehouseBreakdowns,
 } = await import("@/lib/meta/serving");
 
 describe("meta historical serving", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "0";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
     vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
     vi.mocked(constraints.getMetaBreakdownSupportedStart).mockReturnValue("2026-03-01");
     vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue(null as never);
     vi.mocked(apiMeta.fetchMetaCampaignConfigs).mockResolvedValue(new Map() as never);
     vi.mocked(apiMeta.fetchMetaAdSetConfigs).mockResolvedValue(new Map() as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue(null as never);
   });
 
   it("returns campaign current config from warehouse rows without calling snapshot readers", async () => {
@@ -397,6 +402,164 @@ describe("meta historical serving", () => {
       spend: 25,
       revenue: 50,
     });
+  });
+
+  it("filters historical breakdown rows to published verified account-days when v2 is enabled", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-01",
+        breakdownType: "age",
+        breakdownKey: "18-24",
+        breakdownLabel: "18-24",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 10,
+        impressions: 100,
+        clicks: 5,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-1",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-01",
+        breakdownType: "country",
+        breakdownKey: "US",
+        breakdownLabel: "United States",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 11,
+        impressions: 100,
+        clicks: 5,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-1",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-01",
+        breakdownType: "placement",
+        breakdownKey: "facebook|feed|mobile",
+        breakdownLabel: "facebook • feed • mobile",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 100,
+        clicks: 5,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-1",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-02",
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        breakdownLabel: "25-34",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 99,
+        impressions: 100,
+        clicks: 5,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-03T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-2",
+        createdAt: "2026-04-03T00:00:00Z",
+        updatedAt: "2026-04-03T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "finalized_verified",
+      truthReady: true,
+      totalDays: 2,
+      completedCoreDays: 2,
+      sourceFetchedAt: "2026-04-03T00:00:00Z",
+      publishedAt: "2026-04-03T00:05:00Z",
+      asOf: "2026-04-03T00:05:00Z",
+      publishedSlices: 2,
+      totalExpectedSlices: 2,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        account_daily: ["act_1:2026-04-01", "act_1:2026-04-02"],
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(payload.age).toEqual([
+      expect.objectContaining({ key: "18-24", spend: 10 }),
+    ]);
+    expect(payload.location).toEqual([
+      expect.objectContaining({ key: "US", spend: 11 }),
+    ]);
+    expect(payload.placement).toEqual([
+      expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
+    ]);
   });
 
   it("returns adset current config from warehouse rows without calling snapshot readers", async () => {

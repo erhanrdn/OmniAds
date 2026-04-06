@@ -20,10 +20,19 @@ vi.mock("@/lib/meta/configuration", () => ({
 }));
 
 vi.mock("@/lib/meta/warehouse", () => ({
+  createMetaAuthoritativeReconciliationEvent: vi.fn().mockResolvedValue({ id: "event-1" }),
+  createMetaAuthoritativeSliceVersion: vi.fn().mockImplementation(async (input) => ({
+    id: `${input.surface}-slice`,
+    ...input,
+    candidateVersion: input.candidateVersion ?? 1,
+  })),
+  createMetaAuthoritativeSourceManifest: vi.fn().mockResolvedValue({ id: "manifest-1" }),
   buildMetaSyncCheckpointHash: vi.fn(() => "checkpoint-hash"),
   getMetaSyncCheckpoint: vi.fn(),
+  getMetaActivePublishedSliceVersion: vi.fn().mockResolvedValue(null),
   heartbeatMetaPartitionLease: vi.fn().mockResolvedValue(true),
   listMetaRawSnapshotsForRun: vi.fn().mockResolvedValue([]),
+  publishMetaAuthoritativeSliceVersion: vi.fn().mockResolvedValue({ id: "publication-1" }),
   buildMetaRawSnapshotHash: vi.fn(() => "snapshot-hash"),
   createMetaSyncJob: vi.fn(),
   persistMetaRawSnapshot: vi.fn().mockResolvedValue("snapshot-id"),
@@ -37,6 +46,8 @@ vi.mock("@/lib/meta/warehouse", () => ({
   upsertMetaAdDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaAdSetDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaCampaignDailyRows: vi.fn().mockResolvedValue(undefined),
+  updateMetaAuthoritativeSliceVersion: vi.fn().mockImplementation(async (input) => input),
+  updateMetaAuthoritativeSourceManifest: vi.fn().mockImplementation(async (input) => input),
 }));
 
 const warehouse = await import("@/lib/meta/warehouse");
@@ -52,6 +63,8 @@ const {
 describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    delete process.env.META_AUTHORITATIVE_FINALIZATION_V2;
+    delete process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES;
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([]);
     vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
@@ -59,6 +72,22 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(warehouse.upsertMetaCampaignDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdSetDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdDailyRows).mockResolvedValue(undefined);
+    vi.mocked(warehouse.createMetaAuthoritativeSourceManifest).mockResolvedValue({
+      id: "manifest-1",
+    } as never);
+    vi.mocked(warehouse.createMetaAuthoritativeSliceVersion).mockImplementation(async (input) => ({
+      id: `${input.surface}-slice`,
+      ...input,
+      candidateVersion: input.candidateVersion ?? 1,
+    }) as never);
+    vi.mocked(warehouse.publishMetaAuthoritativeSliceVersion).mockResolvedValue({
+      id: "publication-1",
+    } as never);
+    vi.mocked(warehouse.updateMetaAuthoritativeSourceManifest).mockImplementation(async (input) => input as never);
+    vi.mocked(warehouse.updateMetaAuthoritativeSliceVersion).mockImplementation(async (input) => input as never);
+    vi.mocked(warehouse.createMetaAuthoritativeReconciliationEvent).mockResolvedValue({
+      id: "event-1",
+    } as never);
     vi.mocked(warehouse.replaceMetaAccountDailySlice).mockImplementation(async (input) => {
       await warehouse.upsertMetaAccountDailyRows(input.rows as never);
     });
@@ -522,6 +551,193 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         rows: [],
       }),
     );
+  });
+
+  it("does not publish authoritative truth when validation fails", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(
+          JSON.stringify({ data: [{ spend: "9.00" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-failed",
+        workerId: "worker-1",
+        leaseEpoch: 12,
+        attemptCount: 1,
+        leaseMinutes: 15,
+        freshStart: true,
+        source: "manual_refresh",
+      }),
+    ).rejects.toThrow("Meta finalized truth validation failed");
+
+    expect(warehouse.publishMetaAuthoritativeSliceVersion).not.toHaveBeenCalled();
+    expect(warehouse.createMetaAuthoritativeReconciliationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventKind: "validation_failed",
+        result: "failed",
+      }),
+    );
+  });
+
+  it("replaces a previously published tiny warehouse truth with a validated rerun", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(warehouse.getMetaActivePublishedSliceVersion).mockResolvedValue({
+      publication: { activeSliceVersionId: "slice-old" },
+      sliceVersion: {
+        id: "slice-old",
+        sourceRunId: "old-run",
+        aggregatedSpend: 1,
+        status: "published",
+      },
+    } as never);
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(
+          JSON.stringify({ data: [{ spend: "12.50" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-rerun",
+        workerId: "worker-1",
+        leaseEpoch: 13,
+        attemptCount: 1,
+        leaseMinutes: 15,
+        freshStart: true,
+        source: "repair_recent_day",
+      }),
+    ).resolves.toMatchObject({
+      accountRowsWritten: 1,
+      campaignRowsWritten: 1,
+    });
+
+    expect(warehouse.replaceMetaAccountDailySlice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rows: [expect.objectContaining({ spend: 12.5 })],
+      }),
+    );
+    expect(warehouse.publishMetaAuthoritativeSliceVersion).toHaveBeenCalled();
   });
 
   it("rejects positive-spend finalized days when campaign rows are empty", async () => {

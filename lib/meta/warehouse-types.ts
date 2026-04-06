@@ -73,6 +73,47 @@ export type MetaWarehouseScope =
   | "creative_daily"
   | "breakdown_daily";
 
+export type MetaAuthoritativeFinalizationState =
+  | "live"
+  | "pending_finalization"
+  | "finalizing"
+  | "finalized_verified"
+  | "failed"
+  | "repair_required"
+  | "superseded";
+
+export type MetaAuthoritativeSourceManifestStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "superseded";
+
+export type MetaAuthoritativeSourceWindowKind =
+  | "today"
+  | "d_minus_1"
+  | "recent_repair"
+  | "historical";
+
+export type MetaAuthoritativeSliceVersionStatus =
+  | "staging"
+  | "validated"
+  | "published"
+  | "failed"
+  | "superseded";
+
+export type MetaAuthoritativeReconciliationResult =
+  | "passed"
+  | "failed"
+  | "repair_required"
+  | "superseded";
+
+export type MetaHistoricalVerificationState =
+  | "processing"
+  | "finalized_verified"
+  | "failed"
+  | "repair_required";
+
 export type MetaBreakdownType = "age" | "country" | "placement";
 
 export type MetaDirtyRecentSeverity = "critical" | "high" | "low";
@@ -109,11 +150,15 @@ export interface MetaRecentAuthoritativeSliceGuard {
 
 export interface MetaSelectedRangeTruthReadiness {
   truthReady: boolean;
-  state: "processing" | "finalized";
+  state: "processing" | "finalized" | MetaHistoricalVerificationState;
   totalDays: number;
   completedCoreDays: number;
   blockingReasons: MetaDirtyRecentReason[];
   reasonCounts: Record<string, number>;
+  sourceFetchedAt?: string | null;
+  publishedAt?: string | null;
+  verificationState?: MetaHistoricalVerificationState;
+  asOf?: string | null;
 }
 
 export interface MetaWarehouseMetricSet {
@@ -234,6 +279,86 @@ export interface MetaSyncJobRecord {
   startedAt?: string | null;
   finishedAt?: string | null;
   updatedAt?: string;
+}
+
+export interface MetaAuthoritativeSourceManifestRecord {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  accountTimezone: string;
+  sourceKind: string;
+  sourceWindowKind: MetaAuthoritativeSourceWindowKind;
+  runId?: string | null;
+  fetchStatus: MetaAuthoritativeSourceManifestStatus;
+  freshStartApplied?: boolean;
+  checkpointResetApplied?: boolean;
+  rawSnapshotWatermark?: string | null;
+  sourceSpend?: number | null;
+  validationBasisVersion?: string | null;
+  metaJson?: Record<string, unknown>;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaAuthoritativeSliceVersionRecord {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  manifestId?: string | null;
+  candidateVersion: number;
+  state: MetaAuthoritativeFinalizationState;
+  truthState: MetaWarehouseTruthState;
+  validationStatus: MetaWarehouseValidationStatus;
+  status: MetaAuthoritativeSliceVersionStatus;
+  stagedRowCount?: number | null;
+  aggregatedSpend?: number | null;
+  validationSummary?: Record<string, unknown>;
+  sourceRunId?: string | null;
+  stageStartedAt?: string | null;
+  stageCompletedAt?: string | null;
+  publishedAt?: string | null;
+  supersededAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaAuthoritativePublicationPointerRecord {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  activeSliceVersionId: string;
+  publishedByRunId?: string | null;
+  publicationReason: string;
+  publishedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaAuthoritativeReconciliationEventRecord {
+  id?: string;
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  sliceVersionId?: string | null;
+  manifestId?: string | null;
+  eventKind: string;
+  severity: "info" | "warning" | "error";
+  sourceSpend?: number | null;
+  warehouseAccountSpend?: number | null;
+  warehouseCampaignSpend?: number | null;
+  toleranceApplied?: number | null;
+  result: MetaAuthoritativeReconciliationResult;
+  detailsJson?: Record<string, unknown>;
+  createdAt?: string;
 }
 
 export interface MetaRawSnapshotRecord {
@@ -377,4 +502,115 @@ export interface MetaWarehouseFreshness {
   isPartial: boolean;
   missingWindows: string[];
   warnings: string[];
+}
+
+export interface MetaPublishedVerificationSummary {
+  verificationState: MetaHistoricalVerificationState;
+  truthReady: boolean;
+  totalDays: number;
+  completedCoreDays: number;
+  sourceFetchedAt: string | null;
+  publishedAt: string | null;
+  asOf: string | null;
+  publishedSlices: number;
+  totalExpectedSlices: number;
+  reasonCounts: Record<string, number>;
+  publishedKeysBySurface: Partial<Record<MetaWarehouseScope, string[]>>;
+}
+
+export interface MetaAuthoritativeManifestCounts {
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  superseded: number;
+  total: number;
+}
+
+export interface MetaAuthoritativeProgressionSummary {
+  queued: number;
+  leased: number;
+  published: number;
+  retryableFailed: number;
+  deadLetter: number;
+  staleLeases: number;
+  repairBacklog: number;
+}
+
+export interface MetaAuthoritativeLatestPublishRecord {
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  publishedAt: string | null;
+  verificationState: MetaHistoricalVerificationState;
+  sourceKind: string | null;
+  manifestFetchStatus: MetaAuthoritativeSourceManifestStatus | null;
+}
+
+export interface MetaAuthoritativeD1FinalizeSlaRecord {
+  providerAccountId: string;
+  accountTimezone: string;
+  expectedDay: string;
+  verificationState: MetaHistoricalVerificationState;
+  publishedAt: string | null;
+  breached: boolean;
+}
+
+export interface MetaAuthoritativeRecentFailureRecord {
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  result: MetaAuthoritativeReconciliationResult;
+  eventKind: string;
+  severity: "info" | "warning" | "error";
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface MetaAuthoritativeBusinessOpsSnapshot {
+  businessId: string;
+  capturedAt: string;
+  manifestCounts: MetaAuthoritativeManifestCounts;
+  progression: MetaAuthoritativeProgressionSummary;
+  latestPublishes: MetaAuthoritativeLatestPublishRecord[];
+  d1FinalizeSla: {
+    totalAccounts: number;
+    breachedAccounts: number;
+    accounts: MetaAuthoritativeD1FinalizeSlaRecord[];
+  };
+  validationFailures24h: number;
+  recentFailures: MetaAuthoritativeRecentFailureRecord[];
+  lastSuccessfulPublishAt: string | null;
+}
+
+export interface MetaAuthoritativeDaySurfaceState {
+  surface: MetaWarehouseScope;
+  manifest: MetaAuthoritativeSourceManifestRecord | null;
+  publication:
+    | {
+        publication: MetaAuthoritativePublicationPointerRecord;
+        sliceVersion: MetaAuthoritativeSliceVersionRecord;
+      }
+    | null;
+}
+
+export interface MetaAuthoritativeDayVerification {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  verificationState: MetaHistoricalVerificationState;
+  sourceManifestState: MetaAuthoritativeSourceManifestStatus | "missing";
+  validationState: MetaHistoricalVerificationState;
+  activePublication: {
+    publishedAt: string | null;
+    publicationReason: string | null;
+    activeSliceVersionId: string | null;
+  } | null;
+  surfaces: MetaAuthoritativeDaySurfaceState[];
+  lastFailure: MetaAuthoritativeRecentFailureRecord | null;
+  repairBacklog: number;
+  deadLetters: number;
+  staleLeases: number;
+  queuedPartitions: number;
+  leasedPartitions: number;
 }
