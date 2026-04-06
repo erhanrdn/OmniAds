@@ -6,7 +6,7 @@ import { runDailyInsights } from "@/lib/ai/run-daily-insights";
  *
  * Triggers the daily AI insight generation for all businesses.
  * Protected by a shared CRON_SECRET to ensure only authorized callers
- * (e.g. Vercel Cron, external scheduler) can trigger it.
+ * (e.g. system cron, any external scheduler) can trigger it.
  *
  * Set CRON_SECRET in your environment variables and pass it as:
  *   Authorization: Bearer <CRON_SECRET>

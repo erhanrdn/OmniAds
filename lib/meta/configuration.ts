@@ -1,5 +1,6 @@
 export interface MetaConfigSnapshotPayload {
   campaignId?: string | null;
+  objective?: string | null;
   optimizationGoal: string | null;
   bidStrategyType: string | null;
   bidStrategyLabel: string | null;
@@ -171,6 +172,7 @@ function summarizeNumericValueIgnoringNull(values: Array<number | null | undefin
 
 export function buildConfigSnapshotPayload(input: {
   campaignId?: string | null;
+  objective?: string | null;
   optimizationGoal?: string | null;
   bidStrategy?: string | null;
   manualBidAmount?: number | null;
@@ -197,6 +199,7 @@ export function buildConfigSnapshotPayload(input: {
 
   return {
     campaignId: input.campaignId ?? null,
+    objective: input.objective?.trim() ? input.objective.trim() : null,
     optimizationGoal: normalizeOptimizationGoal(input.optimizationGoal),
     bidStrategyType: strategy.type,
     bidStrategyLabel: strategy.label,

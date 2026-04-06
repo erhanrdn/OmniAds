@@ -215,7 +215,30 @@ export async function GET(request: NextRequest) {
         providerAccountIds: targetAccountIds,
         includePrev,
       });
-    } else {
+      if (rows.length > 0) {
+        return NextResponse.json({
+          status: "ok",
+          rows,
+          isPartial: false,
+          notReadyReason: null,
+        } satisfies MetaCampaignsResponse);
+      }
+    }
+
+    rows = (await getMetaWarehouseCampaignTable({
+      businessId,
+      startDate: resolvedStart,
+      endDate: resolvedEnd,
+      providerAccountIds: targetAccountIds,
+      includePrev,
+    })) as MetaCampaignRow[];
+  } catch (error) {
+    console.warn("[meta-campaigns] data_fetch_failed", {
+      businessId,
+      live: rangeContext.isSelectedCurrentDay,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    try {
       rows = (await getMetaWarehouseCampaignTable({
         businessId,
         startDate: resolvedStart,
@@ -223,13 +246,9 @@ export async function GET(request: NextRequest) {
         providerAccountIds: targetAccountIds,
         includePrev,
       })) as MetaCampaignRow[];
+    } catch {
+      rows = [];
     }
-  } catch (error) {
-    console.warn("[meta-campaigns] data_fetch_failed", {
-      businessId,
-      live: rangeContext.isSelectedCurrentDay,
-      message: error instanceof Error ? error.message : String(error),
-    });
   }
 
   return NextResponse.json({

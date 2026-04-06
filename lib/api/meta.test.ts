@@ -57,6 +57,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
     vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation((input) => ({
       campaignId: input.campaignId ?? null,
+      objective: input.objective ?? null,
       optimizationGoal: input.optimizationGoal ?? null,
       bidStrategyType: input.bidStrategy ?? null,
       bidStrategyLabel: input.bidStrategy ?? null,
@@ -75,6 +76,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       const firstAdset = input.adsets[0] ?? null;
       return {
         campaignId: input.campaignId ?? null,
+        objective: null,
         optimizationGoal: firstAdset?.optimizationGoal ?? null,
         bidStrategyType: firstAdset?.bidStrategyType ?? null,
         bidStrategyLabel: firstAdset?.bidStrategyLabel ?? null,

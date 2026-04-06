@@ -158,7 +158,7 @@ function RecCard({
               )}
             </button>
             <span className="text-[11px] text-slate-500">
-              {checked ? "Tamamlandı olarak işaretlendi" : "Tamamlandı olarak işaretle"}
+              {checked ? "Marked complete" : "Mark as complete"}
             </span>
           </div>
         </div>
@@ -174,6 +174,7 @@ export interface MetaAccountRecsProps {
   checkedRecIds: Set<string>;
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
+  analysisError?: string | null;
   language: "en" | "tr";
 }
 
@@ -184,6 +185,7 @@ export function MetaAccountRecs({
   checkedRecIds,
   onToggleCheck,
   onAnalyze,
+  analysisError,
   language,
 }: MetaAccountRecsProps) {
   const accountRecs = recommendationsData?.recommendations.filter((r) => !r.campaignId) ?? [];
@@ -231,6 +233,11 @@ export function MetaAccountRecs({
           </p>
         )}
       </div>
+      {analysisError ? (
+        <p className="text-xs text-red-500">
+          {analysisError}
+        </p>
+      ) : null}
 
       {/* Loading skeleton */}
       {isRecsLoading && (

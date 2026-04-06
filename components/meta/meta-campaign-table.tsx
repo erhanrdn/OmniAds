@@ -96,7 +96,7 @@ function fmtBidValue(
 }
 
 function renderConfigText(value: string | null | undefined, isMixed?: boolean) {
-  const language = usePreferencesStore.getState().language;
+  const language: "en" = "en";
   if (isMixed) return language === "tr" ? "Karışık" : "Mixed";
   if (!value) return "—";
   return value;
@@ -181,7 +181,7 @@ function MicroBar({
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 export function StatusBadge({ status }: { status: string }) {
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   const lower = status.toLowerCase();
   if (lower === "active")
     return (
@@ -217,7 +217,7 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   if (lane === "Scaling") {
     return (
       <Badge className="border-0 bg-blue-500/10 text-blue-700 hover:bg-blue-500/15">
@@ -285,7 +285,7 @@ function AdSetSubTable({
   campaignPreviousBidValueCapturedAt: string | null | undefined;
 }) {
   const sym = useCurrencySymbol();
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   if (rows.length === 0) {
     return (
       <div className="px-4 py-3 text-xs text-muted-foreground">
@@ -477,7 +477,7 @@ function CampaignRow({
   isCampaignPrevLoading,
 }: CampaignRowProps) {
   const sym = useCurrencySymbol();
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   const colSpan = columns === "compact" ? 8 : 11;
   const showBudgetOnCampaignRow =
     campaign.budgetLevel === "campaign" &&
@@ -792,7 +792,7 @@ export function MetaCampaignTable({
   showMicroBars = false,
   columns = "full",
 }: MetaCampaignTableProps) {
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(campaigns.map((campaign) => campaign.id))
   );

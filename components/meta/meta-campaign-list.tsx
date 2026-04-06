@@ -85,7 +85,7 @@ export function MetaCampaignList({
   onSelect,
   campaignRecStates,
 }: MetaCampaignListProps) {
-  const language = usePreferencesStore((s) => s.language);
+  const language: "en" = "en";
   const sym = useCurrencySymbol();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 

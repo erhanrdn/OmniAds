@@ -149,12 +149,14 @@ export async function GET(request: NextRequest) {
         endDate: resolvedEnd,
         includePrev,
       });
-      return NextResponse.json({
-        status: "ok",
-        rows: liveRows,
-        isPartial: liveRows.length === 0,
-        notReadyReason: liveRows.length === 0 ? "No ad set data available yet for today." : null,
-      } satisfies MetaAdSetsResponse);
+      if (liveRows.length > 0) {
+        return NextResponse.json({
+          status: "ok",
+          rows: liveRows,
+          isPartial: false,
+          notReadyReason: null,
+        } satisfies MetaAdSetsResponse);
+      }
     }
 
     const warehouseRows = await getMetaWarehouseAdSets({
@@ -180,6 +182,26 @@ export async function GET(request: NextRequest) {
       live: rangeContext.isSelectedCurrentDay,
       message: error instanceof Error ? error.message : String(error),
     });
+    try {
+      const warehouseRows = await getMetaWarehouseAdSets({
+        businessId: businessId!,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        campaignId,
+        providerAccountIds,
+        includePrev,
+      });
+      if (warehouseRows.length > 0) {
+        return NextResponse.json({
+          status: "ok",
+          rows: warehouseRows,
+          isPartial: false,
+          notReadyReason: null,
+        } satisfies MetaAdSetsResponse);
+      }
+    } catch {
+      // Fall through to partial response below when both live and warehouse fail.
+    }
   }
   return NextResponse.json({
     status: "ok",

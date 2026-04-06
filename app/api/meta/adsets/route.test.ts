@@ -135,4 +135,45 @@ describe("GET /api/meta/adsets", () => {
     expect(live.getMetaLiveAdSets).toHaveBeenCalledTimes(1);
     expect(serving.getMetaWarehouseAdSets).not.toHaveBeenCalled();
   });
+
+  it("falls back to warehouse ad sets when the current-day live path returns no rows", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: true,
+      currentDateInTimezone: "2026-04-05",
+      primaryAccountTimezone: "UTC",
+    });
+    vi.mocked(live.getMetaLiveAdSets).mockResolvedValue([] as never);
+    vi.mocked(serving.getMetaWarehouseAdSets).mockResolvedValue([
+      {
+        id: "adset-wh-1",
+        name: "Warehouse Adset",
+        campaignId: "cmp-1",
+        status: "ACTIVE",
+        optimizationGoal: "PURCHASE",
+        bidStrategyLabel: "Auto",
+        bidValue: null,
+        bidValueFormat: null,
+        previousBidValue: null,
+        previousBidValueFormat: null,
+        previousBidValueCapturedAt: null,
+        spend: 18,
+        revenue: 54,
+        cpa: 9,
+        ctr: 1.3,
+      },
+    ] as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/adsets?businessId=biz&campaignId=cmp-1&startDate=2026-04-05&endDate=2026-04-05"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.rows[0]?.id).toBe("adset-wh-1");
+    expect(live.getMetaLiveAdSets).toHaveBeenCalledTimes(1);
+    expect(serving.getMetaWarehouseAdSets).toHaveBeenCalledTimes(1);
+  });
 });

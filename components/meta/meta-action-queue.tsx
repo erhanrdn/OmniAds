@@ -79,7 +79,7 @@ export function MetaActionQueue({
   showFullAnalysis,
   onToggleFullAnalysis,
 }: MetaActionQueueProps) {
-  const language = usePreferencesStore((s) => s.language);
+  const language: "en" = "en";
 
   const sorted = [...recommendations].sort(
     (a, b) => DECISION_ORDER[a.decisionState] - DECISION_ORDER[b.decisionState]

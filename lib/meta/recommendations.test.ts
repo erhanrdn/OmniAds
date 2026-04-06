@@ -316,6 +316,32 @@ describe("buildMetaRecommendations", () => {
     expect(result.summary.title).toContain("No purchase-focused");
   });
 
+  it("treats revenue-bearing campaigns as eligible when objective metadata is missing", () => {
+    const row = campaign({
+      objective: null,
+      optimizationGoal: null,
+      purchases: 12,
+      revenue: 1800,
+      roas: 2.4,
+    });
+    const result = buildMetaRecommendations({
+      windows: {
+        selected: [row],
+        previousSelected: [campaign({ objective: null, optimizationGoal: null, purchases: 10, revenue: 1200, roas: 2.1 })],
+        last3: [row],
+        last7: [row],
+        last14: [campaign({ objective: null, optimizationGoal: null, purchases: 10, revenue: 1500, roas: 2.2 })],
+        last30: [campaign({ objective: null, optimizationGoal: null, purchases: 9, revenue: 1400, roas: 2.0 })],
+        last90: [campaign({ objective: null, optimizationGoal: null, purchases: 8, revenue: 1300, roas: 1.9 })],
+        allHistory: [campaign({ objective: null, optimizationGoal: null, purchases: 11, revenue: 1600, roas: 2.1 })],
+      },
+      breakdowns,
+    });
+
+    expect(result.summary.recommendationCount).toBeGreaterThan(0);
+    expect(result.recommendations.length).toBeGreaterThan(0);
+  });
+
   it("flags seasonality when selected period diverges sharply from history", () => {
     const selected = campaign({ roas: 5.5, purchases: 40, spend: 3500, revenue: 19250 });
     const baseline = campaign({ roas: 2, purchases: 20, spend: 1400, revenue: 2800 });

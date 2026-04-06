@@ -12,7 +12,7 @@ import { runSyncSoakGate } from "@/lib/sync/soak-gate";
  *
  * Proactively syncs Google Ads, GA4, Search Console, and Meta data for all
  * active (non-demo) businesses. Should be called every 10 minutes via
- * Vercel Cron or an external scheduler.
+ * Any external scheduler or system cron.
  *
  * Protected by CRON_SECRET bearer token.
  */

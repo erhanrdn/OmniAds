@@ -23,6 +23,8 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
   getMetaRawSnapshotsForWindow: vi.fn(),
+  upsertMetaAdSetDailyRows: vi.fn(),
+  upsertMetaCampaignDailyRows: vi.fn(),
 }));
 
 const configSnapshots = await import("@/lib/meta/config-snapshots");
@@ -32,6 +34,8 @@ const { getMetaWarehouseAdSets, getMetaWarehouseCampaignTable } = await import("
 describe("meta historical serving", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
+    vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
   });
 
   it("returns campaign current config from warehouse rows without calling snapshot readers", async () => {
@@ -44,7 +48,7 @@ describe("meta historical serving", () => {
         campaignNameCurrent: "Campaign 1",
         campaignNameHistorical: "Campaign 1",
         campaignStatus: "ACTIVE",
-        objective: null,
+        objective: "OUTCOME_SALES",
         buyingType: null,
         optimizationGoal: "Purchase",
         bidStrategyType: "bid_cap",
@@ -82,7 +86,7 @@ describe("meta historical serving", () => {
         campaignNameCurrent: "Campaign 1",
         campaignNameHistorical: "Campaign 1",
         campaignStatus: "PAUSED",
-        objective: null,
+        objective: "OUTCOME_SALES",
         buyingType: null,
         optimizationGoal: "Lead",
         bidStrategyType: "cost_cap",
@@ -367,6 +371,187 @@ describe("meta historical serving", () => {
     });
     expect(configSnapshots.readLatestMetaConfigSnapshots).not.toHaveBeenCalled();
     expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
+  });
+
+  it("repairs missing campaign bid values from latest snapshots and persists them", async () => {
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        campaignNameCurrent: "Campaign 1",
+        campaignNameHistorical: "Campaign 1",
+        campaignStatus: "ACTIVE",
+        objective: null,
+        buyingType: null,
+        optimizationGoal: "Purchase",
+        bidStrategyType: "bid_cap",
+        bidStrategyLabel: "Bid Cap",
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: 15,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 30,
+        impressions: 120,
+        clicks: 5,
+        reach: 120,
+        frequency: null,
+        conversions: 3,
+        revenue: 80,
+        roas: 2.67,
+        cpa: 10,
+        ctr: 4.16,
+        cpc: 6,
+        sourceSnapshotId: null,
+      },
+    ] as never);
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+      new Map([
+        [
+          "cmp-1",
+          {
+            campaignId: "cmp-1",
+            objective: "OUTCOME_SALES",
+            optimizationGoal: "Purchase",
+            bidStrategyType: "bid_cap",
+            bidStrategyLabel: "Bid Cap",
+            manualBidAmount: 2200,
+            bidValue: 2200,
+            bidValueFormat: "currency",
+            dailyBudget: 15,
+            lifetimeBudget: null,
+            isBudgetMixed: false,
+            isConfigMixed: false,
+            isOptimizationGoalMixed: false,
+            isBidStrategyMixed: false,
+            isBidValueMixed: false,
+          },
+        ],
+      ])
+    );
+
+    const rows = await getMetaWarehouseCampaignTable({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      includePrev: false,
+    });
+
+    expect(rows[0]).toMatchObject({
+      objective: "OUTCOME_SALES",
+      manualBidAmount: 2200,
+      bidValue: 2200,
+      bidValueFormat: "currency",
+    });
+    expect(warehouse.upsertMetaCampaignDailyRows).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          campaignId: "cmp-1",
+          objective: "OUTCOME_SALES",
+          manualBidAmount: 2200,
+          bidValue: 2200,
+          bidValueFormat: "currency",
+        }),
+      ])
+    );
+  });
+
+  it("repairs missing adset target roas values from latest snapshots and persists them", async () => {
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: "Purchase",
+        bidStrategyType: "target_roas",
+        bidStrategyLabel: "Target ROAS",
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: 10,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 15,
+        impressions: 100,
+        clicks: 4,
+        reach: 100,
+        frequency: null,
+        conversions: 2,
+        revenue: 30,
+        roas: 2,
+        cpa: 7.5,
+        ctr: 4,
+        cpc: 3.75,
+        sourceSnapshotId: null,
+      },
+    ] as never);
+    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+      new Map([
+        [
+          "adset-1",
+          {
+            campaignId: "cmp-1",
+            optimizationGoal: "Purchase",
+            bidStrategyType: "target_roas",
+            bidStrategyLabel: "Target ROAS",
+            manualBidAmount: null,
+            bidValue: 2.5,
+            bidValueFormat: "roas",
+            dailyBudget: 10,
+            lifetimeBudget: null,
+            isBudgetMixed: false,
+            isConfigMixed: false,
+            isOptimizationGoalMixed: false,
+            isBidStrategyMixed: false,
+            isBidValueMixed: false,
+          },
+        ],
+      ])
+    );
+
+    const rows = await getMetaWarehouseAdSets({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      campaignId: "cmp-1",
+      includePrev: false,
+    });
+
+    expect(rows[0]).toMatchObject({
+      optimizationGoal: "Purchase",
+      bidStrategyType: "target_roas",
+      bidValue: 2.5,
+      bidValueFormat: "roas",
+    });
+    expect(warehouse.upsertMetaAdSetDailyRows).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adsetId: "adset-1",
+          bidValue: 2.5,
+          bidValueFormat: "roas",
+        }),
+      ])
+    );
   });
 
   it("derives adset previous bid and budget fields from warehouse history", async () => {

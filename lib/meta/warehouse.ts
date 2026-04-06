@@ -358,6 +358,8 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       source = CASE
         WHEN meta_sync_partitions.source = 'priority_window' THEN meta_sync_partitions.source
         WHEN EXCLUDED.source = 'priority_window' THEN EXCLUDED.source
+        WHEN meta_sync_partitions.source = 'yesterday' THEN meta_sync_partitions.source
+        WHEN EXCLUDED.source = 'yesterday' THEN EXCLUDED.source
         WHEN meta_sync_partitions.source = 'today' THEN meta_sync_partitions.source
         WHEN EXCLUDED.source = 'today' THEN EXCLUDED.source
         WHEN meta_sync_partitions.source = 'request_runtime' THEN meta_sync_partitions.source
@@ -371,6 +373,7 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
       status = CASE
         WHEN EXCLUDED.source IN (
           'priority_window',
+          'yesterday',
           'recent',
           'recent_recovery',
           'today',

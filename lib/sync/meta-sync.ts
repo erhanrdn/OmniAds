@@ -456,6 +456,7 @@ function addDays(date: Date, days: number) {
 
 const META_RECENT_SOURCE_SET = new Set([
   "priority_window",
+  "yesterday",
   "today",
   "request_runtime",
   "recent",
@@ -1306,8 +1307,19 @@ async function enqueueMetaMaintenancePartitions(
     new Date(`${endDate}T00:00:00Z`),
     -(META_RECENT_RECOVERY_DAYS - 1),
   );
-  const recentDates = enumerateDays(toIsoDate(recentStart), endDate, true);
+  const recentDates = enumerateDays(toIsoDate(recentStart), endDate, true).filter(
+    (date) => date !== endDate,
+  );
   let queued = 0;
+  queued += await enqueueMetaDates({
+    businessId,
+    accountIds: credentials.accountIds,
+    dates: [endDate],
+    triggerSource: "yesterday",
+    lane: "maintenance",
+    scopes: META_CORE_PARTITION_QUEUE_SCOPES,
+    priority: 70,
+  });
   queued += await enqueueMetaDates({
     businessId,
     accountIds: credentials.accountIds,

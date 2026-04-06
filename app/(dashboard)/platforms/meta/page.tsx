@@ -453,7 +453,7 @@ function MetaStatusBanner({
 
 function NoAccountsAssigned() {
   const router = useRouter();
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   return (
     <div className="rounded-xl border border-dashed p-8 text-center">
       <p className="text-sm font-medium">
@@ -556,7 +556,7 @@ function LocationBreakdownList({
   rows: AggregatedBreakdownRow[];
 }) {
   const sym = useCurrencySymbol();
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   const total = rows.reduce((a, r) => a + r.spend, 0);
   const top = rows.slice(0, 7);
 
@@ -640,7 +640,7 @@ function SidebarCard({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MetaPage() {
-  const language = usePreferencesStore((state) => state.language);
+  const language: "en" = "en";
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const { plan: currentPlan } = usePlanState();
@@ -658,6 +658,7 @@ export default function MetaPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
+  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
   const [bootstrapRequestedForBusiness, setBootstrapRequestedForBusiness] = useState<string | null>(null);
   const [resolvedMetaReferenceDate, setResolvedMetaReferenceDate] = useState<string | null>(null);
@@ -836,11 +837,25 @@ export default function MetaPage() {
     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [selectedCampaignId]);
 
-  function handleAnalyze() {
-    recommendationsQuery.refetch().then(() => {
-      setLastAnalyzedAt(new Date());
-      setCheckedRecIds(new Set());
-    });
+  useEffect(() => {
+    setRecommendationsError(null);
+  }, [businessId, startDate, endDate]);
+
+  async function handleAnalyze() {
+    setRecommendationsError(null);
+    const result = await recommendationsQuery.refetch();
+    if (result.error) {
+      setRecommendationsError(
+        result.error instanceof Error
+          ? result.error.message
+          : language === "tr"
+            ? "AI analizi çalıştırılamadı."
+            : "AI analysis could not be completed."
+      );
+      return;
+    }
+    setLastAnalyzedAt(new Date());
+    setCheckedRecIds(new Set());
   }
 
   function handleToggleCheck(id: string) {
@@ -1429,6 +1444,7 @@ export default function MetaPage() {
                     recommendationsData={recommendationsQuery.data}
                     isRecsLoading={recommendationsQuery.isFetching}
                     lastAnalyzedAt={lastAnalyzedAt}
+                    recommendationsError={recommendationsError}
                     checkedRecIds={checkedRecIds}
                     onToggleCheck={handleToggleCheck}
                     onAnalyze={handleAnalyze}

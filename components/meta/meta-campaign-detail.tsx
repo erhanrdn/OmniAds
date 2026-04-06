@@ -107,6 +107,7 @@ interface MetaCampaignDetailProps {
   recommendationsData: MetaRecommendationsResponse | undefined;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
+  recommendationsError?: string | null;
   checkedRecIds: Set<string>;
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
@@ -173,7 +174,7 @@ function AdSetList({
         const isActive = adset.status.toLowerCase() === "active";
 
         // Bid zone
-        const bidLabel = adset.bidStrategyLabel ?? "Auto";
+        const bidLabel = adset.bidStrategyLabel ?? "—";
         const bidValueStr = adset.bidValue != null
           ? adset.bidValueFormat === "roas"
             ? `${adset.bidValue.toFixed(2)}×`
@@ -266,6 +267,7 @@ interface AccountOverviewProps {
   recommendationsData: MetaRecommendationsResponse | undefined;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
+  recommendationsError?: string | null;
   checkedRecIds: Set<string>;
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
@@ -285,6 +287,7 @@ function AccountOverview(props: AccountOverviewProps) {
         checkedRecIds={props.checkedRecIds}
         onToggleCheck={props.onToggleCheck}
         onAnalyze={props.onAnalyze}
+        analysisError={props.recommendationsError}
         language={props.language}
       />
       <MetaBreakdownGrid
@@ -304,6 +307,7 @@ export function MetaCampaignDetail({
   recommendationsData,
   isRecsLoading,
   lastAnalyzedAt,
+  recommendationsError,
   checkedRecIds,
   onToggleCheck,
   onAnalyze,
@@ -324,6 +328,7 @@ export function MetaCampaignDetail({
         recommendationsData={recommendationsData}
         isRecsLoading={isRecsLoading}
         lastAnalyzedAt={lastAnalyzedAt}
+        recommendationsError={recommendationsError}
         checkedRecIds={checkedRecIds}
         onToggleCheck={onToggleCheck}
         onAnalyze={onAnalyze}

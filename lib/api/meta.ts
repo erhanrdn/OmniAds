@@ -158,6 +158,7 @@ interface RawCampaign {
   name: string;
   status?: string;
   effective_status?: string;
+  objective?: string;
   daily_budget?: string;
   lifetime_budget?: string;
   bid_strategy?: string;
@@ -487,6 +488,7 @@ function buildMetaAdSetConfigPayload(input: {
 function buildMetaCampaignDailyConfigRow(input: {
   campaignRow: MetaCampaignDailyRow;
   campaignConfig?: RawCampaign | null;
+  latestCampaignSnapshot?: MetaConfigSnapshotPayload | null;
   adsetPayloads: MetaConfigSnapshotPayload[];
 }): MetaCampaignDailyRow {
   const campaignSummary = summarizeCampaignConfig({
@@ -1236,6 +1238,24 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, RawCampaign>());
+  const campaignIds = Array.from(aggregates.campaigns.keys());
+  const adsetIds = Array.from(aggregates.adsets.keys());
+  const [latestCampaignSnapshots, latestAdsetSnapshots] = await Promise.all([
+    campaignIds.length > 0
+      ? readLatestMetaConfigSnapshots({
+          businessId: input.credentials.businessId,
+          entityLevel: "campaign",
+          entityIds: campaignIds,
+        })
+      : Promise.resolve(new Map<string, MetaConfigSnapshotPayload>()),
+    adsetIds.length > 0
+      ? readLatestMetaConfigSnapshots({
+          businessId: input.credentials.businessId,
+          entityLevel: "adset",
+          entityIds: adsetIds,
+        })
+      : Promise.resolve(new Map<string, MetaConfigSnapshotPayload>()),
+  ]);
   const accountMetrics = deriveWarehouseMetrics(aggregates.account);
   const sourceSnapshotId = latestSnapshotId;
   const adsetPayloadsByCampaign = new Map<string, MetaConfigSnapshotPayload[]>();
@@ -1248,6 +1268,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       campaignId: campaignId ?? "",
       adset: adsetConfig,
       campaignConfig,
+      latestSnapshot: latestAdsetSnapshots.get(adsetId) ?? null,
+      latestCampaignSnapshot: campaignId
+        ? latestCampaignSnapshots.get(campaignId) ?? null
+        : null,
     }).payload;
     if (campaignId) {
       const payloads = adsetPayloadsByCampaign.get(campaignId);
@@ -1304,7 +1328,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         campaignNameCurrent: value.name ?? null,
         campaignNameHistorical: value.name ?? null,
         campaignStatus: campaignStatuses.get(campaignId) ?? null,
-        objective: null,
+        objective:
+          campaignConfigs.get(campaignId)?.objective ??
+          latestCampaignSnapshots.get(campaignId)?.objective ??
+          null,
         buyingType: null,
         optimizationGoal: null,
         bidStrategyType: null,
@@ -1439,6 +1466,26 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       fetchedCampaignConfigCount: campaignConfigs.size,
     });
   }
+  const adsetSnapshotRows = adsetRows
+    .map((row) => {
+      const campaignConfig =
+        row.campaignId != null ? campaignConfigs.get(row.campaignId) ?? null : null;
+      const adsetConfig = adsetConfigs.get(row.adsetId) ?? null;
+      if (!adsetConfig && !campaignConfig) return null;
+      return {
+        businessId: input.credentials.businessId,
+        accountId: input.accountId,
+        entityLevel: "adset" as const,
+        entityId: row.adsetId,
+        payload: buildMetaAdSetConfigPayload({
+          campaignId: row.campaignId ?? "",
+          adset: adsetConfig,
+          campaignConfig,
+        }).payload,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+  await appendMetaConfigSnapshots(adsetSnapshotRows);
   await heartbeatOwnedMetaPartitionLeaseOrThrow({
     partitionId: input.partitionId,
     workerId: input.workerId,
@@ -1876,7 +1923,7 @@ async function fetchCampaignConfigs(
   const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/campaigns`);
   url.searchParams.set(
     "fields",
-    "id,name,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+    "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
   );
   url.searchParams.set("limit", "500");
   url.searchParams.set("access_token", accessToken);
@@ -1894,7 +1941,7 @@ async function fetchCampaignConfigs(
       status: "fetched",
       requestContext: {
         fields:
-          "id,name,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
+          "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
       },
     });
     return new Map(jsonRows.map((campaign) => [campaign.id, campaign]));
@@ -1910,7 +1957,7 @@ async function fetchCampaignConfigs(
       status: "failed",
       requestContext: {
         fields:
-          "id,name,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
+          "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}",
       },
     });
     return new Map();
@@ -1939,6 +1986,7 @@ async function persistMetaCampaignConfigSnapshots(input: {
         entityId: campaignId,
         payload: buildConfigSnapshotPayload({
           campaignId,
+          objective: campaign.objective ?? null,
           bidStrategy: campaign.bid_strategy ?? null,
           manualBidAmount:
             campaign.bid_amount != null ? parseNum(campaign.bid_amount) : null,
@@ -2080,6 +2128,7 @@ export async function getCampaigns(
             const campaignConfig = campaignConfigs.get(campaignId);
             const config = buildConfigSnapshotPayload({
               campaignId,
+              objective: campaignConfig?.objective ?? null,
               bidStrategy: campaignConfig?.bid_strategy ?? null,
               manualBidAmount:
                 campaignConfig?.bid_amount != null
@@ -2103,6 +2152,7 @@ export async function getCampaigns(
               accountId,
               name: insight.campaign_name ?? "Unknown Campaign",
               status: statusMap.get(campaignId) ?? "UNKNOWN",
+              objective: campaignConfig?.objective ?? null,
               budgetLevel: null,
               optimizationGoal: null,
               bidStrategyType: config.bidStrategyType,

@@ -250,4 +250,55 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("Campaign One");
     expect(html).toContain("No ad set data for this range.");
   });
+
+  it("does not invent an Auto bid label when the warehouse has no bidding config", () => {
+    mockAdSetQuery = {
+      data: {
+        rows: [
+          {
+            id: "adset_1",
+            name: "Adset One",
+            status: "ACTIVE",
+            optimizationGoal: null,
+            bidStrategyLabel: null,
+            bidValue: null,
+            bidValueFormat: null,
+            previousBidValue: null,
+            previousBidValueFormat: null,
+            previousBidValueCapturedAt: null,
+            spend: 50,
+            revenue: 130,
+            cpa: 10,
+            ctr: 1.2,
+            inlineLinkClickCtr: 1.2,
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaCampaignDetail
+        campaign={selectedCampaign() as any}
+        recommendationsData={recommendationsData(false) as any}
+        isRecsLoading={false}
+        lastAnalyzedAt={null}
+        checkedRecIds={new Set()}
+        onToggleCheck={vi.fn()}
+        onAnalyze={vi.fn()}
+        onClearSelection={vi.fn()}
+        ageRows={[]}
+        placementRows={[]}
+        isBreakdownLoading={false}
+        businessId="biz"
+        since="2026-04-01"
+        until="2026-04-05"
+        language="en"
+      />
+    );
+
+    expect(html).toContain("Adset One");
+    expect(html).not.toContain("AUTO");
+  });
 });

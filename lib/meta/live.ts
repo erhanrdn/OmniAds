@@ -20,7 +20,7 @@ import {
   readLatestMetaConfigSnapshots,
   readPreviousDifferentMetaConfigDiffs,
 } from "@/lib/meta/config-snapshots";
-import { buildConfigSnapshotPayload } from "@/lib/meta/configuration";
+import { buildConfigSnapshotPayload, summarizeCampaignConfig } from "@/lib/meta/configuration";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 
@@ -47,10 +47,25 @@ interface RawCampaignInsight {
 interface RawCampaign {
   id: string;
   name?: string;
+  objective?: string;
   status?: string;
   effective_status?: string;
   daily_budget?: string;
   lifetime_budget?: string;
+  bid_strategy?: string;
+  bid_amount?: string;
+  bid_constraints?: { roas_average_floor?: string };
+}
+
+interface RawAdSet {
+  id: string;
+  name?: string;
+  campaign_id?: string;
+  status?: string;
+  effective_status?: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  optimization_goal?: string;
   bid_strategy?: string;
   bid_amount?: string;
   bid_constraints?: { roas_average_floor?: string };
@@ -118,7 +133,7 @@ export async function getMetaLiveCampaignRows(input: {
       const profile = credentials.accountProfiles[accountId];
       const currency = profile?.currency ?? credentials.currency ?? "USD";
 
-      // Fetch campaign insights (metrics) and campaign list (status + config) in parallel
+      // Fetch campaign insights (metrics), campaign config, and ad set config in parallel.
       const insightUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
       insightUrl.searchParams.set("level", "campaign");
       insightUrl.searchParams.set(
@@ -135,18 +150,27 @@ export async function getMetaLiveCampaignRows(input: {
       const configUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/campaigns`);
       configUrl.searchParams.set(
         "fields",
-        "id,name,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+        "id,name,objective,effective_status,status,daily_budget,lifetime_budget,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
       );
       configUrl.searchParams.set("limit", "500");
       configUrl.searchParams.set("access_token", accessToken);
 
-      const [insightRes, campaignRows] = await Promise.all([
+      const adsetConfigUrl = new URL(`https://graph.facebook.com/v25.0/${accountId}/adsets`);
+      adsetConfigUrl.searchParams.set(
+        "fields",
+        "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+      );
+      adsetConfigUrl.searchParams.set("limit", "500");
+      adsetConfigUrl.searchParams.set("access_token", accessToken);
+
+      const [insightRes, campaignRows, adsetRows] = await Promise.all([
         fetch(insightUrl.toString(), { cache: "no-store" })
           .then((r) =>
             r.ok ? (r.json() as Promise<{ data?: RawCampaignInsight[] }>) : { data: [] as RawCampaignInsight[] }
           )
           .catch(() => ({ data: [] as RawCampaignInsight[] })),
         fetchPagedMeta<RawCampaign>(configUrl.toString()).catch(() => [] as RawCampaign[]),
+        fetchPagedMeta<RawAdSet>(adsetConfigUrl.toString()).catch(() => [] as RawAdSet[]),
       ]);
 
       const insights: RawCampaignInsight[] = (insightRes as { data?: RawCampaignInsight[] }).data ?? [];
@@ -158,12 +182,24 @@ export async function getMetaLiveCampaignRows(input: {
       if (insights.length === 0) return;
 
       const campaignIds = [...new Set(insights.map((i) => i.campaign_id ?? "").filter(Boolean))];
+      const adsetIds = [
+        ...new Set(
+          adsetRows
+            .map((row) => row.id)
+            .filter(Boolean)
+        ),
+      ];
 
-      const [latestConfigs, previousConfigs] = await Promise.all([
+      const [latestCampaignConfigs, latestAdSetConfigs, previousConfigs] = await Promise.all([
         readLatestMetaConfigSnapshots({
           businessId: input.businessId,
           entityLevel: "campaign",
           entityIds: campaignIds,
+        }),
+        readLatestMetaConfigSnapshots({
+          businessId: input.businessId,
+          entityLevel: "adset",
+          entityIds: adsetIds,
         }),
         input.includePrev
           ? readPreviousDifferentMetaConfigDiffs({
@@ -174,33 +210,76 @@ export async function getMetaLiveCampaignRows(input: {
           : Promise.resolve(new Map<string, never>()),
       ]);
 
+      const adsetPayloadsByCampaign = new Map<string, ReturnType<typeof buildConfigSnapshotPayload>[]>();
+      for (const adset of adsetRows) {
+        const adsetCampaignId = adset.campaign_id ?? "";
+        if (!adsetCampaignId) continue;
+        const payload = buildConfigSnapshotPayload({
+          campaignId: adsetCampaignId,
+          optimizationGoal:
+            adset.optimization_goal ??
+            latestAdSetConfigs.get(adset.id)?.optimizationGoal ??
+            null,
+          bidStrategy:
+            adset.bid_strategy ??
+            latestAdSetConfigs.get(adset.id)?.bidStrategyType ??
+            null,
+          manualBidAmount:
+            adset.bid_amount != null
+              ? parseNum(adset.bid_amount)
+              : latestAdSetConfigs.get(adset.id)?.manualBidAmount ?? null,
+          targetRoas:
+            adset.bid_constraints?.roas_average_floor != null
+              ? parseNum(adset.bid_constraints.roas_average_floor)
+              : latestAdSetConfigs.get(adset.id)?.bidValueFormat === "roas" &&
+                  latestAdSetConfigs.get(adset.id)?.bidValue != null
+                ? latestAdSetConfigs.get(adset.id)?.bidValue ?? null
+                : null,
+          dailyBudget:
+            adset.daily_budget != null
+              ? parseNum(adset.daily_budget)
+              : latestAdSetConfigs.get(adset.id)?.dailyBudget ?? null,
+          lifetimeBudget:
+            adset.lifetime_budget != null
+              ? parseNum(adset.lifetime_budget)
+              : latestAdSetConfigs.get(adset.id)?.lifetimeBudget ?? null,
+        });
+        const existing = adsetPayloadsByCampaign.get(adsetCampaignId);
+        if (existing) existing.push(payload);
+        else adsetPayloadsByCampaign.set(adsetCampaignId, [payload]);
+      }
+
       for (const insight of insights) {
         const campaignId = insight.campaign_id ?? "";
         if (!campaignId) continue;
 
         const rawCampaign = campaignMap.get(campaignId);
-        const latestSnapshot = latestConfigs.get(campaignId);
+        const latestSnapshot = latestCampaignConfigs.get(campaignId);
         const previousDiff = input.includePrev ? previousConfigs.get(campaignId) : undefined;
 
-        const config = buildConfigSnapshotPayload({
+        const config = summarizeCampaignConfig({
           campaignId,
-          bidStrategy: rawCampaign?.bid_strategy ?? latestSnapshot?.bidStrategyType ?? null,
-          manualBidAmount:
+          campaignDailyBudget:
+            rawCampaign?.daily_budget != null
+              ? parseNum(rawCampaign.daily_budget)
+              : latestSnapshot?.dailyBudget ?? null,
+          campaignLifetimeBudget:
+            rawCampaign?.lifetime_budget != null
+              ? parseNum(rawCampaign.lifetime_budget)
+              : latestSnapshot?.lifetimeBudget ?? null,
+          campaignBidStrategy:
+            rawCampaign?.bid_strategy ?? latestSnapshot?.bidStrategyType ?? null,
+          campaignManualBidAmount:
             rawCampaign?.bid_amount != null
               ? parseNum(rawCampaign.bid_amount)
               : latestSnapshot?.manualBidAmount ?? null,
           targetRoas:
             rawCampaign?.bid_constraints?.roas_average_floor != null
               ? parseNum(rawCampaign.bid_constraints.roas_average_floor)
-              : null,
-          dailyBudget:
-            rawCampaign?.daily_budget != null
-              ? parseNum(rawCampaign.daily_budget)
-              : latestSnapshot?.dailyBudget ?? null,
-          lifetimeBudget:
-            rawCampaign?.lifetime_budget != null
-              ? parseNum(rawCampaign.lifetime_budget)
-              : latestSnapshot?.lifetimeBudget ?? null,
+              : latestSnapshot?.bidValueFormat === "roas" && latestSnapshot?.bidValue != null
+                ? latestSnapshot.bidValue
+                : null,
+          adsets: adsetPayloadsByCampaign.get(campaignId) ?? [],
         });
 
         const spend = parseNum(insight.spend);
@@ -230,7 +309,7 @@ export async function getMetaLiveCampaignRows(input: {
           accountId,
           name: insight.campaign_name ?? rawCampaign?.name ?? "Unknown Campaign",
           status: statusMap.get(campaignId) ?? "UNKNOWN",
-          objective: null,
+          objective: rawCampaign?.objective ?? latestSnapshot?.objective ?? null,
           budgetLevel:
             config.dailyBudget != null || config.lifetimeBudget != null ? "campaign" : null,
           spend: r2(spend),
@@ -302,7 +381,7 @@ export async function getMetaLiveCampaignRows(input: {
           videoViews100: 0,
           costPerVideoView: 0,
           currency,
-          optimizationGoal: latestSnapshot?.optimizationGoal ?? null,
+          optimizationGoal: config.optimizationGoal ?? latestSnapshot?.optimizationGoal ?? null,
           bidStrategyType: config.bidStrategyType,
           bidStrategyLabel: config.bidStrategyLabel,
           manualBidAmount: config.manualBidAmount,

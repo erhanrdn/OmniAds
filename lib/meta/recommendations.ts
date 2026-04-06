@@ -596,11 +596,14 @@ function isActiveCampaign(row: MetaCampaignRow) {
   return row.status === "ACTIVE";
 }
 
-function isPurchaseObjectiveCampaign(row: Pick<MetaCampaignRow, "optimizationGoal" | "objective">) {
+function isPurchaseObjectiveCampaign(
+  row: Pick<MetaCampaignRow, "optimizationGoal" | "objective" | "purchases" | "revenue">
+) {
   const goal = (row.optimizationGoal ?? "").toLowerCase().trim();
   const objective = (row.objective ?? "").toLowerCase().trim();
   if (goal.includes("purchase") || goal.includes("value")) return true;
   if (!goal && (objective.includes("outcome_sales") || objective.includes("sales"))) return true;
+  if (!goal && !objective && ((row.purchases ?? 0) > 0 || (row.revenue ?? 0) > 0)) return true;
   return false;
 }
 
