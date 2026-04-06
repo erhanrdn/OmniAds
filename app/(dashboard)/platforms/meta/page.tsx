@@ -197,6 +197,10 @@ function fmtK(n: number, sym = "$"): string {
   return fmt$(n, sym);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 
 function parseISODate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -859,7 +863,13 @@ export default function MetaPage() {
     if (!businessId || isManualRefreshRunning || isSyncInProgress || !startDate || !endDate || !isMetaReferenceReady) return;
     try {
       setIsManualRefreshRunning(true);
-      await fetch("/api/sync/refresh", {
+      const previousSummarySpend = summaryQuery.data?.totals?.spend ?? null;
+      const previousCampaignSpend = (campaignsQuery.data?.rows ?? []).reduce(
+        (sum, row) => sum + (row.spend ?? 0),
+        0,
+      );
+
+      const response = await fetch("/api/sync/refresh", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -873,6 +883,10 @@ export default function MetaPage() {
           endDate,
         }),
       });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? payload?.message ?? `Refresh failed (${response.status})`);
+      }
 
       await Promise.allSettled([
         statusQuery.refetch(),
@@ -883,6 +897,50 @@ export default function MetaPage() {
         comparisonCampaignsQuery.refetch(),
         comparisonSummaryQuery.refetch(),
       ]);
+
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await sleep(2_000);
+        const [statusResult, summaryResult, campaignsResult, campaignPrevResult, breakdownsResult, compareCampaignsResult, compareSummaryResult] =
+          await Promise.allSettled([
+            statusQuery.refetch(),
+            summaryQuery.refetch(),
+            campaignsQuery.refetch(),
+            campaignPrevQuery.refetch(),
+            breakdownsQuery.refetch(),
+            comparisonCampaignsQuery.refetch(),
+            comparisonSummaryQuery.refetch(),
+          ]);
+
+        const refreshedStatus =
+          statusResult.status === "fulfilled" ? statusResult.value.data : undefined;
+        const refreshedSummary =
+          summaryResult.status === "fulfilled" ? summaryResult.value.data : undefined;
+        const refreshedCampaigns =
+          campaignsResult.status === "fulfilled" ? campaignsResult.value.data : undefined;
+
+        const queueDepth = refreshedStatus?.jobHealth?.queueDepth ?? 0;
+        const leasedPartitions = refreshedStatus?.jobHealth?.leasedPartitions ?? 0;
+        const currentSummarySpend = refreshedSummary?.totals?.spend ?? null;
+        const currentCampaignSpend = (refreshedCampaigns?.rows ?? []).reduce(
+          (sum, row) => sum + (row.spend ?? 0),
+          0,
+        );
+        const dataChanged =
+          currentSummarySpend !== previousSummarySpend ||
+          currentCampaignSpend !== previousCampaignSpend;
+        const syncSettled =
+          (refreshedStatus?.state ?? "ready") !== "syncing" &&
+          queueDepth <= 0 &&
+          leasedPartitions <= 0;
+
+        if (dataChanged || syncSettled) {
+          void campaignPrevResult;
+          void breakdownsResult;
+          void compareCampaignsResult;
+          void compareSummaryResult;
+          break;
+        }
+      }
     } finally {
       setIsManualRefreshRunning(false);
     }
