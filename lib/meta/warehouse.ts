@@ -15,12 +15,17 @@ import type {
   MetaBreakdownType,
   MetaCampaignDailyRow,
   MetaCreativeDailyRow,
+  MetaDirtyRecentDateRow,
+  MetaDirtyRecentReason,
+  MetaDirtyRecentSeverity,
   MetaPartitionStatus,
   MetaRawSnapshotRecord,
+  MetaRecentAuthoritativeSliceGuard,
   MetaSyncJobRecord,
   MetaSyncLane,
   MetaSyncCheckpointRecord,
   MetaSyncPartitionRecord,
+  MetaSyncPartitionSource,
   MetaSyncRunRecord,
   MetaSyncStateRecord,
   MetaWarehouseDataState,
@@ -79,6 +84,33 @@ function toNumber(value: unknown) {
 function withinToleranceForDirtyDate(left: number, right: number) {
   const tolerance = Math.max(0.01, Math.abs(left) * 0.001);
   return Math.abs(left - right) <= tolerance;
+}
+
+function metaSourcePriority(source: string | null | undefined) {
+  switch (String(source ?? "")) {
+    case "finalize_day":
+      return 725;
+    case "priority_window":
+      return 700;
+    case "repair_recent_day":
+      return 690;
+    case "today_observe":
+      return 660;
+    default:
+      return 0;
+  }
+}
+
+function mergeDirtySeverity(
+  left: MetaDirtyRecentSeverity,
+  right: MetaDirtyRecentSeverity,
+) {
+  const priority: Record<MetaDirtyRecentSeverity, number> = {
+    low: 1,
+    high: 2,
+    critical: 3,
+  };
+  return priority[right] > priority[left] ? right : left;
 }
 
 async function runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
@@ -4365,17 +4397,17 @@ export async function getMetaDirtyRecentDates(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
-}) {
+  slowPathDates?: string[] | null;
+}): Promise<MetaDirtyRecentDateRow[]> {
   await runMigrations();
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
-  const rows = supportsTruthLifecycle
+  const fastRows = supportsTruthLifecycle
     ? await sql`
     WITH campaign_totals AS (
       SELECT
         provider_account_id,
         date,
-        ROUND(SUM(spend)::numeric, 2) AS campaign_spend,
         COUNT(DISTINCT campaign_id)::int AS campaign_count,
         BOOL_AND(COALESCE(truth_state, 'finalized') = 'finalized') AS campaigns_finalized
       FROM meta_campaign_daily
@@ -4395,18 +4427,29 @@ export async function getMetaDirtyRecentDates(input: {
         AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
         AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
       GROUP BY provider_account_id, date
+    ),
+    breakdown_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
+      FROM meta_breakdown_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+        AND COALESCE(truth_state, 'finalized') = 'finalized'
+      GROUP BY provider_account_id, date
     )
     SELECT
       account.date::text AS date,
       account.provider_account_id,
-      account.spend AS account_spend,
-      COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend,
       COALESCE(campaign_totals.campaign_count, 0) AS campaign_count,
       COALESCE(adset_totals.adset_count, 0) AS adset_count,
       COALESCE(account.truth_state, 'finalized') AS account_truth_state,
       COALESCE(account.validation_status, 'passed') AS account_validation_status,
       COALESCE(campaign_totals.campaigns_finalized, false) AS campaigns_finalized,
-      COALESCE(adset_totals.adsets_finalized, false) AS adsets_finalized
+      COALESCE(adset_totals.adsets_finalized, false) AS adsets_finalized,
+      COALESCE(breakdown_totals.finalized_breakdown_type_count, 0) AS finalized_breakdown_type_count
     FROM meta_account_daily account
     LEFT JOIN campaign_totals
       ON campaign_totals.provider_account_id = account.provider_account_id
@@ -4414,6 +4457,9 @@ export async function getMetaDirtyRecentDates(input: {
     LEFT JOIN adset_totals
       ON adset_totals.provider_account_id = account.provider_account_id
       AND adset_totals.date = account.date
+    LEFT JOIN breakdown_totals
+      ON breakdown_totals.provider_account_id = account.provider_account_id
+      AND breakdown_totals.date = account.date
     WHERE account.business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR account.provider_account_id = ${input.providerAccountId ?? null})
       AND account.date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
@@ -4426,7 +4472,6 @@ export async function getMetaDirtyRecentDates(input: {
       SELECT
         provider_account_id,
         date,
-        ROUND(SUM(spend)::numeric, 2) AS campaign_spend,
         COUNT(DISTINCT campaign_id)::int AS campaign_count
       FROM meta_campaign_daily
       WHERE business_id = $1
@@ -4444,18 +4489,28 @@ export async function getMetaDirtyRecentDates(input: {
         AND ($2::text IS NULL OR provider_account_id = $2)
         AND date BETWEEN $3 AND $4
       GROUP BY provider_account_id, date
+    ),
+    breakdown_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
+      FROM meta_breakdown_daily
+      WHERE business_id = $1
+        AND ($2::text IS NULL OR provider_account_id = $2)
+        AND date BETWEEN $3 AND $4
+      GROUP BY provider_account_id, date
     )
     SELECT
       account.date::text AS date,
       account.provider_account_id,
-      account.spend AS account_spend,
-      COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend,
       COALESCE(campaign_totals.campaign_count, 0) AS campaign_count,
       COALESCE(adset_totals.adset_count, 0) AS adset_count,
       'finalized' AS account_truth_state,
       'passed' AS account_validation_status,
       true AS campaigns_finalized,
-      true AS adsets_finalized
+      true AS adsets_finalized,
+      COALESCE(breakdown_totals.finalized_breakdown_type_count, 0) AS finalized_breakdown_type_count
     FROM meta_account_daily account
     LEFT JOIN campaign_totals
       ON campaign_totals.provider_account_id = account.provider_account_id
@@ -4463,6 +4518,9 @@ export async function getMetaDirtyRecentDates(input: {
     LEFT JOIN adset_totals
       ON adset_totals.provider_account_id = account.provider_account_id
       AND adset_totals.date = account.date
+    LEFT JOIN breakdown_totals
+      ON breakdown_totals.provider_account_id = account.provider_account_id
+      AND breakdown_totals.date = account.date
     WHERE account.business_id = $1
       AND ($2::text IS NULL OR account.provider_account_id = $2)
       AND account.date BETWEEN $3 AND $4
@@ -4475,7 +4533,6 @@ export async function getMetaDirtyRecentDates(input: {
       SELECT
         provider_account_id,
         date,
-        ROUND(SUM(spend)::numeric, 2) AS campaign_spend,
         COUNT(DISTINCT campaign_id)::int AS campaign_count
       FROM meta_campaign_daily
       WHERE business_id = ${input.businessId}
@@ -4493,18 +4550,28 @@ export async function getMetaDirtyRecentDates(input: {
         AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
         AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
       GROUP BY provider_account_id, date
+    ),
+    breakdown_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
+      FROM meta_breakdown_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      GROUP BY provider_account_id, date
     )
     SELECT
       account.date::text AS date,
       account.provider_account_id,
-      account.spend AS account_spend,
-      COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend,
       COALESCE(campaign_totals.campaign_count, 0) AS campaign_count,
       COALESCE(adset_totals.adset_count, 0) AS adset_count,
       'finalized' AS account_truth_state,
       'passed' AS account_validation_status,
       true AS campaigns_finalized,
-      true AS adsets_finalized
+      true AS adsets_finalized,
+      COALESCE(breakdown_totals.finalized_breakdown_type_count, 0) AS finalized_breakdown_type_count
     FROM meta_account_daily account
     LEFT JOIN campaign_totals
       ON campaign_totals.provider_account_id = account.provider_account_id
@@ -4512,31 +4579,319 @@ export async function getMetaDirtyRecentDates(input: {
     LEFT JOIN adset_totals
       ON adset_totals.provider_account_id = account.provider_account_id
       AND adset_totals.date = account.date
+    LEFT JOIN breakdown_totals
+      ON breakdown_totals.provider_account_id = account.provider_account_id
+      AND breakdown_totals.date = account.date
     WHERE account.business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR account.provider_account_id = ${input.providerAccountId ?? null})
       AND account.date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
     ORDER BY account.date DESC, account.provider_account_id ASC
   `;
-  const typedRows = rows as Array<Record<string, unknown>>;
+  const typedFastRows = fastRows as Array<Record<string, unknown>>;
+  const slowPathDateSet = new Set(
+    (input.slowPathDates ?? []).map((date) => normalizeDate(date)),
+  );
+  const suspiciousKeys = new Set<string>();
+  const dirtyRows = new Map<string, MetaDirtyRecentDateRow>();
 
-  return typedRows
-    .filter((row) => {
-      const accountSpend = Number(row.account_spend ?? 0);
-      const campaignSpend = Number(row.campaign_spend ?? 0);
-      return (
-        String(row.account_truth_state ?? "finalized") !== "finalized" ||
-        String(row.account_validation_status ?? "passed") !== "passed" ||
-        !Boolean(row.campaigns_finalized) ||
-        !Boolean(row.adsets_finalized) ||
-        !withinToleranceForDirtyDate(accountSpend, campaignSpend) ||
-        Number(row.campaign_count ?? 0) <= 0 ||
-        Number(row.adset_count ?? 0) <= 0
-      );
-    })
-    .map((row) => ({
-      date: String(row.date),
-      providerAccountId: String(row.provider_account_id),
-    }));
+  for (const row of typedFastRows) {
+    const date = String(row.date);
+    const providerAccountId = String(row.provider_account_id);
+    const reasons = new Set<MetaDirtyRecentReason>();
+    if (String(row.account_truth_state ?? "finalized") !== "finalized") {
+      reasons.add("non_finalized");
+    }
+    if (!Boolean(row.campaigns_finalized) || !Boolean(row.adsets_finalized)) {
+      reasons.add("non_finalized");
+    }
+    if (String(row.account_validation_status ?? "passed") !== "passed") {
+      reasons.add("validation_failed");
+    }
+    if (Number(row.campaign_count ?? 0) <= 0) {
+      reasons.add("missing_campaign");
+    }
+    if (Number(row.adset_count ?? 0) <= 0) {
+      reasons.add("missing_adset");
+    }
+    if (Number(row.finalized_breakdown_type_count ?? 0) < 3) {
+      reasons.add("missing_breakdown");
+    }
+
+    const key = `${providerAccountId}:${date}`;
+    if (reasons.size > 0) {
+      suspiciousKeys.add(key);
+      const reasonList = Array.from(reasons);
+      const severity: MetaDirtyRecentSeverity = reasonList.some((reason) =>
+        reason === "non_finalized" || reason === "validation_failed",
+      )
+        ? "critical"
+        : reasonList.some(
+            (reason) => reason === "missing_campaign" || reason === "missing_adset",
+          )
+          ? "high"
+          : "low";
+      dirtyRows.set(key, {
+        providerAccountId,
+        date,
+        severity,
+        reasons: reasonList,
+        breakdownOnly:
+          reasonList.length > 0 &&
+          reasonList.every((reason) => reason === "missing_breakdown"),
+        nonFinalized: reasonList.includes("non_finalized"),
+        validationFailed: reasonList.includes("validation_failed"),
+        coverageMissing:
+          reasonList.includes("missing_campaign") ||
+          reasonList.includes("missing_adset") ||
+          reasonList.includes("missing_breakdown"),
+        spendDrift: false,
+      });
+    } else if (slowPathDateSet.has(date)) {
+      suspiciousKeys.add(key);
+    }
+  }
+
+  const slowPathPairs = Array.from(suspiciousKeys).map((key) => {
+    const [providerAccountId, date] = key.split(":");
+    return { providerAccountId, date };
+  });
+  if (slowPathPairs.length === 0) {
+    return Array.from(dirtyRows.values()).sort((left, right) =>
+      `${right.date}:${left.providerAccountId}`.localeCompare(
+        `${left.date}:${right.providerAccountId}`,
+      ),
+    );
+  }
+
+  const slowProviders = Array.from(
+    new Set(slowPathPairs.map((row) => row.providerAccountId)),
+  );
+  const slowDates = Array.from(new Set(slowPathPairs.map((row) => row.date)));
+  const slowRows = typeof sql.query === "function"
+    ? await sql.query(
+        `
+      WITH campaign_totals AS (
+        SELECT
+          provider_account_id,
+          date,
+          ROUND(SUM(spend)::numeric, 2) AS campaign_spend
+        FROM meta_campaign_daily
+        WHERE business_id = $1
+          AND provider_account_id = ANY($2::text[])
+          AND date = ANY($3::date[])
+        GROUP BY provider_account_id, date
+      )
+      SELECT
+        account.date::text AS date,
+        account.provider_account_id,
+        account.spend AS account_spend,
+        COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend
+      FROM meta_account_daily account
+      LEFT JOIN campaign_totals
+        ON campaign_totals.provider_account_id = account.provider_account_id
+        AND campaign_totals.date = account.date
+      WHERE account.business_id = $1
+        AND account.provider_account_id = ANY($2::text[])
+        AND account.date = ANY($3::date[])
+    `,
+        [input.businessId, slowProviders, slowDates],
+      )
+    : await sql`
+      WITH campaign_totals AS (
+        SELECT
+          provider_account_id,
+          date,
+          ROUND(SUM(spend)::numeric, 2) AS campaign_spend
+        FROM meta_campaign_daily
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ANY(${slowProviders}::text[])
+          AND date = ANY(${slowDates}::date[])
+        GROUP BY provider_account_id, date
+      )
+      SELECT
+        account.date::text AS date,
+        account.provider_account_id,
+        account.spend AS account_spend,
+        COALESCE(campaign_totals.campaign_spend, 0) AS campaign_spend
+      FROM meta_account_daily account
+      LEFT JOIN campaign_totals
+        ON campaign_totals.provider_account_id = account.provider_account_id
+        AND campaign_totals.date = account.date
+      WHERE account.business_id = ${input.businessId}
+        AND account.provider_account_id = ANY(${slowProviders}::text[])
+        AND account.date = ANY(${slowDates}::date[])
+    `;
+  const typedSlowRows = slowRows as Array<Record<string, unknown>>;
+
+  for (const row of typedSlowRows) {
+    const providerAccountId = String(row.provider_account_id);
+    const date = String(row.date);
+    const key = `${providerAccountId}:${date}`;
+    const accountSpend = Number(row.account_spend ?? 0);
+    const campaignSpend = Number(row.campaign_spend ?? 0);
+    if (withinToleranceForDirtyDate(accountSpend, campaignSpend)) continue;
+    const existing = dirtyRows.get(key);
+    const reasons = new Set<MetaDirtyRecentReason>(existing?.reasons ?? []);
+    reasons.add("spend_drift");
+    dirtyRows.set(key, {
+      providerAccountId,
+      date,
+      severity: existing
+        ? mergeDirtySeverity(existing.severity, "high")
+        : "high",
+      reasons: Array.from(reasons),
+      breakdownOnly: false,
+      nonFinalized: existing?.nonFinalized ?? false,
+      validationFailed: existing?.validationFailed ?? false,
+      coverageMissing: existing?.coverageMissing ?? false,
+      spendDrift: true,
+    });
+  }
+
+  return Array.from(dirtyRows.values()).sort((left, right) =>
+    `${right.date}:${left.providerAccountId}`.localeCompare(
+      `${left.date}:${right.providerAccountId}`,
+    ),
+  );
+}
+
+export async function getMetaRecentAuthoritativeSliceGuard(input: {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  source: MetaSyncPartitionSource;
+  cooldownMinutes?: number;
+  successCooldownMinutes?: number;
+  failureLookbackHours?: number;
+}): Promise<MetaRecentAuthoritativeSliceGuard> {
+  await runMigrations();
+  const sql = getDb();
+  const cooldownMinutes = Math.max(1, Math.floor(input.cooldownMinutes ?? 15));
+  const successCooldownMinutes = Math.max(
+    cooldownMinutes,
+    Math.floor(input.successCooldownMinutes ?? 30),
+  );
+  const failureLookbackHours = Math.max(
+    1,
+    Math.floor(input.failureLookbackHours ?? 24),
+  );
+  const rows = typeof sql.query === "function"
+    ? await sql.query(
+        `
+      SELECT
+        COALESCE(
+          (
+            SELECT source
+            FROM meta_sync_partitions
+            WHERE business_id = $1
+              AND provider_account_id = $2
+              AND partition_date = $3::date
+              AND lane = 'maintenance'
+              AND scope = 'account_daily'
+              AND status IN ('queued', 'leased', 'running')
+              AND source IN ('finalize_day', 'repair_recent_day', 'today_observe')
+            ORDER BY
+              CASE source
+                WHEN 'finalize_day' THEN 725
+                WHEN 'repair_recent_day' THEN 690
+                WHEN 'today_observe' THEN 660
+                ELSE 0
+              END DESC,
+              updated_at DESC
+            LIMIT 1
+          ),
+          NULL
+        ) AS active_source,
+        MAX(COALESCE(started_at, updated_at, created_at)) FILTER (
+          WHERE source = $4
+            AND status IN ('queued', 'leased', 'running', 'failed', 'dead_letter')
+            AND COALESCE(started_at, updated_at, created_at) > now() - ($5 || ' minutes')::interval
+        ) AS last_same_source_attempt_at,
+        MAX(COALESCE(finished_at, updated_at, created_at)) FILTER (
+          WHERE source = $4
+            AND status = 'succeeded'
+            AND COALESCE(finished_at, updated_at, created_at) > now() - ($6 || ' minutes')::interval
+        ) AS last_same_source_success_at,
+        COUNT(*) FILTER (
+          WHERE source IN ('finalize_day', 'repair_recent_day')
+            AND status IN ('failed', 'dead_letter')
+            AND COALESCE(finished_at, updated_at, created_at) > now() - ($7 || ' hours')::interval
+        )::int AS repeated_failures_24h
+      FROM meta_sync_partitions
+      WHERE business_id = $1
+        AND provider_account_id = $2
+        AND partition_date = $3::date
+        AND lane = 'maintenance'
+        AND scope = 'account_daily'
+    `,
+        [
+          input.businessId,
+          input.providerAccountId,
+          normalizeDate(input.date),
+          input.source,
+          cooldownMinutes,
+          successCooldownMinutes,
+          failureLookbackHours,
+        ],
+      )
+    : await sql`
+      SELECT
+        COALESCE(
+          (
+            SELECT source
+            FROM meta_sync_partitions
+            WHERE business_id = ${input.businessId}
+              AND provider_account_id = ${input.providerAccountId}
+              AND partition_date = ${normalizeDate(input.date)}::date
+              AND lane = 'maintenance'
+              AND scope = 'account_daily'
+              AND status IN ('queued', 'leased', 'running')
+              AND source IN ('finalize_day', 'repair_recent_day', 'today_observe')
+            ORDER BY
+              CASE source
+                WHEN 'finalize_day' THEN 725
+                WHEN 'repair_recent_day' THEN 690
+                WHEN 'today_observe' THEN 660
+                ELSE 0
+              END DESC,
+              updated_at DESC
+            LIMIT 1
+          ),
+          NULL
+        ) AS active_source,
+        MAX(COALESCE(started_at, updated_at, created_at)) FILTER (
+          WHERE source = ${input.source}
+            AND status IN ('queued', 'leased', 'running', 'failed', 'dead_letter')
+            AND COALESCE(started_at, updated_at, created_at) > now() - (${cooldownMinutes} || ' minutes')::interval
+        ) AS last_same_source_attempt_at,
+        MAX(COALESCE(finished_at, updated_at, created_at)) FILTER (
+          WHERE source = ${input.source}
+            AND status = 'succeeded'
+            AND COALESCE(finished_at, updated_at, created_at) > now() - (${successCooldownMinutes} || ' minutes')::interval
+        ) AS last_same_source_success_at,
+        COUNT(*) FILTER (
+          WHERE source IN ('finalize_day', 'repair_recent_day')
+            AND status IN ('failed', 'dead_letter')
+            AND COALESCE(finished_at, updated_at, created_at) > now() - (${failureLookbackHours} || ' hours')::interval
+        )::int AS repeated_failures_24h
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND partition_date = ${normalizeDate(input.date)}::date
+        AND lane = 'maintenance'
+        AND scope = 'account_daily'
+    `;
+  const row = (rows as Array<Record<string, unknown>>)[0] ?? {};
+  const activeAuthoritativeSource = row.active_source
+    ? (String(row.active_source) as MetaSyncPartitionSource)
+    : null;
+  return {
+    activeAuthoritativeSource,
+    activeAuthoritativePriority: metaSourcePriority(activeAuthoritativeSource),
+    lastSameSourceAttemptAt: normalizeTimestamp(row.last_same_source_attempt_at),
+    lastSameSourceSuccessAt: normalizeTimestamp(row.last_same_source_success_at),
+    repeatedFailures24h: toNumber(row.repeated_failures_24h),
+  };
 }
 
 export async function getMetaCampaignDailyRange(input: {

@@ -21,6 +21,8 @@ const {
   createMetaSyncRun,
   getMetaAdSetDailyRange,
   getMetaCampaignDailyRange,
+  getMetaDirtyRecentDates,
+  getMetaRecentAuthoritativeSliceGuard,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   replaceMetaBreakdownDailySlice,
@@ -357,6 +359,130 @@ describe("meta warehouse ownership safety", () => {
     expect(templateCalls).toHaveLength(1);
     expect(templateCalls[0]).toContain("country");
     expect(queryCalls).toEqual(["BEGIN", "COMMIT"]);
+  });
+
+  it("classifies dirty recent dates by severity and reason", async () => {
+    const sql = vi.fn(async () => [{ present: true }]);
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        if (!query.includes("account_spend")) {
+          return [
+            {
+              date: "2026-04-03",
+              provider_account_id: "acct-1",
+              campaign_count: 1,
+              adset_count: 1,
+              account_truth_state: "finalized",
+              account_validation_status: "failed",
+              campaigns_finalized: true,
+              adsets_finalized: true,
+              finalized_breakdown_type_count: 2,
+            },
+          ];
+        }
+        return [
+          {
+            date: "2026-04-03",
+            provider_account_id: "acct-1",
+            account_spend: 50,
+            campaign_spend: 60,
+          },
+        ];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaDirtyRecentDates({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      slowPathDates: ["2026-04-03"],
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        severity: "critical",
+        reasons: expect.arrayContaining([
+          "validation_failed",
+          "missing_breakdown",
+          "spend_drift",
+        ]),
+        validationFailed: true,
+        spendDrift: true,
+      }),
+    ]);
+  });
+
+  it("skips slow-path drift checks for obvious clean days outside verify dates", async () => {
+    const slowQuery = vi.fn(async () => [
+      {
+        date: "2026-04-03",
+        provider_account_id: "acct-1",
+        campaign_count: 1,
+        adset_count: 1,
+        account_truth_state: "finalized",
+        account_validation_status: "passed",
+        campaigns_finalized: true,
+        adsets_finalized: true,
+        finalized_breakdown_type_count: 3,
+      },
+    ]);
+    const sql = vi.fn(async () => [{ present: true }]);
+    Object.assign(sql, { query: slowQuery });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaDirtyRecentDates({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+    });
+
+    expect(rows).toEqual([]);
+    expect(slowQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns cooldown and repeated-failure guard data for authoritative slices", async () => {
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (values.length === 0) {
+        return [{ present: true }];
+      }
+      return [
+        {
+          active_source: "repair_recent_day",
+          last_same_source_attempt_at: "2026-04-06T08:55:00.000Z",
+          last_same_source_success_at: "2026-04-06T08:20:00.000Z",
+          repeated_failures_24h: 3,
+        },
+      ];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async () => [
+        {
+          active_source: "repair_recent_day",
+          last_same_source_attempt_at: "2026-04-06T08:55:00.000Z",
+          last_same_source_success_at: "2026-04-06T08:20:00.000Z",
+          repeated_failures_24h: 3,
+        },
+      ]),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const guard = await getMetaRecentAuthoritativeSliceGuard({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      date: "2026-04-03",
+      source: "repair_recent_day",
+    });
+
+    expect(guard).toEqual({
+      activeAuthoritativeSource: "repair_recent_day",
+      activeAuthoritativePriority: 690,
+      lastSameSourceAttemptAt: "2026-04-06T08:55:00.000Z",
+      lastSameSourceSuccessAt: "2026-04-06T08:20:00.000Z",
+      repeatedFailures24h: 3,
+    });
   });
 
   it("fails partition completion when the lease epoch is stale", async () => {

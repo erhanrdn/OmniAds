@@ -34,6 +34,7 @@ import {
   getMetaIncompleteCoreDates,
   getMetaDirtyRecentDates,
   getMetaPartitionStatesForDate,
+  getMetaRecentAuthoritativeSliceGuard,
   getMetaQueueComposition,
   getMetaPartitionHealth,
   getMetaQueueHealth,
@@ -51,9 +52,12 @@ import {
   upsertMetaSyncCheckpoint,
 } from "@/lib/meta/warehouse";
 import type {
+  MetaDirtyRecentDateRow,
+  MetaDirtyRecentSeverity,
   MetaSyncCheckpointRecord,
   MetaSyncLane,
   MetaSyncPartitionRecord,
+  MetaSyncPartitionSource,
   MetaSyncType,
   MetaWarehouseScope,
 } from "@/lib/meta/warehouse-types";
@@ -829,6 +833,148 @@ function getMetaHistoricalWindow(
   };
 }
 
+type MetaRecentTargetWindow = {
+  providerAccountId: string;
+  today: string;
+  d1: string;
+  d2: string;
+  d3: string;
+  d7Start: string;
+};
+
+type MetaRecentAutoHealSummary = {
+  accountsScanned: number;
+  recentDaysScanned: number;
+  dirtyDaysFound: number;
+  finalizeEnqueued: number;
+  repairEnqueued: number;
+  skippedActiveDuplicate: number;
+  skippedCooldown: number;
+  skippedRecentSuccess: number;
+  skippedRepeatedFailures: number;
+  reasonCounts: Record<string, number>;
+};
+
+function emptyMetaRecentAutoHealSummary(): MetaRecentAutoHealSummary {
+  return {
+    accountsScanned: 0,
+    recentDaysScanned: 0,
+    dirtyDaysFound: 0,
+    finalizeEnqueued: 0,
+    repairEnqueued: 0,
+    skippedActiveDuplicate: 0,
+    skippedCooldown: 0,
+    skippedRecentSuccess: 0,
+    skippedRepeatedFailures: 0,
+    reasonCounts: {},
+  };
+}
+
+function buildMetaRecentTargetWindows(credentials: MetaCredentials) {
+  return credentials.accountIds.map((providerAccountId) => {
+    const timezone =
+      credentials.accountProfiles?.[providerAccountId]?.timezone ?? "UTC";
+    const today = getTodayIsoForTimeZoneServer(timezone);
+    return {
+      providerAccountId,
+      today,
+      d1: toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -1)),
+      d2: toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -2)),
+      d3: toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -3)),
+      d7Start: toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -7)),
+    } satisfies MetaRecentTargetWindow;
+  });
+}
+
+function metaRecentDirtySeverityPriority(
+  severity: MetaDirtyRecentSeverity,
+) {
+  switch (severity) {
+    case "critical":
+      return 3;
+    case "high":
+      return 2;
+    case "low":
+    default:
+      return 1;
+  }
+}
+
+function metaRecentSourcePriority(source: MetaSyncPartitionSource) {
+  switch (source) {
+    case "finalize_day":
+      return 3;
+    case "repair_recent_day":
+      return 2;
+    case "today_observe":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function mergeMetaDirtyRecentRows(
+  rows: MetaDirtyRecentDateRow[],
+): MetaDirtyRecentDateRow[] {
+  const merged = new Map<string, MetaDirtyRecentDateRow>();
+  for (const row of rows) {
+    const key = `${row.providerAccountId}:${row.date}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        ...row,
+        reasons: Array.from(new Set(row.reasons)),
+      });
+      continue;
+    }
+    merged.set(key, {
+      providerAccountId: row.providerAccountId,
+      date: row.date,
+      severity:
+        metaRecentDirtySeverityPriority(row.severity) >
+        metaRecentDirtySeverityPriority(existing.severity)
+          ? row.severity
+          : existing.severity,
+      reasons: Array.from(new Set([...existing.reasons, ...row.reasons])),
+      breakdownOnly: Boolean(existing.breakdownOnly && row.breakdownOnly),
+      nonFinalized: Boolean(existing.nonFinalized || row.nonFinalized),
+      validationFailed: Boolean(
+        existing.validationFailed || row.validationFailed,
+      ),
+      coverageMissing: Boolean(existing.coverageMissing || row.coverageMissing),
+      spendDrift: Boolean(existing.spendDrift || row.spendDrift),
+    });
+  }
+  return Array.from(merged.values()).sort((left, right) =>
+    `${right.date}:${left.providerAccountId}`.localeCompare(
+      `${left.date}:${right.providerAccountId}`,
+    ),
+  );
+}
+
+function classifyMetaRecentAction(input: {
+  target: MetaRecentTargetWindow;
+  dirty: MetaDirtyRecentDateRow;
+}): MetaSyncPartitionSource | null {
+  if (input.dirty.date === input.target.d1) return "finalize_day";
+  const breakdownOnly =
+    input.dirty.reasons.length > 0 &&
+    input.dirty.reasons.every((reason) => reason === "missing_breakdown");
+  if (input.dirty.date === input.target.d2) {
+    if (breakdownOnly) return null;
+    return input.dirty.severity === "critical"
+      ? "finalize_day"
+      : "repair_recent_day";
+  }
+  if (input.dirty.date === input.target.d3) {
+    return breakdownOnly ? "repair_recent_day" : "repair_recent_day";
+  }
+  if (breakdownOnly) {
+    return "repair_recent_day";
+  }
+  return "repair_recent_day";
+}
+
 function getMetaWorkerId() {
   const overridden = process.env.META_WORKER_ID?.trim();
   if (overridden) return overridden;
@@ -1334,63 +1480,173 @@ async function enqueueMetaMaintenancePartitions(
   credentials: MetaCredentials,
 ) {
   if (!credentials?.accountIds?.length) return 0;
-  const { endDate, today } = getMetaHistoricalWindow(credentials);
-  const recentStart = addDays(
-    new Date(`${endDate}T00:00:00Z`),
-    -(META_RECENT_RECOVERY_DAYS - 1),
-  );
-  const recentDates = enumerateDays(toIsoDate(recentStart), endDate, true).filter(
-    (date) => date !== endDate,
-  );
-  const dirtyRecentStart = addDays(
-    new Date(`${endDate}T00:00:00Z`),
-    -6,
-  );
-  const dirtyRecentDates = await getMetaDirtyRecentDates({
-    businessId,
-    startDate: toIsoDate(dirtyRecentStart),
-    endDate,
-  }).catch(() => []);
-  let queued = 0;
-  queued += await enqueueMetaDates({
-    businessId,
-    accountIds: credentials.accountIds,
-    dates: [endDate],
-    triggerSource: "finalize_day",
-    lane: "maintenance",
-    scopes: META_CORE_PARTITION_QUEUE_SCOPES,
-    priority: 70,
-  });
-  queued += await enqueueMetaDates({
-    businessId,
-    accountIds: credentials.accountIds,
-    dates: recentDates,
-    triggerSource: "repair_recent_day",
-    lane: "maintenance",
-    scopes: META_CORE_PARTITION_QUEUE_SCOPES,
-    priority: 50,
-  });
-  if (dirtyRecentDates.length > 0) {
-    queued += await enqueueMetaDates({
+  const targets = buildMetaRecentTargetWindows(credentials);
+  const allRecentDates = new Set<string>();
+  const narrowSlowPathDates = new Set<string>();
+  const targetByAccountId = new Map<string, MetaRecentTargetWindow>();
+  const summary = emptyMetaRecentAutoHealSummary();
+  summary.accountsScanned = targets.length;
+
+  for (const target of targets) {
+    targetByAccountId.set(target.providerAccountId, target);
+    allRecentDates.add(target.d1);
+    allRecentDates.add(target.d2);
+    allRecentDates.add(target.d3);
+    narrowSlowPathDates.add(target.d1);
+    narrowSlowPathDates.add(target.d2);
+    narrowSlowPathDates.add(target.d3);
+    for (const date of enumerateDays(target.d7Start, target.d1, false)) {
+      allRecentDates.add(date);
+    }
+  }
+
+  const narrowDates = Array.from(narrowSlowPathDates).sort();
+  const widerDates = Array.from(allRecentDates).sort();
+  const narrowDirtyRows =
+    narrowDates.length > 0
+      ? await getMetaDirtyRecentDates({
+          businessId,
+          startDate: narrowDates[0],
+          endDate: narrowDates[narrowDates.length - 1],
+          slowPathDates: narrowDates,
+        }).catch(() => [])
+      : [];
+  const widerDirtyRows =
+    widerDates.length > 0
+      ? await getMetaDirtyRecentDates({
+          businessId,
+          startDate: widerDates[0],
+          endDate: widerDates[widerDates.length - 1],
+        }).catch(() => [])
+      : [];
+  const dirtyRows = mergeMetaDirtyRecentRows([...narrowDirtyRows, ...widerDirtyRows]);
+  summary.recentDaysScanned = targets.length * 7;
+  summary.dirtyDaysFound = dirtyRows.length;
+
+  const dirtyBySlice = new Map<string, MetaDirtyRecentDateRow>();
+  for (const row of dirtyRows) {
+    dirtyBySlice.set(`${row.providerAccountId}:${row.date}`, row);
+    for (const reason of row.reasons) {
+      summary.reasonCounts[reason] = (summary.reasonCounts[reason] ?? 0) + 1;
+    }
+  }
+
+  const enqueueAuthoritativeSlice = async (
+    providerAccountId: string,
+    date: string,
+    source: MetaSyncPartitionSource,
+  ) => {
+    const guard = await getMetaRecentAuthoritativeSliceGuard({
       businessId,
-      accountIds: credentials.accountIds,
-      dates: Array.from(new Set(dirtyRecentDates.map((row) => row.date))),
-      triggerSource: "repair_recent_day",
+      providerAccountId,
+      date,
+      source,
+    }).catch(() => null);
+    if (
+      guard?.activeAuthoritativeSource &&
+      guard.activeAuthoritativePriority >= metaRecentSourcePriority(source)
+    ) {
+      summary.skippedActiveDuplicate += 1;
+      return 0;
+    }
+    if (guard?.repeatedFailures24h && guard.repeatedFailures24h >= 3) {
+      summary.skippedRepeatedFailures += 1;
+      summary.reasonCounts.repeated_failures_skip =
+        (summary.reasonCounts.repeated_failures_skip ?? 0) + 1;
+      console.warn("[meta-sync] stuck_dirty_day", {
+        businessId,
+        providerAccountId,
+        date,
+        source,
+        repeatedFailures24h: guard.repeatedFailures24h,
+      });
+      return 0;
+    }
+    if (guard?.lastSameSourceSuccessAt) {
+      summary.skippedRecentSuccess += 1;
+      return 0;
+    }
+    if (guard?.lastSameSourceAttemptAt) {
+      summary.skippedCooldown += 1;
+      return 0;
+    }
+    const queued = await enqueueMetaDates({
+      businessId,
+      accountIds: [providerAccountId],
+      dates: [date],
+      triggerSource: source,
       lane: "maintenance",
       scopes: META_CORE_PARTITION_QUEUE_SCOPES,
-      priority: 80,
+      priority: source === "finalize_day" ? 80 : 65,
+    });
+    if (queued > 0) {
+      if (source === "finalize_day") {
+        summary.finalizeEnqueued += queued;
+      } else {
+        summary.repairEnqueued += queued;
+      }
+    }
+    return queued;
+  };
+
+  let queued = 0;
+  for (const target of targets) {
+    queued += await enqueueAuthoritativeSlice(
+      target.providerAccountId,
+      target.d1,
+      "finalize_day",
+    );
+  }
+
+  for (const target of targets) {
+    for (const date of [target.d2, target.d3]) {
+      const dirty = dirtyBySlice.get(`${target.providerAccountId}:${date}`);
+      if (!dirty) continue;
+      const action = classifyMetaRecentAction({ target, dirty });
+      if (!action) continue;
+      queued += await enqueueAuthoritativeSlice(
+        target.providerAccountId,
+        date,
+        action,
+      );
+    }
+    for (const date of enumerateDays(target.d7Start, target.d1, false)) {
+      if (date === target.d1 || date === target.d2 || date === target.d3) continue;
+      const dirty = dirtyBySlice.get(`${target.providerAccountId}:${date}`);
+      if (!dirty) continue;
+      const action = classifyMetaRecentAction({ target, dirty });
+      if (!action) continue;
+      queued += await enqueueAuthoritativeSlice(
+        target.providerAccountId,
+        date,
+        action,
+      );
+    }
+  }
+
+  const todayTargets = new Set(targets.map((target) => `${target.providerAccountId}:${target.today}`));
+  for (const pair of todayTargets) {
+    const [providerAccountId, date] = pair.split(":");
+    queued += await enqueueMetaDates({
+      businessId,
+      accountIds: [providerAccountId],
+      dates: [date],
+      triggerSource: "today_observe",
+      lane: "maintenance",
+      scopes: META_CORE_PARTITION_QUEUE_SCOPES,
+      priority: 60,
     });
   }
-  queued += await enqueueMetaDates({
+
+  console.info("[meta-sync] recent_auto_heal_summary", {
     businessId,
-    accountIds: credentials.accountIds,
-    dates: [today],
-    triggerSource: "today_observe",
-    lane: "maintenance",
-    scopes: META_CORE_PARTITION_QUEUE_SCOPES,
-    priority: 60,
+    ...summary,
   });
-  return queued;
+
+  return {
+    queued,
+    recentAutoHeal: summary,
+  };
 }
 
 export async function enqueueMetaScheduledWork(businessId: string) {
@@ -1401,6 +1657,7 @@ export async function enqueueMetaScheduledWork(businessId: string) {
   let queuedMaintenance = 0;
   let queueDepth = 0;
   let leasedPartitions = 0;
+  let recentAutoHeal = emptyMetaRecentAutoHealSummary();
 
   const cancelledObsoletePartitions =
     await cancelObsoleteMetaCoreScopePartitions({
@@ -1431,10 +1688,16 @@ export async function enqueueMetaScheduledWork(businessId: string) {
       ).catch(() => 0);
     }
     if (!hasMaintenanceBacklog) {
-      queuedMaintenance = await enqueueMetaMaintenancePartitions(
+      const maintenanceResult = await enqueueMetaMaintenancePartitions(
         businessId,
         credentials,
       ).catch(() => 0);
+      if (typeof maintenanceResult === "number") {
+        queuedMaintenance = maintenanceResult;
+      } else {
+        queuedMaintenance = maintenanceResult.queued;
+        recentAutoHeal = maintenanceResult.recentAutoHeal;
+      }
     }
   }
 
@@ -1444,6 +1707,7 @@ export async function enqueueMetaScheduledWork(businessId: string) {
     queuedMaintenance,
     queueDepth,
     leasedPartitions,
+    recentAutoHeal,
     cancelledObsoletePartitions: cancelledObsoletePartitions.length,
   };
 }

@@ -75,6 +75,36 @@ export type MetaWarehouseScope =
 
 export type MetaBreakdownType = "age" | "country" | "placement";
 
+export type MetaDirtyRecentSeverity = "critical" | "high" | "low";
+
+export type MetaDirtyRecentReason =
+  | "non_finalized"
+  | "validation_failed"
+  | "spend_drift"
+  | "missing_campaign"
+  | "missing_adset"
+  | "missing_breakdown";
+
+export interface MetaDirtyRecentDateRow {
+  providerAccountId: string;
+  date: string;
+  severity: MetaDirtyRecentSeverity;
+  reasons: MetaDirtyRecentReason[];
+  breakdownOnly?: boolean;
+  nonFinalized?: boolean;
+  validationFailed?: boolean;
+  coverageMissing?: boolean;
+  spendDrift?: boolean;
+}
+
+export interface MetaRecentAuthoritativeSliceGuard {
+  activeAuthoritativeSource: MetaSyncPartitionSource | null;
+  activeAuthoritativePriority: number;
+  lastSameSourceAttemptAt: string | null;
+  lastSameSourceSuccessAt: string | null;
+  repeatedFailures24h: number;
+}
+
 export interface MetaWarehouseMetricSet {
   spend: number;
   impressions: number;

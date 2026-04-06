@@ -52,6 +52,13 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaDirtyRecentDates: vi.fn().mockResolvedValue([]),
   getMetaIncompleteCoreDates: vi.fn().mockResolvedValue([]),
   getMetaPartitionStatesForDate: vi.fn().mockResolvedValue(new Map()),
+  getMetaRecentAuthoritativeSliceGuard: vi.fn().mockResolvedValue({
+    activeAuthoritativeSource: null,
+    activeAuthoritativePriority: 0,
+    lastSameSourceAttemptAt: null,
+    lastSameSourceSuccessAt: null,
+    repeatedFailures24h: 0,
+  }),
   getMetaQueueComposition: vi.fn(),
   getMetaPartitionHealth: vi.fn().mockResolvedValue({ latestActivityAt: null, deadLetterPartitions: 0 }),
   getMetaQueueHealth: vi.fn().mockResolvedValue({
@@ -101,6 +108,14 @@ describe("enqueueMetaScheduledWork", () => {
       maintenanceQueueDepth: 0,
       maintenanceLeasedPartitions: 0,
     } as never);
+    vi.mocked(warehouse.getMetaDirtyRecentDates).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard).mockResolvedValue({
+      activeAuthoritativeSource: null,
+      activeAuthoritativePriority: 0,
+      lastSameSourceAttemptAt: null,
+      lastSameSourceSuccessAt: null,
+      repeatedFailures24h: 0,
+    } as never);
     vi.mocked(warehouse.getMetaIncompleteCoreDates).mockResolvedValue([]);
     vi.mocked(warehouse.getMetaPartitionStatesForDate).mockResolvedValue(new Map());
     vi.mocked(warehouse.queueMetaSyncPartition).mockImplementation(async (input: never) => ({
@@ -122,6 +137,249 @@ describe("enqueueMetaScheduledWork", () => {
     expect(result.cancelledObsoletePartitions).toBe(0);
     expect(typeof result.queuedCore).toBe("number");
     expect(typeof result.queuedMaintenance).toBe("number");
+    expect(result.recentAutoHeal).toEqual(
+      expect.objectContaining({
+        accountsScanned: 1,
+        reasonCounts: {},
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("uses per-account timezone D-1 for finalize_day", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T12:30:00.000Z"));
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      businessId: "biz-1",
+      accessToken: "token",
+      accountIds: ["act_1", "act_2"],
+      currency: "USD",
+      accountProfiles: {
+        act_1: { currency: "USD", timezone: "America/Anchorage", name: "Account 1" },
+        act_2: { currency: "USD", timezone: "Pacific/Kiritimati", name: "Account 2" },
+      },
+    });
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    const finalizeCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter((input) => input.source === "finalize_day" && input.scope === "account_daily");
+
+    expect(finalizeCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          partitionDate: "2026-04-05",
+          source: "finalize_day",
+        }),
+        expect.objectContaining({
+          providerAccountId: "act_2",
+          partitionDate: "2026-04-06",
+          source: "finalize_day",
+        }),
+      ]),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("chooses finalize_day vs repair_recent_day by age and severity", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaDirtyRecentDates)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-04",
+          severity: "critical",
+          reasons: ["non_finalized"],
+          nonFinalized: true,
+        },
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-03",
+          severity: "high",
+          reasons: ["spend_drift"],
+          spendDrift: true,
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-02",
+          severity: "low",
+          reasons: ["missing_breakdown"],
+          breakdownOnly: true,
+        },
+      ] as never);
+
+    const result = await enqueueMetaScheduledWork("biz-1");
+
+    const accountDailyCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter((input) => input.scope === "account_daily");
+
+    expect(accountDailyCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          partitionDate: "2026-04-05",
+          source: "finalize_day",
+        }),
+        expect.objectContaining({
+          partitionDate: "2026-04-04",
+          source: "finalize_day",
+        }),
+        expect.objectContaining({
+          partitionDate: "2026-04-03",
+          source: "repair_recent_day",
+        }),
+        expect.objectContaining({
+          partitionDate: "2026-04-02",
+          source: "repair_recent_day",
+        }),
+      ]),
+    );
+    expect(result.recentAutoHeal.reasonCounts).toEqual(
+      expect.objectContaining({
+        non_finalized: 1,
+        spend_drift: 1,
+        missing_breakdown: 1,
+      }),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it("does not enqueue breakdown-only low severity on D-2", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaDirtyRecentDates)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-04",
+          severity: "low",
+          reasons: ["missing_breakdown"],
+          breakdownOnly: true,
+        },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    const repairCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter(
+        (input) =>
+          input.providerAccountId === "act_1" &&
+          input.partitionDate === "2026-04-04" &&
+          input.source === "repair_recent_day" &&
+          input.scope === "account_daily",
+      );
+
+    expect(repairCalls).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("skips active duplicates, cooldowns, recent successes, and repeated failures", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      businessId: "biz-1",
+      accessToken: "token",
+      accountIds: ["act_1", "act_2", "act_3", "act_4"],
+      currency: "USD",
+      accountProfiles: {
+        act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        act_2: { currency: "USD", timezone: "UTC", name: "Account 2" },
+        act_3: { currency: "USD", timezone: "UTC", name: "Account 3" },
+        act_4: { currency: "USD", timezone: "UTC", name: "Account 4" },
+      },
+    });
+    vi.mocked(warehouse.getMetaDirtyRecentDates)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_2",
+          date: "2026-04-04",
+          severity: "critical",
+          reasons: ["validation_failed"],
+          validationFailed: true,
+        },
+        {
+          providerAccountId: "act_3",
+          date: "2026-04-04",
+          severity: "critical",
+          reasons: ["validation_failed"],
+          validationFailed: true,
+        },
+        {
+          providerAccountId: "act_4",
+          date: "2026-04-04",
+          severity: "critical",
+          reasons: ["validation_failed"],
+          validationFailed: true,
+        },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+    vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard)
+      .mockImplementation(async ({ providerAccountId, date, source }: never) => {
+        if (providerAccountId === "act_1" && date === "2026-04-05" && source === "finalize_day") {
+          return {
+            activeAuthoritativeSource: "finalize_day",
+            activeAuthoritativePriority: 725,
+            lastSameSourceAttemptAt: null,
+            lastSameSourceSuccessAt: null,
+            repeatedFailures24h: 0,
+          };
+        }
+        if (providerAccountId === "act_2") {
+          return {
+            activeAuthoritativeSource: null,
+            activeAuthoritativePriority: 0,
+            lastSameSourceAttemptAt: "2026-04-06T08:50:00.000Z",
+            lastSameSourceSuccessAt: null,
+            repeatedFailures24h: 0,
+          };
+        }
+        if (providerAccountId === "act_3") {
+          return {
+            activeAuthoritativeSource: null,
+            activeAuthoritativePriority: 0,
+            lastSameSourceAttemptAt: null,
+            lastSameSourceSuccessAt: "2026-04-06T08:40:00.000Z",
+            repeatedFailures24h: 0,
+          };
+        }
+        if (providerAccountId === "act_4") {
+          return {
+            activeAuthoritativeSource: null,
+            activeAuthoritativePriority: 0,
+            lastSameSourceAttemptAt: null,
+            lastSameSourceSuccessAt: null,
+            repeatedFailures24h: 3,
+          };
+        }
+        return {
+          activeAuthoritativeSource: null,
+          activeAuthoritativePriority: 0,
+          lastSameSourceAttemptAt: null,
+          lastSameSourceSuccessAt: null,
+          repeatedFailures24h: 0,
+        };
+      });
+
+    const result = await enqueueMetaScheduledWork("biz-1");
+
+    expect(result.recentAutoHeal.skippedActiveDuplicate).toBeGreaterThanOrEqual(1);
+    expect(result.recentAutoHeal.skippedCooldown).toBeGreaterThanOrEqual(1);
+    expect(result.recentAutoHeal.skippedRecentSuccess).toBeGreaterThanOrEqual(1);
+    expect(result.recentAutoHeal.skippedRepeatedFailures).toBeGreaterThanOrEqual(1);
+    expect(result.recentAutoHeal.reasonCounts.repeated_failures_skip).toBe(2);
 
     vi.useRealTimers();
   });
