@@ -485,6 +485,94 @@ describe("meta warehouse ownership safety", () => {
     });
   });
 
+  it("treats guard scope as core-authoritative rather than account-only", async () => {
+    const queryCalls: Array<unknown[]> = [];
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      queryCalls.push(values);
+      return [
+        {
+          active_source: "finalize_day",
+          last_same_source_attempt_at: null,
+          last_same_source_success_at: null,
+          repeated_failures_24h: 0,
+        },
+      ];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (_query: string, values: unknown[]) => {
+        queryCalls.push(values);
+        return [
+          {
+            active_source: "finalize_day",
+            last_same_source_attempt_at: null,
+            last_same_source_success_at: null,
+            repeated_failures_24h: 0,
+          },
+        ];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await getMetaRecentAuthoritativeSliceGuard({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      date: "2026-04-03",
+      source: "finalize_day",
+    });
+
+    expect(queryCalls.some((values) =>
+      Array.isArray(values) &&
+      values.some(
+        (value) =>
+          Array.isArray(value) &&
+          value.includes("account_daily") &&
+          value.includes("campaign_daily") &&
+          value.includes("adset_daily"),
+      ),
+    )).toBe(true);
+  });
+
+  it("preserves breakdownOnly only for pure missing_breakdown merges", async () => {
+    const sql = vi.fn(async () => [{ present: true }]);
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        if (!query.includes("account_spend")) {
+          return [
+            {
+              date: "2026-04-03",
+              provider_account_id: "acct-1",
+              campaign_count: 1,
+              adset_count: 1,
+              account_truth_state: "finalized",
+              account_validation_status: "passed",
+              campaigns_finalized: true,
+              adsets_finalized: true,
+              finalized_breakdown_type_count: 2,
+            },
+          ];
+        }
+        return [
+          {
+            date: "2026-04-03",
+            provider_account_id: "acct-1",
+            account_spend: 50,
+            campaign_spend: 60,
+          },
+        ];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaDirtyRecentDates({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      slowPathDates: ["2026-04-03"],
+    });
+
+    expect(rows[0]?.breakdownOnly).toBe(false);
+  });
+
   it("fails partition completion when the lease epoch is stale", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {

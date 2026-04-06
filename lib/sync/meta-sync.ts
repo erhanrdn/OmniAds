@@ -846,6 +846,7 @@ type MetaRecentAutoHealSummary = {
   accountsScanned: number;
   recentDaysScanned: number;
   dirtyDaysFound: number;
+  oldestDirtyDate: string | null;
   finalizeEnqueued: number;
   repairEnqueued: number;
   skippedActiveDuplicate: number;
@@ -860,6 +861,7 @@ function emptyMetaRecentAutoHealSummary(): MetaRecentAutoHealSummary {
     accountsScanned: 0,
     recentDaysScanned: 0,
     dirtyDaysFound: 0,
+    oldestDirtyDate: null,
     finalizeEnqueued: 0,
     repairEnqueued: 0,
     skippedActiveDuplicate: 0,
@@ -921,12 +923,17 @@ function mergeMetaDirtyRecentRows(
     const key = `${row.providerAccountId}:${row.date}`;
     const existing = merged.get(key);
     if (!existing) {
+      const reasons = Array.from(new Set(row.reasons));
       merged.set(key, {
         ...row,
-        reasons: Array.from(new Set(row.reasons)),
+        reasons,
+        breakdownOnly:
+          reasons.length > 0 &&
+          reasons.every((reason) => reason === "missing_breakdown"),
       });
       continue;
     }
+    const mergedReasons = Array.from(new Set([...existing.reasons, ...row.reasons]));
     merged.set(key, {
       providerAccountId: row.providerAccountId,
       date: row.date,
@@ -935,8 +942,10 @@ function mergeMetaDirtyRecentRows(
         metaRecentDirtySeverityPriority(existing.severity)
           ? row.severity
           : existing.severity,
-      reasons: Array.from(new Set([...existing.reasons, ...row.reasons])),
-      breakdownOnly: Boolean(existing.breakdownOnly && row.breakdownOnly),
+      reasons: mergedReasons,
+      breakdownOnly:
+        mergedReasons.length > 0 &&
+        mergedReasons.every((reason) => reason === "missing_breakdown"),
       nonFinalized: Boolean(existing.nonFinalized || row.nonFinalized),
       validationFailed: Boolean(
         existing.validationFailed || row.validationFailed,
@@ -1493,8 +1502,6 @@ async function enqueueMetaMaintenancePartitions(
     allRecentDates.add(target.d2);
     allRecentDates.add(target.d3);
     narrowSlowPathDates.add(target.d1);
-    narrowSlowPathDates.add(target.d2);
-    narrowSlowPathDates.add(target.d3);
     for (const date of enumerateDays(target.d7Start, target.d1, false)) {
       allRecentDates.add(date);
     }
@@ -1522,6 +1529,13 @@ async function enqueueMetaMaintenancePartitions(
   const dirtyRows = mergeMetaDirtyRecentRows([...narrowDirtyRows, ...widerDirtyRows]);
   summary.recentDaysScanned = targets.length * 7;
   summary.dirtyDaysFound = dirtyRows.length;
+  summary.oldestDirtyDate =
+    dirtyRows.length > 0
+      ? dirtyRows.reduce(
+          (oldest, row) => (oldest == null || row.date < oldest ? row.date : oldest),
+          null as string | null,
+        )
+      : null;
 
   const dirtyBySlice = new Map<string, MetaDirtyRecentDateRow>();
   for (const row of dirtyRows) {
@@ -1535,6 +1549,7 @@ async function enqueueMetaMaintenancePartitions(
     providerAccountId: string,
     date: string,
     source: MetaSyncPartitionSource,
+    dirty?: MetaDirtyRecentDateRow | null,
   ) => {
     const guard = await getMetaRecentAuthoritativeSliceGuard({
       businessId,
@@ -1562,7 +1577,7 @@ async function enqueueMetaMaintenancePartitions(
       });
       return 0;
     }
-    if (guard?.lastSameSourceSuccessAt) {
+    if (guard?.lastSameSourceSuccessAt && dirty?.severity !== "critical") {
       summary.skippedRecentSuccess += 1;
       return 0;
     }
@@ -1608,6 +1623,7 @@ async function enqueueMetaMaintenancePartitions(
         target.providerAccountId,
         date,
         action,
+        dirty,
       );
     }
     for (const date of enumerateDays(target.d7Start, target.d1, false)) {
@@ -1620,6 +1636,7 @@ async function enqueueMetaMaintenancePartitions(
         target.providerAccountId,
         date,
         action,
+        dirty,
       );
     }
   }

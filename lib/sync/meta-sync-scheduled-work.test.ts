@@ -140,7 +140,13 @@ describe("enqueueMetaScheduledWork", () => {
     expect(result.recentAutoHeal).toEqual(
       expect.objectContaining({
         accountsScanned: 1,
+        oldestDirtyDate: null,
         reasonCounts: {},
+      }),
+    );
+    expect(vi.mocked(warehouse.getMetaDirtyRecentDates).mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        slowPathDates: ["2026-04-05"],
       }),
     );
 
@@ -250,6 +256,7 @@ describe("enqueueMetaScheduledWork", () => {
         missing_breakdown: 1,
       }),
     );
+    expect(result.recentAutoHeal.oldestDirtyDate).toBe("2026-04-02");
 
     vi.useRealTimers();
   });
@@ -380,6 +387,43 @@ describe("enqueueMetaScheduledWork", () => {
     expect(result.recentAutoHeal.skippedRecentSuccess).toBeGreaterThanOrEqual(1);
     expect(result.recentAutoHeal.skippedRepeatedFailures).toBeGreaterThanOrEqual(1);
     expect(result.recentAutoHeal.reasonCounts.repeated_failures_skip).toBe(2);
+
+    vi.useRealTimers();
+  });
+
+  it("does not let recent success skip critical dirty slices", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaDirtyRecentDates)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-04",
+          severity: "critical",
+          reasons: ["validation_failed"],
+          validationFailed: true,
+        },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+    vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard).mockResolvedValue({
+      activeAuthoritativeSource: null,
+      activeAuthoritativePriority: 0,
+      lastSameSourceAttemptAt: null,
+      lastSameSourceSuccessAt: "2026-04-06T08:45:00.000Z",
+      repeatedFailures24h: 0,
+    } as never);
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    expect(
+      vi.mocked(warehouse.queueMetaSyncPartition).mock.calls.some(
+        ([input]) =>
+          input.providerAccountId === "act_1" &&
+          input.partitionDate === "2026-04-04" &&
+          input.source === "finalize_day" &&
+          input.scope === "account_daily",
+      ),
+    ).toBe(true);
 
     vi.useRealTimers();
   });

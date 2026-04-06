@@ -113,6 +113,39 @@ function mergeDirtySeverity(
   return priority[right] > priority[left] ? right : left;
 }
 
+const META_EXPECTED_FINALIZED_BREAKDOWN_TYPES = [
+  "age",
+  "country",
+  "placement",
+] as const satisfies readonly MetaBreakdownType[];
+
+const META_AUTHORITATIVE_CORE_SCOPES = [
+  "account_daily",
+  "campaign_daily",
+  "adset_daily",
+] as const satisfies readonly MetaWarehouseScope[];
+
+function deriveMetaDirtyRecentFlags(input: {
+  reasons: MetaDirtyRecentReason[];
+  severity: MetaDirtyRecentSeverity;
+}) {
+  const reasonSet = new Set(input.reasons);
+  return {
+    severity: input.severity,
+    reasons: Array.from(reasonSet),
+    breakdownOnly:
+      reasonSet.size > 0 &&
+      Array.from(reasonSet).every((reason) => reason === "missing_breakdown"),
+    nonFinalized: reasonSet.has("non_finalized"),
+    validationFailed: reasonSet.has("validation_failed"),
+    coverageMissing:
+      reasonSet.has("missing_campaign") ||
+      reasonSet.has("missing_adset") ||
+      reasonSet.has("missing_breakdown"),
+    spendDrift: reasonSet.has("spend_drift"),
+  };
+}
+
 async function runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
   const sql = getDb();
   if (typeof sql.query !== "function") {
@@ -4613,7 +4646,10 @@ export async function getMetaDirtyRecentDates(input: {
     if (Number(row.adset_count ?? 0) <= 0) {
       reasons.add("missing_adset");
     }
-    if (Number(row.finalized_breakdown_type_count ?? 0) < 3) {
+    if (
+      Number(row.finalized_breakdown_type_count ?? 0) <
+      META_EXPECTED_FINALIZED_BREAKDOWN_TYPES.length
+    ) {
       reasons.add("missing_breakdown");
     }
 
@@ -4633,18 +4669,10 @@ export async function getMetaDirtyRecentDates(input: {
       dirtyRows.set(key, {
         providerAccountId,
         date,
-        severity,
-        reasons: reasonList,
-        breakdownOnly:
-          reasonList.length > 0 &&
-          reasonList.every((reason) => reason === "missing_breakdown"),
-        nonFinalized: reasonList.includes("non_finalized"),
-        validationFailed: reasonList.includes("validation_failed"),
-        coverageMissing:
-          reasonList.includes("missing_campaign") ||
-          reasonList.includes("missing_adset") ||
-          reasonList.includes("missing_breakdown"),
-        spendDrift: false,
+        ...deriveMetaDirtyRecentFlags({
+          reasons: reasonList,
+          severity,
+        }),
       });
     } else if (slowPathDateSet.has(date)) {
       suspiciousKeys.add(key);
@@ -4736,15 +4764,12 @@ export async function getMetaDirtyRecentDates(input: {
     dirtyRows.set(key, {
       providerAccountId,
       date,
-      severity: existing
-        ? mergeDirtySeverity(existing.severity, "high")
-        : "high",
-      reasons: Array.from(reasons),
-      breakdownOnly: false,
-      nonFinalized: existing?.nonFinalized ?? false,
-      validationFailed: existing?.validationFailed ?? false,
-      coverageMissing: existing?.coverageMissing ?? false,
-      spendDrift: true,
+      ...deriveMetaDirtyRecentFlags({
+        reasons: Array.from(reasons),
+        severity: existing
+          ? mergeDirtySeverity(existing.severity, "high")
+          : "high",
+      }),
     });
   }
 
@@ -4787,7 +4812,7 @@ export async function getMetaRecentAuthoritativeSliceGuard(input: {
               AND provider_account_id = $2
               AND partition_date = $3::date
               AND lane = 'maintenance'
-              AND scope = 'account_daily'
+              AND scope = ANY($8::text[])
               AND status IN ('queued', 'leased', 'running')
               AND source IN ('finalize_day', 'repair_recent_day', 'today_observe')
             ORDER BY
@@ -4822,7 +4847,7 @@ export async function getMetaRecentAuthoritativeSliceGuard(input: {
         AND provider_account_id = $2
         AND partition_date = $3::date
         AND lane = 'maintenance'
-        AND scope = 'account_daily'
+        AND scope = ANY($8::text[])
     `,
         [
           input.businessId,
@@ -4832,6 +4857,7 @@ export async function getMetaRecentAuthoritativeSliceGuard(input: {
           cooldownMinutes,
           successCooldownMinutes,
           failureLookbackHours,
+          Array.from(META_AUTHORITATIVE_CORE_SCOPES),
         ],
       )
     : await sql`
@@ -4844,7 +4870,7 @@ export async function getMetaRecentAuthoritativeSliceGuard(input: {
               AND provider_account_id = ${input.providerAccountId}
               AND partition_date = ${normalizeDate(input.date)}::date
               AND lane = 'maintenance'
-              AND scope = 'account_daily'
+              AND scope = ANY(${Array.from(META_AUTHORITATIVE_CORE_SCOPES)}::text[])
               AND status IN ('queued', 'leased', 'running')
               AND source IN ('finalize_day', 'repair_recent_day', 'today_observe')
             ORDER BY
@@ -4879,7 +4905,7 @@ export async function getMetaRecentAuthoritativeSliceGuard(input: {
         AND provider_account_id = ${input.providerAccountId}
         AND partition_date = ${normalizeDate(input.date)}::date
         AND lane = 'maintenance'
-        AND scope = 'account_daily'
+        AND scope = ANY(${Array.from(META_AUTHORITATIVE_CORE_SCOPES)}::text[])
     `;
   const row = (rows as Array<Record<string, unknown>>)[0] ?? {};
   const activeAuthoritativeSource = row.active_source
