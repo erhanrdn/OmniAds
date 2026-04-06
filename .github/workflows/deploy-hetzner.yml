@@ -127,8 +127,23 @@ jobs:
               grep -n "\"/about\"" /app/proxy.ts
             '
 
+            log "Waiting for runtime build info endpoint"
+            BUILD_INFO_JSON=""
+            attempt=1
+            while [ "$attempt" -le 20 ]; do
+              if BUILD_INFO_JSON="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
+                printf '%s\n' "${BUILD_INFO_JSON}"
+                break
+              fi
+
+              sleep 3
+              attempt=$((attempt + 1))
+            done
+
+            test -n "${BUILD_INFO_JSON}"
+
             log "Verifying runtime build id matches origin/main"
-            WEB_BUILD_ID="$(curl -fsS http://127.0.0.1:3000/api/build-info | sed -n 's/.*\"buildId\":\"\\([^\"]*\\)\".*/\\1/p')"
+            WEB_BUILD_ID="$(printf '%s\n' "${BUILD_INFO_JSON}" | sed -n 's/.*\"buildId\":\"\\([^\"]*\\)\".*/\\1/p')"
             echo "WEB_BUILD_ID=${WEB_BUILD_ID}"
             test "${WEB_BUILD_ID}" = "${HEAD_SHA}"
 
