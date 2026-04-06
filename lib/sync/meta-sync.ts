@@ -823,6 +823,8 @@ function getMetaHistoricalWindow(
 }
 
 function getMetaWorkerId() {
+  const overridden = process.env.META_WORKER_ID?.trim();
+  if (overridden) return overridden;
   return `meta-worker:${process.pid}:${Math.random().toString(36).slice(2, 10)}`;
 }
 

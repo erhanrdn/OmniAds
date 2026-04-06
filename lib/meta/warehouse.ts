@@ -503,6 +503,7 @@ export async function leaseMetaSyncPartitions(input: {
         priority DESC,
         CASE source
           WHEN 'priority_window' THEN 700
+          WHEN 'yesterday' THEN 675
           WHEN 'today' THEN 650
           WHEN 'request_runtime' THEN 625
           WHEN 'recent' THEN 600
@@ -515,11 +516,15 @@ export async function leaseMetaSyncPartitions(input: {
           ELSE 100
         END DESC,
         CASE
+          WHEN source = 'priority_window'
+            THEN NULL
           WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
             THEN partition_date
           ELSE NULL
         END ASC,
         CASE
+          WHEN source = 'priority_window'
+            THEN partition_date
           WHEN source IN ('historical', 'historical_recovery', 'initial_connect')
             THEN NULL
           ELSE partition_date
@@ -3216,21 +3221,21 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         campaign_name_current = EXCLUDED.campaign_name_current,
         campaign_name_historical = EXCLUDED.campaign_name_historical,
         campaign_status = EXCLUDED.campaign_status,
-        objective = EXCLUDED.objective,
+        objective = COALESCE(EXCLUDED.objective, meta_campaign_daily.objective),
         buying_type = EXCLUDED.buying_type,
-        optimization_goal = EXCLUDED.optimization_goal,
-        bid_strategy_type = EXCLUDED.bid_strategy_type,
-        bid_strategy_label = EXCLUDED.bid_strategy_label,
-        manual_bid_amount = EXCLUDED.manual_bid_amount,
-        bid_value = EXCLUDED.bid_value,
-        bid_value_format = EXCLUDED.bid_value_format,
-        daily_budget = EXCLUDED.daily_budget,
-        lifetime_budget = EXCLUDED.lifetime_budget,
-        is_budget_mixed = EXCLUDED.is_budget_mixed,
-        is_config_mixed = EXCLUDED.is_config_mixed,
-        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed,
-        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed,
-        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed,
+        optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_campaign_daily.optimization_goal),
+        bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_campaign_daily.bid_strategy_type),
+        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_campaign_daily.bid_strategy_label),
+        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_campaign_daily.manual_bid_amount),
+        bid_value = COALESCE(EXCLUDED.bid_value, meta_campaign_daily.bid_value),
+        bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_campaign_daily.bid_value_format),
+        daily_budget = COALESCE(EXCLUDED.daily_budget, meta_campaign_daily.daily_budget),
+        lifetime_budget = COALESCE(EXCLUDED.lifetime_budget, meta_campaign_daily.lifetime_budget),
+        is_budget_mixed = EXCLUDED.is_budget_mixed OR meta_campaign_daily.is_budget_mixed,
+        is_config_mixed = EXCLUDED.is_config_mixed OR meta_campaign_daily.is_config_mixed,
+        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed OR meta_campaign_daily.is_optimization_goal_mixed,
+        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed OR meta_campaign_daily.is_bid_strategy_mixed,
+        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed OR meta_campaign_daily.is_bid_value_mixed,
         account_timezone = EXCLUDED.account_timezone,
         account_currency = EXCLUDED.account_currency,
         spend = EXCLUDED.spend,
@@ -3347,19 +3352,19 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         adset_name_current = EXCLUDED.adset_name_current,
         adset_name_historical = EXCLUDED.adset_name_historical,
         adset_status = EXCLUDED.adset_status,
-        optimization_goal = EXCLUDED.optimization_goal,
-        bid_strategy_type = EXCLUDED.bid_strategy_type,
-        bid_strategy_label = EXCLUDED.bid_strategy_label,
-        manual_bid_amount = EXCLUDED.manual_bid_amount,
-        bid_value = EXCLUDED.bid_value,
-        bid_value_format = EXCLUDED.bid_value_format,
-        daily_budget = EXCLUDED.daily_budget,
-        lifetime_budget = EXCLUDED.lifetime_budget,
-        is_budget_mixed = EXCLUDED.is_budget_mixed,
-        is_config_mixed = EXCLUDED.is_config_mixed,
-        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed,
-        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed,
-        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed,
+        optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_adset_daily.optimization_goal),
+        bid_strategy_type = COALESCE(EXCLUDED.bid_strategy_type, meta_adset_daily.bid_strategy_type),
+        bid_strategy_label = COALESCE(EXCLUDED.bid_strategy_label, meta_adset_daily.bid_strategy_label),
+        manual_bid_amount = COALESCE(EXCLUDED.manual_bid_amount, meta_adset_daily.manual_bid_amount),
+        bid_value = COALESCE(EXCLUDED.bid_value, meta_adset_daily.bid_value),
+        bid_value_format = COALESCE(EXCLUDED.bid_value_format, meta_adset_daily.bid_value_format),
+        daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget),
+        lifetime_budget = COALESCE(EXCLUDED.lifetime_budget, meta_adset_daily.lifetime_budget),
+        is_budget_mixed = EXCLUDED.is_budget_mixed OR meta_adset_daily.is_budget_mixed,
+        is_config_mixed = EXCLUDED.is_config_mixed OR meta_adset_daily.is_config_mixed,
+        is_optimization_goal_mixed = EXCLUDED.is_optimization_goal_mixed OR meta_adset_daily.is_optimization_goal_mixed,
+        is_bid_strategy_mixed = EXCLUDED.is_bid_strategy_mixed OR meta_adset_daily.is_bid_strategy_mixed,
+        is_bid_value_mixed = EXCLUDED.is_bid_value_mixed OR meta_adset_daily.is_bid_value_mixed,
         account_timezone = EXCLUDED.account_timezone,
         account_currency = EXCLUDED.account_currency,
         spend = EXCLUDED.spend,

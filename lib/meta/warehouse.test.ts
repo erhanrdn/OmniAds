@@ -100,6 +100,133 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("lease_epoch = partition.lease_epoch + 1"))).toBe(true);
   });
 
+  it("prioritizes priority_window partitions newest-first and keeps yesterday ahead of today", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await leaseMetaSyncPartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 5,
+      leaseMinutes: 15,
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("WHEN 'priority_window' THEN 700");
+    expect(query).toContain("WHEN 'yesterday' THEN 675");
+    expect(query).toContain("WHEN source = 'priority_window'");
+    expect(query).toContain("THEN partition_date");
+    expect(query).toContain("WHEN source IN ('historical', 'historical_recovery', 'initial_connect')");
+  });
+
+  it("preserves existing non-null meta config truth when an incoming row is sparse", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaCampaignDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        campaignNameCurrent: "Campaign 1",
+        campaignNameHistorical: "Campaign 1",
+        campaignStatus: "ACTIVE",
+        objective: null,
+        buyingType: null,
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 10,
+        impressions: 100,
+        clicks: 5,
+        reach: 80,
+        frequency: 1,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: "snapshot-1",
+      },
+    ]);
+
+    await upsertMetaAdSetDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 8,
+        impressions: 80,
+        clicks: 4,
+        reach: 70,
+        frequency: 1,
+        conversions: 1,
+        revenue: 16,
+        roas: 2,
+        cpa: 8,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: "snapshot-1",
+      },
+    ]);
+
+    const query = queries.join("\n");
+    expect(query).toContain("objective = COALESCE(EXCLUDED.objective, meta_campaign_daily.objective)");
+    expect(query).toContain(
+      "optimization_goal = COALESCE(EXCLUDED.optimization_goal, meta_adset_daily.optimization_goal)"
+    );
+    expect(query).toContain("daily_budget = COALESCE(EXCLUDED.daily_budget, meta_campaign_daily.daily_budget)");
+    expect(query).toContain("daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget)");
+  });
+
   it("extends the running lease using the requested lease minutes", async () => {
     const queries: string[] = [];
     const calls: unknown[][] = [];

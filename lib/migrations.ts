@@ -1,4 +1,4 @@
-import { getDb } from "@/lib/db";
+import { getDb, getDbWithTimeout } from "@/lib/db";
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
 
 let migrationsPromise: Promise<void> | null = null;
@@ -106,7 +106,11 @@ function buildGoogleAdsWarehouseIndexQueries(tableName: string) {
   ];
 }
 
-export async function runMigrations(options?: { force?: boolean; reason?: string }) {
+export async function runMigrations(options?: {
+  force?: boolean;
+  reason?: string;
+  timeoutMs?: number;
+}) {
   const force = options?.force ?? false;
   const reason = options?.reason ?? "unspecified";
 
@@ -129,7 +133,9 @@ export async function runMigrations(options?: { force?: boolean; reason?: string
 
   migrationsPromise = withMigrationTimeout(
     (async () => {
-      const sql = createMigrationDb(getDb());
+      const sql = createMigrationDb(
+        options?.timeoutMs != null ? getDbWithTimeout(options.timeoutMs) : getDb()
+      );
 
       // ── PHASE 1: Tables with no FK dependencies (ordered batch) ───────────
       await runMigrationBatchSequentially([

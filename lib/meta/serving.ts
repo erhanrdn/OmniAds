@@ -4,6 +4,10 @@
  */
 
 import { resolveMetaCredentials } from "@/lib/api/meta";
+import {
+  fetchMetaAdSetConfigs,
+  fetchMetaCampaignConfigs,
+} from "@/lib/api/meta";
 import { getMetaBreakdownSupportedStart } from "@/lib/meta/constraints";
 import {
   readLatestMetaConfigSnapshots,
@@ -30,6 +34,7 @@ import {
   type MetaWarehouseFreshness,
 } from "@/lib/meta/warehouse-types";
 import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive, getHistoricalWindowStart } from "@/lib/meta/history";
+import { buildConfigSnapshotPayload } from "@/lib/meta/configuration";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -691,6 +696,121 @@ function buildCurrentConfigFromSnapshot(payload: {
   };
 }
 
+async function readCurrentConfigFallbacks(input: {
+  businessId: string;
+  providerAccountIds: string[];
+}): Promise<{
+  campaignConfigsByAccount: Map<string, Map<string, MetaWarehouseCurrentConfig>>;
+  adsetConfigsByAccount: Map<string, Map<string, MetaWarehouseCurrentConfig>>;
+}> {
+  const providerAccountIds = Array.from(new Set(input.providerAccountIds.filter(Boolean)));
+  if (providerAccountIds.length === 0) {
+    return {
+      campaignConfigsByAccount: new Map(),
+      adsetConfigsByAccount: new Map(),
+    };
+  }
+
+  const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
+  if (!credentials?.accessToken) {
+    return {
+      campaignConfigsByAccount: new Map(),
+      adsetConfigsByAccount: new Map(),
+    };
+  }
+
+  const campaignConfigsByAccount = new Map<string, Map<string, MetaWarehouseCurrentConfig>>();
+  const adsetConfigsByAccount = new Map<string, Map<string, MetaWarehouseCurrentConfig>>();
+
+  await Promise.all(
+    providerAccountIds.map(async (providerAccountId) => {
+      const [campaignConfigs, adsetConfigs] = await Promise.all([
+        fetchMetaCampaignConfigs(credentials, providerAccountId, credentials.accessToken).catch(
+          () => new Map()
+        ),
+        fetchMetaAdSetConfigs(providerAccountId, credentials.accessToken).catch(
+          () => new Map()
+        ),
+      ]);
+
+      const campaignMap = new Map<string, MetaWarehouseCurrentConfig>();
+      for (const [campaignId, campaignConfig] of campaignConfigs.entries()) {
+        campaignMap.set(
+          campaignId,
+          buildCurrentConfigFromSnapshot(
+            buildConfigSnapshotPayload({
+              campaignId,
+              objective: campaignConfig.objective ?? null,
+              bidStrategy: campaignConfig.bid_strategy ?? null,
+              manualBidAmount:
+                campaignConfig.bid_amount != null ? Number(campaignConfig.bid_amount) : null,
+              targetRoas:
+                campaignConfig.bid_constraints?.roas_average_floor != null
+                  ? Number(campaignConfig.bid_constraints.roas_average_floor)
+                  : null,
+              dailyBudget:
+                campaignConfig.daily_budget != null ? Number(campaignConfig.daily_budget) : null,
+              lifetimeBudget:
+                campaignConfig.lifetime_budget != null
+                  ? Number(campaignConfig.lifetime_budget)
+                  : null,
+            })
+          )
+        );
+      }
+      campaignConfigsByAccount.set(providerAccountId, campaignMap);
+
+      const adsetMap = new Map<string, MetaWarehouseCurrentConfig>();
+      for (const [adsetId, adsetConfig] of adsetConfigs.entries()) {
+        const parentCampaign = adsetConfig.campaign_id
+          ? campaignConfigs.get(adsetConfig.campaign_id) ?? null
+          : null;
+        adsetMap.set(
+          adsetId,
+          buildCurrentConfigFromSnapshot(
+            buildConfigSnapshotPayload({
+              campaignId: adsetConfig.campaign_id ?? null,
+              optimizationGoal: adsetConfig.optimization_goal ?? null,
+              bidStrategy:
+                adsetConfig.bid_strategy ?? parentCampaign?.bid_strategy ?? null,
+              manualBidAmount:
+                adsetConfig.bid_amount != null
+                  ? Number(adsetConfig.bid_amount)
+                  : parentCampaign?.bid_amount != null
+                    ? Number(parentCampaign.bid_amount)
+                    : null,
+              targetRoas:
+                adsetConfig.bid_constraints?.roas_average_floor != null
+                  ? Number(adsetConfig.bid_constraints.roas_average_floor)
+                  : parentCampaign?.bid_constraints?.roas_average_floor != null
+                    ? Number(parentCampaign.bid_constraints.roas_average_floor)
+                    : null,
+              dailyBudget:
+                adsetConfig.daily_budget != null
+                  ? Number(adsetConfig.daily_budget)
+                  : parentCampaign?.daily_budget != null
+                    ? Number(parentCampaign.daily_budget)
+                    : null,
+              lifetimeBudget:
+                adsetConfig.lifetime_budget != null
+                  ? Number(adsetConfig.lifetime_budget)
+                  : parentCampaign?.lifetime_budget != null
+                    ? Number(parentCampaign.lifetime_budget)
+                    : null,
+            })
+          )
+        );
+      }
+      adsetConfigsByAccount.set(providerAccountId, adsetMap);
+    })
+  );
+
+  return {
+    campaignConfigsByAccount,
+    adsetConfigsByAccount,
+  };
+}
+
 function mergePreviousConfig(
   current: MetaWarehousePreviousConfig | null,
   fallback: MetaPreviousConfigDiff | null | undefined
@@ -738,16 +858,29 @@ async function repairCampaignRowsFromSnapshots(input: {
   );
   if (candidateIds.length === 0) return input.rows;
 
-  const snapshots = await readLatestMetaConfigSnapshots({
-    businessId: input.businessId,
-    entityLevel: "campaign",
-    entityIds: candidateIds,
-  });
+  const [snapshots, currentConfigs] = await Promise.all([
+    readLatestMetaConfigSnapshots({
+      businessId: input.businessId,
+      entityLevel: "campaign",
+      entityIds: candidateIds,
+    }),
+    readCurrentConfigFallbacks({
+      businessId: input.businessId,
+      providerAccountIds: input.rows.map((row) => row.providerAccountId),
+    }),
+  ]);
 
   const repairedRows = input.rows.map((row) => {
     const snapshot = snapshots.get(row.campaignId);
+    const currentConfig =
+      currentConfigs.campaignConfigsByAccount
+        .get(row.providerAccountId)
+        ?.get(row.campaignId) ?? null;
     return mergeCurrentConfig(
-      row,
+      mergeCurrentConfig(
+        row,
+        currentConfig
+      ),
       snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null
     );
   });
@@ -793,16 +926,29 @@ async function repairAdSetRowsFromSnapshots(input: {
   );
   if (candidateIds.length === 0) return input.rows;
 
-  const snapshots = await readLatestMetaConfigSnapshots({
-    businessId: input.businessId,
-    entityLevel: "adset",
-    entityIds: candidateIds,
-  });
+  const [snapshots, currentConfigs] = await Promise.all([
+    readLatestMetaConfigSnapshots({
+      businessId: input.businessId,
+      entityLevel: "adset",
+      entityIds: candidateIds,
+    }),
+    readCurrentConfigFallbacks({
+      businessId: input.businessId,
+      providerAccountIds: input.rows.map((row) => row.providerAccountId),
+    }),
+  ]);
 
   const repairedRows = input.rows.map((row) => {
     const snapshot = snapshots.get(row.adsetId);
+    const currentConfig =
+      currentConfigs.adsetConfigsByAccount
+        .get(row.providerAccountId)
+        ?.get(row.adsetId) ?? null;
     return mergeCurrentConfig(
-      row,
+      mergeCurrentConfig(
+        row,
+        currentConfig
+      ),
       snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null
     );
   });
@@ -822,6 +968,61 @@ async function repairAdSetRowsFromSnapshots(input: {
   });
   if (changedRows.length > 0) await upsertMetaAdSetDailyRows(changedRows);
   return repairedRows;
+}
+
+export async function repairMetaWarehouseTruthRange(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}) {
+  const [campaignRows, adsetRows] = await Promise.all([
+    getMetaCampaignDailyRange(input),
+    getMetaAdSetDailyRange(input),
+  ]);
+
+  const [repairedCampaignRows, repairedAdSetRows] = await Promise.all([
+    repairCampaignRowsFromSnapshots({
+      businessId: input.businessId,
+      rows: campaignRows,
+    }),
+    repairAdSetRowsFromSnapshots({
+      businessId: input.businessId,
+      rows: adsetRows,
+    }),
+  ]);
+
+  return {
+    campaignRowsScanned: campaignRows.length,
+    adsetRowsScanned: adsetRows.length,
+    campaignRowsChanged: repairedCampaignRows.filter((row, index) => {
+      const prev = campaignRows[index];
+      return (
+        row.objective !== prev?.objective ||
+        row.optimizationGoal !== prev?.optimizationGoal ||
+        row.bidStrategyType !== prev?.bidStrategyType ||
+        row.bidStrategyLabel !== prev?.bidStrategyLabel ||
+        row.manualBidAmount !== prev?.manualBidAmount ||
+        row.bidValue !== prev?.bidValue ||
+        row.bidValueFormat !== prev?.bidValueFormat ||
+        row.dailyBudget !== prev?.dailyBudget ||
+        row.lifetimeBudget !== prev?.lifetimeBudget
+      );
+    }).length,
+    adsetRowsChanged: repairedAdSetRows.filter((row, index) => {
+      const prev = adsetRows[index];
+      return (
+        row.optimizationGoal !== prev?.optimizationGoal ||
+        row.bidStrategyType !== prev?.bidStrategyType ||
+        row.bidStrategyLabel !== prev?.bidStrategyLabel ||
+        row.manualBidAmount !== prev?.manualBidAmount ||
+        row.bidValue !== prev?.bidValue ||
+        row.bidValueFormat !== prev?.bidValueFormat ||
+        row.dailyBudget !== prev?.dailyBudget ||
+        row.lifetimeBudget !== prev?.lifetimeBudget
+      );
+    }).length,
+  };
 }
 
 function toObservedTimestamp(date: string) {

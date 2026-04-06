@@ -371,6 +371,7 @@ function r2(n: number): number {
 
 function applyConfigPayloadToDailyRow<
   T extends {
+    objective?: string | null;
     optimizationGoal?: string | null;
     bidStrategyType?: string | null;
     bidStrategyLabel?: string | null;
@@ -388,6 +389,7 @@ function applyConfigPayloadToDailyRow<
 >(row: T, payload: MetaConfigSnapshotPayload): T {
   return {
     ...row,
+    objective: payload.objective ?? row.objective ?? null,
     optimizationGoal: payload.optimizationGoal,
     bidStrategyType: payload.bidStrategyType,
     bidStrategyLabel: payload.bidStrategyLabel,
@@ -513,7 +515,65 @@ function buildMetaCampaignDailyConfigRow(input: {
     adsets: input.adsetPayloads,
   });
 
-  return applyConfigPayloadToDailyRow(input.campaignRow, campaignSummary);
+  return applyConfigPayloadToDailyRow(
+    {
+      ...input.campaignRow,
+      objective:
+        input.campaignRow.objective ??
+        input.latestCampaignSnapshot?.objective ??
+        null,
+    },
+    {
+      ...campaignSummary,
+      optimizationGoal:
+        campaignSummary.optimizationGoal ??
+        input.latestCampaignSnapshot?.optimizationGoal ??
+        null,
+      bidStrategyType:
+        campaignSummary.bidStrategyType ??
+        input.latestCampaignSnapshot?.bidStrategyType ??
+        null,
+      bidStrategyLabel:
+        campaignSummary.bidStrategyLabel ??
+        input.latestCampaignSnapshot?.bidStrategyLabel ??
+        null,
+      manualBidAmount:
+        campaignSummary.manualBidAmount ??
+        input.latestCampaignSnapshot?.manualBidAmount ??
+        null,
+      bidValue:
+        campaignSummary.bidValue ??
+        input.latestCampaignSnapshot?.bidValue ??
+        null,
+      bidValueFormat:
+        campaignSummary.bidValueFormat ??
+        input.latestCampaignSnapshot?.bidValueFormat ??
+        null,
+      dailyBudget:
+        campaignSummary.dailyBudget ??
+        input.latestCampaignSnapshot?.dailyBudget ??
+        null,
+      lifetimeBudget:
+        campaignSummary.lifetimeBudget ??
+        input.latestCampaignSnapshot?.lifetimeBudget ??
+        null,
+      isBudgetMixed:
+        Boolean(campaignSummary.isBudgetMixed) ||
+        Boolean(input.latestCampaignSnapshot?.isBudgetMixed),
+      isConfigMixed:
+        Boolean(campaignSummary.isConfigMixed) ||
+        Boolean(input.latestCampaignSnapshot?.isConfigMixed),
+      isOptimizationGoalMixed:
+        Boolean(campaignSummary.isOptimizationGoalMixed) ||
+        Boolean(input.latestCampaignSnapshot?.isOptimizationGoalMixed),
+      isBidStrategyMixed:
+        Boolean(campaignSummary.isBidStrategyMixed) ||
+        Boolean(input.latestCampaignSnapshot?.isBidStrategyMixed),
+      isBidValueMixed:
+        Boolean(campaignSummary.isBidValueMixed) ||
+        Boolean(input.latestCampaignSnapshot?.isBidValueMixed),
+    }
+  );
 }
 
 async function fetchPagedCollection<TItem>(initialUrl: string): Promise<TItem[]> {
@@ -737,6 +797,10 @@ export interface MetaBulkCoreSyncResult {
     maxRowsBuffered: number;
     flushThresholdRows: number;
     oversizeWarning: boolean;
+  };
+  incompleteTruthCounts?: {
+    campaigns: number;
+    adsets: number;
   };
 }
 
@@ -1125,6 +1189,88 @@ function seedMissingMetaEntitiesFromConfigs(
   }
 }
 
+function collectIncompleteCampaignTruth(input: {
+  rows: MetaCampaignDailyRow[];
+  campaignConfigs: Map<string, RawCampaign>;
+}) {
+  return input.rows
+    .map((row) => {
+      const config = input.campaignConfigs.get(row.campaignId);
+      if (!config) return null;
+      const missingFields: string[] = [];
+      if (config.objective != null && row.objective == null) missingFields.push("objective");
+      if (
+        (config.bid_strategy != null || config.bid_amount != null || config.bid_constraints?.roas_average_floor != null) &&
+        row.bidStrategyLabel == null
+      ) {
+        missingFields.push("bidStrategyLabel");
+      }
+      if (
+        (config.daily_budget != null || config.lifetime_budget != null) &&
+        row.dailyBudget == null &&
+        row.lifetimeBudget == null
+      ) {
+        missingFields.push("budget");
+      }
+      if (missingFields.length === 0) return null;
+      return {
+        campaignId: row.campaignId,
+        campaignName: row.campaignNameCurrent ?? row.campaignNameHistorical ?? null,
+        missingFields,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
+function collectIncompleteAdSetTruth(input: {
+  rows: MetaAdSetDailyRow[];
+  adsetConfigs: Map<string, RawAdSet>;
+  campaignConfigs: Map<string, RawCampaign>;
+}) {
+  return input.rows
+    .map((row) => {
+      const adsetConfig = input.adsetConfigs.get(row.adsetId) ?? null;
+      const campaignConfig = row.campaignId ? input.campaignConfigs.get(row.campaignId) ?? null : null;
+      if (!adsetConfig && !campaignConfig) return null;
+      const missingFields: string[] = [];
+      if (adsetConfig?.optimization_goal != null && row.optimizationGoal == null) {
+        missingFields.push("optimizationGoal");
+      }
+      if (
+        (
+          adsetConfig?.bid_strategy != null ||
+          adsetConfig?.bid_amount != null ||
+          adsetConfig?.bid_constraints?.roas_average_floor != null ||
+          campaignConfig?.bid_strategy != null ||
+          campaignConfig?.bid_amount != null ||
+          campaignConfig?.bid_constraints?.roas_average_floor != null
+        ) &&
+        row.bidStrategyLabel == null
+      ) {
+        missingFields.push("bidStrategyLabel");
+      }
+      if (
+        (
+          adsetConfig?.daily_budget != null ||
+          adsetConfig?.lifetime_budget != null ||
+          campaignConfig?.daily_budget != null ||
+          campaignConfig?.lifetime_budget != null
+        ) &&
+        row.dailyBudget == null &&
+        row.lifetimeBudget == null
+      ) {
+        missingFields.push("budget");
+      }
+      if (missingFields.length === 0) return null;
+      return {
+        adsetId: row.adsetId,
+        adsetName: row.adsetNameCurrent ?? row.adsetNameHistorical ?? null,
+        missingFields,
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
 export async function syncMetaAccountCoreWarehouseDay(input: {
   credentials: MetaCredentials;
   accountId: string;
@@ -1308,19 +1454,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, string>());
-  const adsetConfigUrl = new URL(
-    `https://graph.facebook.com/v25.0/${input.accountId}/adsets`
-  );
-  adsetConfigUrl.searchParams.set(
-    "fields",
-    "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
-  );
-  adsetConfigUrl.searchParams.set("limit", "500");
-  adsetConfigUrl.searchParams.set("access_token", input.credentials.accessToken);
-  const adsetConfigs = await fetchPagedCollection<RawAdSet>(adsetConfigUrl.toString())
-    .then((rows) => new Map(rows.map((row) => [row.id, row])))
-    .catch(() => new Map<string, RawAdSet>());
-  const campaignConfigs = await fetchCampaignConfigs(
+  const adsetConfigs = await fetchMetaAdSetConfigs(
+    input.accountId,
+    input.credentials.accessToken
+  ).catch(() => new Map<string, RawAdSet>());
+  const campaignConfigs = await fetchMetaCampaignConfigs(
     input.credentials,
     input.accountId,
     input.credentials.accessToken
@@ -1453,6 +1591,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         sourceSnapshotId,
       },
       campaignConfig: campaignConfigs.get(campaignId) ?? null,
+      latestCampaignSnapshot: latestCampaignSnapshots.get(campaignId) ?? null,
       adsetPayloads: adsetPayloadsByCampaign.get(campaignId) ?? [],
     });
   });
@@ -1507,6 +1646,30 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       sourceSnapshotId,
     },
   ];
+
+  const incompleteCampaignTruth = collectIncompleteCampaignTruth({
+    rows: campaignRows,
+    campaignConfigs,
+  });
+  const incompleteAdSetTruth = collectIncompleteAdSetTruth({
+    rows: adsetRows,
+    adsetConfigs,
+    campaignConfigs,
+  });
+  if (incompleteCampaignTruth.length > 0 || incompleteAdSetTruth.length > 0) {
+    console.warn("[meta-sync] incomplete_core_truth_detected", {
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      date: normalizedDay,
+      campaignCount: incompleteCampaignTruth.length,
+      adsetCount: incompleteAdSetTruth.length,
+      campaignSample: incompleteCampaignTruth.slice(0, 5),
+      adsetSample: incompleteAdSetTruth.slice(0, 5),
+    });
+    throw new Error(
+      `Meta core truth incomplete for ${normalizedDay}: campaigns=${incompleteCampaignTruth.length}, adsets=${incompleteAdSetTruth.length}`
+    );
+  }
 
   await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
@@ -1731,6 +1894,10 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       maxRowsBuffered,
       flushThresholdRows: META_MEMORY_FLUSH_THRESHOLD_ROWS,
       oversizeWarning,
+    },
+    incompleteTruthCounts: {
+      campaigns: incompleteCampaignTruth.length,
+      adsets: incompleteAdSetTruth.length,
     },
   };
 }
@@ -2006,7 +2173,7 @@ async function fetchCampaignStatuses(
   }
 }
 
-async function fetchCampaignConfigs(
+export async function fetchMetaCampaignConfigs(
   credentials: MetaCredentials,
   accountId: string,
   accessToken: string
@@ -2052,6 +2219,27 @@ async function fetchCampaignConfigs(
       },
     });
     return new Map();
+  }
+}
+
+export async function fetchMetaAdSetConfigs(
+  accountId: string,
+  accessToken: string
+): Promise<Map<string, RawAdSet>> {
+  const adsetConfigUrl = new URL(
+    `https://graph.facebook.com/v25.0/${accountId}/adsets`
+  );
+  adsetConfigUrl.searchParams.set(
+    "fields",
+    "id,name,campaign_id,effective_status,status,daily_budget,lifetime_budget,optimization_goal,bid_strategy,bid_amount,bid_constraints{roas_average_floor}"
+  );
+  adsetConfigUrl.searchParams.set("limit", "500");
+  adsetConfigUrl.searchParams.set("access_token", accessToken);
+  try {
+    const rows = await fetchPagedCollection<RawAdSet>(adsetConfigUrl.toString());
+    return new Map(rows.map((row) => [row.id, row]));
+  } catch {
+    return new Map<string, RawAdSet>();
   }
 }
 
@@ -2199,7 +2387,7 @@ export async function getCampaigns(
               normalizedUntil,
               credentials.accessToken
             ),
-            fetchCampaignConfigs(
+            fetchMetaCampaignConfigs(
               credentials,
               accountId,
               credentials.accessToken
@@ -2425,7 +2613,7 @@ export async function backfillMetaCampaignConfigSnapshots(input: {
 
   await Promise.all(
     accountIds.map(async (accountId) => {
-      const campaignConfigs = await fetchCampaignConfigs(
+      const campaignConfigs = await fetchMetaCampaignConfigs(
         credentials,
         accountId,
         credentials.accessToken,
@@ -2504,7 +2692,7 @@ export async function getAdSets(
         const [statusRes, insightRes, campaignConfigs] = await Promise.all([
           fetch(statusUrl.toString(), { cache: "no-store" }),
           fetch(insightUrl.toString(), { cache: "no-store" }),
-          fetchCampaignConfigs(credentials, accountId, credentials.accessToken),
+          fetchMetaCampaignConfigs(credentials, accountId, credentials.accessToken),
         ]);
 
         const statusJson = statusRes.ok

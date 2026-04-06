@@ -1,12 +1,18 @@
 import { loadEnvConfig } from "@next/env";
-import { getDb, resetDbClientCache } from "@/lib/db";
+import { getDbWithTimeout, resetDbClientCache } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 
 loadEnvConfig(process.cwd());
 
+const DEPLOY_MIGRATION_TIMEOUT_MS = 120_000;
+
 async function main() {
-  await runMigrations({ force: true, reason: "deploy" });
-  const sql = getDb();
+  await runMigrations({
+    force: true,
+    reason: "deploy",
+    timeoutMs: DEPLOY_MIGRATION_TIMEOUT_MS,
+  });
+  const sql = getDbWithTimeout(DEPLOY_MIGRATION_TIMEOUT_MS);
   const [verification] = (await sql`
     SELECT json_build_object(
       'metaSyncPartitionsLeaseEpochExists',

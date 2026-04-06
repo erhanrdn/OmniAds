@@ -894,4 +894,115 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     expect(configSnapshots.readLatestMetaConfigSnapshots).not.toHaveBeenCalled();
     expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
   });
+
+  it("fails core sync when required config truth is still missing", async () => {
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(configuration.buildConfigSnapshotPayload).mockImplementation((input) => ({
+      campaignId: input.campaignId ?? null,
+      objective: null,
+      optimizationGoal: null,
+      bidStrategyType: null,
+      bidStrategyLabel: null,
+      manualBidAmount: null,
+      bidValue: null,
+      bidValueFormat: null,
+      dailyBudget: null,
+      lifetimeBudget: null,
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      isOptimizationGoalMixed: false,
+      isBidStrategyMixed: false,
+      isBidValueMixed: false,
+    }));
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                objective: "OUTCOME_SALES",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                optimization_goal: "omni_purchase",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "10",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-1",
+        workerId: "worker-1",
+        leaseEpoch: 11,
+        attemptCount: 1,
+        leaseMinutes: 15,
+      })
+    ).rejects.toThrow("Meta core truth incomplete");
+  });
 });
