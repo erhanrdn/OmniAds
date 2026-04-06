@@ -96,7 +96,7 @@ function fmtBidValue(
 }
 
 function renderConfigText(value: string | null | undefined, isMixed?: boolean) {
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   if (isMixed) return language === "tr" ? "Karışık" : "Mixed";
   if (!value) return "—";
   return value;
@@ -181,7 +181,7 @@ function MicroBar({
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 export function StatusBadge({ status }: { status: string }) {
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   const lower = status.toLowerCase();
   if (lower === "active")
     return (
@@ -217,7 +217,7 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 function LaneBadge({ lane }: { lane: "Scaling" | "Validation" | "Test" }) {
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   if (lane === "Scaling") {
     return (
       <Badge className="border-0 bg-blue-500/10 text-blue-700 hover:bg-blue-500/15">
@@ -285,7 +285,7 @@ function AdSetSubTable({
   campaignPreviousBidValueCapturedAt: string | null | undefined;
 }) {
   const sym = useCurrencySymbol();
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   if (rows.length === 0) {
     return (
       <div className="px-4 py-3 text-xs text-muted-foreground">
@@ -477,7 +477,7 @@ function CampaignRow({
   isCampaignPrevLoading,
 }: CampaignRowProps) {
   const sym = useCurrencySymbol();
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   const colSpan = columns === "compact" ? 8 : 11;
   const showBudgetOnCampaignRow =
     campaign.budgetLevel === "campaign" &&
@@ -792,7 +792,7 @@ export function MetaCampaignTable({
   showMicroBars = false,
   columns = "full",
 }: MetaCampaignTableProps) {
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(campaigns.map((campaign) => campaign.id))
   );

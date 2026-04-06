@@ -453,23 +453,18 @@ function MetaStatusBanner({
 
 function NoAccountsAssigned() {
   const router = useRouter();
-  const language: "en" = "en";
   return (
     <div className="rounded-xl border border-dashed p-8 text-center">
-      <p className="text-sm font-medium">
-        {language === "tr" ? "Meta reklam hesabi atanmamis" : "No Meta ad accounts assigned"}
-      </p>
+      <p className="text-sm font-medium">No Meta ad accounts assigned</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        {language === "tr"
-          ? "Bu isletmeye bir veya daha fazla Meta reklam hesabi atayin."
-          : "Assign one or more Meta ad accounts to this business."}
+        Assign one or more Meta ad accounts to this business.
       </p>
       <Button
         className="mt-4"
         variant="outline"
         onClick={() => router.push("/integrations")}
       >
-        {language === "tr" ? "Entegrasyonlari ac" : "Open Integrations"}
+        Open Integrations
       </Button>
     </div>
   );
@@ -556,16 +551,11 @@ function LocationBreakdownList({
   rows: AggregatedBreakdownRow[];
 }) {
   const sym = useCurrencySymbol();
-  const language: "en" = "en";
   const total = rows.reduce((a, r) => a + r.spend, 0);
   const top = rows.slice(0, 7);
 
   if (top.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        {language === "tr" ? "Lokasyon verisi yok." : "No location data."}
-      </p>
-    );
+    return <p className="text-xs text-muted-foreground">No location data.</p>;
   }
 
   return (
@@ -640,7 +630,7 @@ function SidebarCard({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MetaPage() {
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
   const { plan: currentPlan } = usePlanState();
@@ -848,9 +838,7 @@ export default function MetaPage() {
       setRecommendationsError(
         result.error instanceof Error
           ? result.error.message
-          : language === "tr"
-            ? "AI analizi çalıştırılamadı."
-            : "AI analysis could not be completed."
+          : "AI analysis could not be completed."
       );
       return;
     }
@@ -1027,9 +1015,7 @@ export default function MetaPage() {
   const pageMessages = getMetaPageStatusMessaging(effectiveStatus, language);
   const metaAccountDayLabel =
     effectiveMetaReferenceDate && effectiveMetaTimeZoneLabel
-      ? language === "tr"
-        ? `Meta hesap günü: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
-        : `Meta account day: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
+      ? `Meta account day: ${formatMetaDate(effectiveMetaReferenceDate, language) ?? effectiveMetaReferenceDate} (${effectiveMetaTimeZoneLabel})`
       : null;
   const shouldMaskKpisAsPreparing = shouldMaskMetaKpisAsPreparing({
     status: effectiveStatus,
@@ -1134,9 +1120,7 @@ export default function MetaPage() {
             ) : null}
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            {language === "tr"
-              ? "Kampanya performansı, demografik kırılımlar ve ad set detay incelemesi."
-              : "Campaign performance, demographic breakdowns, and ad set drill-down."}
+            Campaign performance, demographic breakdowns, and ad set drill-down.
           </p>
           {metaConnected && metaAccountDayLabel ? (
             <p className="mt-1 text-xs text-muted-foreground">{metaAccountDayLabel}</p>
@@ -1159,13 +1143,9 @@ export default function MetaPage() {
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${(isManualRefreshRunning || isSyncInProgress) ? "animate-spin" : ""}`}
               />
-              {language === "tr"
-                ? isManualRefreshRunning || isSyncInProgress
-                  ? "Senkron devam ediyor"
-                  : "Veriyi yenile"
-                : isManualRefreshRunning || isSyncInProgress
-                  ? "Sync in progress"
-                  : "Refresh data"}
+              {isManualRefreshRunning || isSyncInProgress
+                ? "Sync in progress"
+                : "Refresh data"}
             </Button>
           )}
           <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">
@@ -1197,12 +1177,8 @@ export default function MetaPage() {
       {!metaConnected && showBootstrapGuard && (
         <LoadingSkeleton
           rows={4}
-          title={language === "tr" ? "Meta bağlantısı hazırlanıyor" : "Preparing Meta connection"}
-          description={
-            language === "tr"
-              ? "Bağlantı, hesap keşfi ve assignment durumu kontrol ediliyor."
-              : "We are checking the connection, available ad accounts, and assignment state."
-          }
+          title="Preparing Meta connection"
+          description="We are checking the connection, available ad accounts, and assignment state."
         />
       )}
 
@@ -1212,16 +1188,8 @@ export default function MetaPage() {
           status={
             metaView.status === "action_required" ? "error" : "disconnected"
           }
-          title={
-            language === "tr"
-              ? "Meta bağlantısını tamamlayın"
-              : "Finish connecting Meta"
-          }
-          description={
-            language === "tr"
-              ? "Kampanyaları, ad set'leri ve creative içgörülerini açmak için Meta hesabınızı bağlayın."
-              : "Connect your Meta account to unlock campaigns, ad sets, and creative insights."
-          }
+          title="Finish connecting Meta"
+          description="Connect your Meta account to unlock campaigns, ad sets, and creative insights."
         />
       )}
 
@@ -1231,7 +1199,7 @@ export default function MetaPage() {
           {/* ── KPI Row — unchanged ──────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
-                label={language === "tr" ? "Toplam Harcama" : "Total Spend"}
+                label="Total Spend"
                 value={
                   campaignsQuery.isLoading || shouldMaskKpisAsPreparing
                     ? "—"
@@ -1240,17 +1208,15 @@ export default function MetaPage() {
                 subLabel={
                   shouldMaskKpisAsPreparing
                     ? pageMessages.kpi.spendSubLabel
-                    : language === "tr"
-                      ? `${campaignsQuery.data?.rows?.length ?? 0} kampanya`
-                      : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
+                    : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
                 }
                 icon={DollarSign}
                 accentClass="border-l-4 border-l-blue-500/60"
-                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                comparisonLabel="vs previous period"
                 changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
               />
               <KpiCard
-                label={language === "tr" ? "Toplam Gelir" : "Total Revenue"}
+                label="Total Revenue"
                 value={
                   campaignsQuery.isLoading || shouldMaskKpisAsPreparing
                     ? "—"
@@ -1259,14 +1225,12 @@ export default function MetaPage() {
                 subLabel={
                   shouldMaskKpisAsPreparing
                     ? pageMessages.kpi.revenueSubLabel
-                    : language === "tr"
-                      ? "Atfedilen purchase'lar"
-                      : "Attributed purchases"
+                    : "Attributed purchases"
                 }
                 icon={TrendingUp}
                 accentClass="border-l-4 border-l-emerald-500/60"
                 valueClass="text-emerald-600"
-                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                comparisonLabel="vs previous period"
                 changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
               />
               <KpiCard
@@ -1279,13 +1243,11 @@ export default function MetaPage() {
                 subLabel={
                   shouldMaskKpisAsPreparing
                     ? pageMessages.kpi.avgCpaSubLabel
-                    : language === "tr"
-                      ? "Dönüşum basi maliyet"
-                      : "Cost per conversion"
+                    : "Cost per conversion"
                 }
                 icon={Target}
                 accentClass="border-l-4 border-l-violet-500/60"
-                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                comparisonLabel="vs previous period"
                 changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
                 positiveIsGood={false}
               />
@@ -1299,9 +1261,7 @@ export default function MetaPage() {
                 subLabel={
                   shouldMaskKpisAsPreparing
                     ? pageMessages.kpi.roasSubLabel
-                    : language === "tr"
-                      ? "Tum kampanyalar birlesik"
-                      : "All campaigns combined"
+                    : "All campaigns combined"
                 }
                 icon={BarChart2}
                 accentClass={
@@ -1319,7 +1279,7 @@ export default function MetaPage() {
                     : "text-red-500"
                 }
                 changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
-                comparisonLabel={language === "tr" ? "önceki döneme göre" : "vs previous period"}
+                comparisonLabel="vs previous period"
               />
           </div>
 
@@ -1327,12 +1287,8 @@ export default function MetaPage() {
           {campaignsQuery.isLoading && (
             <LoadingSkeleton
               rows={6}
-              title={language === "tr" ? "Kampanya performansı yükleniyor" : "Loading campaign performance"}
-              description={
-                language === "tr"
-                  ? "Önce Meta account-level özet hazırlanır, ardından kampanyalar ve kırılımlar açılır."
-                  : "Account-level performance is prepared first, then campaigns and breakdowns open."
-              }
+              title="Loading campaign performance"
+              description="Account-level performance is prepared first, then campaigns and breakdowns open."
             />
           )}
 
@@ -1341,8 +1297,6 @@ export default function MetaPage() {
               message={
                 campaignsQuery.error instanceof Error
                   ? campaignsQuery.error.message
-                  : language === "tr"
-                  ? "Kampanya verisi yüklenemedi."
                   : "Could not load campaign data."
               }
               language={language}
@@ -1402,7 +1356,7 @@ export default function MetaPage() {
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="border-b border-slate-100 px-3 py-2.5">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {language === "tr" ? "Kampanyalar" : "Campaigns"}
+                        Campaigns
                         <span className="ml-1.5 text-slate-300">{campaignRowsForTable.length}</span>
                       </p>
                     </div>
@@ -1420,7 +1374,7 @@ export default function MetaPage() {
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="border-b border-slate-100 px-3 py-2.5">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {language === "tr" ? "Ülkeler" : "Countries"}
+                        Countries
                       </p>
                     </div>
                     <div className="max-h-[108px] overflow-y-auto p-3">

@@ -340,7 +340,7 @@ export function MetaInsightPanel({
   onRetry: () => void;
   onOpenCampaign?: (campaignId: string) => void;
 }) {
-  const language: "en" = "en";
+  const language = "en" as "en" | "tr";
   const t = getTranslations(language).meta;
 
   if (isLoading) {

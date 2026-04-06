@@ -79,7 +79,7 @@ export function MetaActionQueue({
   showFullAnalysis,
   onToggleFullAnalysis,
 }: MetaActionQueueProps) {
-  const language: "en" = "en";
+  const language = "en";
 
   const sorted = [...recommendations].sort(
     (a, b) => DECISION_ORDER[a.decisionState] - DECISION_ORDER[b.decisionState]
@@ -123,20 +123,16 @@ export function MetaActionQueue({
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-              {language === "tr" ? "Aksiyon Kuyruğu" : "Action Queue"}
+              Action Queue
             </p>
-            <p className="text-sm text-muted-foreground">
-              {language === "tr"
-                ? "Analiz yüklenemedi"
-                : "Could not load analysis"}
-            </p>
+            <p className="text-sm text-muted-foreground">Could not load analysis</p>
           </div>
           <button
             type="button"
             onClick={onRetry}
             className="rounded-lg border px-3 py-1.5 text-xs font-medium hover:bg-muted"
           >
-            {language === "tr" ? "Tekrar dene" : "Retry"}
+            Retry
           </button>
         </div>
       </div>
@@ -149,13 +145,9 @@ export function MetaActionQueue({
     return (
       <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm shadow-slate-200/40">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-          {language === "tr" ? "Aksiyon Kuyruğu" : "Action Queue"}
+          Action Queue
         </p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {language === "tr"
-            ? "Güçlü bir sinyal tespit edilmedi."
-            : "No strong signals detected for this period."}
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">No strong signals detected for this period.</p>
       </div>
     );
   }
@@ -168,27 +160,23 @@ export function MetaActionQueue({
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {language === "tr" ? "Aksiyon Kuyruğu" : "Action Queue"}
+            Action Queue
           </p>
           <p className="text-sm font-semibold text-slate-950">
             {actCount > 0
-              ? language === "tr"
-                ? `${actCount} anlık aksiyon${actCount > 1 ? "" : ""}`
-                : `${actCount} immediate action${actCount !== 1 ? "s" : ""}`
-              : language === "tr"
-              ? "Anlık aksiyon gerekmiyor"
+              ? `${actCount} immediate action${actCount !== 1 ? "s" : ""}`
               : "No immediate actions required"}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
           {actCount > 0 && (
             <Badge className="border-0 bg-foreground text-background">
-              {actCount} {language === "tr" ? "AKSİYON" : "ACT"}
+              {actCount} ACT
             </Badge>
           )}
           {testCount > 0 && (
             <Badge className="border-0 bg-violet-500/10 text-violet-700">
-              {testCount} {language === "tr" ? "TEST" : "TEST"}
+              {testCount} TEST
             </Badge>
           )}
         </div>
@@ -212,7 +200,7 @@ export function MetaActionQueue({
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold text-slate-700">
                 {rec.campaignName ??
-                  (language === "tr" ? "Hesap Geneli" : "Account-level")}
+                  "Account-level"}
               </p>
               <p className="truncate text-[11px] text-slate-500">
                 {rec.recommendedAction}
@@ -229,7 +217,7 @@ export function MetaActionQueue({
                 onClick={() => onOpenCampaign(rec.campaignId!)}
                 className="shrink-0 text-[11px] font-medium text-blue-600 hover:underline"
               >
-                {language === "tr" ? "Git" : "View"}
+                View
               </button>
             )}
           </div>
@@ -243,11 +231,7 @@ export function MetaActionQueue({
         className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50"
       >
         {showFullAnalysis
-          ? language === "tr"
-            ? "Tam Analizi Gizle ▲"
-            : "Hide Full Analysis ▲"
-          : language === "tr"
-          ? "Tam AI Analizini Göster ▼"
+          ? "Hide Full Analysis ▲"
           : "Show Full AI Analysis ▼"}
       </button>
     </div>
