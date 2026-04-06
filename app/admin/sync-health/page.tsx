@@ -564,13 +564,13 @@ export default function AdminSyncHealthPage() {
                         Recent frontier: Search {business.recentSearchTermCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Products {business.recentProductCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Assets {business.recentAssetCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Extended recent ready-through {formatDateTime(business.extendedRecentReadyThroughDate ?? null)} • Block reason {business.extendedRecoveryBlockReason ?? "—"}
+                        Recent window ready-through {formatDateTime(business.extendedRecentReadyThroughDate ?? null)} • Block reason {business.extendedRecoveryBlockReason ?? "—"}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Checkpoint {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Resume {business.resumeCapable ? "yes" : "no"}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)} • Checkpoint {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
+                        Oldest remaining queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)} • Checkpoint {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Reclaim candidates {business.reclaimCandidateCount ?? 0} • Poison {business.poisonedCheckpointCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
@@ -582,7 +582,7 @@ export default function AdminSyncHealthPage() {
                         Quota calls {business.quotaCallCount ?? 0} • Quota errors {business.quotaErrorCount ?? 0} • Budget {business.quotaBudget ?? 0} • Pressure {Math.round((business.quotaPressure ?? 0) * 100)}%
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"}
+                        Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling prioritizes recent dates first
                       </p>
                       {business.latestPoisonReason ? (
                         <p className="mt-1 text-xs text-amber-700">
@@ -691,13 +691,13 @@ export default function AdminSyncHealthPage() {
                         <MetricPill label="Creative days" value={business.creativeCompletedDays} />
                       </div>
                       <p className="mt-3 text-xs text-gray-500">
-                        Recovery {business.effectiveMode ?? "core_only"} • Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"}
+                        Recovery {business.effectiveMode ?? "core_only"} • Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling prioritizes recent dates first
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Recent window {business.recentRangeTotalDays ?? 14}d • Account {business.recentAccountCompletedDays ?? 0} • Adset {business.recentAdsetCompletedDays ?? 0} • Creative {business.recentCreativeCompletedDays ?? 0} • Ad {business.recentAdCompletedDays ?? 0}
                       </p>
                       <p className="mt-3 text-xs text-gray-500">
-                        Oldest queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
+                        Oldest remaining queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
@@ -754,7 +754,7 @@ export default function AdminSyncHealthPage() {
                   </div>
                   <div className="text-right text-xs text-gray-400">
                     <p>Triggered: {formatDateTime(issue.triggeredAt)}</p>
-                    <p className="mt-1">Completed / until: {formatDateTime(issue.completedAt)}</p>
+                    <p className="mt-1">Oldest remaining queued: {formatDateTime(issue.completedAt)}</p>
                   </div>
                 </div>
               </div>

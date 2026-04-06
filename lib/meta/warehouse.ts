@@ -499,6 +499,9 @@ export async function leaseMetaSyncPartitions(input: {
           OR (status = 'failed' AND COALESCE(next_retry_at, now()) <= now())
           OR (status = 'leased' AND COALESCE(lease_expires_at, now()) <= now())
         )
+      -- Platform sync policy: always prepare the newest user-visible dates first.
+      -- Recent and historical/backfill queues both run newest-first so a newly
+      -- connected workspace becomes useful on current dates before older history fills in.
       ORDER BY
         priority DESC,
         CASE source

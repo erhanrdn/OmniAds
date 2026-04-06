@@ -128,8 +128,8 @@ function buildPanelSurfaceState(input: {
     ...base,
     state: "extended_backfilling",
     message: input.readyThroughDate
-      ? `${input.label} is backfilling in the background. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.`
-      : `${input.label} is backfilling in the background. Coverage: ${coverageLabel}.`,
+      ? `${input.label} is backfilling in the background with recent dates prioritized first. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.`
+      : `${input.label} is backfilling in the background with recent dates prioritized first. Coverage: ${coverageLabel}.`,
   };
 }
 
@@ -1300,7 +1300,8 @@ export async function GET(request: NextRequest) {
   const historicalBackfillPercent = historicalExtendedReady
     ? 100
     : Math.max(0, Math.min(99, Math.round(averageHistoricalCompletionRatio * 100)));
-  const historicalProgressSummary = "Historical sync continues in the background.";
+  const historicalProgressSummary =
+    "Historical sync continues in the background with recent dates prioritized first.";
   const surfaceLabels: Record<keyof typeof selectedCoverageByScope, string> = {
     search_term_daily: "Search intelligence",
     product_daily: "Product performance",

@@ -22,7 +22,7 @@ describe("google ads sync progress ux", () => {
       historicalProgress: {
         percent: 52,
         visible: true,
-        summary: "Historical sync continues in the background.",
+        summary: "Historical sync continues in the background with recent dates prioritized first.",
       },
     };
 
@@ -47,7 +47,7 @@ describe("google ads sync progress ux", () => {
       historicalProgress: {
         percent: 61,
         visible: true,
-        summary: "Historical sync continues in the background.",
+        summary: "Historical sync continues in the background with recent dates prioritized first.",
       },
     };
 
@@ -55,7 +55,7 @@ describe("google ads sync progress ux", () => {
       kind: "historical",
       percent: 61,
       title: "Historical sync continues",
-      description: "Historical sync continues in the background.",
+      description: "Historical sync continues in the background with recent dates prioritized first.",
       tone: "secondary",
     });
   });
@@ -80,7 +80,7 @@ describe("google ads sync progress ux", () => {
       historicalProgress: {
         percent: 61,
         visible: true,
-        summary: "Historical sync continues in the background.",
+        summary: "Historical sync continues in the background with recent dates prioritized first.",
       },
     };
 
@@ -88,7 +88,7 @@ describe("google ads sync progress ux", () => {
       kind: "historical",
       percent: 61,
       title: "Historical sync continues",
-      description: "Historical sync continues in the background.",
+      description: "Historical sync continues in the background with recent dates prioritized first.",
       tone: "secondary",
     });
   });

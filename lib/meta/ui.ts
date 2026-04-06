@@ -133,8 +133,8 @@ export function getMetaSyncDescription(
   }
   if (status.readinessLevel === "usable" && status.state !== "ready") {
     return language === "tr"
-      ? "Özet ve kampanya görünümü hazır. Breakdown ve kreatif yüzeyleri arka planda tamamlanıyor."
-      : "Summary and campaign views are ready. Breakdown and creative surfaces are still completing in the background.";
+      ? "Özet ve kampanya görünümü hazır. Yakın tarihler önde tutulur; breakdown ve kreatif yüzeyleri arka planda tamamlanır."
+      : "Summary and campaign views are ready. Recent dates are prioritized first while breakdown and creative surfaces continue in the background.";
   }
   if (status.state === "paused") {
     return language === "tr"
@@ -143,8 +143,8 @@ export function getMetaSyncDescription(
   }
   if (status.state === "partial") {
     return language === "tr"
-      ? "Hazır olan bölümleri kullanabilirsiniz; kalan geçmiş veri arka planda hazırlanmaya devam eder."
-      : "You can use the sections that are ready while the remaining history continues preparing in the background.";
+      ? "Hazır olan yakın tarih bölümlerini kullanabilirsiniz; kalan geçmiş veri arka planda hazırlanmaya devam eder."
+      : "You can use the recent sections that are ready while older history continues preparing in the background.";
   }
   if (status.state === "action_required") {
     return language === "tr"
