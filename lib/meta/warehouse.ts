@@ -754,65 +754,49 @@ export async function reserveNextMetaAuthoritativeCandidateVersion(input: {
   return Number(rows[0]?.next_candidate_version ?? 1);
 }
 
-export async function createMetaAuthoritativeSliceVersion(
-  input: Omit<MetaAuthoritativeSliceVersionRecord, "candidateVersion"> & {
-    candidateVersion?: number;
-  },
-) {
+const META_AUTHORITATIVE_CANDIDATE_CREATE_MAX_ATTEMPTS = 5;
+
+function isPgUniqueViolation(error: unknown) {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as { code?: string }).code === "23505"
+  );
+}
+
+function isMetaAuthoritativeSliceVersionConflict(error: unknown) {
+  if (!isPgUniqueViolation(error)) return false;
+  const constraint =
+    "constraint" in (error as object)
+      ? String((error as { constraint?: string }).constraint ?? "")
+      : "";
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    constraint.includes("meta_authoritative_slice_vers") ||
+    message.includes("meta_authoritative_slice_vers")
+  );
+}
+
+async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  sourceRunId?: string | null;
+}) {
+  if (!input.sourceRunId) return null;
   await runMigrations();
   const sql = getDb();
-  const candidateVersion =
-    input.candidateVersion ??
-    (await reserveNextMetaAuthoritativeCandidateVersion({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      day: input.day,
-      surface: input.surface,
-    }));
   const rows = await sql`
-    INSERT INTO meta_authoritative_slice_versions (
-      business_id,
-      provider_account_id,
-      day,
-      surface,
-      manifest_id,
-      candidate_version,
-      state,
-      truth_state,
-      validation_status,
-      status,
-      staged_row_count,
-      aggregated_spend,
-      validation_summary,
-      source_run_id,
-      stage_started_at,
-      stage_completed_at,
-      published_at,
-      superseded_at,
-      updated_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.providerAccountId},
-      ${normalizeDate(input.day)},
-      ${input.surface},
-      ${input.manifestId ?? null},
-      ${candidateVersion},
-      ${input.state},
-      ${input.truthState},
-      ${input.validationStatus},
-      ${input.status},
-      ${input.stagedRowCount ?? null},
-      ${input.aggregatedSpend ?? null},
-      ${JSON.stringify(input.validationSummary ?? {})}::jsonb,
-      ${input.sourceRunId ?? null},
-      ${input.stageStartedAt ?? null},
-      ${input.stageCompletedAt ?? null},
-      ${input.publishedAt ?? null},
-      ${input.supersededAt ?? null},
-      now()
-    )
-    RETURNING *
+    SELECT *
+    FROM meta_authoritative_slice_versions
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day = ${normalizeDate(input.day)}
+      AND surface = ${input.surface}
+      AND source_run_id = ${input.sourceRunId}
+    ORDER BY candidate_version DESC, created_at DESC
+    LIMIT 1
   ` as Array<{
     id: string;
     business_id: string;
@@ -837,6 +821,120 @@ export async function createMetaAuthoritativeSliceVersion(
     updated_at: string;
   }>;
   return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
+}
+
+export async function createMetaAuthoritativeSliceVersion(
+  input: Omit<MetaAuthoritativeSliceVersionRecord, "candidateVersion"> & {
+    candidateVersion?: number;
+  },
+) {
+  await runMigrations();
+  const sql = getDb();
+  const existingForRun = await getExistingMetaAuthoritativeSliceVersionForRun(input);
+  if (existingForRun) return existingForRun;
+
+  let lastError: unknown = null;
+  for (
+    let attempt = 1;
+    attempt <= META_AUTHORITATIVE_CANDIDATE_CREATE_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    const candidateVersion =
+      input.candidateVersion ??
+      (await reserveNextMetaAuthoritativeCandidateVersion({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day: input.day,
+        surface: input.surface,
+      }));
+    try {
+      const rows = await sql`
+        INSERT INTO meta_authoritative_slice_versions (
+          business_id,
+          provider_account_id,
+          day,
+          surface,
+          manifest_id,
+          candidate_version,
+          state,
+          truth_state,
+          validation_status,
+          status,
+          staged_row_count,
+          aggregated_spend,
+          validation_summary,
+          source_run_id,
+          stage_started_at,
+          stage_completed_at,
+          published_at,
+          superseded_at,
+          updated_at
+        )
+        VALUES (
+          ${input.businessId},
+          ${input.providerAccountId},
+          ${normalizeDate(input.day)},
+          ${input.surface},
+          ${input.manifestId ?? null},
+          ${candidateVersion},
+          ${input.state},
+          ${input.truthState},
+          ${input.validationStatus},
+          ${input.status},
+          ${input.stagedRowCount ?? null},
+          ${input.aggregatedSpend ?? null},
+          ${JSON.stringify(input.validationSummary ?? {})}::jsonb,
+          ${input.sourceRunId ?? null},
+          ${input.stageStartedAt ?? null},
+          ${input.stageCompletedAt ?? null},
+          ${input.publishedAt ?? null},
+          ${input.supersededAt ?? null},
+          now()
+        )
+        RETURNING *
+      ` as Array<{
+        id: string;
+        business_id: string;
+        provider_account_id: string;
+        day: string;
+        surface: MetaWarehouseScope;
+        manifest_id: string | null;
+        candidate_version: number;
+        state: MetaAuthoritativeSliceVersionRecord["state"];
+        truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+        validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+        status: MetaAuthoritativeSliceVersionRecord["status"];
+        staged_row_count: number | null;
+        aggregated_spend: number | null;
+        validation_summary: Record<string, unknown> | null;
+        source_run_id: string | null;
+        stage_started_at: string | null;
+        stage_completed_at: string | null;
+        published_at: string | null;
+        superseded_at: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+      return rows[0] ? mapMetaAuthoritativeSliceVersionRow(rows[0]) : null;
+    } catch (error) {
+      if (!isMetaAuthoritativeSliceVersionConflict(error)) {
+        throw error;
+      }
+      lastError = error;
+      const existingAfterConflict =
+        await getExistingMetaAuthoritativeSliceVersionForRun(input);
+      if (existingAfterConflict) return existingAfterConflict;
+      if (input.candidateVersion != null) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(
+        "Failed to create Meta authoritative slice version after retrying unique conflicts.",
+      );
 }
 
 export async function updateMetaAuthoritativeSliceVersion(input: {

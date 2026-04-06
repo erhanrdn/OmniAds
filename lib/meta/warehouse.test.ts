@@ -1361,6 +1361,134 @@ describe("meta warehouse ownership safety", () => {
     ).toBe(true);
   });
 
+  it("reuses an existing slice version for the same source run id", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_authoritative_slice_versions") && query.includes("source_run_id")) {
+        return [
+          {
+            id: "slice-existing",
+            business_id: "biz-1",
+            provider_account_id: "acct-1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            manifest_id: "manifest-1",
+            candidate_version: 4,
+            state: "finalizing",
+            truth_state: "finalized",
+            validation_status: "pending",
+            status: "staging",
+            staged_row_count: 12,
+            aggregated_spend: 42.5,
+            validation_summary: { retried: true },
+            source_run_id: "run-1",
+            stage_started_at: "2026-04-06T00:01:00.000Z",
+            stage_completed_at: null,
+            published_at: null,
+            superseded_at: null,
+            created_at: "2026-04-06T00:01:00.000Z",
+            updated_at: "2026-04-06T00:01:00.000Z",
+          },
+        ];
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const slice = await createMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "account_daily",
+      manifestId: "manifest-1",
+      state: "finalizing",
+      truthState: "finalized",
+      validationStatus: "pending",
+      status: "staging",
+      stagedRowCount: 12,
+      aggregatedSpend: 42.5,
+      validationSummary: {},
+      sourceRunId: "run-1",
+      stageStartedAt: "2026-04-06T00:01:00.000Z",
+    });
+
+    expect(slice?.id).toBe("slice-existing");
+    expect(slice?.candidateVersion).toBe(4);
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries candidate version creation after a unique conflict", async () => {
+    let insertAttempts = 0;
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_authoritative_slice_versions") && query.includes("source_run_id")) {
+        return [];
+      }
+      if (query.includes("SELECT COALESCE(MAX(candidate_version), 0) + 1")) {
+        return [{ next_candidate_version: insertAttempts === 0 ? 2 : 3 }];
+      }
+      if (query.includes("INSERT INTO meta_authoritative_slice_versions")) {
+        insertAttempts += 1;
+        if (insertAttempts === 1) {
+          const error = new Error(
+            'duplicate key value violates unique constraint "meta_authoritative_slice_vers_business_id_provider_account__key"',
+          ) as Error & { code?: string; constraint?: string };
+          error.code = "23505";
+          error.constraint = "meta_authoritative_slice_vers_business_id_provider_account__key";
+          throw error;
+        }
+        return [
+          {
+            id: "slice-3",
+            business_id: "biz-1",
+            provider_account_id: "acct-1",
+            day: "2026-04-05",
+            surface: "campaign_daily",
+            manifest_id: "manifest-1",
+            candidate_version: 3,
+            state: "finalizing",
+            truth_state: "finalized",
+            validation_status: "pending",
+            status: "staging",
+            staged_row_count: 9,
+            aggregated_spend: 12.5,
+            validation_summary: {},
+            source_run_id: "run-2",
+            stage_started_at: "2026-04-06T00:01:00.000Z",
+            stage_completed_at: null,
+            published_at: null,
+            superseded_at: null,
+            created_at: "2026-04-06T00:01:00.000Z",
+            updated_at: "2026-04-06T00:01:00.000Z",
+          },
+        ];
+      }
+      throw new Error(`Unexpected query: ${query}`);
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const slice = await createMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-05",
+      surface: "campaign_daily",
+      manifestId: "manifest-1",
+      state: "finalizing",
+      truthState: "finalized",
+      validationStatus: "pending",
+      status: "staging",
+      stagedRowCount: 9,
+      aggregatedSpend: 12.5,
+      validationSummary: {},
+      sourceRunId: "run-2",
+      stageStartedAt: "2026-04-06T00:01:00.000Z",
+    });
+
+    expect(slice?.id).toBe("slice-3");
+    expect(slice?.candidateVersion).toBe(3);
+    expect(insertAttempts).toBe(2);
+  });
+
   it("looks up the active published slice version for a historical surface", async () => {
     const sql = vi.fn(async () => [
       {
