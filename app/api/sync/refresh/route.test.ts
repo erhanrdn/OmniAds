@@ -319,6 +319,22 @@ describe("POST /api/sync/refresh", () => {
       businessId: "biz",
       queuedCore: 1,
       queuedMaintenance: 0,
+      queueDepth: 1,
+      leasedPartitions: 0,
+      recentAutoHeal: {
+        accountsScanned: 0,
+        recentDaysScanned: 0,
+        dirtyDaysFound: 0,
+        oldestDirtyDate: null,
+        finalizeEnqueued: 0,
+        repairEnqueued: 0,
+        skippedActiveDuplicate: 0,
+        skippedCooldown: 0,
+        skippedRecentSuccess: 0,
+        skippedRepeatedFailures: 0,
+        reasonCounts: {},
+      },
+      cancelledObsoletePartitions: 0,
     });
 
     const response = await POST(buildRequest({ businessId: "biz", provider: "meta" }));

@@ -51,7 +51,14 @@ export const DEFAULT_DATE_RANGE: DateRangeValue = {
   comparisonEnd: "",
 };
 
-const RANGE_PRESETS: Array<{ value: RangePreset; label: string; hint: string; group: string }> = [
+type PresetOption<TValue extends string> = {
+  value: TValue;
+  label: string;
+  hint: string;
+  group: string;
+};
+
+const RANGE_PRESETS: ReadonlyArray<PresetOption<RangePreset>> = [
   { value: "today", label: "Today", hint: "Only the current day", group: "Quick Select" },
   { value: "yesterday", label: "Yesterday", hint: "Previous completed day", group: "Quick Select" },
   { value: "3d", label: "Last 3 days", hint: "Short performance pulse", group: "Rolling Windows" },
@@ -64,7 +71,7 @@ const RANGE_PRESETS: Array<{ value: RangePreset; label: string; hint: string; gr
   { value: "custom", label: "Custom range", hint: "Pick exact dates", group: "Custom" },
 ];
 
-const COMPARISON_PRESETS: Array<{ value: ComparisonPreset; label: string; hint: string; group: string }> = [
+const COMPARISON_PRESETS: ReadonlyArray<PresetOption<ComparisonPreset>> = [
   { value: "none", label: "None", hint: "Keep the view focused on one period", group: "Compare" },
   { value: "custom", label: "Custom range", hint: "Pick exact comparison dates", group: "Compare" },
   { value: "previousPeriod", label: "Previous period", hint: "Same length immediately before", group: "Compare" },
@@ -333,7 +340,9 @@ function buildMonthGrid(year: number, month: number): Array<string | null> {
   return cells;
 }
 
-function getPresetSections<T extends { group: string }>(items: T[]): Array<{ label: string; items: T[] }> {
+function getPresetSections<T extends { group: string }>(
+  items: ReadonlyArray<T>
+): Array<{ label: string; items: T[] }> {
   const sections = new Map<string, T[]>();
   for (const item of items) {
     if (!sections.has(item.group)) sections.set(item.group, []);
@@ -606,7 +615,7 @@ function RangePanel({
   onDraftChange: (value: DateRangeValue) => void;
   onApply: (nextDraft?: DateRangeValue) => void;
   onCancel: () => void;
-  rangePresets: Array<{ value: RangePreset; label: string; hint: string; group: string }>;
+  rangePresets: ReadonlyArray<PresetOption<RangePreset>>;
   referenceDate?: string;
   timeZoneLabel?: string;
 }) {
@@ -738,7 +747,7 @@ function ComparisonPanel({
   onDraftChange: (value: DateRangeValue) => void;
   onApply: (nextDraft?: DateRangeValue) => void;
   onCancel: () => void;
-  comparisonPresets: Array<{ value: ComparisonPreset; label: string; hint: string; group: string }>;
+  comparisonPresets: ReadonlyArray<PresetOption<ComparisonPreset>>;
   referenceDate?: string;
 }) {
   const presetSections = getPresetSections(comparisonPresets);

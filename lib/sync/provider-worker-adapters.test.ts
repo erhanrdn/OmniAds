@@ -226,7 +226,7 @@ describe("provider-worker-adapters", () => {
         leaseOwner: "worker-1",
         attemptCount: 0,
         source: "historical",
-      },
+      } as never,
       chunk: {},
     });
 
@@ -255,7 +255,7 @@ describe("provider-worker-adapters", () => {
         leaseOwner: "worker-1",
         attemptCount: 1,
         source: "selected_range",
-      },
+      } as never,
       chunk: {},
     });
 
@@ -282,7 +282,7 @@ describe("provider-worker-adapters", () => {
         scope: "campaign_daily",
         partitionDate: "2026-03-01",
         leaseOwner: "worker-1",
-      },
+      } as never,
       chunk: {
         pageIndex: 2,
         nextCursor: "token-2",

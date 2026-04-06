@@ -8,15 +8,27 @@ import {
 } from "@/lib/google-ads/advisor-ux";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 
+function buildOperations(
+  overrides: Partial<NonNullable<GoogleAdsStatusResponse["operations"]>> = {}
+): NonNullable<GoogleAdsStatusResponse["operations"]> {
+  return {
+    currentMode: "canary_reopen",
+    canaryEligible: false,
+    quotaPressure: 0,
+    breakerState: "closed",
+    ...overrides,
+  };
+}
+
 function buildStatus(
   overrides: Partial<GoogleAdsStatusResponse> = {}
 ): GoogleAdsStatusResponse {
   return {
+    ...overrides,
     state: "advisor_not_ready",
     connected: true,
     assignedAccountIds: ["acct_1"],
-    operations: {},
-    ...overrides,
+    operations: buildOperations(overrides.operations ?? undefined),
   };
 }
 
@@ -74,7 +86,7 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorHelperText({
         status: buildStatus({
-          operations: { advisorSnapshotBlockedReason: "recent90_incomplete" },
+          operations: buildOperations({ advisorSnapshotBlockedReason: "recent90_incomplete" }),
         }),
         ctaState: "blocked",
         advisorIsStale: false,
@@ -87,9 +99,9 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorHelperText({
         status: buildStatus({
-          operations: {
+          operations: buildOperations({
             advisorSnapshotBlockedReason: "recent_required_dead_letter_partitions",
-          },
+          }),
         }),
         ctaState: "blocked",
         advisorIsStale: false,
@@ -121,10 +133,10 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorIdleState(
         buildStatus({
-          operations: {
+          operations: buildOperations({
             statusDegraded: true,
             statusDegradedReason: "Analysis status is degraded: queue_health timed out.",
-          },
+          }),
         })
       )
     ).toEqual({
@@ -137,11 +149,11 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorIdleState(
         buildStatus({
-          operations: {
+          operations: buildOperations({
             fullSyncPriorityRequired: true,
             fullSyncPriorityReason:
               "Advisor blocked by missing extended historical support; prioritizing full sync.",
-          },
+          }),
         })
       )
     ).toEqual({

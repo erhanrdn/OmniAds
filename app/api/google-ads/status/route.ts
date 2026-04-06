@@ -41,6 +41,7 @@ import {
   getProviderCircuitBreakerRecoveryState,
   getProviderQuotaBudgetState,
 } from "@/lib/provider-request-governance";
+import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
 import {
   buildGoogleAdsLaneAdmissionPolicy,
   getGoogleAdsExtendedRecoveryBlockReason,
@@ -257,16 +258,6 @@ function getTodayIsoForTimeZoneServer(timeZone: string) {
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
-}
-
-function getCurrentRuntimeBuildId() {
-  return (
-    process.env.APP_BUILD_ID?.trim() ||
-    process.env.NEXT_BUILD_ID?.trim() ||
-    process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
-    process.env.RENDER_GIT_COMMIT?.trim() ||
-    "dev-build"
-  );
 }
 
 function summarizeStatusDegradedReason(reasons: string[]) {

@@ -138,7 +138,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     } as never);
     vi.mocked(warehouse.completeMetaPartition).mockResolvedValue(true);
     vi.mocked(warehouse.updateMetaSyncRun).mockResolvedValue(undefined);
-    vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue(null);
+    vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaPartitionStatesForDate).mockResolvedValue(new Map());
     vi.mocked(warehouse.queueMetaSyncPartition).mockResolvedValue({
       id: "queued-1",
@@ -357,7 +357,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
 
   it("logs denial snapshots with recoveredRunId when run creation returned null", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null);
+    vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null as never);
     vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue("run-recovered");
     vi.mocked(warehouse.completeMetaPartitionAttempt).mockResolvedValue({
       ok: false,
@@ -563,7 +563,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
   });
 
   it("recovers the current running run id when run creation returns null", async () => {
-    vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null);
+    vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue(null as never);
     vi.mocked(warehouse.getLatestRunningMetaSyncRunIdForPartition).mockResolvedValue("run-recovered");
 
     const processed = await processMetaLifecyclePartition({

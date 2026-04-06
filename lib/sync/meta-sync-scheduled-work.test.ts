@@ -87,6 +87,10 @@ const apiMeta = await import("@/lib/api/meta");
 const warehouse = await import("@/lib/meta/warehouse");
 const { enqueueMetaScheduledWork } = await import("@/lib/sync/meta-sync");
 
+type QueueMetaPartitionInput = Parameters<typeof warehouse.queueMetaSyncPartition>[0];
+type RecentAuthoritativeSliceGuardInput =
+  Parameters<typeof warehouse.getMetaRecentAuthoritativeSliceGuard>[0];
+
 describe("enqueueMetaScheduledWork", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -118,10 +122,9 @@ describe("enqueueMetaScheduledWork", () => {
     } as never);
     vi.mocked(warehouse.getMetaIncompleteCoreDates).mockResolvedValue([]);
     vi.mocked(warehouse.getMetaPartitionStatesForDate).mockResolvedValue(new Map());
-    vi.mocked(warehouse.queueMetaSyncPartition).mockImplementation(async (input: never) => ({
+    vi.mocked(warehouse.queueMetaSyncPartition).mockImplementation(async (input: QueueMetaPartitionInput) => ({
       id: `${input.providerAccountId}:${input.partitionDate}:${input.scope}`,
       status: "queued",
-      ...input,
     }));
   });
 
@@ -334,7 +337,7 @@ describe("enqueueMetaScheduledWork", () => {
       ] as never)
       .mockResolvedValueOnce([] as never);
     vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard)
-      .mockImplementation(async ({ providerAccountId, date, source }: never) => {
+      .mockImplementation(async ({ providerAccountId, date, source }: RecentAuthoritativeSliceGuardInput) => {
         if (providerAccountId === "act_1" && date === "2026-04-05" && source === "finalize_day") {
           return {
             activeAuthoritativeSource: "finalize_day",

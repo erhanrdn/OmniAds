@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 
 vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
@@ -61,6 +62,60 @@ const shopifyOverview = await import("@/lib/shopify/overview");
 const shopifyReadAdapter = await import("@/lib/shopify/read-adapter");
 const { getOverviewData, getShopifyOverviewServingData } = await import("@/lib/overview-service");
 
+function buildReadCandidate(
+  overrides: Partial<Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>>> = {}
+): Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>> {
+  return {
+    status: buildShopifyStatus(),
+    live: null,
+    warehouse: null,
+    ledger: null,
+    override: null,
+    divergence: null,
+    ledgerConsistency: null,
+    decisionReasons: [],
+    canaryEnabled: false,
+    preferredSource: "none",
+    canServeWarehouse: false,
+    servingMetadata: {
+      source: "none",
+      provider: "shopify",
+      trustState: "no_data",
+      fallbackReason: null,
+      lastSyncedAt: null,
+      coverageStatus: "unknown",
+      productionMode: "disabled",
+      pendingRepair: false,
+      pendingRepairStartedAt: null,
+      pendingRepairLastTopic: null,
+      pendingRepairLastReceivedAt: null,
+      selectedRevenueTruthBasis: null,
+      basisSelectionReason: null,
+      transactionCoverageOrderRate: null,
+      transactionCoverageAmountRate: null,
+      explainedAdjustmentRevenue: 0,
+      unexplainedAdjustmentRevenue: 0,
+    },
+    ...overrides,
+  };
+}
+
+function buildShopifyStatus(
+  overrides: Partial<Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>>["status"]> = {}
+): ShopifyStatusResponse {
+  return {
+    state: "not_connected",
+    connected: false,
+    shopId: null,
+    warehouse: null,
+    sync: null,
+    serving: null,
+    reconciliation: null,
+    issues: [],
+    ...overrides,
+  };
+}
+
 describe("getOverviewData", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -68,23 +123,11 @@ describe("getOverviewData", () => {
     vi.mocked(demo.isDemoBusinessId).mockReturnValue(false);
     vi.mocked(reportingCache.getCachedReport).mockResolvedValue(null);
     vi.mocked(shopifyOverview.getShopifyOverviewAggregate).mockResolvedValue(null);
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      status: {
-        state: "not_connected",
-        connected: false,
-        shopId: null,
-        warehouse: null,
-        sync: null,
-        issues: [],
-      },
-      live: null,
-      warehouse: null,
-      divergence: null,
-      decisionReasons: ["warehouse_read_canary_disabled"],
-      canaryEnabled: false,
-      preferredSource: "none",
-      canServeWarehouse: false,
-    });
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue(
+      buildReadCandidate({
+        decisionReasons: ["warehouse_read_canary_disabled"],
+      })
+    );
     vi.mocked(googleServing.getGoogleAdsOverviewReport).mockResolvedValue({
       kpis: {
         spend: 0,
@@ -140,7 +183,6 @@ describe("getOverviewData", () => {
   it("keeps historical Meta warehouse contribution even when the integration is disconnected", async () => {
     const overview = await getOverviewData({
       businessId: "biz",
-      dateRange: "custom",
       startDate: "2026-03-01",
       endDate: "2026-03-15",
       includeTrends: false,
@@ -154,14 +196,11 @@ describe("getOverviewData", () => {
 
   it("marks ecommerce KPIs as Shopify live fallback when only live aggregate is present", async () => {
     vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      status: {
+      status: buildShopifyStatus({
         state: "ready",
         connected: true,
         shopId: "test-shop.myshopify.com",
-        warehouse: null,
-        sync: null,
-        issues: [],
-      },
+      }),
       live: {
         revenue: 900,
         purchases: 9,
@@ -178,7 +217,7 @@ describe("getOverviewData", () => {
       canaryEnabled: false,
       preferredSource: "live",
       canServeWarehouse: false,
-    });
+    } as never);
 
     const overview = await getOverviewData({
       businessId: "biz",
@@ -211,14 +250,11 @@ describe("getOverviewData", () => {
 
   it("uses warehouse canary aggregate when it is selected", async () => {
     vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      status: {
+      status: buildShopifyStatus({
         state: "ready",
         connected: true,
         shopId: "test-shop.myshopify.com",
-        warehouse: null,
-        sync: null,
-        issues: [],
-      },
+      }),
       live: {
         revenue: 900,
         purchases: 9,
@@ -285,7 +321,7 @@ describe("getOverviewData", () => {
         explainedAdjustmentRevenue: 0,
         unexplainedAdjustmentRevenue: 0,
       },
-    });
+    } as never);
 
     const overview = await getOverviewData({
       businessId: "biz",
@@ -305,14 +341,11 @@ describe("getOverviewData", () => {
 
   it("preserves warehouse-only Shopify store metrics for summary surfaces", async () => {
     vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      status: {
+      status: buildShopifyStatus({
         state: "ready",
         connected: true,
         shopId: "test-shop.myshopify.com",
-        warehouse: null,
-        sync: null,
-        issues: [],
-      },
+      }),
       live: {
         revenue: 900,
         purchases: 9,
@@ -382,7 +415,7 @@ describe("getOverviewData", () => {
         explainedAdjustmentRevenue: 0,
         unexplainedAdjustmentRevenue: 0,
       },
-    });
+    } as never);
 
     const result = await getShopifyOverviewServingData({
       businessId: "biz",
@@ -413,14 +446,11 @@ describe("getOverviewData", () => {
 
   it("prefers ledger revenue truth when ledger serving is selected", async () => {
     vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      status: {
+      status: buildShopifyStatus({
         state: "ready",
         connected: true,
         shopId: "test-shop.myshopify.com",
-        warehouse: null,
-        sync: null,
-        issues: [],
-      },
+      }),
       live: {
         revenue: 900,
         purchases: 9,
@@ -481,6 +511,7 @@ describe("getOverviewData", () => {
         transactionCoverageAmountRate: null,
       },
       divergence: null,
+      override: null,
       ledgerConsistency: {
         withinThreshold: true,
         revenueDelta: 60,

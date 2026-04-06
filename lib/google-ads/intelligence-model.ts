@@ -19,6 +19,7 @@ export interface GoogleAdsDerivedMetrics {
 export interface CampaignPerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   campaignId: string;
   campaignName: string;
   status: string;
@@ -50,6 +51,7 @@ export interface CampaignPerformanceRow
 export interface SearchTermPerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   searchTerm: string;
   campaignId: string | null;
   campaignName: string;
@@ -72,6 +74,7 @@ export interface SearchTermPerformanceRow
 export interface KeywordPerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   criterionId: string | null;
   keywordText: string;
   matchType: string;
@@ -92,8 +95,10 @@ export interface KeywordPerformanceRow
 export interface AssetPerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   assetId: string;
   assetType: string;
+  fieldType?: string | null;
   assetText: string | null;
   assetName: string | null;
   imageUrl: string | null;
@@ -111,6 +116,7 @@ export interface AssetPerformanceRow
 export interface AssetGroupPerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   assetGroupId: string;
   assetGroupName: string;
   campaignId: string | null;
@@ -133,6 +139,7 @@ export interface AssetGroupPerformanceRow
 export interface ProductPerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   productItemId: string;
   productTitle: string;
   merchantCenterId?: string | null;
@@ -150,6 +157,7 @@ export interface ProductPerformanceRow
 export interface AudiencePerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   audienceKey: string;
   audienceNameBestEffort: string;
   audienceType: string;
@@ -163,6 +171,7 @@ export interface AudiencePerformanceRow
 }
 
 export interface GeoPerformanceRow extends GoogleAdsRawMetrics, GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   geoId: number;
   geoName: string;
   geoState: "scale" | "reduce" | "monitor";
@@ -173,6 +182,7 @@ export interface GeoPerformanceRow extends GoogleAdsRawMetrics, GoogleAdsDerived
 export interface DevicePerformanceRow
   extends GoogleAdsRawMetrics,
     GoogleAdsDerivedMetrics {
+  [key: string]: unknown;
   device: string;
   deviceState: "scale" | "weak" | "monitor";
   scaleFlag: boolean;

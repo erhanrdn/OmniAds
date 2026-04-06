@@ -21,7 +21,7 @@ describe("Google replay policy", () => {
         rowsFetched: 400,
         rowsWritten: 400,
         attemptCount: 1,
-      },
+      } as never,
       existingSnapshots: [
         { id: "s1", page_index: 0, payload_json: [] },
         { id: "s2", page_index: 1, payload_json: [] },
@@ -50,7 +50,7 @@ describe("Google replay policy", () => {
         rowsFetched: 300,
         rowsWritten: 250,
         attemptCount: 2,
-      },
+      } as never,
       existingSnapshots: [
         { id: "s1", page_index: 0, payload_json: [] },
         { id: "s2", page_index: 1, payload_json: [] },

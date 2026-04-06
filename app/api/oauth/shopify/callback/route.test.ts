@@ -97,14 +97,15 @@ describe("GET /api/oauth/shopify/callback", () => {
       created_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 60_000).toISOString(),
     } as never);
-    vi.mocked(global.fetch as never)
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           access_token: "permanent_token",
           scope: SHOPIFY_GRANTED_SCOPES,
         }),
-      })
+      } as Response)
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -115,7 +116,7 @@ describe("GET /api/oauth/shopify/callback", () => {
             timezone: "(GMT-05:00) Eastern Time",
           },
         }),
-      });
+      } as Response);
 
     const response = await GET(
       new NextRequest(
@@ -159,14 +160,15 @@ describe("GET /api/oauth/shopify/callback", () => {
       provider_account_name: "Test Shop",
       connected_at: null,
     } as never);
-    vi.mocked(global.fetch as never)
+    const fetchMock = vi.mocked(global.fetch);
+    fetchMock
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           access_token: "permanent_token",
           scope: SHOPIFY_GRANTED_SCOPES,
         }),
-      })
+      } as Response)
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -177,7 +179,7 @@ describe("GET /api/oauth/shopify/callback", () => {
             timezone: "(GMT-05:00) Eastern Time",
           },
         }),
-      });
+      } as Response);
 
     const request = new NextRequest(
       `https://adsecute.com/api/oauth/shopify/callback?code=abc&shop=test-shop.myshopify.com&state=${state}&hmac=ok&timestamp=1711939200`,

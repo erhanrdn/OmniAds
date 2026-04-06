@@ -1,4 +1,5 @@
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
 import type { ProviderWorkerAdapter } from "@/lib/sync/provider-worker-adapters";
 import type { ProviderLeasePlan } from "@/lib/sync/provider-status-truth";
 import {
@@ -179,16 +180,6 @@ export async function runAdapterLifecycleTick(input: {
   };
 }
 
-function getWorkerBuildFingerprint() {
-  return (
-    process.env.APP_BUILD_ID?.trim() ||
-    process.env.NEXT_BUILD_ID?.trim() ||
-    process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
-    process.env.RENDER_GIT_COMMIT?.trim() ||
-    "dev-build"
-  );
-}
-
 export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptions) {
   process.env.SYNC_WORKER_MODE = "1";
   const workerId =
@@ -203,7 +194,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
   const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
   const workerStartedAt = new Date().toISOString();
-  const workerBuildId = getWorkerBuildFingerprint();
+  const workerBuildId = getCurrentRuntimeBuildId();
   const discoveredBusinesses = new Set<string>();
   const lastAutoHealAtByKey = new Map<string, number>();
   let shuttingDown = false;

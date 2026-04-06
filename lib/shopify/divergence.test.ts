@@ -176,7 +176,9 @@ describe("compareShopifyAggregates", () => {
         transactionRefundedRevenue: 170,
         transactionNetRevenue: 930,
         transactionCoveredOrders: 7,
+        transactionCoveredRevenue: 930,
         transactionCoverageRate: 70,
+        transactionCoverageAmountRate: 84.55,
         daily: [
           {
             date: "2026-03-01",
@@ -251,7 +253,9 @@ describe("compareShopifyAggregates", () => {
         transactionRefundedRevenue: 15,
         transactionNetRevenue: 105,
         transactionCoveredOrders: 1,
+        transactionCoveredRevenue: 105,
         transactionCoverageRate: 100,
+        transactionCoverageAmountRate: 87.5,
         daily: [
           {
             date: "2026-03-01",
@@ -322,7 +326,9 @@ describe("compareShopifyAggregates", () => {
         transactionRefundedRevenue: 0,
         transactionNetRevenue: 100,
         transactionCoveredOrders: 1,
+        transactionCoveredRevenue: 100,
         transactionCoverageRate: 100,
+        transactionCoverageAmountRate: 62.5,
         daily: [
           {
             date: "2026-03-01",

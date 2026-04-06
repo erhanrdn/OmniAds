@@ -931,7 +931,7 @@ describe("buildGoogleGrowthAdvisor", () => {
       selectedAssetGroups: [assetGroup()],
       selectedGeos: [geo()],
       selectedDevices: [device()],
-      commerceContext: { costModel: { cogsPercent: 0.2, shippingPercent: 0.05, feePercent: 0.05, fixedCost: 0 } },
+      commerceContext: { costModel: { businessId: "biz", cogsPercent: 0.2, shippingPercent: 0.05, feePercent: 0.05, fixedCost: 0, updatedAt: null } },
       windows: [
         { key: "last3", label: "last 3d", campaigns: [campaign({ campaignId: "c-search", campaignName: "Backpack Search", channel: "SEARCH" }), campaign({ campaignId: "c-shop", campaignName: "Backpack Shopping", channel: "SHOPPING" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Backpack Search", searchTerm: "urbantrail carry-on backpack", conversions: 1, revenue: 90, roas: 2.25 })], products: [product({ productItemId: "urbantrail-1234", productTitle: "UrbanTrail Carry-On Backpack", campaignIds: ["c-shop"], campaignNames: ["Backpack Shopping"] })] },
         { key: "last7", label: "last 7d", campaigns: [campaign({ campaignId: "c-search", campaignName: "Backpack Search", channel: "SEARCH" }), campaign({ campaignId: "c-shop", campaignName: "Backpack Shopping", channel: "SHOPPING" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Backpack Search", searchTerm: "urbantrail carry-on backpack", conversions: 1, revenue: 100, roas: 2.5 })], products: [product({ productItemId: "urbantrail-1234", productTitle: "UrbanTrail Carry-On Backpack", campaignIds: ["c-shop"], campaignNames: ["Backpack Shopping"] })] },
@@ -953,7 +953,7 @@ describe("buildGoogleGrowthAdvisor", () => {
       selectedAssetGroups: [assetGroup()],
       selectedGeos: [geo()],
       selectedDevices: [device()],
-      commerceContext: { costModel: { cogsPercent: 0.7, shippingPercent: 0.1, feePercent: 0.05, fixedCost: 0 } },
+      commerceContext: { costModel: { businessId: "biz", cogsPercent: 0.7, shippingPercent: 0.1, feePercent: 0.05, fixedCost: 0, updatedAt: null } },
       windows: [
         { key: "last3", label: "last 3d", campaigns: [campaign({ campaignId: "c-search", campaignName: "Backpack Search", channel: "SEARCH" }), campaign({ campaignId: "c-shop", campaignName: "Backpack Shopping", channel: "SHOPPING" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Backpack Search", searchTerm: "urbantrail carry-on backpack", conversions: 1, revenue: 90, roas: 2.25 })], products: [product({ productItemId: "urbantrail-1234", productTitle: "UrbanTrail Carry-On Backpack", campaignIds: ["c-shop"], campaignNames: ["Backpack Shopping"] })] },
         { key: "last7", label: "last 7d", campaigns: [campaign({ campaignId: "c-search", campaignName: "Backpack Search", channel: "SEARCH" }), campaign({ campaignId: "c-shop", campaignName: "Backpack Shopping", channel: "SHOPPING" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Backpack Search", searchTerm: "urbantrail carry-on backpack", conversions: 1, revenue: 100, roas: 2.5 })], products: [product({ productItemId: "urbantrail-1234", productTitle: "UrbanTrail Carry-On Backpack", campaignIds: ["c-shop"], campaignNames: ["Backpack Shopping"] })] },
@@ -1137,8 +1137,8 @@ describe("buildGoogleGrowthAdvisor", () => {
           { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "cheap camping backpack", wasteFlag: true, negativeKeywordFlag: true, spend: 140, revenue: 0, conversions: 0, roas: 0 })], products: [product()] },
         ],
       }).recommendations.find((entry) => entry.type === "query_governance")!,
-      dataTrust: "medium",
-      doBucket: "do_now",
+      dataTrust: "medium" as const,
+      doBucket: "do_now" as const,
       negativeQueries: ["cheap camping backpack", "free backpack patterns pdf"],
     };
     const decorated = decorateAdvisorRecommendationsForExecution({
@@ -1177,8 +1177,8 @@ describe("buildGoogleGrowthAdvisor", () => {
           { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "buy carry on backpack", wasteFlag: true, negativeKeywordFlag: true, spend: 140, revenue: 0, conversions: 0, roas: 0 })], products: [product()] },
         ],
       }).recommendations.find((entry) => entry.type === "query_governance")!,
-      dataTrust: "medium",
-      doBucket: "do_now",
+      dataTrust: "medium" as const,
+      doBucket: "do_now" as const,
       negativeQueries: ["buy carry on backpack", "refund policy"],
     };
     const decorated = decorateAdvisorRecommendationsForExecution({
@@ -1538,7 +1538,7 @@ describe("buildGoogleGrowthAdvisor", () => {
           budgetExplicitlyShared: true,
           campaignBudgetResourceName: "customers/1234567890/campaignBudgets/999",
           dailyBudget: 100,
-          scaleState: "hold",
+          scaleState: "monitor",
           wasteState: "waste",
         }),
         campaign({
@@ -2419,7 +2419,7 @@ describe("buildGoogleGrowthAdvisor", () => {
           { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-pmax", campaignName: "Travel Gear Performance Max", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Travel Gear Performance Max", searchTerm: "cheap backpack", spend: 130, conversions: 0, revenue: 0, roas: 0, intentClass: "price_sensitive" })], products: [product()] },
         ],
       }).recommendations.find((entry) => entry.type === "pmax_scaling_fit")!,
-      commerceSignals: { marginBand: "medium", stockState: "out_of_stock", discountState: "full_price", heroSku: false },
+      commerceSignals: { marginBand: "medium" as const, stockState: "out_of_stock" as const, discountState: "full_price" as const, heroSku: false },
       commerceConfidence: "high" as const,
     };
 

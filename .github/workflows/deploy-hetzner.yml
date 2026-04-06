@@ -82,6 +82,7 @@ jobs:
             git fetch --prune origin main
             git reset --hard origin/main
             HEAD_SHA="$(git rev-parse HEAD)"
+            export APP_BUILD_ID="${HEAD_SHA}"
             echo "HEAD=${HEAD_SHA}"
             grep -n '"build"' package.json
 
@@ -94,6 +95,7 @@ jobs:
             docker run --rm --entrypoint sh adsecute:latest -lc '
               set -euo pipefail
               node -p "require(\"/app/package.json\").scripts.build"
+              test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
               grep -n "\"/about\"" /app/proxy.ts
             '
 
@@ -121,8 +123,14 @@ jobs:
             docker exec "${WEB_CONTAINER_ID}" sh -lc '
               set -euo pipefail
               node -p "require(\"/app/package.json\").scripts.build"
+              test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
               grep -n "\"/about\"" /app/proxy.ts
             '
+
+            log "Verifying runtime build id matches origin/main"
+            WEB_BUILD_ID="$(curl -fsS http://127.0.0.1:3000/api/build-info | sed -n 's/.*\"buildId\":\"\\([^\"]*\\)\".*/\\1/p')"
+            echo "WEB_BUILD_ID=${WEB_BUILD_ID}"
+            test "${WEB_BUILD_ID}" = "${HEAD_SHA}"
 
             log "Waiting for local app to serve public about page"
             wait_for_header "http://127.0.0.1:3000/about" "200 OK" 10 3
