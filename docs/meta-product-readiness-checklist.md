@@ -4,6 +4,10 @@ Use this checklist as the canonical backend exit gate for Meta. Product-ready is
 declared only after a real business passes both `T0` and `T0 + 24h` validation
 across a real account-timezone rollover.
 
+Recorded production rollout outcome:
+
+- `docs/meta-rollout-record-2026-04-07.md`
+
 ## CI Gate
 
 1. Confirm GitHub Actions `CI` passed on the PR branch.

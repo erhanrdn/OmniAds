@@ -4,6 +4,10 @@ This runbook defines the standard operator procedures for Meta authoritative
 finalization v2 rollout, verification, recovery, and rollback on the existing
 Hetzner deployment shape.
 
+Production rollout record:
+
+- `docs/meta-rollout-record-2026-04-07.md`
+
 ## Deployment Surface
 
 Keep the production architecture stable during this rollout:
