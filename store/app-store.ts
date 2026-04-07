@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
 
 export const APP_STORE_PERSIST_KEY = "omniads-app-store-v2";
 
 export interface Business {
   id: string;
   name: string;
-  timezone: string;
+  timezone: string | null;
+  timezoneSource?: BusinessTimezoneSource;
   currency: string;
   isDemoBusiness?: boolean;
   industry?: string;
@@ -24,7 +26,7 @@ interface AppState {
   workspaceResolved: boolean;
   toggleDesktopSidebar: () => void;
   setMobileSidebarOpen: (open: boolean) => void;
-  createBusiness: (name: string, timezone: string, currency: string) => string;
+  createBusiness: (name: string, currency: string) => string;
   deleteBusiness: (id: string) => string | null;
   setWorkspaceSnapshot: (
     workspaceOwnerId: string,
@@ -52,7 +54,7 @@ export const useAppStore = create<AppState>()(
       toggleDesktopSidebar: () =>
         set((state) => ({ desktopSidebarOpen: !state.desktopSidebarOpen })),
       setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
-      createBusiness: (name, timezone, currency) => {
+      createBusiness: (name, currency) => {
         const id = crypto.randomUUID();
         set((state) => ({
           businesses: [
@@ -60,7 +62,8 @@ export const useAppStore = create<AppState>()(
             {
               id,
               name: name.trim(),
-              timezone,
+              timezone: null,
+              timezoneSource: null,
               currency,
             },
           ],

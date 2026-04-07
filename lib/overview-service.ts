@@ -1,7 +1,9 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
-import { getGoogleAdsOverviewSummaryAggregate } from "@/lib/google-ads/serving";
-import { readGoogleAdsDailyRange } from "@/lib/google-ads/warehouse";
+import {
+  getGoogleCanonicalOverviewSummary,
+  getGoogleCanonicalOverviewTrends,
+} from "@/lib/google-ads/serving";
 import {
   resolveGa4AnalyticsContext,
   runGA4Report,
@@ -25,14 +27,10 @@ import {
   getReportingDateRangeKey,
   setCachedReport,
 } from "@/lib/reporting-cache";
-import { getMetaWarehouseSummary } from "@/lib/meta/serving";
-import { getMetaAccountDailyRange } from "@/lib/meta/warehouse";
 import {
-  hydrateOverviewSummaryRangeFromGoogle,
-  hydrateOverviewSummaryRangeFromMeta,
-  readOverviewSummaryRange,
-  type OverviewSummaryDailyRow,
-} from "@/lib/overview-summary-store";
+  getMetaCanonicalOverviewSummary,
+  getMetaCanonicalOverviewTrends,
+} from "@/lib/meta/canonical-overview";
 import { logPerfEvent, measurePerf } from "@/lib/perf";
 import {
   getShopifyOverviewReadCandidate,
@@ -175,67 +173,6 @@ const GA4_FALLBACK_ERROR_COOLDOWN_MS = 10 * 60 * 1000;
 const ga4FallbackFailureUntilByBusiness = new Map<string, number>();
 const META_ACCESS_CACHE_TTL_MS = 30 * 1000;
 const metaAccessCache = new Map<string, { expiresAt: number; value: Promise<MetaAccessContext> }>();
-
-function aggregateOverviewSummaryByAccount(
-  provider: "meta" | "google",
-  rows: OverviewSummaryDailyRow[],
-) {
-  const byAccount = new Map<string, PlatformEfficiencyRow>();
-  let spend = 0;
-  let revenue = 0;
-  let purchases = 0;
-  let clicks = 0;
-  let impressions = 0;
-
-  for (const row of rows) {
-    spend += row.spend;
-    revenue += row.revenue;
-    purchases += row.purchases;
-    clicks += row.clicks;
-    impressions += row.impressions;
-    const current =
-      byAccount.get(row.providerAccountId) ??
-      {
-        platform: provider,
-        spend: 0,
-        revenue: 0,
-        purchases: 0,
-        roas: 0,
-        cpa: 0,
-      };
-    current.spend += row.spend;
-    current.revenue += row.revenue;
-    current.purchases += row.purchases;
-    byAccount.set(row.providerAccountId, current);
-  }
-
-  const accountRows = Array.from(byAccount.values()).map((row) => ({
-    ...row,
-    roas: row.spend > 0 ? row.revenue / row.spend : 0,
-    cpa: row.purchases > 0 ? row.spend / row.purchases : 0,
-  }));
-
-  return {
-    spend,
-    revenue,
-    purchases,
-    clicks,
-    impressions,
-    rows: accountRows,
-  };
-}
-
-function aggregateOverviewSummaryByDate(rows: OverviewSummaryDailyRow[]) {
-  const byDate = new Map<string, DailyTrendPoint>();
-  for (const row of rows) {
-    const current = byDate.get(row.date) ?? { date: row.date, spend: 0, revenue: 0, purchases: 0 };
-    current.spend += row.spend;
-    current.revenue += row.revenue;
-    current.purchases += row.purchases;
-    byDate.set(row.date, current);
-  }
-  return byDate;
-}
 
 async function getGa4EcommerceFallback(
   businessId: string,
@@ -386,25 +323,18 @@ async function getMetaOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaOverviewFragment> {
-  const { assignedAccountIds } = await getMetaAccessContext(input.businessId);
-
-  if (assignedAccountIds.length === 0) {
-    return { spend: 0, revenue: 0, purchases: 0, rows: [] };
-  }
-
   try {
-    const warehouseSummary = await getMetaWarehouseSummary({
+    const canonicalSummary = await getMetaCanonicalOverviewSummary({
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
-      providerAccountIds: assignedAccountIds,
     });
-    if (warehouseSummary.accounts.length > 0) {
+    if (canonicalSummary.accounts.length > 0) {
       const payload: MetaOverviewFragment = {
-        spend: warehouseSummary.totals.spend,
-        revenue: warehouseSummary.totals.revenue,
-        purchases: warehouseSummary.totals.conversions,
-        rows: warehouseSummary.accounts.map((account) => ({
+        spend: canonicalSummary.totals.spend,
+        revenue: canonicalSummary.totals.revenue,
+        purchases: canonicalSummary.totals.conversions,
+        rows: canonicalSummary.accounts.map((account) => ({
           platform: "meta",
           spend: account.spend,
           revenue: account.revenue,
@@ -417,28 +347,11 @@ async function getMetaOverviewFragment(input: {
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn("[overview] meta warehouse summary unavailable", {
+    console.warn("[overview] meta canonical summary unavailable", {
       businessId: input.businessId,
       message,
     });
   }
-
-  void getMetaAccountDailyRange({
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    providerAccountIds: assignedAccountIds,
-  })
-    .then((rows) =>
-      hydrateOverviewSummaryRangeFromMeta({
-        businessId: input.businessId,
-        providerAccountIds: assignedAccountIds,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        rows,
-      }),
-    )
-    .catch(() => undefined);
   return { spend: 0, revenue: 0, purchases: 0, rows: [] };
 }
 
@@ -447,14 +360,13 @@ async function getGoogleOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleOverviewFragment> {
-  const googleAccess = await getGoogleAccessContext(input.businessId);
-
-  const googleOverview = await getGoogleAdsOverviewSummaryAggregate({
+  const googleOverview = await getGoogleCanonicalOverviewSummary({
     businessId: input.businessId,
     accountId: null,
     dateRange: "custom",
     customStart: input.startDate,
     customEnd: input.endDate,
+    compareMode: "none",
     debug: false,
     source: "overview_aggregation_route",
   });
@@ -483,26 +395,6 @@ async function getGoogleOverviewFragment(input: {
           }
         : null,
   };
-
-  if (googleAccess.assignedAccountIds.length > 0) {
-    void readGoogleAdsDailyRange({
-      scope: "account_daily",
-      businessId: input.businessId,
-      providerAccountIds: googleAccess.assignedAccountIds,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    })
-      .then((rows) =>
-        hydrateOverviewSummaryRangeFromGoogle({
-          businessId: input.businessId,
-          providerAccountIds: googleAccess.assignedAccountIds,
-          startDate: input.startDate,
-          endDate: input.endDate,
-          rows,
-        }),
-      )
-      .catch(() => undefined);
-  }
 
   return payload;
 }
@@ -659,8 +551,7 @@ async function buildDailyTrends(params: {
       dateSpanDays: enumerateDays(params.startDate, params.endDate).length,
     },
     async () => {
-      const [metaContext, shopifyResult, googleAccess] = await Promise.all([
-        getMetaAccessContext(params.businessId),
+      const [shopifyResult] = await Promise.all([
         measureComponent(() =>
           resolveShopifyOverviewAggregateForRead({
             ...params,
@@ -674,50 +565,24 @@ async function buildDailyTrends(params: {
             return null;
           }),
         ),
-        getGoogleAccessContext(params.businessId),
       ]);
 
       const [metaRowsResult, googleRowsResult] = await Promise.all([
         measureComponent(async () => {
-          if (metaContext.assignedAccountIds.length === 0) return [];
-          const rows = await getMetaAccountDailyRange({
+          const trends = await getMetaCanonicalOverviewTrends({
             businessId: params.businessId,
-            startDate: params.startDate,
-            endDate: params.endDate,
-            providerAccountIds: metaContext.assignedAccountIds,
-          }).catch(() => []);
-          return hydrateOverviewSummaryRangeFromMeta({
-            businessId: params.businessId,
-            providerAccountIds: metaContext.assignedAccountIds,
-            startDate: params.startDate,
-            endDate: params.endDate,
-            rows,
-          }).catch(() => []);
-        }),
-        measureComponent(async () => {
-          if (googleAccess.assignedAccountIds.length === 0) return [];
-          const cached = await readOverviewSummaryRange({
-            businessId: params.businessId,
-            provider: "google",
-            providerAccountIds: googleAccess.assignedAccountIds,
             startDate: params.startDate,
             endDate: params.endDate,
           }).catch(() => null);
-          if (cached?.hydrated && cached.rows.length > 0) return cached.rows;
-          const rows = await readGoogleAdsDailyRange({
-            scope: "account_daily",
+          return trends?.points ?? [];
+        }),
+        measureComponent(async () => {
+          const trends = await getGoogleCanonicalOverviewTrends({
             businessId: params.businessId,
-            providerAccountIds: googleAccess.assignedAccountIds,
             startDate: params.startDate,
             endDate: params.endDate,
-          }).catch(() => []);
-          return hydrateOverviewSummaryRangeFromGoogle({
-            businessId: params.businessId,
-            providerAccountIds: googleAccess.assignedAccountIds,
-            startDate: params.startDate,
-            endDate: params.endDate,
-            rows,
-          }).catch(() => []);
+          }).catch(() => null);
+          return trends?.points ?? [];
         }),
       ]);
       const metaRows = metaRowsResult.result;
@@ -733,7 +598,7 @@ async function buildDailyTrends(params: {
         const current = metaByDate.get(date) ?? { date, spend: 0, revenue: 0, purchases: 0 };
         current.spend += Number(row.spend ?? 0);
         current.revenue += Number(row.revenue ?? 0);
-        current.purchases += Number("conversions" in row ? row.conversions ?? 0 : row.purchases ?? 0);
+        current.purchases += Number((row as { conversions?: number }).conversions ?? 0);
         metaByDate.set(date, current);
       }
 
@@ -742,7 +607,7 @@ async function buildDailyTrends(params: {
         const current = googleByDate.get(date) ?? { date, spend: 0, revenue: 0, purchases: 0 };
         current.spend += Number(row.spend ?? 0);
         current.revenue += Number(row.revenue ?? 0);
-        current.purchases += Number("conversions" in row ? row.conversions ?? 0 : row.purchases ?? 0);
+        current.purchases += Number((row as { conversions?: number }).conversions ?? 0);
         googleByDate.set(date, current);
       }
 
@@ -798,8 +663,8 @@ async function buildDailyTrends(params: {
         metaRowCount: metaRows.length,
         googleRowCount: googleRows.length,
         shopifyTrendCount: shopifyByDate.size,
-        metaAccountCount: metaContext.assignedAccountIds.length,
-        googleAccountCount: googleAccess.assignedAccountIds.length,
+        metaAccountCount: metaRows.length > 0 ? 1 : 0,
+        googleAccountCount: googleRows.length > 0 ? 1 : 0,
       });
 
       return payload;

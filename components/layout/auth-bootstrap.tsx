@@ -17,7 +17,8 @@ interface MeResponse {
   businesses?: Array<{
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezoneSource?: "shopify" | "ga4" | null;
     currency: string;
     isDemoBusiness?: boolean;
     industry?: string;
@@ -130,6 +131,7 @@ export function AuthBootstrap() {
               id: item.id,
               name: item.name,
               timezone: item.timezone,
+              timezoneSource: item.timezoneSource ?? null,
               currency: item.currency,
               isDemoBusiness: item.isDemoBusiness,
               industry: item.industry,

@@ -1,5 +1,6 @@
 import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
 import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
 import { addDaysToIsoDate, getHistoricalWindowStart } from "@/lib/google-ads/history";
@@ -35,6 +36,11 @@ import {
   getGoogleAdsDailyCoverage,
   getLatestGoogleAdsSyncHealth,
 } from "@/lib/google-ads/warehouse";
+import {
+  evaluateOverviewSummaryProjectionValidity,
+  hydrateOverviewSummaryRangeFromGoogle,
+  readOverviewSummaryRange,
+} from "@/lib/overview-summary-store";
 import type {
   GoogleAdsWarehouseDataState,
   GoogleAdsWarehouseDailyRow,
@@ -404,15 +410,163 @@ export interface GoogleAdsOverviewSummaryResult {
   };
   summary: {
     totalAccounts: number;
-    readSource: "warehouse_account_aggregate";
+    readSource:
+      | "warehouse_account_aggregate"
+      | "warehouse_campaign_aggregate_fallback";
   };
   meta: WarehouseMeta;
+}
+
+export interface GoogleAdsCanonicalOverviewSummaryResult {
+  kpis: GoogleAdsOverviewSummaryResult["kpis"];
+  kpiDeltas?: Record<string, number | null | undefined>;
+  summary: {
+    totalAccounts: number;
+    readSource:
+      | "warehouse_account_aggregate"
+      | "warehouse_campaign_aggregate_fallback";
+  };
+  meta: WarehouseMeta & {
+    readSource:
+      | "warehouse_account_aggregate"
+      | "warehouse_campaign_aggregate_fallback";
+  };
+}
+
+export interface GoogleAdsCanonicalTrendResult {
+  points: Array<{
+    date: string;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+    cpa: number | null;
+    ctr: number | null;
+    cpc: number | null;
+    impressions: number;
+    clicks: number;
+  }>;
+  meta: WarehouseMeta & {
+    readSource:
+      | "warehouse_account_daily"
+      | "warehouse_campaign_daily_fallback"
+      | "projection_fallback"
+      | "provider_truth_unavailable";
+    fallbackReason: string | null;
+    degraded: boolean;
+  };
 }
 
 function countRangeDays(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00Z`).getTime();
   const end = new Date(`${endDate}T00:00:00Z`).getTime();
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
+}
+
+function getTodayIsoForTimeZoneServer(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function buildOverviewKpisFromRows(rows: Array<Record<string, unknown>>) {
+  const spend = rows.reduce((sum, row) => sum + toNumber(row.spend), 0);
+  const revenue = rows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
+  const conversions = rows.reduce((sum, row) => sum + toNumber(row.conversions), 0);
+  const clicks = rows.reduce((sum, row) => sum + toNumber(row.clicks), 0);
+  const impressions = rows.reduce((sum, row) => sum + toNumber(row.impressions), 0);
+  const roas = spend > 0 ? revenue / spend : 0;
+  const cpa = conversions > 0 ? spend / conversions : 0;
+  const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+  const cpc = clicks > 0 ? spend / clicks : 0;
+
+  return {
+    spend: Number(spend.toFixed(2)),
+    conversions: Number(conversions.toFixed(2)),
+    revenue: Number(revenue.toFixed(2)),
+    roas: Number(roas.toFixed(2)),
+    cpa: Number(cpa.toFixed(2)),
+    cpc: Number(cpc.toFixed(2)),
+    ctr: Number(ctr.toFixed(2)),
+    impressions,
+    clicks,
+    convRate: clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : 0,
+  };
+}
+
+function shouldFallbackGoogleOverviewToCampaignScope(input: {
+  account: ReturnType<typeof buildOverviewKpisFromRows>;
+  campaign: ReturnType<typeof buildOverviewKpisFromRows>;
+}) {
+  const spendGap = input.campaign.spend - input.account.spend;
+  const revenueGap = input.campaign.revenue - input.account.revenue;
+  const conversionGap = input.campaign.conversions - input.account.conversions;
+  const spendRatio =
+    input.account.spend > 0 ? input.campaign.spend / input.account.spend : input.campaign.spend > 0 ? Infinity : 1;
+  const revenueRatio =
+    input.account.revenue > 0
+      ? input.campaign.revenue / input.account.revenue
+      : input.campaign.revenue > 0
+        ? Infinity
+        : 1;
+
+  return (
+    (spendGap > 50 && spendRatio > 1.2) ||
+    (revenueGap > 50 && revenueRatio > 1.2) ||
+    conversionGap >= 3
+  );
+}
+
+function aggregateGoogleOverviewTrendPoints(rows: GoogleAdsWarehouseDailyRow[]) {
+  const byDate = new Map<
+    string,
+    {
+      spend: number;
+      revenue: number;
+      conversions: number;
+      impressions: number;
+      clicks: number;
+    }
+  >();
+
+  for (const row of rows) {
+    const date = normalizeDate(row.date);
+    const current = byDate.get(date) ?? {
+      spend: 0,
+      revenue: 0,
+      conversions: 0,
+      impressions: 0,
+      clicks: 0,
+    };
+    current.spend += row.spend;
+    current.revenue += row.revenue;
+    current.conversions += row.conversions;
+    current.impressions += row.impressions;
+    current.clicks += row.clicks;
+    byDate.set(date, current);
+  }
+
+  return Array.from(byDate.entries())
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([date, totals]) => ({
+      date,
+      spend: Number(totals.spend.toFixed(2)),
+      revenue: Number(totals.revenue.toFixed(2)),
+      conversions: Number(totals.conversions.toFixed(2)),
+      roas: totals.spend > 0 ? Number((totals.revenue / totals.spend).toFixed(2)) : 0,
+      cpa: totals.conversions > 0 ? Number((totals.spend / totals.conversions).toFixed(2)) : null,
+      ctr: totals.impressions > 0 ? Number(((totals.clicks / totals.impressions) * 100).toFixed(2)) : null,
+      cpc: totals.clicks > 0 ? Number((totals.spend / totals.clicks).toFixed(2)) : null,
+      impressions: totals.impressions,
+      clicks: totals.clicks,
+    }));
 }
 
 export function buildGoogleAdsSelectedRangeContext(input: {
@@ -784,54 +938,11 @@ export async function getGoogleAdsCampaignsReport(
 export async function getGoogleAdsOverviewReport(
   params: ComparativeReportParams
 ): Promise<OverviewReportResult> {
-  const campaigns = await getGoogleAdsCampaignsReport(params);
+  const [campaigns, canonicalSummary] = await Promise.all([
+    getGoogleAdsCampaignsReport(params),
+    getGoogleCanonicalOverviewSummary(params),
+  ]);
   const campaignRows = campaigns.rows as Array<Record<string, unknown>>;
-  const totalSpend = campaignRows.reduce((sum, row) => sum + toNumber(row.spend), 0);
-  const totalRevenue = campaignRows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
-  const totalConversions = campaignRows.reduce((sum, row) => sum + toNumber(row.conversions), 0);
-  const totalClicks = campaignRows.reduce((sum, row) => sum + toNumber(row.clicks), 0);
-  const totalImpressions = campaignRows.reduce((sum, row) => sum + toNumber(row.impressions), 0);
-  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-  const cpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
-  const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-  const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
-
-  const warehouseContext = await resolveWarehouseContext(params);
-  const compareWindow = getComparisonWindow({
-    compareMode: params.compareMode,
-    startDate: warehouseContext.startDate,
-    endDate: warehouseContext.endDate,
-    compareStart: params.compareStart,
-    compareEnd: params.compareEnd,
-  });
-  let previousTotals: Record<string, number> | null = null;
-  if (compareWindow) {
-    const previous = await getGoogleAdsCampaignsReport({
-      ...params,
-      dateRange: "custom",
-      customStart: compareWindow.startDate,
-      customEnd: compareWindow.endDate,
-      compareMode: "none",
-    });
-    previousTotals = {
-      spend: previous.rows.reduce((sum, row) => sum + toNumber(row.spend), 0),
-      revenue: previous.rows.reduce((sum, row) => sum + toNumber(row.revenue), 0),
-      conversions: previous.rows.reduce((sum, row) => sum + toNumber(row.conversions), 0),
-      roas:
-        previous.rows.reduce((sum, row) => sum + toNumber(row.spend), 0) > 0
-          ? previous.rows.reduce((sum, row) => sum + toNumber(row.revenue), 0) /
-            previous.rows.reduce((sum, row) => sum + toNumber(row.spend), 0)
-          : 0,
-      cpa:
-        previous.rows.reduce((sum, row) => sum + toNumber(row.conversions), 0) > 0
-          ? previous.rows.reduce((sum, row) => sum + toNumber(row.spend), 0) /
-            previous.rows.reduce((sum, row) => sum + toNumber(row.conversions), 0)
-          : 0,
-      clicks: previous.rows.reduce((sum, row) => sum + toNumber(row.clicks), 0),
-      impressions: previous.rows.reduce((sum, row) => sum + toNumber(row.impressions), 0),
-    };
-  }
-
   const topCampaigns = campaignRows
     .slice(0, 8)
     .map((row) => ({ ...row, badges: Array.isArray(row.badges) ? row.badges : [] })) as Array<
@@ -839,83 +950,454 @@ export async function getGoogleAdsOverviewReport(
     >;
   const insights = generateOverviewInsights({
     campaigns: topCampaigns,
-    totalSpend,
-    totalConversions,
-    totalRevenue,
-    roas,
-    cpa,
+    totalSpend: Number(canonicalSummary.kpis.spend ?? 0),
+    totalConversions: Number(canonicalSummary.kpis.conversions ?? 0),
+    totalRevenue: Number(canonicalSummary.kpis.revenue ?? 0),
+    roas: Number(canonicalSummary.kpis.roas ?? 0),
+    cpa: Number(canonicalSummary.kpis.cpa ?? 0),
   });
 
   return {
-    kpis: {
-      spend: Number(totalSpend.toFixed(2)),
-      conversions: Number(totalConversions.toFixed(2)),
-      revenue: Number(totalRevenue.toFixed(2)),
-      roas: Number(roas.toFixed(2)),
-      cpa: Number(cpa.toFixed(2)),
-      cpc: Number(cpc.toFixed(2)),
-      ctr: Number(ctr.toFixed(2)),
-      impressions: totalImpressions,
-      clicks: totalClicks,
-      convRate: totalClicks > 0 ? Number(((totalConversions / totalClicks) * 100).toFixed(2)) : 0,
-    },
-    kpiDeltas: previousTotals
-      ? {
-          spend: pctDelta(totalSpend, previousTotals.spend),
-          revenue: pctDelta(totalRevenue, previousTotals.revenue),
-          conversions: pctDelta(totalConversions, previousTotals.conversions),
-          roas: pctDelta(roas, previousTotals.roas),
-          cpa: pctDelta(cpa, previousTotals.cpa),
-          ctr: pctDelta(ctr, previousTotals.impressions > 0 ? (previousTotals.clicks / previousTotals.impressions) * 100 : 0),
-        }
-      : undefined,
+    kpis: canonicalSummary.kpis,
+    kpiDeltas: canonicalSummary.kpiDeltas,
     topCampaigns,
     insights,
     summary: {
-      accountAvgRoas: Number(roas.toFixed(2)),
+      accountAvgRoas: Number(canonicalSummary.kpis.roas ?? 0),
       totalCampaigns: campaignRows.length,
+      readSource: canonicalSummary.summary.readSource,
     },
-    meta: campaigns.meta as unknown as WarehouseMeta,
+    meta: canonicalSummary.meta,
   };
+}
+
+export async function getGoogleCanonicalOverviewSummary(
+  params: ComparativeReportParams,
+): Promise<GoogleAdsCanonicalOverviewSummaryResult> {
+  const current = await buildScopeResponse({ params, scope: "account_daily" });
+  const accountRows = current.rows as Array<Record<string, unknown>>;
+  const compareWindow = getComparisonWindow({
+    compareMode: params.compareMode,
+    startDate: current.context.startDate,
+    endDate: current.context.endDate,
+    compareStart: params.compareStart,
+    compareEnd: params.compareEnd,
+  });
+  const previousRows = compareWindow
+    ? (
+        await readAggregatedScope({
+          businessId: params.businessId,
+          providerAccountIds: current.context.providerAccountIds,
+          scope: "account_daily",
+          startDate: compareWindow.startDate,
+          endDate: compareWindow.endDate,
+        })
+      ).rows
+    : [];
+  const currentKpis = buildOverviewKpisFromRows(accountRows);
+  let previousKpis = previousRows.length > 0 ? buildOverviewKpisFromRows(previousRows) : null;
+  let effectiveKpis = currentKpis;
+  let readSource: "warehouse_account_aggregate" | "warehouse_campaign_aggregate_fallback" =
+    "warehouse_account_aggregate";
+  let summaryCount = accountRows.length;
+
+  const campaignCurrent = await readAggregatedScope({
+    businessId: params.businessId,
+    providerAccountIds: current.context.providerAccountIds,
+    scope: "campaign_daily",
+    startDate: current.context.startDate,
+    endDate: current.context.endDate,
+  });
+  const campaignCurrentKpis = buildOverviewKpisFromRows(campaignCurrent.rows);
+
+  if (
+    shouldFallbackGoogleOverviewToCampaignScope({
+      account: currentKpis,
+      campaign: campaignCurrentKpis,
+    })
+  ) {
+    const campaignPreviousRows = compareWindow
+      ? (
+          await readAggregatedScope({
+            businessId: params.businessId,
+            providerAccountIds: current.context.providerAccountIds,
+            scope: "campaign_daily",
+            startDate: compareWindow.startDate,
+            endDate: compareWindow.endDate,
+          })
+        ).rows
+      : [];
+    effectiveKpis = campaignCurrentKpis;
+    previousKpis =
+      campaignPreviousRows.length > 0 ? buildOverviewKpisFromRows(campaignPreviousRows) : null;
+    readSource = "warehouse_campaign_aggregate_fallback";
+    summaryCount = campaignCurrent.rows.length;
+    console.warn("[google-canonical] summary_scope_fallback_to_campaign", {
+      businessId: params.businessId,
+      startDate: current.context.startDate,
+      endDate: current.context.endDate,
+      accountSpend: currentKpis.spend,
+      campaignSpend: campaignCurrentKpis.spend,
+      accountRevenue: currentKpis.revenue,
+      campaignRevenue: campaignCurrentKpis.revenue,
+      accountConversions: currentKpis.conversions,
+      campaignConversions: campaignCurrentKpis.conversions,
+    });
+  }
+
+  const meta = {
+    ...buildMeta({
+      freshness: current.freshness,
+      rowCounts: { account_daily: accountRows.length },
+    }),
+    readSource,
+  };
+
+  const result = {
+    kpis: effectiveKpis,
+    kpiDeltas: previousKpis
+      ? {
+          spend: pctDelta(effectiveKpis.spend, previousKpis.spend),
+          revenue: pctDelta(effectiveKpis.revenue, previousKpis.revenue),
+          conversions: pctDelta(effectiveKpis.conversions, previousKpis.conversions),
+          roas: pctDelta(effectiveKpis.roas, previousKpis.roas),
+          cpa: pctDelta(effectiveKpis.cpa, previousKpis.cpa),
+          ctr: pctDelta(effectiveKpis.ctr, previousKpis.ctr),
+        }
+      : undefined,
+    summary: {
+      totalAccounts: summaryCount,
+      readSource,
+    },
+    meta,
+  };
+  console.info("[google-canonical] summary_read", {
+    businessId: params.businessId,
+    startDate: current.context.startDate,
+    endDate: current.context.endDate,
+    readSource: result.summary.readSource,
+    accountCount: result.summary.totalAccounts,
+  });
+  return result;
 }
 
 export async function getGoogleAdsOverviewSummaryAggregate(
   params: BaseReportParams,
 ): Promise<GoogleAdsOverviewSummaryResult> {
-  const current = await buildScopeResponse({ params, scope: "account_daily" });
-  const accountRows = current.rows as Array<Record<string, unknown>>;
-  const totalSpend = accountRows.reduce((sum, row) => sum + toNumber(row.spend), 0);
-  const totalRevenue = accountRows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
-  const totalConversions = accountRows.reduce((sum, row) => sum + toNumber(row.conversions), 0);
-  const totalClicks = accountRows.reduce((sum, row) => sum + toNumber(row.clicks), 0);
-  const totalImpressions = accountRows.reduce((sum, row) => sum + toNumber(row.impressions), 0);
-  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-  const cpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
-  const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-  const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+  const canonical = await getGoogleCanonicalOverviewSummary(params);
+  return {
+    kpis: canonical.kpis,
+    summary: canonical.summary,
+    meta: canonical.meta,
+  };
+}
+
+async function resolveGoogleProjectionWindowState(input: {
+  businessId: string;
+  providerAccountIds: string[];
+  startDate: string;
+  endDate: string;
+}) {
+  const snapshot = await readProviderAccountSnapshot({
+    businessId: input.businessId,
+    provider: "google",
+  }).catch(() => null);
+  const primaryTimeZone =
+    snapshot?.accounts.find((account) => input.providerAccountIds.includes(account.id))?.timezone ??
+    snapshot?.accounts[0]?.timezone ??
+    null;
+
+  if (!primaryTimeZone) {
+    return {
+      historicalOnly: false,
+      reason: "provider_timezone_unknown",
+      primaryTimeZone: null,
+    };
+  }
+
+  const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryTimeZone);
+  if (input.endDate >= currentDateInTimezone) {
+    return {
+      historicalOnly: false,
+      reason: "mutable_window",
+      primaryTimeZone,
+    };
+  }
 
   return {
-    kpis: {
-      spend: Number(totalSpend.toFixed(2)),
-      conversions: Number(totalConversions.toFixed(2)),
-      revenue: Number(totalRevenue.toFixed(2)),
-      roas: Number(roas.toFixed(2)),
-      cpa: Number(cpa.toFixed(2)),
-      cpc: Number(cpc.toFixed(2)),
-      ctr: Number(ctr.toFixed(2)),
-      impressions: totalImpressions,
-      clicks: totalClicks,
-      convRate: totalClicks > 0 ? Number(((totalConversions / totalClicks) * 100).toFixed(2)) : 0,
-    },
-    summary: {
-      totalAccounts: accountRows.length,
-      readSource: "warehouse_account_aggregate",
-    },
-    meta: buildMeta({
-      freshness: current.freshness,
-      rowCounts: { account_daily: accountRows.length },
-    }),
+    historicalOnly: true,
+    reason: null,
+    primaryTimeZone,
   };
+}
+
+export async function getGoogleCanonicalOverviewTrends(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  accountId?: string | null;
+  debug?: boolean;
+  source?: string;
+}): Promise<GoogleAdsCanonicalTrendResult> {
+  const context = await resolveWarehouseContext({
+    businessId: input.businessId,
+    accountId: input.accountId ?? null,
+    dateRange: "custom",
+    customStart: input.startDate,
+    customEnd: input.endDate,
+  });
+
+  if (context.providerAccountIds.length === 0) {
+    const freshness = createGoogleAdsWarehouseFreshness({
+      dataState: "connected_no_assignment",
+      warnings: ["No Google Ads account is assigned to this business."],
+    });
+    return {
+      points: [],
+      meta: {
+        ...buildMeta({
+          freshness,
+          rowCounts: { account_daily: 0 },
+        }),
+        readSource: "warehouse_account_daily",
+        fallbackReason: null,
+        degraded: false,
+      },
+    };
+  }
+
+  try {
+    const rows = await readGoogleAdsDailyRange({
+      scope: "account_daily",
+      businessId: input.businessId,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      timeoutMs: 30_000,
+    });
+    const freshness = await buildFreshness({
+      businessId: input.businessId,
+      scope: "account_daily",
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      rows,
+    });
+    let effectiveRows = rows;
+    let readSource: "warehouse_account_daily" | "warehouse_campaign_daily_fallback" =
+      "warehouse_account_daily";
+
+    const campaignRows = await readGoogleAdsDailyRange({
+      scope: "campaign_daily",
+      businessId: input.businessId,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      timeoutMs: 30_000,
+    });
+    const accountTotals = aggregateGoogleOverviewTrendPoints(rows).reduce(
+      (acc, row) => {
+        acc.spend += Number(row.spend ?? 0);
+        acc.revenue += Number(row.revenue ?? 0);
+        acc.conversions += Number(row.conversions ?? 0);
+        return acc;
+      },
+      { spend: 0, revenue: 0, conversions: 0 },
+    );
+    const campaignTotals = aggregateGoogleOverviewTrendPoints(campaignRows).reduce(
+      (acc, row) => {
+        acc.spend += Number(row.spend ?? 0);
+        acc.revenue += Number(row.revenue ?? 0);
+        acc.conversions += Number(row.conversions ?? 0);
+        return acc;
+      },
+      { spend: 0, revenue: 0, conversions: 0 },
+    );
+
+    if (
+      shouldFallbackGoogleOverviewToCampaignScope({
+        account: buildOverviewKpisFromRows([accountTotals]),
+        campaign: buildOverviewKpisFromRows([campaignTotals]),
+      })
+    ) {
+      effectiveRows = campaignRows;
+      readSource = "warehouse_campaign_daily_fallback";
+      console.warn("[google-canonical] trends_scope_fallback_to_campaign", {
+        businessId: input.businessId,
+        startDate: context.startDate,
+        endDate: context.endDate,
+        accountSpend: accountTotals.spend,
+        campaignSpend: campaignTotals.spend,
+        accountRevenue: accountTotals.revenue,
+        campaignRevenue: campaignTotals.revenue,
+        accountConversions: accountTotals.conversions,
+        campaignConversions: campaignTotals.conversions,
+      });
+    }
+
+    console.info("[google-canonical] trends_provider_truth_read_succeeded", {
+      businessId: input.businessId,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      rowCount: effectiveRows.length,
+      readSource,
+    });
+    void hydrateOverviewSummaryRangeFromGoogle({
+      businessId: input.businessId,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      rows: effectiveRows,
+    }).catch(() => undefined);
+    return {
+      points: aggregateGoogleOverviewTrendPoints(effectiveRows),
+      meta: {
+        ...buildMeta({
+          freshness,
+          rowCounts: { account_daily: effectiveRows.length },
+        }),
+        readSource,
+        fallbackReason: null,
+        degraded: false,
+      },
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[google-canonical] trends_provider_truth_read_failed", {
+      businessId: input.businessId,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      message,
+    });
+
+    const projectionWindow = await resolveGoogleProjectionWindowState({
+      businessId: input.businessId,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+    });
+    if (!projectionWindow.historicalOnly) {
+      console.info("[google-canonical] projection_bypassed", {
+        businessId: input.businessId,
+        startDate: context.startDate,
+        endDate: context.endDate,
+        reason: projectionWindow.reason,
+      });
+      const freshness = createGoogleAdsWarehouseFreshness({
+        dataState: "partial",
+        isPartial: true,
+        warnings: ["Google Ads provider truth is unavailable for a mutable window."],
+      });
+      return {
+        points: [],
+        meta: {
+          ...buildMeta({
+            freshness,
+            rowCounts: { account_daily: 0 },
+          }),
+          readSource: "provider_truth_unavailable",
+          fallbackReason: projectionWindow.reason,
+          degraded: true,
+        },
+      };
+    }
+
+    const cached = await readOverviewSummaryRange({
+      businessId: input.businessId,
+      provider: "google",
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+    }).catch(() => null);
+    const validity = evaluateOverviewSummaryProjectionValidity({
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      hydrated: Boolean(cached?.hydrated),
+      manifest: cached?.manifest,
+      rows: cached?.rows ?? [],
+    });
+    console.info("[google-canonical] projection_evaluated", {
+      businessId: input.businessId,
+      startDate: context.startDate,
+      endDate: context.endDate,
+      valid: validity.valid,
+      reason: validity.reason,
+    });
+    if (validity.valid && cached) {
+      const projectionRows = cached.rows.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        date: row.date,
+        accountTimezone: projectionWindow.primaryTimeZone ?? "UTC",
+        accountCurrency: "USD",
+        entityKey: row.providerAccountId,
+        entityLabel: null,
+        campaignId: null,
+        campaignName: null,
+        adGroupId: null,
+        adGroupName: null,
+        status: null,
+        channel: null,
+        classification: null,
+        spend: row.spend,
+        revenue: row.revenue,
+        conversions: row.purchases,
+        impressions: row.impressions,
+        clicks: row.clicks,
+        ctr: row.impressions > 0 ? (row.clicks / row.impressions) * 100 : null,
+        cpc: row.clicks > 0 ? row.spend / row.clicks : null,
+        cpa: row.purchases > 0 ? row.spend / row.purchases : null,
+        roas: row.spend > 0 ? row.revenue / row.spend : 0,
+        conversionRate: row.clicks > 0 ? (row.purchases / row.clicks) * 100 : null,
+        interactionRate: null,
+        sourceSnapshotId: null,
+        payloadJson: {},
+        createdAt: undefined,
+        updatedAt: row.updatedAt ?? undefined,
+      })) as GoogleAdsWarehouseDailyRow[];
+      const freshness = createGoogleAdsWarehouseFreshness({
+        dataState: "ready",
+        lastSyncedAt: cached.manifest?.maxSourceUpdatedAt ?? null,
+      });
+      console.warn("[google-canonical] projection_fallback_activated", {
+        businessId: input.businessId,
+        startDate: context.startDate,
+        endDate: context.endDate,
+        reason: "provider_truth_operational_failure",
+      });
+      return {
+        points: aggregateGoogleOverviewTrendPoints(projectionRows),
+        meta: {
+          ...buildMeta({
+            freshness,
+            rowCounts: { account_daily: cached.rows.length },
+          }),
+          readSource: "projection_fallback",
+          fallbackReason: "provider_truth_operational_failure",
+          degraded: false,
+        },
+      };
+    }
+
+    const freshness = createGoogleAdsWarehouseFreshness({
+      dataState: "partial",
+      isPartial: true,
+      warnings: ["Google Ads provider truth is unavailable and no verified projection fallback could be used."],
+    });
+    return {
+      points: [],
+      meta: {
+        ...buildMeta({
+          freshness,
+          rowCounts: { account_daily: 0 },
+        }),
+        readSource: "provider_truth_unavailable",
+        fallbackReason: validity.reason,
+        degraded: true,
+      },
+    };
+  }
 }
 
 async function buildSimpleEntityReport(

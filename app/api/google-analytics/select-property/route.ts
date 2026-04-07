@@ -4,6 +4,7 @@ import { getDemoGa4Properties } from "@/lib/demo-business";
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import {
   fetchGA4Properties,
+  fetchGA4PropertyMetadata,
   isPropertyAccessible
 } from "@/lib/google-analytics-accounts";
 import {
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
           ga4PropertyName: property.propertyName,
           ga4AccountId: property.accountId,
           ga4AccountName: property.accountName,
+          ga4PropertyTimeZone: null,
           propertyId: property.propertyId.replace(/^properties\//, ""),
           propertyName: property.propertyName,
           propertyResourceName: property.propertyId,
@@ -164,6 +166,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const propertyMetadata = await fetchGA4PropertyMetadata(
+    ga4Context.accessToken,
+    normalizedPropertyId,
+  ).catch((error: unknown) => {
+    console.warn("[ga4-select-property] property_metadata_failed", {
+      businessId,
+      propertyId: normalizedPropertyId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return { propertyId: normalizedPropertyId, timeZone: null };
+  });
+
   // Save property selection to integration metadata
   const existingMetadata = (integration.metadata ?? {}) as Record<
     string,
@@ -181,6 +195,7 @@ export async function POST(request: NextRequest) {
       ga4PropertyName: propertyName,
       ga4AccountId: accountId,
       ga4AccountName: accountName,
+      ga4PropertyTimeZone: propertyMetadata.timeZone,
     },
   });
 
@@ -190,6 +205,7 @@ export async function POST(request: NextRequest) {
     propertyName,
     accountId,
     accountName,
+    propertyTimeZone: propertyMetadata.timeZone,
   });
 
   return NextResponse.json({

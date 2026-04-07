@@ -21,17 +21,17 @@ export default function NewBusinessPage() {
 
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <BusinessForm
-          onSubmit={async ({ name, timezone, currency }) => {
+          onSubmit={async ({ name, currency }) => {
             setError(null);
             const res = await fetch("/api/businesses", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name, timezone, currency }),
+              body: JSON.stringify({ name, currency }),
             });
             const payload = (await res.json().catch(() => null)) as
               | {
                   message?: string;
-                  business?: { id: string; name: string; timezone: string; currency: string };
+                  business?: { id: string; name: string; timezone: string | null; timezoneSource?: "shopify" | "ga4" | null; currency: string };
                 }
               | null;
             if (!res.ok || !payload?.business) {
@@ -44,7 +44,8 @@ export default function NewBusinessPage() {
                   businesses?: Array<{
                     id: string;
                     name: string;
-                    timezone: string;
+                    timezone: string | null;
+                    timezoneSource?: "shopify" | "ga4" | null;
                     currency: string;
                   }>;
                   activeBusinessId?: string | null;

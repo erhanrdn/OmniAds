@@ -12,11 +12,8 @@ vi.mock("@/lib/demo-business", () => ({
 }));
 
 vi.mock("@/lib/google-ads/serving", () => ({
-  getGoogleAdsOverviewSummaryAggregate: vi.fn(),
-}));
-
-vi.mock("@/lib/google-ads/warehouse", () => ({
-  readGoogleAdsDailyRange: vi.fn(),
+  getGoogleCanonicalOverviewSummary: vi.fn(),
+  getGoogleCanonicalOverviewTrends: vi.fn(),
 }));
 
 vi.mock("@/lib/google-analytics-reporting", () => ({
@@ -29,36 +26,15 @@ vi.mock("@/lib/integrations", () => ({
   getIntegrationMetadata: vi.fn(),
 }));
 
-vi.mock("@/lib/migrations", () => ({
-  runMigrations: vi.fn(),
-}));
-
-vi.mock("@/lib/provider-account-assignments", () => ({
-  getProviderAccountAssignments: vi.fn(),
+vi.mock("@/lib/meta/canonical-overview", () => ({
+  getMetaCanonicalOverviewSummary: vi.fn(),
+  getMetaCanonicalOverviewTrends: vi.fn(),
 }));
 
 vi.mock("@/lib/reporting-cache", () => ({
   getCachedReport: vi.fn(),
   getReportingDateRangeKey: vi.fn(() => "cache-key"),
   setCachedReport: vi.fn(),
-}));
-
-vi.mock("@/lib/meta/serving", () => ({
-  getMetaWarehouseSummary: vi.fn(),
-}));
-
-vi.mock("@/lib/meta/warehouse", () => ({
-  getMetaAccountDailyRange: vi.fn(),
-}));
-
-vi.mock("@/lib/overview-summary-store", () => ({
-  readOverviewSummaryRange: vi.fn(),
-  hydrateOverviewSummaryRangeFromMeta: vi.fn(async ({ rows }: { rows: unknown[] }) => rows),
-  hydrateOverviewSummaryRangeFromGoogle: vi.fn(async ({ rows }: { rows: unknown[] }) => rows),
-}));
-
-vi.mock("@/lib/shopify/overview", () => ({
-  getShopifyOverviewAggregate: vi.fn(),
 }));
 
 vi.mock("@/lib/shopify/read-adapter", () => ({
@@ -69,19 +45,36 @@ vi.mock("@/lib/shopify/read-adapter", () => ({
 const businessMode = await import("@/lib/business-mode.server");
 const demo = await import("@/lib/demo-business");
 const googleServing = await import("@/lib/google-ads/serving");
-const googleWarehouse = await import("@/lib/google-ads/warehouse");
 const integrations = await import("@/lib/integrations");
-const assignments = await import("@/lib/provider-account-assignments");
+const metaCanonical = await import("@/lib/meta/canonical-overview");
 const reportingCache = await import("@/lib/reporting-cache");
-const metaServing = await import("@/lib/meta/serving");
-const metaWarehouse = await import("@/lib/meta/warehouse");
-const overviewSummaryStore = await import("@/lib/overview-summary-store");
-const shopifyOverview = await import("@/lib/shopify/overview");
 const shopifyReadAdapter = await import("@/lib/shopify/read-adapter");
-const { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } = await import("@/lib/overview-service");
+const {
+  getOverviewData,
+  getOverviewTrendBundle,
+  getShopifyOverviewServingData,
+} = await import("@/lib/overview-service");
+
+function buildShopifyStatus(
+  overrides: Partial<ShopifyStatusResponse> = {},
+): ShopifyStatusResponse {
+  return {
+    state: "not_connected",
+    connected: false,
+    shopId: null,
+    warehouse: null,
+    sync: null,
+    serving: null,
+    reconciliation: null,
+    issues: [],
+    ...overrides,
+  };
+}
 
 function buildReadCandidate(
-  overrides: Partial<Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>>> = {}
+  overrides: Partial<
+    Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>>
+  > = {},
 ): Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>> {
   return {
     status: buildShopifyStatus(),
@@ -118,78 +111,15 @@ function buildReadCandidate(
   };
 }
 
-function buildShopifyStatus(
-  overrides: Partial<Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>>["status"]> = {}
-): ShopifyStatusResponse {
-  return {
-    state: "not_connected",
-    connected: false,
-    shopId: null,
-    warehouse: null,
-    sync: null,
-    serving: null,
-    reconciliation: null,
-    issues: [],
-    ...overrides,
-  };
-}
-
-describe("getOverviewData", () => {
+describe("overview-service canonical orchestration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
     vi.mocked(demo.isDemoBusinessId).mockReturnValue(false);
     vi.mocked(reportingCache.getCachedReport).mockResolvedValue(null);
-    vi.mocked(shopifyOverview.getShopifyOverviewAggregate).mockResolvedValue(null);
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue(
-      buildReadCandidate({
-        decisionReasons: ["warehouse_read_canary_disabled"],
-      }) as never
-    );
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
-      buildReadCandidate({
-        decisionReasons: ["warehouse_read_canary_disabled"],
-      }) as never
-    );
-    vi.mocked(googleServing.getGoogleAdsOverviewSummaryAggregate).mockResolvedValue({
-      kpis: {
-        spend: 0,
-        revenue: 0,
-        conversions: 0,
-        clicks: 0,
-        impressions: 0,
-        roas: 0,
-        cpa: 0,
-      },
-    } as never);
-    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
-      id: "as_1",
-      business_id: "biz",
-      provider: "meta",
-      account_ids: ["act_1"],
-      created_at: "",
-      updated_at: "",
-    });
-    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
-      id: "int_meta",
-      business_id: "biz",
-      provider: "meta",
-      status: "disconnected",
-      provider_account_id: null,
-      provider_account_name: null,
-      access_token: null,
-      refresh_token: null,
-      token_expires_at: null,
-      scopes: null,
-      error_message: null,
-      metadata: {},
-      connected_at: null,
-      disconnected_at: null,
-      created_at: "",
-      updated_at: "",
-    });
     vi.mocked(integrations.getIntegration).mockResolvedValue(null);
-    vi.mocked(metaServing.getMetaWarehouseSummary).mockResolvedValue({
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue(null);
+    vi.mocked(metaCanonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
       totals: { spend: 120, revenue: 480, conversions: 6 },
       accounts: [
         {
@@ -200,16 +130,56 @@ describe("getOverviewData", () => {
           roas: 4,
         },
       ],
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse",
     } as never);
-    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([]);
-    vi.mocked(googleWarehouse.readGoogleAdsDailyRange).mockResolvedValue([]);
-    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockResolvedValue({
-      hydrated: false,
-      rows: [],
+    vi.mocked(metaCanonical.getMetaCanonicalOverviewTrends).mockResolvedValue({
+      points: [],
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse_published",
+      meta: { readSource: "warehouse_published" },
     } as never);
+    vi.mocked(googleServing.getGoogleCanonicalOverviewSummary).mockResolvedValue({
+      kpis: {
+        spend: 30,
+        revenue: 90,
+        conversions: 3,
+        roas: 3,
+        cpa: 10,
+        cpc: 1,
+        ctr: 2,
+        impressions: 1000,
+        clicks: 30,
+        convRate: 10,
+      },
+      kpiDeltas: undefined,
+      summary: {
+        totalAccounts: 1,
+        readSource: "warehouse_account_aggregate",
+      },
+      meta: {
+        readSource: "warehouse_account_aggregate",
+      },
+    } as never);
+    vi.mocked(googleServing.getGoogleCanonicalOverviewTrends).mockResolvedValue({
+      points: [],
+      meta: {
+        readSource: "warehouse_account_daily",
+        fallbackReason: null,
+        degraded: false,
+      },
+    } as never);
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue(
+      buildReadCandidate() as never,
+    );
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
+      buildReadCandidate() as never,
+    );
   });
 
-  it("keeps historical Meta warehouse contribution even when the integration is disconnected", async () => {
+  it("composes Meta and Google overview fragments from canonical provider helpers", async () => {
     const overview = await getOverviewData({
       businessId: "biz",
       startDate: "2026-03-01",
@@ -217,440 +187,84 @@ describe("getOverviewData", () => {
       includeTrends: false,
     });
 
-    expect(metaServing.getMetaWarehouseSummary).toHaveBeenCalled();
-    expect(googleServing.getGoogleAdsOverviewSummaryAggregate).toHaveBeenCalledWith(
+    expect(metaCanonical.getMetaCanonicalOverviewSummary).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-15",
+    });
+    expect(googleServing.getGoogleCanonicalOverviewSummary).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
+        dateRange: "custom",
+        customStart: "2026-03-01",
+        customEnd: "2026-03-15",
+        compareMode: "none",
         source: "overview_aggregation_route",
-      })
-    );
-    expect(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).toHaveBeenCalled();
-    expect(overview.kpis.spend).toBe(120);
-    expect(overview.kpis.revenue).toBe(480);
-    expect(overview.kpis.purchases).toBe(6);
-  });
-
-  it("marks ecommerce KPIs as Shopify live fallback when only live aggregate is present", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
-      status: buildShopifyStatus({
-        state: "ready",
-        connected: true,
-        shopId: "test-shop.myshopify.com",
       }),
-      live: {
-        revenue: 900,
-        purchases: 9,
-        averageOrderValue: 100,
-        sessions: null,
-        conversionRate: null,
-        newCustomers: null,
-        returningCustomers: null,
-        dailyTrends: [],
-      },
-      warehouse: null,
-      divergence: null,
-      decisionReasons: ["warehouse_aggregate_unavailable"],
-      canaryEnabled: false,
-      preferredSource: "live",
-      canServeWarehouse: false,
-    } as never);
-
-    const overview = await getOverviewData({
-      businessId: "biz",
-      startDate: "2026-03-01",
-      endDate: "2026-03-15",
-      includeTrends: false,
-    });
-
-    expect(overview.kpis.revenue).toBe(900);
+    );
+    expect(overview.kpis.spend).toBe(150);
+    expect(overview.kpis.revenue).toBe(570);
     expect(overview.kpis.purchases).toBe(9);
-    expect(overview.kpis.aov).toBe(100);
-    expect(overview.kpis.roas).toBe(7.5);
-    expect(overview.kpiSources.revenue).toEqual({
-      source: "shopify_live_fallback",
-      label: "Shopify Live Fallback",
-    });
-    expect(overview.kpiSources.purchases).toEqual({
-      source: "shopify_live_fallback",
-      label: "Shopify Live Fallback",
-    });
-    expect(overview.kpiSources.aov).toEqual({
-      source: "shopify_live_fallback",
-      label: "Shopify Live Fallback",
-    });
-    expect(overview.kpiSources.roas).toEqual({
-      source: "shopify_live_fallback",
-      label: "Shopify Live Fallback",
-    });
   });
 
-  it("uses warehouse canary aggregate when it is selected", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
-      status: buildShopifyStatus({
-        state: "ready",
-        connected: true,
-        shopId: "test-shop.myshopify.com",
-      }),
-      live: {
-        revenue: 900,
-        purchases: 9,
-        averageOrderValue: 100,
-        sessions: null,
-        conversionRate: null,
-        newCustomers: null,
-        returningCustomers: null,
-        dailyTrends: [],
-      },
-      warehouse: {
-        revenue: 840,
-        grossRevenue: 900,
-        refundedRevenue: 60,
-        purchases: 8,
-        returnEvents: 1,
-        averageOrderValue: 105,
-        daily: [
-          {
-            date: "2026-03-01",
-            orderRevenue: 900,
-            refundedRevenue: 60,
-            netRevenue: 840,
-            orders: 8,
-            returnEvents: 1,
-          },
-        ],
-      },
-      divergence: {
-        liveRevenue: 900,
-        warehouseRevenue: 840,
-        revenueDelta: -60,
-        revenueDeltaPercent: 6.67,
-        livePurchases: 9,
-        warehousePurchases: 8,
-        purchaseDelta: -1,
-        liveAov: 100,
-        warehouseAov: 105,
-        aovDelta: 5,
-        maxDailyRevenueDeltaPercent: 6.67,
-        maxDailyPurchaseDelta: 1,
-        withinThreshold: true,
-      },
-      decisionReasons: [],
-      canaryEnabled: true,
-      preferredSource: "warehouse",
-      canServeWarehouse: true,
-      servingMetadata: {
-        source: "warehouse",
-        provider: "shopify",
-        trustState: "trusted",
+  it("uses the summary Shopify read path for sparkline bundles", async () => {
+    vi.mocked(metaCanonical.getMetaCanonicalOverviewTrends).mockResolvedValue({
+      points: [{ date: "2026-03-01", spend: 10, revenue: 20, conversions: 1 }],
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse_published",
+      meta: { readSource: "warehouse_published" },
+    } as never);
+    vi.mocked(googleServing.getGoogleCanonicalOverviewTrends).mockResolvedValue({
+      points: [{ date: "2026-03-01", spend: 5, revenue: 15, conversions: 2 }],
+      meta: {
+        readSource: "warehouse_account_daily",
         fallbackReason: null,
-        lastSyncedAt: "2026-04-02T10:00:00.000Z",
-        coverageStatus: "recent_ready",
-        productionMode: "auto",
-        pendingRepair: false,
-        pendingRepairStartedAt: null,
-        pendingRepairLastTopic: null,
-        pendingRepairLastReceivedAt: null,
-        selectedRevenueTruthBasis: "gross_minus_total_refunded",
-        basisSelectionReason: "closest_gross_minus_refunds_revenue",
-        transactionCoverageOrderRate: 88,
-        transactionCoverageAmountRate: 92,
-        explainedAdjustmentRevenue: 0,
-        unexplainedAdjustmentRevenue: 0,
+        degraded: false,
       },
     } as never);
 
-    const overview = await getOverviewData({
+    const bundle = await getOverviewTrendBundle({
       businessId: "biz",
       startDate: "2026-03-01",
-      endDate: "2026-03-15",
-      includeTrends: false,
+      endDate: "2026-03-01",
     });
 
-    expect(overview.kpis.revenue).toBe(840);
-    expect(overview.kpis.purchases).toBe(8);
-    expect(overview.kpis.aov).toBe(105);
-    expect(overview.kpiSources.revenue).toEqual({
-      source: "shopify_warehouse",
-      label: "Shopify Warehouse",
-    });
+    expect(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).toHaveBeenCalled();
+    expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).not.toHaveBeenCalled();
+    expect(bundle.providerTrends.meta).toEqual([
+      { date: "2026-03-01", spend: 10, revenue: 20, purchases: 1 },
+    ]);
+    expect(bundle.providerTrends.google).toEqual([
+      { date: "2026-03-01", spend: 5, revenue: 15, purchases: 2 },
+    ]);
+    expect(bundle.combined).toEqual([
+      { date: "2026-03-01", spend: 15, revenue: 35, purchases: 3 },
+    ]);
   });
 
-  it("preserves warehouse-only Shopify store metrics for summary surfaces", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      status: buildShopifyStatus({
-        state: "ready",
-        connected: true,
-        shopId: "test-shop.myshopify.com",
-      }),
-      live: {
-        revenue: 900,
-        purchases: 9,
-        averageOrderValue: 100,
-        grossRevenue: null,
-        refundedRevenue: null,
-        returnEvents: null,
-        sessions: null,
-        conversionRate: null,
-        newCustomers: null,
-        returningCustomers: null,
-        dailyTrends: [],
-      },
-      warehouse: {
-        revenue: 840,
-        grossRevenue: 900,
-        refundedRevenue: 60,
-        purchases: 8,
-        returnEvents: 1,
-        averageOrderValue: 105,
-        daily: [
-          {
-            date: "2026-03-01",
-            orderRevenue: 900,
-            refundedRevenue: 60,
-            netRevenue: 840,
-            orders: 8,
-            returnEvents: 1,
-          },
-        ],
-      },
-      divergence: {
-        liveRevenue: 900,
-        warehouseRevenue: 840,
-        revenueDelta: -60,
-        revenueDeltaPercent: 6.67,
-        livePurchases: 9,
-        warehousePurchases: 8,
-        purchaseDelta: -1,
-        liveAov: 100,
-        warehouseAov: 105,
-        aovDelta: 5,
-        maxDailyRevenueDeltaPercent: 6.67,
-        maxDailyPurchaseDelta: 1,
-        withinThreshold: true,
-      },
-      decisionReasons: [],
-      canaryEnabled: true,
-      preferredSource: "warehouse",
-      canServeWarehouse: true,
-      servingMetadata: {
-        source: "warehouse",
-        provider: "shopify",
-        trustState: "trusted",
+  it("lets Shopify canonical revenue override ad-platform revenue in combined trends without altering provider trends", async () => {
+    vi.mocked(metaCanonical.getMetaCanonicalOverviewTrends).mockResolvedValue({
+      points: [{ date: "2026-03-01", spend: 10, revenue: 20, conversions: 1 }],
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse_published",
+      meta: { readSource: "warehouse_published" },
+    } as never);
+    vi.mocked(googleServing.getGoogleCanonicalOverviewTrends).mockResolvedValue({
+      points: [{ date: "2026-03-01", spend: 5, revenue: 15, conversions: 2 }],
+      meta: {
+        readSource: "warehouse_account_daily",
         fallbackReason: null,
-        lastSyncedAt: "2026-04-02T10:00:00.000Z",
-        coverageStatus: "recent_ready",
-        productionMode: "auto",
-        pendingRepair: false,
-        pendingRepairStartedAt: null,
-        pendingRepairLastTopic: null,
-        pendingRepairLastReceivedAt: null,
-        selectedRevenueTruthBasis: "gross_minus_total_refunded",
-        basisSelectionReason: "closest_gross_minus_refunds_revenue",
-        transactionCoverageOrderRate: 88,
-        transactionCoverageAmountRate: 92,
-        explainedAdjustmentRevenue: 0,
-        unexplainedAdjustmentRevenue: 0,
+        degraded: false,
       },
     } as never);
-
-    const result = await getShopifyOverviewServingData({
-      businessId: "biz",
-      startDate: "2026-03-01",
-      endDate: "2026-03-15",
-    });
-
-    expect(result.aggregate).toEqual(
-      expect.objectContaining({
-        revenue: 840,
-        grossRevenue: 900,
-        refundedRevenue: 60,
-        purchases: 8,
-        returnEvents: 1,
-      })
-    );
-    expect(result.aggregate?.dailyTrends[0]).toEqual(
-      expect.objectContaining({
-        date: "2026-03-01",
-        revenue: 840,
-        grossRevenue: 900,
-        refundedRevenue: 60,
-        purchases: 8,
-        returnEvents: 1,
-      })
-    );
-  });
-
-  it("prefers ledger revenue truth when ledger serving is selected", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
-      status: buildShopifyStatus({
-        state: "ready",
-        connected: true,
-        shopId: "test-shop.myshopify.com",
-      }),
-      live: {
-        revenue: 900,
-        purchases: 9,
-        averageOrderValue: 100,
-        sessions: null,
-        conversionRate: null,
-        newCustomers: null,
-        returningCustomers: null,
-        dailyTrends: [],
-      },
-      warehouse: {
-        revenue: 840,
-        grossRevenue: 900,
-        refundedRevenue: 60,
-        purchases: 8,
-        returnEvents: 1,
-        averageOrderValue: 105,
-        daily: [],
-      },
-      ledger: {
-        revenue: 780,
-        grossRevenue: 900,
-        refundedRevenue: 120,
-        purchases: 8,
-        returnEvents: 1,
-        averageOrderValue: 97.5,
-        daily: [
-          {
-            date: "2026-03-01",
-            orderRevenue: 900,
-            refundedRevenue: 120,
-            netRevenue: 780,
-            orders: 8,
-            returnEvents: 1,
-            orderEventCount: 8,
-            adjustmentEventCount: 0,
-            refundEventCount: 1,
-            adjustmentRevenue: 0,
-            refundPressure: 120,
-            dailySemanticDrift: 120,
-          },
-        ],
-        ledgerRows: 1,
-        orderEventCount: 8,
-        adjustmentEventCount: 0,
-        refundEventCount: 1,
-        adjustmentRevenue: 0,
-        refundPressure: 120,
-        dailySemanticDrift: 120,
-        currentOrderRevenue: 900,
-        grossMinusRefundsOrderRevenue: 780,
-        transactionCapturedRevenue: null,
-        transactionRefundedRevenue: null,
-        transactionNetRevenue: null,
-        transactionCoveredOrders: 0,
-        transactionCoveredRevenue: null,
-        transactionCoverageRate: null,
-        transactionCoverageAmountRate: null,
-      },
-      divergence: null,
-      override: null,
-      ledgerConsistency: {
-        withinThreshold: true,
-        revenueDelta: 60,
-        revenueDeltaPercent: 7.14,
-        purchaseDelta: 0,
-        returnEventDelta: 0,
-        refundedRevenueDelta: 60,
-        adjustmentRevenueDelta: 0,
-        refundPressureDelta: 60,
-        orderRevenueTruthDelta: 0,
-        transactionRevenueDelta: null,
-        currentOrderRevenue: 900,
-        grossMinusRefundsOrderRevenue: 780,
-        preferredOrderRevenueBasis: "gross_minus_total_refunded",
-        transactionNetRevenue: null,
-        transactionCoveredOrders: 0,
-        transactionCoveredRevenue: null,
-        transactionCoverageRate: null,
-        transactionCoverageAmountRate: null,
-        warehouseRevenue: 840,
-        ledgerRevenue: 780,
-        warehousePurchases: 8,
-        ledgerPurchases: 8,
-        warehouseReturnEvents: 1,
-        ledgerReturnEvents: 1,
-        warehouseRefundedRevenue: 60,
-        ledgerRefundedRevenue: 120,
-        ledgerAdjustmentRevenue: 0,
-        maxDailyRevenueDeltaPercent: null,
-        maxDailyPurchaseDelta: null,
-        maxDailyRefundPressureDelta: null,
-        maxDailyAdjustmentDelta: null,
-        maxDailySemanticDrift: null,
-        consistencyScore: 92.86,
-        failureReasons: [],
-      },
-      decisionReasons: [],
-      canaryEnabled: true,
-      preferredSource: "ledger",
-      canServeWarehouse: true,
-      servingMetadata: {
-        source: "ledger",
-        provider: "shopify",
-        trustState: "trusted",
-        fallbackReason: null,
-        lastSyncedAt: "2026-04-02T10:00:00.000Z",
-        coverageStatus: "recent_ready",
-        productionMode: "auto",
-        pendingRepair: false,
-        pendingRepairStartedAt: null,
-        pendingRepairLastTopic: null,
-        pendingRepairLastReceivedAt: null,
-        selectedRevenueTruthBasis: "gross_minus_total_refunded",
-        basisSelectionReason: "closest_gross_minus_refunds_revenue",
-        transactionCoverageOrderRate: null,
-        transactionCoverageAmountRate: null,
-        explainedAdjustmentRevenue: 0,
-        unexplainedAdjustmentRevenue: 0,
-      },
-    } as never);
-
-    const overview = await getOverviewData({
-      businessId: "biz",
-      startDate: "2026-03-01",
-      endDate: "2026-03-15",
-      includeTrends: false,
-    });
-
-    expect(overview.kpis.revenue).toBe(780);
-    expect(overview.kpiSources.revenue).toEqual({
-      source: "shopify_ledger",
-      label: "Shopify Ledger",
-    });
-  });
-
-  it("uses the summary Shopify read path for trend bundles", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
-      if (provider === "google") {
-        return {
-          id: "as_google",
-          business_id: businessId,
-          provider: "google",
-          account_ids: ["g_1"],
-          created_at: "",
-          updated_at: "",
-        } as never;
-      }
-      return {
-        id: "as_meta",
-        business_id: businessId,
-        provider: "meta",
-        account_ids: ["act_1"],
-        created_at: "",
-        updated_at: "",
-      } as never;
-    });
     vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
       buildReadCandidate({
-        preferredSource: "live",
         live: {
-          revenue: 100,
-          purchases: 1,
-          averageOrderValue: 100,
+          revenue: 50,
+          purchases: 4,
+          averageOrderValue: 12.5,
           sessions: null,
           conversionRate: null,
           newCustomers: null,
@@ -658,8 +272,8 @@ describe("getOverviewData", () => {
           dailyTrends: [
             {
               date: "2026-03-01",
-              revenue: 100,
-              purchases: 1,
+              revenue: 50,
+              purchases: 4,
               sessions: null,
               conversionRate: null,
               newCustomers: null,
@@ -667,310 +281,52 @@ describe("getOverviewData", () => {
             },
           ],
         },
-      }) as never
+        preferredSource: "live",
+      }) as never,
     );
 
-    const trendBundle = await getOverviewTrendBundle({
+    const bundle = await getOverviewTrendBundle({
       businessId: "biz",
       startDate: "2026-03-01",
       endDate: "2026-03-01",
     });
 
-    expect(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        businessId: "biz",
-        startDate: "2026-03-01",
-        endDate: "2026-03-01",
-      })
-    );
-    expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).not.toHaveBeenCalled();
-    expect(trendBundle.combined).toHaveLength(1);
-  });
-
-  it("uses hydrated overview summary rows for google trend reads before warehouse fallback", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
-      if (provider === "google") {
-        return {
-          id: "as_google",
-          business_id: businessId,
-          provider: "google",
-          account_ids: ["g_1"],
-          created_at: "",
-          updated_at: "",
-        } as never;
-      }
-      return {
-        id: "as_meta",
-        business_id: businessId,
-        provider: "meta",
-        account_ids: ["act_1"],
-        created_at: "",
-        updated_at: "",
-      } as never;
-    });
-    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockImplementation(
-      async ({ provider }: { provider: "meta" | "google" }) =>
-        provider === "google"
-          ? ({
-              hydrated: true,
-              rows: [
-                {
-                  businessId: "biz",
-                  provider: "google",
-                  providerAccountId: "g_1",
-                  date: "2026-03-01",
-                  spend: 95,
-                  revenue: 210,
-                  purchases: 3,
-                  impressions: 1000,
-                  clicks: 50,
-                  sourceUpdatedAt: null,
-                  updatedAt: null,
-                },
-              ],
-            } as never)
-          : ({ hydrated: false, rows: [] } as never),
-    );
-
-    const trendBundle = await getOverviewTrendBundle({
-      businessId: "biz",
-      startDate: "2026-03-01",
-      endDate: "2026-03-01",
-    });
-
-    expect(overviewSummaryStore.readOverviewSummaryRange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        businessId: "biz",
-        provider: "google",
-      }),
-    );
-    expect(googleWarehouse.readGoogleAdsDailyRange).not.toHaveBeenCalled();
-    expect(trendBundle.providerTrends.google).toEqual([
-      {
-        date: "2026-03-01",
-        spend: 95,
-        revenue: 210,
-        purchases: 3,
-      },
+    expect(bundle.providerTrends.meta).toEqual([
+      { date: "2026-03-01", spend: 10, revenue: 20, purchases: 1 },
+    ]);
+    expect(bundle.providerTrends.google).toEqual([
+      { date: "2026-03-01", spend: 5, revenue: 15, purchases: 2 },
+    ]);
+    expect(bundle.combined).toEqual([
+      { date: "2026-03-01", spend: 15, revenue: 50, purchases: 4 },
     ]);
   });
 
-  it("falls back to warehouse trends when a hydrated summary range is unexpectedly empty", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
-      if (provider === "google") {
-        return {
-          id: "as_google",
-          business_id: businessId,
-          provider: "google",
-          account_ids: ["g_1"],
-          created_at: "",
-          updated_at: "",
-        } as never;
-      }
-      return {
-        id: "as_meta",
-        business_id: businessId,
-        provider: "meta",
-        account_ids: ["act_1"],
-        created_at: "",
-        updated_at: "",
-      } as never;
-    });
-    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockImplementation(
-      async ({ provider }: { provider: "meta" | "google" }) =>
-        provider === "meta"
-          ? ({ hydrated: true, rows: [] } as never)
-          : ({ hydrated: false, rows: [] } as never),
-    );
-    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
-      {
-        businessId: "biz",
-        providerAccountId: "act_1",
-        date: "2026-03-01",
-        accountName: "Main",
-        accountTimezone: "UTC",
-        accountCurrency: "USD",
-        spend: 120,
-        impressions: 1000,
-        clicks: 50,
-        reach: 800,
-        frequency: 1.25,
-        conversions: 6,
-        revenue: 480,
-        roas: 4,
-        cpa: 20,
-        ctr: 5,
-        cpc: 2.4,
-        sourceSnapshotId: "snap_1",
-      },
-    ] as never);
-
-    const trendBundle = await getOverviewTrendBundle({
-      businessId: "biz",
-      startDate: "2026-03-01",
-      endDate: "2026-03-01",
-    });
-
-    expect(metaWarehouse.getMetaAccountDailyRange).toHaveBeenCalled();
-    expect(trendBundle.providerTrends.meta).toEqual([
-      {
-        date: "2026-03-01",
-        spend: 120,
-        revenue: 480,
-        purchases: 6,
-      },
-    ]);
-  });
-
-  it("reads Meta trend rows from warehouse even when a hydrated summary range exists", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
-      if (provider === "google") {
-        return {
-          id: "as_google",
-          business_id: businessId,
-          provider: "google",
-          account_ids: [],
-          created_at: "",
-          updated_at: "",
-        } as never;
-      }
-      return {
-        id: "as_meta",
-        business_id: businessId,
-        provider: "meta",
-        account_ids: ["act_1"],
-        created_at: "",
-        updated_at: "",
-      } as never;
-    });
-    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockResolvedValue({
-      hydrated: true,
-      rows: [
-        {
-          businessId: "biz",
-          provider: "meta",
-          providerAccountId: "act_1",
-          date: "2026-03-01",
-          spend: 1,
-          revenue: 2,
-          purchases: 3,
-          impressions: 10,
-          clicks: 1,
-          sourceUpdatedAt: null,
-          updatedAt: null,
+  it("exposes the full Shopify read candidate via getShopifyOverviewServingData", async () => {
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue(
+      buildReadCandidate({
+        live: {
+          revenue: 75,
+          purchases: 5,
+          averageOrderValue: 15,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+          dailyTrends: [],
         },
-      ],
-    } as never);
-    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
-      {
-        businessId: "biz",
-        providerAccountId: "act_1",
-        date: "2026-03-01",
-        accountName: "Main",
-        accountTimezone: "UTC",
-        accountCurrency: "USD",
-        spend: 120,
-        impressions: 1000,
-        clicks: 50,
-        reach: 800,
-        frequency: 1.25,
-        conversions: 6,
-        revenue: 480,
-        roas: 4,
-        cpa: 20,
-        ctr: 5,
-        cpc: 2.4,
-        sourceSnapshotId: "snap_1",
-      },
-    ] as never);
+        preferredSource: "live",
+      }) as never,
+    );
 
-    const trendBundle = await getOverviewTrendBundle({
+    const result = await getShopifyOverviewServingData({
       businessId: "biz",
       startDate: "2026-03-01",
-      endDate: "2026-03-01",
+      endDate: "2026-03-02",
     });
 
-    expect(metaWarehouse.getMetaAccountDailyRange).toHaveBeenCalled();
-    expect(trendBundle.providerTrends.meta).toEqual([
-      {
-        date: "2026-03-01",
-        spend: 120,
-        revenue: 480,
-        purchases: 6,
-      },
-    ]);
-  });
-
-  it("normalizes Date-based warehouse trend rows before merging them into overview trends", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
-      if (provider === "google") {
-        return {
-          id: "as_google",
-          business_id: businessId,
-          provider: "google",
-          account_ids: [],
-          created_at: "",
-          updated_at: "",
-        } as never;
-      }
-      return {
-        id: "as_meta",
-        business_id: businessId,
-        provider: "meta",
-        account_ids: ["act_1"],
-        created_at: "",
-        updated_at: "",
-      } as never;
-    });
-    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockResolvedValue({ hydrated: false, rows: [] } as never);
-    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
-      {
-        businessId: "biz",
-        providerAccountId: "act_1",
-        date: new Date("2026-03-29T00:00:00.000Z"),
-        accountName: "Main",
-        accountTimezone: "America/Anchorage",
-        accountCurrency: "USD",
-        spend: 459.43,
-        impressions: 1000,
-        clicks: 50,
-        reach: 800,
-        frequency: 1.25,
-        conversions: 8,
-        revenue: 1200,
-        roas: 2.61,
-        cpa: 57.43,
-        ctr: 5,
-        cpc: 9.19,
-        sourceSnapshotId: "snap_1",
-      },
-    ] as never);
-
-    const trendBundle = await getOverviewTrendBundle({
-      businessId: "biz",
-      startDate: "2026-03-29",
-      endDate: "2026-03-31",
-    });
-
-    expect(trendBundle.providerTrends.meta).toEqual([
-      {
-        date: "2026-03-29",
-        spend: 459.43,
-        revenue: 1200,
-        purchases: 8,
-      },
-      {
-        date: "2026-03-30",
-        spend: 0,
-        revenue: 0,
-        purchases: 0,
-      },
-      {
-        date: "2026-03-31",
-        spend: 0,
-        revenue: 0,
-        purchases: 0,
-      },
-    ]);
+    expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).toHaveBeenCalled();
+    expect(result.aggregate?.revenue).toBe(75);
+    expect(result.aggregate?.purchases).toBe(5);
   });
 });

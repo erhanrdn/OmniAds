@@ -33,7 +33,8 @@ interface LoginResponse {
   businesses?: Array<{
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezoneSource?: "shopify" | "ga4" | null;
     currency: string;
     isDemoBusiness?: boolean;
     industry?: string;
@@ -114,6 +115,7 @@ function LoginPageClient() {
           id: business.id,
           name: business.name,
           timezone: business.timezone,
+          timezoneSource: business.timezoneSource ?? null,
           currency: business.currency,
           isDemoBusiness: business.isDemoBusiness,
           industry: business.industry,
@@ -191,6 +193,7 @@ function LoginPageClient() {
             id: business.id,
             name: business.name,
             timezone: business.timezone,
+            timezoneSource: business.timezoneSource ?? null,
             currency: business.currency,
             isDemoBusiness: business.isDemoBusiness,
             industry: business.industry,

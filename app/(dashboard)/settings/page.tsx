@@ -31,7 +31,6 @@ import {
   fetchWorkspaceTeam,
   type InviteRow,
   type MemberRow,
-  TIMEZONE_OPTIONS,
   type WorkspaceRole,
 } from "@/app/(dashboard)/settings/settings-support";
 import { getTranslations } from "@/lib/i18n";
@@ -76,7 +75,6 @@ export default function SettingsPage() {
   const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("guest");
 
   const [workspaceName, setWorkspaceName] = useState(activeBusiness?.name ?? "");
-  const [workspaceTimezone, setWorkspaceTimezone] = useState(activeBusiness?.timezone ?? "UTC");
   const [workspaceCurrency, setWorkspaceCurrency] = useState(activeBusiness?.currency ?? "USD");
 
   const [members, setMembers] = useState<MemberRow[]>([]);
@@ -115,7 +113,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setWorkspaceName(activeBusiness?.name ?? "");
-    setWorkspaceTimezone(activeBusiness?.timezone ?? "UTC");
     setWorkspaceCurrency(activeBusiness?.currency ?? "USD");
   }, [activeBusiness]);
 
@@ -221,6 +218,13 @@ export default function SettingsPage() {
 
   const totalMembers = members.length;
   const totalInvites = invites.filter((invite) => invite.status === "pending").length;
+  const workspaceTimezoneLabel = activeBusiness?.timezone ?? "Derived after Shopify or GA4 connection";
+  const workspaceTimezoneSourceLabel =
+    activeBusiness?.timezoneSource === "shopify"
+      ? "Shopify"
+      : activeBusiness?.timezoneSource === "ga4"
+        ? "GA4"
+        : "Unset";
 
   async function handleWorkspaceSave() {
     if (!selectedBusinessId || !activeBusiness || !workspaceOwnerId) return;
@@ -232,12 +236,20 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: workspaceName,
-          timezone: workspaceTimezone,
           currency: workspaceCurrency,
         }),
       });
       const payload = (await response.json().catch(() => null)) as
-        | { business?: { id: string; name: string; timezone: string; currency: string }; message?: string }
+        | {
+            business?: {
+              id: string;
+              name: string;
+              timezone: string | null;
+              timezoneSource?: "shopify" | "ga4" | null;
+              currency: string;
+            };
+            message?: string;
+          }
         | null;
       if (!response.ok || !payload?.business) {
         throw new Error(payload?.message ?? "Could not update workspace settings.");
@@ -248,6 +260,7 @@ export default function SettingsPage() {
               ...business,
               name: payload.business!.name,
               timezone: payload.business!.timezone,
+              timezoneSource: payload.business!.timezoneSource ?? null,
               currency: payload.business!.currency,
             }
           : business
@@ -695,17 +708,12 @@ export default function SettingsPage() {
             />
           </SettingsField>
           <SettingsField label="Default timezone">
-            <SettingsSelect
-              value={workspaceTimezone}
-              onChange={(event) => setWorkspaceTimezone(event.target.value)}
-              disabled={!isWorkspaceAdmin}
-            >
-              {TIMEZONE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </SettingsSelect>
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <div className="font-medium">{workspaceTimezoneLabel}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Source: {workspaceTimezoneSourceLabel}. Managed automatically from Shopify first, then GA4.
+              </div>
+            </div>
           </SettingsField>
           <SettingsField label="Default currency">
             <SettingsSelect

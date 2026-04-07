@@ -448,18 +448,15 @@ describe("getShopifyOverviewAggregate", () => {
       expect.objectContaining({
         publicRevenueBasis: "created_at",
         publicTimezoneBasis: "America/New_York",
-        businessTimezoneBasis: "Europe/Istanbul",
         days: expect.arrayContaining([
           expect.objectContaining({
             date: "2026-03-01",
             createdShopRevenue: 100,
-            createdBusinessRevenue: 0,
             processedShopRevenue: 0,
           }),
           expect.objectContaining({
             date: "2026-03-02",
             createdShopRevenue: 0,
-            createdBusinessRevenue: 100,
             processedShopRevenue: 100,
           }),
         ]),

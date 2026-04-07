@@ -6,25 +6,14 @@ import { Button } from "@/components/ui/button";
 interface BusinessFormProps {
   onSubmit: (payload: {
     name: string;
-    timezone: string;
     currency: string;
   }) => void;
 }
-
-const TIMEZONE_OPTIONS = [
-  "UTC",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Istanbul",
-  "Asia/Dubai",
-];
 
 const CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "TRY"];
 
 export function BusinessForm({ onSubmit }: BusinessFormProps) {
   const [name, setName] = useState("");
-  const [timezone, setTimezone] = useState("UTC");
   const [currency, setCurrency] = useState("USD");
 
   const isDisabled = name.trim().length < 2;
@@ -35,7 +24,6 @@ export function BusinessForm({ onSubmit }: BusinessFormProps) {
 
     onSubmit({
       name: name.trim(),
-      timezone,
       currency,
     });
   }
@@ -53,24 +41,6 @@ export function BusinessForm({ onSubmit }: BusinessFormProps) {
           placeholder="Your business name"
           className="h-10 w-full rounded-md border bg-background px-3 text-sm"
         />
-      </div>
-
-      <div className="space-y-1.5">
-        <label htmlFor="business-timezone" className="text-sm font-medium">
-          Timezone
-        </label>
-        <select
-          id="business-timezone"
-          value={timezone}
-          onChange={(event) => setTimezone(event.target.value)}
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-        >
-          {TIMEZONE_OPTIONS.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
       </div>
 
       <div className="space-y-1.5">

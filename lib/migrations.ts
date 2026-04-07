@@ -404,7 +404,8 @@ export async function runMigrations(options?: {
           id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name             TEXT NOT NULL,
           owner_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          timezone         TEXT NOT NULL DEFAULT 'UTC',
+          timezone         TEXT,
+          timezone_source  TEXT,
           currency         TEXT NOT NULL DEFAULT 'USD',
           is_demo_business BOOLEAN NOT NULL DEFAULT FALSE,
           industry         TEXT,
@@ -420,6 +421,9 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended_at TIMESTAMPTZ`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_override TEXT`,
+        sql`ALTER TABLE businesses ALTER COLUMN timezone DROP NOT NULL`.catch(() => {}),
+        sql`ALTER TABLE businesses ALTER COLUMN timezone DROP DEFAULT`.catch(() => {}),
+        sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS timezone_source TEXT`.catch(() => {}),
         sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`,
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider ON integrations (business_id, provider)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_integrations_business_id ON integrations (business_id)`.catch(() => {}),
@@ -428,6 +432,42 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)`.catch(() => {}),
+        sql`
+          UPDATE businesses AS business
+          SET
+            timezone = derived.timezone,
+            timezone_source = derived.timezone_source
+          FROM (
+            SELECT
+              b.id AS business_id,
+              CASE
+                WHEN NULLIF(shopify.metadata->>'iana_timezone', '') IS NOT NULL
+                  THEN shopify.metadata->>'iana_timezone'
+                WHEN NULLIF(ga4.metadata->>'ga4PropertyTimeZone', '') IS NOT NULL
+                  THEN ga4.metadata->>'ga4PropertyTimeZone'
+                ELSE NULL
+              END AS timezone,
+              CASE
+                WHEN NULLIF(shopify.metadata->>'iana_timezone', '') IS NOT NULL THEN 'shopify'
+                WHEN NULLIF(ga4.metadata->>'ga4PropertyTimeZone', '') IS NOT NULL THEN 'ga4'
+                ELSE NULL
+              END AS timezone_source
+            FROM businesses b
+            LEFT JOIN integrations shopify
+              ON shopify.business_id = b.id
+             AND shopify.provider = 'shopify'
+             AND shopify.status = 'connected'
+            LEFT JOIN integrations ga4
+              ON ga4.business_id = b.id
+             AND ga4.provider = 'ga4'
+             AND ga4.status = 'connected'
+          ) AS derived
+          WHERE business.id = derived.business_id
+            AND (
+              business.timezone IS DISTINCT FROM derived.timezone
+              OR business.timezone_source IS DISTINCT FROM derived.timezone_source
+            )
+        `.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_business ON provider_reporting_snapshots (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_config_snapshots_lookup ON meta_config_snapshots (business_id, entity_level, entity_id, captured_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_creative_share_snapshots_token ON creative_share_snapshots (token)`.catch(() => {}),
@@ -2115,6 +2155,12 @@ export async function runMigrations(options?: {
           start_date DATE NOT NULL,
           end_date DATE NOT NULL,
           row_count INTEGER NOT NULL DEFAULT 0,
+          expected_row_count INTEGER,
+          coverage_complete BOOLEAN NOT NULL DEFAULT FALSE,
+          max_source_updated_at TIMESTAMPTZ,
+          truth_state TEXT,
+          projection_version INTEGER NOT NULL DEFAULT 1,
+          invalidation_reason TEXT,
           hydrated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -2122,6 +2168,18 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_ranges_business_provider
           ON platform_overview_summary_ranges (business_id, provider, hydrated_at DESC)`.catch(() => {}),
+        sql`ALTER TABLE platform_overview_summary_ranges
+          ADD COLUMN IF NOT EXISTS expected_row_count INTEGER`.catch(() => {}),
+        sql`ALTER TABLE platform_overview_summary_ranges
+          ADD COLUMN IF NOT EXISTS coverage_complete BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {}),
+        sql`ALTER TABLE platform_overview_summary_ranges
+          ADD COLUMN IF NOT EXISTS max_source_updated_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE platform_overview_summary_ranges
+          ADD COLUMN IF NOT EXISTS truth_state TEXT`.catch(() => {}),
+        sql`ALTER TABLE platform_overview_summary_ranges
+          ADD COLUMN IF NOT EXISTS projection_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
+        sql`ALTER TABLE platform_overview_summary_ranges
+          ADD COLUMN IF NOT EXISTS invalidation_reason TEXT`.catch(() => {}),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────

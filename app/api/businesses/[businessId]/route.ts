@@ -39,12 +39,17 @@ export async function PATCH(
 
   const body = (await request.json().catch(() => null)) as UpdateBusinessBody | null;
   const name = body?.name?.trim() ?? "";
-  const timezone = body?.timezone?.trim() ?? "";
   const currency = body?.currency?.trim().toUpperCase() ?? "";
+  if (typeof body?.timezone === "string" && body.timezone.trim().length > 0) {
+    console.warn("[businesses] deprecated_timezone_input_ignored", {
+      route: "update_business",
+      businessId,
+    });
+  }
 
-  if (name.length < 2 || !timezone || !currency) {
+  if (name.length < 2 || !currency) {
     return NextResponse.json(
-      { error: "invalid_payload", message: language === "tr" ? "Ad, timezone ve currency zorunludur." : "Name, timezone, and currency are required." },
+      { error: "invalid_payload", message: language === "tr" ? "Ad ve currency zorunludur." : "Name and currency are required." },
       { status: 400 }
     );
   }
@@ -52,7 +57,6 @@ export async function PATCH(
   const business = await updateBusinessSettings({
     businessId,
     name,
-    timezone,
     currency,
   });
   return NextResponse.json({ business });

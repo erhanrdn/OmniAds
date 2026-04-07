@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
 import { MembershipRole } from "@/lib/auth";
 import type { AppLanguage } from "@/lib/i18n";
+import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
 
 export interface UserRow {
   id: string;
@@ -181,20 +182,32 @@ export async function findOrCreateFacebookUser(input: {
 export async function createBusinessWithAdminMembership(input: {
   name: string;
   ownerId: string;
-  timezone: string;
   currency: string;
-}): Promise<{ id: string; name: string; timezone: string; currency: string }> {
+}): Promise<{
+  id: string;
+  name: string;
+  timezone: string | null;
+  timezoneSource: BusinessTimezoneSource;
+  currency: string;
+}> {
   await runMigrations();
   const sql = getDb();
   const businessRows = (await sql`
-    INSERT INTO businesses (name, owner_id, timezone, currency)
-    VALUES (${input.name.trim()}, ${input.ownerId}, ${input.timezone}, ${input.currency})
-    RETURNING id, name, timezone, currency
-  `) as Array<{ id: string; name: string; timezone: string; currency: string }>;
+    INSERT INTO businesses (name, owner_id, timezone, timezone_source, currency)
+    VALUES (${input.name.trim()}, ${input.ownerId}, NULL, NULL, ${input.currency})
+    RETURNING id, name, timezone, timezone_source, currency
+  `) as Array<{
+    id: string;
+    name: string;
+    timezone: string | null;
+    timezone_source: BusinessTimezoneSource;
+    currency: string;
+  }>;
   const business = businessRows[0] as {
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezone_source: BusinessTimezoneSource;
     currency: string;
   };
   await sql`
@@ -203,7 +216,13 @@ export async function createBusinessWithAdminMembership(input: {
     ON CONFLICT (user_id, business_id)
     DO UPDATE SET role = 'admin', status = 'active'
   `;
-  return business;
+  return {
+    id: business.id,
+    name: business.name,
+    timezone: business.timezone,
+    timezoneSource: business.timezone_source,
+    currency: business.currency,
+  };
 }
 
 export async function updateBusinessCurrency(
@@ -234,25 +253,36 @@ export async function getBusinessTimezone(businessId: string): Promise<string | 
 export async function updateBusinessSettings(input: {
   businessId: string;
   name: string;
-  timezone: string;
   currency: string;
-}): Promise<{ id: string; name: string; timezone: string; currency: string }> {
+}): Promise<{
+  id: string;
+  name: string;
+  timezone: string | null;
+  timezoneSource: BusinessTimezoneSource;
+  currency: string;
+}> {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
     UPDATE businesses
     SET
       name = ${input.name.trim()},
-      timezone = ${input.timezone.trim()},
       currency = ${input.currency.trim().toUpperCase()}
     WHERE id = ${input.businessId}
-    RETURNING id, name, timezone, currency
-  `) as Array<{ id: string; name: string; timezone: string; currency: string }>;
-  return rows[0] as {
+    RETURNING id, name, timezone, timezone_source, currency
+  `) as Array<{
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezone_source: BusinessTimezoneSource;
     currency: string;
+  }>;
+  return {
+    id: rows[0]!.id,
+    name: rows[0]!.name,
+    timezone: rows[0]!.timezone,
+    timezoneSource: rows[0]!.timezone_source,
+    currency: rows[0]!.currency,
   };
 }
 

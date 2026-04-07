@@ -12,7 +12,7 @@ const PLANS = ["starter", "growth", "pro", "scale"] as const;
 
 interface BusinessDetail {
   business: {
-    id: string; name: string; created_at: string; timezone: string; currency: string;
+    id: string; name: string; created_at: string; timezone: string | null; currency: string;
     plan_override: string | null; is_demo_business: boolean;
     owner_id: string; owner_name: string; owner_email: string;
   };
@@ -134,7 +134,7 @@ export default function AdminBusinessDetailPage() {
           <dl className="space-y-3 text-sm">
             <div className="flex justify-between"><dt className="text-gray-400">ID</dt><dd className="font-mono text-xs text-gray-600">{business.id.slice(0, 18)}…</dd></div>
             <div className="flex justify-between"><dt className="text-gray-400">Oluşturulma</dt><dd className="text-gray-700">{new Date(business.created_at).toLocaleString("tr-TR")}</dd></div>
-            <div className="flex justify-between"><dt className="text-gray-400">Timezone</dt><dd className="text-gray-700">{business.timezone}</dd></div>
+            <div className="flex justify-between"><dt className="text-gray-400">Timezone</dt><dd className="text-gray-700">{business.timezone ?? "Unset"}</dd></div>
             <div className="flex justify-between"><dt className="text-gray-400">Para Birimi</dt><dd className="text-gray-700">{business.currency}</dd></div>
             <div className="flex justify-between">
               <dt className="text-gray-400">Aktif Plan</dt>

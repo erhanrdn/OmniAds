@@ -32,6 +32,11 @@ export interface GA4PropertyOption {
   accountName: string;
 }
 
+export interface GA4PropertyMetadata {
+  propertyId: string;
+  timeZone: string | null;
+}
+
 export interface GA4PropertiesFetchResult {
   ok: boolean;
   error?: string;
@@ -169,4 +174,46 @@ export function isPropertyAccessible(
   properties: GA4PropertyOption[],
 ): boolean {
   return properties.some((p) => p.propertyId === propertyId);
+}
+
+function normalizeTimezone(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export async function fetchGA4PropertyMetadata(
+  accessToken: string,
+  propertyId: string,
+): Promise<GA4PropertyMetadata> {
+  const normalizedPropertyId = propertyId.startsWith("properties/")
+    ? propertyId
+    : `properties/${propertyId}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), GA4_PROPERTIES_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${GA_CONFIG.adminApiBase}/${normalizedPropertyId}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        body || `Google Analytics property metadata request failed (${response.status}).`,
+      );
+    }
+    const payload = (await response.json().catch(() => null)) as
+      | { timeZone?: string | null }
+      | null;
+    return {
+      propertyId: normalizedPropertyId,
+      timeZone: normalizeTimezone(payload?.timeZone),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }

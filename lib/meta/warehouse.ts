@@ -5918,7 +5918,7 @@ export async function getMetaAccountDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       account_name,
       account_timezone,
       account_currency,
@@ -5963,7 +5963,7 @@ export async function getMetaAccountDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       account_name,
       account_timezone,
       account_currency,
@@ -5995,7 +5995,7 @@ export async function getMetaAccountDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       account_name,
       account_timezone,
       account_currency,

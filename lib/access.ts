@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { MembershipRole, SessionContext, getSessionFromRequest } from "@/lib/auth";
 import { runMigrations } from "@/lib/migrations";
 import { canReviewerAccessBusiness } from "@/lib/reviewer-access";
+import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
 
 export interface MembershipRecord {
   id: string;
@@ -56,7 +57,8 @@ export async function listUserBusinesses(userId: string): Promise<
   Array<{
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezoneSource: BusinessTimezoneSource;
     currency: string;
     role: MembershipRole;
     membershipStatus: "active" | "invited" | "pending";
@@ -72,6 +74,7 @@ export async function listUserBusinesses(userId: string): Promise<
       b.id,
       b.name,
       b.timezone,
+      b.timezone_source,
       b.currency,
       b.is_demo_business,
       b.industry,
@@ -85,7 +88,8 @@ export async function listUserBusinesses(userId: string): Promise<
   `) as Array<{
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezone_source: BusinessTimezoneSource;
     currency: string;
     is_demo_business?: boolean;
     industry?: string | null;
@@ -97,6 +101,7 @@ export async function listUserBusinesses(userId: string): Promise<
     id: row.id,
     name: row.name,
     timezone: row.timezone,
+    timezoneSource: row.timezone_source,
     currency: row.currency,
     role: row.role,
     membershipStatus: row.status,

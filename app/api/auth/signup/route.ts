@@ -25,9 +25,11 @@ export async function POST(request: NextRequest) {
   const email = body?.email?.trim().toLowerCase() ?? "";
   const password = body?.password ?? "";
   const businessName = body?.businessName?.trim() ?? "My Business";
-  const timezone = body?.timezone?.trim() || "UTC";
   const currency = body?.currency?.trim().toUpperCase() || "USD";
   const inviteToken = body?.inviteToken?.trim() ?? "";
+  if (typeof body?.timezone === "string" && body.timezone.trim().length > 0) {
+    console.warn("[signup] deprecated_timezone_input_ignored", { email });
+  }
 
   if (!name || !email || !password) {
     logServerAuthEvent("signup_rejected_invalid_payload", { email });
@@ -74,7 +76,13 @@ export async function POST(request: NextRequest) {
   const passwordHash = await hashPassword(password);
   const initialLanguage = getLanguageFromCookieValue(request.cookies.get(LANGUAGE_COOKIE_NAME)?.value);
   const user = await createUser({ name, email, passwordHash, language: initialLanguage });
-  let business: { id: string; name: string; timezone: string; currency: string } | null = null;
+  let business: {
+    id: string;
+    name: string;
+    timezone: string | null;
+    timezoneSource: "shopify" | "ga4" | null;
+    currency: string;
+  } | null = null;
   if (inviteToken) {
     const accepted = await acceptInvite(inviteToken, user.id);
     if (!accepted) {
@@ -84,12 +92,17 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    business = { id: accepted.businessId, name: "Invited workspace", timezone, currency };
+    business = {
+      id: accepted.businessId,
+      name: "Invited workspace",
+      timezone: null,
+      timezoneSource: null,
+      currency,
+    };
   } else {
     business = await createBusinessWithAdminMembership({
       name: businessName,
       ownerId: user.id,
-      timezone,
       currency,
     });
   }

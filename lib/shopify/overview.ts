@@ -1,4 +1,3 @@
-import { getBusinessTimezone } from "@/lib/account-store";
 import { getIntegration } from "@/lib/integrations";
 import { enumerateDays, round2 } from "@/lib/overview-service-support";
 import { getCachedReport, getReportingDateRangeKey, setCachedReport } from "@/lib/reporting-cache";
@@ -239,7 +238,6 @@ async function getShopifyOrderCommerceMetrics(input: {
   endDate: string;
   dates: string[];
   timeZone?: string | null;
-  businessTimeZone?: string | null;
 }) {
   const query = `
     query ShopifyOverviewCommerceOrders($query: String!, $cursor: String) {
@@ -282,7 +280,6 @@ async function getShopifyOrderCommerceMetrics(input: {
   const expandedEndDate = shiftIsoDate(input.endDate, 1);
   const diagnosticDates = enumerateDays(expandedStartDate, expandedEndDate);
   const diagnosticCreatedShopRevenue = new Map<string, number>();
-  const diagnosticCreatedBusinessRevenue = new Map<string, number>();
   const diagnosticProcessedShopRevenue = new Map<string, number>();
   let totalCurrentRevenue = 0;
   let totalGrossMinusRefundsRevenue = 0;
@@ -295,7 +292,6 @@ async function getShopifyOrderCommerceMetrics(input: {
   }
   for (const date of diagnosticDates) {
     diagnosticCreatedShopRevenue.set(date, 0);
-    diagnosticCreatedBusinessRevenue.set(date, 0);
     diagnosticProcessedShopRevenue.set(date, 0);
   }
 
@@ -340,10 +336,6 @@ async function getShopifyOrderCommerceMetrics(input: {
         typeof node?.createdAt === "string"
           ? toTimeZoneIsoDate(node.createdAt, input.timeZone)
           : null;
-      const createdBusinessDate =
-        typeof node?.createdAt === "string"
-          ? toTimeZoneIsoDate(node.createdAt, input.businessTimeZone)
-          : null;
       const processedShopDate =
         typeof node?.processedAt === "string"
           ? toTimeZoneIsoDate(node.processedAt, input.timeZone)
@@ -353,12 +345,6 @@ async function getShopifyOrderCommerceMetrics(input: {
         diagnosticCreatedShopRevenue.set(
           createdShopDate,
           round2((diagnosticCreatedShopRevenue.get(createdShopDate) ?? 0) + preReturnRevenue)
-        );
-      }
-      if (createdBusinessDate && diagnosticCreatedBusinessRevenue.has(createdBusinessDate)) {
-        diagnosticCreatedBusinessRevenue.set(
-          createdBusinessDate,
-          round2((diagnosticCreatedBusinessRevenue.get(createdBusinessDate) ?? 0) + preReturnRevenue)
         );
       }
       if (processedShopDate && diagnosticProcessedShopRevenue.has(processedShopDate)) {
@@ -418,11 +404,9 @@ async function getShopifyOrderCommerceMetrics(input: {
   const preReturnRevenueRounded = round2(revenue);
   const grossMinusRefundsRounded = round2(totalGrossMinusRefundsRevenue);
   const shopDateBasis = input.timeZone ?? "UTC";
-  const businessDateBasis = input.businessTimeZone ?? "UTC";
   const leakageDiagnostic = diagnosticDates.map((date) => ({
     date,
     createdShopRevenue: round2(diagnosticCreatedShopRevenue.get(date) ?? 0),
-    createdBusinessRevenue: round2(diagnosticCreatedBusinessRevenue.get(date) ?? 0),
     processedShopRevenue: round2(diagnosticProcessedShopRevenue.get(date) ?? 0),
   }));
   const selectedAndAdjacentDays = leakageDiagnostic.filter(
@@ -452,7 +436,6 @@ async function getShopifyOrderCommerceMetrics(input: {
 
   const hasAdjacentLeakageSignal = selectedAndAdjacentDays.some((row) => {
     return (
-      Math.abs(row.createdShopRevenue - row.createdBusinessRevenue) >= 0.01 ||
       Math.abs(row.createdShopRevenue - row.processedShopRevenue) >= 0.01
     );
   });
@@ -463,7 +446,6 @@ async function getShopifyOrderCommerceMetrics(input: {
       endDate: input.endDate,
       publicRevenueBasis: "created_at",
       publicTimezoneBasis: shopDateBasis,
-      businessTimezoneBasis: businessDateBasis,
       days: selectedAndAdjacentDays,
     });
   }
@@ -539,7 +521,6 @@ export async function getShopifyOverviewAggregate(params: {
   let newCustomers: number | null = null;
   let returningCustomers: number | null = null;
   let hasCommerceMetrics = false;
-  const businessTimeZone = await getBusinessTimezone(params.businessId).catch(() => null);
   try {
     const commerceMetrics = await getShopifyOrderCommerceMetrics({
       shopId: integration.provider_account_id,
@@ -551,7 +532,6 @@ export async function getShopifyOverviewAggregate(params: {
         typeof integration.metadata?.iana_timezone === "string"
           ? integration.metadata.iana_timezone
           : null,
-      businessTimeZone,
     });
     if (commerceMetrics.success && commerceMetrics.revenue !== null && commerceMetrics.purchases !== null) {
       hasCommerceMetrics = true;

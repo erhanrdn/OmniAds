@@ -159,7 +159,7 @@ export function BusinessSelector() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{business.name}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {business.timezone} • {business.currency}
+                {business.timezone ?? "Timezone pending"} • {business.currency}
               </p>
             </div>
             <Check

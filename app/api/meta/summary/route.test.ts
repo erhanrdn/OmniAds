@@ -11,13 +11,8 @@ vi.mock("@/lib/provider-account-assignments", () => ({
   getProviderAccountAssignments: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/readiness", () => ({
-  getMetaPartialReason: vi.fn(() => "Meta data is preparing."),
-  getMetaRangePreparationContext: vi.fn(),
-}));
-
-vi.mock("@/lib/meta/serving", () => ({
-  getMetaWarehouseSummary: vi.fn(),
+vi.mock("@/lib/meta/canonical-overview", () => ({
+  getMetaCanonicalOverviewSummary: vi.fn(),
 }));
 
 vi.mock("@/lib/demo-business", () => ({
@@ -25,20 +20,9 @@ vi.mock("@/lib/demo-business", () => ({
   getDemoMetaSummary: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/live", () => ({
-  getMetaLiveSummaryTotals: vi.fn(),
-}));
-
-vi.mock("@/lib/integrations", () => ({
-  getIntegration: vi.fn(),
-}));
-
 const access = await import("@/lib/access");
 const assignments = await import("@/lib/provider-account-assignments");
-const readiness = await import("@/lib/meta/readiness");
-const serving = await import("@/lib/meta/serving");
-const live = await import("@/lib/meta/live");
-const integrations = await import("@/lib/integrations");
+const canonical = await import("@/lib/meta/canonical-overview");
 
 describe("GET /api/meta/summary", () => {
   beforeEach(() => {
@@ -50,15 +34,7 @@ describe("GET /api/meta/summary", () => {
     vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
       account_ids: ["act_1"],
     } as never);
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      isSelectedCurrentDay: false,
-      currentDateInTimezone: "2026-04-05",
-      primaryAccountTimezone: "UTC",
-    });
-    vi.mocked(integrations.getIntegration).mockResolvedValue({
-      status: "connected",
-    } as never);
-    vi.mocked(serving.getMetaWarehouseSummary).mockResolvedValue({
+    vi.mocked(canonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
       totals: {
         spend: 1200,
         revenue: 3600,
@@ -66,13 +42,8 @@ describe("GET /api/meta/summary", () => {
         roas: 3,
       },
       isPartial: false,
-    } as never);
-    vi.mocked(live.getMetaLiveSummaryTotals).mockResolvedValue({
-      spend: 0,
-      revenue: 0,
-      cpa: 0,
-      roas: 0,
-      impressions: 0,
+      notReadyReason: null,
+      readSource: "warehouse",
     } as never);
   });
 
@@ -86,22 +57,21 @@ describe("GET /api/meta/summary", () => {
 
     expect(response.status).toBe(200);
     assertMetaSummaryPageContract(payload);
-    expect(serving.getMetaWarehouseSummary).toHaveBeenCalledTimes(1);
-    expect(live.getMetaLiveSummaryTotals).not.toHaveBeenCalled();
+    expect(canonical.getMetaCanonicalOverviewSummary).toHaveBeenCalledTimes(1);
   });
 
   it("keeps current-day summary aligned with the live override when live totals are actually available", async () => {
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      isSelectedCurrentDay: true,
-      currentDateInTimezone: "2026-04-05",
-      primaryAccountTimezone: "UTC",
-    });
-    vi.mocked(live.getMetaLiveSummaryTotals).mockResolvedValue({
-      spend: 55,
-      revenue: 160,
-      cpa: 11,
-      roas: 2.91,
-      impressions: 2400,
+    vi.mocked(canonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
+      totals: {
+        spend: 55,
+        revenue: 160,
+        cpa: 11,
+        roas: 2.91,
+        impressions: 2400,
+      },
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse_plus_live_override",
     } as never);
 
     const response = await GET(
@@ -121,26 +91,19 @@ describe("GET /api/meta/summary", () => {
         roas: 2.91,
       })
     );
-    expect(live.getMetaLiveSummaryTotals).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the current-day KPI subset on the warehouse payload when live totals are not yet available", async () => {
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      isSelectedCurrentDay: true,
-      currentDateInTimezone: "2026-04-05",
-      primaryAccountTimezone: "UTC",
-    });
-    vi.mocked(live.getMetaLiveSummaryTotals).mockResolvedValue({
-      spend: 0,
-      revenue: 0,
-      cpa: null,
-      roas: 0,
-      conversions: 0,
-      ctr: null,
-      cpc: null,
-      impressions: 0,
-      clicks: 0,
-      reach: 0,
+    vi.mocked(canonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
+      totals: {
+        spend: 1200,
+        revenue: 3600,
+        cpa: 24,
+        roas: 3,
+      },
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse",
     } as never);
 
     const response = await GET(

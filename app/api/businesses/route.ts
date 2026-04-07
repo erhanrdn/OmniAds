@@ -38,13 +38,18 @@ export async function POST(request: NextRequest) {
   }
   const body = (await request.json().catch(() => null)) as CreateBusinessBody | null;
   const name = body?.name?.trim() ?? "";
+  if (typeof body?.timezone === "string" && body.timezone.trim().length > 0) {
+    console.warn("[businesses] deprecated_timezone_input_ignored", {
+      route: "create_business",
+      userId: session.user.id,
+    });
+  }
   if (!name) {
     return NextResponse.json({ error: "invalid_payload", message: language === "tr" ? "Business adi zorunludur." : "Business name is required." }, { status: 400 });
   }
   const business = await createBusinessWithAdminMembership({
     name,
     ownerId: session.user.id,
-    timezone: body?.timezone?.trim() || "UTC",
     currency: body?.currency?.trim().toUpperCase() || "USD",
   });
   await setSessionActiveBusiness(session.sessionId, business.id);

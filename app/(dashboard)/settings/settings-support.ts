@@ -20,15 +20,6 @@ export type InviteRow = {
   inviteUrl?: string;
 };
 
-export const TIMEZONE_OPTIONS = [
-  "UTC",
-  "America/New_York",
-  "America/Los_Angeles",
-  "Europe/London",
-  "Europe/Istanbul",
-  "Asia/Dubai",
-];
-
 export const CURRENCY_OPTIONS = ["USD", "EUR", "GBP", "TRY"];
 
 export async function fetchSettingsAccount() {

@@ -4,6 +4,7 @@ import {
   encryptIntegrationSecret,
   isEncryptedIntegrationSecret,
 } from "@/lib/integration-secrets";
+import { recomputeBusinessDerivedTimezone } from "@/lib/business-timezone";
 
 export type IntegrationProviderType =
   | "shopify"
@@ -202,7 +203,17 @@ export async function upsertIntegration(params: {
       updated_at          = EXCLUDED.updated_at
     RETURNING *
   `) as IntegrationRow[];
-  return hydrateIntegrationRow(rows[0] as IntegrationRow);
+  const integration = hydrateIntegrationRow(rows[0] as IntegrationRow);
+  if (params.provider === "shopify" || params.provider === "ga4") {
+    await recomputeBusinessDerivedTimezone(params.businessId).catch((error: unknown) => {
+      console.warn("[integrations] business_timezone_recompute_failed", {
+        businessId: params.businessId,
+        provider: params.provider,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+  return integration;
 }
 
 /** Mark an integration as disconnected */
@@ -223,12 +234,26 @@ export async function disconnectIntegration(
       updated_at       = now()
     WHERE business_id = ${businessId} AND provider = ${provider}
   `;
+  if (provider === "shopify" || provider === "ga4") {
+    await recomputeBusinessDerivedTimezone(businessId).catch((error: unknown) => {
+      console.warn("[integrations] business_timezone_recompute_failed", {
+        businessId,
+        provider,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 }
 
 export async function disconnectAllIntegrationsForProvider(
   provider: IntegrationProviderType
 ): Promise<void> {
   const sql = getDb();
+  const impactedRows = (await sql`
+    SELECT DISTINCT business_id
+    FROM integrations
+    WHERE provider = ${provider}
+  `) as Array<{ business_id: string }>;
   await sql`
     UPDATE integrations SET
       status           = 'disconnected',
@@ -241,6 +266,19 @@ export async function disconnectAllIntegrationsForProvider(
       updated_at       = now()
     WHERE provider = ${provider}
   `;
+  if (provider === "shopify" || provider === "ga4") {
+    await Promise.all(
+      impactedRows.map((row) =>
+        recomputeBusinessDerivedTimezone(row.business_id).catch((error: unknown) => {
+          console.warn("[integrations] business_timezone_recompute_failed", {
+            businessId: row.business_id,
+            provider,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }),
+      ),
+    );
+  }
 }
 
 /** Mark an integration as error */

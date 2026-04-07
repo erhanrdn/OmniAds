@@ -34,7 +34,8 @@ interface AuthPayload {
   businesses?: Array<{
     id: string;
     name: string;
-    timezone: string;
+    timezone: string | null;
+    timezoneSource?: "shopify" | "ga4" | null;
     currency: string;
     isDemoBusiness?: boolean;
     industry?: string;
@@ -228,7 +229,6 @@ export function ShopifyConnectClientPage() {
 
   async function createBusinessAndFinalize(input: {
     name: string;
-    timezone: string;
     currency: string;
   }) {
     setBusy(true);
@@ -329,7 +329,7 @@ export function ShopifyConnectClientPage() {
                             <div>
                               <p className="font-medium">{business.name}</p>
                               <p className="text-sm text-muted-foreground">
-                                {business.timezone} · {business.currency}
+                                {business.timezone ?? "Timezone pending"} · {business.currency}
                               </p>
                             </div>
                             <div className="text-xs text-muted-foreground">

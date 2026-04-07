@@ -2735,7 +2735,7 @@ export async function readGoogleAdsDailyRange(input: {
       SELECT
         business_id,
         provider_account_id,
-        date,
+        date::text AS date,
         account_timezone,
         account_currency,
         entity_key,

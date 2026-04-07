@@ -20,6 +20,17 @@ export interface OverviewSummaryDailyRow {
   updatedAt: string | null;
 }
 
+export interface OverviewSummaryRangeManifest {
+  rowCount: number;
+  expectedRowCount: number | null;
+  coverageComplete: boolean;
+  maxSourceUpdatedAt: string | null;
+  truthState: string | null;
+  projectionVersion: number;
+  invalidationReason: string | null;
+  hydratedAt: string | null;
+}
+
 function normalizeDate(value: string | Date) {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   const text = String(value ?? "").trim();
@@ -46,6 +57,12 @@ function hashAccountIds(providerAccountIds: string[]) {
         .join("|"),
     )
     .digest("hex");
+}
+
+function countRangeDays(startDate: string, endDate: string) {
+  const start = new Date(`${normalizeDate(startDate)}T00:00:00Z`).getTime();
+  const end = new Date(`${normalizeDate(endDate)}T00:00:00Z`).getTime();
+  return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
 }
 
 function toOverviewSummaryRowsFromMeta(rows: MetaAccountDailyRow[]): OverviewSummaryDailyRow[] {
@@ -95,7 +112,15 @@ export async function readOverviewSummaryRange(input: {
   const providerAccountIdsHash = hashAccountIds(input.providerAccountIds);
   const manifestRows = (await sql.query(
     `
-      SELECT hydrated_at
+      SELECT
+        row_count,
+        expected_row_count,
+        coverage_complete,
+        max_source_updated_at,
+        truth_state,
+        projection_version,
+        invalidation_reason,
+        hydrated_at
       FROM platform_overview_summary_ranges
       WHERE business_id = $1
         AND provider = $2
@@ -147,8 +172,40 @@ export async function readOverviewSummaryRange(input: {
     ],
   )) as Array<Record<string, unknown>>;
 
+  const manifestRow = manifestRows[0] ?? null;
   return {
     hydrated: true,
+    manifest: manifestRow
+      ? {
+          rowCount: Number(manifestRow.row_count ?? 0),
+          expectedRowCount:
+            manifestRow.expected_row_count == null
+              ? null
+              : Number(manifestRow.expected_row_count),
+          coverageComplete: Boolean(manifestRow.coverage_complete),
+          maxSourceUpdatedAt:
+            manifestRow.max_source_updated_at instanceof Date
+              ? manifestRow.max_source_updated_at.toISOString()
+              : manifestRow.max_source_updated_at
+                ? String(manifestRow.max_source_updated_at)
+                : null,
+          truthState:
+            typeof manifestRow.truth_state === "string"
+              ? manifestRow.truth_state
+              : null,
+          projectionVersion: Number(manifestRow.projection_version ?? 1),
+          invalidationReason:
+            typeof manifestRow.invalidation_reason === "string"
+              ? manifestRow.invalidation_reason
+              : null,
+          hydratedAt:
+            manifestRow.hydrated_at instanceof Date
+              ? manifestRow.hydrated_at.toISOString()
+              : manifestRow.hydrated_at
+                ? String(manifestRow.hydrated_at)
+                : null,
+        }
+      : null,
     rows: rows.map((row) => ({
       businessId: String(row.business_id),
       provider: String(row.provider) as OverviewSummaryProvider,
@@ -237,6 +294,11 @@ export async function markOverviewSummaryRangeHydrated(input: {
   startDate: string;
   endDate: string;
   rowCount: number;
+  expectedRowCount: number;
+  coverageComplete: boolean;
+  maxSourceUpdatedAt: string | null;
+  truthState: string;
+  projectionVersion?: number;
 }) {
   if (input.providerAccountIds.length === 0) return;
   await runMigrations();
@@ -250,12 +312,24 @@ export async function markOverviewSummaryRangeHydrated(input: {
         start_date,
         end_date,
         row_count,
+        expected_row_count,
+        coverage_complete,
+        max_source_updated_at,
+        truth_state,
+        projection_version,
+        invalidation_reason,
         hydrated_at,
         updated_at
       )
-      VALUES ($1,$2,$3,$4::date,$5::date,$6,now(),now())
+      VALUES ($1,$2,$3,$4::date,$5::date,$6,$7,$8,$9,$10,$11,NULL,now(),now())
       ON CONFLICT (business_id, provider, provider_account_ids_hash, start_date, end_date) DO UPDATE SET
         row_count = EXCLUDED.row_count,
+        expected_row_count = EXCLUDED.expected_row_count,
+        coverage_complete = EXCLUDED.coverage_complete,
+        max_source_updated_at = EXCLUDED.max_source_updated_at,
+        truth_state = EXCLUDED.truth_state,
+        projection_version = EXCLUDED.projection_version,
+        invalidation_reason = EXCLUDED.invalidation_reason,
         hydrated_at = now(),
         updated_at = now()
     `,
@@ -266,6 +340,11 @@ export async function markOverviewSummaryRangeHydrated(input: {
       normalizeDate(input.startDate),
       normalizeDate(input.endDate),
       input.rowCount,
+      input.expectedRowCount,
+      input.coverageComplete,
+      input.maxSourceUpdatedAt,
+      input.truthState,
+      input.projectionVersion ?? 1,
     ],
   );
 }
@@ -303,6 +382,14 @@ export async function hydrateOverviewSummaryRangeFromMeta(input: {
   rows: MetaAccountDailyRow[];
 }) {
   const normalizedRows = toOverviewSummaryRowsFromMeta(input.rows);
+  const expectedRowCount = countRangeDays(input.startDate, input.endDate) * input.providerAccountIds.length;
+  const maxSourceUpdatedAt = normalizedRows.reduce<string | null>(
+    (latest, row) =>
+      !row.sourceUpdatedAt || (latest && latest >= row.sourceUpdatedAt)
+        ? latest
+        : row.sourceUpdatedAt,
+    null,
+  );
   await upsertOverviewSummaryRows(normalizedRows);
   await markOverviewSummaryRangeHydrated({
     businessId: input.businessId,
@@ -311,6 +398,10 @@ export async function hydrateOverviewSummaryRangeFromMeta(input: {
     startDate: input.startDate,
     endDate: input.endDate,
     rowCount: normalizedRows.length,
+    expectedRowCount,
+    coverageComplete: normalizedRows.length === expectedRowCount,
+    maxSourceUpdatedAt,
+    truthState: "finalized",
   });
   return normalizedRows;
 }
@@ -323,6 +414,14 @@ export async function hydrateOverviewSummaryRangeFromGoogle(input: {
   rows: GoogleAdsWarehouseDailyRow[];
 }) {
   const normalizedRows = toOverviewSummaryRowsFromGoogle(input.rows);
+  const expectedRowCount = countRangeDays(input.startDate, input.endDate) * input.providerAccountIds.length;
+  const maxSourceUpdatedAt = normalizedRows.reduce<string | null>(
+    (latest, row) =>
+      !row.sourceUpdatedAt || (latest && latest >= row.sourceUpdatedAt)
+        ? latest
+        : row.sourceUpdatedAt,
+    null,
+  );
   await upsertOverviewSummaryRows(normalizedRows);
   await markOverviewSummaryRangeHydrated({
     businessId: input.businessId,
@@ -331,6 +430,10 @@ export async function hydrateOverviewSummaryRangeFromGoogle(input: {
     startDate: input.startDate,
     endDate: input.endDate,
     rowCount: normalizedRows.length,
+    expectedRowCount,
+    coverageComplete: normalizedRows.length === expectedRowCount,
+    maxSourceUpdatedAt,
+    truthState: "finalized",
   });
   return normalizedRows;
 }
@@ -359,4 +462,49 @@ export async function refreshOverviewSummaryFromGoogleAccountRows(rows: GoogleAd
     startDate: dates[0]!,
     endDate: dates[dates.length - 1]!,
   });
+}
+
+export function evaluateOverviewSummaryProjectionValidity(input: {
+  providerAccountIds: string[];
+  startDate: string;
+  endDate: string;
+  hydrated: boolean;
+  manifest?: OverviewSummaryRangeManifest | null;
+  rows: OverviewSummaryDailyRow[];
+}) {
+  if (!input.hydrated) {
+    return { valid: false, reason: "not_hydrated" as const };
+  }
+  if (!input.manifest) {
+    return { valid: false, reason: "manifest_missing" as const };
+  }
+  const expectedRowCount = countRangeDays(input.startDate, input.endDate) * input.providerAccountIds.length;
+  if (!input.manifest.coverageComplete) {
+    return { valid: false, reason: "coverage_incomplete" as const };
+  }
+  if (input.manifest.expectedRowCount == null) {
+    return { valid: false, reason: "expected_row_count_missing" as const };
+  }
+  if (input.manifest.expectedRowCount !== expectedRowCount) {
+    return { valid: false, reason: "expected_row_count_mismatch" as const };
+  }
+  if (input.manifest.rowCount !== expectedRowCount) {
+    return { valid: false, reason: "manifest_row_count_mismatch" as const };
+  }
+  if (input.rows.length !== expectedRowCount) {
+    return { valid: false, reason: "rows_length_mismatch" as const };
+  }
+  if (!input.manifest.maxSourceUpdatedAt) {
+    return { valid: false, reason: "source_watermark_missing" as const };
+  }
+  if (input.manifest.truthState !== "finalized") {
+    return { valid: false, reason: "truth_state_not_finalized" as const };
+  }
+  if (input.manifest.projectionVersion !== 1) {
+    return { valid: false, reason: "projection_version_mismatch" as const };
+  }
+  if (input.manifest.invalidationReason) {
+    return { valid: false, reason: "projection_invalidated" as const };
+  }
+  return { valid: true, reason: "valid" as const };
 }
