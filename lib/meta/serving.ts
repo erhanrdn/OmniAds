@@ -361,35 +361,15 @@ function filterBreakdownRowsToPublishedKeys<
 >(input: {
   rows: T[];
   verification: MetaPublishedVerificationSummary | null | undefined;
-  requiredBreakdownTypes: string[];
 }) {
   const publishedKeys = new Set(
     input.verification?.publishedKeysBySurface.account_daily ?? [],
   );
   if (publishedKeys.size === 0) return [] as T[];
 
-  const requiredTypes = new Set(input.requiredBreakdownTypes);
-  const breakdownTypesByKey = new Map<string, Set<string>>();
-  for (const row of input.rows) {
-    const key = `${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`;
-    if (!publishedKeys.has(key)) continue;
-    const types = breakdownTypesByKey.get(key);
-    if (types) {
-      types.add(row.breakdownType);
-    } else {
-      breakdownTypesByKey.set(key, new Set([row.breakdownType]));
-    }
-  }
-
   return input.rows.filter((row) => {
     const key = `${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`;
-    if (!publishedKeys.has(key)) return false;
-    const presentTypes = breakdownTypesByKey.get(key);
-    if (!presentTypes) return false;
-    for (const requiredType of requiredTypes) {
-      if (!presentTypes.has(requiredType)) return false;
-    }
-    return true;
+    return publishedKeys.has(key);
   });
 }
 
@@ -1822,7 +1802,6 @@ export async function getMetaWarehouseBreakdowns(input: {
     ? filterBreakdownRowsToPublishedKeys({
         rows: rawBreakdownRows,
         verification,
-        requiredBreakdownTypes: [...requestedBreakdownTypes],
       })
     : rawBreakdownRows;
 

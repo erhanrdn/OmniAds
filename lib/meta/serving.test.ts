@@ -552,9 +552,12 @@ describe("meta historical serving", () => {
       providerAccountIds: ["act_1"],
     });
 
-    expect(payload.age).toEqual([
-      expect.objectContaining({ key: "18-24", spend: 10 }),
-    ]);
+    expect(payload.age).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "18-24", spend: 10 }),
+        expect.objectContaining({ key: "25-34", spend: 99 }),
+      ]),
+    );
     expect(payload.location).toEqual([
       expect.objectContaining({ key: "US", spend: 11 }),
     ]);
@@ -881,6 +884,58 @@ describe("meta historical serving", () => {
     expect(payload.location).toEqual([
       expect.objectContaining({ key: "US", spend: 11 }),
     ]);
+    expect(payload.placement).toEqual([
+      expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
+    ]);
+  });
+
+  it("preserves available published breakdown types even when other types are missing", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+        breakdownType: "placement",
+        breakdownKey: "facebook|feed|mobile",
+        breakdownLabel: "facebook feed mobile",
+        spend: 12,
+        impressions: 120,
+        clicks: 7,
+        conversions: 3,
+        revenue: 22,
+        updatedAt: "2026-03-31T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "processing",
+      truthReady: false,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-03-31T00:00:00Z",
+      publishedAt: "2026-03-31T00:05:00Z",
+      asOf: "2026-03-31T00:05:00Z",
+      publishedSlices: 1,
+      totalExpectedSlices: 1,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        account_daily: ["act_1:2026-03-30"],
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-03-30",
+      endDate: "2026-03-30",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(payload.age).toEqual([]);
+    expect(payload.location).toEqual([]);
     expect(payload.placement).toEqual([
       expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
     ]);
