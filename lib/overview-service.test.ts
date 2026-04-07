@@ -754,4 +754,71 @@ describe("getOverviewData", () => {
       },
     ]);
   });
+
+  it("falls back to warehouse trends when a hydrated summary range is unexpectedly empty", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
+      if (provider === "google") {
+        return {
+          id: "as_google",
+          business_id: businessId,
+          provider: "google",
+          account_ids: ["g_1"],
+          created_at: "",
+          updated_at: "",
+        } as never;
+      }
+      return {
+        id: "as_meta",
+        business_id: businessId,
+        provider: "meta",
+        account_ids: ["act_1"],
+        created_at: "",
+        updated_at: "",
+      } as never;
+    });
+    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockImplementation(
+      async ({ provider }: { provider: "meta" | "google" }) =>
+        provider === "meta"
+          ? ({ hydrated: true, rows: [] } as never)
+          : ({ hydrated: false, rows: [] } as never),
+    );
+    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
+      {
+        businessId: "biz",
+        providerAccountId: "act_1",
+        date: "2026-03-01",
+        accountName: "Main",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 120,
+        impressions: 1000,
+        clicks: 50,
+        reach: 800,
+        frequency: 1.25,
+        conversions: 6,
+        revenue: 480,
+        roas: 4,
+        cpa: 20,
+        ctr: 5,
+        cpc: 2.4,
+        sourceSnapshotId: "snap_1",
+      },
+    ] as never);
+
+    const trendBundle = await getOverviewTrendBundle({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(metaWarehouse.getMetaAccountDailyRange).toHaveBeenCalled();
+    expect(trendBundle.providerTrends.meta).toEqual([
+      {
+        date: "2026-03-01",
+        spend: 120,
+        revenue: 480,
+        purchases: 6,
+      },
+    ]);
+  });
 });

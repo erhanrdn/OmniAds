@@ -678,7 +678,7 @@ async function buildDailyTrends(params: {
             startDate: params.startDate,
             endDate: params.endDate,
           }).catch(() => null);
-          if (cached?.hydrated) return cached.rows;
+          if (cached?.hydrated && cached.rows.length > 0) return cached.rows;
           const rows = await getMetaAccountDailyRange({
             businessId: params.businessId,
             startDate: params.startDate,
@@ -702,7 +702,7 @@ async function buildDailyTrends(params: {
             startDate: params.startDate,
             endDate: params.endDate,
           }).catch(() => null);
-          if (cached?.hydrated) return cached.rows;
+          if (cached?.hydrated && cached.rows.length > 0) return cached.rows;
           const rows = await readGoogleAdsDailyRange({
             scope: "account_daily",
             businessId: params.businessId,
