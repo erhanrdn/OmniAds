@@ -41,7 +41,6 @@ const apiMeta = await import("@/lib/api/meta");
 const { repairMetaWarehouseTruthRange } = await import("@/lib/meta/repair");
 const {
   getMetaWarehouseSummary,
-  getMetaWarehouseTrends,
   getMetaWarehouseAdSets,
   getMetaWarehouseCampaignTable,
   getMetaWarehouseBreakdowns,
@@ -413,7 +412,7 @@ describe("meta historical serving", () => {
       {
         businessId: "biz-1",
         providerAccountId: "act_1",
-        date: "2026-04-01T00:00:00.000Z",
+        date: "2026-04-01",
         breakdownType: "age",
         breakdownKey: "18-24",
         breakdownLabel: "18-24",
@@ -442,7 +441,7 @@ describe("meta historical serving", () => {
       {
         businessId: "biz-1",
         providerAccountId: "act_1",
-        date: "2026-04-01T00:00:00.000Z",
+        date: "2026-04-01",
         breakdownType: "country",
         breakdownKey: "US",
         breakdownLabel: "United States",
@@ -471,7 +470,7 @@ describe("meta historical serving", () => {
       {
         businessId: "biz-1",
         providerAccountId: "act_1",
-        date: "2026-04-01T00:00:00.000Z",
+        date: "2026-04-01",
         breakdownType: "placement",
         breakdownKey: "facebook|feed|mobile",
         breakdownLabel: "facebook • feed • mobile",
@@ -552,390 +551,12 @@ describe("meta historical serving", () => {
       providerAccountIds: ["act_1"],
     });
 
-    expect(payload.age).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ key: "18-24", spend: 10 }),
-        expect.objectContaining({ key: "25-34", spend: 99 }),
-      ]),
-    );
-    expect(payload.location).toEqual([
-      expect.objectContaining({ key: "US", spend: 11 }),
-    ]);
-    expect(payload.placement).toEqual([
-      expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
-    ]);
-  });
-
-  it("matches published verification keys against timestamped warehouse dates for summary reads", async () => {
-    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
-    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
-
-    vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "2026-04-01T00:00:00.000Z",
-        accountName: "Account 1",
-        accountTimezone: "UTC",
-        accountCurrency: "USD",
-        spend: 25,
-        impressions: 100,
-        clicks: 4,
-        reach: 90,
-        frequency: 1.1,
-        conversions: 2,
-        revenue: 50,
-        roas: 2,
-        cpa: 12.5,
-        ctr: 4,
-        cpc: 6.25,
-        sourceSnapshotId: null,
-        updatedAt: "2026-04-02T00:00:00Z",
-      },
-    ] as never);
-    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "2026-04-01T00:00:00.000Z",
-        campaignId: "cmp-1",
-        campaignNameCurrent: "Campaign 1",
-        campaignNameHistorical: "Campaign 1",
-        campaignStatus: "ACTIVE",
-        objective: "OUTCOME_SALES",
-        buyingType: "AUCTION",
-        optimizationGoal: "Purchase",
-        bidStrategyType: "bid_cap",
-        bidStrategyLabel: "Bid Cap",
-        manualBidAmount: 5,
-        bidValue: 5,
-        bidValueFormat: "currency",
-        dailyBudget: 10,
-        lifetimeBudget: null,
-        isBudgetMixed: false,
-        isConfigMixed: false,
-        isOptimizationGoalMixed: false,
-        isBidStrategyMixed: false,
-        isBidValueMixed: false,
-        accountTimezone: "UTC",
-        accountCurrency: "USD",
-        spend: 25,
-        impressions: 100,
-        clicks: 4,
-        reach: 90,
-        frequency: 1.1,
-        conversions: 2,
-        revenue: 50,
-        roas: 2,
-        cpa: 12.5,
-        ctr: 4,
-        cpc: 6.25,
-        sourceSnapshotId: null,
-        updatedAt: "2026-04-02T00:00:00Z",
-      },
-    ] as never);
-    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
-      verificationState: "processing",
-      truthReady: false,
-      totalDays: 1,
-      completedCoreDays: 1,
-      sourceFetchedAt: "2026-04-02T00:00:00Z",
-      publishedAt: "2026-04-02T00:05:00Z",
-      asOf: "2026-04-02T00:05:00Z",
-      publishedSlices: 2,
-      totalExpectedSlices: 2,
-      reasonCounts: {},
-      publishedKeysBySurface: {
-        account_daily: ["act_1:2026-04-01"],
-        campaign_daily: ["act_1:2026-04-01"],
-      },
-    } as never);
-    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
-      completed_days: 1,
-      ready_through_date: "2026-04-01",
-      latest_updated_at: "2026-04-02T00:00:00Z",
-      total_rows: 1,
-    } as never);
-    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
-      completed_days: 1,
-      ready_through_date: "2026-04-01",
-      latest_updated_at: "2026-04-02T00:00:00Z",
-      total_rows: 1,
-    } as never);
-    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
-      new Map([
-        ["breakdown_age", { completed_days: 1, ready_through_date: "2026-04-01" }],
-        ["breakdown_country", { completed_days: 1, ready_through_date: "2026-04-01" }],
-        ["breakdown_gender", { completed_days: 1, ready_through_date: "2026-04-01" }],
-        ["breakdown_platform_position", { completed_days: 1, ready_through_date: "2026-04-01" }],
-      ]) as never,
-    );
-    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
-      leasedPartitions: 0,
-      queueDepth: 0,
-    } as never);
-
-    const summary = await getMetaWarehouseSummary({
-      businessId: "biz-1",
-      startDate: "2026-04-01",
-      endDate: "2026-04-01",
-      providerAccountIds: ["act_1"],
-    });
-
-    expect(summary.totals.spend).toBe(25);
-    expect(summary.accounts).toHaveLength(1);
-    expect(summary.isPartial).toBe(true);
-  });
-
-  it("matches published verification keys against timestamped warehouse dates for trend reads", async () => {
-    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
-    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
-
-    vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "2026-04-01T00:00:00.000Z",
-        accountName: "Account 1",
-        accountTimezone: "UTC",
-        accountCurrency: "USD",
-        spend: 25,
-        impressions: 100,
-        clicks: 4,
-        reach: 90,
-        frequency: 1.1,
-        conversions: 2,
-        revenue: 50,
-        roas: 2,
-        cpa: 12.5,
-        ctr: 4,
-        cpc: 6.25,
-        sourceSnapshotId: null,
-        updatedAt: "2026-04-02T00:00:00Z",
-      },
-    ] as never);
-    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
-      verificationState: "processing",
-      truthReady: false,
-      totalDays: 1,
-      completedCoreDays: 1,
-      sourceFetchedAt: "2026-04-02T00:00:00Z",
-      publishedAt: "2026-04-02T00:05:00Z",
-      asOf: "2026-04-02T00:05:00Z",
-      publishedSlices: 1,
-      totalExpectedSlices: 1,
-      reasonCounts: {},
-      publishedKeysBySurface: {
-        account_daily: ["act_1:2026-04-01"],
-      },
-    } as never);
-
-    const trends = await getMetaWarehouseTrends({
-      businessId: "biz-1",
-      startDate: "2026-04-01",
-      endDate: "2026-04-01",
-      providerAccountIds: ["act_1"],
-    });
-
-    expect(trends.points).toHaveLength(1);
-    expect(trends.points[0]).toMatchObject({
-      date: "2026-04-01",
-      spend: 25,
-      revenue: 50,
-      conversions: 2,
-    });
-  });
-
-  it("matches published verification keys against locale-formatted warehouse dates for trend reads", async () => {
-    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
-    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
-
-    vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
-        accountName: "Account 1",
-        accountTimezone: "UTC",
-        accountCurrency: "USD",
-        spend: 25,
-        impressions: 100,
-        clicks: 4,
-        reach: 90,
-        frequency: 1.1,
-        conversions: 2,
-        revenue: 50,
-        roas: 2,
-        cpa: 12.5,
-        ctr: 4,
-        cpc: 6.25,
-        sourceSnapshotId: null,
-        updatedAt: "2026-04-02T00:00:00Z",
-      },
-    ] as never);
-    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
-      verificationState: "processing",
-      truthReady: false,
-      totalDays: 1,
-      completedCoreDays: 1,
-      sourceFetchedAt: "2026-04-02T00:00:00Z",
-      publishedAt: "2026-04-02T00:05:00Z",
-      asOf: "2026-04-02T00:05:00Z",
-      publishedSlices: 1,
-      totalExpectedSlices: 1,
-      reasonCounts: {},
-      publishedKeysBySurface: {
-        account_daily: ["act_1:2026-03-30"],
-      },
-    } as never);
-
-    const trends = await getMetaWarehouseTrends({
-      businessId: "biz-1",
-      startDate: "2026-03-30",
-      endDate: "2026-03-30",
-      providerAccountIds: ["act_1"],
-    });
-
-    expect(trends.points).toHaveLength(1);
-    expect(trends.points[0]).toMatchObject({
-      date: "2026-03-30",
-      spend: 25,
-      revenue: 50,
-      conversions: 2,
-    });
-  });
-
-  it("matches published verification keys against locale-formatted warehouse dates for breakdown reads", async () => {
-    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
-    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
-
-    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
-        breakdownType: "age",
-        breakdownKey: "18-24",
-        breakdownLabel: "18-24",
-        spend: 10,
-        impressions: 100,
-        clicks: 5,
-        conversions: 1,
-        revenue: 20,
-        updatedAt: "2026-03-31T00:00:00Z",
-      },
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
-        breakdownType: "country",
-        breakdownKey: "US",
-        breakdownLabel: "United States",
-        spend: 11,
-        impressions: 110,
-        clicks: 6,
-        conversions: 2,
-        revenue: 21,
-        updatedAt: "2026-03-31T00:00:00Z",
-      },
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
-        breakdownType: "placement",
-        breakdownKey: "facebook|feed|mobile",
-        breakdownLabel: "facebook feed mobile",
-        spend: 12,
-        impressions: 120,
-        clicks: 7,
-        conversions: 3,
-        revenue: 22,
-        updatedAt: "2026-03-31T00:00:00Z",
-      },
-    ] as never);
-    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
-      verificationState: "finalized_verified",
-      truthReady: true,
-      totalDays: 1,
-      completedCoreDays: 1,
-      sourceFetchedAt: "2026-03-31T00:00:00Z",
-      publishedAt: "2026-03-31T00:05:00Z",
-      asOf: "2026-03-31T00:05:00Z",
-      publishedSlices: 2,
-      totalExpectedSlices: 2,
-      reasonCounts: {},
-      publishedKeysBySurface: {
-        account_daily: ["act_1:2026-03-30"],
-      },
-    } as never);
-    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
-    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
-
-    const payload = await getMetaWarehouseBreakdowns({
-      businessId: "biz-1",
-      startDate: "2026-03-30",
-      endDate: "2026-03-30",
-      providerAccountIds: ["act_1"],
-    });
-
     expect(payload.age).toEqual([
       expect.objectContaining({ key: "18-24", spend: 10 }),
     ]);
     expect(payload.location).toEqual([
       expect.objectContaining({ key: "US", spend: 11 }),
     ]);
-    expect(payload.placement).toEqual([
-      expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
-    ]);
-  });
-
-  it("preserves available published breakdown types even when other types are missing", async () => {
-    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
-    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
-
-    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
-      {
-        businessId: "biz-1",
-        providerAccountId: "act_1",
-        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
-        breakdownType: "placement",
-        breakdownKey: "facebook|feed|mobile",
-        breakdownLabel: "facebook feed mobile",
-        spend: 12,
-        impressions: 120,
-        clicks: 7,
-        conversions: 3,
-        revenue: 22,
-        updatedAt: "2026-03-31T00:00:00Z",
-      },
-    ] as never);
-    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
-      verificationState: "processing",
-      truthReady: false,
-      totalDays: 1,
-      completedCoreDays: 1,
-      sourceFetchedAt: "2026-03-31T00:00:00Z",
-      publishedAt: "2026-03-31T00:05:00Z",
-      asOf: "2026-03-31T00:05:00Z",
-      publishedSlices: 1,
-      totalExpectedSlices: 1,
-      reasonCounts: {},
-      publishedKeysBySurface: {
-        account_daily: ["act_1:2026-03-30"],
-      },
-    } as never);
-    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
-    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
-
-    const payload = await getMetaWarehouseBreakdowns({
-      businessId: "biz-1",
-      startDate: "2026-03-30",
-      endDate: "2026-03-30",
-      providerAccountIds: ["act_1"],
-    });
-
-    expect(payload.age).toEqual([]);
-    expect(payload.location).toEqual([]);
     expect(payload.placement).toEqual([
       expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
     ]);

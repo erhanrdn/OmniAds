@@ -331,15 +331,6 @@ function buildVerificationMetadata(
   };
 }
 
-function normalizePublishedKeyDate(value: string | Date) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  const text = String(value ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
-  const parsed = new Date(text);
-  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
-  return text.slice(0, 10);
-}
-
 function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string }>(
   rows: T[],
   verification: MetaPublishedVerificationSummary | null | undefined,
@@ -347,9 +338,7 @@ function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: 
 ) {
   const keys = new Set(verification?.publishedKeysBySurface[surface] ?? []);
   if (keys.size === 0) return [] as T[];
-  return rows.filter((row) =>
-    keys.has(`${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`),
-  );
+  return rows.filter((row) => keys.has(`${row.providerAccountId}:${row.date}`));
 }
 
 function filterBreakdownRowsToPublishedKeys<
@@ -361,15 +350,35 @@ function filterBreakdownRowsToPublishedKeys<
 >(input: {
   rows: T[];
   verification: MetaPublishedVerificationSummary | null | undefined;
+  requiredBreakdownTypes: string[];
 }) {
   const publishedKeys = new Set(
     input.verification?.publishedKeysBySurface.account_daily ?? [],
   );
   if (publishedKeys.size === 0) return [] as T[];
 
+  const requiredTypes = new Set(input.requiredBreakdownTypes);
+  const breakdownTypesByKey = new Map<string, Set<string>>();
+  for (const row of input.rows) {
+    const key = `${row.providerAccountId}:${row.date}`;
+    if (!publishedKeys.has(key)) continue;
+    const types = breakdownTypesByKey.get(key);
+    if (types) {
+      types.add(row.breakdownType);
+    } else {
+      breakdownTypesByKey.set(key, new Set([row.breakdownType]));
+    }
+  }
+
   return input.rows.filter((row) => {
-    const key = `${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`;
-    return publishedKeys.has(key);
+    const key = `${row.providerAccountId}:${row.date}`;
+    if (!publishedKeys.has(key)) return false;
+    const presentTypes = breakdownTypesByKey.get(key);
+    if (!presentTypes) return false;
+    for (const requiredType of requiredTypes) {
+      if (!presentTypes.has(requiredType)) return false;
+    }
+    return true;
   });
 }
 
@@ -677,10 +686,9 @@ export async function getMetaWarehouseTrends(input: {
     : rawRows;
   const byDate = new Map<string, MetaAccountDailyRow[]>();
   for (const row of rows) {
-    const dateKey = normalizePublishedKeyDate(row.date);
-    const list = byDate.get(dateKey);
+    const list = byDate.get(row.date);
     if (list) list.push(row);
-    else byDate.set(dateKey, [row]);
+    else byDate.set(row.date, [row]);
   }
 
   let points = Array.from(byDate.entries())
@@ -1802,6 +1810,7 @@ export async function getMetaWarehouseBreakdowns(input: {
     ? filterBreakdownRowsToPublishedKeys({
         rows: rawBreakdownRows,
         verification,
+        requiredBreakdownTypes: [...requestedBreakdownTypes],
       })
     : rawBreakdownRows;
 
