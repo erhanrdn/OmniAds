@@ -214,7 +214,7 @@ vi.mock("@/components/date-range/DateRangePicker", () => ({
 }));
 
 vi.mock("@/hooks/use-persistent-date-range", () => ({
-  usePersistentDateRange: () => [mockDateRange, vi.fn()],
+  usePersistentMetaDateRange: () => [mockDateRange, vi.fn()],
 }));
 
 vi.mock("@/hooks/use-currency", () => ({
@@ -410,6 +410,28 @@ describe("Meta page render contract", () => {
     expect(html).toContain("Current-day Meta data is preparing");
     expect(html).toContain("Cards will unlock as current-day data becomes available");
     expect(html).not.toContain("No campaigns were found for this range");
+  });
+
+  it("renders the actual comparison preset label for KPI deltas", () => {
+    mockDateRange = {
+      rangePreset: "30d",
+      customStart: "2026-03-08",
+      customEnd: "2026-04-06",
+      comparisonPreset: "previousMonth",
+      comparisonStart: null,
+      comparisonEnd: null,
+    };
+    mockQueries["meta-campaigns-compare"] = baseQueryState({
+      data: { rows: [campaignRow({ spend: 200, revenue: 500, purchases: 10 })] },
+    });
+    mockQueries["meta-warehouse-summary-compare"] = baseQueryState({
+      data: { totals: { spend: 200, revenue: 500, cpa: 20, roas: 2.5 } },
+    });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(html).toContain("vs previous month");
+    expect(html).not.toContain("vs previous period");
   });
 
   it("keeps provider-scoped and page-scoped messaging separate during historical syncing", () => {

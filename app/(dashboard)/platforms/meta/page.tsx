@@ -48,7 +48,7 @@ import {
   getPresetDates,
   getPresetDatesForReferenceDate,
 } from "@/components/date-range/DateRangePicker";
-import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
+import { usePersistentMetaDateRange } from "@/hooks/use-persistent-date-range";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import { type MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrations-bootstrap";
@@ -275,6 +275,21 @@ function getComparisonWindow(
     startDate: addDaysToISO(startDate, -365),
     endDate: addDaysToISO(endDate, -365),
   };
+}
+
+function getComparisonLabel(
+  preset: ComparisonPreset,
+  comparisonStart?: string | null,
+  comparisonEnd?: string | null
+) {
+  if (preset === "custom" && comparisonStart && comparisonEnd) {
+    return "vs custom range";
+  }
+  if (preset === "previousWeek") return "vs previous week";
+  if (preset === "previousMonth") return "vs previous month";
+  if (preset === "previousQuarter") return "vs previous quarter";
+  if (preset === "previousYear" || preset === "previousYearMatch") return "vs previous year";
+  return "vs previous period";
 }
 
 function clampDateRangeForHistoryLimit(
@@ -648,7 +663,7 @@ export default function MetaPage() {
     selectedBusinessId ?? null
   );
 
-  const [dateRange, setDateRange] = usePersistentDateRange();
+  const [dateRange, setDateRange] = usePersistentMetaDateRange();
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
@@ -757,6 +772,11 @@ export default function MetaPage() {
           dateRange.comparisonEnd
         )
       : null;
+  const comparisonLabel = getComparisonLabel(
+    dateRange.comparisonPreset,
+    dateRange.comparisonStart,
+    dateRange.comparisonEnd
+  );
 
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
@@ -1278,7 +1298,7 @@ export default function MetaPage() {
                 }
                 icon={DollarSign}
                 accentClass="border-l-4 border-l-blue-500/60"
-                comparisonLabel="vs previous period"
+                comparisonLabel={comparisonLabel}
                 changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
               />
               <KpiCard
@@ -1296,7 +1316,7 @@ export default function MetaPage() {
                 icon={TrendingUp}
                 accentClass="border-l-4 border-l-emerald-500/60"
                 valueClass="text-emerald-600"
-                comparisonLabel="vs previous period"
+                comparisonLabel={comparisonLabel}
                 changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
               />
               <KpiCard
@@ -1313,7 +1333,7 @@ export default function MetaPage() {
                 }
                 icon={Target}
                 accentClass="border-l-4 border-l-violet-500/60"
-                comparisonLabel="vs previous period"
+                comparisonLabel={comparisonLabel}
                 changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
                 positiveIsGood={false}
               />
@@ -1345,7 +1365,7 @@ export default function MetaPage() {
                     : "text-red-500"
                 }
                 changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
-                comparisonLabel="vs previous period"
+                comparisonLabel={comparisonLabel}
               />
           </div>
 

@@ -25,9 +25,11 @@ interface PreferencesState {
   overviewPinsByContext: Record<string, string[]>;
   // Persistent date range selections per surface
   dashboardDateRange: DateRangeValue | null;
+  metaDateRange: DateRangeValue | null;
   creativeDateRange: CreativeDateRangeValue | null;
   setLanguage: (value: AppLanguagePreference) => void;
   setDashboardDateRange: (value: DateRangeValue) => void;
+  setMetaDateRange: (value: DateRangeValue) => void;
   setCreativeDateRange: (value: CreativeDateRangeValue) => void;
   setDefaultDateRange: (value: ReportDateRangePreference) => void;
   setMetricDisplay: (value: MetricDisplayPreference) => void;
@@ -50,12 +52,14 @@ export const usePreferencesStore = create<PreferencesState>()(
       heatmapEnabled: true,
       overviewPinsByContext: {},
       dashboardDateRange: null,
+      metaDateRange: null,
       creativeDateRange: null,
       setLanguage: (value) => {
         syncLanguageCookie(value);
         set({ language: value });
       },
       setDashboardDateRange: (value) => set({ dashboardDateRange: value }),
+      setMetaDateRange: (value) => set({ metaDateRange: value }),
       setCreativeDateRange: (value) => set({ creativeDateRange: value }),
       setDefaultDateRange: (value) => set({ defaultDateRange: value }),
       setMetricDisplay: (value) => set({ metricDisplay: value }),

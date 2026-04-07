@@ -25,6 +25,19 @@ export function usePersistentDateRange(): [
 }
 
 /**
+ * Persists the Meta dashboard date range independently from the global dashboard
+ * range so compare/custom selections from other surfaces cannot leak into Meta.
+ */
+export function usePersistentMetaDateRange(): [
+  DateRangeValue,
+  (value: DateRangeValue) => void,
+] {
+  const stored = usePreferencesStore((s) => s.metaDateRange);
+  const set = usePreferencesStore((s) => s.setMetaDateRange);
+  return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
+}
+
+/**
  * Persists the Motion (Creatives / Copies) date range value across navigations.
  */
 export function usePersistentCreativeDateRange(): [
