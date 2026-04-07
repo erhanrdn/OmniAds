@@ -140,17 +140,22 @@ jobs:
             git fetch --prune origin main
             git reset --hard origin/main
             HEAD_SHA="$(git rev-parse HEAD)"
+            export APP_IMAGE_REPO="adsecute"
+            export APP_IMAGE_TAG="${HEAD_SHA}"
             export APP_BUILD_ID="${HEAD_SHA}"
             echo "HEAD=${HEAD_SHA}"
+            echo "APP_IMAGE=${APP_IMAGE_REPO}:${APP_IMAGE_TAG}"
             grep -n '"build"' package.json
 
             log "Building fresh web and worker images"
             docker compose build --pull --no-cache web worker
-            BUILT_IMAGE_ID="$(docker image inspect adsecute:latest --format '{{.Id}}')"
+            BUILT_IMAGE_REF="${APP_IMAGE_REPO}:${APP_IMAGE_TAG}"
+            BUILT_IMAGE_ID="$(docker image inspect "${BUILT_IMAGE_REF}" --format '{{.Id}}')"
             echo "BUILT_IMAGE_ID=${BUILT_IMAGE_ID}"
+            docker tag "${BUILT_IMAGE_REF}" adsecute:latest
 
             log "Verifying built image contents before rollout"
-            docker run --rm --entrypoint sh adsecute:latest -lc '
+            docker run --rm --entrypoint sh "${BUILT_IMAGE_REF}" -lc '
               set -euo pipefail
               node -p "require(\"/app/package.json\").scripts.build"
               test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
@@ -161,23 +166,43 @@ jobs:
             docker compose run --rm --no-deps web node --import tsx scripts/run-migrations.ts
 
             log "Recreating services from the freshly built image"
+            PREVIOUS_WEB_CONTAINER_ID="$(docker compose ps -q web || true)"
+            PREVIOUS_WORKER_CONTAINER_ID="$(docker compose ps -q worker || true)"
+            echo "PREVIOUS_WEB_CONTAINER_ID=${PREVIOUS_WEB_CONTAINER_ID}"
+            echo "PREVIOUS_WORKER_CONTAINER_ID=${PREVIOUS_WORKER_CONTAINER_ID}"
             ROLLOUT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "ROLLOUT_STARTED_AT=${ROLLOUT_STARTED_AT}"
-            docker compose up -d --force-recreate --remove-orphans web worker
+            docker compose rm -sf web worker || true
+            docker compose up -d --remove-orphans web worker
             docker compose ps
 
             WEB_CONTAINER_ID="$(docker compose ps -q web)"
             WORKER_CONTAINER_ID="$(docker compose ps -q worker)"
             WEB_IMAGE_ID="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Image}}')"
             WORKER_IMAGE_ID="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Image}}')"
+            WEB_IMAGE_REF="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Config.Image}}')"
+            WORKER_IMAGE_REF="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Config.Image}}')"
 
             echo "WEB_CONTAINER_ID=${WEB_CONTAINER_ID}"
             echo "WORKER_CONTAINER_ID=${WORKER_CONTAINER_ID}"
             echo "WEB_IMAGE_ID=${WEB_IMAGE_ID}"
             echo "WORKER_IMAGE_ID=${WORKER_IMAGE_ID}"
+            echo "WEB_IMAGE_REF=${WEB_IMAGE_REF}"
+            echo "WORKER_IMAGE_REF=${WORKER_IMAGE_REF}"
+
+            test -n "${WEB_CONTAINER_ID}"
+            test -n "${WORKER_CONTAINER_ID}"
+            if [ -n "${PREVIOUS_WEB_CONTAINER_ID}" ]; then
+              test "${WEB_CONTAINER_ID}" != "${PREVIOUS_WEB_CONTAINER_ID}"
+            fi
+            if [ -n "${PREVIOUS_WORKER_CONTAINER_ID}" ]; then
+              test "${WORKER_CONTAINER_ID}" != "${PREVIOUS_WORKER_CONTAINER_ID}"
+            fi
 
             test "${WEB_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
             test "${WORKER_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
+            test "${WEB_IMAGE_REF}" = "${BUILT_IMAGE_REF}"
+            test "${WORKER_IMAGE_REF}" = "${BUILT_IMAGE_REF}"
 
             log "Waiting for container health checks"
             wait_for_container_health "${WEB_CONTAINER_ID}" "web" 20 3
