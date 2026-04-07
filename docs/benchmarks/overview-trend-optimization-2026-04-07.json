@@ -1,0 +1,64 @@
+{
+  "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+  "measuredAt": "2026-04-07T06:16:05.924Z",
+  "baselineFile": "/Users/harmelek/Adsecute/docs/benchmarks/overview-release-2026-04-07.json",
+  "comparisonContext": {
+    "optimization": "buildDailyTrends now uses summary-mode Shopify read path",
+    "targetPath": "overview_trend_bundle_30d",
+    "acceptance": {
+      "targetNotWorseThanBaseline": true,
+      "targetMeaningfulGainAtLeastPercent": 10,
+      "overviewDataNoTrends90dNoRegression": true
+    }
+  },
+  "scenarios": [
+    {
+      "name": "overview_data_no_trends_30d",
+      "iterations": 2,
+      "averageMs": 3843.55,
+      "minMs": 2452.8,
+      "maxMs": 5234.29,
+      "sampleCardinality": 2,
+      "baselineMs": 3194.92,
+      "deltaMs": 648.63,
+      "deltaPercent": 20.3,
+      "validityNote": "valid"
+    },
+    {
+      "name": "overview_data_no_trends_90d",
+      "iterations": 2,
+      "averageMs": 2189.59,
+      "minMs": 1756.16,
+      "maxMs": 2623.02,
+      "sampleCardinality": 2,
+      "baselineMs": 2190.95,
+      "deltaMs": -1.36,
+      "deltaPercent": -0.06,
+      "validityNote": "valid"
+    },
+    {
+      "name": "overview_trend_bundle_30d",
+      "iterations": 5,
+      "averageMs": 961.59,
+      "minMs": 914.92,
+      "maxMs": 1033.3,
+      "sampleCardinality": 30,
+      "baselineMs": 3482.87,
+      "deltaMs": -2521.28,
+      "deltaPercent": -72.39,
+      "validityNote": "valid"
+    },
+    {
+      "name": "shopify_warehouse_overview_90d",
+      "iterations": 2,
+      "averageMs": 2664.5,
+      "minMs": 2457.92,
+      "maxMs": 2871.07,
+      "sampleCardinality": 96,
+      "baselineMs": 2516.93,
+      "deltaMs": 147.57,
+      "deltaPercent": 5.86,
+      "validityNote": "valid:live"
+    }
+  ]
+}

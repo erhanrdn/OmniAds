@@ -61,7 +61,7 @@ const reportingCache = await import("@/lib/reporting-cache");
 const metaServing = await import("@/lib/meta/serving");
 const shopifyOverview = await import("@/lib/shopify/overview");
 const shopifyReadAdapter = await import("@/lib/shopify/read-adapter");
-const { getOverviewData, getShopifyOverviewServingData } = await import("@/lib/overview-service");
+const { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } = await import("@/lib/overview-service");
 
 function buildReadCandidate(
   overrides: Partial<Awaited<ReturnType<typeof shopifyReadAdapter.getShopifyOverviewReadCandidate>>> = {}
@@ -598,5 +598,69 @@ describe("getOverviewData", () => {
       source: "shopify_ledger",
       label: "Shopify Ledger",
     });
+  });
+
+  it("uses the summary Shopify read path for trend bundles", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
+      if (provider === "google") {
+        return {
+          id: "as_google",
+          business_id: businessId,
+          provider: "google",
+          account_ids: ["g_1"],
+          created_at: "",
+          updated_at: "",
+        } as never;
+      }
+      return {
+        id: "as_meta",
+        business_id: businessId,
+        provider: "meta",
+        account_ids: ["act_1"],
+        created_at: "",
+        updated_at: "",
+      } as never;
+    });
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
+      buildReadCandidate({
+        preferredSource: "live",
+        live: {
+          revenue: 100,
+          purchases: 1,
+          averageOrderValue: 100,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+          dailyTrends: [
+            {
+              date: "2026-03-01",
+              revenue: 100,
+              purchases: 1,
+              sessions: null,
+              conversionRate: null,
+              newCustomers: null,
+              returningCustomers: null,
+            },
+          ],
+        },
+      }) as never
+    );
+
+    const trendBundle = await getOverviewTrendBundle({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-03-01",
+        endDate: "2026-03-01",
+      })
+    );
+    expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).not.toHaveBeenCalled();
+    expect(trendBundle.combined).toHaveLength(1);
   });
 });

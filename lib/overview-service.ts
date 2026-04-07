@@ -532,7 +532,10 @@ async function buildDailyTrends(params: {
       const [metaContext, shopifyResult, googleAssignment] = await Promise.all([
         getMetaAccessContext(params.businessId),
         measureComponent(() =>
-          resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
+          resolveShopifyOverviewAggregateForRead({
+            ...params,
+            purpose: "summary",
+          }).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
             console.warn("[overview] shopify daily trends unavailable", {
               businessId: params.businessId,
