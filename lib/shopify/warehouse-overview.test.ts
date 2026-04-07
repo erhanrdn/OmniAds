@@ -70,19 +70,20 @@ describe("shopify warehouse overview", () => {
   });
 
   it("reads warehouse order and refund facts into a shadow aggregate", async () => {
+    const queryMock = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { date: "2026-03-29", order_revenue: "4722.08", orders: "18" },
+        { date: "2026-03-30", order_revenue: "2453.25", orders: "11" },
+      ])
+      .mockResolvedValueOnce([
+        { date: "2026-03-29", refunded_revenue: "111.97" },
+        { date: "2026-03-30", refunded_revenue: "93.63" },
+      ])
+      .mockResolvedValueOnce([{ date: "2026-03-29", return_events: "1" }]);
     const sql = vi.fn();
     Object.assign(sql, {
-      query: vi
-        .fn()
-        .mockResolvedValueOnce([
-          { date: "2026-03-29", order_revenue: "4722.08", orders: "18" },
-          { date: "2026-03-30", order_revenue: "2453.25", orders: "11" },
-        ])
-        .mockResolvedValueOnce([
-          { date: "2026-03-29", refunded_revenue: "111.97" },
-          { date: "2026-03-30", refunded_revenue: "93.63" },
-        ])
-        .mockResolvedValueOnce([{ date: "2026-03-29", return_events: "1" }]),
+      query: queryMock,
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -93,7 +94,7 @@ describe("shopify warehouse overview", () => {
       endDate: "2026-03-30",
     });
 
-    expect(sql.query).toHaveBeenCalledTimes(3);
+    expect(queryMock).toHaveBeenCalledTimes(3);
     expect(aggregate.revenue).toBe(6969.73);
     expect(aggregate.returnEvents).toBe(1);
     expect(aggregate.daily.map((row) => ({ date: row.date, netRevenue: row.netRevenue }))).toEqual([

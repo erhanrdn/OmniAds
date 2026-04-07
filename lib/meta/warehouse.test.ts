@@ -262,15 +262,16 @@ describe("meta warehouse ownership safety", () => {
 
   it("batches meta creative daily upserts instead of writing one row per query", async () => {
     const queries: string[] = [];
+    const queryMock = vi.fn(async (query: string) => {
+      queries.push(query);
+      return [];
+    });
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
       return [];
     });
     Object.assign(sql, {
-      query: vi.fn(async (query: string) => {
-        queries.push(query);
-        return [];
-      }),
+      query: queryMock,
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -337,7 +338,7 @@ describe("meta warehouse ownership safety", () => {
       },
     ]);
 
-    expect(sql.query).toHaveBeenCalledTimes(1);
+    expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
     expect(queries.join("\n")).toContain("), ($26,$27,$28");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET");
@@ -345,15 +346,16 @@ describe("meta warehouse ownership safety", () => {
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {
     const queries: string[] = [];
+    const queryMock = vi.fn(async (query: string) => {
+      queries.push(query);
+      return [];
+    });
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
       return [];
     });
     Object.assign(sql, {
-      query: vi.fn(async (query: string) => {
-        queries.push(query);
-        return [];
-      }),
+      query: queryMock,
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
 
@@ -412,7 +414,7 @@ describe("meta warehouse ownership safety", () => {
       },
     ]);
 
-    expect(sql.query).toHaveBeenCalledTimes(1);
+    expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
     expect(queries.join("\n")).toContain("), ($25,$26,$27");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET");
