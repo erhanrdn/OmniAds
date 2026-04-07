@@ -20,8 +20,9 @@ export interface OverviewSummaryDailyRow {
   updatedAt: string | null;
 }
 
-function normalizeDate(value: string) {
-  return value.slice(0, 10);
+function normalizeDate(value: string | Date) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
 }
 
 function chunkRows<T>(rows: T[], size = 200) {
