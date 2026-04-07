@@ -41,6 +41,7 @@ const apiMeta = await import("@/lib/api/meta");
 const { repairMetaWarehouseTruthRange } = await import("@/lib/meta/repair");
 const {
   getMetaWarehouseSummary,
+  getMetaWarehouseTrends,
   getMetaWarehouseAdSets,
   getMetaWarehouseCampaignTable,
   getMetaWarehouseBreakdowns,
@@ -560,6 +561,47 @@ describe("meta historical serving", () => {
     expect(payload.placement).toEqual([
       expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
     ]);
+  });
+
+  it("normalizes non-ISO trend dates before grouping and sorting", async () => {
+    vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "Mon Mar 30 2026 00:00:00 GMT+0000 (Coordinated Universal Time)",
+        accountName: "Account 1",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 25,
+        impressions: 100,
+        clicks: 4,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 2,
+        revenue: 50,
+        roas: 2,
+        cpa: 12.5,
+        ctr: 4,
+        cpc: 6.25,
+        sourceSnapshotId: null,
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+    ] as never);
+
+    const trends = await getMetaWarehouseTrends({
+      businessId: "biz-1",
+      startDate: "2026-03-30",
+      endDate: "2026-03-30",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(trends.points).toHaveLength(1);
+    expect(trends.points[0]).toMatchObject({
+      date: "2026-03-30",
+      spend: 25,
+      revenue: 50,
+      conversions: 2,
+    });
   });
 
   it("returns adset current config from warehouse rows without calling snapshot readers", async () => {
