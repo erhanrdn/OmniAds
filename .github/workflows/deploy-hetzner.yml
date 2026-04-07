@@ -84,6 +84,29 @@ jobs:
               return 1
             }
 
+            wait_for_build_info_match() {
+              url="$1"
+              expected_build_id="$2"
+              attempts="$3"
+              sleep_seconds="$4"
+
+              attempt=1
+              while [ "$attempt" -le "$attempts" ]; do
+                if build_info_json="$(curl -fsS "${url}" 2>/dev/null)"; then
+                  printf '%s\n' "${build_info_json}"
+                  current_build_id="$(printf '%s\n' "${build_info_json}" | sed -n 's/.*\"buildId\":\"\\([^\"]*\\)\".*/\\1/p')"
+                  if [ "${current_build_id}" = "${expected_build_id}" ]; then
+                    return 0
+                  fi
+                fi
+
+                sleep "${sleep_seconds}"
+                attempt=$((attempt + 1))
+              done
+
+              return 1
+            }
+
             container_health_status() {
               container_id="$1"
               docker inspect "${container_id}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
@@ -271,6 +294,9 @@ jobs:
 
             log "Running external smoke test"
             assert_header_contains "https://adsecute.com/about" "200 OK"
+
+            log "Waiting for external runtime build id to match origin/main"
+            wait_for_build_info_match "https://adsecute.com/api/build-info" "${HEAD_SHA}" 20 5
 
             log "Checking Docker disk usage before cleanup"
             docker system df
