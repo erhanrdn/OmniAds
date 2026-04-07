@@ -526,42 +526,52 @@ async function buildDailyTrends(params: {
       businessId: params.businessId,
       startDate: params.startDate,
       endDate: params.endDate,
+      dateSpanDays: enumerateDays(params.startDate, params.endDate).length,
     },
     async () => {
       const [metaContext, shopifyResult, googleAssignment] = await Promise.all([
         getMetaAccessContext(params.businessId),
-        resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn("[overview] shopify daily trends unavailable", {
-            businessId: params.businessId,
-            message,
-          });
-          return null;
-        }),
+        measureComponent(() =>
+          resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn("[overview] shopify daily trends unavailable", {
+              businessId: params.businessId,
+              message,
+            });
+            return null;
+          }),
+        ),
         getProviderAccountAssignments(params.businessId, "google").catch(() => null),
       ]);
 
-      const [metaRows, googleRows] = await Promise.all([
-        metaContext.assignedAccountIds.length > 0
-          ? getMetaAccountDailyRange({
-              businessId: params.businessId,
-              startDate: params.startDate,
-              endDate: params.endDate,
-              providerAccountIds: metaContext.assignedAccountIds,
-            }).catch(() => [])
-          : Promise.resolve([]),
-        googleAssignment && googleAssignment.account_ids.length > 0
-          ? readGoogleAdsDailyRange({
-              scope: "account_daily",
-              businessId: params.businessId,
-              providerAccountIds: googleAssignment.account_ids,
-              startDate: params.startDate,
-              endDate: params.endDate,
-            }).catch(() => [])
-          : Promise.resolve([]),
+      const [metaRowsResult, googleRowsResult] = await Promise.all([
+        measureComponent(() =>
+          metaContext.assignedAccountIds.length > 0
+            ? getMetaAccountDailyRange({
+                businessId: params.businessId,
+                startDate: params.startDate,
+                endDate: params.endDate,
+                providerAccountIds: metaContext.assignedAccountIds,
+              }).catch(() => [])
+            : Promise.resolve([]),
+        ),
+        measureComponent(() =>
+          googleAssignment && googleAssignment.account_ids.length > 0
+            ? readGoogleAdsDailyRange({
+                scope: "account_daily",
+                businessId: params.businessId,
+                providerAccountIds: googleAssignment.account_ids,
+                startDate: params.startDate,
+                endDate: params.endDate,
+              }).catch(() => [])
+            : Promise.resolve([]),
+        ),
       ]);
+      const metaRows = metaRowsResult.result;
+      const googleRows = googleRowsResult.result;
 
       const dates = enumerateDays(params.startDate, params.endDate);
+      const mergeStartedAt = Date.now();
       const metaByDate = new Map<string, DailyTrendPoint>();
       const googleByDate = new Map<string, DailyTrendPoint>();
 
@@ -582,7 +592,7 @@ async function buildDailyTrends(params: {
       }
 
       const shopifyByDate = new Map(
-        (shopifyResult?.aggregate?.dailyTrends ?? []).map((row) => [row.date, row]),
+        (shopifyResult.result?.aggregate?.dailyTrends ?? []).map((row) => [row.date, row]),
       );
       const metaTrend = dates.map((date) => {
         const row = metaByDate.get(date);
@@ -603,7 +613,7 @@ async function buildDailyTrends(params: {
         };
       });
 
-      return {
+      const payload = {
         combined: dates.map((date, index) => {
           const shopifyDay = shopifyByDate.get(date);
           const spend = metaTrend[index]!.spend + googleTrend[index]!.spend;
@@ -621,6 +631,23 @@ async function buildDailyTrends(params: {
           google: googleTrend,
         },
       };
+      logPerfEvent("overview_daily_trends_components", {
+        businessId: params.businessId,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        dateSpanDays: dates.length,
+        metaReadDurationMs: metaRowsResult.durationMs,
+        googleReadDurationMs: googleRowsResult.durationMs,
+        shopifyTrendDurationMs: shopifyResult.durationMs,
+        mergeDurationMs: Date.now() - mergeStartedAt,
+        metaRowCount: metaRows.length,
+        googleRowCount: googleRows.length,
+        shopifyTrendCount: shopifyByDate.size,
+        metaAccountCount: metaContext.assignedAccountIds.length,
+        googleAccountCount: googleAssignment?.account_ids.length ?? 0,
+      });
+
+      return payload;
     },
   );
 }

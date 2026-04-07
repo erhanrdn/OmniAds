@@ -1,4 +1,6 @@
 import { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } from "@/lib/overview-service";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 type ScenarioResult = {
   name: string;
@@ -7,8 +9,19 @@ type ScenarioResult = {
   minMs: number;
   maxMs: number;
   sampleCardinality: number | null;
+  baselineMs: number | null;
+  deltaMs: number | null;
+  deltaPercent: number | null;
   validityNote: string;
 };
+
+type ScenarioObservation = {
+  sampleCardinality: number | null;
+  validityNote: string;
+  sourceKey?: string | null;
+};
+
+type BaselineMap = Record<string, number>;
 
 function parseArgs(argv: string[]) {
   const parsed = new Map<string, string>();
@@ -30,30 +43,70 @@ function average(values: number[]) {
 async function measureScenario(
   name: string,
   iterations: number,
-  operation: () => Promise<{ sampleCardinality: number | null; validityNote: string }>,
+  baselineMs: number | null,
+  operation: () => Promise<ScenarioObservation>,
 ): Promise<ScenarioResult> {
   const durations: number[] = [];
-  let sampleCardinality: number | null = null;
-  let validityNote = "valid";
+  const sampleCardinalities: Array<number | null> = [];
+  const validityNotes: string[] = [];
+  const sourceKeys = new Set<string>();
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const startedAt = performance.now();
     const result = await operation();
     const durationMs = performance.now() - startedAt;
     durations.push(durationMs);
-    sampleCardinality = result.sampleCardinality;
-    validityNote = result.validityNote;
+    sampleCardinalities.push(result.sampleCardinality);
+    validityNotes.push(result.validityNote);
+    if (result.sourceKey) sourceKeys.add(result.sourceKey);
   }
+
+  const sampleCardinality = sampleCardinalities[0] ?? null;
+  const sampleCardinalityStable = sampleCardinalities.every((value) => value === sampleCardinality);
+  const averageMs = Number(average(durations).toFixed(2));
+  const deltaMs = baselineMs === null ? null : Number((averageMs - baselineMs).toFixed(2));
+  const deltaPercent =
+    baselineMs && baselineMs > 0 && deltaMs !== null
+      ? Number(((deltaMs / baselineMs) * 100).toFixed(2))
+      : null;
+  const validityParts = [...new Set(validityNotes)];
+  if (!sampleCardinalityStable) validityParts.push("sample_cardinality_changed");
+  if (sourceKeys.size > 1) validityParts.push("source_changed");
 
   return {
     name,
     iterations,
-    averageMs: Number(average(durations).toFixed(2)),
+    averageMs,
     minMs: Number(Math.min(...durations).toFixed(2)),
     maxMs: Number(Math.max(...durations).toFixed(2)),
     sampleCardinality,
-    validityNote,
+    baselineMs,
+    deltaMs,
+    deltaPercent,
+    validityNote: validityParts.join("|"),
   };
+}
+
+function loadBaselineMap(pathValue: string | null | undefined): BaselineMap {
+  if (!pathValue) return {};
+  const path = resolve(pathValue);
+  const payload = JSON.parse(readFileSync(path, "utf8")) as {
+    baseline?: Record<string, number>;
+    scenarios?: Array<{ name?: string; averageMs?: number }>;
+  };
+  const map: BaselineMap = {};
+  for (const [key, value] of Object.entries(payload.baseline ?? {})) {
+    map[key] = value;
+    if (key.endsWith("_ms")) {
+      map[key.slice(0, -3)] = value;
+    }
+  }
+  for (const scenario of payload.scenarios ?? []) {
+    if (scenario.name && typeof scenario.averageMs === "number") {
+      map[scenario.name] = scenario.averageMs;
+    }
+  }
+  return map;
 }
 
 async function main() {
@@ -73,10 +126,13 @@ async function main() {
 
   const iterations30 = Number(args.get("iterations30") ?? "2");
   const iterations90 = Number(args.get("iterations90") ?? "2");
-  const trendIterations = Number(args.get("trendIterations") ?? "1");
+  const trendIterations = Number(args.get("trendIterations") ?? "5");
+  const baselinePath =
+    args.get("baselineFile") ?? "docs/benchmarks/overview-release-2026-04-07.json";
+  const baseline = loadBaselineMap(baselinePath);
 
   const results = [
-    await measureScenario("overview_data_no_trends_30d", iterations30, async () => {
+    await measureScenario("overview_data_no_trends_30d", iterations30, baseline.overview_data_no_trends_30d ?? null, async () => {
       const overview = await getOverviewData({
         businessId,
         startDate: range30Start,
@@ -88,9 +144,10 @@ async function main() {
         validityNote: overview.dateRange.startDate === range30Start && overview.dateRange.endDate === range30End
           ? "valid"
           : "date_range_mismatch",
+        sourceKey: overview.shopifyServing?.source ?? "none",
       };
     }),
-    await measureScenario("overview_data_no_trends_90d", iterations90, async () => {
+    await measureScenario("overview_data_no_trends_90d", iterations90, baseline.overview_data_no_trends_90d ?? null, async () => {
       const overview = await getOverviewData({
         businessId,
         startDate: range90Start,
@@ -102,9 +159,10 @@ async function main() {
         validityNote: overview.dateRange.startDate === range90Start && overview.dateRange.endDate === range90End
           ? "valid"
           : "date_range_mismatch",
+        sourceKey: overview.shopifyServing?.source ?? "none",
       };
     }),
-    await measureScenario("overview_trend_bundle_30d", trendIterations, async () => {
+    await measureScenario("overview_trend_bundle_30d", trendIterations, baseline.overview_trend_bundle_30d ?? null, async () => {
       const trendBundle = await getOverviewTrendBundle({
         businessId,
         startDate: range30Start,
@@ -112,10 +170,15 @@ async function main() {
       });
       return {
         sampleCardinality: trendBundle.combined.length,
-        validityNote: trendBundle.combined.length > 0 ? "valid" : "empty_trend_bundle",
+        validityNote:
+          trendBundle.combined.length > 0 &&
+          trendBundle.providerTrends.meta?.length === trendBundle.combined.length &&
+          trendBundle.providerTrends.google?.length === trendBundle.combined.length
+            ? "valid"
+            : "trend_shape_mismatch",
       };
     }),
-    await measureScenario("shopify_warehouse_overview_90d", iterations90, async () => {
+    await measureScenario("shopify_warehouse_overview_90d", iterations90, baseline.shopify_warehouse_overview_90d ?? null, async () => {
       const shopify = await getShopifyOverviewServingData({
         businessId,
         startDate: range90Start,
@@ -124,6 +187,7 @@ async function main() {
       return {
         sampleCardinality: shopify.aggregate?.dailyTrends?.length ?? null,
         validityNote: shopify.serving?.source ? `valid:${shopify.serving.source}` : "valid:none",
+        sourceKey: shopify.serving?.source ?? "none",
       };
     }),
   ];
@@ -133,6 +197,7 @@ async function main() {
       {
         businessId,
         measuredAt: new Date().toISOString(),
+        baselineFile: resolve(baselinePath),
         scenarios: results,
       },
       null,
