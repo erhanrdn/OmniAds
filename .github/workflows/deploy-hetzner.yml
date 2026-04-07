@@ -185,7 +185,7 @@ jobs:
             '
 
             log "Running migrations"
-            docker compose run --rm --no-deps web node --import tsx scripts/run-migrations.ts
+            docker compose run --rm --no-deps worker node --import tsx scripts/run-migrations.ts
 
             log "Recreating services from the freshly built image"
             PREVIOUS_WEB_CONTAINER_ID="$(docker compose ps -q web || true)"
