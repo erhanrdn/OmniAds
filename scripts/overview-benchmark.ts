@@ -1,4 +1,5 @@
 import { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } from "@/lib/overview-service";
+import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -188,6 +189,31 @@ async function main() {
         sampleCardinality: shopify.aggregate?.dailyTrends?.length ?? null,
         validityNote: shopify.serving?.source ? `valid:${shopify.serving.source}` : "valid:none",
         sourceKey: shopify.serving?.source ?? "none",
+      };
+    }),
+    await measureScenario("meta_creatives_30d", iterations30, baseline.meta_creatives_30d ?? null, async () => {
+      const creatives = await getMetaCreativesDbPayload({
+        businessId,
+        start: range30Start,
+        end: range30End,
+        groupBy: "creative",
+        format: "all",
+        sort: "roas",
+        mediaMode: "metadata",
+      });
+      return {
+        sampleCardinality: Array.isArray(creatives.rows) ? creatives.rows.length : null,
+        validityNote:
+          "snapshot_source" in creatives &&
+          creatives.snapshot_source === "persisted" &&
+          "freshness_state" in creatives &&
+          typeof creatives.freshness_state === "string"
+            ? `valid:${creatives.freshness_state}`
+            : "missing_persisted_snapshot",
+        sourceKey:
+          "snapshot_source" in creatives && typeof creatives.snapshot_source === "string"
+            ? creatives.snapshot_source
+            : "unknown",
       };
     }),
   ];

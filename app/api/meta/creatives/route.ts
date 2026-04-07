@@ -8,6 +8,13 @@ import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { logPerfEvent } from "@/lib/perf";
 
+function getDateSpanDays(start: string, end: string) {
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+}
+
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
   const params = request.nextUrl.searchParams;
@@ -95,11 +102,20 @@ export async function GET(request: NextRequest) {
     businessId,
     start,
     end,
+    dateSpanDays: getDateSpanDays(start, end),
     groupBy,
     format,
     sort,
     mediaMode,
     rowCount: Array.isArray(result.rows) ? result.rows.length : 0,
+    readSource:
+      "snapshot_source" in result && typeof result.snapshot_source === "string"
+        ? result.snapshot_source
+        : "live",
+    freshnessState:
+      "freshness_state" in result && typeof result.freshness_state === "string"
+        ? result.freshness_state
+        : null,
     durationMs: Date.now() - requestStartedAt,
   });
   return NextResponse.json(result);

@@ -18,9 +18,14 @@ vi.mock("@/lib/meta/creatives-api", () => ({
   getMetaCreativesApiPayload: vi.fn(),
 }));
 
+vi.mock("@/lib/perf", () => ({
+  logPerfEvent: vi.fn(),
+}));
+
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
 const creativesApi = await import("@/lib/meta/creatives-api");
+const perf = await import("@/lib/perf");
 
 describe("GET /api/meta/creatives", () => {
   beforeEach(() => {
@@ -57,6 +62,16 @@ describe("GET /api/meta/creatives", () => {
         mediaMode: "full",
         snapshotBypass: false,
         snapshotWarm: false,
+      })
+    );
+    expect(perf.logPerfEvent).toHaveBeenCalledWith(
+      "meta_creatives_route",
+      expect.objectContaining({
+        businessId: "biz",
+        dateSpanDays: 31,
+        rowCount: 0,
+        readSource: "persisted",
+        freshnessState: null,
       })
     );
   });

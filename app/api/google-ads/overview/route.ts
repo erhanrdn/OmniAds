@@ -6,6 +6,22 @@ import { getGoogleAdsOverviewReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
 import { logPerfEvent } from "@/lib/perf";
 
+function getDateSpanDays(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return null;
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+}
+
+function getReadSource(meta: unknown) {
+  if (!meta || typeof meta !== "object") return "unknown";
+  const candidate = meta as { readSource?: unknown; source?: unknown };
+  if (typeof candidate.readSource === "string") return candidate.readSource;
+  if (typeof candidate.source === "string") return candidate.source;
+  return "unknown";
+}
+
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
   const {
@@ -58,8 +74,11 @@ export async function GET(request: NextRequest) {
     dateRange,
     customStart,
     customEnd,
+    dateSpanDays: getDateSpanDays(customStart, customEnd),
     compareMode,
+    rowCount: payload.topCampaigns.length,
     topCampaignCount: payload.topCampaigns.length,
+    readSource: getReadSource(report.meta),
     durationMs: Date.now() - requestStartedAt,
   });
   return NextResponse.json(payload);
