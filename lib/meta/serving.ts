@@ -331,6 +331,10 @@ function buildVerificationMetadata(
   };
 }
 
+function normalizePublishedKeyDate(value: string) {
+  return value.slice(0, 10);
+}
+
 function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string }>(
   rows: T[],
   verification: MetaPublishedVerificationSummary | null | undefined,
@@ -338,7 +342,9 @@ function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: 
 ) {
   const keys = new Set(verification?.publishedKeysBySurface[surface] ?? []);
   if (keys.size === 0) return [] as T[];
-  return rows.filter((row) => keys.has(`${row.providerAccountId}:${row.date}`));
+  return rows.filter((row) =>
+    keys.has(`${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`),
+  );
 }
 
 function filterBreakdownRowsToPublishedKeys<
@@ -360,7 +366,7 @@ function filterBreakdownRowsToPublishedKeys<
   const requiredTypes = new Set(input.requiredBreakdownTypes);
   const breakdownTypesByKey = new Map<string, Set<string>>();
   for (const row of input.rows) {
-    const key = `${row.providerAccountId}:${row.date}`;
+    const key = `${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`;
     if (!publishedKeys.has(key)) continue;
     const types = breakdownTypesByKey.get(key);
     if (types) {
@@ -371,7 +377,7 @@ function filterBreakdownRowsToPublishedKeys<
   }
 
   return input.rows.filter((row) => {
-    const key = `${row.providerAccountId}:${row.date}`;
+    const key = `${row.providerAccountId}:${normalizePublishedKeyDate(row.date)}`;
     if (!publishedKeys.has(key)) return false;
     const presentTypes = breakdownTypesByKey.get(key);
     if (!presentTypes) return false;
