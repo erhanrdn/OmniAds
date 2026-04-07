@@ -15,6 +15,10 @@ vi.mock("@/lib/google-ads/serving", () => ({
   getGoogleAdsOverviewSummaryAggregate: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/warehouse", () => ({
+  readGoogleAdsDailyRange: vi.fn(),
+}));
+
 vi.mock("@/lib/google-analytics-reporting", () => ({
   resolveGa4AnalyticsContext: vi.fn(),
   runGA4Report: vi.fn(),
@@ -43,6 +47,16 @@ vi.mock("@/lib/meta/serving", () => ({
   getMetaWarehouseSummary: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/warehouse", () => ({
+  getMetaAccountDailyRange: vi.fn(),
+}));
+
+vi.mock("@/lib/overview-summary-store", () => ({
+  readOverviewSummaryRange: vi.fn(),
+  hydrateOverviewSummaryRangeFromMeta: vi.fn(async ({ rows }: { rows: unknown[] }) => rows),
+  hydrateOverviewSummaryRangeFromGoogle: vi.fn(async ({ rows }: { rows: unknown[] }) => rows),
+}));
+
 vi.mock("@/lib/shopify/overview", () => ({
   getShopifyOverviewAggregate: vi.fn(),
 }));
@@ -55,10 +69,13 @@ vi.mock("@/lib/shopify/read-adapter", () => ({
 const businessMode = await import("@/lib/business-mode.server");
 const demo = await import("@/lib/demo-business");
 const googleServing = await import("@/lib/google-ads/serving");
+const googleWarehouse = await import("@/lib/google-ads/warehouse");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const reportingCache = await import("@/lib/reporting-cache");
 const metaServing = await import("@/lib/meta/serving");
+const metaWarehouse = await import("@/lib/meta/warehouse");
+const overviewSummaryStore = await import("@/lib/overview-summary-store");
 const shopifyOverview = await import("@/lib/shopify/overview");
 const shopifyReadAdapter = await import("@/lib/shopify/read-adapter");
 const { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } = await import("@/lib/overview-service");
@@ -183,6 +200,12 @@ describe("getOverviewData", () => {
           roas: 4,
         },
       ],
+    } as never);
+    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([]);
+    vi.mocked(googleWarehouse.readGoogleAdsDailyRange).mockResolvedValue([]);
+    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockResolvedValue({
+      hydrated: false,
+      rows: [],
     } as never);
   });
 
@@ -662,5 +685,73 @@ describe("getOverviewData", () => {
     );
     expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).not.toHaveBeenCalled();
     expect(trendBundle.combined).toHaveLength(1);
+  });
+
+  it("prefers hydrated overview summary rows for trend reads before warehouse fallback", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
+      if (provider === "google") {
+        return {
+          id: "as_google",
+          business_id: businessId,
+          provider: "google",
+          account_ids: ["g_1"],
+          created_at: "",
+          updated_at: "",
+        } as never;
+      }
+      return {
+        id: "as_meta",
+        business_id: businessId,
+        provider: "meta",
+        account_ids: ["act_1"],
+        created_at: "",
+        updated_at: "",
+      } as never;
+    });
+    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockImplementation(
+      async ({ provider }: { provider: "meta" | "google" }) =>
+        provider === "meta"
+          ? ({
+              hydrated: true,
+              rows: [
+                {
+                  businessId: "biz",
+                  provider: "meta",
+                  providerAccountId: "act_1",
+                  date: "2026-03-01",
+                  spend: 120,
+                  revenue: 480,
+                  purchases: 6,
+                  impressions: 1000,
+                  clicks: 50,
+                  sourceUpdatedAt: null,
+                  updatedAt: null,
+                },
+              ],
+            } as never)
+          : ({ hydrated: false, rows: [] } as never),
+    );
+
+    const trendBundle = await getOverviewTrendBundle({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(overviewSummaryStore.readOverviewSummaryRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        provider: "meta",
+      }),
+    );
+    expect(metaWarehouse.getMetaAccountDailyRange).not.toHaveBeenCalled();
+    expect(trendBundle.providerTrends.meta).toEqual([
+      {
+        date: "2026-03-01",
+        spend: 120,
+        revenue: 480,
+        purchases: 6,
+      },
+    ]);
   });
 });

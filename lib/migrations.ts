@@ -2069,6 +2069,41 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS last_result_summary JSONB`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
           ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS platform_overview_daily_summary (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          date DATE NOT NULL,
+          spend NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          revenue NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          purchases NUMERIC(18, 4) NOT NULL DEFAULT 0,
+          impressions BIGINT NOT NULL DEFAULT 0,
+          clicks BIGINT NOT NULL DEFAULT 0,
+          source_updated_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider, provider_account_id, date)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_daily_summary_business_provider_date
+          ON platform_overview_daily_summary (business_id, provider, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_daily_summary_business_account_date
+          ON platform_overview_daily_summary (business_id, provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS platform_overview_summary_ranges (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          provider_account_ids_hash TEXT NOT NULL,
+          start_date DATE NOT NULL,
+          end_date DATE NOT NULL,
+          row_count INTEGER NOT NULL DEFAULT 0,
+          hydrated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider, provider_account_ids_hash, start_date, end_date)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_ranges_business_provider
+          ON platform_overview_summary_ranges (business_id, provider, hydrated_at DESC)`.catch(() => {}),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────

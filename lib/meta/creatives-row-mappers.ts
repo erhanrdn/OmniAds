@@ -620,8 +620,9 @@ export function groupRows(
   groupBy: GroupBy,
   creativeUsageMap: Map<string, Set<string>>
 ): RawCreativeRow[] {
+  const debugGrouping = process.env.META_CREATIVES_DEBUG_GROUPING === "1";
   if (groupBy === "adName") {
-    if (process.env.NODE_ENV !== "production") {
+    if (debugGrouping) {
       console.log("[meta-creatives] groupRows: mode=adName, returning ad-level rows", {
         input_rows: rows.length,
         output_rows: rows.length,
@@ -644,7 +645,7 @@ export function groupRows(
     map.set(key, list);
   }
 
-  if (process.env.NODE_ENV !== "production") {
+  if (debugGrouping) {
     const groupCounts = Array.from(map.entries()).map(([key, list]) => ({ key, count: list.length }));
     const multiAdGroups = groupCounts.filter((g) => g.count > 1);
     console.log("[meta-creatives] groupRows: grouping applied", {

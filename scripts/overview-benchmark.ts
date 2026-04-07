@@ -1,3 +1,6 @@
+import {
+  getGoogleAdsOverviewReport,
+} from "@/lib/google-ads/serving";
 import { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } from "@/lib/overview-service";
 import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
 import { readFileSync } from "node:fs";
@@ -214,6 +217,33 @@ async function main() {
           "snapshot_source" in creatives && typeof creatives.snapshot_source === "string"
             ? creatives.snapshot_source
             : "unknown",
+      };
+    }),
+    await measureScenario("google_ads_overview_30d", iterations30, baseline.google_ads_overview_30d ?? null, async () => {
+      const report = await getGoogleAdsOverviewReport({
+        businessId,
+        accountId: null,
+        dateRange: "custom",
+        customStart: range30Start,
+        customEnd: range30End,
+        compareMode: "none",
+        compareStart: null,
+        compareEnd: null,
+        debug: false,
+        source: "benchmark_google_ads_overview_30d",
+      });
+      return {
+        sampleCardinality: Array.isArray(report.topCampaigns) ? report.topCampaigns.length : null,
+        validityNote:
+          report.summary && report.meta
+            ? "valid"
+            : "missing_summary",
+        sourceKey:
+          typeof (report.meta as { readSource?: unknown } | undefined)?.readSource === "string"
+            ? String((report.meta as { readSource?: unknown }).readSource)
+            : typeof (report.meta as { source?: unknown } | undefined)?.source === "string"
+              ? String((report.meta as { source?: unknown }).source)
+              : "unknown",
       };
     }),
   ];

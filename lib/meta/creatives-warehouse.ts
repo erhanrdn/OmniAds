@@ -15,6 +15,7 @@ import type {
   SortKey,
 } from "@/lib/meta/creatives-types";
 import { buildMetaCreativeApiRow } from "@/lib/meta/creatives-service-support";
+import { buildMetaCreativeApiRowLightweight } from "@/lib/meta/creatives-service-support";
 import {
   groupRows,
   sortRows,
@@ -490,13 +491,19 @@ export async function getMetaCreativesWarehousePayload(input: {
       ? filteredRows
       : groupRows(filteredRows, input.groupBy, creativeUsageMap);
   const sortedRows = sortRows(groupedRows, input.sort);
+  const useLightweightRowMap = input.mediaMode === "metadata";
   const responseRows = sortedRows.map((row) =>
-    buildMetaCreativeApiRow({
-      row,
-      cachedThumbnailUrl: null,
-      cardFallbackThumbnailUrl: null,
-      includeDebugFields: false,
-    })
+    useLightweightRowMap
+      ? buildMetaCreativeApiRowLightweight({
+          row,
+          includeDebugFields: false,
+        })
+      : buildMetaCreativeApiRow({
+          row,
+          cachedThumbnailUrl: null,
+          cardFallbackThumbnailUrl: null,
+          includeDebugFields: false,
+        })
   );
   const previewCoverage = buildPreviewCoverage(responseRows);
   const previewMissingCount = previewCoverage.previewMissingCount;

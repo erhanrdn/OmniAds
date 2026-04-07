@@ -474,3 +474,128 @@ export function buildMetaCreativeApiRow(params: {
     debug,
   };
 }
+
+export function buildMetaCreativeApiRowLightweight(params: {
+  row: RawCreativeRow;
+  includeDebugFields: boolean;
+}) {
+  const { row, includeDebugFields } = params;
+  const previewUrl = normalizeMediaUrl(row.preview_url ?? row.preview?.image_url ?? row.preview?.poster_url ?? null);
+  const thumbnailUrl = normalizeMediaUrl(
+    row.table_thumbnail_url ??
+      row.thumbnail_url ??
+      row.preview?.poster_url ??
+      row.preview_url ??
+      row.image_url ??
+      null,
+  );
+  const imageUrl = normalizeMediaUrl(
+    row.card_preview_url ??
+      row.image_url ??
+      row.preview?.image_url ??
+      row.preview_url ??
+      row.preview?.poster_url ??
+      null,
+  );
+  const previewState: LegacyPreviewState =
+    row.preview_state ?? (previewUrl || thumbnailUrl || imageUrl ? "preview" : "unavailable");
+  const previewStatus = previewUrl || thumbnailUrl || imageUrl ? "ready" : "missing";
+  const previewOrigin =
+    row.table_thumbnail_url || row.card_preview_url || row.preview_manifest
+      ? "snapshot"
+      : previewUrl || thumbnailUrl || imageUrl
+        ? "live"
+        : "fallback";
+
+  const baseRow: MetaCreativeApiRow = {
+    id: row.id,
+    creative_id: row.creative_id,
+    object_story_id: row.object_story_id ?? null,
+    effective_object_story_id: row.effective_object_story_id ?? null,
+    post_id: row.post_id ?? null,
+    associated_ads_count: row.associated_ads_count,
+    account_id: row.account_id,
+    account_name: row.account_name,
+    campaign_id: row.campaign_id,
+    campaign_name: row.campaign_name,
+    adset_id: row.adset_id,
+    adset_name: row.adset_name,
+    currency: row.currency,
+    name: row.name,
+    copy_text: row.copy_text ?? null,
+    copy_variants: row.copy_variants ?? [],
+    headline_variants: row.headline_variants ?? [],
+    description_variants: row.description_variants ?? [],
+    copy_source: row.copy_source ?? null,
+    copy_debug_sources: row.copy_debug_sources ?? [],
+    unresolved_reason: row.unresolved_reason ?? null,
+    preview_url: previewUrl,
+    preview_source: row.preview_source,
+    thumbnail_url: thumbnailUrl,
+    image_url: imageUrl,
+    table_thumbnail_url: normalizeMediaUrl(row.table_thumbnail_url ?? thumbnailUrl ?? null),
+    card_preview_url: normalizeMediaUrl(row.card_preview_url ?? imageUrl ?? null),
+    preview_contract_version:
+      row.preview_contract_version ?? META_CREATIVES_PREVIEW_CONTRACT_VERSION,
+    preview_manifest: row.preview_manifest ?? null,
+    card_preview_source_kind: row.card_preview_source_kind ?? "none",
+    card_preview_resolution_class: row.card_preview_resolution_class ?? "unknown",
+    table_preview_source_kind: row.table_preview_source_kind ?? "none",
+    preview_source_reason: row.preview_source_reason ?? "unavailable",
+    is_catalog: row.is_catalog,
+    preview_state: previewState,
+    preview: row.preview,
+    launch_date: row.launch_date,
+    tags: row.tags,
+    ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
+    format: row.format,
+    creative_type: row.creative_type,
+    creative_type_label: row.creative_type_label,
+    creative_delivery_type: row.creative_delivery_type,
+    creative_visual_format: row.creative_visual_format,
+    creative_primary_type: row.creative_primary_type,
+    creative_primary_label: row.creative_primary_label,
+    creative_secondary_type: row.creative_secondary_type,
+    creative_secondary_label: row.creative_secondary_label,
+    classification_signals: row.classification_signals,
+    taxonomy_version: row.taxonomy_version ?? "v2",
+    taxonomy_source:
+      row.taxonomy_source ??
+      (row.creative_primary_type ? "deterministic" : "legacy_fallback"),
+    taxonomy_reconciled_by_video_evidence: row.taxonomy_reconciled_by_video_evidence ?? false,
+    spend: r2(Number(row.spend ?? 0)),
+    purchase_value: r2(Number(row.purchase_value ?? 0)),
+    roas: r2(Number(row.roas ?? 0)),
+    cpa: r2(Number(row.cpa ?? 0)),
+    cpc_link: r2(Number(row.cpc_link ?? 0)),
+    cpm: r2(Number(row.cpm ?? 0)),
+    ctr_all: r2(Number(row.ctr_all ?? 0)),
+    purchases: Math.round(Number(row.purchases ?? 0)),
+    impressions: Math.round(Number(row.impressions ?? 0)),
+    link_clicks: Math.round(Number(row.link_clicks ?? 0)),
+    landing_page_views: Math.round(Number(row.landing_page_views ?? 0)),
+    add_to_cart: Math.round(Number(row.add_to_cart ?? 0)),
+    initiate_checkout: Math.round(Number(row.initiate_checkout ?? 0)),
+    leads: Math.round(Number(row.leads ?? 0)),
+    messages: Math.round(Number(row.messages ?? 0)),
+    thumbstop: Number(row.thumbstop ?? 0),
+    click_to_atc: r2(Number(row.click_to_atc ?? 0)),
+    atc_to_purchase: r2(Number(row.atc_to_purchase ?? 0)),
+    video25: Number(row.video25 ?? 0),
+    video50: Number(row.video50 ?? 0),
+    video75: Number(row.video75 ?? 0),
+    video100: Number(row.video100 ?? 0),
+    cached_thumbnail_url: null,
+    preview_status: previewStatus,
+    preview_origin: previewOrigin,
+  };
+
+  if (!includeDebugFields) {
+    return baseRow;
+  }
+
+  return {
+    ...baseRow,
+    debug: row.debug ?? {},
+  };
+}

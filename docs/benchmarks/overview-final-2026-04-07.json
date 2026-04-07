@@ -1,0 +1,79 @@
+{
+  "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+  "measuredAt": "2026-04-07T06:37:56.244Z",
+  "baselineFile": "/Users/harmelek/Adsecute/docs/benchmarks/overview-summary-read-expansion-2026-04-07.json",
+  "scenarios": [
+    {
+      "name": "overview_data_no_trends_30d",
+      "iterations": 2,
+      "averageMs": 3799.17,
+      "minMs": 2529.79,
+      "maxMs": 5068.55,
+      "sampleCardinality": 2,
+      "baselineMs": 3844.67,
+      "deltaMs": -45.5,
+      "deltaPercent": -1.18,
+      "validityNote": "valid"
+    },
+    {
+      "name": "overview_data_no_trends_90d",
+      "iterations": 2,
+      "averageMs": 2505.53,
+      "minMs": 2042.06,
+      "maxMs": 2968.99,
+      "sampleCardinality": 2,
+      "baselineMs": 2449.21,
+      "deltaMs": 56.32,
+      "deltaPercent": 2.3,
+      "validityNote": "valid"
+    },
+    {
+      "name": "overview_trend_bundle_30d",
+      "iterations": 5,
+      "averageMs": 1222.94,
+      "minMs": 1052.46,
+      "maxMs": 1406.46,
+      "sampleCardinality": 30,
+      "baselineMs": 1049.66,
+      "deltaMs": 173.28,
+      "deltaPercent": 16.51,
+      "validityNote": "valid"
+    },
+    {
+      "name": "shopify_warehouse_overview_90d",
+      "iterations": 2,
+      "averageMs": 3360.48,
+      "minMs": 3157.07,
+      "maxMs": 3563.89,
+      "sampleCardinality": 96,
+      "baselineMs": 2967.27,
+      "deltaMs": 393.21,
+      "deltaPercent": 13.25,
+      "validityNote": "valid:live"
+    },
+    {
+      "name": "meta_creatives_30d",
+      "iterations": 2,
+      "averageMs": 1341.44,
+      "minMs": 625.81,
+      "maxMs": 2057.08,
+      "sampleCardinality": 8,
+      "baselineMs": 1137.47,
+      "deltaMs": 203.97,
+      "deltaPercent": 17.93,
+      "validityNote": "valid:fresh"
+    },
+    {
+      "name": "google_ads_overview_30d",
+      "iterations": 2,
+      "averageMs": 1680.11,
+      "minMs": 1330.84,
+      "maxMs": 2029.38,
+      "sampleCardinality": 8,
+      "baselineMs": null,
+      "deltaMs": null,
+      "deltaPercent": null,
+      "validityNote": "valid"
+    }
+  ]
+}

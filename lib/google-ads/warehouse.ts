@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { refreshOverviewSummaryFromGoogleAccountRows } from "@/lib/overview-summary-store";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
   ProviderReclaimDecision,
@@ -2706,6 +2707,15 @@ export async function upsertGoogleAdsDailyRows(
       `,
       values,
     );
+  }
+  if (scope === "account_daily") {
+    await refreshOverviewSummaryFromGoogleAccountRows(rows).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[google-ads-warehouse] overview summary refresh failed", {
+        businessId: rows[0]?.businessId ?? null,
+        message,
+      });
+    });
   }
 }
 
