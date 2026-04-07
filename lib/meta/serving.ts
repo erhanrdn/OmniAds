@@ -693,9 +693,10 @@ export async function getMetaWarehouseTrends(input: {
     : rawRows;
   const byDate = new Map<string, MetaAccountDailyRow[]>();
   for (const row of rows) {
-    const list = byDate.get(row.date);
+    const dateKey = normalizePublishedKeyDate(row.date);
+    const list = byDate.get(dateKey);
     if (list) list.push(row);
-    else byDate.set(row.date, [row]);
+    else byDate.set(dateKey, [row]);
   }
 
   let points = Array.from(byDate.entries())

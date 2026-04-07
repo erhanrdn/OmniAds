@@ -41,6 +41,7 @@ const apiMeta = await import("@/lib/api/meta");
 const { repairMetaWarehouseTruthRange } = await import("@/lib/meta/repair");
 const {
   getMetaWarehouseSummary,
+  getMetaWarehouseTrends,
   getMetaWarehouseAdSets,
   getMetaWarehouseCampaignTable,
   getMetaWarehouseBreakdowns,
@@ -681,6 +682,65 @@ describe("meta historical serving", () => {
     expect(summary.totals.spend).toBe(25);
     expect(summary.accounts).toHaveLength(1);
     expect(summary.isPartial).toBe(true);
+  });
+
+  it("matches published verification keys against timestamped warehouse dates for trend reads", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+
+    vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-01T00:00:00.000Z",
+        accountName: "Account 1",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 25,
+        impressions: 100,
+        clicks: 4,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 2,
+        revenue: 50,
+        roas: 2,
+        cpa: 12.5,
+        ctr: 4,
+        cpc: 6.25,
+        sourceSnapshotId: null,
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "processing",
+      truthReady: false,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-04-02T00:00:00Z",
+      publishedAt: "2026-04-02T00:05:00Z",
+      asOf: "2026-04-02T00:05:00Z",
+      publishedSlices: 1,
+      totalExpectedSlices: 1,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        account_daily: ["act_1:2026-04-01"],
+      },
+    } as never);
+
+    const trends = await getMetaWarehouseTrends({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(trends.points).toHaveLength(1);
+    expect(trends.points[0]).toMatchObject({
+      date: "2026-04-01",
+      spend: 25,
+      revenue: 50,
+      conversions: 2,
+    });
   });
 
   it("returns adset current config from warehouse rows without calling snapshot readers", async () => {
