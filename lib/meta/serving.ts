@@ -331,8 +331,9 @@ function buildVerificationMetadata(
   };
 }
 
-function normalizePublishedKeyDate(value: string) {
-  return value.slice(0, 10);
+function normalizePublishedKeyDate(value: string | Date) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
 }
 
 function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string }>(
