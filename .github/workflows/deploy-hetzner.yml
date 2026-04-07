@@ -147,6 +147,18 @@ jobs:
             echo "APP_IMAGE=${APP_IMAGE_REPO}:${APP_IMAGE_TAG}"
             grep -n '"build"' package.json
 
+            log "Checking Docker disk usage before pre-build cleanup"
+            docker system df
+
+            log "Pruning unused Docker images before build"
+            docker image prune -af
+
+            log "Pruning unused Docker build cache before build"
+            docker builder prune -af
+
+            log "Checking Docker disk usage after pre-build cleanup"
+            docker system df
+
             log "Building fresh web and worker images"
             docker compose build --pull --no-cache web worker
             WEB_IMAGE_REF="${APP_IMAGE_REPO}-web:${APP_IMAGE_TAG}"
