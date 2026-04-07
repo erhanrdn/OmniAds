@@ -179,7 +179,7 @@ jobs:
             '
             docker run --rm --entrypoint sh "${WORKER_IMAGE_REF}" -lc '
               set -euo pipefail
-              node -p "require(\"/app/package.json\").scripts.worker:start"
+              node -p "require(\"/app/package.json\").scripts[\"worker:start\"]"
               test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
               test -f /app/scripts/run-migrations.ts
             '
