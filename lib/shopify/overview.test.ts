@@ -95,6 +95,9 @@ describe("getShopifyOverviewAggregate", () => {
 
     expect(aggregate).toEqual({
       revenue: 300,
+      grossRevenue: null,
+      refundedRevenue: null,
+      returnEvents: null,
       purchases: 3,
       averageOrderValue: 100,
       sessions: null,
@@ -105,6 +108,9 @@ describe("getShopifyOverviewAggregate", () => {
         {
           date: "2026-03-01",
           revenue: 100,
+          grossRevenue: null,
+          refundedRevenue: null,
+          returnEvents: null,
           purchases: 1,
           sessions: null,
           conversionRate: null,
@@ -114,6 +120,9 @@ describe("getShopifyOverviewAggregate", () => {
         {
           date: "2026-03-02",
           revenue: 200,
+          grossRevenue: null,
+          refundedRevenue: null,
+          returnEvents: null,
           purchases: 2,
           sessions: null,
           conversionRate: null,
@@ -216,6 +225,9 @@ describe("getShopifyOverviewAggregate", () => {
 
     expect(aggregate).toEqual({
       revenue: 300,
+      grossRevenue: null,
+      refundedRevenue: null,
+      returnEvents: null,
       purchases: 2,
       averageOrderValue: 150,
       sessions: null,
@@ -226,6 +238,9 @@ describe("getShopifyOverviewAggregate", () => {
         {
           date: "2026-03-01",
           revenue: 100,
+          grossRevenue: null,
+          refundedRevenue: null,
+          returnEvents: null,
           purchases: 1,
           sessions: null,
           conversionRate: null,
@@ -235,6 +250,9 @@ describe("getShopifyOverviewAggregate", () => {
         {
           date: "2026-03-02",
           revenue: 200,
+          grossRevenue: null,
+          refundedRevenue: null,
+          returnEvents: null,
           purchases: 1,
           sessions: null,
           conversionRate: null,
@@ -313,6 +331,9 @@ describe("getShopifyOverviewAggregate", () => {
 
     expect(aggregate).toEqual({
       revenue: 120,
+      grossRevenue: null,
+      refundedRevenue: null,
+      returnEvents: null,
       purchases: 1,
       averageOrderValue: 120,
       sessions: null,
@@ -323,6 +344,9 @@ describe("getShopifyOverviewAggregate", () => {
         {
           date: "2026-03-01",
           revenue: 120,
+          grossRevenue: null,
+          refundedRevenue: null,
+          returnEvents: null,
           purchases: 1,
           sessions: null,
           conversionRate: null,
@@ -469,6 +493,9 @@ describe("getShopifyOverviewAggregate", () => {
 
     expect(aggregate).toEqual({
       revenue: 0,
+      grossRevenue: null,
+      refundedRevenue: null,
+      returnEvents: null,
       purchases: 0,
       averageOrderValue: null,
       sessions: null,
@@ -479,6 +506,9 @@ describe("getShopifyOverviewAggregate", () => {
         {
           date: "2026-03-01",
           revenue: 0,
+          grossRevenue: null,
+          refundedRevenue: null,
+          returnEvents: null,
           purchases: 0,
           sessions: null,
           conversionRate: null,
