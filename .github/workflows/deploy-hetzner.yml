@@ -149,17 +149,27 @@ jobs:
 
             log "Building fresh web and worker images"
             docker compose build --pull --no-cache web worker
-            BUILT_IMAGE_REF="${APP_IMAGE_REPO}:${APP_IMAGE_TAG}"
-            BUILT_IMAGE_ID="$(docker image inspect "${BUILT_IMAGE_REF}" --format '{{.Id}}')"
-            echo "BUILT_IMAGE_ID=${BUILT_IMAGE_ID}"
-            docker tag "${BUILT_IMAGE_REF}" adsecute:latest
+            WEB_IMAGE_REF="${APP_IMAGE_REPO}-web:${APP_IMAGE_TAG}"
+            WORKER_IMAGE_REF="${APP_IMAGE_REPO}-worker:${APP_IMAGE_TAG}"
+            WEB_IMAGE_ID="$(docker image inspect "${WEB_IMAGE_REF}" --format '{{.Id}}')"
+            WORKER_IMAGE_ID="$(docker image inspect "${WORKER_IMAGE_REF}" --format '{{.Id}}')"
+            echo "WEB_IMAGE_ID=${WEB_IMAGE_ID}"
+            echo "WORKER_IMAGE_ID=${WORKER_IMAGE_ID}"
+            docker tag "${WEB_IMAGE_REF}" adsecute-web:latest
+            docker tag "${WORKER_IMAGE_REF}" adsecute-worker:latest
 
             log "Verifying built image contents before rollout"
-            docker run --rm --entrypoint sh "${BUILT_IMAGE_REF}" -lc '
+            docker run --rm --entrypoint sh "${WEB_IMAGE_REF}" -lc '
               set -euo pipefail
-              node -p "require(\"/app/package.json\").scripts.build"
+              test -f /app/server.js
               test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
-              grep -n "\"/about\"" /app/proxy.ts
+              test -d /app/.next/static
+            '
+            docker run --rm --entrypoint sh "${WORKER_IMAGE_REF}" -lc '
+              set -euo pipefail
+              node -p "require(\"/app/package.json\").scripts.worker:start"
+              test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
+              test -f /app/scripts/run-migrations.ts
             '
 
             log "Running migrations"
@@ -178,17 +188,17 @@ jobs:
 
             WEB_CONTAINER_ID="$(docker compose ps -q web)"
             WORKER_CONTAINER_ID="$(docker compose ps -q worker)"
-            WEB_IMAGE_ID="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Image}}')"
-            WORKER_IMAGE_ID="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Image}}')"
-            WEB_IMAGE_REF="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Config.Image}}')"
-            WORKER_IMAGE_REF="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Config.Image}}')"
+            RUNNING_WEB_IMAGE_ID="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Image}}')"
+            RUNNING_WORKER_IMAGE_ID="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Image}}')"
+            RUNNING_WEB_IMAGE_REF="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Config.Image}}')"
+            RUNNING_WORKER_IMAGE_REF="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Config.Image}}')"
 
             echo "WEB_CONTAINER_ID=${WEB_CONTAINER_ID}"
             echo "WORKER_CONTAINER_ID=${WORKER_CONTAINER_ID}"
-            echo "WEB_IMAGE_ID=${WEB_IMAGE_ID}"
-            echo "WORKER_IMAGE_ID=${WORKER_IMAGE_ID}"
-            echo "WEB_IMAGE_REF=${WEB_IMAGE_REF}"
-            echo "WORKER_IMAGE_REF=${WORKER_IMAGE_REF}"
+            echo "RUNNING_WEB_IMAGE_ID=${RUNNING_WEB_IMAGE_ID}"
+            echo "RUNNING_WORKER_IMAGE_ID=${RUNNING_WORKER_IMAGE_ID}"
+            echo "RUNNING_WEB_IMAGE_REF=${RUNNING_WEB_IMAGE_REF}"
+            echo "RUNNING_WORKER_IMAGE_REF=${RUNNING_WORKER_IMAGE_REF}"
 
             test -n "${WEB_CONTAINER_ID}"
             test -n "${WORKER_CONTAINER_ID}"
@@ -199,10 +209,10 @@ jobs:
               test "${WORKER_CONTAINER_ID}" != "${PREVIOUS_WORKER_CONTAINER_ID}"
             fi
 
-            test "${WEB_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
-            test "${WORKER_IMAGE_ID}" = "${BUILT_IMAGE_ID}"
-            test "${WEB_IMAGE_REF}" = "${BUILT_IMAGE_REF}"
-            test "${WORKER_IMAGE_REF}" = "${BUILT_IMAGE_REF}"
+            test "${RUNNING_WEB_IMAGE_ID}" = "${WEB_IMAGE_ID}"
+            test "${RUNNING_WORKER_IMAGE_ID}" = "${WORKER_IMAGE_ID}"
+            test "${RUNNING_WEB_IMAGE_REF}" = "${WEB_IMAGE_REF}"
+            test "${RUNNING_WORKER_IMAGE_REF}" = "${WORKER_IMAGE_REF}"
 
             log "Waiting for container health checks"
             wait_for_container_health "${WEB_CONTAINER_ID}" "web" 20 3
@@ -211,9 +221,9 @@ jobs:
             log "Verifying running web container contents"
             docker exec "${WEB_CONTAINER_ID}" sh -lc '
               set -euo pipefail
-              node -p "require(\"/app/package.json\").scripts.build"
+              test -f /app/server.js
               test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
-              grep -n "\"/about\"" /app/proxy.ts
+              test -d /app/.next/static
             '
 
             log "Waiting for fresh Meta worker heartbeat after rollout"
