@@ -1,12 +1,12 @@
 services:
   web:
-    image: ${APP_IMAGE_REPO:-adsecute}:${APP_IMAGE_TAG:-latest}
+    image: ${APP_IMAGE_REPO:-adsecute}-web:${APP_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
+      target: web-runner
       args:
         APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
-    command: npm run start -- --hostname 0.0.0.0 --port 3000
     restart: unless-stopped
     env_file:
       - .env.production
@@ -32,13 +32,13 @@ services:
       start_period: 30s
 
   worker:
-    image: ${APP_IMAGE_REPO:-adsecute}:${APP_IMAGE_TAG:-latest}
+    image: ${APP_IMAGE_REPO:-adsecute}-worker:${APP_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
+      target: worker-runner
       args:
         APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
-    command: npm run worker:start
     restart: unless-stopped
     env_file:
       - .env.production
