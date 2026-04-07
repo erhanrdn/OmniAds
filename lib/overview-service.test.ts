@@ -12,7 +12,7 @@ vi.mock("@/lib/demo-business", () => ({
 }));
 
 vi.mock("@/lib/google-ads/serving", () => ({
-  getGoogleAdsOverviewReport: vi.fn(),
+  getGoogleAdsOverviewSummaryAggregate: vi.fn(),
 }));
 
 vi.mock("@/lib/google-analytics-reporting", () => ({
@@ -49,6 +49,7 @@ vi.mock("@/lib/shopify/overview", () => ({
 
 vi.mock("@/lib/shopify/read-adapter", () => ({
   getShopifyOverviewReadCandidate: vi.fn(),
+  getShopifyOverviewSummaryReadCandidate: vi.fn(),
 }));
 
 const businessMode = await import("@/lib/business-mode.server");
@@ -126,9 +127,14 @@ describe("getOverviewData", () => {
     vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue(
       buildReadCandidate({
         decisionReasons: ["warehouse_read_canary_disabled"],
-      })
+      }) as never
     );
-    vi.mocked(googleServing.getGoogleAdsOverviewReport).mockResolvedValue({
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
+      buildReadCandidate({
+        decisionReasons: ["warehouse_read_canary_disabled"],
+      }) as never
+    );
+    vi.mocked(googleServing.getGoogleAdsOverviewSummaryAggregate).mockResolvedValue({
       kpis: {
         spend: 0,
         revenue: 0,
@@ -189,13 +195,20 @@ describe("getOverviewData", () => {
     });
 
     expect(metaServing.getMetaWarehouseSummary).toHaveBeenCalled();
+    expect(googleServing.getGoogleAdsOverviewSummaryAggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        source: "overview_aggregation_route",
+      })
+    );
+    expect(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).toHaveBeenCalled();
     expect(overview.kpis.spend).toBe(120);
     expect(overview.kpis.revenue).toBe(480);
     expect(overview.kpis.purchases).toBe(6);
   });
 
   it("marks ecommerce KPIs as Shopify live fallback when only live aggregate is present", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
       status: buildShopifyStatus({
         state: "ready",
         connected: true,
@@ -249,7 +262,7 @@ describe("getOverviewData", () => {
   });
 
   it("uses warehouse canary aggregate when it is selected", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
       status: buildShopifyStatus({
         state: "ready",
         connected: true,
@@ -445,7 +458,7 @@ describe("getOverviewData", () => {
   });
 
   it("prefers ledger revenue truth when ledger serving is selected", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
       status: buildShopifyStatus({
         state: "ready",
         connected: true,
@@ -571,7 +584,7 @@ describe("getOverviewData", () => {
         explainedAdjustmentRevenue: 0,
         unexplainedAdjustmentRevenue: 0,
       },
-    });
+    } as never);
 
     const overview = await getOverviewData({
       businessId: "biz",

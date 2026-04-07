@@ -389,6 +389,26 @@ function aggregateCampaignLikeTotals(rows: Array<Record<string, unknown>>) {
   return { spend, revenue, conversions, roas };
 }
 
+export interface GoogleAdsOverviewSummaryResult {
+  kpis: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+    cpa: number;
+    cpc: number;
+    ctr: number;
+    impressions: number;
+    clicks: number;
+    convRate: number;
+  };
+  summary: {
+    totalAccounts: number;
+    readSource: "warehouse_account_aggregate";
+  };
+  meta: WarehouseMeta;
+}
+
 function countRangeDays(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00Z`).getTime();
   const end = new Date(`${endDate}T00:00:00Z`).getTime();
@@ -856,6 +876,45 @@ export async function getGoogleAdsOverviewReport(
       totalCampaigns: campaignRows.length,
     },
     meta: campaigns.meta as unknown as WarehouseMeta,
+  };
+}
+
+export async function getGoogleAdsOverviewSummaryAggregate(
+  params: BaseReportParams,
+): Promise<GoogleAdsOverviewSummaryResult> {
+  const current = await buildScopeResponse({ params, scope: "account_daily" });
+  const accountRows = current.rows as Array<Record<string, unknown>>;
+  const totalSpend = accountRows.reduce((sum, row) => sum + toNumber(row.spend), 0);
+  const totalRevenue = accountRows.reduce((sum, row) => sum + toNumber(row.revenue), 0);
+  const totalConversions = accountRows.reduce((sum, row) => sum + toNumber(row.conversions), 0);
+  const totalClicks = accountRows.reduce((sum, row) => sum + toNumber(row.clicks), 0);
+  const totalImpressions = accountRows.reduce((sum, row) => sum + toNumber(row.impressions), 0);
+  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const cpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
+  const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+  const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+
+  return {
+    kpis: {
+      spend: Number(totalSpend.toFixed(2)),
+      conversions: Number(totalConversions.toFixed(2)),
+      revenue: Number(totalRevenue.toFixed(2)),
+      roas: Number(roas.toFixed(2)),
+      cpa: Number(cpa.toFixed(2)),
+      cpc: Number(cpc.toFixed(2)),
+      ctr: Number(ctr.toFixed(2)),
+      impressions: totalImpressions,
+      clicks: totalClicks,
+      convRate: totalClicks > 0 ? Number(((totalConversions / totalClicks) * 100).toFixed(2)) : 0,
+    },
+    summary: {
+      totalAccounts: accountRows.length,
+      readSource: "warehouse_account_aggregate",
+    },
+    meta: buildMeta({
+      freshness: current.freshness,
+      rowCounts: { account_daily: accountRows.length },
+    }),
   };
 }
 

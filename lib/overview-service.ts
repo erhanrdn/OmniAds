@@ -1,6 +1,6 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
-import { getGoogleAdsOverviewReport } from "@/lib/google-ads/serving";
+import { getGoogleAdsOverviewSummaryAggregate } from "@/lib/google-ads/serving";
 import { readGoogleAdsDailyRange } from "@/lib/google-ads/warehouse";
 import {
   resolveGa4AnalyticsContext,
@@ -27,9 +27,10 @@ import {
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
 import { getMetaAccountDailyRange } from "@/lib/meta/warehouse";
-import { measurePerf } from "@/lib/perf";
+import { logPerfEvent, measurePerf } from "@/lib/perf";
 import {
   getShopifyOverviewReadCandidate,
+  getShopifyOverviewSummaryReadCandidate,
   type ShopifyOverviewServingMetadata,
 } from "@/lib/shopify/read-adapter";
 
@@ -137,6 +138,11 @@ interface GoogleOverviewFragment {
 interface DailyTrendsBundle {
   combined: TrendPoint[];
   providerTrends: Partial<Record<"meta" | "google", TrendPoint[]>>;
+}
+
+interface TimedResult<T> {
+  durationMs: number;
+  result: T;
 }
 
 interface MetaAccessContext {
@@ -333,15 +339,12 @@ async function getGoogleOverviewFragment(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleOverviewFragment> {
-  const googleOverview = await getGoogleAdsOverviewReport({
+  const googleOverview = await getGoogleAdsOverviewSummaryAggregate({
     businessId: input.businessId,
     accountId: null,
     dateRange: "custom",
     customStart: input.startDate,
     customEnd: input.endDate,
-    compareMode: "none",
-    compareStart: null,
-    compareEnd: null,
     debug: false,
     source: "overview_aggregation_route",
   });
@@ -374,12 +377,25 @@ async function getGoogleOverviewFragment(input: {
   return payload;
 }
 
+async function measureComponent<T>(operation: () => Promise<T>): Promise<TimedResult<T>> {
+  const startedAt = Date.now();
+  const result = await operation();
+  return {
+    durationMs: Date.now() - startedAt,
+    result,
+  };
+}
+
 async function resolveShopifyOverviewAggregateForRead(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  purpose?: "summary" | "full";
 }) {
-  const candidate = await getShopifyOverviewReadCandidate(input);
+  const candidate =
+    input.purpose === "summary"
+      ? await getShopifyOverviewSummaryReadCandidate(input)
+      : await getShopifyOverviewReadCandidate(input);
   const liveDailyByDate = new Map(
     (candidate.live?.dailyTrends ?? []).map((row) => [row.date, row])
   );
@@ -496,7 +512,7 @@ export async function getShopifyOverviewServingData(params: {
   startDate: string;
   endDate: string;
 }) {
-  return resolveShopifyOverviewAggregateForRead(params);
+  return resolveShopifyOverviewAggregateForRead({ ...params, purpose: "full" });
 }
 
 async function buildDailyTrends(params: {
@@ -639,6 +655,15 @@ export async function getOverviewData(params: {
   const { businessId } = params;
   const resolvedStart = params.startDate ?? toISODate(nDaysAgo(29));
   const resolvedEnd = params.endDate ?? toISODate(new Date());
+  const orchestrationStartedAt = Date.now();
+  const dateSpanDays = enumerateDays(resolvedStart, resolvedEnd).length;
+  const perfContext = {
+    businessId,
+    startDate: resolvedStart,
+    endDate: resolvedEnd,
+    dateSpanDays,
+    includeTrends: params.includeTrends !== false,
+  };
 
   if (await isDemoBusiness(businessId)) {
     return getDemoOverview() as unknown as OverviewResponse;
@@ -657,28 +682,43 @@ export async function getOverviewData(params: {
   const platformEfficiency: PlatformEfficiencyRow[] = [];
 
   const [metaResult, googleResult, shopifyResult] = await Promise.allSettled([
-    getMetaOverviewFragment({
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-    }),
-    getGoogleOverviewFragment({
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-    }),
-    resolveShopifyOverviewAggregateForRead({
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-    }),
+    measureComponent(() =>
+      getMetaOverviewFragment({
+        businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+      }),
+    ),
+    measureComponent(() =>
+      getGoogleOverviewFragment({
+        businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+      }),
+    ),
+    measureComponent(() =>
+      resolveShopifyOverviewAggregateForRead({
+        businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        purpose: params.includeTrends === false ? "summary" : "full",
+      }),
+    ),
   ]);
 
+  const componentPerf: Record<string, number | null> = {
+    metaDurationMs: metaResult.status === "fulfilled" ? metaResult.value.durationMs : null,
+    googleDurationMs: googleResult.status === "fulfilled" ? googleResult.value.durationMs : null,
+    shopifyDurationMs: shopifyResult.status === "fulfilled" ? shopifyResult.value.durationMs : null,
+    ga4FallbackDurationMs: null,
+    aggregationDurationMs: null,
+  };
+
   if (metaResult.status === "fulfilled") {
-    totalSpend += metaResult.value.spend;
-    totalRevenue += metaResult.value.revenue;
-    totalPurchases += metaResult.value.purchases;
-    platformEfficiency.push(...metaResult.value.rows);
+    totalSpend += metaResult.value.result.spend;
+    totalRevenue += metaResult.value.result.revenue;
+    totalPurchases += metaResult.value.result.purchases;
+    platformEfficiency.push(...metaResult.value.result.rows);
   } else {
     const message =
       metaResult.reason instanceof Error
@@ -688,13 +728,13 @@ export async function getOverviewData(params: {
   }
 
   if (googleResult.status === "fulfilled") {
-    totalSpend += googleResult.value.spend;
-    totalRevenue += googleResult.value.revenue;
-    totalPurchases += googleResult.value.purchases;
-    totalClicks += googleResult.value.clicks;
-    totalImpressions += googleResult.value.impressions;
-    if (googleResult.value.row) {
-      platformEfficiency.push(googleResult.value.row);
+    totalSpend += googleResult.value.result.spend;
+    totalRevenue += googleResult.value.result.revenue;
+    totalPurchases += googleResult.value.result.purchases;
+    totalClicks += googleResult.value.result.clicks;
+    totalImpressions += googleResult.value.result.impressions;
+    if (googleResult.value.result.row) {
+      platformEfficiency.push(googleResult.value.result.row);
     }
   } else {
     const message =
@@ -704,7 +744,7 @@ export async function getOverviewData(params: {
     console.warn("[overview] google ads overview unavailable", { businessId, message });
   }
 
-  const shopifyResolution = shopifyResult.status === "fulfilled" ? shopifyResult.value : null;
+  const shopifyResolution = shopifyResult.status === "fulfilled" ? shopifyResult.value.result : null;
   const shopifyAggregate = shopifyResolution?.aggregate ?? null;
   if (shopifyResult.status === "rejected") {
     const message =
@@ -718,6 +758,7 @@ export async function getOverviewData(params: {
   const cpa = totalPurchases > 0 ? totalSpend / totalPurchases : 0;
   const aov = totalPurchases > 0 ? totalRevenue / totalPurchases : 0;
 
+  const aggregationStartedAt = Date.now();
   const overview = buildOverviewResponse({
     businessId,
     startDate: resolvedStart,
@@ -732,17 +773,20 @@ export async function getOverviewData(params: {
     aov,
     platformEfficiency,
   });
+  componentPerf.aggregationDurationMs = Date.now() - aggregationStartedAt;
 
   const skipTrends = params.includeTrends === false;
 
-  const [ga4Fallback, dailyTrends] = await Promise.all([
+  const [ga4FallbackResult, dailyTrends] = await Promise.all([
     shopifyAggregate
-      ? Promise.resolve(null)
-      : getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd),
+      ? Promise.resolve<TimedResult<Ga4EcommerceFallback | null> | null>(null)
+      : measureComponent(() => getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd)),
     skipTrends
       ? Promise.resolve(null)
       : buildDailyTrends({ businessId, startDate: resolvedStart, endDate: resolvedEnd }),
   ]);
+  componentPerf.ga4FallbackDurationMs = ga4FallbackResult?.durationMs ?? null;
+  const ga4Fallback = ga4FallbackResult?.result ?? null;
 
   applyEcommerceSourcePriority(overview, {
     shopify: shopifyAggregate
@@ -771,6 +815,30 @@ export async function getOverviewData(params: {
   if (overview.status === "no_data" && (ga4Fallback || shopifyAggregate)) {
     delete overview.status;
   }
+
+  const readSource =
+    shopifyResolution?.serving?.source === "ledger"
+      ? "shopify_ledger"
+      : shopifyResolution?.serving?.source === "warehouse"
+        ? "shopify_warehouse"
+        : shopifyAggregate
+          ? "shopify_live_fallback"
+          : ga4Fallback
+            ? "ga4_fallback"
+            : "ad_platforms";
+  const shopifyDailyTrendCount = shopifyAggregate?.dailyTrends?.length ?? 0;
+  logPerfEvent(
+    skipTrends ? "overview_data_no_trends" : "overview_data_with_trends",
+    {
+      ...perfContext,
+      ...componentPerf,
+      accountCount: platformEfficiency.length,
+      rowCount: platformEfficiency.length,
+      readSource,
+      shopifyDailyTrendCount,
+      durationMs: Date.now() - orchestrationStartedAt,
+    },
+  );
 
   return overview;
 }

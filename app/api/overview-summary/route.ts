@@ -124,6 +124,14 @@ export async function GET(request: NextRequest) {
     compareMode === "previous_period"
       ? getPreviousWindow(resolvedStart, resolvedEnd)
       : { startDate: null, endDate: null };
+  const dateSpanDays = Math.max(
+    1,
+    Math.floor(
+      (new Date(`${resolvedEnd}T00:00:00.000Z`).getTime() -
+        new Date(`${resolvedStart}T00:00:00.000Z`).getTime()) /
+        86_400_000,
+    ) + 1,
+  );
 
   const analyticsAccess = await requireBusinessAccess({
     request,
@@ -973,9 +981,12 @@ export async function GET(request: NextRequest) {
     businessId,
     startDate: resolvedStart,
     endDate: resolvedEnd,
+    dateSpanDays,
+    includeTrends: false,
     compareMode,
     platformCount: platforms.length,
     analyticsConnected,
+    shopifyReadSource: currentOverview.shopifyServing?.source ?? "none",
     durationMs: Date.now() - requestStartedAt,
   });
 

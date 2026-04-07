@@ -10,6 +10,7 @@ import { getShopifyStatus } from "@/lib/shopify/status";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import {
+  getShopifyServingState,
   getShopifyServingOverride,
   insertShopifyReconciliationRun,
   upsertShopifyServingState,
@@ -123,6 +124,161 @@ function isPreviewCanaryBusiness(businessId: string) {
 function defaultCutoverEnabled() {
   const raw = process.env.SHOPIFY_WAREHOUSE_DEFAULT_CUTOVER?.trim().toLowerCase();
   return raw === "1" || raw === "true";
+}
+
+function buildServingMetadataFromPersisted(input: {
+  persistedServing: Awaited<ReturnType<typeof getShopifyServingState>> | null;
+  preferredSource: ShopifyPreferredOverviewSource;
+}) {
+  const persistedServing = input.persistedServing;
+  return {
+    source:
+      input.preferredSource === "ledger"
+        ? "ledger"
+        : input.preferredSource === "warehouse"
+          ? "warehouse"
+          : input.preferredSource === "none"
+            ? "none"
+            : "live",
+    provider: "shopify" as const,
+    trustState: persistedServing?.trustState ?? (input.preferredSource === "none" ? "no_data" : "live_fallback"),
+    fallbackReason: persistedServing?.fallbackReason ?? null,
+    lastSyncedAt: persistedServing?.assessedAt ?? null,
+    coverageStatus: persistedServing?.coverageStatus ?? "unknown",
+    productionMode: persistedServing?.productionMode ?? "disabled",
+    pendingRepair: persistedServing?.pendingRepair === true,
+    pendingRepairStartedAt: persistedServing?.pendingRepairStartedAt ?? null,
+    pendingRepairLastTopic: persistedServing?.pendingRepairLastTopic ?? null,
+    pendingRepairLastReceivedAt: persistedServing?.pendingRepairLastReceivedAt ?? null,
+    selectedRevenueTruthBasis:
+      typeof persistedServing?.divergence?.selectedRevenueTruthBasis === "string"
+        ? persistedServing.divergence.selectedRevenueTruthBasis
+        : null,
+    basisSelectionReason:
+      typeof persistedServing?.divergence?.basisSelectionReason === "string"
+        ? persistedServing.divergence.basisSelectionReason
+        : null,
+    transactionCoverageOrderRate:
+      typeof persistedServing?.divergence?.transactionCoverageOrderRate === "number"
+        ? persistedServing.divergence.transactionCoverageOrderRate
+        : null,
+    transactionCoverageAmountRate:
+      typeof persistedServing?.divergence?.transactionCoverageAmountRate === "number"
+        ? persistedServing.divergence.transactionCoverageAmountRate
+        : null,
+    explainedAdjustmentRevenue:
+      typeof persistedServing?.divergence?.explainedAdjustmentRevenue === "number"
+        ? persistedServing.divergence.explainedAdjustmentRevenue
+        : null,
+    unexplainedAdjustmentRevenue:
+      typeof persistedServing?.divergence?.unexplainedAdjustmentRevenue === "number"
+        ? persistedServing.divergence.unexplainedAdjustmentRevenue
+        : null,
+  } satisfies ShopifyOverviewServingMetadata;
+}
+
+export async function getShopifyOverviewSummaryReadCandidate(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const integration = await getIntegrationMetadata(input.businessId, "shopify").catch(() => null);
+  const providerAccountId =
+    integration?.status === "connected" && integration.provider_account_id
+      ? integration.provider_account_id
+      : null;
+  const canaryKey = providerAccountId
+    ? buildShopifyOverviewCanaryKey({
+        startDate: input.startDate,
+        endDate: input.endDate,
+        timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+      })
+    : null;
+  const persistedServing =
+    providerAccountId && canaryKey
+      ? await getShopifyServingState({
+          businessId: input.businessId,
+          providerAccountId,
+          canaryKey,
+        }).catch(() => null)
+      : null;
+
+  let live = null;
+  let warehouse = null;
+  let ledger = null;
+  let preferredSource: ShopifyPreferredOverviewSource = "none";
+
+  const persistedPreferredSource =
+    persistedServing?.preferredSource === "ledger" || persistedServing?.preferredSource === "warehouse"
+      ? (persistedServing.preferredSource as ShopifyPreferredOverviewSource)
+      : "live";
+  const persistedTrusted = persistedServing?.trustState === "trusted";
+
+  if (persistedTrusted && persistedPreferredSource === "ledger") {
+    ledger = await getShopifyRevenueLedgerAggregate({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }).catch(() => null);
+    if (ledger) preferredSource = "ledger";
+  }
+
+  if (preferredSource === "none" && persistedTrusted && persistedPreferredSource === "warehouse") {
+    warehouse = await getShopifyWarehouseOverviewAggregate({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }).catch(() => null);
+    if (warehouse) preferredSource = "warehouse";
+  }
+
+  if (preferredSource === "none") {
+    live = await getShopifyOverviewAggregate(input).catch(() => null);
+    if (live) {
+      preferredSource = "live";
+    } else if (!warehouse && persistedPreferredSource === "warehouse") {
+      warehouse = await getShopifyWarehouseOverviewAggregate({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => null);
+      preferredSource = warehouse ? "warehouse_shadow" : "none";
+    } else {
+      preferredSource = "none";
+    }
+  }
+
+  return {
+    status: {
+      state:
+        integration?.status === "connected"
+          ? preferredSource === "none"
+            ? "partial"
+            : "ready"
+          : "not_connected",
+      connected: integration?.status === "connected",
+      shopId: providerAccountId,
+      warehouse: null,
+      sync: null,
+      serving: persistedServing,
+      reconciliation: null,
+      issues: [],
+    },
+    live,
+    warehouse,
+    ledger,
+    override: null,
+    divergence: null,
+    ledgerConsistency: null,
+    decisionReasons: persistedServing?.decisionReasons ?? [],
+    canaryEnabled: persistedServing?.canaryEnabled === true,
+    preferredSource,
+    canServeWarehouse: preferredSource === "ledger" || preferredSource === "warehouse",
+    servingMetadata: buildServingMetadataFromPersisted({
+      persistedServing,
+      preferredSource,
+    }),
+  } as const;
 }
 
 export async function getShopifyOverviewReadCandidate(input: {

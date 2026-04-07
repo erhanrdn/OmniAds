@@ -1,0 +1,46 @@
+{
+  "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+  "measuredAt": "2026-04-07T06:05:14.714Z",
+  "baseline": {
+    "overview_data_no_trends_90d_ms": 3323.7,
+    "overview_trend_bundle_30d_ms": 2797.59
+  },
+  "scenarios": [
+    {
+      "name": "overview_data_no_trends_30d",
+      "iterations": 2,
+      "averageMs": 3194.92,
+      "minMs": 1949.94,
+      "maxMs": 4439.9,
+      "sampleCardinality": 2,
+      "validityNote": "valid"
+    },
+    {
+      "name": "overview_data_no_trends_90d",
+      "iterations": 2,
+      "averageMs": 2190.95,
+      "minMs": 1864.47,
+      "maxMs": 2517.44,
+      "sampleCardinality": 2,
+      "validityNote": "valid"
+    },
+    {
+      "name": "overview_trend_bundle_30d",
+      "iterations": 1,
+      "averageMs": 3482.87,
+      "minMs": 3482.87,
+      "maxMs": 3482.87,
+      "sampleCardinality": 30,
+      "validityNote": "valid"
+    },
+    {
+      "name": "shopify_warehouse_overview_90d",
+      "iterations": 2,
+      "averageMs": 2516.93,
+      "minMs": 2250.13,
+      "maxMs": 2783.73,
+      "sampleCardinality": 96,
+      "validityNote": "valid:live"
+    }
+  ]
+}

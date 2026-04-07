@@ -23,6 +23,7 @@ vi.mock("@/lib/shopify/revenue-ledger", () => ({
 }));
 
 vi.mock("@/lib/shopify/warehouse", () => ({
+  getShopifyServingState: vi.fn(),
   getShopifyServingOverride: vi.fn(),
   listShopifyReconciliationRuns: vi.fn(),
   insertShopifyReconciliationRun: vi.fn(),
@@ -35,7 +36,10 @@ const warehouse = await import("@/lib/shopify/warehouse-overview");
 const revenueLedger = await import("@/lib/shopify/revenue-ledger");
 const warehouseState = await import("@/lib/shopify/warehouse");
 const integrations = await import("@/lib/integrations");
-const { getShopifyOverviewReadCandidate } = await import("@/lib/shopify/read-adapter");
+const {
+  getShopifyOverviewReadCandidate,
+  getShopifyOverviewSummaryReadCandidate,
+} = await import("@/lib/shopify/read-adapter");
 
 describe("getShopifyOverviewReadCandidate", () => {
   beforeEach(() => {
@@ -51,6 +55,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     } as never);
     vi.mocked(warehouseState.upsertShopifyServingState).mockResolvedValue(undefined);
     vi.mocked(warehouseState.insertShopifyReconciliationRun).mockResolvedValue(undefined);
+    vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue(null as never);
     vi.mocked(warehouseState.getShopifyServingOverride).mockResolvedValue(null as never);
     vi.mocked(warehouseState.listShopifyReconciliationRuns).mockResolvedValue([] as never);
     vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
@@ -170,6 +175,49 @@ describe("getShopifyOverviewReadCandidate", () => {
       endDate: "2026-03-31",
       ignoreServingTrust: true,
     });
+  });
+
+  it("uses persisted live fallback for summary reads without running full status resolution", async () => {
+    vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue({
+      businessId: "biz_1",
+      providerAccountId: "shop",
+      canaryKey: buildShopifyOverviewCanaryKey({
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+        timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+      }),
+      preferredSource: "live",
+      trustState: "live_fallback",
+      fallbackReason: "pending_repair",
+      coverageStatus: "historical_incomplete",
+      productionMode: "auto",
+      pendingRepair: true,
+      assessedAt: "2026-04-02T10:00:00.000Z",
+      decisionReasons: ["pending_repair"],
+    } as never);
+    vi.mocked(overview.getShopifyOverviewAggregate).mockResolvedValue({
+      revenue: 1000,
+      purchases: 10,
+      averageOrderValue: 100,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [],
+    } as never);
+
+    const result = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.preferredSource).toBe("live");
+    expect(result.live?.revenue).toBe(1000);
+    expect(result.servingMetadata.trustState).toBe("live_fallback");
+    expect(result.servingMetadata.fallbackReason).toBe("pending_repair");
+    expect(status.getShopifyStatus).not.toHaveBeenCalled();
+    expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
   });
 
   it("allows warehouse canary when status is ready and divergence is within threshold", async () => {
