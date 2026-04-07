@@ -13,6 +13,7 @@ vi.mock("@/lib/internal-sync-auth", () => ({
 vi.mock("@/lib/meta/warehouse", () => ({
   expireStaleMetaSyncJobs: vi.fn(),
   getMetaQueueHealth: vi.fn(),
+  getMetaWarehouseIntegrityIncidents: vi.fn(),
   hasBlockingMetaSyncJob: vi.fn(),
   cleanupMetaPartitionOrchestration: vi.fn(),
   replayMetaDeadLetterPartitions: vi.fn(),
@@ -107,6 +108,7 @@ describe("POST /api/sync/refresh", () => {
       retryableFailedPartitions: 0,
       deadLetterPartitions: 0,
     } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
     vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
       outcome: "no_matching_partitions",
       partitions: [],

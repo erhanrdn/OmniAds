@@ -340,7 +340,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($26,$27,$28");
+    expect(queries.join("\n")).toContain("), ($29,$30,$31");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET");
   });
 
@@ -416,7 +416,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($25,$26,$27");
+    expect(queries.join("\n")).toContain("), ($28,$29,$30");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET");
   });
 
