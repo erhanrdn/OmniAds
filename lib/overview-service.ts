@@ -680,14 +680,6 @@ async function buildDailyTrends(params: {
       const [metaRowsResult, googleRowsResult] = await Promise.all([
         measureComponent(async () => {
           if (metaContext.assignedAccountIds.length === 0) return [];
-          const cached = await readOverviewSummaryRange({
-            businessId: params.businessId,
-            provider: "meta",
-            providerAccountIds: metaContext.assignedAccountIds,
-            startDate: params.startDate,
-            endDate: params.endDate,
-          }).catch(() => null);
-          if (cached?.hydrated && cached.rows.length > 0) return cached.rows;
           const rows = await getMetaAccountDailyRange({
             businessId: params.businessId,
             startDate: params.startDate,

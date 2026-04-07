@@ -687,7 +687,7 @@ describe("getOverviewData", () => {
     expect(trendBundle.combined).toHaveLength(1);
   });
 
-  it("prefers hydrated overview summary rows for trend reads before warehouse fallback", async () => {
+  it("uses hydrated overview summary rows for google trend reads before warehouse fallback", async () => {
     vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
       if (provider === "google") {
         return {
@@ -710,18 +710,18 @@ describe("getOverviewData", () => {
     });
     vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockImplementation(
       async ({ provider }: { provider: "meta" | "google" }) =>
-        provider === "meta"
+        provider === "google"
           ? ({
               hydrated: true,
               rows: [
                 {
                   businessId: "biz",
-                  provider: "meta",
-                  providerAccountId: "act_1",
+                  provider: "google",
+                  providerAccountId: "g_1",
                   date: "2026-03-01",
-                  spend: 120,
-                  revenue: 480,
-                  purchases: 6,
+                  spend: 95,
+                  revenue: 210,
+                  purchases: 3,
                   impressions: 1000,
                   clicks: 50,
                   sourceUpdatedAt: null,
@@ -741,16 +741,16 @@ describe("getOverviewData", () => {
     expect(overviewSummaryStore.readOverviewSummaryRange).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
-        provider: "meta",
+        provider: "google",
       }),
     );
-    expect(metaWarehouse.getMetaAccountDailyRange).not.toHaveBeenCalled();
-    expect(trendBundle.providerTrends.meta).toEqual([
+    expect(googleWarehouse.readGoogleAdsDailyRange).not.toHaveBeenCalled();
+    expect(trendBundle.providerTrends.google).toEqual([
       {
         date: "2026-03-01",
-        spend: 120,
-        revenue: 480,
-        purchases: 6,
+        spend: 95,
+        revenue: 210,
+        purchases: 3,
       },
     ]);
   });
@@ -782,6 +782,85 @@ describe("getOverviewData", () => {
           ? ({ hydrated: true, rows: [] } as never)
           : ({ hydrated: false, rows: [] } as never),
     );
+    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
+      {
+        businessId: "biz",
+        providerAccountId: "act_1",
+        date: "2026-03-01",
+        accountName: "Main",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 120,
+        impressions: 1000,
+        clicks: 50,
+        reach: 800,
+        frequency: 1.25,
+        conversions: 6,
+        revenue: 480,
+        roas: 4,
+        cpa: 20,
+        ctr: 5,
+        cpc: 2.4,
+        sourceSnapshotId: "snap_1",
+      },
+    ] as never);
+
+    const trendBundle = await getOverviewTrendBundle({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+    });
+
+    expect(metaWarehouse.getMetaAccountDailyRange).toHaveBeenCalled();
+    expect(trendBundle.providerTrends.meta).toEqual([
+      {
+        date: "2026-03-01",
+        spend: 120,
+        revenue: 480,
+        purchases: 6,
+      },
+    ]);
+  });
+
+  it("reads Meta trend rows from warehouse even when a hydrated summary range exists", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
+      if (provider === "google") {
+        return {
+          id: "as_google",
+          business_id: businessId,
+          provider: "google",
+          account_ids: [],
+          created_at: "",
+          updated_at: "",
+        } as never;
+      }
+      return {
+        id: "as_meta",
+        business_id: businessId,
+        provider: "meta",
+        account_ids: ["act_1"],
+        created_at: "",
+        updated_at: "",
+      } as never;
+    });
+    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockResolvedValue({
+      hydrated: true,
+      rows: [
+        {
+          businessId: "biz",
+          provider: "meta",
+          providerAccountId: "act_1",
+          date: "2026-03-01",
+          spend: 1,
+          revenue: 2,
+          purchases: 3,
+          impressions: 10,
+          clicks: 1,
+          sourceUpdatedAt: null,
+          updatedAt: null,
+        },
+      ],
+    } as never);
     vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
       {
         businessId: "biz",
