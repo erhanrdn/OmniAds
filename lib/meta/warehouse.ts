@@ -6017,7 +6017,7 @@ export async function getMetaAccountDailyRange(input: {
   return typedRows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
-    date: row.date,
+    date: normalizeDate(row.date),
     accountName: row.account_name,
     accountTimezone: row.account_timezone,
     accountCurrency: row.account_currency,
@@ -6817,7 +6817,7 @@ export async function getMetaCampaignDailyRange(input: {
   return typedRows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
-    date: row.date,
+    date: normalizeDate(row.date),
     campaignId: row.campaign_id,
     campaignNameCurrent: row.campaign_name_current,
     campaignNameHistorical: row.campaign_name_historical,
@@ -7091,7 +7091,7 @@ export async function getMetaAdSetDailyRange(input: {
   return typedRows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
-    date: row.date,
+    date: normalizeDate(row.date),
     campaignId: row.campaign_id,
     adsetId: row.adset_id,
     adsetNameCurrent: row.adset_name_current,
@@ -7301,7 +7301,7 @@ export async function getMetaAdDailyRange(input: {
   return rows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
-    date: row.date,
+    date: normalizeDate(row.date),
     campaignId: row.campaign_id,
     adsetId: row.adset_id,
     adId: row.ad_id,
@@ -7407,7 +7407,7 @@ export async function getMetaCreativeDailyRange(input: {
   return rows.map((row) => ({
     businessId: row.business_id,
     providerAccountId: row.provider_account_id,
-    date: row.date,
+    date: normalizeDate(row.date),
     campaignId: row.campaign_id,
     adsetId: row.adset_id,
     adId: row.ad_id,

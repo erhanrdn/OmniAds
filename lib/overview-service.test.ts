@@ -821,4 +821,77 @@ describe("getOverviewData", () => {
       },
     ]);
   });
+
+  it("normalizes Date-based warehouse trend rows before merging them into overview trends", async () => {
+    vi.mocked(assignments.getProviderAccountAssignments).mockImplementation(async (businessId, provider) => {
+      if (provider === "google") {
+        return {
+          id: "as_google",
+          business_id: businessId,
+          provider: "google",
+          account_ids: [],
+          created_at: "",
+          updated_at: "",
+        } as never;
+      }
+      return {
+        id: "as_meta",
+        business_id: businessId,
+        provider: "meta",
+        account_ids: ["act_1"],
+        created_at: "",
+        updated_at: "",
+      } as never;
+    });
+    vi.mocked(overviewSummaryStore.readOverviewSummaryRange).mockResolvedValue({ hydrated: false, rows: [] } as never);
+    vi.mocked(metaWarehouse.getMetaAccountDailyRange).mockResolvedValue([
+      {
+        businessId: "biz",
+        providerAccountId: "act_1",
+        date: new Date("2026-03-29T00:00:00.000Z"),
+        accountName: "Main",
+        accountTimezone: "America/Anchorage",
+        accountCurrency: "USD",
+        spend: 459.43,
+        impressions: 1000,
+        clicks: 50,
+        reach: 800,
+        frequency: 1.25,
+        conversions: 8,
+        revenue: 1200,
+        roas: 2.61,
+        cpa: 57.43,
+        ctr: 5,
+        cpc: 9.19,
+        sourceSnapshotId: "snap_1",
+      },
+    ] as never);
+
+    const trendBundle = await getOverviewTrendBundle({
+      businessId: "biz",
+      startDate: "2026-03-29",
+      endDate: "2026-03-31",
+    });
+
+    expect(trendBundle.providerTrends.meta).toEqual([
+      {
+        date: "2026-03-29",
+        spend: 459.43,
+        revenue: 1200,
+        purchases: 8,
+      },
+      {
+        date: "2026-03-30",
+        spend: 0,
+        revenue: 0,
+        purchases: 0,
+      },
+      {
+        date: "2026-03-31",
+        spend: 0,
+        revenue: 0,
+        purchases: 0,
+      },
+    ]);
+  });
 });

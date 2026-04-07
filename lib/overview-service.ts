@@ -119,6 +119,15 @@ export interface OverviewResponse {
   };
 }
 
+function normalizeOverviewTrendDate(value: string | Date) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return text.slice(0, 10);
+}
+
 interface Ga4EcommerceFallback {
   revenue: number;
   purchases: number;
@@ -728,19 +737,21 @@ async function buildDailyTrends(params: {
       const googleByDate = new Map<string, DailyTrendPoint>();
 
       for (const row of metaRows) {
-        const current = metaByDate.get(row.date) ?? { date: row.date, spend: 0, revenue: 0, purchases: 0 };
+        const date = normalizeOverviewTrendDate(row.date);
+        const current = metaByDate.get(date) ?? { date, spend: 0, revenue: 0, purchases: 0 };
         current.spend += Number(row.spend ?? 0);
         current.revenue += Number(row.revenue ?? 0);
         current.purchases += Number("conversions" in row ? row.conversions ?? 0 : row.purchases ?? 0);
-        metaByDate.set(row.date, current);
+        metaByDate.set(date, current);
       }
 
       for (const row of googleRows) {
-        const current = googleByDate.get(row.date) ?? { date: row.date, spend: 0, revenue: 0, purchases: 0 };
+        const date = normalizeOverviewTrendDate(row.date);
+        const current = googleByDate.get(date) ?? { date, spend: 0, revenue: 0, purchases: 0 };
         current.spend += Number(row.spend ?? 0);
         current.revenue += Number(row.revenue ?? 0);
         current.purchases += Number("conversions" in row ? row.conversions ?? 0 : row.purchases ?? 0);
-        googleByDate.set(row.date, current);
+        googleByDate.set(date, current);
       }
 
       const shopifyByDate = new Map(
