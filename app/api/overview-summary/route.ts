@@ -33,6 +33,7 @@ import {
   toRatioSparklineSeries,
   toSparklineSeries,
 } from "@/lib/overview-summary-support";
+import { logPerfEvent } from "@/lib/perf";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import type {
   OverviewMetricCardData,
@@ -88,6 +89,7 @@ function resolveShopifyMetricSource(
 }
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = Date.now();
   const language = await resolveRequestLanguage(request);
   const businessId = request.nextUrl.searchParams.get("businessId");
   const startDate = request.nextUrl.searchParams.get("startDate");
@@ -966,6 +968,16 @@ export async function GET(request: NextRequest) {
     insights: mapInsights(currentOverview, analyticsConnected),
     shopifyServing: currentOverview.shopifyServing ?? null,
   };
+
+  logPerfEvent("overview_summary_route", {
+    businessId,
+    startDate: resolvedStart,
+    endDate: resolvedEnd,
+    compareMode,
+    platformCount: platforms.length,
+    analyticsConnected,
+    durationMs: Date.now() - requestStartedAt,
+  });
 
   return NextResponse.json({
     summary,

@@ -1,6 +1,7 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
 import { getGoogleAdsOverviewReport } from "@/lib/google-ads/serving";
+import { readGoogleAdsDailyRange } from "@/lib/google-ads/warehouse";
 import {
   resolveGa4AnalyticsContext,
   runGA4Report,
@@ -25,7 +26,8 @@ import {
   setCachedReport,
 } from "@/lib/reporting-cache";
 import { getMetaWarehouseSummary } from "@/lib/meta/serving";
-import { getShopifyOverviewAggregate } from "@/lib/shopify/overview";
+import { getMetaAccountDailyRange } from "@/lib/meta/warehouse";
+import { measurePerf } from "@/lib/perf";
 import {
   getShopifyOverviewReadCandidate,
   type ShopifyOverviewServingMetadata,
@@ -146,7 +148,6 @@ const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_CACHE_TTL_MINUTES = 15;
 const GA4_FALLBACK_ERROR_COOLDOWN_MS = 10 * 60 * 1000;
 const ga4FallbackFailureUntilByBusiness = new Map<string, number>();
-const DAILY_TREND_BATCH_SIZE = Number(process.env.OVERVIEW_DAILY_TREND_BATCH_SIZE ?? 3);
 const META_ACCESS_CACHE_TTL_MS = 30 * 1000;
 const metaAccessCache = new Map<string, { expiresAt: number; value: Promise<MetaAccessContext> }>();
 
@@ -373,59 +374,6 @@ async function getGoogleOverviewFragment(input: {
   return payload;
 }
 
-async function fetchDaySnapshot(businessId: string, date: string) {
-  const [metaResult, googleResult, shopifyResult, ga4Result] = await Promise.allSettled([
-    getMetaOverviewFragment({ businessId, startDate: date, endDate: date }),
-    getGoogleOverviewFragment({ businessId, startDate: date, endDate: date }),
-    getShopifyOverviewAggregate({ businessId, startDate: date, endDate: date }),
-    getGa4EcommerceFallback(businessId, date, date),
-  ]);
-
-  const metaSpend =
-    metaResult.status === "fulfilled" ? Number(metaResult.value.spend ?? 0) : 0;
-  const metaRevenue =
-    metaResult.status === "fulfilled" ? Number(metaResult.value.revenue ?? 0) : 0;
-  const metaPurchases =
-    metaResult.status === "fulfilled" ? Number(metaResult.value.purchases ?? 0) : 0;
-
-  const googleSpend =
-    googleResult.status === "fulfilled" ? Number(googleResult.value.spend ?? 0) : 0;
-  const googleRevenue =
-    googleResult.status === "fulfilled" ? Number(googleResult.value.revenue ?? 0) : 0;
-  const googlePurchases =
-    googleResult.status === "fulfilled" ? Number(googleResult.value.purchases ?? 0) : 0;
-
-  const spend = metaSpend + googleSpend;
-  const shopifyRevenue =
-    shopifyResult.status === "fulfilled" && shopifyResult.value
-      ? Number(shopifyResult.value.revenue ?? 0)
-      : 0;
-  const shopifyPurchases =
-    shopifyResult.status === "fulfilled" && shopifyResult.value
-      ? Number(shopifyResult.value.purchases ?? 0)
-      : 0;
-
-  const revenue =
-    shopifyRevenue > 0 || shopifyPurchases > 0
-      ? shopifyRevenue
-      : ga4Result.status === "fulfilled" && ga4Result.value
-      ? Number(ga4Result.value.revenue ?? 0)
-      : metaRevenue + googleRevenue;
-
-  const purchases =
-    shopifyRevenue > 0 || shopifyPurchases > 0
-      ? shopifyPurchases
-      : ga4Result.status === "fulfilled" && ga4Result.value
-      ? Number(ga4Result.value.purchases ?? 0)
-      : metaPurchases + googlePurchases;
-
-  return {
-    combined: { date, spend: round2(spend), revenue: round2(revenue), purchases: Math.round(purchases) },
-    meta: { date, spend: round2(metaSpend), revenue: round2(metaRevenue), purchases: Math.round(metaPurchases) },
-    google: { date, spend: round2(googleSpend), revenue: round2(googleRevenue), purchases: Math.round(googlePurchases) },
-  };
-}
-
 async function resolveShopifyOverviewAggregateForRead(input: {
   businessId: string;
   startDate: string;
@@ -556,40 +504,109 @@ async function buildDailyTrends(params: {
   startDate: string;
   endDate: string;
 }): Promise<DailyTrendsBundle> {
-  const shopifyResult = await resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[overview] shopify daily trends unavailable", {
+  return measurePerf(
+    "overview_daily_trends_build",
+    {
       businessId: params.businessId,
-      message,
-    });
-    return null;
-  });
-  const dates = enumerateDays(params.startDate, params.endDate);
-
-  const snapshots: Awaited<ReturnType<typeof fetchDaySnapshot>>[] = [];
-  for (let i = 0; i < dates.length; i += DAILY_TREND_BATCH_SIZE) {
-    const batch = dates.slice(i, i + DAILY_TREND_BATCH_SIZE);
-    const batchResults = await Promise.all(
-      batch.map((date) => fetchDaySnapshot(params.businessId, date))
-    );
-    snapshots.push(...batchResults);
-  }
-
-  return {
-    combined: snapshots.map((s) => {
-      const shopifyDay = shopifyResult?.aggregate?.dailyTrends.find((entry) => entry.date === s.combined.date);
-      return {
-        date: s.combined.date,
-        spend: s.combined.spend,
-        revenue: round2(shopifyDay?.revenue ?? s.combined.revenue),
-        purchases: Math.round(shopifyDay?.purchases ?? s.combined.purchases),
-      };
-    }),
-    providerTrends: {
-      meta: snapshots.map((s) => s.meta),
-      google: snapshots.map((s) => s.google),
+      startDate: params.startDate,
+      endDate: params.endDate,
     },
-  };
+    async () => {
+      const [metaContext, shopifyResult, googleAssignment] = await Promise.all([
+        getMetaAccessContext(params.businessId),
+        resolveShopifyOverviewAggregateForRead(params).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn("[overview] shopify daily trends unavailable", {
+            businessId: params.businessId,
+            message,
+          });
+          return null;
+        }),
+        getProviderAccountAssignments(params.businessId, "google").catch(() => null),
+      ]);
+
+      const [metaRows, googleRows] = await Promise.all([
+        metaContext.assignedAccountIds.length > 0
+          ? getMetaAccountDailyRange({
+              businessId: params.businessId,
+              startDate: params.startDate,
+              endDate: params.endDate,
+              providerAccountIds: metaContext.assignedAccountIds,
+            }).catch(() => [])
+          : Promise.resolve([]),
+        googleAssignment && googleAssignment.account_ids.length > 0
+          ? readGoogleAdsDailyRange({
+              scope: "account_daily",
+              businessId: params.businessId,
+              providerAccountIds: googleAssignment.account_ids,
+              startDate: params.startDate,
+              endDate: params.endDate,
+            }).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+
+      const dates = enumerateDays(params.startDate, params.endDate);
+      const metaByDate = new Map<string, DailyTrendPoint>();
+      const googleByDate = new Map<string, DailyTrendPoint>();
+
+      for (const row of metaRows) {
+        const current = metaByDate.get(row.date) ?? { date: row.date, spend: 0, revenue: 0, purchases: 0 };
+        current.spend += Number(row.spend ?? 0);
+        current.revenue += Number(row.revenue ?? 0);
+        current.purchases += Number(row.conversions ?? 0);
+        metaByDate.set(row.date, current);
+      }
+
+      for (const row of googleRows) {
+        const current = googleByDate.get(row.date) ?? { date: row.date, spend: 0, revenue: 0, purchases: 0 };
+        current.spend += Number(row.spend ?? 0);
+        current.revenue += Number(row.revenue ?? 0);
+        current.purchases += Number(row.conversions ?? 0);
+        googleByDate.set(row.date, current);
+      }
+
+      const shopifyByDate = new Map(
+        (shopifyResult?.aggregate?.dailyTrends ?? []).map((row) => [row.date, row]),
+      );
+      const metaTrend = dates.map((date) => {
+        const row = metaByDate.get(date);
+        return {
+          date,
+          spend: round2(row?.spend ?? 0),
+          revenue: round2(row?.revenue ?? 0),
+          purchases: Math.round(row?.purchases ?? 0),
+        };
+      });
+      const googleTrend = dates.map((date) => {
+        const row = googleByDate.get(date);
+        return {
+          date,
+          spend: round2(row?.spend ?? 0),
+          revenue: round2(row?.revenue ?? 0),
+          purchases: Math.round(row?.purchases ?? 0),
+        };
+      });
+
+      return {
+        combined: dates.map((date, index) => {
+          const shopifyDay = shopifyByDate.get(date);
+          const spend = metaTrend[index]!.spend + googleTrend[index]!.spend;
+          const warehouseRevenue = metaTrend[index]!.revenue + googleTrend[index]!.revenue;
+          const warehousePurchases = metaTrend[index]!.purchases + googleTrend[index]!.purchases;
+          return {
+            date,
+            spend: round2(spend),
+            revenue: round2(shopifyDay?.revenue ?? warehouseRevenue),
+            purchases: Math.round(shopifyDay?.purchases ?? warehousePurchases),
+          };
+        }),
+        providerTrends: {
+          meta: metaTrend,
+          google: googleTrend,
+        },
+      };
+    },
+  );
 }
 
 /**

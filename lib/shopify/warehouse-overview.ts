@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import { measurePerf } from "@/lib/perf";
 
 function round2(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -59,44 +60,101 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
 }) {
   await runMigrations();
   const sql = getDb();
-  const orderRows = (await sql`
-    SELECT
-      COALESCE(order_created_date_local, order_created_at::date)::text AS date,
-      COALESCE(SUM(total_price), 0) AS order_revenue,
-      COUNT(*) AS orders
-    FROM shopify_orders
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND COALESCE(order_created_date_local, order_created_at::date) >= ${input.startDate}::date
-      AND COALESCE(order_created_date_local, order_created_at::date) <= ${input.endDate}::date
-    GROUP BY 1
-    ORDER BY 1 ASC
-  `) as Array<Record<string, unknown>>;
-
-  const refundRows = (await sql`
-    SELECT
-      COALESCE(refunded_date_local, refunded_at::date)::text AS date,
-      COALESCE(SUM(refunded_sales + refunded_shipping + refunded_taxes), 0) AS refunded_revenue
-    FROM shopify_refunds
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND COALESCE(refunded_date_local, refunded_at::date) >= ${input.startDate}::date
-      AND COALESCE(refunded_date_local, refunded_at::date) <= ${input.endDate}::date
-    GROUP BY 1
-    ORDER BY 1 ASC
-  `) as Array<Record<string, unknown>>;
-  const returnRows = (await sql`
-    SELECT
-      COALESCE(created_date_local, created_at_provider::date)::text AS date,
-      COUNT(*) AS return_events
-    FROM shopify_returns
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND COALESCE(created_date_local, created_at_provider::date) >= ${input.startDate}::date
-      AND COALESCE(created_date_local, created_at_provider::date) <= ${input.endDate}::date
-    GROUP BY 1
-    ORDER BY 1 ASC
-  `) as Array<Record<string, unknown>>;
+  const providerAccountId = input.providerAccountId ?? null;
+  const [orderRows, refundRows, returnRows] = await measurePerf(
+    "shopify_warehouse_overview_read",
+    {
+      businessId: input.businessId,
+      providerAccountId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      dateSpanDays:
+        Math.floor(
+          (new Date(`${input.endDate}T00:00:00Z`).getTime() -
+            new Date(`${input.startDate}T00:00:00Z`).getTime()) /
+            86_400_000,
+        ) + 1,
+    },
+    async () =>
+      Promise.all([
+        sql.query(
+          `
+            SELECT
+              CASE
+                WHEN order_created_date_local IS NOT NULL THEN order_created_date_local::text
+                ELSE order_created_at::date::text
+              END AS date,
+              COALESCE(SUM(total_price), 0) AS order_revenue,
+              COUNT(*) AS orders
+            FROM shopify_orders
+            WHERE business_id = $1
+              AND ($2::text IS NULL OR provider_account_id = $2)
+              AND (
+                (order_created_date_local IS NOT NULL
+                  AND order_created_date_local >= $3::date
+                  AND order_created_date_local <= $4::date)
+                OR
+                (order_created_date_local IS NULL
+                  AND order_created_at::date >= $3::date
+                  AND order_created_at::date <= $4::date)
+              )
+            GROUP BY 1
+            ORDER BY 1 ASC
+          `,
+          [input.businessId, providerAccountId, input.startDate, input.endDate],
+        ) as Promise<Array<Record<string, unknown>>>,
+        sql.query(
+          `
+            SELECT
+              CASE
+                WHEN refunded_date_local IS NOT NULL THEN refunded_date_local::text
+                ELSE refunded_at::date::text
+              END AS date,
+              COALESCE(SUM(refunded_sales + refunded_shipping + refunded_taxes), 0) AS refunded_revenue
+            FROM shopify_refunds
+            WHERE business_id = $1
+              AND ($2::text IS NULL OR provider_account_id = $2)
+              AND (
+                (refunded_date_local IS NOT NULL
+                  AND refunded_date_local >= $3::date
+                  AND refunded_date_local <= $4::date)
+                OR
+                (refunded_date_local IS NULL
+                  AND refunded_at::date >= $3::date
+                  AND refunded_at::date <= $4::date)
+              )
+            GROUP BY 1
+            ORDER BY 1 ASC
+          `,
+          [input.businessId, providerAccountId, input.startDate, input.endDate],
+        ) as Promise<Array<Record<string, unknown>>>,
+        sql.query(
+          `
+            SELECT
+              CASE
+                WHEN created_date_local IS NOT NULL THEN created_date_local::text
+                ELSE created_at_provider::date::text
+              END AS date,
+              COUNT(*) AS return_events
+            FROM shopify_returns
+            WHERE business_id = $1
+              AND ($2::text IS NULL OR provider_account_id = $2)
+              AND (
+                (created_date_local IS NOT NULL
+                  AND created_date_local >= $3::date
+                  AND created_date_local <= $4::date)
+                OR
+                (created_date_local IS NULL
+                  AND created_at_provider::date >= $3::date
+                  AND created_at_provider::date <= $4::date)
+              )
+            GROUP BY 1
+            ORDER BY 1 ASC
+          `,
+          [input.businessId, providerAccountId, input.startDate, input.endDate],
+        ) as Promise<Array<Record<string, unknown>>>,
+      ]),
+  );
 
   const byDate = new Map<string, ShopifyWarehouseDailyAggregate>();
   for (const row of orderRows) {
@@ -142,7 +200,6 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
     byDate.set(date, existing);
   }
 
-  return summarizeShopifyWarehouseDailyRows(
-    [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
-  );
+  const daily = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  return summarizeShopifyWarehouseDailyRows(daily);
 }

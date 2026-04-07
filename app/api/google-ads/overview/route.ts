@@ -4,8 +4,10 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDemoGoogleAdsOverview } from "@/lib/demo-business";
 import { getGoogleAdsOverviewReport } from "@/lib/google-ads/serving";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
+import { logPerfEvent } from "@/lib/perf";
 
 export async function GET(request: NextRequest) {
+  const requestStartedAt = Date.now();
   const {
     businessId,
     accountId,
@@ -50,5 +52,15 @@ export async function GET(request: NextRequest) {
     summary: report.summary,
     meta: report.meta,
   };
+  logPerfEvent("google_ads_overview_route", {
+    businessId,
+    accountId,
+    dateRange,
+    customStart,
+    customEnd,
+    compareMode,
+    topCampaignCount: payload.topCampaigns.length,
+    durationMs: Date.now() - requestStartedAt,
+  });
   return NextResponse.json(payload);
 }

@@ -26,6 +26,7 @@ const {
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaAuthoritativeDayVerification,
   getMetaActivePublishedSliceVersion,
+  upsertMetaAdDailyRows,
   getMetaAdSetDailyRange,
   getMetaCampaignDailyRange,
   getMetaDirtyRecentDates,
@@ -39,6 +40,7 @@ const {
   supersedeMetaAuthoritativeSliceVersions,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
+  upsertMetaCreativeDailyRows,
   upsertMetaSyncCheckpoint,
 } = await import(
   "@/lib/meta/warehouse"
@@ -256,6 +258,164 @@ describe("meta warehouse ownership safety", () => {
     );
     expect(query).toContain("daily_budget = COALESCE(EXCLUDED.daily_budget, meta_campaign_daily.daily_budget)");
     expect(query).toContain("daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget)");
+  });
+
+  it("batches meta creative daily upserts instead of writing one row per query", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaCreativeDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "creative-1",
+        creativeName: "Creative 1",
+        headline: "Headline 1",
+        primaryText: "Body 1",
+        destinationUrl: "https://example.com/1",
+        thumbnailUrl: "https://example.com/image-1.png",
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 10,
+        impressions: 100,
+        clicks: 5,
+        reach: 0,
+        frequency: null,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: "snapshot-1",
+        payloadJson: { creativeId: "creative-1" },
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-2",
+        adsetId: "adset-2",
+        adId: "ad-2",
+        creativeId: "creative-2",
+        creativeName: "Creative 2",
+        headline: "Headline 2",
+        primaryText: "Body 2",
+        destinationUrl: "https://example.com/2",
+        thumbnailUrl: "https://example.com/image-2.png",
+        assetType: "video",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 120,
+        clicks: 6,
+        reach: 0,
+        frequency: null,
+        conversions: 2,
+        revenue: 30,
+        roas: 2.5,
+        cpa: 6,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: "snapshot-2",
+        payloadJson: { creativeId: "creative-2" },
+      },
+    ]);
+
+    expect(sql.query).toHaveBeenCalledTimes(1);
+    expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
+    expect(queries.join("\n")).toContain("), ($26,$27,$28");
+    expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET");
+  });
+
+  it("batches meta ad daily upserts instead of writing one row per query", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaAdDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        adNameCurrent: "Ad 1",
+        adNameHistorical: "Ad 1",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 10,
+        impressions: 100,
+        clicks: 5,
+        reach: 80,
+        frequency: 1,
+        conversions: 1,
+        revenue: 20,
+        roas: 2,
+        cpa: 10,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: "snapshot-1",
+        payloadJson: { adId: "ad-1" },
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-2",
+        adsetId: "adset-2",
+        adId: "ad-2",
+        adNameCurrent: "Ad 2",
+        adNameHistorical: "Ad 2",
+        adStatus: "PAUSED",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 120,
+        clicks: 6,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 2,
+        revenue: 30,
+        roas: 2.5,
+        cpa: 6,
+        ctr: 5,
+        cpc: 2,
+        sourceSnapshotId: "snapshot-2",
+        payloadJson: { adId: "ad-2" },
+      },
+    ]);
+
+    expect(sql.query).toHaveBeenCalledTimes(1);
+    expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
+    expect(queries.join("\n")).toContain("), ($25,$26,$27");
+    expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET");
   });
 
   it("extends the running lease using the requested lease minutes", async () => {

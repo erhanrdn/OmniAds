@@ -5764,9 +5764,44 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
   if (rows.length === 0) return;
   await runMigrations();
   const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .map((row, index) => {
+        const offset = index * 25;
+        values.push(
+          row.businessId,
+          row.providerAccountId,
+          normalizeDate(row.date),
+          row.campaignId,
+          row.adsetId,
+          row.adId,
+          row.creativeId,
+          row.creativeName,
+          row.headline,
+          row.primaryText,
+          row.destinationUrl,
+          row.thumbnailUrl,
+          row.assetType,
+          row.accountTimezone,
+          row.accountCurrency,
+          row.spend,
+          row.impressions,
+          row.clicks,
+          row.conversions,
+          row.revenue,
+          row.roas,
+          row.ctr,
+          row.cpc,
+          row.sourceSnapshotId,
+          JSON.stringify(row.payloadJson ?? null)
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25}::jsonb,now())`;
+      })
+      .join(", ");
 
-  for (const row of rows) {
-    await sql`
+    await sql.query(
+      `
       INSERT INTO meta_creative_daily (
         business_id,
         provider_account_id,
@@ -5795,34 +5830,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         payload_json,
         updated_at
       )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${normalizeDate(row.date)},
-        ${row.campaignId},
-        ${row.adsetId},
-        ${row.adId},
-        ${row.creativeId},
-        ${row.creativeName},
-        ${row.headline},
-        ${row.primaryText},
-        ${row.destinationUrl},
-        ${row.thumbnailUrl},
-        ${row.assetType},
-        ${row.accountTimezone},
-        ${row.accountCurrency},
-        ${row.spend},
-        ${row.impressions},
-        ${row.clicks},
-        ${row.conversions},
-        ${row.revenue},
-        ${row.roas},
-        ${row.ctr},
-        ${row.cpc},
-        ${row.sourceSnapshotId},
-        ${JSON.stringify(row.payloadJson ?? null)}::jsonb,
-        now()
-      )
+      VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET
         campaign_id = EXCLUDED.campaign_id,
         adset_id = EXCLUDED.adset_id,
@@ -5846,7 +5854,9 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         payload_json = EXCLUDED.payload_json,
         updated_at = now()
-    `;
+    `,
+      values
+    );
   }
 }
 

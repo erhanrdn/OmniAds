@@ -20,10 +20,17 @@ describe("runMigrations", () => {
   });
 
   it("uses the explicit timeout override DB client when provided", async () => {
+    const queries: string[] = [];
     const sql = Object.assign(
-      vi.fn(async () => []),
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
       {
-        query: vi.fn(async () => []),
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          return [];
+        }),
       }
     );
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -38,5 +45,9 @@ describe("runMigrations", () => {
 
     expect(db.getDbWithTimeout).toHaveBeenCalledWith(120_000);
     expect(db.getDb).not.toHaveBeenCalled();
+    expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");
+    expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
+    expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
+    expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
   });
 });

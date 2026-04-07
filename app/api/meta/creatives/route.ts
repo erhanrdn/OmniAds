@@ -6,6 +6,7 @@ import type { FormatFilter, GroupBy, SortKey } from "@/lib/meta/creatives-types"
 export type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import { toISODate, nDaysAgo } from "@/lib/meta/creatives-row-mappers";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import { logPerfEvent } from "@/lib/perf";
 
 export async function GET(request: NextRequest) {
   const requestStartedAt = Date.now();
@@ -89,6 +90,17 @@ export async function GET(request: NextRequest) {
     enableMediaCache,
     enableDeepAudit,
     perAccountSampleLimit,
+  });
+  logPerfEvent("meta_creatives_route", {
+    businessId,
+    start,
+    end,
+    groupBy,
+    format,
+    sort,
+    mediaMode,
+    rowCount: Array.isArray(result.rows) ? result.rows.length : 0,
+    durationMs: Date.now() - requestStartedAt,
   });
   return NextResponse.json(result);
 }

@@ -465,13 +465,21 @@ export async function getMetaCreativesWarehousePayload(input: {
     return { status: "no_accounts_assigned", rows: [] as MetaCreativeApiRow[] };
   }
 
-  const adRows = await getMetaAdDailyRange({
-    businessId: input.businessId,
-    startDate: input.start,
-    endDate: input.end,
-    providerAccountIds: assignedAccountIds,
-  });
-  const rawRows = adRows
+  const useCreativeWarehouse = input.groupBy === "creative" || input.groupBy === "adSet";
+  const sourceRows = useCreativeWarehouse
+    ? await getMetaCreativeDailyRange({
+        businessId: input.businessId,
+        startDate: input.start,
+        endDate: input.end,
+        providerAccountIds: assignedAccountIds,
+      })
+    : await getMetaAdDailyRange({
+        businessId: input.businessId,
+        startDate: input.start,
+        endDate: input.end,
+        providerAccountIds: assignedAccountIds,
+      });
+  const rawRows = sourceRows
     .map((row) => coerceRawCreativeRow(row.payloadJson))
     .filter((row): row is RawCreativeRow => Boolean(row));
 

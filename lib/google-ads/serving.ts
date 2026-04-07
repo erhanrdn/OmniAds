@@ -776,10 +776,11 @@ export async function getGoogleAdsOverviewReport(
   const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
   const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
 
+  const warehouseContext = await resolveWarehouseContext(params);
   const compareWindow = getComparisonWindow({
     compareMode: params.compareMode,
-    startDate: (await resolveWarehouseContext(params)).startDate,
-    endDate: (await resolveWarehouseContext(params)).endDate,
+    startDate: warehouseContext.startDate,
+    endDate: warehouseContext.endDate,
     compareStart: params.compareStart,
     compareEnd: params.compareEnd,
   });

@@ -102,6 +102,8 @@ function buildGoogleAdsWarehouseIndexQueries(tableName: string) {
   return [
     `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_date ON ${tableName} (business_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_${tableName}_account_date ON ${tableName} (provider_account_id, date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_account_date ON ${tableName} (business_id, provider_account_id, date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_date_entity ON ${tableName} (business_id, date DESC, entity_key)`,
     `CREATE INDEX IF NOT EXISTS idx_${tableName}_campaign_date ON ${tableName} (campaign_id, date DESC)`,
   ];
 }
@@ -959,6 +961,8 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_business_date ON meta_account_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_account_date ON meta_account_daily (provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_account_daily_business_account_date
+          ON meta_account_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
         sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(() => {}),
         sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
         sql`ALTER TABLE meta_account_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
@@ -1009,6 +1013,10 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_date ON meta_campaign_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_account_date ON meta_campaign_daily (provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_campaign ON meta_campaign_daily (campaign_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_account_date
+          ON meta_campaign_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_daily_business_date_campaign
+          ON meta_campaign_daily (business_id, date DESC, campaign_id)`.catch(() => {}),
         sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_campaign_daily ADD COLUMN IF NOT EXISTS bid_strategy_label TEXT`.catch(() => {}),
@@ -1071,6 +1079,10 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_date ON meta_adset_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_account_date ON meta_adset_daily (provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_adset ON meta_adset_daily (adset_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_account_date
+          ON meta_adset_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_daily_business_date_adset
+          ON meta_adset_daily (business_id, date DESC, adset_id)`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS optimization_goal TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_strategy_type TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_adset_daily ADD COLUMN IF NOT EXISTS bid_strategy_label TEXT`.catch(() => {}),
@@ -1157,6 +1169,10 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_date ON meta_ad_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_account_date ON meta_ad_daily (provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_ad ON meta_ad_daily (ad_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_account_date
+          ON meta_ad_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_date_ad
+          ON meta_ad_daily (business_id, date DESC, ad_id)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_creative_daily (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -1191,6 +1207,10 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_date ON meta_creative_daily (business_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_account_date ON meta_creative_daily (provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_creative ON meta_creative_daily (creative_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_account_date
+          ON meta_creative_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_account_date_creative
+          ON meta_creative_daily (business_id, provider_account_id, date DESC, creative_id)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_creative_score_snapshots (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -1608,6 +1628,11 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS order_updated_at TIMESTAMPTZ`.catch(() => {}),
         sql`ALTER TABLE shopify_orders
           ADD COLUMN IF NOT EXISTS order_updated_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_account_created_local
+          ON shopify_orders (business_id, provider_account_id, order_created_date_local DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_account_created_fallback
+          ON shopify_orders (business_id, provider_account_id, (order_created_at::date) DESC)
+          WHERE order_created_date_local IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created
           ON shopify_orders (business_id, order_created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_orders_business_created_local
@@ -1665,6 +1690,11 @@ export async function runMigrations(options?: {
           ON shopify_refunds (business_id, refunded_at DESC)`.catch(() => {}),
         sql`ALTER TABLE shopify_refunds
           ADD COLUMN IF NOT EXISTS refunded_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_account_refunded_local
+          ON shopify_refunds (business_id, provider_account_id, refunded_date_local DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_account_refunded_fallback
+          ON shopify_refunds (business_id, provider_account_id, (refunded_at::date) DESC)
+          WHERE refunded_date_local IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_refunds_business_refunded_local
           ON shopify_refunds (business_id, refunded_date_local DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_order_transactions (
@@ -1712,6 +1742,11 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS created_date_local DATE`.catch(() => {}),
         sql`ALTER TABLE shopify_returns
           ADD COLUMN IF NOT EXISTS updated_date_local DATE`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_account_created_local
+          ON shopify_returns (business_id, provider_account_id, created_date_local DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_account_created_fallback
+          ON shopify_returns (business_id, provider_account_id, (created_at_provider::date) DESC)
+          WHERE created_date_local IS NULL`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_returns_business_created_local
           ON shopify_returns (business_id, created_date_local DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_customer_events (
