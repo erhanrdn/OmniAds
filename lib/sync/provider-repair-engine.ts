@@ -1,5 +1,5 @@
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
-import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
+import { enqueueMetaScheduledWork, syncMetaRepairRange } from "@/lib/sync/meta-sync";
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 import {
@@ -13,6 +13,53 @@ import {
 export interface ProviderRepairCycleOptions {
   enqueueScheduledWork?: boolean;
   metaDeadLetterSources?: string[] | null;
+  queueWarehouseRepairs?: boolean;
+}
+
+const GRANDMIX_BUSINESS_ID = "5dbc7147-f051-4681-a4d6-20617170074f";
+const GRANDMIX_MARCH_SUSPICIOUS_DATES = [
+  "2026-03-01",
+  "2026-03-02",
+  "2026-03-03",
+  "2026-03-04",
+  "2026-03-05",
+  "2026-03-06",
+  "2026-03-07",
+  "2026-03-08",
+  "2026-03-09",
+  "2026-03-10",
+  "2026-03-11",
+  "2026-03-13",
+  "2026-03-18",
+  "2026-03-23",
+];
+
+function buildContiguousDateRanges(dates: string[]) {
+  const normalized = Array.from(new Set(dates)).sort();
+  if (normalized.length === 0) return [] as Array<{ startDate: string; endDate: string }>;
+  const ranges: Array<{ startDate: string; endDate: string }> = [];
+  let startDate = normalized[0]!;
+  let previousDate = normalized[0]!;
+  for (const currentDate of normalized.slice(1)) {
+    const previous = new Date(`${previousDate}T00:00:00Z`);
+    previous.setUTCDate(previous.getUTCDate() + 1);
+    const nextExpected = previous.toISOString().slice(0, 10);
+    if (currentDate === nextExpected) {
+      previousDate = currentDate;
+      continue;
+    }
+    ranges.push({ startDate, endDate: previousDate });
+    startDate = currentDate;
+    previousDate = currentDate;
+  }
+  ranges.push({ startDate, endDate: previousDate });
+  return ranges;
+}
+
+function addUtcDays(date: string, delta: number) {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + delta);
+  return next.toISOString().slice(0, 10);
 }
 
 export async function runGoogleAdsRepairCycle(
@@ -96,6 +143,7 @@ export async function runMetaRepairCycle(
   options?: ProviderRepairCycleOptions
 ) {
   const enqueueScheduledWork = options?.enqueueScheduledWork ?? true;
+  const queueWarehouseRepairs = options?.queueWarehouseRepairs ?? true;
   let cleanup: Awaited<ReturnType<typeof metaWarehouse.cleanupMetaPartitionOrchestration>> | null = null;
   let cleanupError: string | null = null;
   try {
@@ -113,6 +161,36 @@ export async function runMetaRepairCycle(
     .requeueMetaRetryableFailedPartitions({ businessId })
     .catch(() => []);
   const queueHealthBeforeEnqueue = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
+  const integrityEndDate = new Date().toISOString().slice(0, 10);
+  const integrityStartDate = addUtcDays(integrityEndDate, -45);
+  const integrityIncidents = await metaWarehouse
+    .getMetaWarehouseIntegrityIncidents({
+      businessId,
+      startDate: integrityStartDate,
+      endDate: integrityEndDate,
+      persistReconciliationEvents: true,
+    })
+    .catch(() => []);
+  const repairDates = integrityIncidents
+    .filter((incident) => incident.repairRecommended)
+    .map((incident) => incident.date);
+  if (businessId === GRANDMIX_BUSINESS_ID) {
+    repairDates.push(...GRANDMIX_MARCH_SUSPICIOUS_DATES);
+  }
+  const repairRanges = buildContiguousDateRanges(repairDates);
+  const queuedWarehouseRepairs = queueWarehouseRepairs
+    ? await Promise.all(
+        repairRanges.map((range) =>
+          syncMetaRepairRange({
+            businessId,
+            startDate: range.startDate,
+            endDate: range.endDate,
+            triggerSource:
+              range.startDate === range.endDate ? "repair_recent_day" : "priority_window",
+          }).catch(() => null),
+        ),
+      )
+    : [];
   const enqueueResult = enqueueScheduledWork
     ? await enqueueMetaScheduledWork(businessId)
     : null;
@@ -157,6 +235,11 @@ export async function runMetaRepairCycle(
       "Requeue retryable failed Meta partitions.",
       { available: (queueHealthBeforeEnqueue?.retryableFailedPartitions ?? 0) > 0 }
     ),
+    buildRepairableAction(
+      "repair_integrity_windows",
+      "Queue authoritative repair windows for integrity incidents.",
+      { available: repairRanges.length > 0 }
+    ),
   ]);
 
   return {
@@ -173,6 +256,9 @@ export async function runMetaRepairCycle(
         cleanupError,
         deadLetters: replayedDeadLetters,
         retryableFailed: requeuedFailed.length,
+        integrityIncidentCount: integrityIncidents.length,
+        integrityRepairRanges: repairRanges,
+        queuedWarehouseRepairs: queuedWarehouseRepairs.filter(Boolean).length,
         enqueueScheduledWork,
       },
     } satisfies ProviderAutoHealResult,

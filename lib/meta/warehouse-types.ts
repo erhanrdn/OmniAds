@@ -182,6 +182,7 @@ export interface MetaWarehouseBaseRow extends MetaWarehouseMetricSet {
   accountTimezone: string;
   accountCurrency: string;
   sourceSnapshotId: string | null;
+  metricSchemaVersion?: number;
   truthState?: MetaWarehouseTruthState;
   truthVersion?: number;
   finalizedAt?: string | null;
@@ -245,6 +246,7 @@ export interface MetaAdDailyRow extends MetaWarehouseBaseRow {
   adNameCurrent: string | null;
   adNameHistorical: string | null;
   adStatus: string | null;
+  linkClicks?: number | null;
   payloadJson?: unknown;
 }
 
@@ -259,7 +261,36 @@ export interface MetaCreativeDailyRow extends MetaWarehouseBaseRow {
   destinationUrl: string | null;
   thumbnailUrl: string | null;
   assetType: string | null;
+  linkClicks?: number | null;
   payloadJson?: unknown;
+}
+
+export interface MetaWarehouseIntegrityDelta {
+  account?: number | null;
+  campaign?: number | null;
+  adset?: number | null;
+  ad?: number | null;
+  creative?: number | null;
+}
+
+export interface MetaWarehouseIntegrityIncident {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  scope: "account_daily" | "campaign_daily" | "adset_daily" | "ad_daily" | "creative_daily" | "system";
+  severity: "info" | "warning" | "error";
+  metricsCompared: string[];
+  delta: Record<string, MetaWarehouseIntegrityDelta>;
+  provenanceState:
+    | "authoritative"
+    | "missing_source_run"
+    | "mixed"
+    | "legacy_schema"
+    | "unverified";
+  repairRecommended: boolean;
+  repairStatus: "not_needed" | "queued" | "completed" | "pending";
+  suspectedCause: string;
+  details?: Record<string, unknown>;
 }
 
 export interface MetaSyncJobRecord {

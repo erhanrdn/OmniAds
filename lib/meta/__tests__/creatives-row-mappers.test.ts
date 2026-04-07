@@ -42,6 +42,7 @@ function makeRow(overrides: Partial<RawCreativeRow> = {}): RawCreativeRow {
     launch_date: "2025-01-01",
     spend: 100,
     impressions: 10000,
+    clicks: 260,
     link_clicks: 200,
     landing_page_views: 180,
     add_to_cart: 20,
@@ -178,6 +179,17 @@ describe("groupRows", () => {
     expect(result).toHaveLength(1);
     expect(result[0].impressions).toBe(8000);
     expect(result[0].purchases).toBe(5);
+  });
+
+  it("keeps canonical clicks separate from link_clicks when grouping", () => {
+    const rows = [
+      makeRow({ id: "a1", name: "Ad X", format: "image", clicks: 120, link_clicks: 80 }),
+      makeRow({ id: "a2", name: "Ad X", format: "image", clicks: 90, link_clicks: 60 }),
+    ];
+    const result = groupRows(rows, "creative", new Map());
+    expect(result).toHaveLength(1);
+    expect(result[0].clicks).toBe(210);
+    expect(result[0].link_clicks).toBe(140);
   });
 
   it("groups by adset_id for groupBy=adset", () => {

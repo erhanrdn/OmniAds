@@ -238,6 +238,7 @@ export interface MetaInsightRecord {
   cpm?: string;
   cpc?: string;
   ctr?: string;
+  clicks?: string;
   impressions?: string;
   inline_link_clicks?: string;
   date_start?: string;
@@ -498,6 +499,7 @@ export interface CreativeMetricFields {
   purchase_value: number;
   roas: number;
   cpa: number;
+  clicks: number;
   cpc_link: number;
   cpm: number;
   ctr_all: number;

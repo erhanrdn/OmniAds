@@ -21,6 +21,10 @@ import {
   sortRows,
 } from "@/lib/meta/creatives-row-mappers";
 import {
+  META_CANONICAL_METRIC_SCHEMA_VERSION,
+  assertMetaCanonicalClicksSource,
+} from "@/lib/meta/canonical-metrics";
+import {
   getMetaAdDailyCoverage,
   getMetaAdDailyPreviewCoverage,
   getMetaAdDailyRange,
@@ -196,6 +200,7 @@ function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     purchase_value: Number(apiRow.purchase_value ?? 0),
     roas: Number(apiRow.roas ?? 0),
     cpa: Number(apiRow.cpa ?? 0),
+    clicks: Number(apiRow.clicks ?? 0),
     cpc_link: Number(apiRow.cpc_link ?? 0),
     cpm: Number(apiRow.cpm ?? 0),
     ctr_all: Number(apiRow.ctr_all ?? 0),
@@ -237,6 +242,7 @@ async function syncMetaCreativesAccountDay(input: {
   accessToken: string;
   day: string;
   mediaMode?: "metadata" | "full";
+  sourceRunId?: string | null;
 }) {
   const mediaMode = input.mediaMode ?? "full";
   const enableFullMediaHydration = mediaMode === "full";
@@ -278,6 +284,7 @@ async function syncMetaCreativesAccountDay(input: {
     .filter((row): row is RawCreativeRow => Boolean(row));
   const creativeUsageMap = buildCreativeUsageMap(rawRows);
   const creativeRows = groupRows(rawRows, "creative", creativeUsageMap);
+  assertMetaCanonicalClicksSource({ targetField: "clicks", sourceField: "clicks" });
 
   const adDailyRows: MetaAdDailyRow[] = rawRows.map((row, index) => ({
     businessId: input.businessId,
@@ -293,7 +300,7 @@ async function syncMetaCreativesAccountDay(input: {
     accountCurrency: row.currency ?? "USD",
     spend: row.spend,
     impressions: row.impressions,
-    clicks: row.link_clicks,
+    clicks: row.clicks,
     reach: 0,
     frequency: null,
     conversions: row.purchases,
@@ -302,7 +309,10 @@ async function syncMetaCreativesAccountDay(input: {
     cpa: row.cpa,
     ctr: row.ctr_all,
     cpc: row.cpc_link,
+    linkClicks: row.link_clicks,
     sourceSnapshotId: null,
+    sourceRunId: input.sourceRunId ?? null,
+    metricSchemaVersion: META_CANONICAL_METRIC_SCHEMA_VERSION,
     payloadJson: apiRows[index] ?? row,
   }));
 
@@ -331,7 +341,7 @@ async function syncMetaCreativesAccountDay(input: {
       accountCurrency: row.currency ?? "USD",
       spend: row.spend,
       impressions: row.impressions,
-      clicks: row.link_clicks,
+      clicks: row.clicks,
       reach: 0,
       frequency: null,
       conversions: row.purchases,
@@ -340,7 +350,10 @@ async function syncMetaCreativesAccountDay(input: {
       cpa: row.cpa,
       ctr: row.ctr_all,
       cpc: row.cpc_link,
+      linkClicks: row.link_clicks,
       sourceSnapshotId: null,
+      sourceRunId: input.sourceRunId ?? null,
+      metricSchemaVersion: META_CANONICAL_METRIC_SCHEMA_VERSION,
       payloadJson: payloadRow,
     };
   });
@@ -357,6 +370,7 @@ export async function syncMetaCreativesWarehouseDay(input: {
   accessToken: string;
   assignedAccountIds: string[];
   mediaMode?: "metadata" | "full";
+  sourceRunId?: string | null;
 }) {
   for (const accountId of input.assignedAccountIds) {
     await syncMetaCreativesAccountDay({
@@ -365,6 +379,7 @@ export async function syncMetaCreativesWarehouseDay(input: {
       accessToken: input.accessToken,
       day: input.day,
       mediaMode: input.mediaMode,
+      sourceRunId: input.sourceRunId ?? null,
     });
   }
 }

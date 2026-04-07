@@ -39,6 +39,7 @@ import type {
   MetaSyncStateRecord,
   MetaWarehouseDataState,
   MetaWarehouseFreshness,
+  MetaWarehouseIntegrityIncident,
   MetaWarehouseMetricSet,
   MetaPublishedVerificationSummary,
   MetaWarehouseScope,
@@ -47,6 +48,7 @@ import {
   type MetaFinalizationCompletenessProof,
   assertMetaFinalizationCompletenessProof,
 } from "@/lib/meta/finalization-proof";
+import { META_CANONICAL_METRIC_SCHEMA_VERSION } from "@/lib/meta/canonical-metrics";
 
 const META_SOURCE_PRIORITY_SQL = `
   CASE source
@@ -4887,7 +4889,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 23 : 18);
+        const offset = index * (supportsTruthLifecycle ? 24 : 19);
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -4906,7 +4908,8 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId
+          row.sourceSnapshotId,
+          row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
         );
         if (supportsTruthLifecycle) {
           values.push(
@@ -4916,9 +4919,9 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},now())`;
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},now())`;
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},now())`;
       })
       .join(", ");
     const query = supportsTruthLifecycle
@@ -4942,6 +4945,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           ctr,
           cpc,
           source_snapshot_id,
+          metric_schema_version,
           truth_state,
           truth_version,
           finalized_at,
@@ -4966,6 +4970,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           ctr = EXCLUDED.ctr,
           cpc = EXCLUDED.cpc,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
+          metric_schema_version = EXCLUDED.metric_schema_version,
           truth_state = EXCLUDED.truth_state,
           truth_version = CASE
             WHEN meta_account_daily.truth_state = EXCLUDED.truth_state
@@ -4998,6 +5003,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           ctr,
           cpc,
           source_snapshot_id,
+          metric_schema_version,
           updated_at
         )
         VALUES ${placeholders}
@@ -5017,6 +5023,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
           ctr = EXCLUDED.ctr,
           cpc = EXCLUDED.cpc,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
+          metric_schema_version = EXCLUDED.metric_schema_version,
           updated_at = now()
       `;
     await sql.query(query, values);
@@ -5039,7 +5046,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 41 : 36);
+        const offset = index * (supportsTruthLifecycle ? 42 : 37);
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -5076,7 +5083,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId
+          row.sourceSnapshotId,
+          row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
         );
         if (supportsTruthLifecycle) {
           values.push(
@@ -5086,9 +5094,9 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},now())`;
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},now())`;
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},now())`;
       })
       .join(", ");
     const query = supportsTruthLifecycle
@@ -5130,6 +5138,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         ctr,
         cpc,
         source_snapshot_id,
+        metric_schema_version,
         truth_state,
         truth_version,
         finalized_at,
@@ -5171,6 +5180,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        metric_schema_version = EXCLUDED.metric_schema_version,
         truth_state = EXCLUDED.truth_state,
         truth_version = CASE
           WHEN meta_campaign_daily.truth_state = EXCLUDED.truth_state
@@ -5221,6 +5231,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         ctr,
         cpc,
         source_snapshot_id,
+        metric_schema_version,
         updated_at
       )
       VALUES ${placeholders}
@@ -5257,6 +5268,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        metric_schema_version = EXCLUDED.metric_schema_version,
         updated_at = now()
     `;
     await sql.query(query, values);
@@ -5272,7 +5284,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 40 : 35);
+        const offset = index * (supportsTruthLifecycle ? 41 : 36);
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -5308,7 +5320,8 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.sourceSnapshotId
+          row.sourceSnapshotId,
+          row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
         );
         if (supportsTruthLifecycle) {
           values.push(
@@ -5318,9 +5331,9 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},now())`;
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},now())`;
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},now())`;
       })
       .join(", ");
     const query = supportsTruthLifecycle
@@ -5361,6 +5374,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         ctr,
         cpc,
         source_snapshot_id,
+        metric_schema_version,
         truth_state,
         truth_version,
         finalized_at,
@@ -5401,6 +5415,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        metric_schema_version = EXCLUDED.metric_schema_version,
         truth_state = EXCLUDED.truth_state,
         truth_version = CASE
           WHEN meta_adset_daily.truth_state = EXCLUDED.truth_state
@@ -5450,6 +5465,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         ctr,
         cpc,
         source_snapshot_id,
+        metric_schema_version,
         updated_at
       )
       VALUES ${placeholders}
@@ -5485,6 +5501,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        metric_schema_version = EXCLUDED.metric_schema_version,
         updated_at = now()
     `;
     await sql.query(query, values);
@@ -5680,7 +5697,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 24;
+        const offset = index * 27;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -5704,10 +5721,13 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
+          row.linkClicks ?? null,
           row.sourceSnapshotId,
+          row.sourceRunId ?? null,
+          row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
           JSON.stringify(row.payloadJson ?? null)
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24}::jsonb,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27}::jsonb,now())`;
       })
       .join(", ");
     await sql.query(
@@ -5735,7 +5755,10 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         cpa,
         ctr,
         cpc,
+        link_clicks,
         source_snapshot_id,
+        source_run_id,
+        metric_schema_version,
         payload_json,
         updated_at
       )
@@ -5759,7 +5782,10 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         cpa = EXCLUDED.cpa,
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
+        link_clicks = COALESCE(EXCLUDED.link_clicks, meta_ad_daily.link_clicks),
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        source_run_id = COALESCE(EXCLUDED.source_run_id, meta_ad_daily.source_run_id),
+        metric_schema_version = EXCLUDED.metric_schema_version,
         payload_json = EXCLUDED.payload_json,
         updated_at = now()
     `,
@@ -5776,7 +5802,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 25;
+        const offset = index * 28;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -5801,10 +5827,13 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.roas,
           row.ctr,
           row.cpc,
+          row.linkClicks ?? null,
           row.sourceSnapshotId,
+          row.sourceRunId ?? null,
+          row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
           JSON.stringify(row.payloadJson ?? null)
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25}::jsonb,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28}::jsonb,now())`;
       })
       .join(", ");
 
@@ -5834,7 +5863,10 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         roas,
         ctr,
         cpc,
+        link_clicks,
         source_snapshot_id,
+        source_run_id,
+        metric_schema_version,
         payload_json,
         updated_at
       )
@@ -5859,7 +5891,10 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
         roas = EXCLUDED.roas,
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
+        link_clicks = COALESCE(EXCLUDED.link_clicks, meta_creative_daily.link_clicks),
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        source_run_id = COALESCE(EXCLUDED.source_run_id, meta_creative_daily.source_run_id),
+        metric_schema_version = EXCLUDED.metric_schema_version,
         payload_json = EXCLUDED.payload_json,
         updated_at = now()
     `,
@@ -5899,6 +5934,7 @@ export async function getMetaAccountDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       truth_state,
       truth_version,
       finalized_at,
@@ -5943,6 +5979,7 @@ export async function getMetaAccountDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       created_at,
       updated_at
     FROM meta_account_daily
@@ -5974,6 +6011,7 @@ export async function getMetaAccountDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       created_at,
       updated_at
     FROM meta_account_daily
@@ -6005,6 +6043,7 @@ export async function getMetaAccountDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
+    metric_schema_version?: number | null;
     truth_state?: string | null;
     truth_version?: number | null;
     finalized_at?: string | null;
@@ -6033,6 +6072,10 @@ export async function getMetaAccountDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     sourceSnapshotId: row.source_snapshot_id,
+    metricSchemaVersion:
+      row.metric_schema_version == null
+        ? undefined
+        : Number(row.metric_schema_version),
     truthState: row.truth_state == null ? undefined : (row.truth_state as MetaAccountDailyRow["truthState"]),
     truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
     finalizedAt: row.finalized_at,
@@ -6645,6 +6688,7 @@ export async function getMetaCampaignDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       truth_state,
       truth_version,
       finalized_at,
@@ -6707,6 +6751,7 @@ export async function getMetaCampaignDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       created_at,
       updated_at
     FROM meta_campaign_daily
@@ -6756,6 +6801,7 @@ export async function getMetaCampaignDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       created_at,
       updated_at
     FROM meta_campaign_daily
@@ -6805,6 +6851,7 @@ export async function getMetaCampaignDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
+    metric_schema_version?: number | null;
     truth_state?: string | null;
     truth_version?: number | null;
     finalized_at?: string | null;
@@ -6851,6 +6898,10 @@ export async function getMetaCampaignDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     sourceSnapshotId: row.source_snapshot_id,
+    metricSchemaVersion:
+      row.metric_schema_version == null
+        ? undefined
+        : Number(row.metric_schema_version),
     truthState: row.truth_state == null ? undefined : (row.truth_state as MetaCampaignDailyRow["truthState"]),
     truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
     finalizedAt: row.finalized_at,
@@ -6913,6 +6964,7 @@ export async function getMetaAdSetDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       truth_state,
       truth_version,
       finalized_at,
@@ -6978,6 +7030,7 @@ export async function getMetaAdSetDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       created_at,
       updated_at
     FROM meta_adset_daily
@@ -7027,6 +7080,7 @@ export async function getMetaAdSetDailyRange(input: {
       ctr,
       cpc,
       source_snapshot_id,
+      metric_schema_version,
       created_at,
       updated_at
     FROM meta_adset_daily
@@ -7079,6 +7133,7 @@ export async function getMetaAdSetDailyRange(input: {
     ctr: number | null;
     cpc: number | null;
     source_snapshot_id: string | null;
+    metric_schema_version?: number | null;
     truth_state?: string | null;
     truth_version?: number | null;
     finalized_at?: string | null;
@@ -7124,6 +7179,10 @@ export async function getMetaAdSetDailyRange(input: {
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
     sourceSnapshotId: row.source_snapshot_id,
+    metricSchemaVersion:
+      row.metric_schema_version == null
+        ? undefined
+        : Number(row.metric_schema_version),
     truthState: row.truth_state == null ? undefined : (row.truth_state as MetaAdSetDailyRow["truthState"]),
     truthVersion: row.truth_version == null ? undefined : Number(row.truth_version),
     finalizedAt: row.finalized_at,
@@ -7256,7 +7315,10 @@ export async function getMetaAdDailyRange(input: {
       cpa,
       ctr,
       cpc,
+      link_clicks,
       source_snapshot_id,
+      source_run_id,
+      metric_schema_version,
       payload_json,
       created_at,
       updated_at
@@ -7292,7 +7354,10 @@ export async function getMetaAdDailyRange(input: {
     cpa: number | null;
     ctr: number | null;
     cpc: number | null;
+    link_clicks: number | null;
     source_snapshot_id: string | null;
+    source_run_id: string | null;
+    metric_schema_version: number | null;
     payload_json: unknown;
     created_at: string;
     updated_at: string;
@@ -7321,7 +7386,13 @@ export async function getMetaAdDailyRange(input: {
     cpa: row.cpa == null ? null : Number(row.cpa),
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
+    linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
     sourceSnapshotId: row.source_snapshot_id,
+    sourceRunId: row.source_run_id,
+    metricSchemaVersion:
+      row.metric_schema_version == null
+        ? undefined
+        : Number(row.metric_schema_version),
     payloadJson: row.payload_json,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -7361,7 +7432,10 @@ export async function getMetaCreativeDailyRange(input: {
       roas,
       ctr,
       cpc,
+      link_clicks,
       source_snapshot_id,
+      source_run_id,
+      metric_schema_version,
       payload_json,
       created_at,
       updated_at
@@ -7398,7 +7472,10 @@ export async function getMetaCreativeDailyRange(input: {
     roas: number;
     ctr: number | null;
     cpc: number | null;
+    link_clicks: number | null;
     source_snapshot_id: string | null;
+    source_run_id: string | null;
+    metric_schema_version: number | null;
     payload_json: unknown;
     created_at: string;
     updated_at: string;
@@ -7431,11 +7508,318 @@ export async function getMetaCreativeDailyRange(input: {
     cpa: null,
     ctr: row.ctr == null ? null : Number(row.ctr),
     cpc: row.cpc == null ? null : Number(row.cpc),
+    linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
     sourceSnapshotId: row.source_snapshot_id,
+    sourceRunId: row.source_run_id,
+    metricSchemaVersion:
+      row.metric_schema_version == null
+        ? undefined
+        : Number(row.metric_schema_version),
     payloadJson: row.payload_json,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+}
+
+type MetaIntegrityAggregate = {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+};
+
+function aggregateMetaIntegrityRows<T extends MetaWarehouseMetricSet>(rows: T[]) {
+  return rows.reduce<MetaIntegrityAggregate>(
+    (acc, row) => {
+      acc.spend += Number(row.spend ?? 0);
+      acc.impressions += Number(row.impressions ?? 0);
+      acc.clicks += Number(row.clicks ?? 0);
+      acc.conversions += Number(row.conversions ?? 0);
+      acc.revenue += Number(row.revenue ?? 0);
+      return acc;
+    },
+    { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+  );
+}
+
+function buildMetaIntegrityDelta(input: {
+  account?: number | null;
+  campaign?: number | null;
+  adset?: number | null;
+  ad?: number | null;
+  creative?: number | null;
+}) {
+  return {
+    account: input.account ?? null,
+    campaign: input.campaign ?? null,
+    adset: input.adset ?? null,
+    ad: input.ad ?? null,
+    creative: input.creative ?? null,
+  };
+}
+
+function deriveMetaIntegrityProvenanceState(input: {
+  sourceRunIds: Array<string | null | undefined>;
+  metricSchemaVersions: Array<number | null | undefined>;
+}) {
+  const normalizedRunIds = input.sourceRunIds.filter((value) => value != null && String(value).trim().length > 0);
+  const missingRunIds =
+    input.sourceRunIds.length > 0 && normalizedRunIds.length < input.sourceRunIds.length;
+  const normalizedSchemaVersions = input.metricSchemaVersions
+    .map((value) => (value == null ? null : Number(value)))
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const hasLegacySchema = normalizedSchemaVersions.some(
+    (value) => value < META_CANONICAL_METRIC_SCHEMA_VERSION,
+  );
+  if (hasLegacySchema) return "legacy_schema" as const;
+  if (missingRunIds && normalizedRunIds.length > 0) return "mixed" as const;
+  if (missingRunIds) return "missing_source_run" as const;
+  if (normalizedRunIds.length === 0) return "unverified" as const;
+  return "authoritative" as const;
+}
+
+const META_INTEGRITY_METRICS = [
+  "spend",
+  "impressions",
+  "clicks",
+  "conversions",
+  "revenue",
+] as const;
+
+export async function getMetaWarehouseIntegrityIncidents(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+  persistReconciliationEvents?: boolean;
+}) {
+  const [accountRows, campaignRows, adsetRows, adRows, creativeRows] = await Promise.all([
+    getMetaAccountDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      includeProvisional: true,
+    }),
+    getMetaCampaignDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      includeProvisional: true,
+    }),
+    getMetaAdSetDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      includeProvisional: true,
+    }),
+    getMetaAdDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+    }),
+    getMetaCreativeDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+    }),
+  ]);
+
+  const grouped = new Map<
+    string,
+    {
+      providerAccountId: string;
+      date: string;
+      account: MetaAccountDailyRow[];
+      campaign: MetaCampaignDailyRow[];
+      adset: MetaAdSetDailyRow[];
+      ad: MetaAdDailyRow[];
+      creative: MetaCreativeDailyRow[];
+    }
+  >();
+
+  const ensureGroup = (providerAccountId: string, date: string) => {
+    const key = `${providerAccountId}:${date}`;
+    const existing = grouped.get(key);
+    if (existing) return existing;
+    const next = {
+      providerAccountId,
+      date,
+      account: [],
+      campaign: [],
+      adset: [],
+      ad: [],
+      creative: [],
+    };
+    grouped.set(key, next);
+    return next;
+  };
+
+  for (const row of accountRows) ensureGroup(row.providerAccountId, row.date).account.push(row);
+  for (const row of campaignRows) ensureGroup(row.providerAccountId, row.date).campaign.push(row);
+  for (const row of adsetRows) ensureGroup(row.providerAccountId, row.date).adset.push(row);
+  for (const row of adRows) ensureGroup(row.providerAccountId, row.date).ad.push(row);
+  for (const row of creativeRows) ensureGroup(row.providerAccountId, row.date).creative.push(row);
+
+  const incidents: MetaWarehouseIntegrityIncident[] = [];
+
+  for (const group of grouped.values()) {
+    const accountTotals = aggregateMetaIntegrityRows(group.account);
+    const campaignTotals = aggregateMetaIntegrityRows(group.campaign);
+    const adsetTotals = aggregateMetaIntegrityRows(group.adset);
+    const adTotals = aggregateMetaIntegrityRows(group.ad);
+    const creativeTotals = aggregateMetaIntegrityRows(group.creative);
+
+    const provenanceState = deriveMetaIntegrityProvenanceState({
+      sourceRunIds: [
+        ...group.account.map((row) => row.sourceRunId),
+        ...group.campaign.map((row) => row.sourceRunId),
+        ...group.adset.map((row) => row.sourceRunId),
+        ...group.ad.map((row) => row.sourceRunId),
+        ...group.creative.map((row) => row.sourceRunId),
+      ],
+      metricSchemaVersions: [
+        ...group.account.map((row) => row.metricSchemaVersion),
+        ...group.campaign.map((row) => row.metricSchemaVersion),
+        ...group.adset.map((row) => row.metricSchemaVersion),
+        ...group.ad.map((row) => row.metricSchemaVersion),
+        ...group.creative.map((row) => row.metricSchemaVersion),
+      ],
+    });
+
+    const metricDelta: Record<string, ReturnType<typeof buildMetaIntegrityDelta>> = {};
+    const metricsCompared = new Set<string>();
+    let suspectedCause = "";
+    let severity: MetaWarehouseIntegrityIncident["severity"] = "info";
+
+    for (const metric of META_INTEGRITY_METRICS) {
+      const accountValue = accountTotals[metric];
+      const campaignValue = campaignTotals[metric];
+      const adsetValue = adsetTotals[metric];
+      const adValue = adTotals[metric];
+      const creativeValue = creativeTotals[metric];
+      const hasCoreRows =
+        group.account.length > 0 ||
+        group.campaign.length > 0 ||
+        group.adset.length > 0 ||
+        group.ad.length > 0;
+      if (!hasCoreRows) continue;
+      const equalCampaign =
+        group.campaign.length === 0 || withinToleranceForDirtyDate(accountValue, campaignValue);
+      const equalAdset =
+        group.adset.length === 0 || withinToleranceForDirtyDate(accountValue, adsetValue);
+      const equalAd =
+        group.ad.length === 0 || withinToleranceForDirtyDate(accountValue, adValue);
+      if (!equalCampaign || !equalAdset || !equalAd) {
+        metricDelta[metric] = buildMetaIntegrityDelta({
+          account: accountValue,
+          campaign: group.campaign.length === 0 ? null : campaignValue,
+          adset: group.adset.length === 0 ? null : adsetValue,
+          ad: group.ad.length === 0 ? null : adValue,
+          creative: group.creative.length === 0 ? null : creativeValue,
+        });
+        metricsCompared.add(metric);
+        severity = "error";
+        suspectedCause ||= "cross_surface_drift";
+      }
+    }
+
+    const creativeLinkClicks = group.creative.reduce(
+      (sum, row) => sum + Number(row.linkClicks ?? 0),
+      0,
+    );
+    if (
+      group.creative.length > 0 &&
+      creativeLinkClicks > 0 &&
+      withinToleranceForDirtyDate(creativeTotals.clicks, creativeLinkClicks) &&
+      creativeRows.some(
+        (row) =>
+          row.providerAccountId === group.providerAccountId &&
+          row.date === group.date &&
+          Number(row.metricSchemaVersion ?? 1) < META_CANONICAL_METRIC_SCHEMA_VERSION,
+      )
+    ) {
+      metricDelta.clicks = buildMetaIntegrityDelta({
+        account: accountTotals.clicks,
+        campaign: group.campaign.length === 0 ? null : campaignTotals.clicks,
+        adset: group.adset.length === 0 ? null : adsetTotals.clicks,
+        ad: group.ad.length === 0 ? null : adTotals.clicks,
+        creative: creativeTotals.clicks,
+      });
+      metricsCompared.add("clicks");
+      severity = severity === "error" ? "error" : "warning";
+      suspectedCause ||= "legacy_click_semantics";
+    }
+
+    if (provenanceState === "missing_source_run" || provenanceState === "mixed") {
+      severity = "error";
+      suspectedCause ||= "missing_provenance";
+    } else if (provenanceState === "legacy_schema") {
+      severity = severity === "error" ? "error" : "warning";
+      suspectedCause ||= "legacy_metric_schema";
+    }
+
+    if (!suspectedCause) continue;
+
+    const incident: MetaWarehouseIntegrityIncident = {
+      businessId: input.businessId,
+      providerAccountId: group.providerAccountId,
+      date: group.date,
+      scope: "system",
+      severity,
+      metricsCompared: Array.from(metricsCompared),
+      delta: metricDelta,
+      provenanceState,
+      repairRecommended: severity !== "info",
+      repairStatus: "pending",
+      suspectedCause,
+      details: {
+        rowCounts: {
+          account: group.account.length,
+          campaign: group.campaign.length,
+          adset: group.adset.length,
+          ad: group.ad.length,
+          creative: group.creative.length,
+        },
+      },
+    };
+    incidents.push(incident);
+
+    if (input.persistReconciliationEvents !== false) {
+      await createMetaAuthoritativeReconciliationEvent({
+        businessId: input.businessId,
+        providerAccountId: group.providerAccountId,
+        day: group.date,
+        surface: "account_daily",
+        eventKind: `integrity:${suspectedCause}`,
+        severity,
+        sourceSpend: accountTotals.spend,
+        warehouseAccountSpend: accountTotals.spend,
+        warehouseCampaignSpend: campaignTotals.spend,
+        toleranceApplied: Math.max(0.01, Math.abs(accountTotals.spend) * 0.001),
+        result: severity === "error" ? "repair_required" : "failed",
+        detailsJson: {
+          provenanceState,
+          metricsCompared: Array.from(metricsCompared),
+          delta: metricDelta,
+          suspectedCause,
+        },
+      }).catch(() => undefined);
+    }
+  }
+
+  incidents.sort((left, right) =>
+    `${left.date}:${left.providerAccountId}`.localeCompare(
+      `${right.date}:${right.providerAccountId}`,
+    ),
+  );
+
+  return incidents;
 }
 
 export async function getMetaRawSnapshotsForWindow(input: {

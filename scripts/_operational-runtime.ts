@@ -1,7 +1,7 @@
-import { loadEnvConfig } from "@next/env";
+import * as nextEnv from "@next/env";
 
 export function configureOperationalScriptRuntime() {
-  loadEnvConfig(process.cwd());
+  nextEnv.loadEnvConfig(process.cwd());
 
   if (!process.env.ENABLE_RUNTIME_MIGRATIONS?.trim()) {
     process.env.ENABLE_RUNTIME_MIGRATIONS = "0";

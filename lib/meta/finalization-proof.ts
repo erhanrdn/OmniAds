@@ -25,6 +25,10 @@ export function createMetaFinalizationCompletenessProof(input: {
   if (!input.complete || input.validationStatus !== "passed") {
     throw new Error("meta_finalization_proof_incomplete");
   }
+  const sourceRunId = String(input.sourceRunId ?? "").trim();
+  if (!sourceRunId) {
+    throw new Error("meta_finalization_proof_missing_source_run_id");
+  }
   return {
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -32,7 +36,7 @@ export function createMetaFinalizationCompletenessProof(input: {
     scope: input.scope,
     complete: true,
     validationStatus: "passed",
-    sourceRunId: input.sourceRunId ?? null,
+    sourceRunId,
     [META_FINALIZATION_PROOF_BRAND]: true,
   } satisfies MetaFinalizationCompletenessProof;
 }

@@ -308,6 +308,7 @@ export function toRawRow(
     cpm?: string;
     cpc?: string;
     ctr?: string;
+    clicks?: string;
     impressions?: string;
     inline_link_clicks?: string;
     date_start?: string;
@@ -354,6 +355,7 @@ export function toRawRow(
   const cpcLink = linkClicks > 0 ? spend / linkClicks : cpcFromInsight;
   const cpm = parseFloat(insight.cpm ?? "0") || 0;
   const ctrAll = parseFloat(insight.ctr ?? "0") || 0;
+  const clicks = Math.round(parseFloat(insight.clicks ?? "0") || 0);
 
   const impressions = parseFloat(insight.impressions ?? "0") || 0;
   const inlineLinkClicks = parseFloat(insight.inline_link_clicks ?? "0") || 0;
@@ -577,6 +579,7 @@ export function toRawRow(
     purchase_value: r2(derivedPurchaseValue),
     roas: r2(derivedPurchaseValue > 0 ? derivedPurchaseValue / spend : 0),
     cpa: r2(cpa),
+    clicks,
     cpc_link: r2(cpcLink),
     cpm: r2(cpm),
     ctr_all: r2(ctrAll),
@@ -664,6 +667,7 @@ export function groupRows(
     const purchaseValue = list.reduce((acc, item) => acc + item.purchase_value, 0);
     const purchases = list.reduce((acc, item) => acc + item.purchases, 0);
     const impressions = list.reduce((acc, item) => acc + item.impressions, 0);
+    const clicks = list.reduce((acc, item) => acc + item.clicks, 0);
     const linkClicks = list.reduce((acc, item) => acc + item.link_clicks, 0);
     const landingPageViews = list.reduce((acc, item) => acc + item.landing_page_views, 0);
     const addToCart = list.reduce((acc, item) => acc + item.add_to_cart, 0);
@@ -803,6 +807,7 @@ export function groupRows(
       purchase_value: r2(purchaseValue),
       roas: r2(spend > 0 ? purchaseValue / spend : 0),
       cpa: r2(purchases > 0 ? spend / purchases : 0),
+      clicks,
       cpc_link: r2(weightedCpc),
       cpm: r2(weightedCpm),
       ctr_all: r2(weightedCtr),

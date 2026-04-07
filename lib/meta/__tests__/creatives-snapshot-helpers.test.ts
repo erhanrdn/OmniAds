@@ -83,6 +83,7 @@ function buildRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiR
     ctr_all: 1.5,
     purchases: 10,
     impressions: 1000,
+    clicks: 75,
     link_clicks: 50,
     landing_page_views: 20,
     add_to_cart: 15,

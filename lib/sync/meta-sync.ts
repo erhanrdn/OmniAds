@@ -1421,6 +1421,7 @@ async function syncMetaPartitionDay(input: {
         day: normalizedDay,
         accessToken: credentials.accessToken,
         assignedAccountIds,
+        sourceRunId: input.partitionId,
         mediaMode:
           input.day >=
           getCreativeMediaRetentionStart(getMetaReferenceToday(credentials))
