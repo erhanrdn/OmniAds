@@ -31,11 +31,14 @@ Important:
 - When you are ready for a canary, set `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>` and then flip `META_AUTHORITATIVE_FINALIZATION_V2=1`.
 - Keep your existing database values unless you are also migrating the database away from Neon.
 
-## 3. Build and run the containers
+## 3. Pull and run the containers
 
 ```bash
-docker compose build
-docker compose up -d
+export APP_IMAGE_TAG=<exact-commit-sha>
+export APP_BUILD_ID=<exact-commit-sha>
+docker compose pull web worker migrate
+docker compose run --rm --no-deps migrate
+docker compose up -d --force-recreate web worker
 docker compose logs -f web
 docker compose logs -f worker
 docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q web)"
@@ -131,17 +134,20 @@ ssh-keyscan -H 178.156.222.119
 
 Important:
 
-- The server itself still needs GitHub read access so `git fetch` works on the box.
-- The workflow does a `git reset --hard origin/main`, so only use it if the server worktree should always match GitHub.
-- Pushes to `main` will trigger a deploy automatically.
+- The server does not need Git access to the repository.
+- The deploy workflow does not run `git fetch` or `git reset --hard origin/main`.
+- The deploy workflow does not build on the server. CI builds exact-SHA images, pushes them to GHCR, and production only pulls them.
+- Pushes to `main` trigger CI first, then deploy the exact `workflow_run.head_sha` after CI succeeds.
+- Manual rollback uses the same deploy workflow with a required `sha` input. Do not use `main`, `latest`, or branch names for manual deploys.
 
 ## Notes specific to this repo
 
 - The worker is important. If `npm run worker:start` is not running, sync jobs can silently stall.
-- The deploy workflow now waits for both container health checks and a fresh Meta worker heartbeat before it reports success.
+- The deploy workflow validates the running release by checking `/api/build-info` and matching `buildId` to the deployed SHA.
 - For Meta authoritative finalization rollout, use three stages:
   1. shadow mode: deploy with `META_AUTHORITATIVE_FINALIZATION_V2=0`
   2. allowlisted canary: `META_AUTHORITATIVE_FINALIZATION_V2=1` with `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>`
   3. full rollout: clear `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` after canary and `T0 + 24h` validation pass
 - The app uses `NEXT_PUBLIC_APP_URL` in multiple OAuth and metadata paths, so set it before going live.
 - Runtime migrations are guarded by `ENABLE_RUNTIME_MIGRATIONS`. Leave it disabled unless you explicitly want app boot to run migrations.
+- `docker-compose.yml` is production-only and image-based. Use `docker-compose.dev.yml` for local build-based development.
