@@ -54,6 +54,11 @@ vi.mock("@/lib/sync/search-console-sync", () => ({
   syncSearchConsoleReports: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/provider-repair-engine", () => ({
+  runGoogleAdsRepairCycle: vi.fn(),
+  runMetaRepairCycle: vi.fn(),
+}));
+
 vi.mock("@/lib/admin-logger", () => ({
   logAdminAction: vi.fn(),
 }));
@@ -70,6 +75,7 @@ const adminLogger = await import("@/lib/admin-logger");
 const db = await import("@/lib/db");
 const metaWarehouse = await import("@/lib/meta/warehouse");
 const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+const providerRepair = await import("@/lib/sync/provider-repair-engine");
 const { POST } = await import("@/app/api/sync/refresh/route");
 
 function buildRequest(body: Record<string, unknown>) {
@@ -156,6 +162,44 @@ describe("POST /api/sync/refresh", () => {
       matchedCount: 0,
       changedCount: 0,
       skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(providerRepair.runMetaRepairCycle).mockResolvedValue({
+      cleanup: null,
+      replayedDeadLetters: null,
+      replayedRetryableFailures: [],
+      queuedWarehouseRepairs: [],
+      d1Recovery: null,
+      enqueueResult: {
+        businessId: "biz",
+        queuedCore: 1,
+        queuedMaintenance: 0,
+        queueDepth: 1,
+        leasedPartitions: 0,
+      },
+      repair: {
+        replayed: 0,
+        requeued: 0,
+        reclaimed: 0,
+        blocked: false,
+      },
+    } as never);
+    vi.mocked(providerRepair.runGoogleAdsRepairCycle).mockResolvedValue({
+      cleanup: null,
+      replayedDeadLetters: null,
+      replayedPoisoned: null,
+      queuedWarehouseRepairs: [],
+      enqueueResult: {
+        businessId: "biz",
+        queuedCore: 1,
+        queueDepth: 1,
+        leasedPartitions: 0,
+      },
+      repair: {
+        replayed: 0,
+        requeued: 0,
+        reclaimed: 0,
+        blocked: false,
+      },
     } as never);
   });
 
@@ -319,34 +363,12 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
-    vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({
-      businessId: "biz",
-      queuedCore: 1,
-      queuedMaintenance: 0,
-      queueDepth: 1,
-      leasedPartitions: 0,
-      recentAutoHeal: {
-        accountsScanned: 0,
-        recentDaysScanned: 0,
-        dirtyDaysFound: 0,
-        oldestDirtyDate: null,
-        finalizeEnqueued: 0,
-        repairEnqueued: 0,
-        skippedActiveDuplicate: 0,
-        skippedCooldown: 0,
-        skippedRecentSuccess: 0,
-        skippedRepeatedFailures: 0,
-        reasonCounts: {},
-      },
-      cancelledObsoletePartitions: 0,
-    });
-
     const response = await POST(buildRequest({ businessId: "biz", provider: "meta" }));
     const payload = await response.json();
 
     expect(response.status).toBe(202);
     expect(payload.status).toBe("started");
-    expect(metaSync.enqueueMetaScheduledWork).toHaveBeenCalledWith("biz");
+    expect(providerRepair.runMetaRepairCycle).toHaveBeenCalledWith("biz");
     expect(payload.result.repair).toEqual(
       expect.objectContaining({
         replayed: 0,
@@ -398,12 +420,25 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
-    vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({
-      businessId: "biz",
-      queuedCore: 0,
-      queuedMaintenance: 0,
-      queueDepth: 2,
-      leasedPartitions: 0,
+    vi.mocked(providerRepair.runMetaRepairCycle).mockResolvedValue({
+      cleanup: null,
+      replayedDeadLetters: null,
+      replayedRetryableFailures: [],
+      queuedWarehouseRepairs: [],
+      d1Recovery: null,
+      enqueueResult: {
+        businessId: "biz",
+        queuedCore: 0,
+        queuedMaintenance: 0,
+        queueDepth: 2,
+        leasedPartitions: 0,
+      },
+      repair: {
+        replayed: 0,
+        requeued: 0,
+        reclaimed: 0,
+        blocked: false,
+      },
     } as never);
 
     const response = await POST(buildRequest({ businessId: "biz", provider: "meta" }));
@@ -482,11 +517,23 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
-    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({
-      businessId: "biz",
-      queuedCore: 0,
-      queueDepth: 3,
-      leasedPartitions: 0,
+    vi.mocked(providerRepair.runGoogleAdsRepairCycle).mockResolvedValue({
+      cleanup: null,
+      replayedDeadLetters: null,
+      replayedPoisoned: null,
+      queuedWarehouseRepairs: [],
+      enqueueResult: {
+        businessId: "biz",
+        queuedCore: 0,
+        queueDepth: 3,
+        leasedPartitions: 0,
+      },
+      repair: {
+        replayed: 0,
+        requeued: 0,
+        reclaimed: 0,
+        blocked: false,
+      },
     } as never);
 
     const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
@@ -514,23 +561,23 @@ describe("POST /api/sync/refresh", () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",
     });
-    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
-      queueDepth: 0,
-      leasedPartitions: 0,
-      deadLetterPartitions: 2,
-    } as never);
-    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
-      outcome: "replayed",
-      partitions: [{ id: "p1", lane: "extended", scope: "search_term_daily", partitionDate: "2026-03-01" }],
-      matchedCount: 2,
-      changedCount: 1,
-      skippedActiveLeaseCount: 0,
-    } as never);
-    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockResolvedValue({
-      businessId: "biz",
-      queuedCore: 0,
-      queueDepth: 0,
-      leasedPartitions: 0,
+    vi.mocked(providerRepair.runGoogleAdsRepairCycle).mockResolvedValue({
+      cleanup: null,
+      replayedDeadLetters: null,
+      replayedPoisoned: null,
+      queuedWarehouseRepairs: [],
+      enqueueResult: {
+        businessId: "biz",
+        queuedCore: 0,
+        queueDepth: 0,
+        leasedPartitions: 0,
+      },
+      repair: {
+        replayed: 1,
+        requeued: 0,
+        reclaimed: 0,
+        blocked: false,
+      },
     } as never);
 
     const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
@@ -554,7 +601,7 @@ describe("POST /api/sync/refresh", () => {
       kind: "admin",
       session: { user: { id: "admin_1" } } as never,
     });
-    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockRejectedValue(
+    vi.mocked(providerRepair.runGoogleAdsRepairCycle).mockRejectedValue(
       new Error("enqueue failed")
     );
 
@@ -579,12 +626,24 @@ describe("POST /api/sync/refresh", () => {
       vi.fn().mockResolvedValue([{ already_running: false, acquired: true }]) as never
     );
     const pending = deferred<{
-      businessId: string;
-      queuedCore: number;
-      queueDepth: number;
-      leasedPartitions: number;
+      cleanup: null;
+      replayedDeadLetters: null;
+      replayedPoisoned: null;
+      queuedWarehouseRepairs: [];
+      enqueueResult: {
+        businessId: string;
+        queuedCore: number;
+        queueDepth: number;
+        leasedPartitions: number;
+      };
+      repair: {
+        replayed: number;
+        requeued: number;
+        reclaimed: number;
+        blocked: boolean;
+      };
     }>();
-    vi.mocked(googleAdsSync.enqueueGoogleAdsScheduledWork).mockReturnValue(pending.promise as never);
+    vi.mocked(providerRepair.runGoogleAdsRepairCycle).mockReturnValue(pending.promise as never);
 
     const firstResponsePromise = POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -592,13 +651,25 @@ describe("POST /api/sync/refresh", () => {
 
     expect(secondResponse.status).toBe(202);
     expect(await secondResponse.json()).toEqual({ ok: true, status: "already_running" });
-    expect(googleAdsSync.enqueueGoogleAdsScheduledWork).toHaveBeenCalledTimes(1);
+    expect(providerRepair.runGoogleAdsRepairCycle).toHaveBeenCalledTimes(1);
 
     pending.resolve({
-      businessId: "biz",
-      queuedCore: 1,
-      queueDepth: 1,
-      leasedPartitions: 0,
+      cleanup: null,
+      replayedDeadLetters: null,
+      replayedPoisoned: null,
+      queuedWarehouseRepairs: [],
+      enqueueResult: {
+        businessId: "biz",
+        queuedCore: 1,
+        queueDepth: 1,
+        leasedPartitions: 0,
+      },
+      repair: {
+        replayed: 0,
+        requeued: 0,
+        reclaimed: 0,
+        blocked: false,
+      },
     });
 
     const firstResponse = await firstResponsePromise;
@@ -619,7 +690,7 @@ describe("POST /api/sync/refresh", () => {
 
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ ok: true, status: "already_running" });
-    expect(googleAdsSync.enqueueGoogleAdsScheduledWork).not.toHaveBeenCalled();
+    expect(providerRepair.runGoogleAdsRepairCycle).not.toHaveBeenCalled();
     expect(adminLogger.logAdminAction).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "sync.refresh",
