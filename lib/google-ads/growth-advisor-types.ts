@@ -1,4 +1,11 @@
 export type GoogleAdvisorDateRange = "3" | "7" | "14" | "30" | "90" | "custom";
+export type GoogleAdvisorAnalysisWindowKey =
+  | "alarm_1d"
+  | "alarm_3d"
+  | "alarm_7d"
+  | "operational_28d"
+  | "query_governance_56d"
+  | "baseline_84d";
 
 export type GoogleCampaignFamily =
   | "brand_search"
@@ -34,6 +41,7 @@ export type GoogleContributionImpact = "low" | "medium" | "high";
 
 export type GoogleDecisionFamily =
   | "waste_control"
+  | "brand_governance"
   | "growth_unlock"
   | "structure_repair"
   | "commercial_constraint"
@@ -228,10 +236,98 @@ export interface GoogleRecommendationEvidence {
   value: string;
 }
 
+export type GoogleDecisionV2Family =
+  | "measurement_trust"
+  | "waste_control"
+  | "demand_capture"
+  | "budget_bidding"
+  | "creative_feed"
+  | "structure_governance"
+  | "brand_governance";
+
+export type GoogleDecisionLane =
+  | "review"
+  | "test"
+  | "watch"
+  | "suppressed"
+  | "auto_hidden";
+
+export type GoogleDecisionRiskLevel = "low" | "medium" | "high";
+export type GoogleDecisionBlastRadius = "entity" | "campaign" | "account";
+export type GoogleNegativeKeywordMatchType = "exact" | "phrase" | "broad";
+export type GoogleNegativeKeywordSuppressionReason =
+  | "branded_query"
+  | "sku_specific_query"
+  | "product_specific_query"
+  | "low_confidence"
+  | "ambiguous_intent"
+  | "non_exact_negative_required"
+  | "insufficient_evidence_depth";
+
+export interface GoogleDecisionNarrative {
+  whatHappened: string;
+  whyItHappened: string;
+  whatToDo: string;
+  risk: string;
+  howToValidate: string[];
+  howToRollBack: string;
+}
+
+export interface GoogleNegativeKeywordPolicySummary {
+  requiredMatchType: GoogleNegativeKeywordMatchType;
+  exactOnlyEnforced: true;
+  eligibleQueryCount: number;
+  suppressedQueryCount: number;
+  suppressionReasons: GoogleNegativeKeywordSuppressionReason[];
+}
+
+export interface GoogleDecisionWindowsUsed {
+  healthWindow: GoogleAdvisorAnalysisWindowKey;
+  primaryWindow: GoogleAdvisorAnalysisWindowKey;
+  queryWindow?: GoogleAdvisorAnalysisWindowKey;
+  baselineWindow: GoogleAdvisorAnalysisWindowKey;
+  maturityCutoffDays: number;
+}
+
+export interface GoogleDecisionSchema {
+  decisionFamily: GoogleDecisionV2Family;
+  lane: GoogleDecisionLane;
+  riskLevel: GoogleDecisionRiskLevel;
+  blastRadius: GoogleDecisionBlastRadius;
+  confidence: number;
+  windowsUsed: GoogleDecisionWindowsUsed;
+  whyNow: string;
+  whyNot: string[];
+  blockers: string[];
+  validationPlan: string[];
+  rollbackPlan: string[];
+  evidenceSummary: string;
+  evidencePoints: GoogleRecommendationEvidence[];
+}
+
 export interface GoogleRecommendationTimeframeContext {
   coreVerdict: string;
   selectedRangeNote: string;
   historicalSupport: string;
+}
+
+export interface GoogleAdvisorAnalysisWindow {
+  key: GoogleAdvisorAnalysisWindowKey;
+  label: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  role: "health_alarm" | "operational_decision" | "query_governance" | "baseline";
+}
+
+export interface GoogleAdvisorExecutionSurface {
+  mode: "operator_first_manual_plan";
+  decisionEngineV2Enabled: boolean;
+  writebackEnabled: boolean;
+  mutateVerified: false;
+  rollbackVerified: false;
+  capabilityGateReason: string;
+  summary: string;
 }
 
 export interface GooglePotentialContribution {
@@ -415,6 +511,8 @@ export interface GoogleRecommendation {
   title: string;
   summary: string;
   why: string;
+  decision: GoogleDecisionSchema;
+  decisionNarrative: GoogleDecisionNarrative;
   whyNow: string;
   whatChanged?: string | null;
   reasonCodes: string[];
@@ -427,6 +525,7 @@ export interface GoogleRecommendation {
   rollbackGuidance?: string | null;
   validationChecklist: string[];
   blockers: string[];
+  suppressionReasons?: GoogleNegativeKeywordSuppressionReason[];
   blockedByRecommendationIds?: string[];
   conflictsWithRecommendationIds?: string[];
   dependsOnRecommendationIds?: string[];
@@ -614,6 +713,8 @@ export interface GoogleRecommendation {
   negativeGuardrails?: string[];
   negativeClusters?: string[];
   negativeQueries?: string[];
+  suppressedQueries?: string[];
+  negativeKeywordPolicy?: GoogleNegativeKeywordPolicySummary | null;
   promoteToExact?: string[];
   promoteToPhrase?: string[];
   broadDiscoveryThemes?: string[];
@@ -699,9 +800,44 @@ export interface GoogleAdvisorHistoricalSupport {
 export interface GoogleAdvisorMetadata {
   analysisMode: "snapshot" | "debug_custom";
   asOfDate: string;
-  selectedWindowKey: "last90" | "custom";
+  decisionEngineVersion: "v2";
+  snapshotModel?: "decision_snapshot_v2";
+  selectedWindowKey: "operational_28d" | "custom";
+  primaryWindowKey?: "operational_28d";
+  queryWindowKey?: "query_governance_56d";
+  baselineWindowKey?: "baseline_84d";
+  maturityCutoffDays?: number;
+  lagAdjustedEndDate?: {
+    available: boolean;
+    value: string | null;
+    note: string | null;
+  } | null;
+  selectedRangeRole?: "contextual_only";
+  analysisWindows: {
+    healthAlarmWindows: GoogleAdvisorAnalysisWindow[];
+    operationalWindow: GoogleAdvisorAnalysisWindow;
+    queryGovernanceWindow: GoogleAdvisorAnalysisWindow;
+    baselineWindow: GoogleAdvisorAnalysisWindow;
+  };
+  executionSurface: GoogleAdvisorExecutionSurface;
   historicalSupportAvailable: boolean;
   historicalSupport?: GoogleAdvisorHistoricalSupport | null;
+  decisionSummaryTotals?: {
+    windowKey: "operational_28d";
+    windowLabel: string;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  } | null;
+  selectedRangeTotals?: {
+    windowKey: "custom";
+    windowLabel: string;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  } | null;
   canonicalWindowTotals?: {
     spend: number;
     revenue: number;

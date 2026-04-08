@@ -3,6 +3,7 @@ import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoGoogleAdsAdvisor } from "@/lib/demo-business";
 import { getOrCreateGoogleAdsAdvisorSnapshot } from "@/lib/google-ads/advisor-snapshots";
+import { isGoogleAdsDecisionEngineV2Enabled } from "@/lib/google-ads/decision-engine-config";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
 import {
   buildGoogleAdsSelectedRangeContext,
@@ -21,6 +22,13 @@ export async function GET(request: NextRequest) {
 
   const access = await requireBusinessAccess({ request, businessId, minRole: "guest" });
   if ("error" in access) return access.error;
+
+  if (!isGoogleAdsDecisionEngineV2Enabled()) {
+    return NextResponse.json(
+      { error: "Google Ads Decision Engine V2 is disabled." },
+      { status: 503 }
+    );
+  }
 
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json(getDemoGoogleAdsAdvisor());
@@ -73,10 +81,19 @@ export async function GET(request: NextRequest) {
     payload.metadata.selectedRangeContext =
       selectedTotals &&
       payload.metadata.asOfDate &&
-      payload.metadata.canonicalWindowTotals
+      (payload.metadata.decisionSummaryTotals || payload.metadata.canonicalWindowTotals)
         ? buildGoogleAdsSelectedRangeContext({
             canonicalAsOfDate: payload.metadata.asOfDate,
-            canonicalTotals: payload.metadata.canonicalWindowTotals,
+            canonicalTotals:
+              payload.metadata.canonicalWindowTotals ??
+              (payload.metadata.decisionSummaryTotals
+                ? {
+                    spend: payload.metadata.decisionSummaryTotals.spend,
+                    revenue: payload.metadata.decisionSummaryTotals.revenue,
+                    conversions: payload.metadata.decisionSummaryTotals.conversions,
+                    roas: payload.metadata.decisionSummaryTotals.roas,
+                  }
+                : null),
             selectedRangeStart: customStart,
             selectedRangeEnd: customEnd,
             selectedTotals,

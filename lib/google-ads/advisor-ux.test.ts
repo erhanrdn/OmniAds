@@ -39,21 +39,21 @@ describe("google ads advisor ux helpers", () => {
         isLoading: false,
         ctaState: "ready",
       })
-    ).toBe("View Growth Analysis");
+    ).toBe("Open Decision Snapshot");
 
     expect(
       getGoogleAdsAdvisorButtonLabel({
         isLoading: false,
         ctaState: "refreshable",
       })
-    ).toBe("Refresh Analysis");
+    ).toBe("Refresh Decision Snapshot");
 
     expect(
       getGoogleAdsAdvisorButtonLabel({
         isLoading: false,
         ctaState: "blocked",
       })
-    ).toBe("Analysis Preparing");
+    ).toBe("Decision Snapshot Preparing");
   });
 
   it("derives blocked state without changing enablement semantics", () => {
@@ -110,6 +110,28 @@ describe("google ads advisor ux helpers", () => {
     ).toBe("Some analysis inputs need recovery before insights can open.");
   });
 
+  it("keeps helper copy aligned to the multi-window decision snapshot", () => {
+    expect(
+      getGoogleAdsAdvisorHelperText({
+        status: buildStatus(),
+        ctaState: "ready",
+        advisorIsStale: false,
+        lastAnalyzedLabel: null,
+      })
+    ).toBe(
+      "Uses a multi-window decision snapshot. The date picker only changes contextual dashboard views."
+    );
+
+    expect(
+      getGoogleAdsAdvisorHelperText({
+        status: buildStatus(),
+        ctaState: "ready",
+        advisorIsStale: false,
+        lastAnalyzedLabel: "2 hours ago",
+      })
+    ).toBe("Decision snapshot updated 2 hours ago");
+  });
+
   it("surfaces status loading and error states explicitly", () => {
     expect(
       getGoogleAdsAdvisorHelperText({
@@ -160,6 +182,27 @@ describe("google ads advisor ux helpers", () => {
       title: "Deeper analysis is still syncing",
       description:
         "Core campaign reporting is live. Search term and product history are still being prepared for analysis.",
+    });
+  });
+
+  it("describes ready state as a decision snapshot instead of a single-window analysis", () => {
+    expect(
+      getGoogleAdsAdvisorIdleState(
+        buildStatus({
+          state: "ready",
+          advisor: {
+            ready: true,
+            requiredSurfaces: [],
+            availableSurfaces: [],
+            missingSurfaces: [],
+            readyRangeStart: null,
+            readyRangeEnd: null,
+          },
+        })
+      )
+    ).toEqual({
+      title: "Growth analysis is ready",
+      description: "The multi-window decision snapshot is ready.",
     });
   });
 

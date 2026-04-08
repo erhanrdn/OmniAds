@@ -4,6 +4,8 @@ import type {
   SearchTermPerformanceRow,
 } from "@/lib/google-ads/intelligence-model";
 import type {
+  GoogleNegativeKeywordMatchType,
+  GoogleNegativeKeywordSuppressionReason,
   GoogleQueryIntentClass,
   GoogleQueryOwnershipClass,
 } from "@/lib/google-ads/growth-advisor-types";
@@ -25,7 +27,33 @@ interface QueryOwnershipResult {
   intentNeedsReview: boolean;
 }
 
+export interface GoogleNegativeKeywordAssessmentInput {
+  searchTerm: string;
+  ownershipClass: GoogleQueryOwnershipClass;
+  ownershipConfidence: "high" | "medium" | "low";
+  ownershipNeedsReview: boolean;
+  intentClass: GoogleQueryIntentClass;
+  intentConfidence: "high" | "medium" | "low";
+  intentNeedsReview: boolean;
+  clicks: number;
+  spend: number;
+  isWasteLike: boolean;
+  requiredMatchType: GoogleNegativeKeywordMatchType;
+}
+
+export interface GoogleNegativeKeywordAssessment {
+  eligible: boolean;
+  requiredMatchType: GoogleNegativeKeywordMatchType;
+  reversibleImpact: boolean;
+  evidenceDepthSufficient: boolean;
+  suppressionReasons: GoogleNegativeKeywordSuppressionReason[];
+}
+
 const WEAK_COMMERCIAL_PATTERNS = [
+  /\bfree\b/i,
+  /\bpdf\b/i,
+  /\bpattern(s)?\b/i,
+  /\btemplate(s)?\b/i,
   /\breturn(s| policy)?\b/i,
   /\brefund(s)?\b/i,
   /\blogin\b/i,
@@ -267,4 +295,51 @@ export function applyQueryOwnership(
     ...row,
     ...classifyQueryOwnership(row.searchTerm, context),
   }));
+}
+
+export function evaluateNegativeKeywordAssessment(
+  input: GoogleNegativeKeywordAssessmentInput
+): GoogleNegativeKeywordAssessment {
+  const suppressionReasons = new Set<GoogleNegativeKeywordSuppressionReason>();
+  const evidenceDepthSufficient = input.clicks >= 20 && input.spend >= 20 && input.isWasteLike;
+
+  if (input.requiredMatchType !== "exact") {
+    suppressionReasons.add("non_exact_negative_required");
+  }
+  if (input.ownershipClass === "brand") {
+    suppressionReasons.add("branded_query");
+  }
+  if (input.ownershipClass === "sku_specific") {
+    suppressionReasons.add("sku_specific_query");
+  }
+  if (input.intentClass === "product_specific") {
+    suppressionReasons.add("product_specific_query");
+  }
+  if (input.ownershipConfidence !== "high" || input.intentConfidence !== "high") {
+    suppressionReasons.add("low_confidence");
+  }
+
+  const ambiguousIntent =
+    input.ownershipNeedsReview ||
+    input.intentNeedsReview ||
+    input.ownershipClass === "competitor" ||
+    input.intentClass === "brand_mixed" ||
+    input.intentClass === "category_high_intent" ||
+    input.intentClass === "category_mid_intent" ||
+    input.intentClass === "price_sensitive" ||
+    input.intentClass === "research_low_intent";
+  if (ambiguousIntent) {
+    suppressionReasons.add("ambiguous_intent");
+  }
+  if (!evidenceDepthSufficient) {
+    suppressionReasons.add("insufficient_evidence_depth");
+  }
+
+  return {
+    eligible: suppressionReasons.size === 0,
+    requiredMatchType: input.requiredMatchType,
+    reversibleImpact: input.requiredMatchType === "exact",
+    evidenceDepthSufficient,
+    suppressionReasons: Array.from(suppressionReasons),
+  };
 }

@@ -206,6 +206,85 @@ function device(overrides: Partial<DevicePerformanceRow> = {}): DevicePerformanc
 }
 
 describe("buildGoogleGrowthAdvisor", () => {
+  it("keeps decision summary totals anchored to the operational 28d window", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "operational 28d",
+      analysisMetadata: {
+        analysisMode: "snapshot",
+        asOfDate: "2026-04-08",
+        selectedWindowKey: "operational_28d",
+      },
+      selectedCampaigns: [campaign({ spend: 100, revenue: 400, conversions: 10, roas: 4 })],
+      selectedSearchTerms: [searchTerm()],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "alarm_1d", label: "alarm 1d", campaigns: [campaign({ spend: 5, revenue: 20, conversions: 1, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_3d", label: "alarm 3d", campaigns: [campaign({ spend: 12, revenue: 42, conversions: 2, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_7d", label: "alarm 7d", campaigns: [campaign({ spend: 25, revenue: 90, conversions: 3, roas: 3.6 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "operational_28d", label: "operational 28d", campaigns: [campaign({ spend: 100, revenue: 400, conversions: 10, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "query_governance_56d", label: "query governance 56d", campaigns: [campaign({ spend: 180, revenue: 630, conversions: 18, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "baseline_84d", label: "baseline 84d", campaigns: [campaign({ spend: 250, revenue: 850, conversions: 24, roas: 3.4 })], searchTerms: [searchTerm()], products: [product()] },
+      ],
+    });
+
+    expect(advisor.metadata?.decisionSummaryTotals).toMatchObject({
+      windowKey: "operational_28d",
+      windowLabel: "operational 28d",
+      spend: 100,
+      revenue: 400,
+      conversions: 10,
+      roas: 4,
+    });
+    expect(advisor.metadata?.selectedRangeTotals).toBeNull();
+  });
+
+  it("keeps custom selected-range totals separate from operational decision totals", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 7d",
+      analysisMetadata: {
+        analysisMode: "debug_custom",
+        asOfDate: "2026-04-08",
+        selectedWindowKey: "custom",
+      },
+      selectedCampaigns: [campaign({ spend: 40, revenue: 100, conversions: 3, roas: 2.5 })],
+      selectedSearchTerms: [searchTerm()],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "alarm_1d", label: "alarm 1d", campaigns: [campaign({ spend: 5, revenue: 20, conversions: 1, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_3d", label: "alarm 3d", campaigns: [campaign({ spend: 12, revenue: 42, conversions: 2, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_7d", label: "alarm 7d", campaigns: [campaign({ spend: 25, revenue: 90, conversions: 3, roas: 3.6 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "operational_28d", label: "operational 28d", campaigns: [campaign({ spend: 100, revenue: 400, conversions: 10, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "query_governance_56d", label: "query governance 56d", campaigns: [campaign({ spend: 180, revenue: 630, conversions: 18, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "baseline_84d", label: "baseline 84d", campaigns: [campaign({ spend: 250, revenue: 850, conversions: 24, roas: 3.4 })], searchTerms: [searchTerm()], products: [product()] },
+      ],
+    });
+
+    expect(advisor.metadata?.decisionSummaryTotals).toMatchObject({
+      windowKey: "operational_28d",
+      windowLabel: "operational 28d",
+      spend: 100,
+      revenue: 400,
+      conversions: 10,
+      roas: 4,
+    });
+    expect(advisor.metadata?.selectedRangeTotals).toMatchObject({
+      windowKey: "custom",
+      windowLabel: "selected 7d",
+      spend: 40,
+      revenue: 100,
+      conversions: 3,
+      roas: 2.5,
+    });
+  });
+
   it("recommends non-brand expansion when only brand + pmax exist and recurring non-brand demand is present", () => {
     const advisor = buildGoogleGrowthAdvisor({
       selectedLabel: "selected 14d",
@@ -280,8 +359,8 @@ describe("buildGoogleGrowthAdvisor", () => {
       selectedLabel: "selected 14d",
       selectedCampaigns: [campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH", spend: 260, revenue: 280, conversions: 4, roas: 1.08 })],
       selectedSearchTerms: [
-        searchTerm({ searchTerm: "cheap camping backpack", wasteFlag: true, negativeKeywordFlag: true, spend: 130, revenue: 0, conversions: 0, roas: 0, clusterId: "cheap-camping-backpack" }),
-        searchTerm({ searchTerm: "free backpack patterns pdf", wasteFlag: true, negativeKeywordFlag: true, spend: 80, revenue: 0, conversions: 0, roas: 0, clusterId: "free-backpack-patterns" }),
+        searchTerm({ searchTerm: "refund policy", wasteFlag: true, negativeKeywordFlag: true, spend: 130, revenue: 0, conversions: 0, roas: 0, clusterId: "refund-policy" }),
+        searchTerm({ searchTerm: "customer service", wasteFlag: true, negativeKeywordFlag: true, spend: 80, revenue: 0, conversions: 0, roas: 0, clusterId: "customer-service" }),
       ],
       selectedProducts: [product()],
       selectedAssets: [asset({ assetState: "underperforming", wasteFlag: true, expandFlag: false })],
@@ -300,8 +379,49 @@ describe("buildGoogleGrowthAdvisor", () => {
 
     const governance = advisor.recommendations.find((entry) => entry.type === "query_governance");
     expect(governance).toBeTruthy();
-    expect(governance?.negativeQueries).toContain("cheap camping backpack");
-    expect(governance?.negativeGuardrails?.length).toBeGreaterThan(0);
+    expect(governance?.negativeQueries).toContain("refund policy");
+    expect(governance?.negativeKeywordPolicy?.requiredMatchType).toBe("exact");
+    expect(governance?.negativeKeywordPolicy?.exactOnlyEnforced).toBe(true);
+  });
+
+  it("suppresses brand, sku, product, and ambiguous queries from negative governance while keeping reasons explicit", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [
+        campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search", channel: "SEARCH", spend: 120, revenue: 720, conversions: 24, roas: 6 }),
+        campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH", spend: 260, revenue: 280, conversions: 4, roas: 1.08 }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 90, revenue: 0, conversions: 0, roas: 0 }),
+        searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "chair5000", wasteFlag: true, negativeKeywordFlag: true, spend: 75, revenue: 0, conversions: 0, roas: 0 }),
+        searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "UrbanTrail Carry-On Backpack", wasteFlag: true, negativeKeywordFlag: true, spend: 70, revenue: 0, conversions: 0, roas: 0 }),
+        searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "cheap camping gear", wasteFlag: true, negativeKeywordFlag: true, spend: 65, revenue: 0, conversions: 0, roas: 0 }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "last3", label: "last 3d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 30, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last7", label: "last 7d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "chair5000", wasteFlag: true, negativeKeywordFlag: true, spend: 35, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last14", label: "last 14d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "UrbanTrail Carry-On Backpack", wasteFlag: true, negativeKeywordFlag: true, spend: 40, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last30", label: "last 30d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "cheap camping gear", wasteFlag: true, negativeKeywordFlag: true, spend: 45, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last90", label: "last 90d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 50, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "cheap camping gear", wasteFlag: true, negativeKeywordFlag: true, spend: 55, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+      ],
+    });
+
+    const governance = advisor.recommendations.find((entry) => entry.type === "query_governance");
+    expect(governance).toBeTruthy();
+    expect(governance?.negativeQueries ?? []).toHaveLength(0);
+    expect(governance?.suppressedQueries).toContain("grandmix chairs");
+    expect(governance?.suppressionReasons).toContain("branded_query");
+    expect(governance?.suppressionReasons).toContain("sku_specific_query");
+    expect(governance?.suppressionReasons).toContain("product_specific_query");
+    expect(governance?.suppressionReasons).toContain("ambiguous_intent");
+    expect(governance?.blockers.length).toBeGreaterThan(0);
+    expect(governance?.integrityState).toBe("suppressed");
   });
 
   it("surfaces brand leakage when branded demand appears outside the brand lane", () => {
@@ -374,6 +494,8 @@ describe("buildGoogleGrowthAdvisor", () => {
     const recommendation = advisor.recommendations.find((entry) => entry.id === "google-brand-leakage-control");
     expect(recommendation).toBeTruthy();
     expect(recommendation?.negativeQueries).toContain("grandmix chairs");
+    expect(recommendation?.type).toBe("brand_leakage");
+    expect(recommendation?.decisionFamily).toBe("brand_governance");
   });
 
   it("only promotes recurring proven terms into exact while leaving weaker recurring terms in phrase", () => {
@@ -1203,7 +1325,51 @@ describe("buildGoogleGrowthAdvisor", () => {
     });
 
     expect(decorated[0].executionMode).toBe("handoff");
-    expect(decorated[0].mutateEligibilityReason).toContain("product-specific, high-intent, or brand-mixed");
+    expect(decorated[0].mutateEligibilityReason).toContain("guardrails suppressed unsafe cleanup reasons");
+  });
+
+  it("keeps suppressed governance recommendations out of mutate-ready execution", () => {
+    const governance = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [
+        campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search", channel: "SEARCH" }),
+        campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 90, revenue: 0, conversions: 0, roas: 0 }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "last3", label: "last 3d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 30, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last7", label: "last 7d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 35, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last14", label: "last 14d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 40, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last30", label: "last 30d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 45, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last90", label: "last 90d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 50, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, spend: 55, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+      ],
+    }).recommendations.find((entry) => entry.type === "query_governance");
+
+    const decorated = decorateAdvisorRecommendationsForExecution({
+      accountId: "123-456-7890",
+      recommendations: governance ? [governance] : [],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-search",
+          campaignName: "Generic Search",
+          searchTerm: "grandmix chairs",
+          ownershipClass: "brand",
+          intentClass: "brand_mixed",
+        }),
+      ],
+    });
+
+    expect(decorated[0].executionMode).toBe("handoff");
+    expect(decorated[0].mutateActionType).toBeNull();
+    expect(decorated[0].mutateEligibilityReason).toContain("guardrails suppressed unsafe cleanup reasons");
   });
 
   it("prefers high-intent terms for exact and leaves price-sensitive demand out of exact promotion", () => {

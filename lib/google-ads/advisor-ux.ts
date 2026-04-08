@@ -92,15 +92,15 @@ export function getGoogleAdsAdvisorButtonLabel(input: {
   isLoading: boolean;
   ctaState: GoogleAdsAdvisorCtaState;
 }): string {
-  if (input.isLoading) return "Refreshing analysis...";
+  if (input.isLoading) return "Refreshing decision snapshot...";
   switch (input.ctaState) {
     case "refreshable":
-      return "Refresh Analysis";
+      return "Refresh Decision Snapshot";
     case "blocked":
-      return "Analysis Preparing";
+      return "Decision Snapshot Preparing";
     case "ready":
     default:
-      return "View Growth Analysis";
+      return "Open Decision Snapshot";
   }
 }
 
@@ -124,10 +124,10 @@ export function getGoogleAdsAdvisorHelperText(input: {
   }
 
   if (input.lastAnalyzedLabel) {
-    return `Analysis updated ${input.lastAnalyzedLabel}`;
+    return `Decision snapshot updated ${input.lastAnalyzedLabel}`;
   }
 
-  return "Uses the canonical 90-day growth analysis. The date picker only changes dashboard context.";
+  return "Uses a multi-window decision snapshot. The date picker only changes contextual dashboard views.";
 }
 
 export function getGoogleAdsAdvisorIdleState(
@@ -177,8 +177,8 @@ export function getGoogleAdsAdvisorIdleState(
       title: "Growth analysis is ready",
       description:
         status.operations?.advisorSnapshotFresh === false
-          ? "The current analysis is available, and a backend refresh can update it."
-          : "The canonical 90-day growth analysis is ready.",
+          ? "The current decision snapshot is available, and a backend refresh can update it."
+          : "The multi-window decision snapshot is ready.",
     };
   }
   if (status.operations?.fullSyncPriorityRequired) {

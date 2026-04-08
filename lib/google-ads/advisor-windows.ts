@@ -1,4 +1,5 @@
 import type { GoogleAdsDateRange } from "@/lib/google-ads-request-params";
+import { buildGoogleAdsDecisionWindowPolicy } from "@/lib/google-ads/decision-window-policy";
 
 export interface GoogleAdsAdvisorSelectedWindow {
   key: "selected";
@@ -9,7 +10,13 @@ export interface GoogleAdsAdvisorSelectedWindow {
 }
 
 export interface GoogleAdsAdvisorSupportWindow {
-  key: "last3" | "last7" | "last14" | "last30" | "last90";
+  key:
+    | "alarm_1d"
+    | "alarm_3d"
+    | "alarm_7d"
+    | "operational_28d"
+    | "query_governance_56d"
+    | "baseline_84d";
   label: string;
   customStart: string;
   customEnd: string;
@@ -78,12 +85,36 @@ export function buildGoogleAdsAdvisorWindows(input: {
     ...selectedBase,
   };
 
+  const policy = buildGoogleAdsDecisionWindowPolicy(toIsoDate(endDate));
   const supportWindows: GoogleAdsAdvisorSupportWindow[] = [
-    { key: "last3", label: "last 3d", ...buildAdvisorWindowFromDays(endDate, 3) },
-    { key: "last7", label: "last 7d", ...buildAdvisorWindowFromDays(endDate, 7) },
-    { key: "last14", label: "last 14d", ...buildAdvisorWindowFromDays(endDate, 14) },
-    { key: "last30", label: "last 30d", ...buildAdvisorWindowFromDays(endDate, 30) },
-    { key: "last90", label: "last 90d", ...buildAdvisorWindowFromDays(endDate, 90) },
+    ...policy.healthAlarmWindows.map((window) => ({
+      key: window.key,
+      label: window.label,
+      customStart: window.startDate,
+      customEnd: window.endDate,
+      days: window.days,
+    })),
+    {
+      key: policy.operationalWindow.key,
+      label: policy.operationalWindow.label,
+      customStart: policy.operationalWindow.startDate,
+      customEnd: policy.operationalWindow.endDate,
+      days: policy.operationalWindow.days,
+    },
+    {
+      key: policy.queryGovernanceWindow.key,
+      label: policy.queryGovernanceWindow.label,
+      customStart: policy.queryGovernanceWindow.startDate,
+      customEnd: policy.queryGovernanceWindow.endDate,
+      days: policy.queryGovernanceWindow.days,
+    },
+    {
+      key: policy.baselineWindow.key,
+      label: policy.baselineWindow.label,
+      customStart: policy.baselineWindow.startDate,
+      customEnd: policy.baselineWindow.endDate,
+      days: policy.baselineWindow.days,
+    },
   ];
 
   return {

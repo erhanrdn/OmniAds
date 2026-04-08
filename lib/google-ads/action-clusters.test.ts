@@ -34,6 +34,37 @@ function recommendation(overrides: Partial<GoogleRecommendation> = {}): GoogleRe
     confidenceExplanation: overrides.confidenceExplanation ?? "Confident",
     confidenceDegradationReasons: overrides.confidenceDegradationReasons ?? [],
     recommendedAction: overrides.recommendedAction ?? "Do the thing",
+    decision:
+      overrides.decision ?? {
+        decisionFamily: overrides.decisionFamily ?? "waste_control",
+        lane: "review",
+        riskLevel: "medium",
+        blastRadius: "campaign",
+        confidence: 0.8,
+        windowsUsed: {
+          healthWindow: "alarm_7d",
+          primaryWindow: "operational_28d",
+          queryWindow: "query_governance_56d",
+          baselineWindow: "baseline_84d",
+          maturityCutoffDays: 84,
+        },
+        whyNow: overrides.whyNow ?? "Why now",
+        whyNot: [],
+        blockers: overrides.blockers ?? [],
+        validationPlan: overrides.validationChecklist ?? ["Validate outcome"],
+        rollbackPlan: ["Rollback the change if efficiency falls."],
+        evidenceSummary: "Cluster-level evidence supports the action.",
+        evidencePoints: overrides.evidence ?? [],
+      },
+    decisionNarrative:
+      overrides.decisionNarrative ?? {
+        whatHappened: overrides.summary ?? "Summary",
+        whyItHappened: overrides.why ?? "Why",
+        whatToDo: overrides.recommendedAction ?? "Do the thing",
+        risk: "Operator review required before any live change.",
+        howToValidate: overrides.validationChecklist ?? ["Validate outcome"],
+        howToRollBack: "Rollback the change if efficiency falls.",
+      },
     potentialContribution:
       overrides.potentialContribution ?? {
         label: "High leverage",
@@ -69,7 +100,7 @@ function recommendation(overrides: Partial<GoogleRecommendation> = {}): GoogleRe
     affectedCampaignIds: overrides.affectedCampaignIds ?? ["campaign-1"],
     executionStatus: overrides.executionStatus ?? "not_started",
     ...overrides,
-  };
+  } as GoogleRecommendation;
 }
 
 describe("buildActionClusters", () => {
