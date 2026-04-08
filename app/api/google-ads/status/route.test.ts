@@ -64,7 +64,11 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
 }));
 
 vi.mock("@/lib/google-ads/status-machine", () => ({
-  decideGoogleAdsAdvisorReadiness: vi.fn(() => ({ ready: false, notReady: true })),
+  decideGoogleAdsAdvisorReadiness: vi.fn(() => ({
+    ready: false,
+    notReady: true,
+    readinessModel: "recent_90d_required_support",
+  })),
   decideGoogleAdsFullSyncPriority: vi.fn(() => ({
     required: false,
     reason: null,
@@ -125,6 +129,7 @@ const snapshots = await import("@/lib/provider-account-snapshots");
 const assignments = await import("@/lib/provider-account-assignments");
 const warehouse = await import("@/lib/google-ads/warehouse");
 const advisorSnapshots = await import("@/lib/google-ads/advisor-snapshots");
+const statusMachine = await import("@/lib/google-ads/status-machine");
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
@@ -292,6 +297,55 @@ describe("GET /api/google-ads/status", () => {
     vi.useRealTimers();
   });
 
+  it("returns the explicit recent-90-day advisor readiness contract", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(statusMachine.decideGoogleAdsAdvisorReadiness).mockReturnValue({
+      ready: true,
+      notReady: false,
+      readinessModel: "recent_90d_required_support",
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(statusMachine.decideGoogleAdsAdvisorReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connected: true,
+        assignedAccountCount: 1,
+        recentSupportReady: true,
+        snapshotAvailable: false,
+      })
+    );
+    expect(payload.advisor).toMatchObject({
+      ready: true,
+      readinessModel: "recent_90d_required_support",
+      readinessWindowDays: 90,
+    });
+    expect(payload.operations).toMatchObject({
+      advisorReadinessModel: "recent_90d_required_support",
+      advisorReadinessWindowDays: 90,
+    });
+  });
+
   it("reports warehouse readiness even when Google is disconnected", async () => {
     const response = await GET(
       new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
@@ -360,7 +414,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.domains).toHaveProperty("core");
     expect(payload.domains).toHaveProperty("selectedRange");
     expect(payload.domains).toHaveProperty("advisor");
-    expect(payload.domains.advisor.detail).toBe("Multi-window analysis coverage is still syncing.");
+    expect(payload.domains.advisor.detail).toBe("Multi-window analysis coverage is ready.");
     expect(payload.advisor.blockingMessage).toContain("Decision snapshot");
   });
 });

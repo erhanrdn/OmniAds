@@ -18,7 +18,8 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     expect(result).toEqual({
       percent: 99,
       visible: true,
-      summary: "Campaign, search term, and product history are still being prepared for analysis.",
+      summary:
+        "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot.",
     });
   });
 
@@ -72,7 +73,7 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     expect(result).toEqual({
       percent: 100,
       visible: false,
-      summary: "Finalizing growth analysis.",
+      summary: "Finalizing 90-day decision snapshot support.",
     });
   });
 
@@ -92,7 +93,7 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     expect(result).toEqual({
       percent: 99,
       visible: true,
-      summary: "Finalizing growth analysis.",
+      summary: "Finalizing 90-day decision snapshot support.",
     });
   });
 
@@ -112,7 +113,7 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     expect(result).toEqual({
       percent: 100,
       visible: false,
-      summary: "Finalizing growth analysis.",
+      summary: "Finalizing 90-day decision snapshot support.",
     });
   });
 });

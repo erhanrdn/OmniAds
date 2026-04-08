@@ -168,4 +168,55 @@ describe("GET /api/google-ads/advisor", () => {
     });
     expect(payload.metadata.selectedRangeContext.summary).toContain("contextual");
   });
+
+  it("only forces snapshot regeneration when refresh=1 is requested", async () => {
+    vi.mocked(snapshots.getOrCreateGoogleAdsAdvisorSnapshot).mockResolvedValue({
+      advisorPayload: {
+        summary: {
+          headline: "headline",
+          operatorNote: "note",
+          demandMap: "map",
+          topPriority: "priority",
+          totalRecommendations: 0,
+          actRecommendationCount: 0,
+          accountState: "scaling_ready",
+          accountOperatingMode: "mode",
+          topConstraint: "constraint",
+          topGrowthLever: "lever",
+          recommendedFocusToday: "focus",
+          watchouts: [],
+          dataTrustSummary: "trust",
+          campaignRoles: [],
+        },
+        recommendations: [],
+        sections: [],
+        clusters: [],
+        metadata: {
+          analysisMode: "snapshot",
+          asOfDate: "2026-04-08",
+          decisionEngineVersion: "v2",
+          snapshotModel: "decision_snapshot_v2",
+          selectedWindowRole: "contextual_only",
+        },
+      },
+    } as never);
+
+    await GET(
+      new NextRequest("http://localhost/api/google-ads/advisor?businessId=biz")
+    );
+    await GET(
+      new NextRequest("http://localhost/api/google-ads/advisor?businessId=biz&refresh=1")
+    );
+
+    expect(snapshots.getOrCreateGoogleAdsAdvisorSnapshot).toHaveBeenNthCalledWith(1, {
+      businessId: "biz",
+      accountId: null,
+      forceRefresh: false,
+    });
+    expect(snapshots.getOrCreateGoogleAdsAdvisorSnapshot).toHaveBeenNthCalledWith(2, {
+      businessId: "biz",
+      accountId: null,
+      forceRefresh: true,
+    });
+  });
 });

@@ -80,6 +80,15 @@ Phase 3 rollout is additive.
 
 This preserves compatibility while building the future storage model.
 
+## Current advisor readiness contract
+
+Until serving and advisor logic move onto the newer aggregate intelligence surfaces, advisor readiness remains intentionally conservative.
+
+- Decision Snapshot readiness is still gated by recent 90-day support coverage.
+- The required surfaces are `campaign_daily`, `search_term_daily`, and `product_daily`.
+- The retention policy defined in this document does not yet drive advisor/button readiness.
+- The selected range remains contextual for the operator UI and does not redefine decision readiness.
+
 ## Explicit non-goals for Phase 3
 
 - No destructive cleanup execution

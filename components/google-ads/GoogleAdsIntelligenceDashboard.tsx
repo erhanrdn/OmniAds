@@ -424,14 +424,14 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     mutate: runAdvisorAnalysis,
     isPending: isAdvisorLoading,
     isError: isAdvisorError,
-  } = useMutation<GoogleAdvisorResponse>({
-    mutationFn: async () => {
+  } = useMutation<GoogleAdvisorResponse, Error, { refresh: boolean }>({
+    mutationFn: async ({ refresh }) => {
       const params = buildAdvisorQueryParams({
         businessId,
         apiDateRange,
         startDate,
         endDate,
-        refresh: true,
+        refresh,
       });
       const res = await fetch(`/api/google-ads/advisor?${params}`);
       if (!res.ok) throw new Error("advisor fetch failed");
@@ -621,6 +621,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
     status: syncStatus,
     canOpen: advisorCanOpen,
     hasCurrentAnalysis: Boolean(advisorCurrent),
+    snapshotReady: syncStatus?.operations?.advisorSnapshotReady === true,
   });
   const advisorIdleState = getGoogleAdsAdvisorIdleState(syncStatus, {
     isStatusLoading: isSyncStatusLoading,
@@ -1199,11 +1200,17 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       ctaState: advisorCtaState,
                     });
 
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => runAdvisorAnalysis()}
-                        disabled={!advisorCanOpen || isAdvisorLoading}
+	                  return (
+	                      <button
+	                        type="button"
+	                        onClick={() =>
+	                          runAdvisorAnalysis({
+	                            refresh:
+	                              advisorCtaState === "prepare" ||
+	                              advisorCtaState === "refreshable",
+	                          })
+	                        }
+	                        disabled={!advisorCanOpen || isAdvisorLoading}
                         title={advisorHelperText}
                         aria-label={`${advisorButtonLabel}. ${advisorHelperText}`}
                         className={cn(

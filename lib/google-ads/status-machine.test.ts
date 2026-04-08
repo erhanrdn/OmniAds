@@ -12,20 +12,28 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
         connected: true,
         assignedAccountCount: 1,
         deadLetterPartitions: 0,
-        recent90Ready: true,
+        recentSupportReady: true,
         snapshotAvailable: true,
       })
-    ).toEqual({ ready: true, notReady: false });
+    ).toEqual({
+      ready: true,
+      notReady: false,
+      readinessModel: "recent_90d_required_support",
+    });
 
     expect(
       decideGoogleAdsAdvisorReadiness({
         connected: true,
         assignedAccountCount: 1,
         deadLetterPartitions: 2,
-        recent90Ready: true,
+        recentSupportReady: true,
         snapshotAvailable: false,
       })
-    ).toEqual({ ready: true, notReady: false });
+    ).toEqual({
+      ready: true,
+      notReady: false,
+      readinessModel: "recent_90d_required_support",
+    });
   });
 
   it("marks the advisor as not ready only while required recent coverage is incomplete", () => {
@@ -34,10 +42,14 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
         connected: true,
         assignedAccountCount: 1,
         deadLetterPartitions: 0,
-        recent90Ready: false,
+        recentSupportReady: false,
         snapshotAvailable: false,
       })
-    ).toEqual({ ready: false, notReady: true });
+    ).toEqual({
+      ready: false,
+      notReady: true,
+      readinessModel: "recent_90d_required_support",
+    });
   });
 });
 
