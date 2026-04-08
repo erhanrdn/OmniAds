@@ -43,14 +43,22 @@ vi.mock("@/lib/overview-summary-store", () => ({
   readOverviewSummaryRange: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/reporting", () => ({
+  getGoogleAdsCampaignsReport: vi.fn(),
+  getGoogleAdsOverviewReport: vi.fn(),
+}));
+
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const snapshots = await import("@/lib/provider-account-snapshots");
 const warehouse = await import("@/lib/google-ads/warehouse");
 const overviewStore = await import("@/lib/overview-summary-store");
+const liveReporting = await import("@/lib/google-ads/reporting");
 const {
+  getGoogleAdsCampaignsReport,
   getGoogleCanonicalOverviewSummary,
   getGoogleCanonicalOverviewTrends,
+  getGoogleAdsOverviewReport,
 } = await import("@/lib/google-ads/serving");
 
 describe("google canonical overview helpers", () => {
@@ -129,6 +137,98 @@ describe("google canonical overview helpers", () => {
     );
   });
 
+  it("uses live overlay summary helpers for the provider current day", async () => {
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "acc_1", timezone: "UTC" }],
+      meta: {} as never,
+    } as never);
+    vi.mocked(liveReporting.getGoogleAdsOverviewReport).mockResolvedValue({
+      kpis: {
+        spend: 14,
+        revenue: 28,
+        conversions: 2,
+        roas: 2,
+        cpa: 7,
+        cpc: 1.4,
+        ctr: 4,
+        impressions: 100,
+        clicks: 10,
+        convRate: 20,
+      },
+      kpiDeltas: undefined,
+      topCampaigns: [],
+      insights: [],
+      summary: { topCampaignCount: 1 },
+      meta: {
+        partial: false,
+        warnings: [],
+        failed_queries: [],
+        unavailable_metrics: [],
+        query_names: ["customer_summary"],
+        row_counts: { customer_summary: 1 },
+        report_families: {},
+      },
+    } as never);
+
+    const result = await getGoogleCanonicalOverviewSummary({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-04-07",
+      customEnd: "2026-04-07",
+      compareMode: "none",
+    });
+
+    expect(liveReporting.getGoogleAdsOverviewReport).toHaveBeenCalled();
+    expect(result.summary.readSource).toBe("live_overlay_current_day");
+    expect(result.summary.overlayApplied).toBe(true);
+    expect(result.summary.liveSegmentStartDate).toBe("2026-04-07");
+    expect(result.kpis).toEqual(
+      expect.objectContaining({
+        spend: 14,
+        revenue: 28,
+        conversions: 2,
+      }),
+    );
+  });
+
+  it("uses live overlay campaign helpers for the provider current day", async () => {
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "acc_1", timezone: "UTC" }],
+      meta: {} as never,
+    } as never);
+    vi.mocked(liveReporting.getGoogleAdsCampaignsReport).mockResolvedValue({
+      rows: [{ id: "cmp_1", name: "Campaign 1", spend: 12 }],
+      summary: { totalSpend: 12, totalRevenue: 24, accountAvgRoas: 2 },
+      meta: {
+        partial: false,
+        warnings: [],
+        failed_queries: [],
+        unavailable_metrics: [],
+        query_names: ["campaign_core_basic"],
+        row_counts: { campaign_core_basic: 1 },
+        report_families: {},
+      },
+    } as never);
+
+    const result = await getGoogleAdsCampaignsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-04-07",
+      customEnd: "2026-04-07",
+      compareMode: "none",
+    });
+
+    expect(liveReporting.getGoogleAdsCampaignsReport).toHaveBeenCalled();
+    expect(result.summary).toEqual(
+      expect.objectContaining({
+        readSource: "live_overlay_current_day",
+        overlayApplied: true,
+        liveSegmentStartDate: "2026-04-07",
+      }),
+    );
+    expect(result.rows).toEqual([{ id: "cmp_1", name: "Campaign 1", spend: 12 }]);
+  });
+
   it("falls back to campaign_daily when account_daily materially underreports", async () => {
     vi.mocked(warehouse.readGoogleAdsAggregatedRange).mockImplementation(async (input) => {
       if (input.scope === "campaign_daily") {
@@ -190,6 +290,25 @@ describe("google canonical overview helpers", () => {
     expect(result.meta.fallbackReason).toBe("mutable_window");
     expect(result.meta.degraded).toBe(true);
     expect(result.points).toEqual([]);
+  });
+
+  it("treats provider-account current day as mutable even before UTC day rollover", async () => {
+    vi.setSystemTime(new Date("2026-04-07T12:00:00Z"));
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "acc_1", timezone: "Pacific/Kiritimati" }],
+      meta: {} as never,
+    } as never);
+    vi.mocked(warehouse.readGoogleAdsDailyRange).mockRejectedValue(new Error("timeout"));
+
+    const result = await getGoogleCanonicalOverviewTrends({
+      businessId: "biz",
+      startDate: "2026-04-08",
+      endDate: "2026-04-08",
+    });
+
+    expect(overviewStore.readOverviewSummaryRange).not.toHaveBeenCalled();
+    expect(result.meta.readSource).toBe("provider_truth_unavailable");
+    expect(result.meta.fallbackReason).toBe("mutable_window");
   });
 
   it("allows projection fallback only after provider failure on historical verified windows", async () => {

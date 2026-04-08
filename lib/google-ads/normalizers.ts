@@ -4,6 +4,19 @@ import type { GoogleAdsReportFamilyMeta } from "@/lib/google-ads/intelligence-mo
 export interface GoogleAdsReportMeta {
   partial: boolean;
   warnings: string[];
+  readSource?:
+    | "warehouse_account_aggregate"
+    | "warehouse_campaign_aggregate_fallback"
+    | "warehouse_account_daily"
+    | "warehouse_campaign_daily_fallback"
+    | "projection_fallback"
+    | "provider_truth_unavailable"
+    | "live_overlay_current_day";
+  overlayApplied?: boolean;
+  warehouseSegmentEndDate?: string | null;
+  liveSegmentStartDate?: string | null;
+  fallbackReason?: string | null;
+  degraded?: boolean;
   failed_queries: Array<{
     query: string;
     family: string;

@@ -8,6 +8,7 @@ import {
   replayGoogleAdsDeadLetterPartitions,
 } from "@/lib/google-ads/warehouse";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
+import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
 import {
   enqueueGoogleAdsScheduledWork,
   refreshGoogleAdsSyncStateForBusiness,
@@ -53,7 +54,9 @@ type SyncRecoveryRequestBody = {
     | "refresh_state"
     | "release_quarantine"
     | "force_manual_replay"
-    | "targeted_repair";
+    | "targeted_repair"
+    | "repair_cycle"
+    | "repair_integrity_windows";
   businessId?: string;
   scope?: string | null;
   startDate?: string | null;
@@ -179,6 +182,24 @@ export async function POST(request: NextRequest) {
         }).catch(() => null);
         await logRecovery("completed", { result });
         return NextResponse.json({ ok: true, action: body.action, provider: body.provider, result, authoritative });
+      }
+
+      if (body.action === "repair_cycle" || body.action === "repair_integrity_windows") {
+        const result = await runMetaRepairCycle(body.businessId, {
+          enqueueScheduledWork: body.action === "repair_cycle",
+          queueWarehouseRepairs: true,
+        });
+        const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({
+          businessId: body.businessId,
+        }).catch(() => null);
+        await logRecovery("completed", { result });
+        return NextResponse.json({
+          ok: true,
+          action: body.action,
+          provider: body.provider,
+          result,
+          authoritative,
+        });
       }
     }
 
@@ -316,6 +337,20 @@ export async function POST(request: NextRequest) {
         endDate: body.endDate,
         result,
       });
+      return NextResponse.json({
+        ok: true,
+        action: body.action,
+        provider: body.provider,
+        result,
+      });
+    }
+
+    if (body.action === "repair_cycle" || body.action === "repair_integrity_windows") {
+      const result = await runGoogleAdsRepairCycle(body.businessId, {
+        enqueueScheduledWork: body.action === "repair_cycle",
+        queueWarehouseRepairs: true,
+      });
+      await logRecovery("completed", { result });
       return NextResponse.json({
         ok: true,
         action: body.action,

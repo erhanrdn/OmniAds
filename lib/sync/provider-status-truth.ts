@@ -122,14 +122,19 @@ export function buildRequiredCoverage(input: {
 }): ProviderRequiredCoverage {
   const totalDays = Math.max(0, input.totalDays);
   const completedDays = Math.max(0, Math.min(input.completedDays, totalDays));
+  const complete = totalDays > 0 && completedDays >= totalDays;
   const percent =
-    totalDays > 0 ? Math.max(0, Math.min(100, Math.round((completedDays / totalDays) * 100))) : 0;
+    totalDays > 0
+      ? complete
+        ? 100
+        : Math.max(0, Math.min(99, Math.floor((completedDays / totalDays) * 100)))
+      : 0;
   return {
     completedDays,
     totalDays,
     percent,
     readyThroughDate: input.readyThroughDate,
-    complete: totalDays > 0 && completedDays >= totalDays,
+    complete,
   };
 }
 

@@ -250,6 +250,22 @@ describe("meta creatives sync gating", () => {
   });
 });
 
+describe("syncMetaRepairRange trigger source precedence", () => {
+  it("keeps explicit triggerSource values from collapsing to finalize_day", () => {
+    const source = readFileSync(
+      new URL("./meta-sync.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'input.triggerSource ??\n      (input.startDate === input.endDate ? "finalize_day" : "priority_window")',
+    );
+    expect(source).not.toContain(
+      'input.triggerSource ??\n      input.startDate === input.endDate ? "finalize_day" : "priority_window"',
+    );
+  });
+});
+
 describe("logMetaQueueVisibility", () => {
   it("emits structured background scheduling visibility events", () => {
     const infoSpy = vi

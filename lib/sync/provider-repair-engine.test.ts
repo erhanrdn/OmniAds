@@ -2,15 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueueMetaScheduledWork = vi.fn();
 const syncMetaRepairRange = vi.fn();
+const recoverMetaD1FinalizePartitions = vi.fn();
+const refreshMetaSyncStateForBusiness = vi.fn();
 const enqueueGoogleAdsScheduledWork = vi.fn();
+const syncGoogleAdsRange = vi.fn();
+const refreshGoogleAdsSyncStateForBusiness = vi.fn();
+const getDb = vi.fn();
+const runMigrations = vi.fn();
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork,
+  recoverMetaD1FinalizePartitions,
+  refreshMetaSyncStateForBusiness,
   syncMetaRepairRange,
 }));
 
 vi.mock("@/lib/sync/google-ads-sync", () => ({
   enqueueGoogleAdsScheduledWork,
+  syncGoogleAdsRange,
+  refreshGoogleAdsSyncStateForBusiness,
 }));
 
 vi.mock("@/lib/meta/warehouse", () => ({
@@ -18,6 +28,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   replayMetaDeadLetterPartitions: vi.fn(),
   requeueMetaRetryableFailedPartitions: vi.fn(),
   getMetaQueueHealth: vi.fn(),
+  getMetaCanonicalDriftIncidents: vi.fn(),
   getMetaWarehouseIntegrityIncidents: vi.fn(),
 }));
 
@@ -27,11 +38,43 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   forceReplayGoogleAdsPoisonedPartitions: vi.fn(),
   getGoogleAdsQueueHealth: vi.fn(),
   getGoogleAdsCheckpointHealth: vi.fn(),
+  getGoogleAdsWarehouseIntegrityIncidents: vi.fn(),
+  getGoogleAdsCoveredDates: vi.fn(),
+}));
+
+vi.mock("@/lib/provider-platform-date", () => ({
+  getProviderPlatformPreviousDate: vi.fn(() => Promise.resolve("2026-04-06")),
+}));
+
+vi.mock("@/lib/db", () => ({
+  getDb,
+}));
+
+vi.mock("@/lib/migrations", () => ({
+  runMigrations,
 }));
 
 describe("provider repair engine", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    runMigrations.mockResolvedValue(undefined);
+    getDb.mockReturnValue(
+      vi.fn(async () => [{ count: 0 }]) as never,
+    );
+    recoverMetaD1FinalizePartitions.mockResolvedValue({
+      businessId: "biz-1",
+      targetDate: "2026-04-06",
+      candidateCount: 0,
+      aliveSlowCount: 0,
+      stalledReclaimableCount: 0,
+      reclaimedPartitionIds: [],
+      reconciledRunCount: 0,
+      d1FinalizeRecoveryQueued: false,
+      requeueResult: null,
+    });
+    refreshMetaSyncStateForBusiness.mockResolvedValue(undefined);
+    refreshGoogleAdsSyncStateForBusiness.mockResolvedValue(undefined);
+    syncGoogleAdsRange.mockResolvedValue(undefined);
   });
 
   it("surfaces Meta cleanup summary on successful repair", async () => {
@@ -58,6 +101,8 @@ describe("provider repair engine", () => {
       matchedCount: 0,
       changedCount: 0,
       skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
     } as never);
     vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
     vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
@@ -67,6 +112,7 @@ describe("provider repair engine", () => {
       retryableFailedPartitions: 0,
     } as never);
     vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
 
     const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
     const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
@@ -82,8 +128,12 @@ describe("provider repair engine", () => {
         }),
         cleanupError: null,
         integrityIncidentCount: 0,
+        d1FinalizeRecoveryQueued: false,
       })
     );
+    expect(refreshMetaSyncStateForBusiness).toHaveBeenCalledWith({
+      businessId: "biz-1",
+    });
   });
 
   it("surfaces cleanup_error when Meta cleanup throws", async () => {
@@ -97,6 +147,8 @@ describe("provider repair engine", () => {
       matchedCount: 0,
       changedCount: 0,
       skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
     } as never);
     vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
     vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
@@ -106,6 +158,7 @@ describe("provider repair engine", () => {
       retryableFailedPartitions: 0,
     } as never);
     vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
 
     const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
     const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
@@ -146,6 +199,8 @@ describe("provider repair engine", () => {
       matchedCount: 0,
       changedCount: 0,
       skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
     } as never);
     vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
     vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
@@ -182,6 +237,7 @@ describe("provider repair engine", () => {
         suspectedCause: "legacy_click_semantics",
       },
     ] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
     syncMetaRepairRange.mockResolvedValue({
       businessId: "biz-1",
       attempted: 1,
@@ -206,11 +262,344 @@ describe("provider repair engine", () => {
     expect(result.repair.meta).toEqual(
       expect.objectContaining({
         integrityIncidentCount: 2,
+        integrityAttemptCount: 1,
         queuedWarehouseRepairs: 1,
         integrityRepairRanges: [
           { startDate: "2026-04-01", endDate: "2026-04-02" },
         ],
       }),
+    );
+  });
+
+  it("blocks Meta auto-heal when finalized truth defects remain dead-lettered", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 1,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 1,
+      manualTruthDefectPartitions: [
+        {
+          id: "partition-1",
+          scope: "account_daily",
+          partitionDate: "2026-04-01",
+          lastError: "Meta finalized truth validation failed",
+        },
+      ],
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 1,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "manual_truth_defect",
+          repairable: false,
+        }),
+      ]),
+    );
+  });
+
+  it("keeps the first Google integrity mismatch attempt repairable", async () => {
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration).mockResolvedValue({
+      stalePartitionCount: 1,
+    } as never);
+    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.forceReplayGoogleAdsPoisonedPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+      latestCheckpointScope: null,
+      latestCheckpointPhase: null,
+      latestCheckpointStatus: null,
+      latestCheckpointUpdatedAt: null,
+      checkpointLagMinutes: null,
+      lastSuccessfulPageIndex: null,
+      resumeCapable: false,
+      checkpointFailures: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCoveredDates).mockImplementation(
+      async (input) => {
+        const dates: string[] = [];
+        const cursor = new Date(`${input.startDate}T00:00:00Z`);
+        const end = new Date(`${input.endDate}T00:00:00Z`);
+        while (cursor <= end) {
+          dates.push(cursor.toISOString().slice(0, 10));
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return dates as never;
+      },
+    );
+    vi.mocked(googleAdsWarehouse.getGoogleAdsWarehouseIntegrityIncidents)
+      .mockResolvedValueOnce([
+        {
+          businessId: "biz-1",
+          providerAccountId: "acc-1",
+          date: "2026-04-01",
+          scope: "system",
+          severity: "error",
+          metricsCompared: ["spend"],
+          delta: {},
+          repairRecommended: true,
+          repairStatus: "pending",
+          suspectedCause: "account_campaign_drift",
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          businessId: "biz-1",
+          providerAccountId: "acc-1",
+          date: "2026-04-01",
+          scope: "system",
+          severity: "error",
+          metricsCompared: ["spend"],
+          delta: {},
+          repairRecommended: true,
+          repairStatus: "pending",
+          suspectedCause: "account_campaign_drift",
+        },
+      ] as never);
+    syncGoogleAdsRange.mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    });
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(syncGoogleAdsRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        startDate: "2026-04-01",
+        endDate: "2026-04-01",
+        scopes: ["account_daily", "campaign_daily"],
+      }),
+    );
+    expect(refreshGoogleAdsSyncStateForBusiness).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      scopes: ["account_daily", "campaign_daily", "search_term_daily", "product_daily"],
+    });
+    expect(result.repair.blocked).toBe(false);
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        integrityAttemptCount: 1,
+        remainingMismatchDates: ["2026-04-01"],
+      }),
+    );
+  });
+
+  it("runs Google integrity repair windows and blocks on persistent mismatches", async () => {
+    const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
+    vi.mocked(googleAdsWarehouse.cleanupGoogleAdsPartitionOrchestration).mockResolvedValue({
+      stalePartitionCount: 1,
+    } as never);
+    vi.mocked(googleAdsWarehouse.replayGoogleAdsDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.forceReplayGoogleAdsPoisonedPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCheckpointHealth).mockResolvedValue({
+      latestCheckpointScope: null,
+      latestCheckpointPhase: null,
+      latestCheckpointStatus: null,
+      latestCheckpointUpdatedAt: null,
+      checkpointLagMinutes: null,
+      lastSuccessfulPageIndex: null,
+      resumeCapable: false,
+      checkpointFailures: 0,
+    } as never);
+    vi.mocked(googleAdsWarehouse.getGoogleAdsCoveredDates).mockImplementation(
+      async (input) => {
+        const dates: string[] = [];
+        const cursor = new Date(`${input.startDate}T00:00:00Z`);
+        const end = new Date(`${input.endDate}T00:00:00Z`);
+        while (cursor <= end) {
+          dates.push(cursor.toISOString().slice(0, 10));
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return dates as never;
+      },
+    );
+    vi.mocked(googleAdsWarehouse.getGoogleAdsWarehouseIntegrityIncidents)
+      .mockResolvedValueOnce([
+        {
+          businessId: "biz-1",
+          providerAccountId: "acc-1",
+          date: "2026-04-01",
+          scope: "system",
+          severity: "error",
+          metricsCompared: ["spend"],
+          delta: {},
+          repairRecommended: true,
+          repairStatus: "pending",
+          suspectedCause: "account_campaign_drift",
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          businessId: "biz-1",
+          providerAccountId: "acc-1",
+          date: "2026-04-01",
+          scope: "system",
+          severity: "error",
+          metricsCompared: ["spend"],
+          delta: {},
+          repairRecommended: true,
+          repairStatus: "pending",
+          suspectedCause: "account_campaign_drift",
+        },
+      ] as never);
+    getDb.mockReturnValue(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        const query = strings.join(" ");
+        if (query.includes("FROM admin_audit_logs")) {
+          return [{ count: 1 }];
+        }
+        return [];
+      }) as never,
+    );
+    syncGoogleAdsRange.mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    });
+
+    const { runGoogleAdsRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runGoogleAdsRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "integrity_mismatch_persistent",
+          repairable: false,
+        }),
+      ]),
+    );
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        integrityAttemptCount: 2,
+      }),
+    );
+  });
+
+  it("blocks Meta when canonical drift repeats within 24 hours", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([
+      {
+        providerAccountId: "act_1",
+        date: "2026-04-01",
+        sourceSpend: 9,
+        warehouseAccountSpend: 12.5,
+        warehouseCampaignSpend: 12.5,
+        occurrenceCount: 2,
+        latestCreatedAt: "2026-04-07T10:00:00.000Z",
+        signature: "act_1:2026-04-01:9:12.5:12.5",
+      },
+    ] as never);
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", { enqueueScheduledWork: false });
+
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "manual_truth_defect",
+          repairable: false,
+        }),
+      ]),
     );
   });
 });

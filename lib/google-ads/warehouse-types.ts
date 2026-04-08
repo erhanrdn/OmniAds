@@ -85,6 +85,29 @@ export interface GoogleAdsWarehouseDailyRow extends GoogleAdsWarehouseMetricSet 
   updatedAt?: string;
 }
 
+export interface GoogleAdsWarehouseIntegrityDelta {
+  account: number | null;
+  campaign: number | null;
+  delta: number | null;
+}
+
+export interface GoogleAdsWarehouseIntegrityIncident {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  scope: "system";
+  severity: "info" | "warning" | "error";
+  metricsCompared: string[];
+  delta: Record<string, GoogleAdsWarehouseIntegrityDelta>;
+  repairRecommended: boolean;
+  repairStatus: "not_needed" | "queued" | "completed" | "pending";
+  suspectedCause:
+    | "account_campaign_drift"
+    | "missing_account_rollup"
+    | "missing_campaign_rollup";
+  details?: Record<string, unknown>;
+}
+
 export interface GoogleAdsSyncJobRecord {
   id?: string;
   businessId: string;

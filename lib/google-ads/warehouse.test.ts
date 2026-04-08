@@ -57,6 +57,7 @@ const {
   backfillGoogleAdsRunningRunsForTerminalPartition,
   cleanupGoogleAdsPartitionOrchestration,
   completeGoogleAdsPartitionAttempt,
+  getGoogleAdsWarehouseIntegrityIncidents,
   heartbeatGoogleAdsPartitionLease,
   leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
@@ -100,6 +101,50 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
     ).toEqual({
       source: "last",
     });
+  });
+});
+
+describe("getGoogleAdsWarehouseIntegrityIncidents", () => {
+  it("reports account vs campaign mismatches with repair recommendations", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH account_rows AS")) {
+        return [
+          {
+            business_id: "biz_1",
+            provider_account_id: "acct_1",
+            date: "2026-04-01",
+            account_spend: 0,
+            account_impressions: 0,
+            account_clicks: 0,
+            account_row_count: 1,
+            campaign_spend: 10,
+            campaign_impressions: 100,
+            campaign_clicks: 5,
+            campaign_row_count: 2,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getGoogleAdsWarehouseIntegrityIncidents({
+      businessId: "biz_1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        businessId: "biz_1",
+        providerAccountId: "acct_1",
+        date: "2026-04-01",
+        repairRecommended: true,
+        suspectedCause: "account_campaign_drift",
+        metricsCompared: expect.arrayContaining(["spend", "impressions", "clicks"]),
+      }),
+    ]);
   });
 });
 
@@ -369,6 +414,52 @@ describe("google ads warehouse ownership safety", () => {
     expect(result.aliveSlowCount).toBe(0);
     expect(result.reclaimReasons.stalledReclaimable).toEqual([
       "worker_offline_no_progress",
+    ]);
+  });
+
+  it("reclaims live leases that never produced checkpoint progress or runner ownership", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (
+        query.includes("FROM google_ads_sync_partitions partition") &&
+        query.includes("same_phase_failures")
+      ) {
+        return [
+          {
+            id: "partition-1",
+            scope: "campaign_daily",
+            lane: "core",
+            status: "leased",
+            attempt_count: 0,
+            updated_at: new Date(Date.now() - 2 * 60_000).toISOString(),
+            started_at: null,
+            lease_expires_at: new Date(Date.now() + 3 * 60_000).toISOString(),
+            checkpoint_scope: null,
+            phase: null,
+            page_index: null,
+            checkpoint_attempt_count: null,
+            checkpoint_status: null,
+            progress_updated_at: null,
+            poisoned_at: null,
+            poison_reason: null,
+            same_phase_failures: 0,
+            has_active_runner_lease: false,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupGoogleAdsPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.stalePartitionCount).toBe(1);
+    expect(result.aliveSlowCount).toBe(0);
+    expect(result.reclaimReasons.stalledReclaimable).toEqual([
+      "runner_lease_missing_no_progress",
     ]);
   });
 

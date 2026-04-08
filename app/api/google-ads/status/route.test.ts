@@ -87,7 +87,11 @@ vi.mock("@/lib/google-ads/advisor-snapshots", () => ({
 }));
 
 vi.mock("@/lib/google-ads/advisor-progress", () => ({
-  buildGoogleAdsAdvisorProgress: vi.fn(() => ({ progressPercent: 0 })),
+  buildGoogleAdsAdvisorProgress: vi.fn(() => ({
+    percent: 0,
+    visible: false,
+    summary: "Finalizing growth analysis.",
+  })),
 }));
 
 vi.mock("@/lib/migrations", () => ({
@@ -208,6 +212,83 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(db.getDb).mockReturnValue(sql as never);
   });
 
+  it("uses the account platform timezone for current-day live mode", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-07T12:30:00.000Z"));
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "acc_1", name: "Main", timezone: "Pacific/Kiritimati" }],
+      meta: {
+        source: "snapshot",
+        sourceHealth: "healthy_cached",
+        fetchedAt: null,
+        stale: false,
+        refreshFailed: false,
+        failureClass: null,
+        lastError: null,
+        lastKnownGoodAvailable: true,
+        refreshRequestedAt: null,
+        lastRefreshAttemptAt: null,
+        nextRefreshAfter: null,
+        retryAfterAt: null,
+        refreshInProgress: false,
+        sourceReason: null,
+      },
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/google-ads/status?businessId=biz&startDate=2026-04-08&endDate=2026-04-08"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.servingMode).toBe("warehouse_with_live_overlay");
+    expect(payload.currentDateInTimezone).toBe("2026-04-08");
+    expect(payload.dataContract).toEqual({
+      todayMode: "live_overlay",
+      historicalMode: "warehouse_only",
+    });
+    expect(payload.platformDateBoundary).toMatchObject({
+      currentDateInTimezone: "2026-04-08",
+      previousDateInTimezone: "2026-04-07",
+      selectedRangeMode: "current_day_live",
+      mixedCurrentDates: false,
+    });
+    expect(payload.currentDayLiveStatus).toMatchObject({
+      active: true,
+      currentDate: "2026-04-08",
+      warehouseSegmentEndDate: "2026-04-07",
+      liveSegmentStartDate: "2026-04-08",
+    });
+    expect(payload.advisor.selectedWindow).toMatchObject({
+      missingSurfaces: [],
+    });
+    expect(payload.selectedRangeReadinessBasis).toMatchObject({
+      mode: "current_day_live",
+      warehouseCoverageIgnored: true,
+    });
+    vi.useRealTimers();
+  });
+
   it("reports warehouse readiness even when Google is disconnected", async () => {
     const response = await GET(
       new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
@@ -219,6 +300,13 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");
+    expect(payload.completionBasis).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["account_daily", "campaign_daily"],
+        percent: 100,
+        complete: true,
+      })
+    );
   });
 
   it("returns selected-range readiness for all visible Google Ads extended surfaces", async () => {

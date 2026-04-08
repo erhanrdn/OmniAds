@@ -41,6 +41,10 @@ import {
   hydrateOverviewSummaryRangeFromGoogle,
   readOverviewSummaryRange,
 } from "@/lib/overview-summary-store";
+import {
+  getGoogleAdsCampaignsReport as getLiveGoogleAdsCampaignsReport,
+  getGoogleAdsOverviewReport as getLiveGoogleAdsOverviewReport,
+} from "@/lib/google-ads/reporting";
 import type {
   GoogleAdsWarehouseDataState,
   GoogleAdsWarehouseDailyRow,
@@ -49,6 +53,10 @@ import type {
 } from "@/lib/google-ads/warehouse-types";
 import type { BaseReportParams, ComparativeReportParams, ReportResult, OverviewReportResult } from "@/lib/google-ads/reporting-core";
 import { buildProviderStateContract } from "@/lib/provider-readiness";
+import {
+  getProviderPlatformCurrentDate,
+  getTodayIsoForTimeZoneServer,
+} from "@/lib/provider-platform-date";
 
 type WarehouseMeta = GoogleAdsReportMeta & GoogleAdsWarehouseFreshness;
 
@@ -60,6 +68,7 @@ type WarehouseContextCacheEntry = {
     providerAccountIds: string[];
     startDate: string;
     endDate: string;
+    providerCurrentDate: string;
     dataState: GoogleAdsWarehouseFreshness["dataState"];
     providerState: ReturnType<typeof buildProviderStateContract>;
   }>;
@@ -220,6 +229,18 @@ async function resolveWarehouseContext(input: {
       input.customStart ?? undefined,
       input.customEnd ?? undefined
     );
+    const providerCurrentDate =
+      providerAccountIds.length > 0
+        ? await getProviderPlatformCurrentDate({
+            provider: "google",
+            businessId: input.businessId,
+            providerAccountId:
+              input.accountId && input.accountId !== "all"
+                ? input.accountId
+                : providerAccountIds[0],
+            providerAccountIds,
+          }).catch(() => new Date().toISOString().slice(0, 10))
+        : new Date().toISOString().slice(0, 10);
 
     const providerState = buildProviderStateContract({
       credentialState: integration?.status === "connected" ? "connected" : "not_connected",
@@ -232,7 +253,7 @@ async function resolveWarehouseContext(input: {
           : providerAccountIds.length === 0
             ? "connected_no_assignment"
             : "ready",
-      selectedCurrentDay: endDate >= new Date().toISOString().slice(0, 10),
+      selectedCurrentDay: endDate >= providerCurrentDate,
     });
 
     const dataState: GoogleAdsWarehouseDataState =
@@ -245,6 +266,7 @@ async function resolveWarehouseContext(input: {
       providerAccountIds,
       startDate,
       endDate,
+      providerCurrentDate,
       dataState,
       providerState,
     };
@@ -280,6 +302,16 @@ async function buildFreshness(input: {
   endDate: string;
   rows: GoogleAdsWarehouseDailyRow[];
 }) {
+  const providerCurrentDate =
+    input.providerAccountIds.length > 0
+      ? await getProviderPlatformCurrentDate({
+          provider: "google",
+          businessId: input.businessId,
+          providerAccountId:
+            input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
+          providerAccountIds: input.providerAccountIds,
+        }).catch(() => new Date().toISOString().slice(0, 10))
+      : new Date().toISOString().slice(0, 10);
   const latestSync = await getLatestGoogleAdsSyncHealth({
     businessId: input.businessId,
     providerAccountId: input.providerAccountIds.length === 1 ? input.providerAccountIds[0] : null,
@@ -317,8 +349,7 @@ async function buildFreshness(input: {
         return !latest || row.updatedAt > latest ? row.updatedAt : latest;
       }, null) ??
       (coverage?.latest_updated_at ?? null),
-    liveRefreshedAt:
-      input.endDate >= new Date().toISOString().slice(0, 10) ? new Date().toISOString() : null,
+    liveRefreshedAt: input.endDate >= providerCurrentDate ? new Date().toISOString() : null,
     isPartial: missingWindows.length > 0,
     missingWindows,
     warnings: latestSync && latestSync.last_error ? [String(latestSync.last_error)] : [],
@@ -412,7 +443,11 @@ export interface GoogleAdsOverviewSummaryResult {
     totalAccounts: number;
     readSource:
       | "warehouse_account_aggregate"
-      | "warehouse_campaign_aggregate_fallback";
+      | "warehouse_campaign_aggregate_fallback"
+      | "live_overlay_current_day";
+    overlayApplied?: boolean;
+    warehouseSegmentEndDate?: string | null;
+    liveSegmentStartDate?: string | null;
   };
   meta: WarehouseMeta;
 }
@@ -424,12 +459,40 @@ export interface GoogleAdsCanonicalOverviewSummaryResult {
     totalAccounts: number;
     readSource:
       | "warehouse_account_aggregate"
-      | "warehouse_campaign_aggregate_fallback";
+      | "warehouse_campaign_aggregate_fallback"
+      | "live_overlay_current_day";
+    overlayApplied?: boolean;
+    warehouseSegmentEndDate?: string | null;
+    liveSegmentStartDate?: string | null;
   };
   meta: WarehouseMeta & {
     readSource:
       | "warehouse_account_aggregate"
-      | "warehouse_campaign_aggregate_fallback";
+      | "warehouse_campaign_aggregate_fallback"
+      | "live_overlay_current_day";
+    overlayApplied?: boolean;
+    warehouseSegmentEndDate?: string | null;
+    liveSegmentStartDate?: string | null;
+  };
+}
+
+function isCurrentDayOnlyWindow(input: {
+  startDate: string;
+  endDate: string;
+  providerCurrentDate: string;
+}) {
+  return (
+    input.startDate === input.providerCurrentDate &&
+    input.endDate === input.providerCurrentDate
+  );
+}
+
+function buildCurrentDayOverlayMeta(input: { providerCurrentDate: string }) {
+  return {
+    readSource: "live_overlay_current_day" as const,
+    overlayApplied: true,
+    warehouseSegmentEndDate: null,
+    liveSegmentStartDate: input.providerCurrentDate,
   };
 }
 
@@ -461,19 +524,6 @@ function countRangeDays(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00Z`).getTime();
   const end = new Date(`${endDate}T00:00:00Z`).getTime();
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
-}
-
-function getTodayIsoForTimeZoneServer(timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
-  const month = parts.find((part) => part.type === "month")?.value ?? "01";
-  const day = parts.find((part) => part.type === "day")?.value ?? "01";
-  return `${year}-${month}-${day}`;
 }
 
 function buildOverviewKpisFromRows(rows: Array<Record<string, unknown>>) {
@@ -898,6 +948,41 @@ async function buildScopeResponse(input: {
 export async function getGoogleAdsCampaignsReport(
   params: ComparativeReportParams
 ): Promise<ReportResult<Record<string, unknown>>> {
+  const currentDayContext = await resolveWarehouseContext({
+    businessId: params.businessId,
+    accountId: params.accountId ?? null,
+    dateRange: params.dateRange,
+    customStart: params.customStart ?? null,
+    customEnd: params.customEnd ?? null,
+  });
+  if (
+    isCurrentDayOnlyWindow({
+      startDate: currentDayContext.startDate,
+      endDate: currentDayContext.endDate,
+      providerCurrentDate: currentDayContext.providerCurrentDate,
+    })
+  ) {
+    const liveReport = await getLiveGoogleAdsCampaignsReport(params);
+    return {
+      rows: liveReport.rows,
+      summary: {
+        ...(liveReport.summary ?? {}),
+        readSource: "live_overlay_current_day",
+        overlayApplied: true,
+        warehouseSegmentEndDate: null,
+        liveSegmentStartDate: currentDayContext.providerCurrentDate,
+      },
+      insights: liveReport.insights,
+      meta: {
+        ...liveReport.meta,
+        readSource: "live_overlay_current_day",
+        overlayApplied: true,
+        warehouseSegmentEndDate: null,
+        liveSegmentStartDate: currentDayContext.providerCurrentDate,
+      },
+    };
+  }
+
   const current = await buildScopeResponse({ params, scope: "campaign_daily" });
   const compareWindow = getComparisonWindow({
     compareMode: params.compareMode,
@@ -938,6 +1023,40 @@ export async function getGoogleAdsCampaignsReport(
 export async function getGoogleAdsOverviewReport(
   params: ComparativeReportParams
 ): Promise<OverviewReportResult> {
+  const currentDayContext = await resolveWarehouseContext({
+    businessId: params.businessId,
+    accountId: params.accountId ?? null,
+    dateRange: params.dateRange,
+    customStart: params.customStart ?? null,
+    customEnd: params.customEnd ?? null,
+  });
+  if (
+    isCurrentDayOnlyWindow({
+      startDate: currentDayContext.startDate,
+      endDate: currentDayContext.endDate,
+      providerCurrentDate: currentDayContext.providerCurrentDate,
+    })
+  ) {
+    const liveReport = await getLiveGoogleAdsOverviewReport(params);
+    return {
+      ...liveReport,
+      summary: {
+        ...(liveReport.summary ?? {}),
+        readSource: "live_overlay_current_day",
+        overlayApplied: true,
+        warehouseSegmentEndDate: null,
+        liveSegmentStartDate: currentDayContext.providerCurrentDate,
+      },
+      meta: {
+        ...liveReport.meta,
+        readSource: "live_overlay_current_day",
+        overlayApplied: true,
+        warehouseSegmentEndDate: null,
+        liveSegmentStartDate: currentDayContext.providerCurrentDate,
+      },
+    };
+  }
+
   const [campaigns, canonicalSummary] = await Promise.all([
     getGoogleAdsCampaignsReport(params),
     getGoogleCanonicalOverviewSummary(params),
@@ -974,6 +1093,64 @@ export async function getGoogleAdsOverviewReport(
 export async function getGoogleCanonicalOverviewSummary(
   params: ComparativeReportParams,
 ): Promise<GoogleAdsCanonicalOverviewSummaryResult> {
+  const currentDayContext = await resolveWarehouseContext({
+    businessId: params.businessId,
+    accountId: params.accountId ?? null,
+    dateRange: params.dateRange,
+    customStart: params.customStart ?? null,
+    customEnd: params.customEnd ?? null,
+  });
+  if (
+    isCurrentDayOnlyWindow({
+      startDate: currentDayContext.startDate,
+      endDate: currentDayContext.endDate,
+      providerCurrentDate: currentDayContext.providerCurrentDate,
+    })
+  ) {
+    const liveReport = await getLiveGoogleAdsOverviewReport(params);
+    const overlayMeta = buildCurrentDayOverlayMeta({
+      providerCurrentDate: currentDayContext.providerCurrentDate,
+    });
+    return {
+      kpis: {
+        spend: Number(liveReport.kpis.spend ?? 0),
+        revenue: Number(liveReport.kpis.revenue ?? 0),
+        conversions: Number(liveReport.kpis.conversions ?? 0),
+        roas: Number(liveReport.kpis.roas ?? 0),
+        cpa: Number(liveReport.kpis.cpa ?? 0),
+        cpc: Number(liveReport.kpis.cpc ?? 0),
+        ctr: Number(liveReport.kpis.ctr ?? 0),
+        impressions: Number(liveReport.kpis.impressions ?? 0),
+        clicks: Number(liveReport.kpis.clicks ?? 0),
+        convRate: Number(liveReport.kpis.convRate ?? 0),
+      },
+      kpiDeltas: liveReport.kpiDeltas,
+      summary: {
+        totalAccounts: Number(
+          liveReport.summary?.topCampaignCount ?? liveReport.topCampaigns.length,
+        ),
+        ...overlayMeta,
+      },
+      meta: {
+        ...createGoogleAdsWarehouseFreshness({
+          dataState: "ready",
+          liveRefreshedAt: new Date().toISOString(),
+          isPartial: false,
+          missingWindows: [],
+          warnings: [],
+        }),
+        partial: false,
+        failed_queries: liveReport.meta.failed_queries ?? [],
+        unavailable_metrics: liveReport.meta.unavailable_metrics ?? [],
+        query_names: liveReport.meta.query_names ?? [],
+        row_counts: liveReport.meta.row_counts ?? {},
+        report_families: liveReport.meta.report_families ?? {},
+        debug: liveReport.meta.debug,
+        ...overlayMeta,
+      },
+    };
+  }
+
   const current = await buildScopeResponse({ params, scope: "account_daily" });
   const accountRows = current.rows as Array<Record<string, unknown>>;
   const compareWindow = getComparisonWindow({

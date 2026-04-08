@@ -246,6 +246,53 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.progressState).toBe("partial_progressing");
   });
 
+  it("counts classifier reclaim candidates as stuck work instead of stale provider running rows", () => {
+    const staleRunningAt = new Date(Date.now() - 30 * 60_000).toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [
+        {
+          business_id: "biz-g",
+          business_name: "Grandmix",
+          provider: "google_ads",
+          report_type: "campaign_daily",
+          status: "running",
+          error_message: null,
+          triggered_at: staleRunningAt,
+          started_at: staleRunningAt,
+          completed_at: null,
+        },
+      ],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-g",
+          business_name: "Grandmix",
+          queue_depth: 4,
+          leased_partitions: 3,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: staleRunningAt,
+          latest_checkpoint_updated_at: staleRunningAt,
+          campaign_completed_days: 10,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 2,
+          product_completed_days: 1,
+        },
+      ],
+      googleAdsReclaimSummaries: {
+        "biz-g": {
+          activeSlowPartitions: 1,
+          reclaimCandidateCount: 2,
+          poisonCandidateCount: 0,
+        },
+      },
+    });
+
+    expect(payload.summary.stuckJobs).toBe(2);
+    expect(payload.googleAdsBusinesses?.[0]?.activeSlowPartitions).toBe(1);
+    expect(payload.googleAdsBusinesses?.[0]?.reclaimCandidateCount).toBe(2);
+  });
+
   it("surfaces lease-conflict and skipped-active-lease counters as actionable issues", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],
@@ -570,6 +617,129 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.validationFailures24h).toBe(2);
     expect(payload.metaBusinesses?.[0]?.repairBacklog).toBe(3);
     expect(payload.metaBusinesses?.[0]?.lastSuccessfulPublishAt).toBe("2026-04-05T08:59:00.000Z");
+  });
+
+  it("surfaces Meta integrity blockers and D-1 finalize nonterminal counts", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "IwaStore",
+          queue_depth: 2,
+          leased_partitions: 1,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 3,
+          current_day_reference: "2026-04-06",
+          oldest_queued_partition: "2026-04-06",
+          latest_partition_activity_at: "2026-04-07T09:00:00.000Z",
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: "2026-04-07T09:05:00.000Z",
+          latest_progress_heartbeat_at: "2026-04-07T09:05:00.000Z",
+          last_successful_page_index: 3,
+          checkpoint_failures: 0,
+          reclaim_candidate_count: 1,
+          last_reclaim_reason: "lease_expired_no_progress",
+          skipped_active_lease_recoveries: 0,
+          stale_run_count_24h: 0,
+          today_account_rows: 2,
+          today_adset_rows: 2,
+          account_completed_days: 100,
+          adset_completed_days: 100,
+          creative_completed_days: 80,
+          ad_completed_days: 80,
+        },
+      ],
+      metaAuthoritativeSnapshots: [
+        {
+          businessId: "biz-meta",
+          capturedAt: "2026-04-07T10:00:00.000Z",
+          manifestCounts: {
+            pending: 1,
+            running: 0,
+            completed: 3,
+            failed: 1,
+            superseded: 0,
+            total: 5,
+          },
+          progression: {
+            queued: 2,
+            leased: 1,
+            published: 7,
+            retryableFailed: 0,
+            deadLetter: 0,
+            staleLeases: 0,
+            repairBacklog: 1,
+          },
+          latestPublishes: [],
+          d1FinalizeSla: {
+            totalAccounts: 1,
+            breachedAccounts: 1,
+            accounts: [
+              {
+                providerAccountId: "act_1",
+                accountTimezone: "UTC",
+                expectedDay: "2026-04-06",
+                verificationState: "repair_required",
+                publishedAt: null,
+                breached: true,
+              },
+            ],
+          },
+          validationFailures24h: 1,
+          recentFailures: [
+            {
+              providerAccountId: "act_1",
+              day: "2026-04-06",
+              surface: "account_daily",
+              result: "repair_required",
+              eventKind: "totals_mismatch",
+              severity: "error",
+              reason: "canonical drift",
+              createdAt: "2026-04-07T09:06:00.000Z",
+            },
+          ],
+          lastSuccessfulPublishAt: "2026-04-06T22:00:00.000Z",
+        },
+      ],
+      metaIntegritySummaries: {
+        "biz-meta": {
+          incidentCount: 2,
+          blockedCount: 1,
+        },
+      },
+      metaD1FinalizeNonTerminalCounts: {
+        "biz-meta": 2,
+      },
+      metaReclaimSummaries: {
+        "biz-meta": {
+          activeSlowPartitions: 0,
+          reclaimCandidateCount: 1,
+        },
+      },
+    });
+
+    expect(payload.summary.metaIntegrityIncidentCount).toBe(2);
+    expect(payload.summary.metaIntegrityBlockedCount).toBe(1);
+    expect(payload.summary.metaD1FinalizeNonTerminalCount).toBe(2);
+    expect(payload.metaBusinesses?.[0]?.integrityBlockedCount).toBe(1);
+    expect(payload.metaBusinesses?.[0]?.d1FinalizeNonTerminalCount).toBe(2);
+    expect(payload.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          businessId: "biz-meta",
+          reportType: "integrity_blocked",
+        }),
+        expect.objectContaining({
+          businessId: "biz-meta",
+          reportType: "d1_finalize_nonterminal",
+        }),
+      ]),
+    );
   });
 });
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildGoogleAdsAccountDailyAuditPayload,
   buildGoogleAdsLaneAdmissionPolicy,
   buildGoogleAdsPrimaryLeasePlan,
   buildGoogleAdsMaintenanceLeasePlan,
@@ -18,6 +19,7 @@ import {
   shouldRetryGoogleAdsEmptyCampaignDaily,
   shouldBlockGoogleAdsHistoricalExtendedWork,
   shouldLeaseGoogleAdsRecentRepair,
+  summarizeGoogleAdsIntegrityIncidents,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -284,6 +286,79 @@ describe("shouldRetryGoogleAdsEmptyCampaignDaily", () => {
         campaignRowCount: 2,
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildGoogleAdsAccountDailyAuditPayload", () => {
+  it("marks account_daily as campaign-rollup canonical when metrics align", () => {
+    expect(
+      buildGoogleAdsAccountDailyAuditPayload({
+        canonicalMetrics: {
+          spend: 12.5,
+          revenue: 30,
+          conversions: 2,
+          impressions: 100,
+          clicks: 10,
+        },
+        referenceOverview: {
+          spend: 12.5,
+          revenue: 30,
+          conversions: 2,
+          impressions: 100,
+          clicks: 10,
+        },
+        campaignRowCount: 3,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        canonicalSource: "campaign_rollup",
+        campaignRowCount: 3,
+        integrityStatus: "verified",
+        overviewDelta: expect.objectContaining({
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+        }),
+      }),
+    );
+  });
+
+  it("flags mismatches when reference metrics diverge from campaign rollups", () => {
+    expect(
+      buildGoogleAdsAccountDailyAuditPayload({
+        canonicalMetrics: {
+          spend: 12.5,
+          revenue: 30,
+          conversions: 2,
+          impressions: 100,
+          clicks: 10,
+        },
+        referenceOverview: {
+          spend: 1,
+          revenue: 5,
+          conversions: 1,
+          impressions: 10,
+          clicks: 1,
+        },
+        campaignRowCount: 2,
+      }).integrityStatus,
+    ).toBe("mismatch");
+  });
+});
+
+describe("summarizeGoogleAdsIntegrityIncidents", () => {
+  it("deduplicates mismatch dates and account ids", () => {
+    expect(
+      summarizeGoogleAdsIntegrityIncidents([
+        { providerAccountId: "acc-1", date: "2026-04-01" },
+        { providerAccountId: "acc-1", date: "2026-04-01" },
+        { providerAccountId: "acc-2", date: "2026-04-02" },
+      ]),
+    ).toEqual({
+      incidentCount: 3,
+      mismatchDates: ["2026-04-01", "2026-04-02"],
+      providerAccountIds: ["acc-1", "acc-2"],
+    });
   });
 });
 

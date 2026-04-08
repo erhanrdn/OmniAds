@@ -260,6 +260,103 @@ describe("meta warehouse ownership safety", () => {
     expect(query).toContain("daily_budget = COALESCE(EXCLUDED.daily_budget, meta_adset_daily.daily_budget)");
   });
 
+  it("writes zero link_clicks for sparse meta ad rows", async () => {
+    const capturedValues: unknown[][] = [];
+    const sql = vi.fn(async () => []);
+    Object.assign(sql, {
+      query: vi.fn(async (_query: string, values: unknown[]) => {
+        capturedValues.push(values);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaAdDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        adNameCurrent: "Ad 1",
+        adNameHistorical: "Ad 1",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 100,
+        clicks: 5,
+        reach: 90,
+        frequency: 1.1,
+        conversions: 1,
+        revenue: 20,
+        roas: 1.7,
+        cpa: 12,
+        ctr: 5,
+        cpc: 2.4,
+        linkClicks: null,
+        sourceSnapshotId: "snapshot-1",
+        payloadJson: null,
+      },
+    ]);
+
+    expect(capturedValues).toHaveLength(1);
+    expect(capturedValues[0]?.[22]).toBe(0);
+  });
+
+  it("casts warehouse range dates to text when truth lifecycle columns are enabled", async () => {
+    vi.resetModules();
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("information_schema.columns")) {
+        return [{ present: true }];
+      }
+      return [];
+    });
+    vi.doMock("@/lib/db", () => ({
+      getDb: vi.fn(() => sql),
+    }));
+    vi.doMock("@/lib/migrations", () => ({
+      runMigrations: vi.fn(),
+    }));
+    vi.doMock("@/lib/sync/worker-health", () => ({
+      recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    const module = await import("@/lib/meta/warehouse");
+
+    await module.getMetaAccountDailyRange({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      includeProvisional: true,
+    });
+    await module.getMetaCampaignDailyRange({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      includeProvisional: true,
+    });
+
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("FROM meta_account_daily") &&
+          query.includes("date::text AS date"),
+      ),
+    ).toBe(true);
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("FROM meta_campaign_daily") &&
+          query.includes("date::text AS date"),
+      ),
+    ).toBe(true);
+  });
+
   it("batches meta creative daily upserts instead of writing one row per query", async () => {
     const queries: string[] = [];
     const queryMock = vi.fn(async (query: string) => {
@@ -1240,7 +1337,7 @@ describe("meta warehouse ownership safety", () => {
     ).toBe(true);
   });
 
-  it("preserves partitions whose lease has not expired yet", async () => {
+  it("reclaims non-expired leases when no runner ownership or checkpoint progress remains", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
@@ -1257,6 +1354,48 @@ describe("meta warehouse ownership safety", () => {
             phase: "fetch_raw",
             page_index: 0,
             checkpoint_updated_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+            has_matching_runner_lease: false,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await cleanupMetaPartitionOrchestration({
+      businessId: "biz-1",
+      staleLeaseMinutes: 8,
+    });
+
+    expect(result.stalePartitionCount).toBe(1);
+    expect(result.aliveSlowCount).toBe(0);
+    expect(result.preservedByReason).toEqual({
+      recentCheckpointProgress: 0,
+      matchingRunnerLeasePresent: 0,
+      leaseNotExpired: 0,
+    });
+    expect(result.reclaimReasons.stalledReclaimable).toEqual([
+      "runner_lease_missing_no_progress",
+    ]);
+  });
+
+  it("preserves fresh non-expired leases during the initial reclaim grace window", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_sync_partitions partition") && query.includes("partition.status IN ('leased', 'running')")) {
+        return [
+          {
+            id: "partition-1",
+            lane: "maintenance",
+            scope: "account_daily",
+            updated_at: new Date(Date.now() - 30_000).toISOString(),
+            started_at: null,
+            lease_owner: "sync-worker:1",
+            lease_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+            checkpoint_scope: null,
+            phase: null,
+            page_index: 0,
+            checkpoint_updated_at: null,
             has_matching_runner_lease: false,
           },
         ];

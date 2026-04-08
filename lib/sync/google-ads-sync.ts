@@ -10,7 +10,12 @@ import {
   getGoogleAdsProductsReport,
   getGoogleAdsSearchIntelligenceReport,
 } from "@/lib/google-ads/reporting";
-import { GOOGLE_ADS_CAMPAIGN_CORE_LIMIT } from "@/lib/google-ads/query-builders";
+import { GOOGLE_ADS_CAMPAIGN_CORE_LIMIT, buildCustomerSummaryQuery } from "@/lib/google-ads/query-builders";
+import {
+  aggregateOverviewKpis,
+  resolveContext,
+  runNamedQuery,
+} from "@/lib/google-ads/reporting-core";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import {
@@ -56,6 +61,7 @@ import {
   getGoogleAdsPartitionHealth,
   getGoogleAdsPartitionDates,
   getGoogleAdsQueueHealth,
+  getGoogleAdsWarehouseIntegrityIncidents,
   getLatestGoogleAdsCheckpointForPartition,
   getLatestRunningGoogleAdsSyncRunIdForPartition,
   getGoogleAdsSyncState,
@@ -2591,6 +2597,102 @@ function aggregateAccountMetrics(rows: GenericRow[]) {
   );
 }
 
+function extractGoogleAdsOverviewMetrics(rows: GenericRow[]) {
+  const kpis = aggregateOverviewKpis(rows as never);
+  return {
+    spend: toNumber(kpis.spend),
+    revenue: toNumber(kpis.revenue),
+    conversions: toNumber(kpis.conversions),
+    impressions: Math.round(toNumber(kpis.impressions)),
+    clicks: Math.round(toNumber(kpis.clicks)),
+  };
+}
+
+function withinGoogleAdsVerificationTolerance(expected: number, actual: number) {
+  return Math.abs(expected - actual) <= Math.max(0.01, Math.abs(expected) * 0.001);
+}
+
+export function buildGoogleAdsAccountDailyAuditPayload(input: {
+  canonicalMetrics: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    impressions: number;
+    clicks: number;
+  };
+  referenceOverview?: {
+    spend: number;
+    revenue: number;
+    conversions: number;
+    impressions: number;
+    clicks: number;
+  } | null;
+  campaignRowCount: number;
+}) {
+  const reference = input.referenceOverview ?? null;
+  const overviewDelta = {
+    spend: reference
+      ? Number((input.canonicalMetrics.spend - reference.spend).toFixed(2))
+      : null,
+    revenue: reference
+      ? Number((input.canonicalMetrics.revenue - reference.revenue).toFixed(2))
+      : null,
+    conversions: reference
+      ? Number((input.canonicalMetrics.conversions - reference.conversions).toFixed(2))
+      : null,
+    impressions: reference
+      ? Number((input.canonicalMetrics.impressions - reference.impressions).toFixed(2))
+      : null,
+    clicks: reference
+      ? Number((input.canonicalMetrics.clicks - reference.clicks).toFixed(2))
+      : null,
+  };
+  const integrityStatus =
+    !reference
+      ? "unverified"
+      : withinGoogleAdsVerificationTolerance(
+            input.canonicalMetrics.spend,
+            reference.spend,
+          ) &&
+          withinGoogleAdsVerificationTolerance(
+            input.canonicalMetrics.impressions,
+            reference.impressions,
+          ) &&
+          withinGoogleAdsVerificationTolerance(
+            input.canonicalMetrics.clicks,
+            reference.clicks,
+          )
+        ? "verified"
+        : "mismatch";
+
+  return {
+    canonicalSource: "campaign_rollup" as const,
+    campaignRowCount: input.campaignRowCount,
+    rawOverview: reference,
+    overviewDelta,
+    integrityStatus,
+  };
+}
+
+export function summarizeGoogleAdsIntegrityIncidents(
+  incidents: Array<{
+    providerAccountId: string;
+    date: string;
+  }>,
+) {
+  const mismatchDates = Array.from(
+    new Set(incidents.map((incident) => incident.date)),
+  ).sort();
+  const providerAccountIds = Array.from(
+    new Set(incidents.map((incident) => incident.providerAccountId)),
+  ).sort();
+  return {
+    incidentCount: incidents.length,
+    mismatchDates,
+    providerAccountIds,
+  };
+}
+
 export function shouldRetryGoogleAdsEmptyCampaignDaily(input: {
   overview:
     | {
@@ -2614,14 +2716,20 @@ export function shouldRetryGoogleAdsEmptyCampaignDaily(input: {
   );
 }
 
-async function resolveGoogleAdsCurrentDate(businessId: string) {
+async function resolveGoogleAdsCurrentDate(
+  businessId: string,
+  providerAccountId?: string | null,
+) {
   const [assignments, snapshot] = await Promise.all([
     getProviderAccountAssignments(businessId, "google").catch(() => null),
     readProviderAccountSnapshot({ businessId, provider: "google" }).catch(
       () => null,
     ),
   ]);
-  const primaryAccountId = assignments?.account_ids?.[0] ?? null;
+  const primaryAccountId =
+    providerAccountId ??
+    assignments?.account_ids?.[0] ??
+    null;
   const timeZone =
     snapshot?.accounts.find((account) => account.id === primaryAccountId)
       ?.timezone ?? "UTC";
@@ -2664,8 +2772,14 @@ function getGoogleAdsWorkerId() {
   return `worker:${process.pid}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function computeHistoricalTargets(businessId: string) {
-  const today = await resolveGoogleAdsCurrentDate(businessId).catch(() =>
+async function computeHistoricalTargets(
+  businessId: string,
+  providerAccountId?: string | null,
+) {
+  const today = await resolveGoogleAdsCurrentDate(
+    businessId,
+    providerAccountId,
+  ).catch(() =>
     new Date().toISOString().slice(0, 10),
   );
   const yesterday = addDaysToIsoDate(today, -1);
@@ -2735,18 +2849,20 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
     () => [],
   );
   if (accountIds.length === 0) return 0;
-  const { historicalStart, yesterday } =
-    await computeHistoricalTargets(businessId);
   const recent90State = await getGoogleAdsRecent90CompletionState({
     businessId,
   }).catch(() => null);
-  const targetStart = decideGoogleAdsHistoricalFrontier({
-    historicalStart,
-    recent90Start: recent90State?.recent90Start ?? historicalStart,
-    recent90Complete: recent90State?.complete ?? true,
-  });
   let queued = 0;
   for (const providerAccountId of accountIds) {
+    const { historicalStart, yesterday } = await computeHistoricalTargets(
+      businessId,
+      providerAccountId,
+    );
+    const targetStart = decideGoogleAdsHistoricalFrontier({
+      historicalStart,
+      recent90Start: recent90State?.recent90Start ?? historicalStart,
+      recent90Complete: recent90State?.complete ?? true,
+    });
     const [coveredDates, activePartitionDates] = await Promise.all([
       getGoogleAdsCoveredDates({
         scope: "campaign_daily",
@@ -2793,13 +2909,16 @@ async function enqueueMaintenancePartitions(businessId: string) {
     () => [],
   );
   if (accountIds.length === 0) return;
-  const { today, yesterday } = await computeHistoricalTargets(businessId);
-  const recentDates = enumerateDays(
-    addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
-    yesterday,
-    true,
-  );
   for (const providerAccountId of accountIds) {
+    const { today, yesterday } = await computeHistoricalTargets(
+      businessId,
+      providerAccountId,
+    );
+    const recentDates = enumerateDays(
+      addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
+      yesterday,
+      true,
+    );
     const activeRecentDates = new Set(
       await getGoogleAdsPartitionDates({
         businessId,
@@ -3140,13 +3259,34 @@ async function syncGoogleAdsAccountDay(input: {
         `${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE}: campaign_daily returned ${campaignRows.length} rows, hitting hard cap ${GOOGLE_ADS_CAMPAIGN_CORE_LIMIT}`,
       );
     }
+    const rawOverviewResult = wants("account_daily")
+      ? await (async () => {
+          const resolved = await resolveContext({
+            ...baseParams,
+            source: "google_ads_warehouse_sync_overview",
+          });
+          if (!resolved.ok) return null;
+          const execution = await runNamedQuery(
+            resolved.context,
+            buildCustomerSummaryQuery(resolved.startDate, resolved.endDate),
+          );
+          return {
+            rows: execution.rows as GenericRow[],
+            failures: execution.failures,
+            metrics: extractGoogleAdsOverviewMetrics(
+              execution.rows as GenericRow[],
+            ),
+          };
+        })().catch(() => null)
+      : null;
     const overview = fetchPlan.campaigns
       ? aggregateAccountMetrics(campaignRows)
       : null;
+    const rawOverviewMetrics = rawOverviewResult?.metrics ?? null;
     if (
       fetchPlan.campaigns &&
       shouldRetryGoogleAdsEmptyCampaignDaily({
-        overview,
+        overview: rawOverviewMetrics ?? overview,
         campaignRowCount: campaignRows.length,
       })
     ) {
@@ -3215,6 +3355,57 @@ async function syncGoogleAdsAccountDay(input: {
 
     if (wants("account_daily") && overview) {
       const transformStartedAtMs = Date.now();
+      const rawOverviewPayload =
+        rawOverviewResult == null
+          ? null
+          : {
+              rows: rawOverviewResult.rows,
+              failures: rawOverviewResult.failures,
+              metrics: rawOverviewResult.metrics,
+            };
+      const rawOverviewSnapshotId = rawOverviewPayload
+        ? await persistGoogleAdsRawSnapshot({
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            partitionId: input.partitionId,
+            endpointName: "overview",
+            entityScope: "account",
+            pageIndex: 0,
+            providerCursor: null,
+            startDate: input.date,
+            endDate: input.date,
+            accountTimezone: profile.timezone,
+            accountCurrency: profile.currency,
+            payloadJson: rawOverviewPayload,
+            payloadHash: buildGoogleAdsRawSnapshotHash({
+              businessId: input.businessId,
+              providerAccountId: input.providerAccountId,
+              endpointName: "overview",
+              startDate: input.date,
+              endDate: input.date,
+              payload: rawOverviewPayload,
+            }),
+            requestContext: {
+              source: "sync",
+              report: "overview",
+              rawProviderOverview: true,
+            },
+            responseHeaders: {
+              rowCount: rawOverviewResult?.rows.length ?? 0,
+              failureCount: rawOverviewResult?.failures.length ?? 0,
+            },
+            providerHttpStatus: 200,
+            status:
+              (rawOverviewResult?.failures.length ?? 0) > 0
+                ? "partial"
+                : "fetched",
+          }).catch(() => null)
+        : null;
+      const accountAuditPayload = buildGoogleAdsAccountDailyAuditPayload({
+        canonicalMetrics: overview,
+        referenceOverview: rawOverviewMetrics,
+        campaignRowCount: campaignRows.length,
+      });
       const accountRows = [
         {
           id: input.providerAccountId,
@@ -3236,10 +3427,13 @@ async function syncGoogleAdsAccountDay(input: {
           date: input.date,
           accountTimezone: profile.timezone,
           accountCurrency: profile.currency,
-          endpointName: "overview",
+          endpointName: "account_daily_rollup",
           scope: "account_daily",
           rows: accountRows,
-          requestContext: { source: "sync", report: "overview" },
+          requestContext: {
+            source: "sync",
+            report: "account_daily_rollup",
+          },
           partitionId: input.partitionId,
           workerId: input.workerId,
           attemptCount: input.attemptCount,
@@ -3263,7 +3457,11 @@ async function syncGoogleAdsAccountDay(input: {
                 row.interactionRate == null
                   ? null
                   : toNumber(row.interactionRate),
-              payloadJson: row,
+              payloadJson: {
+                ...row,
+                ...accountAuditPayload,
+                rawOverviewSnapshotId,
+              },
               sourceSnapshotId: snapshotId,
             }),
         }),
@@ -4010,6 +4208,7 @@ async function refreshGoogleAdsSyncStateForPartition(input: {
 }) {
   const { historicalStart, yesterday } = await computeHistoricalTargets(
     input.businessId,
+    input.providerAccountId,
   );
   const laneForScope: GoogleAdsSyncLane =
     input.scope === "account_daily" || input.scope === "campaign_daily"
@@ -4740,6 +4939,18 @@ export interface GoogleAdsTargetedRepairResult {
   };
   outcome: "coverage_increased" | "no_data" | "failed" | "skipped";
   coverageDelta: number;
+  beforeVerification: {
+    incidentCount: number;
+    mismatchDates: string[];
+    providerAccountIds: string[];
+  };
+  afterVerification: {
+    incidentCount: number;
+    mismatchDates: string[];
+    providerAccountIds: string[];
+  };
+  remainingMismatchDates: string[];
+  verificationOutcome: "consistent" | "still_inconsistent" | "not_applicable";
 }
 
 export async function syncGoogleAdsRange(input: {
@@ -4770,6 +4981,18 @@ export async function runGoogleAdsTargetedRepair(input: {
   startDate: string;
   endDate: string;
 }): Promise<GoogleAdsTargetedRepairResult> {
+  const integrityScopeRelevant =
+    input.scope === "account_daily" || input.scope === "campaign_daily";
+  const beforeIncidents = integrityScopeRelevant
+    ? await getGoogleAdsWarehouseIntegrityIncidents({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => [])
+    : [];
+  const beforeVerification = summarizeGoogleAdsIntegrityIncidents(
+    beforeIncidents,
+  );
   const beforeCoverageRaw = await getGoogleAdsDailyCoverage({
     scope: input.scope,
     businessId: input.businessId,
@@ -4800,6 +5023,15 @@ export async function runGoogleAdsTargetedRepair(input: {
     scopes: [input.scope],
   });
 
+  const afterIncidents = integrityScopeRelevant
+    ? await getGoogleAdsWarehouseIntegrityIncidents({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => [])
+    : [];
+  const afterVerification = summarizeGoogleAdsIntegrityIncidents(afterIncidents);
+
   const afterCoverageRaw = await getGoogleAdsDailyCoverage({
     scope: input.scope,
     businessId: input.businessId,
@@ -4827,6 +5059,12 @@ export async function runGoogleAdsTargetedRepair(input: {
             afterCoverage.readyThroughDate !== beforeCoverage.readyThroughDate
           ? "coverage_increased"
           : "no_data";
+  const remainingMismatchDates = afterVerification.mismatchDates;
+  const verificationOutcome = !integrityScopeRelevant
+    ? "not_applicable"
+    : remainingMismatchDates.length === 0
+      ? "consistent"
+      : "still_inconsistent";
 
   return {
     businessId: input.businessId,
@@ -4838,6 +5076,10 @@ export async function runGoogleAdsTargetedRepair(input: {
     afterCoverage,
     outcome,
     coverageDelta,
+    beforeVerification,
+    afterVerification,
+    remainingMismatchDates,
+    verificationOutcome,
   };
 }
 

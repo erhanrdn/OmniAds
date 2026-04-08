@@ -26,6 +26,7 @@
     "meta:soak-snapshot": "node --import tsx scripts/meta-soak-snapshot.ts",
     "meta:verify-day": "node --import tsx scripts/meta-verify-day.ts",
     "meta:verify-publish": "node --import tsx scripts/meta-verify-publish.ts",
+    "sync:hardening-acceptance": "node --import tsx scripts/sync-hardening-acceptance.ts",
     "google:ads:health": "node --import tsx scripts/google-ads-health-snapshot.ts",
     "google:ads:diagnostic-snapshot": "node --import tsx scripts/google-ads-diagnostic-snapshot.ts",
     "google:ads:throughput-probe": "node --import tsx scripts/google-ads-throughput-probe.ts",

@@ -1784,6 +1784,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       cpa: metrics.cpa,
       ctr: metrics.ctr,
       cpc: metrics.cpc,
+      linkClicks: 0,
       sourceSnapshotId,
       payloadJson: value.payloadJson ?? null,
       truthState,
@@ -1914,6 +1915,14 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           stageStartedAt: new Date().toISOString(),
         })
       : null;
+  let canonicalSourceDrift:
+    | {
+        sourceSpend: number;
+        rebuiltAccountSpend: number;
+        rebuiltCampaignSpend: number;
+        toleranceApplied: number;
+      }
+    | null = null;
   if (truthState === "finalized") {
     const finalizedSourceAccountSpend = sourceAccountSpend ?? 0;
     const rebuiltAccountSpend = accountRows[0]?.spend ?? 0;
@@ -1924,68 +1933,21 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       !withinMetaTruthTolerance(finalizedSourceAccountSpend, rebuiltAccountSpend) ||
       !withinMetaTruthTolerance(finalizedSourceAccountSpend, rebuiltCampaignSpend)
     ) {
-      if (authoritativeFinalizationV2Enabled) {
-        await Promise.all([
-          sourceManifest?.id
-            ? updateMetaAuthoritativeSourceManifest({
-                manifestId: sourceManifest.id,
-                fetchStatus: "completed",
-              })
-            : Promise.resolve(null),
-          accountSliceVersion?.id
-            ? updateMetaAuthoritativeSliceVersion({
-                sliceVersionId: accountSliceVersion.id,
-                state: "failed",
-                validationStatus: "failed",
-                status: "failed",
-                validationSummary: {
-                  sourceSpend: finalizedSourceAccountSpend,
-                  rebuiltAccountSpend,
-                  rebuiltCampaignSpend,
-                },
-              })
-            : Promise.resolve(null),
-          campaignSliceVersion?.id
-            ? updateMetaAuthoritativeSliceVersion({
-                sliceVersionId: campaignSliceVersion.id,
-                state: "failed",
-                validationStatus: "failed",
-                status: "failed",
-              })
-            : Promise.resolve(null),
-          adsetSliceVersion?.id
-            ? updateMetaAuthoritativeSliceVersion({
-                sliceVersionId: adsetSliceVersion.id,
-                state: "repair_required",
-                validationStatus: "failed",
-                status: "failed",
-              })
-            : Promise.resolve(null),
-          createMetaAuthoritativeReconciliationEvent({
-            businessId: input.credentials.businessId,
-            providerAccountId: input.accountId,
-            day: normalizedDay,
-            surface: "account_daily",
-            sliceVersionId: accountSliceVersion?.id ?? null,
-            manifestId: sourceManifest?.id ?? null,
-            eventKind: "validation_failed",
-            severity: "error",
-            sourceSpend: finalizedSourceAccountSpend,
-            warehouseAccountSpend: rebuiltAccountSpend,
-            warehouseCampaignSpend: rebuiltCampaignSpend,
-            toleranceApplied: Math.max(0.01, finalizedSourceAccountSpend * 0.001),
-            result: "failed",
-            detailsJson: {
-              sourceSpend: finalizedSourceAccountSpend,
-              rebuiltAccountSpend,
-              rebuiltCampaignSpend,
-            },
-          }),
-        ]);
-      }
-      throw new Error(
-        `Meta finalized truth validation failed for ${normalizedDay}: source=${finalizedSourceAccountSpend}, account=${rebuiltAccountSpend}, campaigns=${rebuiltCampaignSpend}`,
-      );
+      canonicalSourceDrift = {
+        sourceSpend: finalizedSourceAccountSpend,
+        rebuiltAccountSpend,
+        rebuiltCampaignSpend,
+        toleranceApplied: Math.max(
+          0.01,
+          Math.abs(finalizedSourceAccountSpend) * 0.001,
+        ),
+      };
+      console.warn("[meta-sync] canonical_source_drift_detected", {
+        businessId: input.credentials.businessId,
+        providerAccountId: input.accountId,
+        date: normalizedDay,
+        ...canonicalSourceDrift,
+      });
     }
   }
   const accountProof = truthState === "finalized"
@@ -2276,18 +2238,20 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           })
         : Promise.resolve(null),
       accountSliceVersion?.id
-        ? updateMetaAuthoritativeSliceVersion({
-            sliceVersionId: accountSliceVersion.id,
-            state: "finalized_verified",
-            validationStatus: "passed",
-            status: "validated",
-            stageCompletedAt: new Date().toISOString(),
-            validationSummary: {
-              sourceSpend: sourceAccountSpend,
-              rebuiltAccountSpend: accountSpend,
-              rebuiltCampaignSpend: campaignSpend,
-            },
-          })
+          ? updateMetaAuthoritativeSliceVersion({
+              sliceVersionId: accountSliceVersion.id,
+              state: "finalized_verified",
+              validationStatus: "passed",
+              status: "validated",
+              stageCompletedAt: new Date().toISOString(),
+              validationSummary: {
+                sourceSpend: sourceAccountSpend,
+                rebuiltAccountSpend: accountSpend,
+                rebuiltCampaignSpend: campaignSpend,
+                sourceDriftDetected: Boolean(canonicalSourceDrift),
+                sourceDrift: canonicalSourceDrift,
+              },
+            })
         : Promise.resolve(null),
       campaignSliceVersion?.id
         ? updateMetaAuthoritativeSliceVersion({
@@ -2299,6 +2263,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             validationSummary: {
               sourceSpend: sourceAccountSpend,
               rebuiltCampaignSpend: campaignSpend,
+              sourceDriftDetected: Boolean(canonicalSourceDrift),
+              sourceDrift: canonicalSourceDrift,
             },
           })
         : Promise.resolve(null),
@@ -2312,30 +2278,55 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             validationSummary: {
               sourceSpend: sourceAccountSpend,
               rebuiltAdsetSpend: sumRowSpend(adsetRows),
+              sourceDriftDetected: Boolean(canonicalSourceDrift),
+              sourceDrift: canonicalSourceDrift,
             },
           })
         : Promise.resolve(null),
-      createMetaAuthoritativeReconciliationEvent({
-        businessId: input.credentials.businessId,
-        providerAccountId: input.accountId,
-        day: normalizedDay,
-        surface: "account_daily",
-        sliceVersionId: accountSliceVersion?.id ?? null,
-        manifestId: sourceManifest?.id ?? null,
-        eventKind: "validation_passed",
-        severity: "info",
-        sourceSpend: sourceAccountSpend,
-        warehouseAccountSpend: accountSpend,
-        warehouseCampaignSpend: campaignSpend,
-        toleranceApplied: Math.max(
-          0.01,
-          Math.abs(Number(sourceAccountSpend ?? 0)) * 0.001,
-        ),
-        result: "passed",
-        detailsJson: {
-          zeroSpendFinalizedDay,
-        },
-      }),
+      createMetaAuthoritativeReconciliationEvent(
+        canonicalSourceDrift
+          ? {
+              businessId: input.credentials.businessId,
+              providerAccountId: input.accountId,
+              day: normalizedDay,
+              surface: "account_daily",
+              sliceVersionId: accountSliceVersion?.id ?? null,
+              manifestId: sourceManifest?.id ?? null,
+              eventKind: "totals_mismatch",
+              severity: "error",
+              sourceSpend: canonicalSourceDrift.sourceSpend,
+              warehouseAccountSpend: canonicalSourceDrift.rebuiltAccountSpend,
+              warehouseCampaignSpend: canonicalSourceDrift.rebuiltCampaignSpend,
+              toleranceApplied: canonicalSourceDrift.toleranceApplied,
+              result: "repair_required",
+              detailsJson: {
+                ...canonicalSourceDrift,
+                zeroSpendFinalizedDay,
+                canonicalPublished: true,
+              },
+            }
+          : {
+              businessId: input.credentials.businessId,
+              providerAccountId: input.accountId,
+              day: normalizedDay,
+              surface: "account_daily",
+              sliceVersionId: accountSliceVersion?.id ?? null,
+              manifestId: sourceManifest?.id ?? null,
+              eventKind: "validation_passed",
+              severity: "info",
+              sourceSpend: sourceAccountSpend,
+              warehouseAccountSpend: accountSpend,
+              warehouseCampaignSpend: campaignSpend,
+              toleranceApplied: Math.max(
+                0.01,
+                Math.abs(Number(sourceAccountSpend ?? 0)) * 0.001,
+              ),
+              result: "passed",
+              detailsJson: {
+                zeroSpendFinalizedDay,
+              },
+            },
+      ),
     ]);
 
     if (accountSliceVersion?.id) {

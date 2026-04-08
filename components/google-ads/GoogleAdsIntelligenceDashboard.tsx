@@ -15,7 +15,8 @@ import { ErrorState } from "@/components/states/error-state";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
 import {
   DateRangePicker,
-  getPresetDates,
+  getPresetDatesForReferenceDate,
+  getTodayIsoForTimeZone,
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import {
@@ -323,12 +324,64 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const [focusedProducts, setFocusedProducts] = useState<string[]>([]);
   const [focusedAssets, setFocusedAssets] = useState<string[]>([]);
   const [focusedAssetGroups, setFocusedAssetGroups] = useState<string[]>([]);
+  const [resolvedGoogleReferenceDate, setResolvedGoogleReferenceDate] = useState<string | null>(null);
+  const [resolvedGoogleTimeZoneLabel, setResolvedGoogleTimeZoneLabel] = useState<string | null>(null);
 
-  const { start: startDate, end: endDate } = getPresetDates(
-    dateRange.rangePreset,
-    dateRange.customStart,
-    dateRange.customEnd
-  );
+  const baseStatusQuery = useQuery<GoogleAdsStatusResponse>({
+    queryKey: ["gads-status-base", businessId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ businessId });
+      const res = await fetch(`/api/google-ads/status?${params}`);
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as
+          | { message?: string; error?: string }
+          | null;
+        throw new Error(payload?.message ?? payload?.error ?? "status fetch failed");
+      }
+      return res.json();
+    },
+    staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const state = query.state.data?.state;
+      return state === "syncing" ||
+        state === "partial" ||
+        state === "stale" ||
+        state === "advisor_not_ready"
+        ? 15 * 1000
+        : false;
+    },
+    enabled: Boolean(businessId),
+  });
+  const googleReferenceDate = baseStatusQuery.data?.currentDateInTimezone ?? undefined;
+  const googleTimeZoneLabel = baseStatusQuery.data?.primaryAccountTimezone ?? undefined;
+
+  useEffect(() => {
+    if (googleReferenceDate) setResolvedGoogleReferenceDate(googleReferenceDate);
+  }, [googleReferenceDate]);
+
+  useEffect(() => {
+    if (googleTimeZoneLabel) setResolvedGoogleTimeZoneLabel(googleTimeZoneLabel);
+  }, [googleTimeZoneLabel]);
+
+  const effectiveGoogleTimeZoneLabel =
+    googleTimeZoneLabel ?? resolvedGoogleTimeZoneLabel ?? "UTC";
+  const effectiveGoogleReferenceDate =
+    googleReferenceDate ??
+    resolvedGoogleReferenceDate ??
+    getTodayIsoForTimeZone(effectiveGoogleTimeZoneLabel);
+
+  const { start: startDate, end: endDate } =
+    dateRange.rangePreset === "custom"
+      ? {
+          start: dateRange.customStart,
+          end: dateRange.customEnd,
+        }
+      : getPresetDatesForReferenceDate(
+          dateRange.rangePreset,
+          effectiveGoogleReferenceDate,
+          dateRange.customStart,
+          dateRange.customEnd
+        );
   const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
   const apiDateRange = mapRangePresetToApi(dateRange.rangePreset);
   const { labelMode: trendLabelMode } = useMemo(
@@ -1130,7 +1183,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               </DropdownMenu>
 
               <div className="ml-1 flex flex-wrap items-center gap-2 lg:flex-nowrap">
-                <DateRangePicker value={dateRange} onChange={setDateRange} />
+                <DateRangePicker
+                  value={dateRange}
+                  onChange={setDateRange}
+                  referenceDate={effectiveGoogleReferenceDate}
+                  timeZoneLabel={effectiveGoogleTimeZoneLabel}
+                />
                 <p className="text-xs text-muted-foreground whitespace-nowrap">
                   {campaignScopeLabel}
                 </p>

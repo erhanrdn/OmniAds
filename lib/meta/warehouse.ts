@@ -333,6 +333,21 @@ export interface MetaCleanupSummary {
   preservedByReason: MetaCleanupPreservedByReason;
 }
 
+type MetaReclaimCandidateRow = {
+  id: string;
+  lane: string;
+  scope: string;
+  updated_at: string | null;
+  started_at: string | null;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+  checkpoint_scope: string | null;
+  phase: string | null;
+  page_index: number | null;
+  checkpoint_updated_at: string | null;
+  has_matching_runner_lease: boolean;
+};
+
 function chunkRows<T>(rows: T[], size = 250) {
   const chunks: T[][] = [];
   for (let index = 0; index < rows.length; index += size) {
@@ -3080,18 +3095,9 @@ export async function completeMetaPartition(input: {
   return result.ok;
 }
 
-export async function cleanupMetaPartitionOrchestration(input: {
-  businessId: string;
-  staleLeaseMinutes?: number;
-  staleRunMinutes?: number;
-  staleRunMinutesByLane?: Partial<Record<MetaSyncLane, number>>;
-  runProgressGraceMinutes?: number;
-  staleLegacyMinutes?: number;
-}) {
-  await runMigrations();
+async function readMetaReclaimCandidates(input: { businessId: string }) {
   const sql = getDb();
-  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
-  const candidates = await sql`
+  return (await sql`
     SELECT
       partition.id,
       partition.lane,
@@ -3123,7 +3129,114 @@ export async function cleanupMetaPartitionOrchestration(input: {
     ) checkpoint ON TRUE
     WHERE partition.business_id = ${input.businessId}
       AND partition.status IN ('leased', 'running')
-  ` as Array<Record<string, unknown>>;
+  `) as MetaReclaimCandidateRow[];
+}
+
+function classifyMetaReclaimCandidate(input: {
+  row: MetaReclaimCandidateRow;
+  nowMs: number;
+  staleThresholdMs: number;
+  preservedByReason?: MetaCleanupPreservedByReason;
+}): ProviderReclaimDecision {
+  const progressMs = parseTimestampMs(input.row.checkpoint_updated_at);
+  const leaseExpiresMs = parseTimestampMs(input.row.lease_expires_at);
+  const startedMs = parseTimestampMs(input.row.started_at);
+  const updatedMs = parseTimestampMs(input.row.updated_at);
+  const orphanedLeaseGraceMs = Math.min(input.staleThresholdMs, 90_000);
+  const hasRecentProgress =
+    progressMs != null && input.nowMs - progressMs <= input.staleThresholdMs;
+  const hasMatchingRunnerLease = Boolean(input.row.has_matching_runner_lease);
+  const leaseNotExpired = leaseExpiresMs != null && leaseExpiresMs > input.nowMs;
+  const leaseWithoutWorkerAgeMs =
+    startedMs != null
+      ? input.nowMs - startedMs
+      : updatedMs != null
+        ? input.nowMs - updatedMs
+        : null;
+
+  if (hasRecentProgress) {
+    if (input.preservedByReason) {
+      input.preservedByReason.recentCheckpointProgress += 1;
+    }
+    return {
+      disposition: "alive_slow",
+      reasonCode: "progress_recently_advanced",
+      detail: "Recent checkpoint progress detected; keeping partition leased.",
+    };
+  }
+  if (hasMatchingRunnerLease) {
+    if (input.preservedByReason) {
+      input.preservedByReason.matchingRunnerLeasePresent += 1;
+    }
+    return {
+      disposition: "alive_slow",
+      reasonCode: "active_worker_lease_present",
+      detail: "Matching Meta runner lease is still active.",
+    };
+  }
+  if (
+    leaseNotExpired &&
+    leaseWithoutWorkerAgeMs != null &&
+    leaseWithoutWorkerAgeMs <= orphanedLeaseGraceMs
+  ) {
+    if (input.preservedByReason) {
+      input.preservedByReason.leaseNotExpired += 1;
+    }
+    return {
+      disposition: "alive_slow",
+      reasonCode: "lease_not_expired",
+      detail: "Partition lease is still within the initial reclaim grace window.",
+    };
+  }
+  return {
+    disposition: "stalled_reclaimable",
+    reasonCode: leaseNotExpired ? "runner_lease_missing_no_progress" : "lease_expired_no_progress",
+    detail: leaseNotExpired
+      ? "Partition lease remained active without a matching runner lease or checkpoint progress."
+      : "Partition lease expired without recent checkpoint progress.",
+  };
+}
+
+export async function getMetaReclaimClassificationSummary(input: {
+  businessId: string;
+  staleLeaseMinutes?: number;
+}) {
+  await runMigrations();
+  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
+  const candidates = await readMetaReclaimCandidates({ businessId: input.businessId });
+  const counts: Record<ProviderReclaimDisposition, number> = {
+    alive_slow: 0,
+    stalled_reclaimable: 0,
+    poison_candidate: 0,
+  };
+  const nowMs = Date.now();
+  for (const row of candidates) {
+    const decision = classifyMetaReclaimCandidate({
+      row,
+      nowMs,
+      staleThresholdMs,
+    });
+    tallyDisposition(counts, decision.disposition);
+  }
+  return {
+    candidateCount: candidates.length,
+    aliveSlowCount: counts.alive_slow,
+    reclaimCandidateCount: counts.stalled_reclaimable,
+  };
+}
+
+export async function cleanupMetaPartitionOrchestration(input: {
+  businessId: string;
+  staleLeaseMinutes?: number;
+  staleRunMinutes?: number;
+  staleRunMinutesByLane?: Partial<Record<MetaSyncLane, number>>;
+  runProgressGraceMinutes?: number;
+  staleLegacyMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
+  const candidates = await readMetaReclaimCandidates({ businessId: input.businessId });
 
   const now = Date.now();
   const dispositionCounts: Record<ProviderReclaimDisposition, number> = {
@@ -3140,42 +3253,12 @@ export async function cleanupMetaPartitionOrchestration(input: {
 
   for (const row of candidates) {
     const partitionId = String(row.id);
-    const progressMs = parseTimestampMs(row.checkpoint_updated_at ?? row.updated_at);
-    const leaseExpiresMs = parseTimestampMs(row.lease_expires_at);
-    const hasRecentProgress =
-      progressMs != null && now - progressMs <= staleThresholdMs;
-    const hasMatchingRunnerLease = Boolean(row.has_matching_runner_lease);
-    const leaseNotExpired = leaseExpiresMs != null && leaseExpiresMs > now;
-
-    let decision: ProviderReclaimDecision;
-    if (hasRecentProgress) {
-      preservedByReason.recentCheckpointProgress += 1;
-      decision = {
-        disposition: "alive_slow",
-        reasonCode: "progress_recently_advanced",
-        detail: "Recent checkpoint progress detected; keeping partition leased.",
-      };
-    } else if (hasMatchingRunnerLease) {
-      preservedByReason.matchingRunnerLeasePresent += 1;
-      decision = {
-        disposition: "alive_slow",
-        reasonCode: "active_worker_lease_present",
-        detail: "Matching Meta runner lease is still active.",
-      };
-    } else if (leaseNotExpired) {
-      preservedByReason.leaseNotExpired += 1;
-      decision = {
-        disposition: "alive_slow",
-        reasonCode: "lease_not_expired",
-        detail: "Partition lease has not expired yet.",
-      };
-    } else {
-      decision = {
-        disposition: "stalled_reclaimable",
-        reasonCode: "lease_expired_no_progress",
-        detail: "Partition lease expired without recent checkpoint progress.",
-      };
-    }
+    const decision = classifyMetaReclaimCandidate({
+      row,
+      nowMs: now,
+      staleThresholdMs,
+      preservedByReason,
+    });
     tallyDisposition(dispositionCounts, decision.disposition);
     if (decision.disposition === "stalled_reclaimable") {
       stalledDecisions.push({ partitionId, ...decision });
@@ -4702,6 +4785,13 @@ export interface MetaRecoveryActionResult {
   matchedCount: number;
   changedCount: number;
   skippedActiveLeaseCount: number;
+  manualTruthDefectCount: number;
+  manualTruthDefectPartitions: Array<{
+    id: string;
+    scope: string;
+    partitionDate: string;
+    lastError: string | null;
+  }>;
 }
 
 export async function replayMetaDeadLetterPartitions(input: {
@@ -4712,13 +4802,18 @@ export async function replayMetaDeadLetterPartitions(input: {
   await runMigrations();
   const sql = getDb();
   const matchedRows = await sql`
-    SELECT id
+    SELECT id, scope, partition_date, last_error
     FROM meta_sync_partitions
     WHERE business_id = ${input.businessId}
       AND status = 'dead_letter'
       AND (${input.scope ?? null}::text IS NULL OR scope = ${input.scope ?? null})
       AND (${input.sources ?? null}::text[] IS NULL OR source = ANY(${input.sources ?? null}::text[]))
-  ` as Array<{ id: string }>;
+  ` as Array<{
+    id: string;
+    scope: string;
+    partition_date: string | Date;
+    last_error: string | null;
+  }>;
   const skippedActiveLeaseRows = await sql`
     SELECT id
     FROM meta_sync_partitions
@@ -4774,6 +4869,19 @@ export async function replayMetaDeadLetterPartitions(input: {
     matchedCount: matchedRows.length,
     changedCount: partitions.length,
     skippedActiveLeaseCount: skippedActiveLeaseRows.length,
+    manualTruthDefectCount: matchedRows.filter((row) =>
+      /finalized truth validation failed/i.test(String(row.last_error ?? ""))
+    ).length,
+    manualTruthDefectPartitions: matchedRows
+      .filter((row) =>
+        /finalized truth validation failed/i.test(String(row.last_error ?? ""))
+      )
+      .map((row) => ({
+        id: row.id,
+        scope: row.scope,
+        partitionDate: normalizeDate(row.partition_date),
+        lastError: row.last_error,
+      })),
   };
 }
 
@@ -5721,7 +5829,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.cpa,
           row.ctr,
           row.cpc,
-          row.linkClicks ?? null,
+          row.linkClicks ?? 0,
           row.sourceSnapshotId,
           row.sourceRunId ?? null,
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
@@ -5782,7 +5890,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         cpa = EXCLUDED.cpa,
         ctr = EXCLUDED.ctr,
         cpc = EXCLUDED.cpc,
-        link_clicks = COALESCE(EXCLUDED.link_clicks, meta_ad_daily.link_clicks),
+        link_clicks = COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks),
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         source_run_id = COALESCE(EXCLUDED.source_run_id, meta_ad_daily.source_run_id),
         metric_schema_version = EXCLUDED.metric_schema_version,
@@ -6654,7 +6762,7 @@ export async function getMetaCampaignDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       campaign_id,
       campaign_name_current,
       campaign_name_historical,
@@ -6717,7 +6825,7 @@ export async function getMetaCampaignDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       campaign_id,
       campaign_name_current,
       campaign_name_historical,
@@ -6767,7 +6875,7 @@ export async function getMetaCampaignDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       campaign_id,
       campaign_name_current,
       campaign_name_historical,
@@ -6931,7 +7039,7 @@ export async function getMetaAdSetDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       campaign_id,
       adset_id,
       adset_name_current,
@@ -6997,7 +7105,7 @@ export async function getMetaAdSetDailyRange(input: {
     SELECT
       business_id,
       provider_account_id,
-      date,
+      date::text AS date,
       campaign_id,
       adset_id,
       adset_name_current,
@@ -7594,41 +7702,53 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
   providerAccountIds?: string[] | null;
   persistReconciliationEvents?: boolean;
 }) {
-  const [accountRows, campaignRows, adsetRows, adRows, creativeRows] = await Promise.all([
-    getMetaAccountDailyRange({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-      includeProvisional: true,
-    }),
-    getMetaCampaignDailyRange({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-      includeProvisional: true,
-    }),
-    getMetaAdSetDailyRange({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-      includeProvisional: true,
-    }),
-    getMetaAdDailyRange({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-    }),
-    getMetaCreativeDailyRange({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-    }),
-  ]);
+  const [accountRows, campaignRows, adsetRows, adRows, creativeRows, canonicalDriftRows] =
+    await Promise.all([
+      getMetaAccountDailyRange({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+        includeProvisional: true,
+      }),
+      getMetaCampaignDailyRange({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+        includeProvisional: true,
+      }),
+      getMetaAdSetDailyRange({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+        includeProvisional: true,
+      }),
+      getMetaAdDailyRange({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+      }),
+      getMetaCreativeDailyRange({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+      }),
+      getMetaCanonicalDriftIncidents({
+        businessId: input.businessId,
+        sinceHours: Math.max(
+          24,
+          Math.ceil(
+            (new Date(`${normalizeDate(input.endDate)}T23:59:59.999Z`).getTime() -
+              new Date(`${normalizeDate(input.startDate)}T00:00:00.000Z`).getTime()) /
+              3_600_000,
+          ) + 24,
+        ),
+      }).catch(() => []),
+    ]);
 
   const grouped = new Map<
     string,
@@ -7667,6 +7787,12 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
   for (const row of creativeRows) ensureGroup(row.providerAccountId, row.date).creative.push(row);
 
   const incidents: MetaWarehouseIntegrityIncident[] = [];
+  const canonicalDriftKeys = new Map(
+    canonicalDriftRows.map((row) => [
+      `${row.providerAccountId}:${row.date}`,
+      row,
+    ]),
+  );
 
   for (const group of grouped.values()) {
     const accountTotals = aggregateMetaIntegrityRows(group.account);
@@ -7694,8 +7820,28 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
 
     const metricDelta: Record<string, ReturnType<typeof buildMetaIntegrityDelta>> = {};
     const metricsCompared = new Set<string>();
+    const secondaryMetricsCompared = new Set<string>();
     let suspectedCause = "";
     let severity: MetaWarehouseIntegrityIncident["severity"] = "info";
+    let repairRecommended = false;
+    let blockingSurface: "core" | "secondary" | "source" | null = null;
+
+    const hasAccountRows = group.account.length > 0;
+    const hasCampaignRows = group.campaign.length > 0;
+    const hasAdsetRows = group.adset.length > 0;
+    const hasAdRows = group.ad.length > 0;
+
+    if (hasAccountRows && !hasCampaignRows) {
+      severity = "error";
+      suspectedCause = "missing_campaign_rollup";
+      repairRecommended = true;
+      blockingSurface = "core";
+    } else if (!hasAccountRows && hasCampaignRows) {
+      severity = "error";
+      suspectedCause = "missing_account_rollup";
+      repairRecommended = true;
+      blockingSurface = "core";
+    }
 
     for (const metric of META_INTEGRITY_METRICS) {
       const accountValue = accountTotals[metric];
@@ -7710,23 +7856,48 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
         group.ad.length > 0;
       if (!hasCoreRows) continue;
       const equalCampaign =
-        group.campaign.length === 0 || withinToleranceForDirtyDate(accountValue, campaignValue);
+        !hasCampaignRows || withinToleranceForDirtyDate(accountValue, campaignValue);
       const equalAdset =
-        group.adset.length === 0 || withinToleranceForDirtyDate(accountValue, adsetValue);
-      const equalAd =
-        group.ad.length === 0 || withinToleranceForDirtyDate(accountValue, adValue);
-      if (!equalCampaign || !equalAdset || !equalAd) {
+        !hasAdsetRows || withinToleranceForDirtyDate(accountValue, adsetValue);
+      const equalAd = !hasAdRows || withinToleranceForDirtyDate(accountValue, adValue);
+      if (!equalCampaign) {
         metricDelta[metric] = buildMetaIntegrityDelta({
           account: accountValue,
-          campaign: group.campaign.length === 0 ? null : campaignValue,
-          adset: group.adset.length === 0 ? null : adsetValue,
-          ad: group.ad.length === 0 ? null : adValue,
+          campaign: hasCampaignRows ? campaignValue : null,
+          adset: hasAdsetRows ? adsetValue : null,
+          ad: hasAdRows ? adValue : null,
           creative: group.creative.length === 0 ? null : creativeValue,
         });
         metricsCompared.add(metric);
         severity = "error";
         suspectedCause ||= "cross_surface_drift";
+        repairRecommended = true;
+        blockingSurface = "core";
       }
+      if ((hasAdsetRows && !equalAdset) || (hasAdRows && !equalAd)) {
+        metricDelta[metric] = buildMetaIntegrityDelta({
+          account: accountValue,
+          campaign: hasCampaignRows ? campaignValue : null,
+          adset: hasAdsetRows ? adsetValue : null,
+          ad: hasAdRows ? adValue : null,
+          creative: group.creative.length === 0 ? null : creativeValue,
+        });
+        secondaryMetricsCompared.add(metric);
+        if (severity !== "error") severity = "warning";
+        suspectedCause ||= "secondary_surface_drift";
+        blockingSurface ||= "secondary";
+      }
+    }
+
+    if (hasCampaignRows && !hasAdsetRows) {
+      if (severity !== "error") severity = "warning";
+      suspectedCause ||= "secondary_surface_gap";
+      blockingSurface ||= "secondary";
+    }
+    if (hasCampaignRows && !hasAdRows) {
+      if (severity !== "error") severity = "warning";
+      suspectedCause ||= "secondary_surface_gap";
+      blockingSurface ||= "secondary";
     }
 
     const creativeLinkClicks = group.creative.reduce(
@@ -7754,14 +7925,27 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
       metricsCompared.add("clicks");
       severity = severity === "error" ? "error" : "warning";
       suspectedCause ||= "legacy_click_semantics";
+      blockingSurface ||= "secondary";
     }
 
     if (provenanceState === "missing_source_run" || provenanceState === "mixed") {
       severity = "error";
       suspectedCause ||= "missing_provenance";
+      repairRecommended = true;
+      blockingSurface = "core";
     } else if (provenanceState === "legacy_schema") {
       severity = severity === "error" ? "error" : "warning";
       suspectedCause ||= "legacy_metric_schema";
+      if (severity === "error") repairRecommended = true;
+    }
+
+    const canonicalDrift = canonicalDriftKeys.get(
+      `${group.providerAccountId}:${group.date}`,
+    );
+    if (!suspectedCause && canonicalDrift) {
+      severity = "warning";
+      suspectedCause = "canonical_source_drift";
+      blockingSurface = "source";
     }
 
     if (!suspectedCause) continue;
@@ -7772,13 +7956,18 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
       date: group.date,
       scope: "system",
       severity,
-      metricsCompared: Array.from(metricsCompared),
+      metricsCompared: Array.from(
+        new Set([...metricsCompared, ...secondaryMetricsCompared]),
+      ),
       delta: metricDelta,
       provenanceState,
-      repairRecommended: severity !== "info",
+      repairRecommended,
       repairStatus: "pending",
       suspectedCause,
       details: {
+        blockingSurface,
+        coreMetricsCompared: Array.from(metricsCompared),
+        secondaryMetricsCompared: Array.from(secondaryMetricsCompared),
         rowCounts: {
           account: group.account.length,
           campaign: group.campaign.length,
@@ -7786,6 +7975,15 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
           ad: group.ad.length,
           creative: group.creative.length,
         },
+        canonicalDrift: canonicalDrift
+          ? {
+              sourceSpend: canonicalDrift.sourceSpend,
+              warehouseAccountSpend: canonicalDrift.warehouseAccountSpend,
+              warehouseCampaignSpend: canonicalDrift.warehouseCampaignSpend,
+              occurrenceCount: canonicalDrift.occurrenceCount,
+              latestCreatedAt: canonicalDrift.latestCreatedAt,
+            }
+          : null,
       },
     };
     incidents.push(incident);
@@ -7802,12 +8000,31 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
         warehouseAccountSpend: accountTotals.spend,
         warehouseCampaignSpend: campaignTotals.spend,
         toleranceApplied: Math.max(0.01, Math.abs(accountTotals.spend) * 0.001),
-        result: severity === "error" ? "repair_required" : "failed",
+        result:
+          severity === "error"
+            ? "repair_required"
+            : suspectedCause === "canonical_source_drift"
+              ? "passed"
+              : "failed",
         detailsJson: {
           provenanceState,
-          metricsCompared: Array.from(metricsCompared),
+          metricsCompared: Array.from(
+            new Set([...metricsCompared, ...secondaryMetricsCompared]),
+          ),
           delta: metricDelta,
           suspectedCause,
+          blockingSurface,
+          repairRecommended,
+          canonicalDrift:
+            canonicalDrift != null
+              ? {
+                  sourceSpend: canonicalDrift.sourceSpend,
+                  warehouseAccountSpend: canonicalDrift.warehouseAccountSpend,
+                  warehouseCampaignSpend: canonicalDrift.warehouseCampaignSpend,
+                  occurrenceCount: canonicalDrift.occurrenceCount,
+                  latestCreatedAt: canonicalDrift.latestCreatedAt,
+                }
+              : null,
         },
       }).catch(() => undefined);
     }
@@ -7820,6 +8037,61 @@ export async function getMetaWarehouseIntegrityIncidents(input: {
   );
 
   return incidents;
+}
+
+export async function getMetaCanonicalDriftIncidents(input: {
+  businessId: string;
+  sinceHours?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const sinceHours = Math.max(1, input.sinceHours ?? 24);
+  const rows = await sql`
+    SELECT
+      provider_account_id,
+      day,
+      source_spend,
+      warehouse_account_spend,
+      warehouse_campaign_spend,
+      COUNT(*)::int AS occurrence_count,
+      MAX(created_at) AS latest_created_at
+    FROM meta_authoritative_reconciliation_events
+    WHERE business_id = ${input.businessId}
+      AND event_kind = 'totals_mismatch'
+      AND created_at >= now() - (${sinceHours}::text || ' hours')::interval
+    GROUP BY
+      provider_account_id,
+      day,
+      source_spend,
+      warehouse_account_spend,
+      warehouse_campaign_spend
+    ORDER BY MAX(created_at) DESC, provider_account_id ASC, day ASC
+  ` as Array<{
+    provider_account_id: string;
+    day: string | Date;
+    source_spend: number | null;
+    warehouse_account_spend: number | null;
+    warehouse_campaign_spend: number | null;
+    occurrence_count: number | string;
+    latest_created_at: string | Date | null;
+  }>;
+
+  return rows.map((row) => ({
+    providerAccountId: String(row.provider_account_id),
+    date: normalizeDate(row.day),
+    sourceSpend: toNumber(row.source_spend),
+    warehouseAccountSpend: toNumber(row.warehouse_account_spend),
+    warehouseCampaignSpend: toNumber(row.warehouse_campaign_spend),
+    occurrenceCount: toNumber(row.occurrence_count),
+    latestCreatedAt: normalizeTimestamp(row.latest_created_at),
+    signature: [
+      String(row.provider_account_id),
+      normalizeDate(row.day),
+      toNumber(row.source_spend).toFixed(2),
+      toNumber(row.warehouse_account_spend).toFixed(2),
+      toNumber(row.warehouse_campaign_spend).toFixed(2),
+    ].join(":"),
+  }));
 }
 
 export async function getMetaRawSnapshotsForWindow(input: {

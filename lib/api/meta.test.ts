@@ -553,7 +553,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     );
   });
 
-  it("does not publish authoritative truth when validation fails", async () => {
+  it("publishes canonical authoritative truth and records totals_mismatch when source spend drifts", async () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
 
@@ -630,13 +630,22 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         freshStart: true,
         source: "manual_refresh",
       }),
-    ).rejects.toThrow("Meta finalized truth validation failed");
+    ).resolves.toMatchObject({
+      accountRowsWritten: 1,
+      campaignRowsWritten: 1,
+    });
 
-    expect(warehouse.publishMetaAuthoritativeSliceVersion).not.toHaveBeenCalled();
+    expect(warehouse.publishMetaAuthoritativeSliceVersion).toHaveBeenCalled();
     expect(warehouse.createMetaAuthoritativeReconciliationEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventKind: "validation_failed",
-        result: "failed",
+        eventKind: "totals_mismatch",
+        result: "repair_required",
+        detailsJson: expect.objectContaining({
+          canonicalPublished: true,
+          sourceSpend: 9,
+          rebuiltAccountSpend: 12.5,
+          rebuiltCampaignSpend: 12.5,
+        }),
       }),
     );
   });
@@ -799,7 +808,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         attemptCount: 1,
         leaseMinutes: 15,
       }),
-    ).rejects.toThrow("Meta finalized truth validation failed");
+    ).rejects.toThrow("meta_finalization_proof_incomplete");
   });
 
   it("writes normalized config fields into campaign_daily and adset_daily rows during core sync", async () => {

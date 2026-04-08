@@ -101,6 +101,35 @@ export interface MetaStatusResponse {
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;
+  dataContract?: {
+    todayMode: "live_overlay";
+    historicalMode: "warehouse_only";
+  };
+  platformDateBoundary?: {
+    primaryAccountId: string | null;
+    primaryAccountTimezone: string | null;
+    currentDateInTimezone: string | null;
+    previousDateInTimezone: string | null;
+    selectedRangeMode: "current_day_live" | "historical_warehouse";
+    mixedCurrentDates: boolean;
+    accounts: Array<{
+      provider: "meta";
+      businessId: string;
+      providerAccountId: string | null;
+      timeZone: string;
+      currentDate: string;
+      previousDate: string;
+      isPrimary: boolean;
+    }>;
+  };
+  completionBasis?: {
+    requiredScopes: string[];
+    excludedScopes: string[];
+    percent: number;
+    complete: boolean;
+  };
+  completionBlockers?: string[];
+  requiredScopeCompletion?: ProviderRequiredCoverage | null;
   currentCoreProgressPercent?: number;
   historicalArchiveProgressPercent?: number;
   currentCoreUsable?: boolean;

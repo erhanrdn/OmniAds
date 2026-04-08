@@ -37,6 +37,7 @@ import {
   buildProviderSurfaces,
   decideProviderReadinessLevel,
 } from "@/lib/provider-readiness";
+import { addDaysToIsoDateUtc, getProviderPlatformDateBoundaries } from "@/lib/provider-platform-date";
 import {
   getProviderCircuitBreakerRecoveryState,
   getProviderQuotaBudgetState,
@@ -302,6 +303,7 @@ function buildGoogleAdsStatusDomains(input: {
   coreUsable: boolean;
   selectedRangeCoreIncomplete: boolean;
   selectedRangePendingSurfaces: string[];
+  selectedRangeMode: "current_day_live" | "historical_warehouse";
   advisorReady: boolean;
   advisorNotReady: boolean;
   connected: boolean;
@@ -343,6 +345,12 @@ function buildGoogleAdsStatusDomains(input: {
           label: "Selected range syncing",
           detail: "Selected-range campaign coverage is still preparing.",
         }
+      : input.selectedRangeMode === "current_day_live"
+        ? {
+            state: "ready" as const,
+            label: "Selected range live",
+            detail: "Current-day core coverage is served from the live overlay.",
+          }
       : input.selectedRangePendingSurfaces.length > 0
         ? {
             state: "partial" as const,
@@ -597,6 +605,16 @@ export async function GET(request: NextRequest) {
     warehouseStats?.primary_account_timezone ??
     "UTC";
   const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryAccountTimezone);
+  const platformDateBoundaryAccounts = await getProviderPlatformDateBoundaries({
+    provider: "google",
+    businessId: businessId!,
+    providerAccountIds: accountIds,
+    snapshot,
+  }).catch(() => []);
+  const selectedRangeIsToday =
+    Boolean(selectedStartDate && selectedEndDate) &&
+    selectedStartDate === selectedEndDate &&
+    selectedStartDate === currentDateInTimezone;
   const initialBackfillEnd = addDaysToIsoDate(currentDateInTimezone, -1);
   const initialBackfillStart = getHistoricalWindowStart(
     initialBackfillEnd,
@@ -794,6 +812,21 @@ export async function GET(request: NextRequest) {
   const overallCompletedDays = coreReadiness.overallCompletedDays;
   const overallAccountCompletedDays = coreReadiness.overallAccountCompletedDays;
   const historicalReadyThroughDate = coreReadiness.historicalReadyThroughDate;
+  const requiredScopeReadyThroughDate =
+    [
+      relevantAccountStates
+        .map((row) => row.readyThroughDate)
+        .filter((value): value is string => Boolean(value))
+        .sort((a, b) => a.localeCompare(b))[0] ?? null,
+      historicalReadyThroughDate,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => left.localeCompare(right))[0] ?? null;
+  const requiredScopeCompletion = buildRequiredCoverage({
+    completedDays: Math.min(overallAccountCompletedDays, overallCompletedDays),
+    totalDays: effectiveHistoricalTotalDays,
+    readyThroughDate: requiredScopeReadyThroughDate,
+  });
   const extendedScopeSummaries = allStateScopes
     .filter((scope) => scope !== "account_daily" && scope !== "campaign_daily")
     .map((scope) => {
@@ -849,11 +882,8 @@ export async function GET(request: NextRequest) {
       ? dayCountInclusive(selectedStartDate, selectedEndDate)
       : null;
   const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
-  const selectedRangeProgressPercent =
-    selectedRangeTotalDays && selectedRangeTotalDays > 0
-      ? Math.min(100, Math.round((selectedRangeCompletedDays / selectedRangeTotalDays) * 100))
-      : null;
   const selectedRangeCoreIncomplete =
+    !selectedRangeIsToday &&
     Boolean(selectedRangeTotalDays) &&
     selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
   const backgroundRunningJobs = Number(queueHealth?.leasedPartitions ?? 0);
@@ -1270,14 +1300,6 @@ export async function GET(request: NextRequest) {
   const historicalExtendedReady = Object.values(rangeCompletionBySurface).every(
     (surface) => surface.historical.ready
   );
-  const averageHistoricalCompletionRatio =
-    Object.values(rangeCompletionBySurface).reduce((sum, surface) => {
-      const ratio =
-        surface.historical.totalDays > 0
-          ? surface.historical.completedDays / surface.historical.totalDays
-          : 0;
-      return sum + Math.min(1, ratio);
-    }, 0) / Math.max(1, Object.values(rangeCompletionBySurface).length);
   const advisorProgress = buildGoogleAdsAdvisorProgress({
     connected,
     assignedAccountCount: accountIds.length,
@@ -1288,11 +1310,49 @@ export async function GET(request: NextRequest) {
     })),
     coverageUnavailableCount: advisorCoverageUnavailableCount,
   });
-  const historicalBackfillPercent = historicalExtendedReady
-    ? 100
-    : Math.max(0, Math.min(99, Math.round(averageHistoricalCompletionRatio * 100)));
+  const selectedRangePendingSurfaces = selectedRangeIsToday
+    ? []
+    : Object.entries(rangeCompletionBySurface)
+        .filter(([, surface]) => !surface.selectedRange.ready)
+        .map(([scope]) => scope);
+  const globalSyncProgress = advisorProgress.visible
+    ? {
+        kind: "advisor" as const,
+        percent: advisorProgress.percent,
+        visible: advisorProgress.visible,
+        label: "Analysis preparing",
+        summary: advisorProgress.summary,
+      }
+    : connected &&
+        accountIds.length > 0 &&
+        !selectedRangeIsToday &&
+        !requiredScopeCompletion.complete
+      ? {
+          kind: "historical" as const,
+          percent: historicalProgressPercent,
+          visible: true,
+          label: "Extended sync",
+          summary: "Required Google Ads warehouse sync continues in the background.",
+        }
+      : null;
+  const currentDayLiveStatus = {
+    active: selectedRangeIsToday,
+    usingLiveOverlay: selectedRangeIsToday && coreUsable,
+    coreUsable: selectedRangeIsToday && coreUsable,
+    currentDate: selectedRangeIsToday ? currentDateInTimezone : null,
+    warehouseSegmentEndDate: selectedRangeIsToday
+      ? addDaysToIsoDateUtc(currentDateInTimezone, -1)
+      : null,
+    liveSegmentStartDate: selectedRangeIsToday ? currentDateInTimezone : null,
+  };
+  const selectedRangeReadinessBasis = {
+    mode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    warehouseCoverageIgnored: selectedRangeIsToday,
+    liveOverlayEligible: selectedRangeIsToday && coreUsable,
+  } as const;
+  const historicalBackfillPercent = requiredScopeCompletion.percent;
   const historicalProgressSummary =
-    "Historical sync continues in the background with recent dates prioritized first.";
+    "Required Google Ads warehouse sync continues in the background.";
   const surfaceLabels: Record<keyof typeof selectedCoverageByScope, string> = {
     search_term_daily: "Search intelligence",
     product_daily: "Product performance",
@@ -1432,9 +1492,7 @@ export async function GET(request: NextRequest) {
       runningJobs,
       staleRunningJobs,
       selectedRangeCoreIncomplete,
-      visibleSelectedRangePendingSurfaces: majorSurfaceStates
-        .filter((surface) => surface.state !== "ready")
-        .map((surface) => surface.scope),
+      visibleSelectedRangePendingSurfaces: selectedRangePendingSurfaces,
       historicalProgressPercent,
       needsBootstrap,
       productPendingSurfaces,
@@ -1445,9 +1503,8 @@ export async function GET(request: NextRequest) {
   const domains = buildGoogleAdsStatusDomains({
     coreUsable,
     selectedRangeCoreIncomplete,
-    selectedRangePendingSurfaces: majorSurfaceStates
-      .filter((surface) => surface.state !== "ready")
-      .map((surface) => surface.scope),
+    selectedRangePendingSurfaces,
+    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
     advisorReady,
     advisorNotReady,
     connected,
@@ -1500,9 +1557,41 @@ export async function GET(request: NextRequest) {
         ? Boolean(selectedRangeCoreIncomplete)
         : overallCompletedDays < effectiveHistoricalTotalDays,
     syncState: overallState,
-    selectedCurrentDay: false,
+    selectedCurrentDay: selectedRangeIsToday,
     notReadyReason: summarizeStatusDegradedReason(statusDegradedReasons),
   });
+  const dataContract = {
+    todayMode: "live_overlay",
+    historicalMode: "warehouse_only",
+  } as const;
+  const completionBasis = {
+    requiredScopes: ["account_daily", "campaign_daily"],
+    excludedScopes: allStateScopes.filter(
+      (scope) => !["account_daily", "campaign_daily"].includes(scope)
+    ),
+    percent: requiredScopeCompletion.percent,
+    complete: requiredScopeCompletion.complete,
+  };
+  const completionBlockers = [
+    ...(!requiredScopeCompletion.complete ? ["missing_required_warehouse_coverage"] : []),
+    ...googleBlockingReasons
+      .map((reason) => reason.code)
+      .filter(
+        (code) =>
+          code !== "missing_required_recent_surfaces" &&
+          !code.startsWith("recent_required_")
+      ),
+  ];
+  const platformDateBoundary = {
+    primaryAccountId: accountIds[0] ?? null,
+    primaryAccountTimezone,
+    currentDateInTimezone,
+    previousDateInTimezone: addDaysToIsoDateUtc(currentDateInTimezone, -1),
+    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    mixedCurrentDates:
+      new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
+    accounts: platformDateBoundaryAccounts,
+  };
 
   return NextResponse.json({
     state: overallState,
@@ -1513,6 +1602,14 @@ export async function GET(request: NextRequest) {
     servingMode: providerState.servingMode,
     isPartial: providerState.isPartial,
     notReadyReason: providerState.notReadyReason,
+    dataContract,
+    platformDateBoundary,
+    completionBasis,
+    completionBlockers,
+    globalSyncProgress,
+    currentDayLiveStatus,
+    selectedRangeReadinessBasis,
+    requiredScopeCompletion,
     connected,
     readinessLevel,
     surfaces,
@@ -1589,19 +1686,24 @@ export async function GET(request: NextRequest) {
           ? {
               label: `selected ${countInclusiveDays(selectedStartDate, selectedEndDate)}d`,
               ready:
-                selectedRangeTotalDays != null &&
-                [
-                  selectedRangeCoverage,
-                  selectedSearchTermCoverage,
-                  selectedProductCoverage,
-                ].every(
-                  (coverage) => Number(coverage?.completed_days ?? 0) >= selectedRangeTotalDays
-                ),
+                selectedRangeIsToday
+                  ? coreUsable
+                  : selectedRangeTotalDays != null &&
+                    [
+                      selectedRangeCoverage,
+                      selectedSearchTermCoverage,
+                      selectedProductCoverage,
+                    ].every(
+                      (coverage) =>
+                        Number(coverage?.completed_days ?? 0) >= selectedRangeTotalDays
+                    ),
               startDate: selectedStartDate,
               endDate: selectedEndDate,
               totalDays: countInclusiveDays(selectedStartDate, selectedEndDate),
               missingSurfaces:
-                selectedRangeTotalDays != null
+                selectedRangeIsToday
+                  ? []
+                  : selectedRangeTotalDays != null
                   ? [
                       { name: "campaign_daily", coverage: selectedRangeCoverage },
                       { name: "search_term_daily", coverage: selectedSearchTermCoverage },
@@ -1724,8 +1826,8 @@ export async function GET(request: NextRequest) {
       visible:
         connected &&
         accountIds.length > 0 &&
-        advisorMissingSurfaces.length === 0 &&
-        !historicalExtendedReady,
+        !selectedRangeIsToday &&
+        !requiredScopeCompletion.complete,
       summary: historicalProgressSummary,
     },
     latestSync: effectiveLatestSync

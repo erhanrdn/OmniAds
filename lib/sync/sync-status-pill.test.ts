@@ -186,7 +186,7 @@ describe("sync status pill resolver", () => {
         },
       } as never)
     ).toMatchObject({
-      label: "Core live",
+      label: "33% Analysis preparing",
       tone: "info",
       state: "syncing",
     });
@@ -233,7 +233,7 @@ describe("sync status pill resolver", () => {
         },
       } as never)
     ).toMatchObject({
-      label: "Core live",
+      label: "99% Analysis preparing",
       tone: "info",
       state: "syncing",
     });

@@ -66,6 +66,23 @@ export interface GoogleAdsProgressState {
   summary: string;
 }
 
+export interface GoogleAdsGlobalSyncProgressState {
+  kind: "advisor" | "historical";
+  percent: number;
+  visible: boolean;
+  label: string;
+  summary: string;
+}
+
+export interface GoogleAdsCurrentDayLiveStatus {
+  active: boolean;
+  usingLiveOverlay: boolean;
+  coreUsable: boolean;
+  currentDate: string | null;
+  warehouseSegmentEndDate: string | null;
+  liveSegmentStartDate: string | null;
+}
+
 export interface GoogleAdsStatusDomainSummary {
   state: "syncing" | "partial" | "ready" | "advisor_not_ready";
   label: string;
@@ -91,6 +108,42 @@ export interface GoogleAdsStatusResponse {
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;
+  dataContract?: {
+    todayMode: "live_overlay";
+    historicalMode: "warehouse_only";
+  };
+  platformDateBoundary?: {
+    primaryAccountId: string | null;
+    primaryAccountTimezone: string | null;
+    currentDateInTimezone: string | null;
+    previousDateInTimezone: string | null;
+    selectedRangeMode: "current_day_live" | "historical_warehouse";
+    mixedCurrentDates: boolean;
+    accounts: Array<{
+      provider: "google";
+      businessId: string;
+      providerAccountId: string | null;
+      timeZone: string;
+      currentDate: string;
+      previousDate: string;
+      isPrimary: boolean;
+    }>;
+  };
+  completionBasis?: {
+    requiredScopes: string[];
+    excludedScopes: string[];
+    percent: number;
+    complete: boolean;
+  };
+  completionBlockers?: string[];
+  globalSyncProgress?: GoogleAdsGlobalSyncProgressState | null;
+  currentDayLiveStatus?: GoogleAdsCurrentDayLiveStatus | null;
+  selectedRangeReadinessBasis?: {
+    mode: "current_day_live" | "historical_warehouse";
+    warehouseCoverageIgnored: boolean;
+    liveOverlayEligible: boolean;
+  } | null;
+  requiredScopeCompletion?: ProviderRequiredCoverage | null;
   needsBootstrap?: boolean;
   warehouse?: {
     rowCount: number;

@@ -1,5 +1,13 @@
 import { getDb, getDbWithTimeout } from "@/lib/db";
-import { getMetaAuthoritativeBusinessOpsSnapshot } from "@/lib/meta/warehouse";
+import {
+  getMetaAuthoritativeBusinessOpsSnapshot,
+  getMetaReclaimClassificationSummary,
+  getMetaWarehouseIntegrityIncidents,
+} from "@/lib/meta/warehouse";
+import {
+  getGoogleAdsReclaimClassificationSummary,
+  getGoogleAdsWarehouseIntegrityIncidents,
+} from "@/lib/google-ads/warehouse";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
 import {
@@ -89,8 +97,13 @@ export interface AdminSyncHealthPayload {
     googleAdsCanaryBusinesses?: number;
     googleAdsSkippedActiveLeaseRecoveries?: number;
     googleAdsLeaseConflictRuns24h?: number;
+    googleAdsIntegrityIncidentCount?: number;
+    googleAdsIntegrityBlockedCount?: number;
     metaSkippedActiveLeaseRecoveries?: number;
     metaStaleRunCount24h?: number;
+    metaIntegrityIncidentCount?: number;
+    metaIntegrityBlockedCount?: number;
+    metaD1FinalizeNonTerminalCount?: number;
   };
   issues: AdminSyncIssueRow[];
   workerHealth?: {
@@ -130,6 +143,7 @@ export interface AdminSyncHealthPayload {
     resumeCapable?: boolean;
     checkpointFailures?: number;
     poisonedCheckpointCount?: number;
+    activeSlowPartitions?: number;
     reclaimCandidateCount?: number;
     lastReclaimReason?: string | null;
     skippedActiveLeaseRecoveries?: number;
@@ -162,6 +176,8 @@ export interface AdminSyncHealthPayload {
     googleHeartbeatAgeMs?: number | null;
     googleRunnerLeaseActive?: boolean;
     staleRunPressure?: number;
+    integrityIncidentCount?: number;
+    integrityBlockedCount?: number;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     stallFingerprints?: ProviderStallFingerprint[];
   }>;
@@ -190,6 +206,7 @@ export interface AdminSyncHealthPayload {
     lastSuccessfulPageIndex?: number | null;
     resumeCapable?: boolean;
     checkpointFailures?: number;
+    activeSlowPartitions?: number;
     reclaimCandidateCount?: number;
     lastReclaimReason?: string | null;
     skippedActiveLeaseRecoveries?: number;
@@ -212,6 +229,9 @@ export interface AdminSyncHealthPayload {
     repairBacklog?: number;
     queuedVsLeasedVsPublished?: MetaAuthoritativeBusinessOpsSnapshot["progression"];
     lastSuccessfulPublishAt?: string | null;
+    integrityIncidentCount?: number;
+    integrityBlockedCount?: number;
+    d1FinalizeNonTerminalCount?: number;
   }>;
 }
 
@@ -220,6 +240,17 @@ interface GoogleAdsHealthSummaryRow {
   leasedPartitions: number;
   deadLetterPartitions: number;
   oldestQueuedPartition: string | null;
+}
+
+interface AdminReclaimSummary {
+  activeSlowPartitions: number;
+  reclaimCandidateCount: number;
+  poisonCandidateCount?: number;
+}
+
+interface AdminIntegritySummary {
+  incidentCount: number;
+  blockedCount: number;
 }
 
 export interface AdminRevenueRiskWorkspaceRow {
@@ -484,7 +515,8 @@ function getSyncIssueSeverity(issue: Pick<AdminSyncIssueRow, "reportType" | "sta
     issue.reportType === "worker_offline_with_leased_partitions" ||
     issue.reportType === "queue_dead_letter" ||
     issue.reportType === "lease_conflict_runs" ||
-    issue.reportType === "stale_runs"
+    issue.reportType === "stale_runs" ||
+    issue.reportType === "integrity_blocked"
   ) {
     return "critical" as const;
   }
@@ -494,7 +526,8 @@ function getSyncIssueSeverity(issue: Pick<AdminSyncIssueRow, "reportType" | "sta
     issue.reportType === "stale_lease" ||
     issue.reportType === "queue_waiting_worker" ||
     issue.reportType === "state_missing" ||
-    issue.reportType === "poisoned_checkpoint"
+    issue.reportType === "poisoned_checkpoint" ||
+    issue.reportType === "d1_finalize_nonterminal"
   ) {
     return "high" as const;
   }
@@ -520,6 +553,10 @@ function getSyncIssueRunbookKey(issue: Pick<AdminSyncIssueRow, "provider" | "rep
     case "queue_waiting_worker":
       return `${issue.provider}:worker_backlog`;
     case "stale_lease":
+      return "meta:stale_lease";
+    case "integrity_blocked":
+      return `${issue.provider}:stale_reclaim`;
+    case "d1_finalize_nonterminal":
       return "meta:stale_lease";
     default:
       return null;
@@ -660,8 +697,13 @@ export function buildAdminSyncHealth(input: {
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   googleAdsHealthSummary?: GoogleAdsHealthSummaryRow | null;
+  googleAdsReclaimSummaries?: Record<string, AdminReclaimSummary>;
+  googleAdsIntegritySummaries?: Record<string, AdminIntegritySummary>;
   metaHealth?: RawMetaHealthRow[];
   metaAuthoritativeSnapshots?: MetaAuthoritativeBusinessOpsSnapshot[];
+  metaReclaimSummaries?: Record<string, AdminReclaimSummary>;
+  metaIntegritySummaries?: Record<string, AdminIntegritySummary>;
+  metaD1FinalizeNonTerminalCounts?: Record<string, number>;
   workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
@@ -694,8 +736,13 @@ export function buildAdminSyncHealth(input: {
   let googleAdsCanaryBusinesses = 0;
   let googleAdsSkippedActiveLeaseRecoveries = 0;
   let googleAdsLeaseConflictRuns24h = 0;
+  let googleAdsIntegrityIncidentCount = 0;
+  let googleAdsIntegrityBlockedCount = 0;
   let metaSkippedActiveLeaseRecoveries = 0;
   let metaStaleRunCount24h = 0;
+  let metaIntegrityIncidentCount = 0;
+  let metaIntegrityBlockedCount = 0;
+  let metaD1FinalizeNonTerminalCount = 0;
   const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
   const metaBusinesses: NonNullable<AdminSyncHealthPayload["metaBusinesses"]> = [];
   let latestProgressHeartbeatAt: string | null = null;
@@ -710,11 +757,13 @@ export function buildAdminSyncHealth(input: {
     const within24h = Number.isFinite(triggeredMs) && Date.now() - triggeredMs <= 24 * 60 * 60_000;
     const isRunning = row.status === "running";
     const isStuck = isRunning && Date.now() - triggeredMs > 15 * 60_000;
+    const providerUsesClassifier =
+      row.provider === "google_ads" || row.provider === "meta";
     const isFailed = row.status === "failed" && within24h;
     const isDone = row.status === "done" && within24h;
 
     if (isRunning) runningJobs++;
-    if (isStuck) {
+    if (isStuck && !providerUsesClassifier) {
       stuckJobs++;
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Stuck sync jobs");
@@ -829,6 +878,18 @@ export function buildAdminSyncHealth(input: {
       recentActivityWindowMinutes: 20,
       aggregation: "latest",
     });
+    const googleReclaimSummary = input.googleAdsReclaimSummaries?.[row.business_id] ?? {
+      activeSlowPartitions: Math.max(
+        0,
+        leasedPartitions - Number(row.reclaim_candidate_count ?? 0),
+      ),
+      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      poisonCandidateCount: Number(row.poisoned_checkpoint_count ?? 0),
+    };
+    const googleIntegritySummary = input.googleAdsIntegritySummaries?.[row.business_id] ?? {
+      incidentCount: 0,
+      blockedCount: 0,
+    };
 
     const progressState = classifyGoogleAdsProgressState({
       queueDepth,
@@ -884,7 +945,8 @@ export function buildAdminSyncHealth(input: {
         Number(row.poisoned_checkpoint_count ?? 0) === 0,
       checkpointFailures: Number(row.checkpoint_failures ?? 0),
       poisonedCheckpointCount: Number(row.poisoned_checkpoint_count ?? 0),
-      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      activeSlowPartitions: googleReclaimSummary.activeSlowPartitions,
+      reclaimCandidateCount: googleReclaimSummary.reclaimCandidateCount,
       skippedActiveLeaseRecoveries: Number(row.skipped_active_lease_recoveries ?? 0),
       lastReclaimReason: row.last_reclaim_reason ?? null,
       leaseConflictRuns24h: Number(row.lease_conflict_runs_24h ?? 0),
@@ -916,6 +978,8 @@ export function buildAdminSyncHealth(input: {
       googleHeartbeatAgeMs,
       googleRunnerLeaseActive,
       staleRunPressure,
+      integrityIncidentCount: googleIntegritySummary.incidentCount,
+      integrityBlockedCount: googleIntegritySummary.blockedCount,
       progressState,
       stallFingerprints,
     });
@@ -937,6 +1001,9 @@ export function buildAdminSyncHealth(input: {
     googleAdsCompactedPartitions += compactedPartitions;
     googleAdsSkippedActiveLeaseRecoveries += Number(row.skipped_active_lease_recoveries ?? 0);
     googleAdsLeaseConflictRuns24h += Number(row.lease_conflict_runs_24h ?? 0);
+    googleAdsIntegrityIncidentCount += googleIntegritySummary.incidentCount;
+    googleAdsIntegrityBlockedCount += googleIntegritySummary.blockedCount;
+    stuckJobs += googleReclaimSummary.reclaimCandidateCount;
     if (circuitBreakerOpen) googleAdsCircuitBreakerBusinesses += 1;
     if (recoveryMode === "half_open") googleAdsRecoveryBusinesses += 1;
     if (canaryEnabled) googleAdsCanaryBusinesses += 1;
@@ -1052,6 +1119,24 @@ export function buildAdminSyncHealth(input: {
       });
     }
 
+    if (googleIntegritySummary.blockedCount > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Google Ads integrity blocked");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "google_ads",
+        reportType: "integrity_blocked",
+        status: "failed",
+        detail: `${googleIntegritySummary.blockedCount} Google Ads integrity blocker(s) remain. account_daily must reconcile to campaign rollups before this business is considered healthy.`,
+        triggeredAt:
+          row.latest_progress_heartbeat_at ??
+          row.latest_checkpoint_updated_at ??
+          row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
     if (Number(row.skipped_active_lease_recoveries ?? 0) > 0) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Google Ads active-lease recovery skips");
@@ -1144,6 +1229,21 @@ export function buildAdminSyncHealth(input: {
       recentActivityWindowMinutes: 20,
       aggregation: "latest",
     });
+    const metaReclaimSummary = input.metaReclaimSummaries?.[row.business_id] ?? {
+      activeSlowPartitions: Math.max(
+        0,
+        leasedPartitions - Number(row.reclaim_candidate_count ?? 0),
+      ),
+      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+    };
+    const metaIntegritySummary = input.metaIntegritySummaries?.[row.business_id] ?? {
+      incidentCount: 0,
+      blockedCount: 0,
+    };
+    const d1FinalizeNonTerminalCount =
+      input.metaD1FinalizeNonTerminalCounts?.[row.business_id] ??
+      metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla?.breachedAccounts ??
+      0;
     const progressState = classifyMetaProgressState({
       queueDepth,
       leasedPartitions,
@@ -1202,7 +1302,8 @@ export function buildAdminSyncHealth(input: {
         row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
       resumeCapable: Boolean(row.latest_checkpoint_updated_at),
       checkpointFailures: Number(row.checkpoint_failures ?? 0),
-      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      activeSlowPartitions: metaReclaimSummary.activeSlowPartitions,
+      reclaimCandidateCount: metaReclaimSummary.reclaimCandidateCount,
       skippedActiveLeaseRecoveries: Number(row.skipped_active_lease_recoveries ?? 0),
       lastReclaimReason: row.last_reclaim_reason ?? null,
       staleRunCount24h: Number(row.stale_run_count_24h ?? 0),
@@ -1224,6 +1325,9 @@ export function buildAdminSyncHealth(input: {
       queuedVsLeasedVsPublished: metaSnapshotsByBusiness.get(row.business_id)?.progression,
       lastSuccessfulPublishAt:
         metaSnapshotsByBusiness.get(row.business_id)?.lastSuccessfulPublishAt ?? null,
+      integrityIncidentCount: metaIntegritySummary.incidentCount,
+      integrityBlockedCount: metaIntegritySummary.blockedCount,
+      d1FinalizeNonTerminalCount,
     });
 
     if (
@@ -1246,6 +1350,10 @@ export function buildAdminSyncHealth(input: {
     metaRepairBacklog += metaSnapshotsByBusiness.get(row.business_id)?.progression.repairBacklog ?? 0;
     metaStaleLeasePartitions += metaSnapshotsByBusiness.get(row.business_id)?.progression.staleLeases ?? 0;
     metaD1FinalizeSlaBreaches += metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla.breachedAccounts ?? 0;
+    metaIntegrityIncidentCount += metaIntegritySummary.incidentCount;
+    metaIntegrityBlockedCount += metaIntegritySummary.blockedCount;
+    metaD1FinalizeNonTerminalCount += d1FinalizeNonTerminalCount;
+    stuckJobs += metaReclaimSummary.reclaimCandidateCount;
     const snapshotPublishAt = metaSnapshotsByBusiness.get(row.business_id)?.lastSuccessfulPublishAt ?? null;
     if (
       snapshotPublishAt &&
@@ -1447,6 +1555,42 @@ export function buildAdminSyncHealth(input: {
         completedAt: row.oldest_queued_partition,
       });
     }
+
+    if (metaIntegritySummary.blockedCount > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta integrity blocked");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "integrity_blocked",
+        status: "failed",
+        detail: `${metaIntegritySummary.blockedCount} Meta canonical integrity blocker(s) remain. Finalized account truth is publishing, but repeated drift still requires manual resolution.`,
+        triggeredAt:
+          row.latest_progress_heartbeat_at ??
+          row.latest_checkpoint_updated_at ??
+          row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
+
+    if (d1FinalizeNonTerminalCount > 0) {
+      impactedBusinesses.add(row.business_id);
+      issueTypes.push("Meta D-1 finalize nonterminal");
+      issues.push({
+        businessId: row.business_id,
+        businessName: row.business_name,
+        provider: "meta",
+        reportType: "d1_finalize_nonterminal",
+        status: leasedPartitions > 0 ? "running" : "failed",
+        detail: `${d1FinalizeNonTerminalCount} Meta D-1 finalize_day partition(s) are still nonterminal and should be recovered before the business is considered fully healthy.`,
+        triggeredAt:
+          row.latest_progress_heartbeat_at ??
+          row.latest_checkpoint_updated_at ??
+          row.latest_partition_activity_at,
+        completedAt: row.oldest_queued_partition,
+      });
+    }
   }
 
   if ((input.workerHealth?.onlineWorkers ?? 0) === 0) {
@@ -1523,8 +1667,13 @@ export function buildAdminSyncHealth(input: {
       googleAdsCanaryBusinesses,
       googleAdsSkippedActiveLeaseRecoveries,
       googleAdsLeaseConflictRuns24h,
+      googleAdsIntegrityIncidentCount,
+      googleAdsIntegrityBlockedCount,
       metaSkippedActiveLeaseRecoveries,
       metaStaleRunCount24h,
+      metaIntegrityIncidentCount,
+      metaIntegrityBlockedCount,
+      metaD1FinalizeNonTerminalCount,
     },
     issues: normalizedIssues,
     workerHealth: input.workerHealth,
@@ -1768,22 +1917,39 @@ async function readGoogleAdsHealthRows() {
       ) recent_rows
       GROUP BY business_id
     ),
+    active_checkpoint_latest AS (
+      SELECT DISTINCT ON (partition.business_id, checkpoint.partition_id)
+        partition.business_id,
+        checkpoint.partition_id,
+        checkpoint.phase,
+        COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS latest_checkpoint_updated_at,
+        COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS latest_progress_heartbeat_at,
+        checkpoint.page_index AS last_successful_page_index,
+        checkpoint.status,
+        checkpoint.poisoned_at,
+        checkpoint.poison_reason,
+        checkpoint.updated_at
+      FROM google_ads_sync_partitions partition
+      JOIN google_ads_sync_checkpoints checkpoint ON checkpoint.partition_id = partition.id
+      WHERE partition.status IN ('queued', 'leased', 'running', 'dead_letter')
+      ORDER BY partition.business_id, checkpoint.partition_id, checkpoint.updated_at DESC
+    ),
     checkpoint_latest AS (
       SELECT DISTINCT ON (business_id)
         business_id,
         phase AS latest_checkpoint_phase,
-        COALESCE(progress_heartbeat_at, updated_at) AS latest_checkpoint_updated_at,
-        COALESCE(progress_heartbeat_at, updated_at) AS latest_progress_heartbeat_at,
-        page_index AS last_successful_page_index
-      FROM google_ads_sync_checkpoints
-      ORDER BY business_id, updated_at DESC
+        latest_checkpoint_updated_at,
+        latest_progress_heartbeat_at,
+        last_successful_page_index
+      FROM active_checkpoint_latest
+      ORDER BY business_id, updated_at DESC NULLS LAST
     ),
     checkpoint_rollup AS (
       SELECT
         business_id,
         COUNT(*) FILTER (WHERE status = 'failed') AS checkpoint_failures,
         COUNT(*) FILTER (WHERE poisoned_at IS NOT NULL) AS poisoned_checkpoint_count
-      FROM google_ads_sync_checkpoints
+      FROM active_checkpoint_latest
       GROUP BY business_id
     ),
     checkpoint_poison AS (
@@ -1791,7 +1957,7 @@ async function readGoogleAdsHealthRows() {
         business_id,
         poison_reason AS latest_poison_reason,
         poisoned_at AS latest_poisoned_at
-      FROM google_ads_sync_checkpoints
+      FROM active_checkpoint_latest
       WHERE poisoned_at IS NOT NULL
       ORDER BY business_id, poisoned_at DESC
     ),
@@ -1969,172 +2135,223 @@ async function readGoogleAdsHealthSummaryRow() {
 }
 
 async function readMetaHealthRows() {
-  const sql = getDb();
+  const sql = getDbWithTimeout(30_000);
   return (await sql`
-    SELECT
-      partition.business_id,
-      b.name AS business_name,
-      COUNT(*) FILTER (WHERE partition.status = 'queued') AS queue_depth,
-      COUNT(*) FILTER (WHERE partition.status IN ('leased', 'running')) AS leased_partitions,
-      COUNT(*) FILTER (WHERE partition.status = 'failed') AS retryable_failed_partitions,
-      COUNT(*) FILTER (
-        WHERE partition.status IN ('leased', 'running')
-          AND partition.updated_at < now() - interval '15 minutes'
-      ) AS stale_lease_partitions,
-      COUNT(*) FILTER (WHERE partition.status = 'dead_letter') AS dead_letter_partitions,
-      COUNT(DISTINCT CONCAT(state.provider_account_id, ':', state.scope)) AS state_row_count,
-      MIN(partition.partition_date) FILTER (WHERE partition.status = 'queued') AS oldest_queued_partition,
-      MAX(partition.updated_at) AS latest_partition_activity_at,
-      checkpoint.latest_checkpoint_scope,
-      checkpoint.latest_checkpoint_phase,
-      checkpoint.latest_checkpoint_updated_at,
-      checkpoint.latest_progress_heartbeat_at,
-      checkpoint.last_successful_page_index,
-      checkpoint.checkpoint_failures,
-      reclaim.reclaim_candidate_count,
-      reclaim.last_reclaim_reason,
-      (
-        SELECT MAX(today_partition.partition_date)
-        FROM meta_sync_partitions today_partition
-        WHERE today_partition.business_id = partition.business_id
-          AND today_partition.source = 'today'
-      ) AS current_day_reference,
-      (
-        SELECT COUNT(*)::int
-        FROM meta_account_daily account_daily
-        WHERE account_daily.business_id = partition.business_id
-          AND account_daily.date = (
-            SELECT MAX(today_partition.partition_date)
-            FROM meta_sync_partitions today_partition
-            WHERE today_partition.business_id = partition.business_id
-              AND today_partition.source = 'today'
-          )
-      ) AS today_account_rows,
-      (
-        SELECT COUNT(*)::int
-        FROM meta_adset_daily adset_daily
-        WHERE adset_daily.business_id = partition.business_id
-          AND adset_daily.date = (
-            SELECT MAX(today_partition.partition_date)
-            FROM meta_sync_partitions today_partition
-            WHERE today_partition.business_id = partition.business_id
-              AND today_partition.source = 'today'
-          )
-      ) AS today_adset_rows,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'account_daily') AS account_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'adset_daily') AS adset_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'creative_daily') AS creative_completed_days,
-      MAX(state.completed_days) FILTER (WHERE state.scope = 'ad_daily') AS ad_completed_days,
-      COALESCE(recent.recent_account_completed_days, 0) AS recent_account_completed_days,
-      COALESCE(recent.recent_adset_completed_days, 0) AS recent_adset_completed_days,
-      COALESCE(recent.recent_creative_completed_days, 0) AS recent_creative_completed_days,
-      COALESCE(recent.recent_ad_completed_days, 0) AS recent_ad_completed_days,
-      COALESCE(recent.recent_range_total_days, 14) AS recent_range_total_days
-    FROM meta_sync_partitions partition
-    JOIN businesses b ON b.id::text = partition.business_id
-    LEFT JOIN meta_sync_state state
-      ON state.business_id = partition.business_id
-      AND state.provider_account_id = partition.provider_account_id
-    LEFT JOIN LATERAL (
+    WITH partition_stats AS (
       SELECT
-        latest.checkpoint_scope AS latest_checkpoint_scope,
-        latest.phase AS latest_checkpoint_phase,
-        latest.updated_at AS latest_checkpoint_updated_at,
-        latest.updated_at AS latest_progress_heartbeat_at,
-        latest.page_index AS last_successful_page_index,
-        (
-          SELECT COUNT(*)::int
-          FROM meta_sync_checkpoints failures
-          WHERE failures.business_id = partition.business_id
-            AND failures.status = 'failed'
-        ) AS checkpoint_failures
-      FROM meta_sync_checkpoints latest
-      WHERE latest.business_id = partition.business_id
-      ORDER BY latest.updated_at DESC
-      LIMIT 1
-    ) checkpoint ON TRUE
-    LEFT JOIN LATERAL (
+        business_id::text AS business_id,
+        COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
+        COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
+        COUNT(*) FILTER (WHERE status = 'failed') AS retryable_failed_partitions,
+        COUNT(*) FILTER (
+          WHERE status IN ('leased', 'running')
+            AND updated_at < now() - interval '15 minutes'
+        ) AS stale_lease_partitions,
+        COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
+        MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition,
+        MAX(updated_at) AS latest_partition_activity_at,
+        MAX(partition_date) FILTER (WHERE source = 'today') AS current_day_reference
+      FROM meta_sync_partitions
+      GROUP BY business_id::text
+    ),
+    state_stats AS (
       SELECT
+        business_id::text AS business_id,
+        COUNT(DISTINCT CONCAT(provider_account_id, ':', scope)) AS state_row_count,
+        MAX(completed_days) FILTER (WHERE scope = 'account_daily') AS account_completed_days,
+        MAX(completed_days) FILTER (WHERE scope = 'adset_daily') AS adset_completed_days,
+        MAX(completed_days) FILTER (WHERE scope = 'creative_daily') AS creative_completed_days,
+        MAX(completed_days) FILTER (WHERE scope = 'ad_daily') AS ad_completed_days
+      FROM meta_sync_state
+      GROUP BY business_id::text
+    ),
+    checkpoint_latest AS (
+      SELECT DISTINCT ON (business_id)
+        business_id::text AS business_id,
+        checkpoint_scope AS latest_checkpoint_scope,
+        phase AS latest_checkpoint_phase,
+        updated_at AS latest_checkpoint_updated_at,
+        updated_at AS latest_progress_heartbeat_at,
+        page_index AS last_successful_page_index
+      FROM meta_sync_checkpoints
+      ORDER BY business_id, updated_at DESC
+    ),
+    checkpoint_failures AS (
+      SELECT
+        business_id::text AS business_id,
+        COUNT(*)::int AS checkpoint_failures
+      FROM meta_sync_checkpoints
+      WHERE status = 'failed'
+      GROUP BY business_id::text
+    ),
+    recent_rows AS (
+      SELECT business_id::text AS business_id, date, 'account_daily'::text AS scope
+      FROM meta_account_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      UNION ALL
+      SELECT business_id::text AS business_id, date, 'adset_daily'::text AS scope
+      FROM meta_adset_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      UNION ALL
+      SELECT business_id::text AS business_id, date, 'creative_daily'::text AS scope
+      FROM meta_creative_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      UNION ALL
+      SELECT business_id::text AS business_id, date, 'ad_daily'::text AS scope
+      FROM meta_ad_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+    ),
+    recent_stats AS (
+      SELECT
+        business_id,
         COUNT(DISTINCT date) FILTER (WHERE scope = 'account_daily') AS recent_account_completed_days,
         COUNT(DISTINCT date) FILTER (WHERE scope = 'adset_daily') AS recent_adset_completed_days,
         COUNT(DISTINCT date) FILTER (WHERE scope = 'creative_daily') AS recent_creative_completed_days,
         COUNT(DISTINCT date) FILTER (WHERE scope = 'ad_daily') AS recent_ad_completed_days,
         14::int AS recent_range_total_days
-      FROM (
-        SELECT 'account_daily'::text AS scope, date
-        FROM meta_account_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
-        UNION ALL
-        SELECT 'adset_daily'::text AS scope, date
-        FROM meta_adset_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
-        UNION ALL
-        SELECT 'creative_daily'::text AS scope, date
-        FROM meta_creative_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
-        UNION ALL
-        SELECT 'ad_daily'::text AS scope, date
-        FROM meta_ad_daily
-        WHERE business_id = partition.business_id
-          AND date >= CURRENT_DATE - interval '13 days'
-      ) recent_rows
-    ) recent ON TRUE
-    LEFT JOIN LATERAL (
+      FROM recent_rows
+      GROUP BY business_id
+    ),
+    today_account_rows AS (
       SELECT
-        (
-          SELECT COUNT(*)::int
-          FROM sync_reclaim_events reclaim_count
-          WHERE reclaim_count.provider_scope = 'meta'
-            AND reclaim_count.business_id = partition.business_id
-            AND reclaim_count.event_type = 'reclaimed'
-            AND reclaim_count.created_at > now() - interval '24 hours'
-        ) AS reclaim_candidate_count,
-        (
-          SELECT COUNT(*)::int
-          FROM sync_reclaim_events reclaim_skip
-          WHERE reclaim_skip.provider_scope = 'meta'
-            AND reclaim_skip.business_id = partition.business_id
-            AND reclaim_skip.event_type = 'skipped_active_lease'
-            AND reclaim_skip.created_at > now() - interval '24 hours'
-        ) AS skipped_active_lease_recoveries,
-        (
-          SELECT latest_reclaim.reason_code
-          FROM sync_reclaim_events latest_reclaim
-          WHERE latest_reclaim.provider_scope = 'meta'
-            AND latest_reclaim.business_id = partition.business_id
-          ORDER BY latest_reclaim.created_at DESC
-          LIMIT 1
-        ) AS last_reclaim_reason,
-        (
-          SELECT COUNT(*)::int
-          FROM meta_sync_runs stale_runs
-          WHERE stale_runs.business_id = partition.business_id
-            AND stale_runs.error_class = 'stale_run'
-            AND stale_runs.updated_at > now() - interval '24 hours'
-        ) AS stale_run_count_24h
-    ) reclaim ON TRUE
-    GROUP BY
+        account_daily.business_id::text AS business_id,
+        COUNT(*)::int AS today_account_rows
+      FROM meta_account_daily account_daily
+      JOIN partition_stats partition
+        ON partition.business_id = account_daily.business_id::text
+       AND partition.current_day_reference IS NOT NULL
+       AND account_daily.date = partition.current_day_reference
+      GROUP BY account_daily.business_id::text
+    ),
+    today_adset_rows AS (
+      SELECT
+        adset_daily.business_id::text AS business_id,
+        COUNT(*)::int AS today_adset_rows
+      FROM meta_adset_daily adset_daily
+      JOIN partition_stats partition
+        ON partition.business_id = adset_daily.business_id::text
+       AND partition.current_day_reference IS NOT NULL
+       AND adset_daily.date = partition.current_day_reference
+      GROUP BY adset_daily.business_id::text
+    ),
+    reclaim_stats AS (
+      SELECT
+        business_id::text AS business_id,
+        COUNT(*) FILTER (
+          WHERE event_type = 'reclaimed'
+            AND created_at > now() - interval '24 hours'
+        )::int AS reclaim_candidate_count,
+        COUNT(*) FILTER (
+          WHERE event_type = 'skipped_active_lease'
+            AND created_at > now() - interval '24 hours'
+        )::int AS skipped_active_lease_recoveries
+      FROM sync_reclaim_events
+      WHERE provider_scope = 'meta'
+      GROUP BY business_id::text
+    ),
+    latest_reclaim AS (
+      SELECT DISTINCT ON (business_id)
+        business_id::text AS business_id,
+        reason_code AS last_reclaim_reason
+      FROM sync_reclaim_events
+      WHERE provider_scope = 'meta'
+      ORDER BY business_id, created_at DESC
+    ),
+    stale_runs AS (
+      SELECT
+        business_id::text AS business_id,
+        COUNT(*)::int AS stale_run_count_24h
+      FROM meta_sync_runs
+      WHERE error_class = 'stale_run'
+        AND updated_at > now() - interval '24 hours'
+      GROUP BY business_id::text
+    )
+    SELECT
       partition.business_id,
-      b.name,
+      b.name AS business_name,
+      partition.queue_depth,
+      partition.leased_partitions,
+      partition.retryable_failed_partitions,
+      partition.stale_lease_partitions,
+      partition.dead_letter_partitions,
+      COALESCE(state.state_row_count, 0) AS state_row_count,
+      partition.oldest_queued_partition,
+      partition.latest_partition_activity_at,
       checkpoint.latest_checkpoint_scope,
       checkpoint.latest_checkpoint_phase,
       checkpoint.latest_checkpoint_updated_at,
       checkpoint.latest_progress_heartbeat_at,
       checkpoint.last_successful_page_index,
-      checkpoint.checkpoint_failures,
+      COALESCE(checkpoint_failures.checkpoint_failures, 0) AS checkpoint_failures,
+      COALESCE(reclaim.reclaim_candidate_count, 0) AS reclaim_candidate_count,
+      latest_reclaim.last_reclaim_reason,
+      partition.current_day_reference,
+      COALESCE(today_account_rows.today_account_rows, 0) AS today_account_rows,
+      COALESCE(today_adset_rows.today_adset_rows, 0) AS today_adset_rows,
+      COALESCE(state.account_completed_days, 0) AS account_completed_days,
+      COALESCE(state.adset_completed_days, 0) AS adset_completed_days,
+      COALESCE(state.creative_completed_days, 0) AS creative_completed_days,
+      COALESCE(state.ad_completed_days, 0) AS ad_completed_days,
+      COALESCE(recent.recent_account_completed_days, 0) AS recent_account_completed_days,
+      COALESCE(recent.recent_adset_completed_days, 0) AS recent_adset_completed_days,
+      COALESCE(recent.recent_creative_completed_days, 0) AS recent_creative_completed_days,
+      COALESCE(recent.recent_ad_completed_days, 0) AS recent_ad_completed_days,
+      COALESCE(recent.recent_range_total_days, 14) AS recent_range_total_days,
+      COALESCE(reclaim.skipped_active_lease_recoveries, 0) AS skipped_active_lease_recoveries,
+      COALESCE(stale_runs.stale_run_count_24h, 0) AS stale_run_count_24h
+    FROM partition_stats partition
+    JOIN businesses b ON b.id::text = partition.business_id
+    LEFT JOIN state_stats state
+      ON state.business_id = partition.business_id
+    LEFT JOIN checkpoint_latest checkpoint
+      ON checkpoint.business_id = partition.business_id
+    LEFT JOIN checkpoint_failures
+      ON checkpoint_failures.business_id = partition.business_id
+    LEFT JOIN recent_stats recent
+      ON recent.business_id = partition.business_id
+    LEFT JOIN today_account_rows
+      ON today_account_rows.business_id = partition.business_id
+    LEFT JOIN today_adset_rows
+      ON today_adset_rows.business_id = partition.business_id
+    LEFT JOIN reclaim_stats reclaim
+      ON reclaim.business_id = partition.business_id
+    LEFT JOIN latest_reclaim
+      ON latest_reclaim.business_id = partition.business_id
+    LEFT JOIN stale_runs
+      ON stale_runs.business_id = partition.business_id
+    GROUP BY
+      partition.business_id,
+      b.name,
+      partition.queue_depth,
+      partition.leased_partitions,
+      partition.retryable_failed_partitions,
+      partition.stale_lease_partitions,
+      partition.dead_letter_partitions,
+      state.state_row_count,
+      partition.oldest_queued_partition,
+      partition.latest_partition_activity_at,
+      checkpoint.latest_checkpoint_scope,
+      checkpoint.latest_checkpoint_phase,
+      checkpoint.latest_checkpoint_updated_at,
+      checkpoint.latest_progress_heartbeat_at,
+      checkpoint.last_successful_page_index,
+      checkpoint_failures.checkpoint_failures,
       reclaim.reclaim_candidate_count,
       reclaim.skipped_active_lease_recoveries,
-      reclaim.last_reclaim_reason,
-      reclaim.stale_run_count_24h,
+      latest_reclaim.last_reclaim_reason,
+      stale_runs.stale_run_count_24h,
+      partition.current_day_reference,
+      today_account_rows.today_account_rows,
+      today_adset_rows.today_adset_rows,
+      state.account_completed_days,
+      state.adset_completed_days,
+      state.creative_completed_days,
+      state.ad_completed_days,
       recent.recent_account_completed_days,
       recent.recent_adset_completed_days,
       recent.recent_creative_completed_days,
       recent.recent_ad_completed_days,
       recent.recent_range_total_days
-    HAVING COUNT(*) > 0
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawMetaHealthRow[];
 }
@@ -2177,6 +2394,7 @@ async function readRevenueSubscriptions() {
 }
 
 export async function getAdminOperationsHealth() {
+  const sql = getDb();
   const [authRows, syncJobs, cooldowns, googleAdsHealthResult, metaHealth, revenueWorkspaces, revenueSubscriptions, workerHealth] =
     await Promise.all([
       readAuthRows().catch(() => []),
@@ -2213,11 +2431,121 @@ export async function getAdminOperationsHealth() {
         workers: [],
       })),
     ]);
+  const metaD1FinalizeNonTerminalCounts = Object.fromEntries(
+    (
+      (await sql`
+        SELECT
+          business_id::text AS business_id,
+          COUNT(*)::int AS nonterminal_count
+        FROM meta_sync_partitions
+        WHERE partition_date = CURRENT_DATE - INTERVAL '1 day'
+          AND lane = 'maintenance'
+          AND scope = 'account_daily'
+          AND source = 'finalize_day'
+          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'dead_letter')
+        GROUP BY business_id::text
+      `) as Array<{ business_id: string; nonterminal_count: number | string | null }>
+    ).map((row) => [
+      row.business_id,
+      Number(row.nonterminal_count ?? 0),
+    ]),
+  ) as Record<string, number>;
   const metaAuthoritativeSnapshots = await Promise.all(
     metaHealth.map((row) =>
       getMetaAuthoritativeBusinessOpsSnapshot({ businessId: row.business_id }).catch(() => null),
     ),
   );
+  const integrityEndDate = new Date().toISOString().slice(0, 10);
+  const integrityStartDate = (() => {
+    const date = new Date(`${integrityEndDate}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - 45);
+    return date.toISOString().slice(0, 10);
+  })();
+  const [googleAdsReclaimSummaries, googleAdsIntegritySummaries, metaReclaimSummaries, metaIntegritySummaries] =
+    await Promise.all([
+      Promise.all(
+        googleAdsHealthResult.rows.map(async (row) => {
+          const summary = await getGoogleAdsReclaimClassificationSummary({
+            businessId: row.business_id,
+          }).catch(() => null);
+          return [row.business_id, summary] as const;
+        }),
+      ).then((entries) =>
+        Object.fromEntries(
+          entries
+            .filter((entry): entry is readonly [string, NonNullable<(typeof entries)[number][1]>] =>
+              Boolean(entry[1]),
+            )
+            .map(([businessId, summary]) => [
+              businessId,
+              {
+                activeSlowPartitions: summary.aliveSlowCount,
+                reclaimCandidateCount: summary.reclaimCandidateCount,
+                poisonCandidateCount: summary.poisonCandidateCount,
+              },
+            ]),
+        ),
+      ),
+      Promise.all(
+        googleAdsHealthResult.rows.map(async (row) => {
+          const incidents = await getGoogleAdsWarehouseIntegrityIncidents({
+            businessId: row.business_id,
+            startDate: integrityStartDate,
+            endDate: integrityEndDate,
+          }).catch(() => []);
+          return [
+            row.business_id,
+            {
+              incidentCount: incidents.length,
+              blockedCount: incidents.filter(
+                (incident) => incident.severity === "error" && incident.repairRecommended,
+              ).length,
+            },
+          ] as const;
+        }),
+      ).then((entries) => Object.fromEntries(entries)),
+      Promise.all(
+        metaHealth.map(async (row) => {
+          const summary = await getMetaReclaimClassificationSummary({
+            businessId: row.business_id,
+          }).catch(() => null);
+          return [row.business_id, summary] as const;
+        }),
+      ).then((entries) =>
+        Object.fromEntries(
+          entries
+            .filter((entry): entry is readonly [string, NonNullable<(typeof entries)[number][1]>] =>
+              Boolean(entry[1]),
+            )
+            .map(([businessId, summary]) => [
+              businessId,
+              {
+                activeSlowPartitions: summary.aliveSlowCount,
+                reclaimCandidateCount: summary.reclaimCandidateCount,
+              },
+            ]),
+        ),
+      ),
+      Promise.all(
+        metaHealth.map(async (row) => {
+          const incidents = await getMetaWarehouseIntegrityIncidents({
+            businessId: row.business_id,
+            startDate: integrityStartDate,
+            endDate: integrityEndDate,
+            persistReconciliationEvents: false,
+          }).catch(() => []);
+          return [
+            row.business_id,
+            {
+              incidentCount: incidents.length,
+              blockedCount: incidents.filter(
+                (incident) => incident.severity === "error" && incident.repairRecommended,
+              ).length,
+            },
+          ] as const;
+        }),
+      ).then((entries) => Object.fromEntries(entries)),
+    ]);
 
   const authHealth = buildAdminAuthHealth(authRows);
   const syncHealth = buildAdminSyncHealth({
@@ -2227,10 +2555,15 @@ export async function getAdminOperationsHealth() {
     googleAdsHealthStatus: googleAdsHealthResult.status,
     googleAdsHealthError: googleAdsHealthResult.error,
     googleAdsHealthSummary: googleAdsHealthResult.summary,
+    googleAdsReclaimSummaries,
+    googleAdsIntegritySummaries,
     metaHealth,
     metaAuthoritativeSnapshots: metaAuthoritativeSnapshots.filter(
       (snapshot): snapshot is MetaAuthoritativeBusinessOpsSnapshot => Boolean(snapshot),
     ),
+    metaReclaimSummaries,
+    metaIntegritySummaries,
+    metaD1FinalizeNonTerminalCounts,
     workerHealth,
   });
   const revenueRisk = buildAdminRevenueRisk({

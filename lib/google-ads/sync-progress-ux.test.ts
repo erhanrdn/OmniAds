@@ -11,6 +11,41 @@ const baseStatus: GoogleAdsStatusResponse = {
 };
 
 describe("google ads sync progress ux", () => {
+  it("prefers required scope completion over advisor progress for workspace sync completion", () => {
+    const status: GoogleAdsStatusResponse = {
+      ...baseStatus,
+      requiredScopeCompletion: {
+        completedDays: 97,
+        totalDays: 100,
+        percent: 97,
+        readyThroughDate: "2026-04-05",
+        complete: false,
+      },
+      platformDateBoundary: {
+        primaryAccountId: "acct_1",
+        primaryAccountTimezone: "UTC",
+        currentDateInTimezone: "2026-04-07",
+        previousDateInTimezone: "2026-04-06",
+        selectedRangeMode: "historical_warehouse",
+        mixedCurrentDates: false,
+        accounts: [],
+      },
+      advisorProgress: {
+        percent: 94,
+        visible: true,
+        summary: "Search term, product, and asset history are still being prepared for analysis.",
+      },
+    };
+
+    expect(resolveGoogleAdsSyncProgress(status, "inline")).toEqual({
+      kind: "historical",
+      percent: 97,
+      title: "Required sync continues",
+      description: "Required Google Ads warehouse coverage is ready through 2026-04-05.",
+      tone: "secondary",
+    });
+  });
+
   it("prefers advisor progress while advisor unlock is incomplete", () => {
     const status: GoogleAdsStatusResponse = {
       ...baseStatus,

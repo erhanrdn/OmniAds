@@ -221,6 +221,97 @@ describe("GET /api/meta/status", () => {
         "breakdowns.placement",
       ],
     });
+    expect(payload.completionBasis).toEqual(
+      expect.objectContaining({
+        requiredScopes: ["account_daily", "campaign_daily"],
+        percent: 100,
+        complete: true,
+      })
+    );
+  });
+
+  it("exposes provider platform boundaries when account dates diverge", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-07T12:30:00.000Z"));
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
+      id: "asg_1",
+      business_id: "biz",
+      provider: "meta",
+      account_ids: ["act_1", "act_2"],
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [
+        { id: "act_1", name: "Main", timezone: "America/Anchorage" },
+        { id: "act_2", name: "Second", timezone: "Pacific/Kiritimati" },
+      ],
+      meta: {
+        source: "snapshot",
+        sourceHealth: "healthy_cached",
+        fetchedAt: null,
+        stale: false,
+        refreshFailed: false,
+        failureClass: null,
+        lastError: null,
+        lastKnownGoodAvailable: true,
+        refreshRequestedAt: null,
+        lastRefreshAttemptAt: null,
+        nextRefreshAfter: null,
+        retryAfterAt: null,
+        refreshInProgress: false,
+        sourceReason: null,
+      },
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.platformDateBoundary).toMatchObject({
+      primaryAccountId: "act_1",
+      primaryAccountTimezone: "America/Anchorage",
+      currentDateInTimezone: "2026-04-07",
+      previousDateInTimezone: "2026-04-06",
+      mixedCurrentDates: true,
+      selectedRangeMode: "historical_warehouse",
+    });
+    expect(payload.platformDateBoundary.accounts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerAccountId: "act_1",
+          currentDate: "2026-04-07",
+          previousDate: "2026-04-06",
+        }),
+        expect.objectContaining({
+          providerAccountId: "act_2",
+          currentDate: "2026-04-08",
+          previousDate: "2026-04-07",
+        }),
+      ])
+    );
+
+    vi.useRealTimers();
   });
 
   it("exposes the current page status contract subset with deterministic surface keys", async () => {

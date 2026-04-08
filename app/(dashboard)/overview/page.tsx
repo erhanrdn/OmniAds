@@ -16,7 +16,8 @@ import { SyncStatusPill } from "@/components/sync/sync-status-pill";
 import {
   DateRangePicker,
   DateRangeValue,
-  getPresetDates,
+  getPresetDatesForReferenceDate,
+  getTodayIsoForTimeZone,
 } from "@/components/date-range/DateRangePicker";
 import { usePersistentDateRange } from "@/hooks/use-persistent-date-range";
 import { buildOverviewMetricCatalog } from "@/lib/overview-metric-catalog";
@@ -146,6 +147,11 @@ export default function OverviewPage() {
 
   const [dateRange, setDateRange] = usePersistentDateRange();
   const currency: CurrencyCode = (activeBusiness?.currency as CurrencyCode) ?? "USD";
+  const workspaceTimeZone = activeBusiness?.timezone ?? "UTC";
+  const workspaceReferenceDate = useMemo(
+    () => getTodayIsoForTimeZone(workspaceTimeZone),
+    [workspaceTimeZone]
+  );
   const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
   const [aiBriefRegenerating, setAiBriefRegenerating] = useState(false);
   const [aiBriefActionError, setAiBriefActionError] = useState<string | null>(null);
@@ -157,11 +163,18 @@ export default function OverviewPage() {
     ensureBusiness(businessId);
   }, [businessId, ensureBusiness, selectedBusinessId]);
 
-  const { start: startDate, end: endDate } = getPresetDates(
-    dateRange.rangePreset,
-    dateRange.customStart,
-    dateRange.customEnd
-  );
+  const { start: startDate, end: endDate } =
+    dateRange.rangePreset === "custom"
+      ? {
+          start: dateRange.customStart,
+          end: dateRange.customEnd,
+        }
+      : getPresetDatesForReferenceDate(
+          dateRange.rangePreset,
+          workspaceReferenceDate,
+          dateRange.customStart,
+          dateRange.customEnd
+        );
   const compareMode: CompareMode =
     dateRange.comparisonPreset === "none" ? "none" : "previous_period";
 
@@ -329,6 +342,8 @@ export default function OverviewPage() {
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
         shopifyServing={effectiveSummary?.shopifyServing ?? null}
+        referenceDate={workspaceReferenceDate}
+        timeZoneLabel={workspaceTimeZone}
         platformProviders={Array.from(
           new Set([
             ...(effectiveSummary?.platforms ?? []).map((platform) => platform.provider),
@@ -595,11 +610,15 @@ function DataStatusRow({
   dateRange,
   onDateRangeChange,
   shopifyServing,
+  referenceDate,
+  timeZoneLabel,
   platformProviders = [],
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
   shopifyServing?: OverviewSummaryData["shopifyServing"];
+  referenceDate: string;
+  timeZoneLabel: string;
   platformProviders?: string[];
 }) {
   const shopifyBadge = shopifyServing
@@ -654,7 +673,12 @@ function DataStatusRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-          <DateRangePicker value={dateRange} onChange={onDateRangeChange} />
+          <DateRangePicker
+            value={dateRange}
+            onChange={onDateRangeChange}
+            referenceDate={referenceDate}
+            timeZoneLabel={timeZoneLabel}
+          />
         </div>
       </div>
     </section>

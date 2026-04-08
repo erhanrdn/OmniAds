@@ -32,6 +32,7 @@ import {
   buildProviderStateContract,
   buildProviderSurfaces,
 } from "@/lib/provider-readiness";
+import { addDaysToIsoDateUtc, getProviderPlatformDateBoundaries } from "@/lib/provider-platform-date";
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
@@ -235,6 +236,12 @@ export async function GET(request: NextRequest) {
     accountSnapshot?.accounts.find((account) => account.id === primaryAccountId)?.timezone ??
     accountSnapshot?.accounts[0]?.timezone ??
     "UTC";
+  const platformDateBoundaryAccounts = await getProviderPlatformDateBoundaries({
+    provider: "meta",
+    businessId: businessId!,
+    providerAccountIds: accountIds,
+    snapshot: accountSnapshot,
+  }).catch(() => []);
   const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryAccountTimezone);
 
   const initialBackfillEnd = addDays(
@@ -1031,6 +1038,27 @@ export async function GET(request: NextRequest) {
     selectedCurrentDay: selectedRangeIsToday,
     notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
   });
+  const dataContract = {
+    todayMode: "live_overlay",
+    historicalMode: "warehouse_only",
+  } as const;
+  const completionBasis = {
+    requiredScopes: ["account_daily", "campaign_daily"],
+    excludedScopes: ["adset_daily", "ad_daily", "breakdowns"],
+    percent: metaRequiredCoverage.percent,
+    complete: metaRequiredCoverage.complete,
+  };
+  const completionBlockers = metaBlockingReasons.map((reason) => reason.code);
+  const platformDateBoundary = {
+    primaryAccountId,
+    primaryAccountTimezone,
+    currentDateInTimezone,
+    previousDateInTimezone: addDaysToIsoDateUtc(currentDateInTimezone, -1),
+    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    mixedCurrentDates:
+      new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
+    accounts: platformDateBoundaryAccounts,
+  };
 
   const accountSurfaceReady = (accountCoverage?.completed_days ?? 0) >= historicalTotalDays;
   const campaignSurfaceReady = (campaignCoverage?.completed_days ?? 0) >= historicalTotalDays;
@@ -1119,6 +1147,11 @@ export async function GET(request: NextRequest) {
       servingMode: providerState.servingMode,
       isPartial: providerState.isPartial,
       notReadyReason: providerState.notReadyReason,
+      dataContract,
+      platformDateBoundary,
+      completionBasis,
+      completionBlockers,
+      requiredScopeCompletion: metaRequiredCoverage,
       readinessLevel,
       surfaces,
       checkpointHealth,

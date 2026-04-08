@@ -10,6 +10,7 @@ import type {
 import type {
   GoogleAdsPartitionStatus,
   GoogleAdsRawSnapshotRecord,
+  GoogleAdsWarehouseIntegrityIncident,
   GoogleAdsRunnerLeaseRecord,
   GoogleAdsSyncLane,
   GoogleAdsSyncCheckpointRecord,
@@ -30,6 +31,29 @@ type GoogleAdsClosedCheckpointGroup = {
   checkpointScope: string;
   previousPhase: string;
   count: number;
+};
+
+type GoogleAdsReclaimCandidateRow = {
+  id: string;
+  scope: string;
+  lane: string;
+  status: string;
+  attempt_count: number;
+  partition_lease_epoch: number;
+  updated_at: string | null;
+  started_at: string | null;
+  lease_expires_at: string | null;
+  checkpoint_scope: string | null;
+  phase: string | null;
+  page_index: number | null;
+  checkpoint_attempt_count: number | null;
+  checkpoint_status: string | null;
+  progress_updated_at: string | null;
+  checkpoint_lease_epoch: number;
+  poisoned_at: string | null;
+  poison_reason: string | null;
+  same_phase_failures: number;
+  has_active_runner_lease: boolean;
 };
 
 export type GoogleAdsPartitionAttemptCompletionResult =
@@ -228,6 +252,208 @@ function parseGoogleAdsClosedCheckpointGroups(
   return [];
 }
 
+function withinGoogleAdsIntegrityTolerance(expected: number, actual: number) {
+  const tolerance = Math.max(0.01, Math.abs(expected) * 0.001);
+  return Math.abs(expected - actual) <= tolerance;
+}
+
+function buildGoogleAdsIntegrityDelta(input: {
+  account: number | null;
+  campaign: number | null;
+}) {
+  return {
+    account: input.account,
+    campaign: input.campaign,
+    delta:
+      input.account == null || input.campaign == null
+        ? null
+        : Number((input.account - input.campaign).toFixed(2)),
+  };
+}
+
+function classifyGoogleAdsReclaimCandidate(input: {
+  row: GoogleAdsReclaimCandidateRow;
+  nowMs: number;
+  staleThresholdMs: number;
+}): ProviderReclaimDecision | null {
+  const { row, nowMs, staleThresholdMs } = input;
+  const progressMs = parseTimestampMs(row.progress_updated_at);
+  const leaseMs = parseTimestampMs(
+    row.lease_expires_at ?? row.started_at ?? row.updated_at,
+  );
+  const startedMs = parseTimestampMs(row.started_at ?? row.updated_at);
+  const updatedMs = parseTimestampMs(row.updated_at);
+  const orphanedLeaseGraceMs = Math.min(staleThresholdMs, 90_000);
+  const hasRecentProgress =
+    progressMs != null && nowMs - progressMs <= staleThresholdMs;
+  const hasActiveRunnerLease = Boolean(row.has_active_runner_lease);
+  const samePhaseFailures = toNumber(row.same_phase_failures);
+  const checkpointAttempts = toNumber(row.checkpoint_attempt_count);
+  const checkpointScope =
+    row.checkpoint_scope != null ? String(row.checkpoint_scope) : null;
+  const partitionLeaseEpoch = toNumber(row.partition_lease_epoch);
+  const checkpointLeaseEpoch = toNumber(row.checkpoint_lease_epoch);
+  const checkpointEpochMatches =
+    checkpointScope == null || checkpointLeaseEpoch === partitionLeaseEpoch;
+  const leaseExpired = leaseMs != null && nowMs - leaseMs > 0;
+  const leaseNotExpired = leaseMs != null && leaseMs > nowMs;
+  const updatedStale = updatedMs != null && nowMs - updatedMs > 60_000;
+  const partitionAgeMs = startedMs == null ? null : nowMs - startedMs;
+  const leaseWithoutWorkerAgeMs =
+    startedMs != null
+      ? nowMs - startedMs
+      : updatedMs != null
+        ? nowMs - updatedMs
+        : null;
+  const orphanedLiveLease =
+    checkpointEpochMatches &&
+    leaseNotExpired &&
+    !hasRecentProgress &&
+    !hasActiveRunnerLease &&
+    leaseWithoutWorkerAgeMs != null &&
+    leaseWithoutWorkerAgeMs > orphanedLeaseGraceMs;
+
+  if (row.poisoned_at) {
+    return {
+      disposition: "poison_candidate",
+      reasonCode: "poison_checkpoint_detected",
+      detail: row.poison_reason
+        ? String(row.poison_reason)
+        : "Checkpoint already marked as poison candidate.",
+    };
+  }
+  if (
+    checkpointEpochMatches &&
+    !hasRecentProgress &&
+    (samePhaseFailures >= 3 || checkpointAttempts >= 3)
+  ) {
+    return {
+      disposition: "poison_candidate",
+      reasonCode: "same_phase_reentry_limit",
+      detail: `Checkpoint phase ${String(row.phase ?? "unknown")} repeatedly failed without progress.`,
+    };
+  }
+  if (checkpointEpochMatches && hasRecentProgress) {
+    return {
+      disposition: "alive_slow",
+      reasonCode: "progress_recently_advanced",
+      detail: "Recent checkpoint progress detected; keeping partition leased.",
+    };
+  }
+  if (checkpointEpochMatches && hasActiveRunnerLease) {
+    return {
+      disposition: "alive_slow",
+      reasonCode: "active_worker_lease_present",
+      detail: "Runner lease is still active for this lane.",
+    };
+  }
+  if (orphanedLiveLease) {
+    return {
+      disposition: "stalled_reclaimable",
+      reasonCode: "runner_lease_missing_no_progress",
+      detail:
+        "Partition lease remained active without a matching runner lease or checkpoint progress.",
+    };
+  }
+  if (leaseExpired && updatedStale) {
+    return {
+      disposition: "stalled_reclaimable",
+      reasonCode: "worker_offline_no_progress",
+      detail: "Lease expired and no recent runner/progress heartbeat remained.",
+    };
+  }
+  if (leaseExpired) {
+    return {
+      disposition: "stalled_reclaimable",
+      reasonCode: "lease_expired_no_progress",
+      detail: "Partition lease expired without recent checkpoint progress.",
+    };
+  }
+  return null;
+}
+
+async function readGoogleAdsReclaimCandidates(input: { businessId: string }) {
+  const sql = getDb();
+  return (await sql`
+    SELECT
+      partition.id,
+      partition.scope,
+      partition.lane,
+      partition.status,
+      partition.attempt_count,
+      COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch,
+      partition.updated_at,
+      partition.started_at,
+      partition.lease_expires_at,
+      checkpoint.checkpoint_scope,
+      checkpoint.phase,
+      checkpoint.page_index,
+      checkpoint.attempt_count AS checkpoint_attempt_count,
+      checkpoint.status AS checkpoint_status,
+      COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
+      COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch,
+      checkpoint.poisoned_at,
+      checkpoint.poison_reason,
+      COALESCE(failures.same_phase_failures, 0) AS same_phase_failures,
+      EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'google_ads'
+          AND lease.lease_expires_at > now()
+      ) AS has_active_runner_lease
+    FROM google_ads_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT *
+      FROM google_ads_sync_checkpoints checkpoint
+      WHERE checkpoint.partition_id = partition.id
+      ORDER BY checkpoint.updated_at DESC
+      LIMIT 1
+    ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS same_phase_failures
+      FROM google_ads_sync_checkpoints failed
+      WHERE failed.partition_id = partition.id
+        AND failed.phase = checkpoint.phase
+        AND failed.status = 'failed'
+    ) failures ON TRUE
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.status IN ('leased', 'running')
+  `) as GoogleAdsReclaimCandidateRow[];
+}
+
+export async function getGoogleAdsReclaimClassificationSummary(input: {
+  businessId: string;
+  staleLeaseMinutes?: number;
+}) {
+  await runMigrations();
+  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
+  const candidates = await readGoogleAdsReclaimCandidates({
+    businessId: input.businessId,
+  });
+  const counts: Record<ProviderReclaimDisposition, number> = {
+    alive_slow: 0,
+    stalled_reclaimable: 0,
+    poison_candidate: 0,
+  };
+  const nowMs = Date.now();
+  for (const row of candidates) {
+    const decision = classifyGoogleAdsReclaimCandidate({
+      row,
+      nowMs,
+      staleThresholdMs,
+    });
+    if (!decision) continue;
+    tallyDisposition(counts, decision.disposition);
+  }
+  return {
+    candidateCount: candidates.length,
+    aliveSlowCount: counts.alive_slow,
+    reclaimCandidateCount: counts.stalled_reclaimable,
+    poisonCandidateCount: counts.poison_candidate,
+  };
+}
+
 function parseTimestampMs(value: unknown) {
   const normalized = normalizeTimestamp(value);
   if (!normalized) return null;
@@ -336,12 +562,20 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
   // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
   await runMigrations();
   const sql = getDb();
-  if (input.triggerSource.startsWith("manual_targeted_repair:")) {
+  const staleRepairSupersededMessage = input.triggerSource.startsWith(
+    "manual_targeted_repair:",
+  )
+    ? "manual targeted repair superseded a stale running job"
+    : "recent repair superseded a stale running job";
+  if (
+    input.triggerSource.startsWith("manual_targeted_repair:") ||
+    input.triggerSource.startsWith("repair_recent_")
+  ) {
     await sql`
       UPDATE google_ads_sync_jobs
       SET
         status = 'cancelled',
-        last_error = COALESCE(last_error, 'manual targeted repair superseded a stale running job'),
+        last_error = COALESCE(last_error, ${staleRepairSupersededMessage}),
         finished_at = now(),
         updated_at = now()
       WHERE business_id = ${input.businessId}
@@ -1543,52 +1777,9 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
       checkpointResult.closedRunningCheckpointCount;
   }
 
-  const candidates = (await sql`
-    SELECT
-      partition.id,
-      partition.scope,
-      partition.lane,
-      partition.status,
-      partition.attempt_count,
-      COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch,
-      partition.updated_at,
-      partition.started_at,
-      partition.lease_expires_at,
-      checkpoint.checkpoint_scope,
-      checkpoint.phase,
-      checkpoint.page_index,
-      checkpoint.attempt_count AS checkpoint_attempt_count,
-      checkpoint.status AS checkpoint_status,
-      COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
-      COALESCE(checkpoint.lease_epoch, 0) AS checkpoint_lease_epoch,
-      checkpoint.poisoned_at,
-      checkpoint.poison_reason,
-      COALESCE(failures.same_phase_failures, 0) AS same_phase_failures,
-      EXISTS (
-        SELECT 1
-        FROM sync_runner_leases lease
-        WHERE lease.business_id = partition.business_id
-          AND lease.provider_scope = 'google_ads'
-          AND lease.lease_expires_at > now()
-      ) AS has_active_runner_lease
-    FROM google_ads_sync_partitions partition
-    LEFT JOIN LATERAL (
-      SELECT *
-      FROM google_ads_sync_checkpoints checkpoint
-      WHERE checkpoint.partition_id = partition.id
-      ORDER BY checkpoint.updated_at DESC
-      LIMIT 1
-    ) checkpoint ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*)::int AS same_phase_failures
-      FROM google_ads_sync_checkpoints failed
-      WHERE failed.partition_id = partition.id
-        AND failed.phase = checkpoint.phase
-        AND failed.status = 'failed'
-    ) failures ON TRUE
-    WHERE partition.business_id = ${input.businessId}
-      AND partition.status IN ('leased', 'running')
-  `) as Array<Record<string, unknown>>;
+  const candidates = await readGoogleAdsReclaimCandidates({
+    businessId: input.businessId,
+  });
 
   const now = Date.now();
   const dispositionCounts: Record<ProviderReclaimDisposition, number> = {
@@ -1608,74 +1799,14 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
 
   for (const row of candidates) {
     const partitionId = String(row.id);
-    const progressMs = parseTimestampMs(
-      row.progress_updated_at ?? row.updated_at,
-    );
-    const leaseMs = parseTimestampMs(
-      row.lease_expires_at ?? row.started_at ?? row.updated_at,
-    );
-    const updatedMs = parseTimestampMs(row.updated_at);
-    const hasRecentProgress =
-      progressMs != null && now - progressMs <= staleThresholdMs;
-    const hasActiveRunnerLease = Boolean(row.has_active_runner_lease);
-    const samePhaseFailures = toNumber(row.same_phase_failures);
-    const checkpointAttempts = toNumber(row.checkpoint_attempt_count);
     const checkpointScope =
       row.checkpoint_scope != null ? String(row.checkpoint_scope) : null;
-    const partitionLeaseEpoch = toNumber(row.partition_lease_epoch);
-    const checkpointLeaseEpoch = toNumber(row.checkpoint_lease_epoch);
-    const checkpointEpochMatches =
-      checkpointScope == null || checkpointLeaseEpoch === partitionLeaseEpoch;
-
-    let decision: ProviderReclaimDecision;
-    if (row.poisoned_at) {
-      decision = {
-        disposition: "poison_candidate",
-        reasonCode: "poison_checkpoint_detected",
-        detail: row.poison_reason
-          ? String(row.poison_reason)
-          : "Checkpoint already marked as poison candidate.",
-      };
-    } else if (samePhaseFailures >= 3 || checkpointAttempts >= 3) {
-      decision = {
-        disposition: "poison_candidate",
-        reasonCode: "same_phase_reentry_limit",
-        detail: `Checkpoint phase ${String(row.phase ?? "unknown")} repeatedly failed.`,
-      };
-    } else if (checkpointEpochMatches && hasRecentProgress) {
-      decision = {
-        disposition: "alive_slow",
-        reasonCode: "progress_recently_advanced",
-        detail:
-          "Recent checkpoint progress detected; keeping partition leased.",
-      };
-    } else if (checkpointEpochMatches && hasActiveRunnerLease) {
-      decision = {
-        disposition: "alive_slow",
-        reasonCode: "active_worker_lease_present",
-        detail: "Runner lease is still active for this lane.",
-      };
-    } else if (
-      leaseMs != null &&
-      now - leaseMs > 0 &&
-      updatedMs != null &&
-      now - updatedMs > 60_000
-    ) {
-      decision = {
-        disposition: "stalled_reclaimable",
-        reasonCode: "worker_offline_no_progress",
-        detail:
-          "Lease expired and no recent runner/progress heartbeat remained.",
-      };
-    } else if (leaseMs != null && now - leaseMs > 0) {
-      decision = {
-        disposition: "stalled_reclaimable",
-        reasonCode: "lease_expired_no_progress",
-        detail: "Partition lease expired without recent checkpoint progress.",
-      };
-    } else {
-      continue;
-    }
+    const decision = classifyGoogleAdsReclaimCandidate({
+      row,
+      nowMs: now,
+      staleThresholdMs,
+    });
+    if (!decision) continue;
 
     tallyDisposition(dispositionCounts, decision.disposition);
     if (decision.disposition === "stalled_reclaimable") {
@@ -2814,6 +2945,142 @@ export async function readGoogleAdsDailyRange(input: {
   })) as GoogleAdsWarehouseDailyRow[];
 }
 
+export async function getGoogleAdsWarehouseIntegrityIncidents(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    WITH account_rows AS (
+      SELECT
+        business_id,
+        provider_account_id,
+        date::text AS date,
+        SUM(spend)::numeric AS account_spend,
+        SUM(impressions)::numeric AS account_impressions,
+        SUM(clicks)::numeric AS account_clicks,
+        COUNT(*)::int AS account_row_count
+      FROM google_ads_account_daily
+      WHERE business_id = ${input.businessId}
+        AND date BETWEEN ${input.startDate}::date AND ${input.endDate}::date
+        AND (${input.providerAccountIds ?? null}::text[] IS NULL OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[]))
+      GROUP BY business_id, provider_account_id, date::text
+    ),
+    campaign_rows AS (
+      SELECT
+        business_id,
+        provider_account_id,
+        date::text AS date,
+        SUM(spend)::numeric AS campaign_spend,
+        SUM(impressions)::numeric AS campaign_impressions,
+        SUM(clicks)::numeric AS campaign_clicks,
+        COUNT(*)::int AS campaign_row_count
+      FROM google_ads_campaign_daily
+      WHERE business_id = ${input.businessId}
+        AND date BETWEEN ${input.startDate}::date AND ${input.endDate}::date
+        AND (${input.providerAccountIds ?? null}::text[] IS NULL OR provider_account_id = ANY(${input.providerAccountIds ?? null}::text[]))
+      GROUP BY business_id, provider_account_id, date::text
+    )
+    SELECT
+      COALESCE(account_rows.business_id, campaign_rows.business_id) AS business_id,
+      COALESCE(account_rows.provider_account_id, campaign_rows.provider_account_id) AS provider_account_id,
+      COALESCE(account_rows.date, campaign_rows.date) AS date,
+      account_rows.account_spend,
+      account_rows.account_impressions,
+      account_rows.account_clicks,
+      account_rows.account_row_count,
+      campaign_rows.campaign_spend,
+      campaign_rows.campaign_impressions,
+      campaign_rows.campaign_clicks,
+      campaign_rows.campaign_row_count
+    FROM account_rows
+    FULL OUTER JOIN campaign_rows
+      ON campaign_rows.business_id = account_rows.business_id
+      AND campaign_rows.provider_account_id = account_rows.provider_account_id
+      AND campaign_rows.date = account_rows.date
+    ORDER BY COALESCE(account_rows.date, campaign_rows.date) ASC
+  `) as Array<Record<string, unknown>>;
+
+  const incidents: GoogleAdsWarehouseIntegrityIncident[] = [];
+  for (const row of rows) {
+    const accountRowCount = toNumber(row.account_row_count);
+    const campaignRowCount = toNumber(row.campaign_row_count);
+    if (accountRowCount <= 0 && campaignRowCount <= 0) continue;
+
+    const accountSpend =
+      row.account_spend == null ? null : toNumber(row.account_spend);
+    const accountImpressions =
+      row.account_impressions == null ? null : toNumber(row.account_impressions);
+    const accountClicks =
+      row.account_clicks == null ? null : toNumber(row.account_clicks);
+    const campaignSpend =
+      row.campaign_spend == null ? null : toNumber(row.campaign_spend);
+    const campaignImpressions =
+      row.campaign_impressions == null
+        ? null
+        : toNumber(row.campaign_impressions);
+    const campaignClicks =
+      row.campaign_clicks == null ? null : toNumber(row.campaign_clicks);
+
+    const delta: GoogleAdsWarehouseIntegrityIncident["delta"] = {};
+    const metricsCompared: string[] = [];
+    const compareMetric = (
+      metric: "spend" | "impressions" | "clicks",
+      account: number | null,
+      campaign: number | null,
+    ) => {
+      if (account == null && campaign == null) return;
+      if (account == null || campaign == null) {
+        delta[metric] = buildGoogleAdsIntegrityDelta({ account, campaign });
+        metricsCompared.push(metric);
+        return;
+      }
+      if (!withinGoogleAdsIntegrityTolerance(account, campaign)) {
+        delta[metric] = buildGoogleAdsIntegrityDelta({ account, campaign });
+        metricsCompared.push(metric);
+      }
+    };
+
+    compareMetric("spend", accountSpend, campaignSpend);
+    compareMetric("impressions", accountImpressions, campaignImpressions);
+    compareMetric("clicks", accountClicks, campaignClicks);
+
+    if (metricsCompared.length === 0) continue;
+
+    let suspectedCause: GoogleAdsWarehouseIntegrityIncident["suspectedCause"] =
+      "account_campaign_drift";
+    if (accountRowCount <= 0 && campaignRowCount > 0) {
+      suspectedCause = "missing_account_rollup";
+    } else if (campaignRowCount <= 0 && accountRowCount > 0) {
+      suspectedCause = "missing_campaign_rollup";
+    }
+
+    incidents.push({
+      businessId: String(row.business_id),
+      providerAccountId: String(row.provider_account_id),
+      date: normalizeDate(row.date),
+      scope: "system",
+      severity: "error",
+      metricsCompared,
+      delta,
+      repairRecommended: true,
+      repairStatus: "pending",
+      suspectedCause,
+      details: {
+        rowCounts: {
+          account: accountRowCount,
+          campaign: campaignRowCount,
+        },
+      },
+    });
+  }
+
+  return incidents;
+}
+
 export async function readGoogleAdsAggregatedRange(input: {
   scope: GoogleAdsWarehouseScope;
   businessId: string;
@@ -3528,20 +3795,41 @@ export async function getGoogleAdsCheckpointHealth(input: {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
+    WITH active_partitions AS (
+      SELECT id
+      FROM google_ads_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND status IN ('queued', 'leased', 'running', 'dead_letter')
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+    ),
+    latest_checkpoint AS (
+      SELECT DISTINCT ON (checkpoint.partition_id)
+        checkpoint.partition_id,
+        checkpoint.checkpoint_scope,
+        checkpoint.is_paginated,
+        checkpoint.phase,
+        checkpoint.status,
+        checkpoint.page_index,
+        COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) AS progress_updated_at,
+        checkpoint.poisoned_at,
+        checkpoint.poison_reason,
+        checkpoint.updated_at
+      FROM google_ads_sync_checkpoints checkpoint
+      JOIN active_partitions partition ON partition.id = checkpoint.partition_id
+      ORDER BY checkpoint.partition_id, checkpoint.updated_at DESC
+    )
     SELECT
       checkpoint_scope,
       is_paginated,
       phase,
       status,
       page_index,
-      COALESCE(progress_heartbeat_at, updated_at) AS progress_updated_at,
+      progress_updated_at,
       poisoned_at,
       poison_reason,
       COUNT(*) FILTER (WHERE status = 'failed') OVER ()::int AS checkpoint_failures
-    FROM google_ads_sync_checkpoints
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-    ORDER BY updated_at DESC
+    FROM latest_checkpoint
+    ORDER BY updated_at DESC NULLS LAST
     LIMIT 1
   `) as Array<Record<string, unknown>>;
   const row = rows[0];
@@ -3987,6 +4275,19 @@ export async function expireStaleGoogleAdsSyncJobs(input: {
       AND status = 'running'
       AND started_at < now() - (${input.timeoutMinutes ?? 90} || ' minutes')::interval
   `;
+
+  await sql`
+    UPDATE google_ads_sync_jobs
+    SET
+      status = 'failed',
+      last_error = COALESCE(last_error, 'stale recent repair job expired automatically'),
+      finished_at = now(),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND status = 'running'
+      AND trigger_source LIKE 'repair_recent_%'
+      AND started_at < now() - interval '5 minutes'
+  `;
 }
 
 export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
@@ -4077,7 +4378,10 @@ export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
         updated_at = now()
       WHERE business_id = ${input.businessId}
         AND status = 'running'
-        AND trigger_source IN ('background_initial', 'background_recent', 'background_repair', 'background_today')
+        AND (
+          trigger_source IN ('background_initial', 'background_recent', 'background_repair', 'background_today')
+          OR trigger_source LIKE 'repair_recent_%'
+        )
         AND started_at < now() - (${input.staleBackgroundMinutes ?? 5} || ' minutes')::interval
       RETURNING id
     ),

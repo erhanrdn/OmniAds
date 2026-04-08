@@ -80,6 +80,9 @@ import {
   type ProviderProgressEvidenceStateRow,
 } from "@/lib/sync/provider-status-truth";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
+import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import { getDb } from "@/lib/db";
+import { runMigrations } from "@/lib/migrations";
 
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
@@ -97,6 +100,19 @@ async function upsertMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
 
 function sleepMs(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function addUtcDays(date: string, delta: number) {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + delta);
+  return next.toISOString().slice(0, 10);
+}
+
+function parseTimestampMs(value: unknown) {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(String(value));
+  const ms = parsed.getTime();
+  return Number.isFinite(ms) ? ms : null;
 }
 
 type MetaQueueVisibilityEvent =
@@ -3167,6 +3183,227 @@ export async function syncMetaToday(
   });
 }
 
+export async function recoverMetaD1FinalizePartitions(input: {
+  businessId: string;
+  staleLeaseMinutes?: number;
+  finalizeSlaMinutes?: number;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
+  const finalizeSlaMs = Math.max(1, input.finalizeSlaMinutes ?? 20) * 60_000;
+  const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
+  const accountTargetDates = new Map(
+    (credentials?.accountIds ?? []).map((providerAccountId) => {
+      const timezone =
+        credentials?.accountProfiles?.[providerAccountId]?.timezone ?? "UTC";
+      const today = getTodayIsoForTimeZoneServer(timezone);
+      return [providerAccountId, addUtcDays(today, -1)] as const;
+    }),
+  );
+  const targetDates = Array.from(new Set(accountTargetDates.values())).sort();
+  const targetDate = targetDates[0] ?? addUtcDays(new Date().toISOString().slice(0, 10), -1);
+  const candidates = await sql`
+    SELECT
+      partition.id,
+      partition.provider_account_id,
+      partition.partition_date,
+      partition.status,
+      partition.updated_at,
+      partition.lease_owner,
+      partition.lease_expires_at,
+      checkpoint.updated_at AS checkpoint_updated_at,
+      EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'meta'
+          AND lease.lease_owner = partition.lease_owner
+          AND lease.lease_expires_at > now()
+      ) AS has_matching_runner_lease
+    FROM meta_sync_partitions partition
+    LEFT JOIN LATERAL (
+      SELECT checkpoint.updated_at
+      FROM meta_sync_checkpoints checkpoint
+      WHERE checkpoint.partition_id = partition.id
+        AND COALESCE(checkpoint.lease_epoch, 0) = COALESCE(partition.lease_epoch, 0)
+      ORDER BY checkpoint.updated_at DESC
+      LIMIT 1
+    ) checkpoint ON TRUE
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.lane = 'maintenance'
+      AND partition.scope = 'account_daily'
+      AND partition.source = 'finalize_day'
+      AND partition.status IN ('queued', 'leased', 'running')
+  ` as Array<{
+    id: string;
+    provider_account_id: string;
+    partition_date: string | Date;
+    status: string;
+    updated_at: string | Date | null;
+    lease_owner: string | null;
+    lease_expires_at: string | Date | null;
+    checkpoint_updated_at: string | Date | null;
+    has_matching_runner_lease: boolean;
+  }>;
+  const matchingCandidates = candidates.filter((row) => {
+    const providerAccountId = String(row.provider_account_id ?? "");
+    const target = accountTargetDates.get(providerAccountId);
+    if (!target) return false;
+    return String(row.partition_date).slice(0, 10) === target;
+  });
+  const pollutedCandidates = candidates.filter((row) => {
+    const providerAccountId = String(row.provider_account_id ?? "");
+    const target = accountTargetDates.get(providerAccountId);
+    if (!target) return false;
+    return String(row.partition_date).slice(0, 10) !== target;
+  });
+
+  const nowMs = Date.now();
+  const aliveSlowPartitionIds: string[] = [];
+  const stalledPartitionIds: string[] = [];
+
+  for (const row of matchingCandidates) {
+    const progressMs = parseTimestampMs(
+      row.checkpoint_updated_at ?? row.updated_at,
+    );
+    const updatedMs = parseTimestampMs(row.updated_at);
+    const leaseExpiresMs = parseTimestampMs(row.lease_expires_at);
+    const hasRecentProgress =
+      progressMs != null && nowMs - progressMs <= staleThresholdMs;
+    const hasMatchingRunnerLease = Boolean(row.has_matching_runner_lease);
+    const leaseNotExpired = leaseExpiresMs != null && leaseExpiresMs > nowMs;
+    const finalizeSlaExceeded =
+      updatedMs != null && nowMs - updatedMs > finalizeSlaMs;
+    const orphanedLiveLease =
+      leaseNotExpired &&
+      !hasMatchingRunnerLease &&
+      !hasRecentProgress &&
+      finalizeSlaExceeded;
+
+    if (hasRecentProgress || hasMatchingRunnerLease) {
+      aliveSlowPartitionIds.push(String(row.id));
+      continue;
+    }
+    if (orphanedLiveLease) {
+      stalledPartitionIds.push(String(row.id));
+      continue;
+    }
+    stalledPartitionIds.push(String(row.id));
+  }
+  const pollutedPartitionIds = pollutedCandidates.map((row) => String(row.id));
+
+  let reconciledRunCount = 0;
+  const reclaimedPartitionIds = Array.from(
+    new Set([...stalledPartitionIds, ...pollutedPartitionIds]),
+  );
+  if (reclaimedPartitionIds.length > 0) {
+    await sql`
+      UPDATE meta_sync_partitions
+      SET
+        status = 'cancelled',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        finished_at = COALESCE(finished_at, now()),
+        last_error = CASE
+          WHEN id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(last_error, 'historical finalize_day partition reclassified automatically')
+          ELSE COALESCE(last_error, 'stale D-1 finalize lease reclaimed automatically')
+        END,
+        updated_at = now()
+      WHERE id = ANY(${reclaimedPartitionIds}::uuid[])
+    `;
+    const reconciledRuns = await sql`
+      UPDATE meta_sync_runs run
+      SET
+        status = 'cancelled',
+        error_class = CASE
+          WHEN run.partition_id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(error_class, 'historical_finalize_reclassified')
+          ELSE COALESCE(error_class, 'stale_d1_finalize')
+        END,
+        error_message = CASE
+          WHEN run.partition_id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(error_message, 'historical finalize_day run reclassified automatically')
+          ELSE COALESCE(error_message, 'stale D-1 finalize run closed automatically')
+        END,
+        finished_at = COALESCE(finished_at, now()),
+        duration_ms = COALESCE(
+          duration_ms,
+          GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
+        ),
+        meta_json = COALESCE(run.meta_json, '{}'::jsonb) || jsonb_build_object(
+          'decisionCaller', 'recoverMetaD1FinalizePartitions',
+          'closureReason', CASE
+            WHEN run.partition_id = ANY(${pollutedPartitionIds}::uuid[]) THEN 'historical_finalize_reclassified'
+            ELSE 'stale_d1_finalize_reclaimed'
+          END
+        ),
+        updated_at = now()
+      WHERE run.business_id = ${input.businessId}
+        AND run.partition_id = ANY(${reclaimedPartitionIds}::uuid[])
+        AND run.status = 'running'
+      RETURNING run.id
+    ` as Array<{ id: string }>;
+    reconciledRunCount = reconciledRuns.length;
+    await recordSyncReclaimEvents({
+      providerScope: "meta",
+      businessId: input.businessId,
+      partitionIds: reclaimedPartitionIds,
+      eventType: "reclaimed",
+      disposition: "stalled_reclaimable",
+      reasonCode:
+        pollutedPartitionIds.length > 0 && stalledPartitionIds.length === 0
+          ? "historical_finalize_misclassified"
+          : "lease_expired_no_progress",
+      detail:
+        pollutedPartitionIds.length > 0
+          ? "Historical finalize_day partitions were reclassified automatically."
+          : "Stale D-1 finalize partition reclaimed automatically.",
+    }).catch(() => null);
+  }
+
+  const requeueDates = Array.from(
+    new Set([
+      ...stalledPartitionIds
+        .map((partitionId) =>
+          matchingCandidates.find((candidate) => String(candidate.id) === partitionId),
+        )
+        .filter((candidate): candidate is (typeof matchingCandidates)[number] => Boolean(candidate))
+        .map((candidate) => String(candidate.partition_date).slice(0, 10)),
+      ...pollutedCandidates.map((candidate) => String(candidate.partition_date).slice(0, 10)),
+    ]),
+  ).sort();
+  const requeueResult =
+    requeueDates.length > 0
+      ? await Promise.all(
+          requeueDates.map((date) => {
+            const isTargetDate = targetDates.includes(date);
+            return syncMetaRepairRange({
+              businessId: input.businessId,
+              startDate: date,
+              endDate: date,
+              triggerSource: isTargetDate ? "finalize_day" : "repair_recent_day",
+            }).catch(() => null);
+          }),
+        )
+      : null;
+
+  return {
+    businessId: input.businessId,
+    targetDate,
+    targetDates,
+    candidateCount: matchingCandidates.length,
+    historicalFinalizePollutionCount: pollutedCandidates.length,
+    aliveSlowCount: aliveSlowPartitionIds.length,
+    stalledReclaimableCount: stalledPartitionIds.length,
+    reclaimedPartitionIds,
+    reconciledRunCount,
+    d1FinalizeRecoveryQueued:
+      Array.isArray(requeueResult) ? requeueResult.some((row) => Boolean(row)) : Boolean(requeueResult),
+    d1FinalizeRecoveredCount: stalledPartitionIds.length,
+    d1FinalizeForceReclaimedCount: stalledPartitionIds.length,
+    requeueResult,
+  };
+}
+
 export async function syncMetaRepairRange(input: {
   businessId: string;
   startDate: string;
@@ -3179,7 +3416,7 @@ export async function syncMetaRepairRange(input: {
     endDate: input.endDate,
     triggerSource:
       input.triggerSource ??
-      input.startDate === input.endDate ? "finalize_day" : "priority_window",
+      (input.startDate === input.endDate ? "finalize_day" : "priority_window"),
     syncType:
       input.startDate === input.endDate ? "finalize_range" : "repair_window",
     lane: "maintenance",

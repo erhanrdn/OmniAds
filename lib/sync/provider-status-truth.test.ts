@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRequiredCoverage,
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
   hasRecentProviderAdvancement,
 } from "@/lib/sync/provider-status-truth";
+
+describe("buildRequiredCoverage", () => {
+  it("does not round incomplete coverage up to 100 percent", () => {
+    expect(
+      buildRequiredCoverage({
+        completedDays: 729,
+        totalDays: 730,
+        readyThroughDate: "2026-04-02",
+      })
+    ).toEqual(
+      expect.objectContaining({
+        percent: 99,
+        complete: false,
+      })
+    );
+  });
+});
 
 describe("buildProviderProgressEvidence", () => {
   it("uses bottleneck aggregation for lane progress evidence", () => {

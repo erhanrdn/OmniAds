@@ -49,6 +49,11 @@ interface SyncHealthPayload {
     googleAdsBudgetPressureMax?: number;
     googleAdsRecoveryBusinesses?: number;
     googleAdsCanaryBusinesses?: number;
+    googleAdsIntegrityIncidentCount?: number;
+    googleAdsIntegrityBlockedCount?: number;
+    metaIntegrityIncidentCount?: number;
+    metaIntegrityBlockedCount?: number;
+    metaD1FinalizeNonTerminalCount?: number;
   };
   issues: SyncIssueRow[];
   workerHealth?: {
@@ -90,7 +95,10 @@ interface SyncHealthPayload {
     resumeCapable?: boolean;
     checkpointFailures?: number;
     poisonedCheckpointCount?: number;
+    activeSlowPartitions?: number;
     reclaimCandidateCount?: number;
+    skippedActiveLeaseRecoveries?: number;
+    leaseConflictRuns24h?: number;
     lastReclaimReason?: string | null;
     latestPoisonReason?: string | null;
     latestPoisonedAt?: string | null;
@@ -116,6 +124,8 @@ interface SyncHealthPayload {
     extendedHistoricalLeasedPartitions?: number;
     extendedRecoveryBlockReason?: string | null;
     extendedRecentReadyThroughDate?: string | null;
+    integrityIncidentCount?: number;
+    integrityBlockedCount?: number;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -142,7 +152,10 @@ interface SyncHealthPayload {
     lastSuccessfulPageIndex?: number | null;
     resumeCapable?: boolean;
     checkpointFailures?: number;
+    activeSlowPartitions?: number;
     reclaimCandidateCount?: number;
+    skippedActiveLeaseRecoveries?: number;
+    staleRunCount24h?: number;
     lastReclaimReason?: string | null;
     effectiveMode?: "core_only" | "extended_recovery" | "extended_normal";
     recentAccountCompletedDays?: number;
@@ -152,6 +165,10 @@ interface SyncHealthPayload {
     recentRangeTotalDays?: number;
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
+    integrityIncidentCount?: number;
+    integrityBlockedCount?: number;
+    d1FinalizeNonTerminalCount?: number;
+    validationFailures24h?: number;
   }>;
 }
 
@@ -173,8 +190,11 @@ function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBus
   if (business.queueDepth > 0 && business.leasedPartitions === 0) signals.push("Queue waiting for worker");
   if (business.staleLeasePartitions > 0) signals.push("Stale lease detected");
   if ((business.reclaimCandidateCount ?? 0) > 0) signals.push("Recent reclaim activity");
+  if ((business.activeSlowPartitions ?? 0) > 0) signals.push("Active slow leases");
   if ((business.checkpointLagMinutes ?? 0) > 20) signals.push("Stale checkpoint");
   if (business.todayAccountRows === 0 || business.todayAdsetRows === 0) signals.push("Current day missing");
+  if ((business.integrityBlockedCount ?? 0) > 0) signals.push("Canonical integrity blocked");
+  if ((business.d1FinalizeNonTerminalCount ?? 0) > 0) signals.push("D-1 finalize incomplete");
   if (!business.recentExtendedReady) signals.push("Recent extended backfilling");
   if (business.stateRowCount === 0 && (business.queueDepth > 0 || business.leasedPartitions > 0 || business.deadLetterPartitions > 0)) {
     signals.push("State missing");
@@ -191,6 +211,8 @@ function formatIssueType(issue: SyncIssueRow) {
   if (issue.reportType === "current_day_missing") return "current day missing";
   if (issue.reportType === "retryable_failed_backlog") return "retryable failed backlog";
   if (issue.reportType === "stale_checkpoint") return "stale checkpoint";
+  if (issue.reportType === "integrity_blocked") return "integrity blocked";
+  if (issue.reportType === "d1_finalize_nonterminal") return "D-1 finalize incomplete";
   return issue.reportType;
 }
 
@@ -206,6 +228,8 @@ function getGoogleAdsBusinessSignals(
     signals.push("Historical recovery suspended");
   }
   if (business.extendedRecoveryBlockReason) signals.push(`Block: ${business.extendedRecoveryBlockReason}`);
+  if ((business.integrityBlockedCount ?? 0) > 0) signals.push("Integrity blocked");
+  if ((business.activeSlowPartitions ?? 0) > 0) signals.push("Active slow leases");
   return signals;
 }
 
@@ -302,6 +326,11 @@ export default function AdminSyncHealthPage() {
     googleAdsBudgetPressureMax: undefined,
     googleAdsRecoveryBusinesses: undefined,
     googleAdsCanaryBusinesses: undefined,
+    googleAdsIntegrityIncidentCount: undefined,
+    googleAdsIntegrityBlockedCount: undefined,
+    metaIntegrityIncidentCount: undefined,
+    metaIntegrityBlockedCount: undefined,
+    metaD1FinalizeNonTerminalCount: undefined,
   };
   const issues = payload?.issues ?? [];
   const googleAdsBusinesses = payload?.googleAdsBusinesses ?? [];
@@ -319,6 +348,8 @@ export default function AdminSyncHealthPage() {
       | "refresh_state"
       | "release_quarantine"
       | "force_manual_replay"
+      | "repair_cycle"
+      | "repair_integrity_windows"
   ) {
     setActionState({
       businessId,
@@ -507,6 +538,18 @@ export default function AdminSyncHealthPage() {
                 en eski queued {formatDateTime(summary.metaOldestQueuedPartition ?? null)}
               </span>
             </p>
+            <p>
+              Google Ads integrity:
+              <span className="ml-1 font-medium text-gray-700">
+                incidents {summary.googleAdsIntegrityIncidentCount ?? 0} • blocked {summary.googleAdsIntegrityBlockedCount ?? 0}
+              </span>
+            </p>
+            <p>
+              Meta integrity:
+              <span className="ml-1 font-medium text-gray-700">
+                incidents {summary.metaIntegrityIncidentCount ?? 0} • blocked {summary.metaIntegrityBlockedCount ?? 0} • D-1 nonterminal {summary.metaD1FinalizeNonTerminalCount ?? 0}
+              </span>
+            </p>
           </div>
         </div>
         <p className="text-sm text-gray-500 mt-3">
@@ -573,7 +616,10 @@ export default function AdminSyncHealthPage() {
                         Oldest remaining queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)} • Checkpoint {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Reclaim candidates {business.reclaimCandidateCount ?? 0} • Poison {business.poisonedCheckpointCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
+                        Active slow {business.activeSlowPartitions ?? 0} • Reclaim candidates {business.reclaimCandidateCount ?? 0} • Poison {business.poisonedCheckpointCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Integrity incidents {business.integrityIncidentCount ?? 0} • Blocked {business.integrityBlockedCount ?? 0} • Lease conflicts {business.leaseConflictRuns24h ?? 0} • Skipped active lease recoveries {business.skippedActiveLeaseRecoveries ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Mode {business.effectiveMode ?? "canary_reopen"} • Safe mode {business.safeModeActive ? "on" : "off"} • Breaker {business.circuitBreakerOpen ? "open" : "closed"} • Recovery {business.recoveryMode ?? "closed"} • Canary {business.canaryEnabled ? "yes" : "no"} • Compacted {business.compactedPartitions ?? 0}
@@ -630,6 +676,16 @@ export default function AdminSyncHealthPage() {
                         label="Refresh State"
                         busy={isBusy && actionState.action === "refresh_state"}
                         onClick={() => runProviderAction(business.businessId, "google_ads", "refresh_state")}
+                      />
+                      <ActionButton
+                        label="Repair Cycle"
+                        busy={isBusy && actionState.action === "repair_cycle"}
+                        onClick={() => runProviderAction(business.businessId, "google_ads", "repair_cycle")}
+                      />
+                      <ActionButton
+                        label="Repair Integrity"
+                        busy={isBusy && actionState.action === "repair_integrity_windows"}
+                        onClick={() => runProviderAction(business.businessId, "google_ads", "repair_integrity_windows")}
                       />
                     </div>
                   </div>
@@ -703,7 +759,13 @@ export default function AdminSyncHealthPage() {
                         Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Reclaim candidates {business.reclaimCandidateCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
+                        Active slow {business.activeSlowPartitions ?? 0} • Reclaim candidates {business.reclaimCandidateCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Integrity incidents {business.integrityIncidentCount ?? 0} • Blocked {business.integrityBlockedCount ?? 0} • D-1 nonterminal {business.d1FinalizeNonTerminalCount ?? 0} • Validation failures 24h {business.validationFailures24h ?? 0}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Skipped active lease recoveries {business.skippedActiveLeaseRecoveries ?? 0} • Stale runs 24h {business.staleRunCount24h ?? 0}
                       </p>
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>
@@ -717,6 +779,8 @@ export default function AdminSyncHealthPage() {
                       <ActionButton label="Replay Dead Letter" busy={isBusy && actionState.action === "replay_dead_letter"} onClick={() => runProviderAction(business.businessId, "meta", "replay_dead_letter")} />
                       <ActionButton label="Reschedule" busy={isBusy && actionState.action === "reschedule"} onClick={() => runProviderAction(business.businessId, "meta", "reschedule")} />
                       <ActionButton label="Refresh State" busy={isBusy && actionState.action === "refresh_state"} onClick={() => runProviderAction(business.businessId, "meta", "refresh_state")} />
+                      <ActionButton label="Repair Cycle" busy={isBusy && actionState.action === "repair_cycle"} onClick={() => runProviderAction(business.businessId, "meta", "repair_cycle")} />
+                      <ActionButton label="Repair Integrity" busy={isBusy && actionState.action === "repair_integrity_windows"} onClick={() => runProviderAction(business.businessId, "meta", "repair_integrity_windows")} />
                     </div>
                   </div>
                 </div>

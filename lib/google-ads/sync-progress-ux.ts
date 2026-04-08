@@ -21,6 +21,26 @@ export function resolveGoogleAdsSyncProgress(
   if (!status || !status.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
 
+  if (
+    status.requiredScopeCompletion &&
+    !status.requiredScopeCompletion.complete &&
+    status.platformDateBoundary?.selectedRangeMode !== "current_day_live"
+  ) {
+    return {
+      kind: "historical",
+      percent: Math.max(0, Math.min(99, Math.round(status.requiredScopeCompletion.percent))),
+      title:
+        variant === "inline"
+          ? "Required sync continues"
+          : "Required warehouse sync continues in the background",
+      description:
+        status.requiredScopeCompletion.readyThroughDate
+          ? `Required Google Ads warehouse coverage is ready through ${status.requiredScopeCompletion.readyThroughDate}.`
+          : "Required Google Ads warehouse coverage is still preparing.",
+      tone: "secondary",
+    };
+  }
+
   if (isVisibleProgress(status.advisorProgress)) {
     return {
       kind: "advisor",

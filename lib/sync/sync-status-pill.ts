@@ -170,6 +170,17 @@ function resolveGooglePercent(status: GoogleAdsStatusResponse) {
   return percentFromCoverage(historicalCoverage?.completedDays, historicalCoverage?.totalDays);
 }
 
+function resolveGoogleProgressLabel(
+  status: GoogleAdsStatusResponse,
+  percent: number | null,
+) {
+  const resolvedProgress = resolveGoogleAdsSyncProgress(status, "inline");
+  if (!resolvedProgress || typeof percent !== "number" || percent >= 100) return null;
+  if (resolvedProgress.kind === "advisor") return "Analysis preparing";
+  if (status.panel?.coreUsable) return "Extended sync";
+  return "Syncing";
+}
+
 export function resolveGoogleAdsSyncStatusPill(
   status: GoogleAdsStatusResponse | undefined | null
 ): SyncStatusPillState | null {
@@ -177,6 +188,7 @@ export function resolveGoogleAdsSyncStatusPill(
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
 
   const percent = resolveGooglePercent(status);
+  const progressLabel = resolveGoogleProgressLabel(status, percent);
   const isAttentionState =
     status.state === "action_required" ||
     status.state === "paused" ||
@@ -192,6 +204,9 @@ export function resolveGoogleAdsSyncStatusPill(
   }
 
   if (status.state === "advisor_not_ready") {
+    if (typeof percent === "number" && percent < 100 && progressLabel) {
+      return buildSyncingPill(percent, progressLabel);
+    }
     return buildInfoPill("Core live");
   }
 
@@ -203,8 +218,8 @@ export function resolveGoogleAdsSyncStatusPill(
   }
 
   if (status.panel?.coreUsable) {
-    if (typeof percent === "number" && percent < 100) {
-      return buildSyncingPill(percent, "Core live");
+    if (typeof percent === "number" && percent < 100 && progressLabel) {
+      return buildSyncingPill(percent, progressLabel);
     }
     return buildInfoPill("Core live");
   }
