@@ -41,6 +41,7 @@ export type GoogleContributionImpact = "low" | "medium" | "high";
 
 export type GoogleDecisionFamily =
   | "waste_control"
+  | "brand_governance"
   | "growth_unlock"
   | "structure_repair"
   | "commercial_constraint"
@@ -253,6 +254,15 @@ export type GoogleDecisionLane =
 
 export type GoogleDecisionRiskLevel = "low" | "medium" | "high";
 export type GoogleDecisionBlastRadius = "entity" | "campaign" | "account";
+export type GoogleNegativeKeywordMatchType = "exact" | "phrase" | "broad";
+export type GoogleNegativeKeywordSuppressionReason =
+  | "branded_query"
+  | "sku_specific_query"
+  | "product_specific_query"
+  | "low_confidence"
+  | "ambiguous_intent"
+  | "non_exact_negative_required"
+  | "insufficient_evidence_depth";
 
 export interface GoogleDecisionNarrative {
   whatHappened: string;
@@ -261,6 +271,14 @@ export interface GoogleDecisionNarrative {
   risk: string;
   howToValidate: string[];
   howToRollBack: string;
+}
+
+export interface GoogleNegativeKeywordPolicySummary {
+  requiredMatchType: GoogleNegativeKeywordMatchType;
+  exactOnlyEnforced: true;
+  eligibleQueryCount: number;
+  suppressedQueryCount: number;
+  suppressionReasons: GoogleNegativeKeywordSuppressionReason[];
 }
 
 export interface GoogleDecisionWindowsUsed {
@@ -507,6 +525,7 @@ export interface GoogleRecommendation {
   rollbackGuidance?: string | null;
   validationChecklist: string[];
   blockers: string[];
+  suppressionReasons?: GoogleNegativeKeywordSuppressionReason[];
   blockedByRecommendationIds?: string[];
   conflictsWithRecommendationIds?: string[];
   dependsOnRecommendationIds?: string[];
@@ -694,6 +713,8 @@ export interface GoogleRecommendation {
   negativeGuardrails?: string[];
   negativeClusters?: string[];
   negativeQueries?: string[];
+  suppressedQueries?: string[];
+  negativeKeywordPolicy?: GoogleNegativeKeywordPolicySummary | null;
   promoteToExact?: string[];
   promoteToPhrase?: string[];
   broadDiscoveryThemes?: string[];

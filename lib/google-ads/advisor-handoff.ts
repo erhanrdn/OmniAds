@@ -1435,7 +1435,10 @@ export function decorateAdvisorRecommendationsForExecution(input: {
           !input.accountId
             ? "A single Google Ads account must be selected before native execution is allowed."
             : recommendation.integrityState === "blocked" || recommendation.integrityState === "suppressed"
-              ? "This recommendation is blocked by the deterministic integrity layer."
+              ? recommendation.type === "query_governance" &&
+                (recommendation.suppressionReasons?.length ?? 0) > 0
+                ? "Negative-keyword mutate is blocked because V1 guardrails suppressed unsafe cleanup reasons in this recommendation."
+                : "This recommendation is blocked by the deterministic integrity layer."
               : recommendation.dataTrust === "low"
                 ? "Data trust is too low for native execution."
                 : (recommendation.conflictsWithRecommendationIds?.length ?? 0) > 0
@@ -1499,6 +1502,20 @@ export function decorateAdvisorRecommendationsForExecution(input: {
         batchSize: null,
         batchRollbackAvailable: false,
         reallocationPreview: null,
+      };
+    }
+
+    if (recommendation.type === "query_governance" && (recommendation.suppressionReasons?.length ?? 0) > 0) {
+      return {
+        executionMode: "handoff" as const,
+        mutateActionType: null,
+        mutatePayloadPreview: null,
+        mutateEligibilityReason:
+          "Negative-keyword mutate is blocked because V1 guardrails suppressed unsafe cleanup reasons in this recommendation.",
+        canRollback: false,
+        rollbackActionType: null,
+        rollbackPayloadPreview: null,
+        budgetAdjustmentPreview: null,
       };
     }
 

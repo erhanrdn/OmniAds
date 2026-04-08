@@ -24,7 +24,7 @@ describe("classifySearchAction", () => {
     expect(
       classifySearchAction(
         {
-          searchTerm: "cheap camping backpack",
+          searchTerm: "refund policy",
           campaign: "Generic Search",
           isKeyword: false,
           conversions: 0,
@@ -36,5 +36,60 @@ describe("classifySearchAction", () => {
         ["grandmix"]
       )
     ).toBe("Add as negative keyword");
+  });
+
+  it("suppresses sku-specific negative recommendations", () => {
+    expect(
+      classifySearchAction(
+        {
+          searchTerm: "chair5000",
+          campaign: "Generic Search",
+          isKeyword: false,
+          conversions: 0,
+          spend: 60,
+          clicks: 24,
+          roas: 0,
+          conversionRate: 0,
+        },
+        ["grandmix"]
+      )
+    ).not.toBe("Add as negative keyword");
+  });
+
+  it("suppresses product-specific negative recommendations when product context is known", () => {
+    expect(
+      classifySearchAction(
+        {
+          searchTerm: "urbantrail carry on backpack",
+          campaign: "Generic Search",
+          isKeyword: false,
+          conversions: 0,
+          spend: 60,
+          clicks: 24,
+          roas: 0,
+          conversionRate: 0,
+        },
+        ["grandmix"],
+        ["UrbanTrail Carry-On Backpack"]
+      )
+    ).not.toBe("Add as negative keyword");
+  });
+
+  it("suppresses ambiguous commercial terms from V1 negative recommendations", () => {
+    expect(
+      classifySearchAction(
+        {
+          searchTerm: "cheap camping backpack",
+          campaign: "Generic Search",
+          isKeyword: false,
+          conversions: 0,
+          spend: 60,
+          clicks: 24,
+          roas: 0,
+          conversionRate: 0,
+        },
+        ["grandmix"]
+      )
+    ).not.toBe("Add as negative keyword");
   });
 });

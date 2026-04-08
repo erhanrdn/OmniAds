@@ -72,6 +72,11 @@ import {
   analyzeProducts,
   analyzeSearchIntelligence,
 } from "@/lib/google-ads/tab-analysis";
+import {
+  buildQueryOwnershipContext,
+  classifyQueryOwnership,
+  evaluateNegativeKeywordAssessment,
+} from "@/lib/google-ads/query-ownership";
 import { normalizeChannelType, normalizeStatus } from "@/lib/google-ads-gaql";
 import {
   addDebugMeta,
@@ -780,11 +785,36 @@ export function classifySearchAction(row: {
   clicks: number;
   roas: number;
   conversionRate: number | null;
-}, brandTerms: string[] = []) {
-  const normalizedSearchTerm = row.searchTerm.toLowerCase();
-  const isBrandTerm = brandTerms.some((term) => normalizedSearchTerm.includes(term));
+}, brandTerms: string[] = [], productTerms: string[] = []) {
+  const ownership = classifyQueryOwnership(
+    row.searchTerm,
+    buildQueryOwnershipContext({
+      campaigns: brandTerms.map((term, index) => ({
+        campaignId: `brand-${index}`,
+        campaignName: `${term} brand search`,
+      })) as CampaignPerformanceRow[],
+      searchTerms: [],
+      products: productTerms.map((term, index) => ({
+        productItemId: `sku-${index}`,
+        productTitle: term,
+      })) as ProductPerformanceRow[],
+    })
+  );
+  const negativeKeywordAssessment = evaluateNegativeKeywordAssessment({
+    searchTerm: row.searchTerm,
+    ownershipClass: ownership.ownershipClass,
+    ownershipConfidence: ownership.ownershipConfidence,
+    ownershipNeedsReview: ownership.ownershipNeedsReview,
+    intentClass: ownership.intentClass,
+    intentConfidence: ownership.intentConfidence,
+    intentNeedsReview: ownership.intentNeedsReview,
+    clicks: row.clicks,
+    spend: row.spend,
+    isWasteLike: row.conversions === 0 && row.clicks >= 20 && row.spend >= 20,
+    requiredMatchType: "exact",
+  });
   if (!row.isKeyword && row.conversions >= 2) return "Add as exact keyword";
-  if (!isBrandTerm && row.clicks >= 20 && row.conversions === 0 && row.spend > 10) {
+  if (negativeKeywordAssessment.eligible) {
     return "Add as negative keyword";
   }
   if (row.roas >= 3 && row.conversions >= 2) return "Promote in headlines";

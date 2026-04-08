@@ -21,6 +21,7 @@ import type {
   GoogleContributionImpact,
   GoogleDemandRole,
   GoogleIntegrityState,
+  GoogleNegativeKeywordSuppressionReason,
   GooglePotentialContribution,
   GoogleQueryOwnershipClass,
   GoogleRecommendation,
@@ -40,7 +41,11 @@ import {
   buildGoogleAdsDecisionSnapshotMetadata,
   buildGoogleAdsDecisionSummaryTotals,
 } from "@/lib/google-ads/decision-snapshot";
-import { applyQueryOwnership, buildQueryOwnershipContext } from "@/lib/google-ads/query-ownership";
+import {
+  applyQueryOwnership,
+  buildQueryOwnershipContext,
+  evaluateNegativeKeywordAssessment,
+} from "@/lib/google-ads/query-ownership";
 
 interface WindowInput {
   key:
@@ -468,6 +473,39 @@ function normalizeSearchTerm(term: string) {
     .replace(/\s+/g, " ");
 }
 
+function toNegativeKeywordSuppressionLabel(reason: GoogleNegativeKeywordSuppressionReason) {
+  switch (reason) {
+    case "branded_query":
+      return "Branded queries are governed in the brand lane, not through waste negatives.";
+    case "sku_specific_query":
+      return "SKU-specific queries are suppressed from negative recommendations in V1.";
+    case "product_specific_query":
+      return "Product-specific queries are suppressed from negative recommendations in V1.";
+    case "low_confidence":
+      return "Negative recommendation confidence is not high enough for V1.";
+    case "ambiguous_intent":
+      return "Query intent is too ambiguous or commercially mixed for a safe V1 negative.";
+    case "non_exact_negative_required":
+      return "V1 only permits exact-negative recommendations.";
+    case "insufficient_evidence_depth":
+      return "Spend/click depth is not strong enough for a safe exact-negative call.";
+  }
+}
+
+function buildNegativeKeywordPolicySummary(input: {
+  eligibleQueryCount: number;
+  suppressedQueryCount: number;
+  suppressionReasons: GoogleNegativeKeywordSuppressionReason[];
+}) {
+  return {
+    requiredMatchType: "exact" as const,
+    exactOnlyEnforced: true as const,
+    eligibleQueryCount: input.eligibleQueryCount,
+    suppressedQueryCount: input.suppressedQueryCount,
+    suppressionReasons: Array.from(new Set(input.suppressionReasons)),
+  };
+}
+
 function buildQueryWindowSupportMap(
   windows: WindowInput[],
   predicate: (row: SearchTermPerformanceRow) => boolean
@@ -740,8 +778,10 @@ function toSupportStrength(
 function mapDecisionFamily(type: GoogleRecommendation["type"]): GoogleDecisionFamily {
   switch (type) {
     case "query_governance":
+      return "waste_control";
     case "brand_capture_control":
     case "brand_leakage":
+      return "brand_governance";
     case "search_shopping_overlap":
     case "orphaned_non_brand_demand":
       return "waste_control";
@@ -898,6 +938,9 @@ function toBlockers(input: {
   selectedProducts: ProductPerformanceRow[];
 }) {
   const blockers: string[] = [];
+  for (const reason of input.recommendation.suppressionReasons ?? []) {
+    blockers.push(toNegativeKeywordSuppressionLabel(reason));
+  }
   if (
     input.recommendation.affectedFamilies?.includes("non_brand_search") &&
     input.selectedSearchTerms.length === 0
@@ -1166,6 +1209,18 @@ function applyDecisionIntegrity(input: {
     const degradation = [...recommendation.confidenceDegradationReasons];
 
     if (
+      recommendation.type === "query_governance" &&
+      (recommendation.negativeQueries?.length ?? 0) === 0 &&
+      (recommendation.suppressionReasons?.length ?? 0) > 0
+    ) {
+      degradation.push("V1 query-governance guardrails are suppressing unsafe negative recommendations.");
+      recommendation.integrityState = "suppressed";
+      recommendation.actionability = "not_ready";
+      recommendation.decisionState = "watch";
+      recommendation.doBucket = "do_later";
+    }
+
+    if (
       input.context.selectedTotals.conversions < 6 &&
       recommendation.decisionFamily === "growth_unlock"
     ) {
@@ -1197,7 +1252,7 @@ function applyDecisionIntegrity(input: {
       if (recommendation.doBucket === "do_now") recommendation.doBucket = "do_next";
     }
 
-    if (recommendation.actionability === "not_ready") {
+    if (recommendation.actionability === "not_ready" && recommendation.integrityState !== "suppressed") {
       degradation.push("Execution blockers make this action premature right now.");
       recommendation.integrityState = "blocked";
       recommendation.doBucket = "do_later";
@@ -1301,7 +1356,10 @@ function applyDecisionIntegrity(input: {
   }
 
   return next
-    .filter((recommendation) => recommendation.integrityState !== "suppressed")
+    .filter(
+      (recommendation) =>
+        recommendation.integrityState !== "suppressed" || recommendation.type === "query_governance"
+    )
     .sort((a, b) => {
       return (
         bucketWeight(a.doBucket) - bucketWeight(b.doBucket) ||
@@ -1890,7 +1948,7 @@ export function buildGoogleGrowthAdvisor(
       why:
         "When brand queries are allowed to convert through non-brand or PMax lanes, those lanes look healthier than their true incremental contribution.",
       recommendedAction:
-        "Add brand negatives or exclusions to the growth lanes where possible, keep branded demand isolated, and use the leaked brand queries as a control list before scaling broader discovery.",
+        "Review brand routing, campaign-role boundaries, and available exclusions in the growth lanes so branded demand stays isolated before broader discovery is scaled.",
       potentialContribution: toContribution(
         "Control gain",
         "medium",
@@ -1931,8 +1989,8 @@ export function buildGoogleGrowthAdvisor(
         "Brand query controls must be available in the growth lanes where possible",
       ],
       playbookSteps: [
-        "Create a brand leakage control list from the leaked branded queries.",
-        "Apply brand negatives or exclusions to non-brand and PMax growth lanes where possible.",
+        "Create a brand leakage review list from the leaked branded queries.",
+        "Review exclusions and campaign-role boundaries in non-brand and PMax growth lanes.",
         "Re-check whether growth lanes still look efficient after leakage is removed.",
       ],
     });
@@ -2018,85 +2076,133 @@ export function buildGoogleGrowthAdvisor(
     });
   }
 
-  const wasteQueries = selectedSearchTerms
+  const wasteLikeRows = selectedSearchTerms
     .filter(
       (row) =>
-        ((Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") &&
-          row.ownershipClass !== "brand")
+        Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial"
     )
     .filter((row) => Number(row.spend ?? 0) >= 20)
     .sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0));
-  if (wasteQueries.length >= 2) {
-    const riskyWasteQueries = wasteQueries.filter(
-      (row) =>
-        row.intentClass === "product_specific" ||
-        row.intentClass === "category_high_intent" ||
-        row.intentClass === "brand_mixed"
-    );
-    const negativeQueries = wasteQueries.slice(0, 6).map((row) => row.searchTerm);
-    const negativeClusters = topClusters(wasteQueries, 4, () => true);
-    const negativeGuardrails = uniqueTokensFromQueries(negativeQueries, 8);
+  const wasteAssessments = wasteLikeRows.map((row) => ({
+    row,
+    assessment: evaluateNegativeKeywordAssessment({
+      searchTerm: row.searchTerm,
+      ownershipClass: row.ownershipClass ?? "non_brand",
+      ownershipConfidence: row.ownershipConfidence ?? "low",
+      ownershipNeedsReview: Boolean(row.ownershipNeedsReview),
+      intentClass: row.intentClass ?? "category_mid_intent",
+      intentConfidence: row.intentConfidence ?? "low",
+      intentNeedsReview: Boolean(row.intentNeedsReview),
+      clicks: Number(row.clicks ?? 0),
+      spend: Number(row.spend ?? 0),
+      isWasteLike: Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial",
+      requiredMatchType: "exact",
+    }),
+  }));
+  const eligibleWasteQueries = wasteAssessments
+    .filter((entry) => entry.assessment.eligible)
+    .map((entry) => entry.row);
+  const suppressedWasteAssessments = wasteAssessments.filter((entry) => !entry.assessment.eligible);
+  const aggregatedSuppressionReasons = Array.from(
+    new Set(
+      suppressedWasteAssessments.flatMap((entry) => entry.assessment.suppressionReasons)
+    )
+  );
+  if (eligibleWasteQueries.length >= 1 || suppressedWasteAssessments.length >= 1) {
+    const negativeQueries = eligibleWasteQueries.slice(0, 6).map((row) => row.searchTerm);
+    const suppressedQueries = suppressedWasteAssessments
+      .slice(0, 6)
+      .map((entry) => entry.row.searchTerm);
+    const negativeClusters = topClusters(eligibleWasteQueries, 4, () => true);
+    const negativeKeywordPolicy = buildNegativeKeywordPolicySummary({
+      eligibleQueryCount: eligibleWasteQueries.length,
+      suppressedQueryCount: suppressedWasteAssessments.length,
+      suppressionReasons: aggregatedSuppressionReasons,
+    });
+    const suppressionLabels = aggregatedSuppressionReasons.map(toNegativeKeywordSuppressionLabel);
     recommendationPool.push({
       id: "google-query-governance",
       level: "account",
       type: "query_governance",
       strategyLayer: "Search Governance",
-      decisionState: "act",
-      priority: "high",
-      confidence: riskyWasteQueries.length > 0 ? "medium" : "high",
+      decisionState: eligibleWasteQueries.length >= 1 ? "act" : "watch",
+      priority: eligibleWasteQueries.length >= 1 ? "high" : "medium",
+      confidence: aggregatedSuppressionReasons.length > 0 ? "medium" : "high",
       comparisonCohort: "Search query waste",
-      title: "Query waste is still being allowed through the account",
+      title:
+        eligibleWasteQueries.length >= 1
+          ? "Query waste is still being allowed through the account"
+          : "Potential query cleanup is visible, but V1 suppresses unsafe negative recommendations",
       summary:
-        "Multiple search terms are consuming meaningful spend without enough return, which means negatives and tighter intent control should happen before more scaling.",
+        eligibleWasteQueries.length >= 1
+          ? "Only exact, high-confidence, clearly waste-like queries survive V1 negative governance; everything else is held back for operator review."
+          : "Waste-like query pressure exists, but the current candidates are blocked by V1 safety guardrails rather than being pushed as negatives.",
       why:
-        "Wasteful search clusters drag blended efficiency and distort which campaigns look ready for more budget.",
+        eligibleWasteQueries.length >= 1
+          ? "Unsafe cleanup recommendations can damage brand and product intent, so V1 only keeps reversible exact negatives with strong evidence."
+          : "The current query set is too branded, product-like, ambiguous, or thinly supported to allow safe negative-keyword recommendations in V1.",
       recommendedAction:
-        "Add the waste clusters and worst queries to shared negatives, then tighten phrase/broad traffic with a cleaner negative guardrail list before expanding budgets.",
+        eligibleWasteQueries.length >= 1
+          ? "Review the exact-negative candidate list only, apply it manually where appropriate, and keep suppressed brand/product-like queries in governance review instead of negative cleanup."
+          : "Treat this as operator review only: separate brand or routing issues into brand governance, and leave ambiguous or product-like queries out of negative cleanup.",
       potentialContribution: toContribution(
         "Waste recovery",
-        "high",
-        "This should recover budget quickly and improve signal quality for the remaining search traffic.",
+        eligibleWasteQueries.length >= 1 ? "high" : "medium",
+        eligibleWasteQueries.length >= 1
+          ? "This should recover budget on clearly irrelevant search traffic without crossing brand or product governance boundaries."
+          : "This surfaces cleanup pressure safely, but V1 is intentionally refusing unsafe negative recommendations.",
         undefined,
         formatCurrencyRange(
-          wasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0) * 0.25,
-          wasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0) * 0.45
+          eligibleWasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0) * 0.25,
+          eligibleWasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0) * 0.45
         )
       ),
       evidence: [
-        metricEvidence("Waste query count", String(wasteQueries.length)),
+        metricEvidence("Exact-negative eligible queries", String(eligibleWasteQueries.length)),
+        metricEvidence("Suppressed unsafe queries", String(suppressedWasteAssessments.length)),
         metricEvidence(
-          "Recurring waste queries",
+          "Recurring eligible queries",
           String(
-            wasteQueries.filter(
+            eligibleWasteQueries.filter(
               (row) =>
                 (recurringWasteSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0) >= 2
             ).length
           )
         ),
         metricEvidence(
-          "Waste spend",
-          `$${round(wasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)).toLocaleString()}`
+          "Eligible waste spend",
+          `$${round(eligibleWasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)).toLocaleString()}`
         ),
-        metricEvidence("Top waste cluster", negativeClusters[0] ?? "n/a"),
-        metricEvidence("High-intent manual-review terms", String(riskyWasteQueries.length)),
+        metricEvidence(
+          "Top suppression reason",
+          suppressionLabels[0] ?? "None"
+        ),
       ],
       timeframeContext: buildTimeframeContext(
-        "Core verdict says query waste is broad enough to merit shared governance, not one-off cleanup.",
-          `${input.selectedLabel} highlights the current leakage, but longer windows confirm this is a repeatable waste pattern rather than a one-off spike.`,
+        "Core verdict says waste cleanup should stay exact-only and operator-reviewed in V1.",
+        `${input.selectedLabel} highlights the current cleanup pressure, but the selected range does not override V1 suppression rules.`,
         `Historical support found in ${windows.filter((window) => window.searchTerms.some((row) => (Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") && Number(row.spend ?? 0) >= 20)).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["brand_search", "non_brand_search"],
       negativeClusters,
       negativeQueries,
-      negativeGuardrails,
+      suppressedQueries,
+      negativeKeywordPolicy,
+      suppressionReasons: aggregatedSuppressionReasons,
       prerequisites: [
-        "Shared negative management should be clean before more scale is pushed",
+        "Only exact, reversible, high-confidence negatives are eligible in V1",
       ],
-      playbookSteps: [
-        "Start with the highest-spend waste clusters first.",
-        "Apply the strongest wasted terms to shared negatives or lane-specific control lists.",
-        "Re-run query review after 7 days to confirm leakage was actually removed.",
-      ],
+      playbookSteps: eligibleWasteQueries.length >= 1
+        ? [
+            "Start with the exact-negative candidates only.",
+            "Keep suppressed brand, SKU, and product-like queries out of negative cleanup.",
+            "Re-run query review after 7 days to confirm leakage was actually removed.",
+          ]
+        : [
+            "Do not push phrase or broad negatives from this set in V1.",
+            "Route branded leakage into brand governance instead of waste cleanup.",
+            "Wait for clearer evidence or cleaner intent before revisiting negative action.",
+          ],
     });
   }
 
@@ -2165,7 +2271,7 @@ export function buildGoogleGrowthAdvisor(
       promoteToPhrase: phraseCandidates,
       broadDiscoveryThemes: broadThemes,
       negativeGuardrails: uniqueTokensFromQueries(
-        wasteQueries.slice(0, 6).map((row) => row.searchTerm),
+        eligibleWasteQueries.slice(0, 6).map((row) => row.searchTerm),
         6
       ),
       prerequisites: [
