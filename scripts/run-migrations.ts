@@ -4,15 +4,25 @@ import { runMigrations } from "@/lib/migrations";
 
 loadEnvConfig(process.cwd());
 
-const DEPLOY_MIGRATION_TIMEOUT_MS = 120_000;
+const DEFAULT_DEPLOY_MIGRATION_TIMEOUT_MS = 10 * 60_000;
+
+function getDeployMigrationTimeoutMs() {
+  const raw =
+    process.env.DEPLOY_MIGRATION_TIMEOUT_MS?.trim() ||
+    process.env.MIGRATION_TIMEOUT_MS?.trim();
+  if (!raw) return DEFAULT_DEPLOY_MIGRATION_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DEPLOY_MIGRATION_TIMEOUT_MS;
+}
 
 async function main() {
+  const timeoutMs = getDeployMigrationTimeoutMs();
   await runMigrations({
     force: true,
     reason: "deploy",
-    timeoutMs: DEPLOY_MIGRATION_TIMEOUT_MS,
+    timeoutMs,
   });
-  const sql = getDbWithTimeout(DEPLOY_MIGRATION_TIMEOUT_MS);
+  const sql = getDbWithTimeout(timeoutMs);
   const [verification] = (await sql`
     SELECT json_build_object(
       'metaSyncPartitionsLeaseEpochExists',
