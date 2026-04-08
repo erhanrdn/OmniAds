@@ -7,6 +7,7 @@ import type {
 import { normalizeGoogleAdsDecisionSnapshotPayload } from "@/lib/google-ads/decision-snapshot";
 import { buildGoogleAdsDecisionSnapshotReport } from "@/lib/google-ads/serving";
 import { GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS } from "@/lib/google-ads/advisor-readiness";
+import type { DateRange } from "@/lib/google-ads/reporting-core";
 
 const GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION = "v2";
 const GOOGLE_ADVISOR_SNAPSHOT_STALE_MS = 36 * 60 * 60 * 1000;
@@ -171,10 +172,13 @@ export async function generateGoogleAdsAdvisorSnapshot(input: {
   businessId: string;
   accountId?: string | null;
 }) {
+  const advisorDateRange = String(
+    GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS
+  ) as DateRange;
   const payload = (await buildGoogleAdsDecisionSnapshotReport({
     businessId: input.businessId,
     accountId: input.accountId ?? null,
-    dateRange: String(GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS),
+    dateRange: advisorDateRange,
   })) as GoogleAdvisorResponse;
 
   return upsertGoogleAdsAdvisorSnapshot({
