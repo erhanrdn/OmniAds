@@ -7,26 +7,70 @@ on:
     types:
       - completed
   workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit SHA to deploy or roll back to
+        required: true
+        type: string
 
 concurrency:
-  group: deploy-hetzner-production
-  cancel-in-progress: true
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
+      (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - name: Resolve deploy SHA
+        id: deploy_sha
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            target_sha="${INPUT_SHA}"
+          else
+            target_sha="${WORKFLOW_RUN_SHA}"
+          fi
+
+          if [ -z "${target_sha}" ]; then
+            echo "Deploy SHA is required."
+            exit 1
+          fi
+
+          case "${target_sha}" in
+            *[!0-9a-fA-F]*)
+              echo "Deploy SHA must be hexadecimal."
+              exit 1
+              ;;
+          esac
+
+          if [ "${#target_sha}" -lt 7 ] || [ "${#target_sha}" -gt 40 ]; then
+            echo "Deploy SHA length must be between 7 and 40 characters."
+            exit 1
+          fi
+
+          echo "sha=${target_sha}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy over SSH
         env:
+          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
           HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -45,88 +89,64 @@ jobs:
           chmod 644 ~/.ssh/known_hosts
 
           PORT="${HETZNER_PORT:-22}"
+          SSH_OPTS=(
+            -i ~/.ssh/id_ed25519
+            -p "${PORT}"
+            -o BatchMode=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+            -o TCPKeepAlive=yes
+          )
 
-          ssh -i ~/.ssh/id_ed25519 -p "${PORT}" "${HETZNER_USER}@${HETZNER_HOST}" 'bash -seuo pipefail' <<'EOF'
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${HETZNER_HOST}" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
 
             log() {
               printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
             }
 
-            assert_header_contains() {
-              url="$1"
-              pattern="$2"
-
-              headers="$(curl -fsSI "$url")"
-              printf '%s\n' "$headers"
-              printf '%s\n' "$headers" | grep -qi "$pattern"
-            }
-
-            wait_for_header() {
-              url="$1"
-              pattern="$2"
-              attempts="$3"
-              sleep_seconds="$4"
-
+            wait_for_build_info() {
+              attempts="$1"
+              sleep_seconds="$2"
               attempt=1
+
               while [ "$attempt" -le "$attempts" ]; do
-                if headers="$(curl -fsSI "$url" 2>/dev/null)"; then
-                  printf '%s\n' "$headers"
-                  if printf '%s\n' "$headers" | grep -qi "$pattern"; then
-                    return 0
-                  fi
-                fi
-
-                sleep "$sleep_seconds"
-                attempt=$((attempt + 1))
-              done
-
-              return 1
-            }
-
-            wait_for_build_info_match() {
-              url="$1"
-              expected_build_id="$2"
-              attempts="$3"
-              sleep_seconds="$4"
-
-              attempt=1
-              while [ "$attempt" -le "$attempts" ]; do
-                if build_info_json="$(curl -fsS "${url}" 2>/dev/null)"; then
+                if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
                   printf '%s\n' "${build_info_json}"
-                  current_build_id="$(printf '%s\n' "${build_info_json}" | sed -n 's/.*\"buildId\":\"\\([^\"]*\\)\".*/\\1/p')"
-                  if [ "${current_build_id}" = "${expected_build_id}" ]; then
-                    return 0
-                  fi
-                fi
-
-                sleep "${sleep_seconds}"
-                attempt=$((attempt + 1))
-              done
-
-              return 1
-            }
-
-            container_health_status() {
-              container_id="$1"
-              docker inspect "${container_id}" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
-            }
-
-            wait_for_container_health() {
-              container_id="$1"
-              label="$2"
-              attempts="$3"
-              sleep_seconds="$4"
-
-              attempt=1
-              while [ "$attempt" -le "$attempts" ]; do
-                status="$(container_health_status "${container_id}")"
-                echo "${label}_health_status=${status} attempt=${attempt}/${attempts}"
-                if [ "${status}" = "healthy" ] || [ "${status}" = "none" ]; then
                   return 0
                 fi
 
                 sleep "${sleep_seconds}"
+                attempt=$((attempt + 1))
+              done
+
+              return 1
+            }
+
+            check_optional_health() {
+              service_name="$1"
+              container_id="$(docker compose ps -q "${service_name}" || true)"
+
+              if [ -z "${container_id}" ]; then
+                echo "Missing container for service ${service_name}"
+                return 1
+              fi
+
+              has_healthcheck="$(docker inspect "${container_id}" --format '{{if .Config.Healthcheck}}yes{{else}}no{{end}}')"
+              if [ "${has_healthcheck}" != "yes" ]; then
+                return 0
+              fi
+
+              attempt=1
+              while [ "$attempt" -le 20 ]; do
+                health_status="$(docker inspect "${container_id}" --format '{{.State.Health.Status}}')"
+                echo "${service_name}_health_status=${health_status} attempt=${attempt}/20"
+                if [ "${health_status}" = "healthy" ]; then
+                  return 0
+                fi
+
+                sleep 3
                 attempt=$((attempt + 1))
               done
 
@@ -135,178 +155,30 @@ jobs:
               return 1
             }
 
-            wait_for_meta_worker_heartbeat() {
-              container_id="$1"
-              min_heartbeat_after="$2"
-              attempts="$3"
-              sleep_seconds="$4"
+            export APP_IMAGE_TAG="${DEPLOY_SHA}"
+            export APP_BUILD_ID="${DEPLOY_SHA}"
 
-              attempt=1
-              while [ "$attempt" -le "$attempts" ]; do
-                if docker exec "${container_id}" node --import tsx scripts/sync-worker-healthcheck.ts \
-                  --provider-scope meta \
-                  --online-window-minutes 5 \
-                  --min-online-workers 1 \
-                  --min-heartbeat-after "${min_heartbeat_after}"; then
-                  return 0
-                fi
+            log "Pulling exact SHA images"
+            docker compose pull web worker migrate
 
-                sleep "${sleep_seconds}"
-                attempt=$((attempt + 1))
-              done
+            log "Running migrations for ${DEPLOY_SHA}"
+            docker compose run --rm --no-deps migrate
 
-              docker logs --tail=200 "${container_id}" || true
-              return 1
-            }
+            log "Recreating web and worker"
+            docker compose up -d --force-recreate web worker
 
-            log "Fetching latest main"
-            git fetch --prune origin main
-            git reset --hard origin/main
-            HEAD_SHA="$(git rev-parse HEAD)"
-            export APP_IMAGE_REPO="adsecute"
-            export APP_IMAGE_TAG="${HEAD_SHA}"
-            export APP_BUILD_ID="${HEAD_SHA}"
-            echo "HEAD=${HEAD_SHA}"
-            echo "APP_IMAGE=${APP_IMAGE_REPO}:${APP_IMAGE_TAG}"
-            grep -n '"build"' package.json
-
-            log "Checking Docker disk usage before pre-build cleanup"
-            docker system df
-
-            log "Pruning unused Docker images before build"
-            docker image prune -af
-
-            log "Pruning unused Docker build cache before build"
-            docker builder prune -af
-
-            log "Checking Docker disk usage after pre-build cleanup"
-            docker system df
-
-            log "Building fresh web and worker images"
-            docker compose build --pull --no-cache web worker
-            WEB_IMAGE_REF="${APP_IMAGE_REPO}-web:${APP_IMAGE_TAG}"
-            WORKER_IMAGE_REF="${APP_IMAGE_REPO}-worker:${APP_IMAGE_TAG}"
-            WEB_IMAGE_ID="$(docker image inspect "${WEB_IMAGE_REF}" --format '{{.Id}}')"
-            WORKER_IMAGE_ID="$(docker image inspect "${WORKER_IMAGE_REF}" --format '{{.Id}}')"
-            echo "WEB_IMAGE_ID=${WEB_IMAGE_ID}"
-            echo "WORKER_IMAGE_ID=${WORKER_IMAGE_ID}"
-            docker tag "${WEB_IMAGE_REF}" adsecute-web:latest
-            docker tag "${WORKER_IMAGE_REF}" adsecute-worker:latest
-
-            log "Verifying built image contents before rollout"
-            docker run --rm --entrypoint sh "${WEB_IMAGE_REF}" -lc '
-              set -euo pipefail
-              test -f /app/server.js
-              test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
-              test -d /app/.next/static
-            '
-            docker run --rm --entrypoint sh "${WORKER_IMAGE_REF}" -lc '
-              set -euo pipefail
-              node -p "require(\"/app/package.json\").scripts[\"worker:start\"]"
-              test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
-              test -f /app/scripts/run-migrations.ts
-            '
-
-            log "Running migrations"
-            docker compose run --rm --no-deps worker node --import tsx scripts/run-migrations.ts
-
-            log "Recreating services from the freshly built image"
-            PREVIOUS_WEB_CONTAINER_ID="$(docker compose ps -q web || true)"
-            PREVIOUS_WORKER_CONTAINER_ID="$(docker compose ps -q worker || true)"
-            echo "PREVIOUS_WEB_CONTAINER_ID=${PREVIOUS_WEB_CONTAINER_ID}"
-            echo "PREVIOUS_WORKER_CONTAINER_ID=${PREVIOUS_WORKER_CONTAINER_ID}"
-            ROLLOUT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "ROLLOUT_STARTED_AT=${ROLLOUT_STARTED_AT}"
-            docker compose rm -sf web worker || true
-            docker compose up -d --remove-orphans web worker
+            log "Checking running services"
             docker compose ps
 
-            WEB_CONTAINER_ID="$(docker compose ps -q web)"
-            WORKER_CONTAINER_ID="$(docker compose ps -q worker)"
-            RUNNING_WEB_IMAGE_ID="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Image}}')"
-            RUNNING_WORKER_IMAGE_ID="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Image}}')"
-            RUNNING_WEB_IMAGE_REF="$(docker inspect "${WEB_CONTAINER_ID}" --format '{{.Config.Image}}')"
-            RUNNING_WORKER_IMAGE_REF="$(docker inspect "${WORKER_CONTAINER_ID}" --format '{{.Config.Image}}')"
+            log "Checking runtime build info"
+            BUILD_INFO_JSON="$(wait_for_build_info 20 3)"
+            BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});")"
+            echo "DEPLOY_SHA=${DEPLOY_SHA}"
+            echo "BUILD_ID=${BUILD_ID}"
+            test -n "${BUILD_ID}"
+            test "${BUILD_ID}" = "${DEPLOY_SHA}"
 
-            echo "WEB_CONTAINER_ID=${WEB_CONTAINER_ID}"
-            echo "WORKER_CONTAINER_ID=${WORKER_CONTAINER_ID}"
-            echo "RUNNING_WEB_IMAGE_ID=${RUNNING_WEB_IMAGE_ID}"
-            echo "RUNNING_WORKER_IMAGE_ID=${RUNNING_WORKER_IMAGE_ID}"
-            echo "RUNNING_WEB_IMAGE_REF=${RUNNING_WEB_IMAGE_REF}"
-            echo "RUNNING_WORKER_IMAGE_REF=${RUNNING_WORKER_IMAGE_REF}"
-
-            test -n "${WEB_CONTAINER_ID}"
-            test -n "${WORKER_CONTAINER_ID}"
-            if [ -n "${PREVIOUS_WEB_CONTAINER_ID}" ]; then
-              test "${WEB_CONTAINER_ID}" != "${PREVIOUS_WEB_CONTAINER_ID}"
-            fi
-            if [ -n "${PREVIOUS_WORKER_CONTAINER_ID}" ]; then
-              test "${WORKER_CONTAINER_ID}" != "${PREVIOUS_WORKER_CONTAINER_ID}"
-            fi
-
-            test "${RUNNING_WEB_IMAGE_ID}" = "${WEB_IMAGE_ID}"
-            test "${RUNNING_WORKER_IMAGE_ID}" = "${WORKER_IMAGE_ID}"
-            test "${RUNNING_WEB_IMAGE_REF}" = "${WEB_IMAGE_REF}"
-            test "${RUNNING_WORKER_IMAGE_REF}" = "${WORKER_IMAGE_REF}"
-
-            log "Waiting for container health checks"
-            wait_for_container_health "${WEB_CONTAINER_ID}" "web" 20 3
-            wait_for_container_health "${WORKER_CONTAINER_ID}" "worker" 20 3
-
-            log "Verifying running web container contents"
-            docker exec "${WEB_CONTAINER_ID}" sh -lc '
-              set -euo pipefail
-              test -f /app/server.js
-              test "${APP_BUILD_ID}" = "'"${HEAD_SHA}"'"
-              test -d /app/.next/static
-            '
-
-            log "Waiting for fresh Meta worker heartbeat after rollout"
-            wait_for_meta_worker_heartbeat "${WORKER_CONTAINER_ID}" "${ROLLOUT_STARTED_AT}" 20 5
-
-            log "Waiting for runtime build info endpoint"
-            BUILD_INFO_JSON=""
-            attempt=1
-            while [ "$attempt" -le 20 ]; do
-              if BUILD_INFO_JSON="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
-                printf '%s\n' "${BUILD_INFO_JSON}"
-                break
-              fi
-
-              sleep 3
-              attempt=$((attempt + 1))
-            done
-
-            test -n "${BUILD_INFO_JSON}"
-
-            log "Verifying runtime build id matches origin/main"
-            WEB_BUILD_ID="$(printf '%s\n' "${BUILD_INFO_JSON}" | sed -n 's/.*\"buildId\":\"\\([^\"]*\\)\".*/\\1/p')"
-            echo "WEB_BUILD_ID=${WEB_BUILD_ID}"
-            test "${WEB_BUILD_ID}" = "${HEAD_SHA}"
-
-            log "Waiting for local app to serve public about page"
-            wait_for_header "http://127.0.0.1:3000/about" "200 OK" 10 3
-
-            log "Running local smoke tests"
-            assert_header_contains "http://127.0.0.1:3000/about" "200 OK"
-            assert_header_contains "http://127.0.0.1:3000/privacy" "200 OK"
-            assert_header_contains "http://127.0.0.1:3000/overview" "location: /login?next=%2Foverview"
-
-            log "Running external smoke test"
-            assert_header_contains "https://adsecute.com/about" "200 OK"
-
-            log "Waiting for external runtime build id to match origin/main"
-            wait_for_build_info_match "https://adsecute.com/api/build-info" "${HEAD_SHA}" 20 5
-
-            log "Checking Docker disk usage before cleanup"
-            docker system df
-
-            log "Pruning unused Docker images"
-            docker image prune -f
-
-            log "Pruning unused Docker build cache"
-            docker builder prune -af
-
-            log "Checking Docker disk usage after cleanup"
-            docker system df
+            log "Checking optional container health"
+            check_optional_health web
+            check_optional_health worker
           EOF

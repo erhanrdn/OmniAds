@@ -1,0 +1,39 @@
+services:
+  web:
+    image: adsecute-web:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web-runner
+      args:
+        APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
+    env_file:
+      - .env.local
+    environment:
+      APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
+
+  worker:
+    image: adsecute-worker:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker-runner
+      args:
+        APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
+    env_file:
+      - .env.local
+    environment:
+      APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
+
+  migrate:
+    image: adsecute-worker:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker-runner
+      args:
+        APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
+    env_file:
+      - .env.local
+    environment:
+      APP_BUILD_ID: ${APP_BUILD_ID:-dev-build}
