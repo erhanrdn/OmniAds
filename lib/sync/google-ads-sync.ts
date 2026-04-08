@@ -10,6 +10,7 @@ import {
   getGoogleAdsProductsReport,
   getGoogleAdsSearchIntelligenceReport,
 } from "@/lib/google-ads/reporting";
+import { buildGoogleAdsQueryHash, normalizeGoogleAdsQueryText, persistGoogleAdsSearchIntelligenceFoundation } from "@/lib/google-ads/search-intelligence-storage";
 import { GOOGLE_ADS_CAMPAIGN_CORE_LIMIT, buildCustomerSummaryQuery } from "@/lib/google-ads/query-builders";
 import {
   aggregateOverviewKpis,
@@ -3882,12 +3883,31 @@ async function syncGoogleAdsAccountDay(input: {
                     conversions: toNumber(row.conversions),
                     impressions: toNumber(row.impressions),
                     clicks: toNumber(row.clicks),
-                    payloadJson: row,
+                    payloadJson: {
+                      ...row,
+                      queryHash: buildGoogleAdsQueryHash(String(row.searchTerm ?? "")),
+                      normalizedQuery: normalizeGoogleAdsQueryText(String(row.searchTerm ?? "")),
+                      clusterKey:
+                        String(row.clusterId ?? "").trim() ||
+                        `query:${buildGoogleAdsQueryHash(String(row.searchTerm ?? "")).slice(0, 16)}`,
+                    },
                     sourceSnapshotId: snapshotId,
                   }),
               }),
           )
         : null;
+
+    if (wants("search_term_daily") && searchIntelligence) {
+      await persistGoogleAdsSearchIntelligenceFoundation({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        accountTimezone: profile.timezone,
+        accountCurrency: profile.currency,
+        rows: searchIntelligence.rows as Array<Record<string, unknown>>,
+        sourceSnapshotId: searchSnapshot?.snapshotId ?? null,
+      });
+    }
 
     if (wants("keyword_daily") && keywords) {
       await recordPersistMetric(
