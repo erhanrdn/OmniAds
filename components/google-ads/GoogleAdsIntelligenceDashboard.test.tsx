@@ -82,7 +82,7 @@ vi.mock("@/components/google-ads/google-ads-dashboard-support", () => ({
 vi.mock("@/lib/google-ads/advisor-ux", () => ({
   canOpenGoogleAdsAdvisor: () => false,
   getGoogleAdsAdvisorButtonLabel: () => "Analyze",
-  getGoogleAdsAdvisorCtaState: () => "disabled",
+  getGoogleAdsAdvisorCtaState: () => "blocked",
   getGoogleAdsAdvisorHelperText: () => "Helper",
   getGoogleAdsAdvisorIdleState: () => ({
     title: "Advisor unavailable",

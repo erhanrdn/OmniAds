@@ -1,3 +1,5 @@
+import { GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS } from "@/lib/google-ads/advisor-readiness";
+
 export interface GoogleAdsAdvisorProgressCoverageInput {
   completedDays?: number | null;
 }
@@ -24,12 +26,19 @@ export function buildGoogleAdsAdvisorProgress(input: {
     input.coverages.length - normalizedCoverages.length + (input.coverageUnavailableCount ?? 0)
   );
   const missingCoverage = normalizedCoverages.some(
-    (coverage) => Math.max(0, Math.min(90, Number(coverage.completedDays ?? 0))) < 90
+    (coverage) =>
+      Math.max(
+        0,
+        Math.min(GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS, Number(coverage.completedDays ?? 0))
+      ) < GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS
   );
   const averageCoverageRatio =
     normalizedCoverages.reduce((sum, coverage) => {
-      const completedDays = Math.max(0, Math.min(90, Number(coverage.completedDays ?? 0)));
-      return sum + completedDays / 90;
+      const completedDays = Math.max(
+        0,
+        Math.min(GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS, Number(coverage.completedDays ?? 0))
+      );
+      return sum + completedDays / GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS;
     }, 0) / Math.max(1, normalizedCoverages.length);
 
   const percent = input.advisorReady
@@ -47,12 +56,12 @@ export function buildGoogleAdsAdvisorProgress(input: {
         );
 
   const summary = !input.coreUsable
-    ? "Campaign history is still being prepared for analysis."
+    ? "Campaign history is still being prepared for the 90-day decision snapshot."
     : coverageUnavailableCount > 0
-      ? "Finalizing growth analysis."
+      ? "Finalizing 90-day decision snapshot support."
     : !missingCoverage
-      ? "Finalizing growth analysis."
-      : "Campaign, search term, and product history are still being prepared for analysis.";
+      ? "Finalizing 90-day decision snapshot support."
+      : "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot.";
 
   return {
     percent,

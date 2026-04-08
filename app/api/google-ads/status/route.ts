@@ -32,6 +32,11 @@ import {
 } from "@/lib/google-ads/advisor-snapshots";
 import { getGoogleAdsDecisionEngineConfig } from "@/lib/google-ads/decision-engine-config";
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
+import {
+  GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
+  GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES,
+  isGoogleAdsAdvisorWindowReady,
+} from "@/lib/google-ads/advisor-readiness";
 import { runMigrations } from "@/lib/migrations";
 import {
   buildProviderStateContract,
@@ -981,15 +986,15 @@ export async function GET(request: NextRequest) {
         ]);
   const advisorRequiredSurfaces = [
     {
-      name: "campaign_daily",
+      name: GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES[0],
       coverage: recent90CampaignCoverage,
     },
     {
-      name: "search_term_daily",
+      name: GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES[1],
       coverage: recent90SearchTermCoverage,
     },
     {
-      name: "product_daily",
+      name: GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES[2],
       coverage: recent90ProductCoverage,
     },
   ];
@@ -1021,13 +1026,13 @@ export async function GET(request: NextRequest) {
   ]
     .filter(
       (entry) =>
-        (entry.coverage?.completed_days ?? 0) >= 90
+        isGoogleAdsAdvisorWindowReady(entry.coverage?.completed_days ?? 0)
     )
     .map((entry) => entry.name);
   const advisorMissingSurfaces = advisorRequiredSurfaces
     .filter(
       (entry) =>
-        (entry.coverage?.completed_days ?? 0) < 90
+        !isGoogleAdsAdvisorWindowReady(entry.coverage?.completed_days ?? 0)
     )
     .map((entry) => entry.name);
   const advisorCoverageUnavailableCount = advisorRequiredSurfaces.filter(
@@ -1053,7 +1058,7 @@ export async function GET(request: NextRequest) {
     connected,
     assignedAccountCount: accountIds.length,
     deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
-    recent90Ready:
+    recentSupportReady:
       advisorMissingSurfaces.length === 0 && advisorCoverageUnavailableCount === 0,
     snapshotAvailable,
   });
@@ -1322,7 +1327,7 @@ export async function GET(request: NextRequest) {
         kind: "advisor" as const,
         percent: advisorProgress.percent,
         visible: advisorProgress.visible,
-        label: "Analysis preparing",
+        label: "Preparing 90-day support",
         summary: advisorProgress.summary,
       }
     : connected &&
@@ -1721,6 +1726,8 @@ export async function GET(request: NextRequest) {
     },
     advisor: {
       ready: advisorReady,
+      readinessModel: advisorDecision.readinessModel,
+      readinessWindowDays: GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
       snapshotReady: snapshotAvailable,
       snapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
       snapshotFresh,
@@ -1820,6 +1827,8 @@ export async function GET(request: NextRequest) {
       googleRunnerLeaseActive: workerSchedulingState?.runnerLeaseActive ?? false,
       fullSyncPriorityRequired: fullSyncPriority.required,
       fullSyncPriorityReason: fullSyncPriority.reason,
+      advisorReadinessModel: advisorDecision.readinessModel,
+      advisorReadinessWindowDays: GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
       advisorSnapshotReady: snapshotAvailable,
       advisorSnapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
       advisorSnapshotFresh: snapshotFresh,

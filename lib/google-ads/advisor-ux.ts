@@ -1,6 +1,6 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 
-export type GoogleAdsAdvisorCtaState = "ready" | "refreshable" | "blocked";
+export type GoogleAdsAdvisorCtaState = "open" | "prepare" | "refreshable" | "blocked";
 
 const GOOGLE_ADVISOR_HARD_BLOCK_REASONS = new Set([
   "dead_letter_partitions",
@@ -57,24 +57,24 @@ function getAdvisorBlockedCopy(
   }
 
   if (status.operations?.fullSyncPriorityRequired) {
-    return "Core metrics are live. Deeper analysis will unlock after recent support finishes syncing.";
+    return "Core metrics are live. Campaign, search term, and product history are still syncing for the 90-day decision snapshot.";
   }
 
   switch (status.operations?.advisorSnapshotBlockedReason) {
     case "recent90_incomplete":
     case "missing_recent_required_surfaces":
-      return "Search term and product history are still being prepared. Analysis will unlock automatically.";
+      return "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot.";
     case "dead_letter_partitions":
     case "recent_required_dead_letter_partitions":
     case "recent_required_failed_partitions":
     case "recent_required_unhealthy_leases":
       return "Some analysis inputs need recovery before insights can open.";
     case "snapshot_missing":
-      return "Analysis is being prepared for this account.";
+      return "Recent 90-day support is ready. Prepare the decision snapshot when you want to review it.";
     default:
       return (
         status.advisor?.blockingMessage ??
-        "Analysis is being prepared for this account."
+        "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot."
       );
   }
 }
@@ -83,22 +83,26 @@ export function getGoogleAdsAdvisorCtaState(input: {
   status: GoogleAdsStatusResponse | undefined;
   canOpen: boolean;
   hasCurrentAnalysis: boolean;
+  snapshotReady?: boolean;
 }): GoogleAdsAdvisorCtaState {
   if (!input.canOpen) return "blocked";
-  return input.hasCurrentAnalysis ? "refreshable" : "ready";
+  if (input.hasCurrentAnalysis) return "refreshable";
+  return input.snapshotReady ? "open" : "prepare";
 }
 
 export function getGoogleAdsAdvisorButtonLabel(input: {
   isLoading: boolean;
   ctaState: GoogleAdsAdvisorCtaState;
 }): string {
-  if (input.isLoading) return "Refreshing decision snapshot...";
+  if (input.isLoading) return "Refreshing 90-day decision snapshot...";
   switch (input.ctaState) {
+    case "prepare":
+      return "Prepare Decision Snapshot";
     case "refreshable":
       return "Refresh Decision Snapshot";
     case "blocked":
-      return "Decision Snapshot Preparing";
-    case "ready":
+      return "Decision Snapshot Unavailable";
+    case "open":
     default:
       return "Open Decision Snapshot";
   }
@@ -127,7 +131,7 @@ export function getGoogleAdsAdvisorHelperText(input: {
     return `Decision snapshot updated ${input.lastAnalyzedLabel}`;
   }
 
-  return "Uses a multi-window decision snapshot. The date picker only changes contextual dashboard views.";
+  return "Uses a multi-window decision snapshot backed by recent 90-day support. The date picker only changes contextual dashboard views.";
 }
 
 export function getGoogleAdsAdvisorIdleState(
@@ -173,6 +177,13 @@ export function getGoogleAdsAdvisorIdleState(
     };
   }
   if (status.advisor?.ready) {
+    if (status.operations?.advisorSnapshotReady === false) {
+      return {
+        title: "Decision snapshot can be prepared",
+        description:
+          "Campaign, search term, and product history are ready for the 90-day decision snapshot. Generate it when you want to review it.",
+      };
+    }
     return {
       title: "Growth analysis is ready",
       description:
@@ -185,7 +196,7 @@ export function getGoogleAdsAdvisorIdleState(
     return {
       title: "Deeper analysis is still syncing",
       description:
-        "Core campaign reporting is live. Search term and product history are still being prepared for analysis.",
+        "Core campaign reporting is live. Campaign, search term, and product history are still syncing for the 90-day decision snapshot.",
     };
   }
   return {

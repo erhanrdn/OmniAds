@@ -176,7 +176,7 @@ function resolveGoogleProgressLabel(
 ) {
   const resolvedProgress = resolveGoogleAdsSyncProgress(status, "inline");
   if (!resolvedProgress || typeof percent !== "number" || percent >= 100) return null;
-  if (resolvedProgress.kind === "advisor") return "Analysis preparing";
+  if (resolvedProgress.kind === "advisor") return "Preparing 90-day support";
   if (status.panel?.coreUsable) return "Extended sync";
   return "Syncing";
 }

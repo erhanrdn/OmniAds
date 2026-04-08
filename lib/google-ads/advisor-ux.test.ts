@@ -37,9 +37,16 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorButtonLabel({
         isLoading: false,
-        ctaState: "ready",
+        ctaState: "open",
       })
     ).toBe("Open Decision Snapshot");
+
+    expect(
+      getGoogleAdsAdvisorButtonLabel({
+        isLoading: false,
+        ctaState: "prepare",
+      })
+    ).toBe("Prepare Decision Snapshot");
 
     expect(
       getGoogleAdsAdvisorButtonLabel({
@@ -53,7 +60,7 @@ describe("google ads advisor ux helpers", () => {
         isLoading: false,
         ctaState: "blocked",
       })
-    ).toBe("Decision Snapshot Preparing");
+    ).toBe("Decision Snapshot Unavailable");
   });
 
   it("derives blocked state without changing enablement semantics", () => {
@@ -70,16 +77,27 @@ describe("google ads advisor ux helpers", () => {
         status: buildStatus(),
         canOpen: true,
         hasCurrentAnalysis: false,
+        snapshotReady: false,
       })
-    ).toBe("ready");
+    ).toBe("prepare");
 
     expect(
       getGoogleAdsAdvisorCtaState({
         status: buildStatus(),
         canOpen: true,
         hasCurrentAnalysis: true,
+        snapshotReady: true,
       })
     ).toBe("refreshable");
+
+    expect(
+      getGoogleAdsAdvisorCtaState({
+        status: buildStatus(),
+        canOpen: true,
+        hasCurrentAnalysis: false,
+        snapshotReady: true,
+      })
+    ).toBe("open");
   });
 
   it("maps blocker reasons to product copy", () => {
@@ -93,7 +111,7 @@ describe("google ads advisor ux helpers", () => {
         lastAnalyzedLabel: null,
       })
     ).toBe(
-      "Search term and product history are still being prepared. Analysis will unlock automatically."
+      "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot."
     );
 
     expect(
@@ -114,18 +132,18 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorHelperText({
         status: buildStatus(),
-        ctaState: "ready",
+        ctaState: "open",
         advisorIsStale: false,
         lastAnalyzedLabel: null,
       })
     ).toBe(
-      "Uses a multi-window decision snapshot. The date picker only changes contextual dashboard views."
+      "Uses a multi-window decision snapshot backed by recent 90-day support. The date picker only changes contextual dashboard views."
     );
 
     expect(
       getGoogleAdsAdvisorHelperText({
         status: buildStatus(),
-        ctaState: "ready",
+        ctaState: "open",
         advisorIsStale: false,
         lastAnalyzedLabel: "2 hours ago",
       })
@@ -181,7 +199,7 @@ describe("google ads advisor ux helpers", () => {
     ).toEqual({
       title: "Deeper analysis is still syncing",
       description:
-        "Core campaign reporting is live. Search term and product history are still being prepared for analysis.",
+        "Core campaign reporting is live. Campaign, search term, and product history are still syncing for the 90-day decision snapshot.",
     });
   });
 
@@ -203,6 +221,32 @@ describe("google ads advisor ux helpers", () => {
     ).toEqual({
       title: "Growth analysis is ready",
       description: "The multi-window decision snapshot is ready.",
+    });
+  });
+
+  it("keeps advisor input readiness separate from snapshot availability", () => {
+    expect(
+      getGoogleAdsAdvisorIdleState(
+        buildStatus({
+          state: "ready",
+          advisor: {
+            ready: true,
+            snapshotReady: false,
+            requiredSurfaces: [],
+            availableSurfaces: [],
+            missingSurfaces: [],
+            readyRangeStart: "2026-01-09",
+            readyRangeEnd: "2026-04-08",
+          },
+          operations: buildOperations({
+            advisorSnapshotReady: false,
+          }),
+        })
+      )
+    ).toEqual({
+      title: "Decision snapshot can be prepared",
+      description:
+        "Campaign, search term, and product history are ready for the 90-day decision snapshot. Generate it when you want to review it.",
     });
   });
 

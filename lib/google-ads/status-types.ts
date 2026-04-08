@@ -189,6 +189,8 @@ export interface GoogleAdsStatusResponse {
   } | null;
   advisor?: {
     ready: boolean;
+    readinessModel?: string;
+    readinessWindowDays?: number;
     snapshotReady?: boolean;
     snapshotAsOfDate?: string | null;
     snapshotFresh?: boolean;
@@ -266,6 +268,8 @@ export interface GoogleAdsStatusResponse {
     googleRunnerLeaseActive?: boolean;
     fullSyncPriorityRequired?: boolean;
     fullSyncPriorityReason?: string | null;
+    advisorReadinessModel?: string;
+    advisorReadinessWindowDays?: number;
     advisorSnapshotReady?: boolean;
     advisorSnapshotAsOfDate?: string | null;
     advisorSnapshotFresh?: boolean;

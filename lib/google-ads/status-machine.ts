@@ -1,4 +1,5 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import { GOOGLE_ADS_ADVISOR_READINESS_MODEL } from "@/lib/google-ads/advisor-readiness";
 
 export interface GoogleAdsStatusDecisionInput {
   connected: boolean;
@@ -25,6 +26,7 @@ export interface GoogleAdsStatusDecisionInput {
 export interface GoogleAdsAdvisorDecision {
   ready: boolean;
   notReady: boolean;
+  readinessModel: typeof GOOGLE_ADS_ADVISOR_READINESS_MODEL;
 }
 
 export interface GoogleAdsFullSyncPriorityDecision {
@@ -40,24 +42,25 @@ export function decideGoogleAdsAdvisorReadiness(
     | "assignedAccountCount"
     | "deadLetterPartitions"
   > & {
-    recent90Ready: boolean;
+    recentSupportReady: boolean;
     snapshotAvailable: boolean;
   }
 ): GoogleAdsAdvisorDecision {
   const ready =
     input.connected &&
     input.assignedAccountCount > 0 &&
-    input.recent90Ready;
+    input.recentSupportReady;
 
   const notReady =
     input.connected &&
     input.assignedAccountCount > 0 &&
-    !input.recent90Ready &&
+    !input.recentSupportReady &&
     !ready;
 
   return {
     ready,
     notReady,
+    readinessModel: GOOGLE_ADS_ADVISOR_READINESS_MODEL,
   };
 }
 
