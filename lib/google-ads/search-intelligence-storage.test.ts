@@ -33,6 +33,35 @@ function buildSearchRow(
   } satisfies Partial<SearchTermPerformanceRow> & Record<string, unknown>;
 }
 
+function buildPersistedHotDailyRow(
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    business_id: "biz",
+    provider_account_id: "acct",
+    date: "2026-04-08",
+    account_timezone: "UTC",
+    account_currency: "USD",
+    query_hash: storage.buildGoogleAdsQueryHash("Running Shoes"),
+    campaign_id: "cmp_1",
+    campaign_name: "Search",
+    ad_group_id: "ag_1",
+    ad_group_name: "Ad Group",
+    cluster_key: "running_shoes_cluster",
+    cluster_label: "running_shoes_cluster",
+    theme_key: "category_high_intent",
+    intent_class: "category_high_intent",
+    ownership_class: "non_brand",
+    spend: "12",
+    revenue: "48",
+    conversions: "2",
+    impressions: "120",
+    clicks: "12",
+    source_snapshot_id: "snap_1",
+    ...overrides,
+  };
+}
+
 describe("Google Ads search intelligence storage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -94,10 +123,63 @@ describe("Google Ads search intelligence storage", () => {
     });
   });
 
+  it("maps persisted hot-daily rows into the weekly builder shape without losing identifiers", async () => {
+    const sql = vi.fn(async () => [
+      buildPersistedHotDailyRow(),
+      buildPersistedHotDailyRow({
+        date: "2026-04-09",
+        spend: "8",
+        revenue: "24",
+        conversions: "1",
+        impressions: "80",
+        clicks: "8",
+      }),
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const hotDailyRows = await storage.readGoogleAdsSearchQueryHotDailyRows({
+      businessId: "biz",
+      providerAccountId: "acct",
+      startDate: "2026-04-07",
+      endDate: "2026-04-12",
+    });
+    const weeklyRows = storage.buildGoogleAdsTopQueryWeeklyRowsFromHotDaily({ hotDailyRows });
+
+    expect(hotDailyRows).toHaveLength(2);
+    expect(hotDailyRows[0]).toMatchObject({
+      businessId: "biz",
+      providerAccountId: "acct",
+      campaignId: "cmp_1",
+      adGroupId: "ag_1",
+      queryHash: storage.buildGoogleAdsQueryHash("Running Shoes"),
+      clusterKey: "running_shoes_cluster",
+      sourceSnapshotId: "snap_1",
+      spend: 12,
+      revenue: 48,
+      conversions: 2,
+    });
+    expect(weeklyRows).toHaveLength(1);
+    expect(weeklyRows[0]).toMatchObject({
+      businessId: "biz",
+      providerAccountId: "acct",
+      queryHash: storage.buildGoogleAdsQueryHash("Running Shoes"),
+      weekStart: "2026-04-06",
+      weekEnd: "2026-04-12",
+      queryCountDays: 2,
+      spend: 20,
+      revenue: 72,
+      conversions: 3,
+    });
+  });
+
   it("persists the search intelligence foundation through additive storage helpers", async () => {
     const calls: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
-      calls.push(strings.join(" "));
+      const query = strings.join(" ");
+      calls.push(query);
+      if (query.includes("SELECT *") && query.includes("google_ads_search_query_hot_daily")) {
+        return [buildPersistedHotDailyRow()];
+      }
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -121,8 +203,56 @@ describe("Google Ads search intelligence storage", () => {
     const joined = calls.join("\n");
     expect(joined).toContain("INSERT INTO google_ads_query_dictionary");
     expect(joined).toContain("INSERT INTO google_ads_search_query_hot_daily");
+    expect(joined).toContain("SELECT *");
     expect(joined).toContain("INSERT INTO google_ads_top_query_weekly");
     expect(joined).toContain("INSERT INTO google_ads_search_cluster_daily");
+  });
+
+  it("rebuilds weekly aggregates from persisted hot-daily rows across the full week", async () => {
+    const calls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      calls.push(query);
+      if (query.includes("SELECT *") && query.includes("google_ads_search_query_hot_daily")) {
+        return [
+          buildPersistedHotDailyRow({
+            date: "2026-04-07",
+            spend: "12",
+            revenue: "48",
+            conversions: "2",
+            impressions: "120",
+            clicks: "12",
+            source_snapshot_id: "snap_prev",
+          }),
+          buildPersistedHotDailyRow({
+            date: "2026-04-08",
+            spend: "8",
+            revenue: "24",
+            conversions: "1",
+            impressions: "80",
+            clicks: "8",
+            source_snapshot_id: "snap_curr",
+          }),
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await storage.persistGoogleAdsSearchIntelligenceFoundation({
+      businessId: "biz",
+      providerAccountId: "acct",
+      date: "2026-04-08",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      rows: [buildSearchRow({ spend: 8, revenue: 24, conversions: 1 })],
+      sourceSnapshotId: "snap_curr",
+    });
+
+    expect(result.weeklyRowCount).toBe(1);
+    const weeklyInsert = calls.find((query) => query.includes("INSERT INTO google_ads_top_query_weekly"));
+    expect(weeklyInsert).toBeTruthy();
+    expect(calls.join("\n")).toContain("FROM google_ads_search_query_hot_daily");
   });
 
   it("matches nullable campaign and ad-group ids deterministically during hot-daily upserts", async () => {

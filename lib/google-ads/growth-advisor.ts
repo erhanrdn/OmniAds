@@ -1330,6 +1330,10 @@ function applyDecisionIntegrity(input: {
       dataTrust: recommendation.dataTrust,
       degradationReasons: recommendation.confidenceDegradationReasons,
     });
+    recommendation.decision = buildGoogleDecisionSchema({
+      recommendation,
+      decisionEngineEnabled: isGoogleAdsDecisionEngineV2Enabled(),
+    });
   }
 
   for (const recommendation of next) {
@@ -1403,6 +1407,7 @@ function deriveDecisionSummary(input: {
       (recommendation) =>
         recommendation.integrityState !== "suppressed" &&
         (recommendation.decisionFamily === "waste_control" ||
+          recommendation.decisionFamily === "brand_governance" ||
           recommendation.decisionFamily === "commercial_constraint" ||
           recommendation.decisionFamily === "structure_repair")
     ) ?? null;
@@ -1431,6 +1436,8 @@ function deriveDecisionSummary(input: {
   const accountOperatingMode =
     accountState === "data_insufficient"
       ? "Operate with guardrails"
+      : topConstraintRec?.decisionFamily === "brand_governance"
+        ? "Protect brand routing"
       : accountState === "quality_degraded"
         ? "Protect efficiency"
         : accountState === "structural_decline"

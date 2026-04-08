@@ -79,6 +79,30 @@ export interface GoogleAdsDecisionActionOutcomeLogRow {
   occurredAt?: string | null;
 }
 
+type GoogleAdsSearchQueryHotDailyPersistedRow = {
+  business_id: string;
+  provider_account_id: string;
+  date: string;
+  account_timezone: string;
+  account_currency: string;
+  query_hash: string;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  ad_group_id: string | null;
+  ad_group_name: string | null;
+  cluster_key: string;
+  cluster_label: string;
+  theme_key: string | null;
+  intent_class: string | null;
+  ownership_class: string | null;
+  spend: number | string;
+  revenue: number | string;
+  conversions: number | string;
+  impressions: number | string;
+  clicks: number | string;
+  source_snapshot_id: string | null;
+};
+
 function normalizeIsoDate(value: string) {
   return value.slice(0, 10);
 }
@@ -275,6 +299,54 @@ export function buildGoogleAdsTopQueryWeeklyRowsFromHotDaily(input: {
     existing.clicks += row.clicks;
   }
   return Array.from(grouped.values()).map(({ dates: _dates, ...row }) => row);
+}
+
+function mapPersistedHotDailyRow(
+  row: GoogleAdsSearchQueryHotDailyPersistedRow
+): GoogleAdsSearchQueryHotDailyRow {
+  return {
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    date: normalizeIsoDate(String(row.date)),
+    accountTimezone: String(row.account_timezone),
+    accountCurrency: String(row.account_currency),
+    queryHash: String(row.query_hash),
+    campaignId: row.campaign_id ? String(row.campaign_id) : null,
+    campaignName: row.campaign_name ? String(row.campaign_name) : null,
+    adGroupId: row.ad_group_id ? String(row.ad_group_id) : null,
+    adGroupName: row.ad_group_name ? String(row.ad_group_name) : null,
+    clusterKey: String(row.cluster_key),
+    clusterLabel: String(row.cluster_label),
+    themeKey: row.theme_key ? String(row.theme_key) : null,
+    intentClass: row.intent_class ? String(row.intent_class) : null,
+    ownershipClass: row.ownership_class ? String(row.ownership_class) : null,
+    spend: toNumber(row.spend),
+    revenue: toNumber(row.revenue),
+    conversions: toNumber(row.conversions),
+    impressions: toNumber(row.impressions),
+    clicks: toNumber(row.clicks),
+    sourceSnapshotId: row.source_snapshot_id ? String(row.source_snapshot_id) : null,
+  };
+}
+
+export async function readGoogleAdsSearchQueryHotDailyRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT *
+    FROM google_ads_search_query_hot_daily
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND date >= ${input.startDate}
+      AND date <= ${input.endDate}
+    ORDER BY date ASC, query_hash ASC
+  `) as GoogleAdsSearchQueryHotDailyPersistedRow[];
+  return rows.map(mapPersistedHotDailyRow);
 }
 
 export async function upsertGoogleAdsQueryDictionaryEntries(entries: GoogleAdsQueryDictionaryEntry[]) {
@@ -565,7 +637,6 @@ export async function persistGoogleAdsSearchIntelligenceFoundation(input: {
     sourceSnapshotId: input.sourceSnapshotId,
     rows: input.rows,
   });
-  const weeklyRows = buildGoogleAdsTopQueryWeeklyRowsFromHotDaily({ hotDailyRows });
   const clusterRows = buildGoogleAdsSearchClusterDailyRows({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -575,6 +646,13 @@ export async function persistGoogleAdsSearchIntelligenceFoundation(input: {
 
   await upsertGoogleAdsQueryDictionaryEntries(dictionaryEntries);
   await upsertGoogleAdsSearchQueryHotDailyRows(hotDailyRows);
+  const weeklyHotDailyRows = await readGoogleAdsSearchQueryHotDailyRows({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: isoWeekStart(input.date),
+    endDate: isoWeekEnd(input.date),
+  });
+  const weeklyRows = buildGoogleAdsTopQueryWeeklyRowsFromHotDaily({ hotDailyRows: weeklyHotDailyRows });
   await upsertGoogleAdsTopQueryWeeklyRows(weeklyRows);
   await upsertGoogleAdsSearchClusterDailyRows(clusterRows);
 
