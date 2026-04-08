@@ -23,6 +23,7 @@ import type {
   GoogleIntegrityState,
   GoogleNegativeKeywordSuppressionReason,
   GooglePotentialContribution,
+  GoogleQueryIntentClass,
   GoogleQueryOwnershipClass,
   GoogleRecommendation,
   GoogleRecommendationEvidence,
@@ -120,6 +121,8 @@ interface FamilySummary {
 
 type AdvisorBaseRecommendation = Omit<
   GoogleRecommendation,
+  | "decision"
+  | "decisionNarrative"
   | "decisionFamily"
   | "doBucket"
   | "dataTrust"
@@ -504,6 +507,23 @@ function buildNegativeKeywordPolicySummary(input: {
     suppressedQueryCount: input.suppressedQueryCount,
     suppressionReasons: Array.from(new Set(input.suppressionReasons)),
   };
+}
+
+const GOOGLE_QUERY_INTENT_CLASSES: GoogleQueryIntentClass[] = [
+  "brand_core",
+  "brand_mixed",
+  "product_specific",
+  "category_high_intent",
+  "category_mid_intent",
+  "price_sensitive",
+  "research_low_intent",
+  "support_or_post_purchase",
+];
+
+function normalizeGoogleQueryIntentClass(value: string | undefined): GoogleQueryIntentClass {
+  return GOOGLE_QUERY_INTENT_CLASSES.includes(value as GoogleQueryIntentClass)
+    ? (value as GoogleQueryIntentClass)
+    : "category_mid_intent";
 }
 
 function buildQueryWindowSupportMap(
@@ -2090,7 +2110,7 @@ export function buildGoogleGrowthAdvisor(
       ownershipClass: row.ownershipClass ?? "non_brand",
       ownershipConfidence: row.ownershipConfidence ?? "low",
       ownershipNeedsReview: Boolean(row.ownershipNeedsReview),
-      intentClass: row.intentClass ?? "category_mid_intent",
+      intentClass: normalizeGoogleQueryIntentClass(row.intentClass),
       intentConfidence: row.intentConfidence ?? "low",
       intentNeedsReview: Boolean(row.intentNeedsReview),
       clicks: Number(row.clicks ?? 0),
