@@ -99,8 +99,9 @@ jobs:
           )
           REMOTE_APP_DIR="/var/www/adsecute"
 
-          scp "${SSH_OPTS[@]}" docker-compose.yml \
-            "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_APP_DIR}/docker-compose.yml.tmp"
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${HETZNER_HOST}" \
+            "mkdir -p '${REMOTE_APP_DIR}' && cat > '${REMOTE_APP_DIR}/docker-compose.yml.tmp'" \
+            < docker-compose.yml
 
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${HETZNER_HOST}" \
             "mv '${REMOTE_APP_DIR}/docker-compose.yml.tmp' '${REMOTE_APP_DIR}/docker-compose.yml'"
