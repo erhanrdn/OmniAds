@@ -97,7 +97,19 @@ describe("Google Ads search intelligence storage", () => {
   it("persists the search intelligence foundation through additive storage helpers", async () => {
     const calls: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
-      calls.push(strings.join(" "));
+      const query = strings.join(" ");
+      calls.push(query);
+      if (query.includes("SELECT *") && query.includes("google_ads_search_query_hot_daily")) {
+        return storage.buildGoogleAdsSearchQueryHotDailyRows({
+          businessId: "biz",
+          providerAccountId: "acct",
+          date: "2026-04-08",
+          accountTimezone: "UTC",
+          accountCurrency: "USD",
+          rows: [buildSearchRow()],
+          sourceSnapshotId: "snap_1",
+        });
+      }
       return [];
     });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -121,8 +133,56 @@ describe("Google Ads search intelligence storage", () => {
     const joined = calls.join("\n");
     expect(joined).toContain("INSERT INTO google_ads_query_dictionary");
     expect(joined).toContain("INSERT INTO google_ads_search_query_hot_daily");
+    expect(joined).toContain("SELECT *");
     expect(joined).toContain("INSERT INTO google_ads_top_query_weekly");
     expect(joined).toContain("INSERT INTO google_ads_search_cluster_daily");
+  });
+
+  it("rebuilds weekly aggregates from persisted hot-daily rows across the full week", async () => {
+    const calls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      calls.push(query);
+      if (query.includes("SELECT *") && query.includes("google_ads_search_query_hot_daily")) {
+        return [
+          ...storage.buildGoogleAdsSearchQueryHotDailyRows({
+            businessId: "biz",
+            providerAccountId: "acct",
+            date: "2026-04-07",
+            accountTimezone: "UTC",
+            accountCurrency: "USD",
+            rows: [buildSearchRow({ spend: 12, revenue: 48, conversions: 2 })],
+            sourceSnapshotId: "snap_prev",
+          }),
+          ...storage.buildGoogleAdsSearchQueryHotDailyRows({
+            businessId: "biz",
+            providerAccountId: "acct",
+            date: "2026-04-08",
+            accountTimezone: "UTC",
+            accountCurrency: "USD",
+            rows: [buildSearchRow({ spend: 8, revenue: 24, conversions: 1 })],
+            sourceSnapshotId: "snap_curr",
+          }),
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await storage.persistGoogleAdsSearchIntelligenceFoundation({
+      businessId: "biz",
+      providerAccountId: "acct",
+      date: "2026-04-08",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      rows: [buildSearchRow({ spend: 8, revenue: 24, conversions: 1 })],
+      sourceSnapshotId: "snap_curr",
+    });
+
+    expect(result.weeklyRowCount).toBe(1);
+    const weeklyInsert = calls.find((query) => query.includes("INSERT INTO google_ads_top_query_weekly"));
+    expect(weeklyInsert).toBeTruthy();
+    expect(calls.join("\n")).toContain("FROM google_ads_search_query_hot_daily");
   });
 
   it("matches nullable campaign and ad-group ids deterministically during hot-daily upserts", async () => {

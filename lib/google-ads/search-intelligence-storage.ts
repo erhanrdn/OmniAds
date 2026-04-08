@@ -277,6 +277,25 @@ export function buildGoogleAdsTopQueryWeeklyRowsFromHotDaily(input: {
   return Array.from(grouped.values()).map(({ dates: _dates, ...row }) => row);
 }
 
+export async function readGoogleAdsSearchQueryHotDailyRows(input: {
+  businessId: string;
+  providerAccountId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  return (await sql`
+    SELECT *
+    FROM google_ads_search_query_hot_daily
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND date >= ${input.startDate}
+      AND date <= ${input.endDate}
+    ORDER BY date ASC, query_hash ASC
+  `) as GoogleAdsSearchQueryHotDailyRow[];
+}
+
 export async function upsertGoogleAdsQueryDictionaryEntries(entries: GoogleAdsQueryDictionaryEntry[]) {
   if (entries.length === 0) return 0;
   await runMigrations();
@@ -565,7 +584,6 @@ export async function persistGoogleAdsSearchIntelligenceFoundation(input: {
     sourceSnapshotId: input.sourceSnapshotId,
     rows: input.rows,
   });
-  const weeklyRows = buildGoogleAdsTopQueryWeeklyRowsFromHotDaily({ hotDailyRows });
   const clusterRows = buildGoogleAdsSearchClusterDailyRows({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -575,6 +593,13 @@ export async function persistGoogleAdsSearchIntelligenceFoundation(input: {
 
   await upsertGoogleAdsQueryDictionaryEntries(dictionaryEntries);
   await upsertGoogleAdsSearchQueryHotDailyRows(hotDailyRows);
+  const weeklyHotDailyRows = await readGoogleAdsSearchQueryHotDailyRows({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    startDate: isoWeekStart(input.date),
+    endDate: isoWeekEnd(input.date),
+  });
+  const weeklyRows = buildGoogleAdsTopQueryWeeklyRowsFromHotDaily({ hotDailyRows: weeklyHotDailyRows });
   await upsertGoogleAdsTopQueryWeeklyRows(weeklyRows);
   await upsertGoogleAdsSearchClusterDailyRows(clusterRows);
 

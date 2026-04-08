@@ -285,6 +285,86 @@ describe("buildGoogleGrowthAdvisor", () => {
     });
   });
 
+  it("derives decision lane from the final post-integrity state", () => {
+    const recommendation = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [
+        campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search", channel: "SEARCH" }),
+        campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-search",
+          campaignName: "Generic Search",
+          searchTerm: "grandmix chairs",
+          wasteFlag: true,
+          negativeKeywordFlag: true,
+          ownershipClass: "brand",
+          intentClass: "brand_mixed",
+          spend: 90,
+          revenue: 0,
+          conversions: 0,
+          roas: 0,
+        }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "last3", label: "last 3d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, ownershipClass: "brand", intentClass: "brand_mixed", spend: 30, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last7", label: "last 7d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, ownershipClass: "brand", intentClass: "brand_mixed", spend: 35, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last14", label: "last 14d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, ownershipClass: "brand", intentClass: "brand_mixed", spend: 40, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last30", label: "last 30d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, ownershipClass: "brand", intentClass: "brand_mixed", spend: 45, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "last90", label: "last 90d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, ownershipClass: "brand", intentClass: "brand_mixed", spend: 50, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+        { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-search", campaignName: "Generic Search", channel: "SEARCH" })], searchTerms: [searchTerm({ campaignId: "c-search", campaignName: "Generic Search", searchTerm: "grandmix chairs", wasteFlag: true, negativeKeywordFlag: true, ownershipClass: "brand", intentClass: "brand_mixed", spend: 55, conversions: 0, revenue: 0, roas: 0 })], products: [product()] },
+      ],
+    }).recommendations.find((entry) => entry.type === "query_governance")!;
+
+    expect(recommendation.integrityState).toBe("suppressed");
+    expect(recommendation.decisionState).toBe("watch");
+    expect(recommendation.decision.lane).toBe("suppressed");
+  });
+
+  it("keeps brand governance represented in decision summary messaging", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 30d",
+      selectedCampaigns: [
+        campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search", channel: "SEARCH", spend: 80, revenue: 480, conversions: 12, roas: 6 }),
+        campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX", spend: 200, revenue: 400, conversions: 3, roas: 2 }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          campaignId: "c-pmax",
+          campaignName: "Grandmix PMax",
+          searchTerm: "grandmix chairs",
+          intentClass: "brand_core",
+          spend: 60,
+          revenue: 120,
+          conversions: 2,
+          roas: 2,
+        }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "last3", label: "last 3d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Grandmix PMax", searchTerm: "grandmix chairs", intentClass: "brand_core", spend: 20, revenue: 40, conversions: 1, roas: 2 })], products: [product()] },
+        { key: "last7", label: "last 7d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Grandmix PMax", searchTerm: "grandmix chairs", intentClass: "brand_core", spend: 25, revenue: 50, conversions: 1, roas: 2 })], products: [product()] },
+        { key: "last14", label: "last 14d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Grandmix PMax", searchTerm: "grandmix chairs", intentClass: "brand_core", spend: 20, revenue: 40, conversions: 1, roas: 2 })], products: [product()] },
+        { key: "last30", label: "last 30d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Grandmix PMax", searchTerm: "grandmix chairs", intentClass: "brand_core", spend: 20, revenue: 40, conversions: 1, roas: 2 })], products: [product()] },
+        { key: "last90", label: "last 90d", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Grandmix PMax", searchTerm: "grandmix chairs", intentClass: "brand_core", spend: 20, revenue: 40, conversions: 1, roas: 2 })], products: [product()] },
+        { key: "all_history", label: "all history", campaigns: [campaign({ campaignId: "c-brand", campaignName: "Grandmix Brand Search" }), campaign({ campaignId: "c-pmax", campaignName: "Grandmix PMax", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ campaignId: "c-pmax", campaignName: "Grandmix PMax", searchTerm: "grandmix chairs", intentClass: "brand_core", spend: 20, revenue: 40, conversions: 1, roas: 2 })], products: [product()] },
+      ],
+    });
+
+    expect(advisor.summary.topConstraint.toLowerCase()).toContain("brand");
+    expect(advisor.summary.accountOperatingMode).toBe("Protect brand routing");
+  });
+
   it("recommends non-brand expansion when only brand + pmax exist and recurring non-brand demand is present", () => {
     const advisor = buildGoogleGrowthAdvisor({
       selectedLabel: "selected 14d",
