@@ -168,6 +168,15 @@ function AiInterpretationCard({ recommendation }: { recommendation: GoogleAdviso
   );
 }
 
+function OperatorFirstNotice({ summary }: { summary: string }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+      <div className="text-[10px] uppercase tracking-wide text-amber-700">Operator-First Mode</div>
+      <p className="mt-1 text-sm text-slate-800">{summary}</p>
+    </div>
+  );
+}
+
 function GoogleDecisionCard({
   recommendation,
   onFocusEntity,
@@ -246,9 +255,9 @@ function GoogleDecisionCard({
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">{recommendation.summary}</p>
+        <p className="text-sm text-muted-foreground">{recommendation.decisionNarrative.whatHappened}</p>
         <p className="text-sm">
-          <span className="font-medium">Why now:</span> {recommendation.whyNow}
+          <span className="font-medium">Why it happened:</span> {recommendation.decisionNarrative.whyItHappened}
         </p>
         {recommendation.whatChanged ? (
           <p className="text-sm">
@@ -256,8 +265,10 @@ function GoogleDecisionCard({
           </p>
         ) : null}
         <p className="text-sm">
-          <span className="font-medium">Recommended action:</span>{" "}
-          {recommendation.recommendedAction}
+          <span className="font-medium">What to do:</span> {recommendation.decisionNarrative.whatToDo}
+        </p>
+        <p className="text-sm">
+          <span className="font-medium">Risk:</span> {recommendation.decisionNarrative.risk}
         </p>
         <p className="text-sm">
           <span className="font-medium">Rank rationale:</span> {recommendation.rankExplanation}
@@ -337,7 +348,13 @@ function GoogleDecisionCard({
         <ListBlock title="Blocked By" items={recommendation.blockedByRecommendationIds} tone="danger" />
         <ListBlock title="Conflicts With" items={recommendation.conflictsWithRecommendationIds} tone="danger" />
         <ListBlock title="Depends On" items={recommendation.dependsOnRecommendationIds} tone="muted" />
-        <ListBlock title="Validation Checklist" items={recommendation.validationChecklist} />
+        <ListBlock title="How To Validate" items={recommendation.decisionNarrative.howToValidate} />
+        <div className="rounded-lg border bg-muted/15 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            How To Roll Back
+          </div>
+          <div className="mt-1 text-sm">{recommendation.decisionNarrative.howToRollBack}</div>
+        </div>
         {recommendation.rollbackGuidance ? (
           <div className="rounded-lg border bg-muted/15 p-3">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -797,53 +814,7 @@ function GoogleDecisionCard({
 
       {onFocusEntity && recommendation.entityId ? (
         <div className="flex justify-end gap-2">
-          {businessId &&
-          accountId &&
-          recommendation.executionMode === "mutate_ready" &&
-          recommendation.mutateActionType !== "adjust_shared_budget" &&
-          recommendation.mutateActionType !== "adjust_portfolio_target" &&
-          recommendation.mutateActionType &&
-          recommendation.mutatePayloadPreview ? (
-            <Button
-              variant="default"
-              size="sm"
-              disabled={isExecuting}
-              onClick={() =>
-                runAdvisorAction({
-                  executionAction: "apply_mutate",
-                  mutateActionType: recommendation.mutateActionType,
-                  mutatePayloadPreview: recommendation.mutatePayloadPreview,
-                  executionTrustBand: recommendation.executionTrustBand,
-                  dependencyReadiness: recommendation.dependencyReadiness,
-                  stabilizationHoldUntil: recommendation.stabilizationHoldUntil,
-                  rollbackActionType: recommendation.rollbackActionType,
-                  rollbackPayloadPreview: recommendation.rollbackPayloadPreview,
-                })
-              }
-            >
-              Apply via Adsecute
-            </Button>
-          ) : null}
-          {businessId &&
-          accountId &&
-          recommendation.rollbackAvailable &&
-          recommendation.rollbackActionType &&
-          recommendation.rollbackPayloadPreview ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isExecuting}
-              onClick={() =>
-                runAdvisorAction({
-                  executionAction: "rollback_mutate",
-                  rollbackActionType: recommendation.rollbackActionType,
-                  rollbackPayloadPreview: recommendation.rollbackPayloadPreview,
-                })
-              }
-            >
-              Roll Back
-            </Button>
-          ) : null}
+          <Badge variant="outline">Manual Plan</Badge>
           {recommendation.deepLinkUrl ? (
             <Button
               variant="secondary"
@@ -860,53 +831,7 @@ function GoogleDecisionCard({
         </div>
       ) : recommendation.deepLinkUrl ? (
         <div className="flex justify-end">
-          {businessId &&
-          accountId &&
-          recommendation.executionMode === "mutate_ready" &&
-          recommendation.mutateActionType !== "adjust_shared_budget" &&
-          recommendation.mutateActionType !== "adjust_portfolio_target" &&
-          recommendation.mutateActionType &&
-          recommendation.mutatePayloadPreview ? (
-            <Button
-              variant="default"
-              size="sm"
-              disabled={isExecuting}
-              onClick={() =>
-                runAdvisorAction({
-                  executionAction: "apply_mutate",
-                  mutateActionType: recommendation.mutateActionType,
-                  mutatePayloadPreview: recommendation.mutatePayloadPreview,
-                  executionTrustBand: recommendation.executionTrustBand,
-                  dependencyReadiness: recommendation.dependencyReadiness,
-                  stabilizationHoldUntil: recommendation.stabilizationHoldUntil,
-                  rollbackActionType: recommendation.rollbackActionType,
-                  rollbackPayloadPreview: recommendation.rollbackPayloadPreview,
-                })
-              }
-            >
-              Apply via Adsecute
-            </Button>
-          ) : null}
-          {businessId &&
-          accountId &&
-          recommendation.rollbackAvailable &&
-          recommendation.rollbackActionType &&
-          recommendation.rollbackPayloadPreview ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isExecuting}
-              onClick={() =>
-                runAdvisorAction({
-                  executionAction: "rollback_mutate",
-                  rollbackActionType: recommendation.rollbackActionType,
-                  rollbackPayloadPreview: recommendation.rollbackPayloadPreview,
-                })
-              }
-            >
-              Roll Back
-            </Button>
-          ) : null}
+          <Badge variant="outline">Manual Plan</Badge>
           <Button
             variant="secondary"
             size="sm"
@@ -1032,35 +957,8 @@ function DecisionBucket({
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={isExecutingBatch === batchGroupKey}
-                    onClick={() =>
-                      runBatchAction({
-                        batchGroupKey,
-                        action: "apply_batch_mutate",
-                        recommendations: entries,
-                      })
-                    }
-                  >
-                    Apply Batch
-                  </Button>
-                  {canRollbackBatch ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isExecutingBatch === batchGroupKey}
-                      onClick={() =>
-                        runBatchAction({
-                          batchGroupKey,
-                          action: "rollback_batch_mutate",
-                          recommendations: entries,
-                        })
-                      }
-                    >
-                      Roll Back Batch
-                    </Button>
-                  ) : null}
+                  <Badge variant="outline">Manual Batch Plan</Badge>
+                  {canRollbackBatch ? <Badge variant="outline">Rollback Not Exposed</Badge> : null}
                 </div>
               </div>
             );
@@ -1521,9 +1419,7 @@ function ActionClusterCard({
           ) : null}
           <div className="mt-2 flex flex-wrap gap-2">
             {cluster.executionSummary.clusterExecutionStatus !== "rolled_back" && canRollback ? (
-              <Button size="sm" variant="outline" disabled={isExecuting} onClick={() => runClusterAction("rollback_cluster")}>
-                Reverse Successful Steps
-              </Button>
+              <Badge variant="outline">Manual Recovery</Badge>
             ) : null}
             <Button size="sm" variant="secondary" disabled={isExecuting}>
               Acknowledge Partial State
@@ -1544,17 +1440,8 @@ function ActionClusterCard({
       </div>
 
       <div className="flex flex-wrap justify-end gap-2">
-        <Button size="sm" disabled={!canExecute || isExecuting} onClick={() => runClusterAction("execute_cluster")}>
-          Execute Move
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!canRollback || isExecuting}
-          onClick={() => runClusterAction("rollback_cluster")}
-        >
-          Roll Back Move
-        </Button>
+        <Badge variant="outline">Manual Move Plan</Badge>
+        <Badge variant="outline">Rollback Not Exposed</Badge>
       </div>
     </article>
   );
@@ -1642,6 +1529,9 @@ export function GoogleAdvisorPanel({
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Decision Strip</p>
           <h2 className="text-lg font-semibold">{advisor.summary.headline}</h2>
           <p className="text-sm text-muted-foreground">{advisor.summary.operatorNote}</p>
+          {advisor.metadata?.executionSurface ? (
+            <OperatorFirstNotice summary={advisor.metadata.executionSurface.summary} />
+          ) : null}
           {selectedRangeContext ? (
             <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-sky-700">
@@ -1673,7 +1563,19 @@ export function GoogleAdvisorPanel({
             <div className="mt-1 text-sm">{advisor.summary.dataTrustSummary}</div>
           </div>
         </div>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <div className="rounded-lg border bg-muted/15 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Decision Windows</div>
+            <div className="mt-1 text-sm">
+              {advisor.metadata
+                ? [
+                    advisor.metadata.analysisWindows.operationalWindow.label,
+                    advisor.metadata.analysisWindows.queryGovernanceWindow.label,
+                    advisor.metadata.analysisWindows.baselineWindow.label,
+                  ].join(" · ")
+                : "Window metadata unavailable."}
+            </div>
+          </div>
           <div className="rounded-lg border bg-muted/15 p-3">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Demand Map</div>
             <div className="mt-1 text-sm">{advisor.summary.demandMap}</div>

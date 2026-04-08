@@ -52,12 +52,12 @@ describe("buildGoogleAdsAdvisorWindows", () => {
     expect(windows.selectedWindow.customStart).toBe("2026-03-27");
     expect(windows.selectedWindow.customEnd).toBe("2026-03-27");
     expect(windows.selectedWindow.label).toBe("selected 1d");
-    expect(windows.supportWindows.find((window) => window.key === "last3")).toMatchObject({
+    expect(windows.supportWindows.find((window) => window.key === "alarm_3d")).toMatchObject({
       customStart: "2026-03-25",
       customEnd: "2026-03-27",
       days: 3,
     });
-    expect(windows.supportWindows.some((window) => window.key === "last90")).toBe(true);
+    expect(windows.supportWindows.some((window) => window.key === "baseline_84d")).toBe(true);
     expect(windows.supportWindows.some((window) => window.label === "all history")).toBe(false);
   });
 });

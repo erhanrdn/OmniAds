@@ -9,7 +9,13 @@ export interface GoogleAdsAdvisorSelectedWindow {
 }
 
 export interface GoogleAdsAdvisorSupportWindow {
-  key: "last3" | "last7" | "last14" | "last30" | "last90";
+  key:
+    | "alarm_1d"
+    | "alarm_3d"
+    | "alarm_7d"
+    | "operational_28d"
+    | "query_governance_56d"
+    | "baseline_84d";
   label: string;
   customStart: string;
   customEnd: string;
@@ -79,11 +85,16 @@ export function buildGoogleAdsAdvisorWindows(input: {
   };
 
   const supportWindows: GoogleAdsAdvisorSupportWindow[] = [
-    { key: "last3", label: "last 3d", ...buildAdvisorWindowFromDays(endDate, 3) },
-    { key: "last7", label: "last 7d", ...buildAdvisorWindowFromDays(endDate, 7) },
-    { key: "last14", label: "last 14d", ...buildAdvisorWindowFromDays(endDate, 14) },
-    { key: "last30", label: "last 30d", ...buildAdvisorWindowFromDays(endDate, 30) },
-    { key: "last90", label: "last 90d", ...buildAdvisorWindowFromDays(endDate, 90) },
+    { key: "alarm_1d", label: "alarm 1d", ...buildAdvisorWindowFromDays(endDate, 1) },
+    { key: "alarm_3d", label: "alarm 3d", ...buildAdvisorWindowFromDays(endDate, 3) },
+    { key: "alarm_7d", label: "alarm 7d", ...buildAdvisorWindowFromDays(endDate, 7) },
+    { key: "operational_28d", label: "operational 28d", ...buildAdvisorWindowFromDays(endDate, 28) },
+    {
+      key: "query_governance_56d",
+      label: "query governance 56d",
+      ...buildAdvisorWindowFromDays(endDate, 56),
+    },
+    { key: "baseline_84d", label: "baseline 84d", ...buildAdvisorWindowFromDays(endDate, 84) },
   ];
 
   return {

@@ -37,7 +37,19 @@ import {
 import { applyQueryOwnership, buildQueryOwnershipContext } from "@/lib/google-ads/query-ownership";
 
 interface WindowInput {
-  key: "last3" | "last7" | "last14" | "last30" | "last90" | "all_history";
+  key:
+    | "alarm_1d"
+    | "alarm_3d"
+    | "alarm_7d"
+    | "operational_28d"
+    | "query_governance_56d"
+    | "baseline_84d"
+    | "last3"
+    | "last7"
+    | "last14"
+    | "last30"
+    | "last90"
+    | "all_history";
   label: string;
   campaigns: CampaignPerformanceRow[];
   searchTerms: SearchTermPerformanceRow[];
@@ -49,7 +61,7 @@ interface BuildGoogleGrowthAdvisorInput {
   analysisMetadata?: {
     analysisMode: "snapshot" | "debug_custom";
     asOfDate: string;
-    selectedWindowKey: "last90" | "custom";
+    selectedWindowKey: "operational_28d" | "custom";
   };
   historicalSupport?: GoogleAdvisorHistoricalSupport | null;
   commerceContext?: {
@@ -138,11 +150,17 @@ interface IntegrityContext {
 }
 
 const WINDOW_WEIGHTS: Array<{ key: WindowInput["key"]; weight: number }> = [
-  { key: "last3", weight: 0.26 },
-  { key: "last7", weight: 0.22 },
-  { key: "last14", weight: 0.18 },
-  { key: "last30", weight: 0.16 },
-  { key: "last90", weight: 0.12 },
+  { key: "alarm_1d", weight: 0.16 },
+  { key: "alarm_3d", weight: 0.2 },
+  { key: "alarm_7d", weight: 0.2 },
+  { key: "operational_28d", weight: 0.2 },
+  { key: "query_governance_56d", weight: 0.14 },
+  { key: "baseline_84d", weight: 0.1 },
+  { key: "last3", weight: 0.2 },
+  { key: "last7", weight: 0.2 },
+  { key: "last14", weight: 0.16 },
+  { key: "last30", weight: 0.14 },
+  { key: "last90", weight: 0.1 },
 ];
 
 const SEARCH_TOKEN_STOPWORDS = new Set([
@@ -981,6 +999,23 @@ function enrichRecommendation(input: {
     supportStrength: toSupportStrength(input.recommendation, input.windows),
     actionability: toActionability(blockers),
     reversibility: toReversibility(input.recommendation),
+    decisionNarrative: {
+      whatHappened: input.recommendation.summary,
+      whyItHappened: input.recommendation.why,
+      whatToDo: input.recommendation.recommendedAction,
+      risk:
+        blockers.length > 0
+          ? blockers.join(" ")
+          : dataTrust === "low"
+            ? "Signal quality is degraded, so this should stay operator-reviewed before any account change."
+            : input.recommendation.priority === "high"
+              ? "This changes live traffic routing or control surfaces, so verify blast radius before action."
+              : "Risk is bounded, but the recommendation should still be operator-reviewed before action.",
+      howToValidate: toValidationChecklist(input.recommendation),
+      howToRollBack:
+        toRollbackGuidance(input.recommendation) ??
+        "No verified Adsecute rollback is exposed in V1. Reverse manually in Google Ads if you execute this plan.",
+    },
     whyNow: toWhyNow(input.recommendation),
     whatChanged: toWhatChanged({ recommendation: input.recommendation, selectedLabel: input.selectedLabel }),
     reasonCodes: toReasonCodes(input.recommendation),
@@ -1955,7 +1990,11 @@ export function buildGoogleGrowthAdvisor(
   }
 
   const wasteQueries = selectedSearchTerms
-    .filter((row) => Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial")
+    .filter(
+      (row) =>
+        ((Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") &&
+          row.ownershipClass !== "brand")
+    )
     .filter((row) => Number(row.spend ?? 0) >= 20)
     .sort((a, b) => Number(b.spend ?? 0) - Number(a.spend ?? 0));
   if (wasteQueries.length >= 2) {
@@ -2654,7 +2693,42 @@ export function buildGoogleGrowthAdvisor(
     metadata: {
       analysisMode: input.analysisMetadata?.analysisMode ?? "debug_custom",
       asOfDate: input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10),
+      decisionEngineVersion: "v2",
       selectedWindowKey: input.analysisMetadata?.selectedWindowKey ?? "custom",
+      analysisWindows: {
+        healthAlarmWindows: [],
+        operationalWindow: {
+          key: "operational_28d",
+          label: "operational 28d",
+          startDate: "",
+          endDate: "",
+          days: 28,
+          role: "operational_decision",
+        },
+        queryGovernanceWindow: {
+          key: "query_governance_56d",
+          label: "query governance 56d",
+          startDate: "",
+          endDate: "",
+          days: 56,
+          role: "query_governance",
+        },
+        baselineWindow: {
+          key: "baseline_84d",
+          label: "baseline 84d",
+          startDate: "",
+          endDate: "",
+          days: 84,
+          role: "baseline",
+        },
+      },
+      executionSurface: {
+        mode: "operator_first_manual_plan",
+        mutateVerified: false,
+        rollbackVerified: false,
+        summary:
+          "Adsecute V1 is operator-first. Recommendations are exposed as manual plans; verified write-back is not exposed in-product.",
+      },
       historicalSupportAvailable: input.historicalSupport?.available ?? false,
       historicalSupport: input.historicalSupport ?? null,
       canonicalWindowTotals: {

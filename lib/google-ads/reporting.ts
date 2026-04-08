@@ -771,21 +771,41 @@ export async function getGoogleAdsKeywordsReport(
   };
 }
 
-function classifySearchAction(row: {
+export function classifySearchAction(row: {
+  searchTerm: string;
+  campaign: string;
   isKeyword: boolean;
   conversions: number;
   spend: number;
   clicks: number;
   roas: number;
   conversionRate: number | null;
-}) {
+}, brandTerms: string[] = []) {
+  const normalizedSearchTerm = row.searchTerm.toLowerCase();
+  const isBrandTerm = brandTerms.some((term) => normalizedSearchTerm.includes(term));
   if (!row.isKeyword && row.conversions >= 2) return "Add as exact keyword";
-  if (row.clicks >= 20 && row.conversions === 0 && row.spend > 10) {
+  if (!isBrandTerm && row.clicks >= 20 && row.conversions === 0 && row.spend > 10) {
     return "Add as negative keyword";
   }
   if (row.roas >= 3 && row.conversions >= 2) return "Promote in headlines";
   if ((row.conversionRate ?? 0) < 1 && row.clicks >= 20) return "Review landing page";
   return "Monitor";
+}
+
+function deriveBrandTermsFromSearchRows(rows: Array<{ campaignName: string }>) {
+  return Array.from(
+    new Set(
+      rows
+        .filter((row) => row.campaignName.toLowerCase().includes("brand"))
+        .flatMap((row) =>
+          row.campaignName
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]+/g, " ")
+            .split(/\s+/)
+            .filter((token) => token.length >= 4 && token !== "brand" && token !== "search")
+        )
+    )
+  );
 }
 
 function classifyClusterState(cluster: {
@@ -1017,13 +1037,15 @@ export async function getGoogleAdsSearchIntelligenceReport(params: BaseReportPar
     };
   });
 
-  const rows = [...baseRows, ...campaignScopeRows]
+  const allRows = [...baseRows, ...campaignScopeRows]
     .filter((row) => row.searchTerm.length > 0)
-    .filter((row) => !filter || row.searchTerm.toLowerCase().includes(filter))
+    .filter((row) => !filter || row.searchTerm.toLowerCase().includes(filter));
+  const brandTerms = deriveBrandTermsFromSearchRows(allRows);
+  const rows = allRows
     .map((row) => ({
       ...row,
       clusterKey: slugifyQueryCluster(row.searchTerm),
-      recommendation: classifySearchAction(row),
+      recommendation: classifySearchAction(row, brandTerms),
       classification:
         row.spend > 20 && row.conversions === 0
           ? "waste"

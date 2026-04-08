@@ -1,4 +1,11 @@
 export type GoogleAdvisorDateRange = "3" | "7" | "14" | "30" | "90" | "custom";
+export type GoogleAdvisorAnalysisWindowKey =
+  | "alarm_1d"
+  | "alarm_3d"
+  | "alarm_7d"
+  | "operational_28d"
+  | "query_governance_56d"
+  | "baseline_84d";
 
 export type GoogleCampaignFamily =
   | "brand_search"
@@ -228,10 +235,35 @@ export interface GoogleRecommendationEvidence {
   value: string;
 }
 
+export interface GoogleDecisionNarrative {
+  whatHappened: string;
+  whyItHappened: string;
+  whatToDo: string;
+  risk: string;
+  howToValidate: string[];
+  howToRollBack: string;
+}
+
 export interface GoogleRecommendationTimeframeContext {
   coreVerdict: string;
   selectedRangeNote: string;
   historicalSupport: string;
+}
+
+export interface GoogleAdvisorAnalysisWindow {
+  key: GoogleAdvisorAnalysisWindowKey;
+  label: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  role: "health_alarm" | "operational_decision" | "query_governance" | "baseline";
+}
+
+export interface GoogleAdvisorExecutionSurface {
+  mode: "operator_first_manual_plan";
+  mutateVerified: false;
+  rollbackVerified: false;
+  summary: string;
 }
 
 export interface GooglePotentialContribution {
@@ -415,6 +447,7 @@ export interface GoogleRecommendation {
   title: string;
   summary: string;
   why: string;
+  decisionNarrative: GoogleDecisionNarrative;
   whyNow: string;
   whatChanged?: string | null;
   reasonCodes: string[];
@@ -699,7 +732,15 @@ export interface GoogleAdvisorHistoricalSupport {
 export interface GoogleAdvisorMetadata {
   analysisMode: "snapshot" | "debug_custom";
   asOfDate: string;
-  selectedWindowKey: "last90" | "custom";
+  decisionEngineVersion: "v2";
+  selectedWindowKey: "operational_28d" | "custom";
+  analysisWindows: {
+    healthAlarmWindows: GoogleAdvisorAnalysisWindow[];
+    operationalWindow: GoogleAdvisorAnalysisWindow;
+    queryGovernanceWindow: GoogleAdvisorAnalysisWindow;
+    baselineWindow: GoogleAdvisorAnalysisWindow;
+  };
+  executionSurface: GoogleAdvisorExecutionSurface;
   historicalSupportAvailable: boolean;
   historicalSupport?: GoogleAdvisorHistoricalSupport | null;
   canonicalWindowTotals?: {

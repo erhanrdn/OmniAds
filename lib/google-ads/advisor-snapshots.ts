@@ -6,7 +6,7 @@ import type {
 } from "@/lib/google-ads/growth-advisor-types";
 import { buildCanonicalGoogleAdsAdvisorReport } from "@/lib/google-ads/serving";
 
-const GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION = "v1";
+const GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION = "v2";
 const GOOGLE_ADVISOR_SNAPSHOT_STALE_MS = 36 * 60 * 60 * 1000;
 
 export interface GoogleAdsAdvisorSnapshotRecord {
@@ -16,7 +16,7 @@ export interface GoogleAdsAdvisorSnapshotRecord {
   analysisVersion: string;
   analysisMode: "snapshot";
   asOfDate: string;
-  selectedWindowKey: "last90";
+  selectedWindowKey: "operational_28d";
   advisorPayload: GoogleAdvisorResponse;
   historicalSupport: GoogleAdvisorHistoricalSupport | null;
   sourceMaxUpdatedAt: string | null;
@@ -44,7 +44,7 @@ function mapSnapshotRow(row: Record<string, unknown>): GoogleAdsAdvisorSnapshotR
     analysisVersion: String(row.analysis_version ?? GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION),
     analysisMode: "snapshot",
     asOfDate: normalizeDate(String(row.as_of_date)),
-    selectedWindowKey: "last90",
+    selectedWindowKey: "operational_28d",
     advisorPayload: (row.advisor_payload ?? {}) as GoogleAdvisorResponse,
     historicalSupport:
       row.historical_support_json && typeof row.historical_support_json === "object"
@@ -118,7 +118,7 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
       ${GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION},
       'snapshot',
       ${input.asOfDate},
-      'last90',
+      'operational_28d',
       ${JSON.stringify(input.advisorPayload)}::jsonb,
       ${JSON.stringify(input.historicalSupport ?? null)}::jsonb,
       ${input.sourceMaxUpdatedAt ?? null},
