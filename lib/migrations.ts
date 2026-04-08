@@ -192,6 +192,20 @@ export async function runMigrations(options?: {
           created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_account_rollover_state (
+          provider                 TEXT NOT NULL,
+          business_id              TEXT NOT NULL,
+          provider_account_id      TEXT NOT NULL,
+          last_observed_current_date DATE NOT NULL,
+          current_d1_target_date   DATE NOT NULL,
+          rollover_detected_at     TIMESTAMPTZ,
+          d1_finalize_started_at   TIMESTAMPTZ,
+          d1_finalize_completed_at TIMESTAMPTZ,
+          last_recovery_at         TIMESTAMPTZ,
+          created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (provider, business_id, provider_account_id)
+        )`,
         sql`CREATE TABLE IF NOT EXISTS provider_reporting_snapshots (
           id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id    TEXT NOT NULL,
@@ -220,6 +234,10 @@ export async function runMigrations(options?: {
           expires_at TIMESTAMPTZ NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_rollover_state_business
+          ON provider_account_rollover_state (business_id, provider, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_rollover_state_target
+          ON provider_account_rollover_state (provider, current_d1_target_date DESC, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS custom_reports (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,

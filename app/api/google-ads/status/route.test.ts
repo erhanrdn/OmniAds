@@ -195,6 +195,9 @@ describe("GET /api/google-ads/status", () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("COUNT(*)::int AS stale_run_pressure")) return [];
+      if (query.includes("COUNT(*)::int AS active_count")) {
+        return [{ active_count: 0 }];
+      }
       if (query.includes("FROM google_ads_sync_partitions")) return [];
       if (query.includes("FROM google_ads_sync_runs")) return [];
       if (query.includes("COUNT(*) AS row_count")) {

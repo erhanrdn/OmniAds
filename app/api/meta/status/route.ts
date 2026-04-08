@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDb } from "@/lib/db";
 import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
@@ -213,6 +214,8 @@ export async function GET(request: NextRequest) {
   if (isDemoBusinessId(businessId)) {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
+
+  const sql = getDb();
 
   const [integration, assignments, latestSync, accountStats, accountSnapshot, legacyJobHealth, workerHealth] =
     await Promise.all([
@@ -1059,6 +1062,70 @@ export async function GET(request: NextRequest) {
       new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
     accounts: platformDateBoundaryAccounts,
   };
+  const primaryBoundary =
+    platformDateBoundaryAccounts.find((account) => account.isPrimary) ??
+    platformDateBoundaryAccounts[0] ??
+    null;
+  const d1TargetDate = primaryBoundary?.previousDate ?? null;
+  const d1RowsRaw =
+    primaryBoundary && primaryBoundary.providerAccountId
+      ? await sql`
+          SELECT
+            EXISTS (
+              SELECT 1
+              FROM meta_account_daily
+              WHERE business_id = ${businessId!}
+                AND provider_account_id = ${primaryBoundary.providerAccountId}
+                AND date = ${primaryBoundary.previousDate}::date
+            ) AS has_account_row,
+            EXISTS (
+              SELECT 1
+              FROM meta_campaign_daily
+              WHERE business_id = ${businessId!}
+                AND provider_account_id = ${primaryBoundary.providerAccountId}
+                AND date = ${primaryBoundary.previousDate}::date
+            ) AS has_campaign_row,
+            (
+              SELECT COUNT(*)::int
+              FROM meta_sync_partitions
+              WHERE business_id = ${businessId!}
+                AND provider_account_id = ${primaryBoundary.providerAccountId}
+                AND partition_date = ${primaryBoundary.previousDate}::date
+                AND lane = 'maintenance'
+                AND source = 'finalize_day'
+                AND scope = 'account_daily'
+                AND status IN ('queued', 'leased', 'running')
+            ) AS active_finalize_count
+        `.catch(() => [
+          { has_account_row: false, has_campaign_row: false, active_finalize_count: 0 },
+        ])
+      : [{ has_account_row: false, has_campaign_row: false, active_finalize_count: 0 }];
+  const d1Rows = d1RowsRaw as Array<{
+    has_account_row: boolean;
+    has_campaign_row: boolean;
+    active_finalize_count: number | string | null;
+  }>;
+  const d1Row = d1Rows[0] ?? {
+    has_account_row: false,
+    has_campaign_row: false,
+    active_finalize_count: 0,
+  };
+  const d1Covered = Boolean(d1Row.has_account_row) && Boolean(d1Row.has_campaign_row);
+  const d1ActiveCount = Number(d1Row.active_finalize_count ?? 0);
+  const d1FinalizeState =
+    d1TargetDate == null
+      ? null
+      : d1Covered && d1ActiveCount === 0
+        ? "ready"
+        : d1ActiveCount > 0
+          ? "processing"
+          : "blocked";
+  const d1BlockedReason =
+    d1FinalizeState === "processing"
+      ? "active_finalize_day_partition"
+      : d1FinalizeState === "blocked"
+        ? "missing_warehouse_publication"
+        : null;
 
   const accountSurfaceReady = (accountCoverage?.completed_days ?? 0) >= historicalTotalDays;
   const campaignSurfaceReady = (campaignCoverage?.completed_days ?? 0) >= historicalTotalDays;
@@ -1157,6 +1224,9 @@ export async function GET(request: NextRequest) {
       checkpointHealth,
       domainReadiness,
       connected,
+      d1TargetDate,
+      d1FinalizeState,
+      d1BlockedReason,
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
       currentDateInTimezone,

@@ -83,6 +83,10 @@ import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
+import {
+  markProviderDayRolloverFinalizeCompleted,
+  syncProviderDayRolloverState,
+} from "@/lib/sync/provider-day-rollover";
 
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
@@ -1843,6 +1847,13 @@ export async function enqueueMetaScheduledWork(businessId: string) {
   const credentials = await resolveMetaCredentials(businessId).catch(
     () => null,
   );
+  const rolloverAccounts = await syncProviderDayRolloverState({
+    provider: "meta",
+    businessId,
+  }).catch(() => []);
+  const d1Recovery = await recoverMetaD1FinalizePartitions({
+    businessId,
+  }).catch(() => null);
   let queuedCore = 0;
   let queuedMaintenance = 0;
   let queueDepth = 0;
@@ -1867,6 +1878,15 @@ export async function enqueueMetaScheduledWork(businessId: string) {
     const hasMaintenanceBacklog =
       (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
       (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
+    const requiresD1Maintenance =
+      rolloverAccounts.some(
+        (account) =>
+          account.rolloverDetected || account.d1FinalizeCompletedAt == null,
+      ) ||
+      (d1Recovery?.candidateCount ?? 0) > 0 ||
+      (d1Recovery?.historicalFinalizePollutionCount ?? 0) > 0 ||
+      (d1Recovery?.stalledReclaimableCount ?? 0) > 0 ||
+      Boolean(d1Recovery?.d1FinalizeRecoveryQueued);
 
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(
       () => null,
@@ -1877,7 +1897,7 @@ export async function enqueueMetaScheduledWork(businessId: string) {
         credentials,
       ).catch(() => 0);
     }
-    if (!hasMaintenanceBacklog) {
+    if (!hasMaintenanceBacklog || requiresD1Maintenance) {
       const maintenanceResult = await enqueueMetaMaintenancePartitions(
         businessId,
         credentials,
@@ -1895,6 +1915,7 @@ export async function enqueueMetaScheduledWork(businessId: string) {
     businessId,
     queuedCore,
     queuedMaintenance,
+    d1Recovery,
     queueDepth,
     leasedPartitions,
     recentAutoHeal,
@@ -3053,6 +3074,9 @@ export async function syncMetaReports(
     await enqueueMetaScheduledWork(businessId).catch(() => null);
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }
+  await recoverMetaD1FinalizePartitions({
+    businessId,
+  }).catch(() => null);
   return consumeMetaQueuedWork(businessId);
 }
 
@@ -3203,6 +3227,22 @@ export async function recoverMetaD1FinalizePartitions(input: {
   );
   const targetDates = Array.from(new Set(accountTargetDates.values())).sort();
   const targetDate = targetDates[0] ?? addUtcDays(new Date().toISOString().slice(0, 10), -1);
+  const verification = await getMetaPublishedVerificationSummary({
+    businessId: input.businessId,
+    startDate: targetDate,
+    endDate: targetDates[targetDates.length - 1] ?? targetDate,
+    providerAccountIds: credentials?.accountIds ?? [],
+    surfaces: ["account_daily", "campaign_daily"],
+  }).catch(() => null);
+  const publishedAccountKeys = new Set(
+    verification?.publishedKeysBySurface.account_daily ?? [],
+  );
+  const publishedCampaignKeys = new Set(
+    verification?.publishedKeysBySurface.campaign_daily ?? [],
+  );
+  const publishedTargetKeys = new Set(
+    Array.from(publishedAccountKeys).filter((key) => publishedCampaignKeys.has(key)),
+  );
   const candidates = await sql`
     SELECT
       partition.id,
@@ -3258,12 +3298,45 @@ export async function recoverMetaD1FinalizePartitions(input: {
     if (!target) return false;
     return String(row.partition_date).slice(0, 10) !== target;
   });
+  const alreadyPublishedRows = matchingCandidates.filter((row) =>
+    publishedTargetKeys.has(
+      `${String(row.provider_account_id)}:${String(row.partition_date).slice(0, 10)}`,
+    ),
+  );
+  const alreadyPublishedPartitionIds = alreadyPublishedRows.map((row) => String(row.id));
+
+  if (alreadyPublishedPartitionIds.length > 0) {
+    await sql`
+      UPDATE meta_sync_partitions
+      SET
+        status = 'succeeded',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        finished_at = COALESCE(finished_at, now()),
+        last_error = NULL,
+        updated_at = now()
+      WHERE id = ANY(${alreadyPublishedPartitionIds}::uuid[])
+    `;
+    await Promise.all(
+      alreadyPublishedRows.map((row) =>
+        markProviderDayRolloverFinalizeCompleted({
+          provider: "meta",
+          businessId: input.businessId,
+          providerAccountId: String(row.provider_account_id),
+          targetDate: String(row.partition_date).slice(0, 10),
+        }).catch(() => null),
+      ),
+    );
+  }
 
   const nowMs = Date.now();
   const aliveSlowPartitionIds: string[] = [];
   const stalledPartitionIds: string[] = [];
 
   for (const row of matchingCandidates) {
+    if (alreadyPublishedPartitionIds.includes(String(row.id))) {
+      continue;
+    }
     const progressMs = parseTimestampMs(
       row.checkpoint_updated_at ?? row.updated_at,
     );

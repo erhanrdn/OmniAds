@@ -11,6 +11,10 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(),
+}));
+
 vi.mock("@/lib/integrations", () => ({
   getIntegrationMetadata: vi.fn(),
 }));
@@ -72,6 +76,7 @@ vi.mock("@/lib/meta/live", () => ({
 }));
 
 const access = await import("@/lib/access");
+const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
 const snapshots = await import("@/lib/provider-account-snapshots");
@@ -190,6 +195,14 @@ describe("GET /api/meta/status", () => {
     vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncState).mockResolvedValue([]);
+    const sql = vi.fn(async () => [
+      {
+        has_account_row: false,
+        has_campaign_row: false,
+        active_finalize_count: 0,
+      },
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null as never);
     vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
       summaryAvailable: true,

@@ -220,6 +220,34 @@ describe("google ads warehouse ownership safety", () => {
     ).toBe(true);
   });
 
+  it("prioritizes finalize_day ahead of today in recent leasing queries", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await leaseGoogleAdsSyncPartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 1,
+      sourceFilter: "recent_only",
+    });
+
+    const leaseQuery = queries.find((query) =>
+      query.includes("FROM google_ads_sync_partitions"),
+    );
+    expect(leaseQuery).toContain("WHEN 'finalize_day' THEN 118");
+    expect(leaseQuery).toContain("lease.provider_scope = 'google_ads'");
+    expect(leaseQuery).toContain("lease.lease_owner = $4");
+    expect(leaseQuery).toContain(
+      "source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery')",
+    );
+  });
+
   it("extends the running lease using the requested lease minutes", async () => {
     const calls: unknown[][] = [];
     const sql = vi.fn(

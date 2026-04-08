@@ -108,6 +108,9 @@ export interface GoogleAdsStatusResponse {
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
   currentDateInTimezone?: string | null;
+  d1TargetDate?: string | null;
+  d1FinalizeState?: "ready" | "processing" | "blocked" | null;
+  d1BlockedReason?: string | null;
   dataContract?: {
     todayMode: "live_overlay";
     historicalMode: "warehouse_only";

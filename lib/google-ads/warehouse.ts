@@ -40,6 +40,7 @@ type GoogleAdsReclaimCandidateRow = {
   status: string;
   attempt_count: number;
   partition_lease_epoch: number;
+  lease_owner: string | null;
   updated_at: string | null;
   started_at: string | null;
   lease_expires_at: string | null;
@@ -177,6 +178,7 @@ function buildGoogleAdsSourceLeasePrioritySql() {
   return `
     CASE source
       WHEN 'selected_range' THEN 120
+      WHEN 'finalize_day' THEN 118
       WHEN 'today' THEN 115
       WHEN 'recent' THEN 110
       WHEN 'core_success' THEN 105
@@ -382,6 +384,7 @@ async function readGoogleAdsReclaimCandidates(input: { businessId: string }) {
       partition.status,
       partition.attempt_count,
       COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch,
+      partition.lease_owner,
       partition.updated_at,
       partition.started_at,
       partition.lease_expires_at,
@@ -400,6 +403,14 @@ async function readGoogleAdsReclaimCandidates(input: { businessId: string }) {
         FROM sync_runner_leases lease
         WHERE lease.business_id = partition.business_id
           AND lease.provider_scope = 'google_ads'
+          AND lease.lease_owner = partition.lease_owner
+          AND lease.lease_expires_at > now()
+      ) OR EXISTS (
+        SELECT 1
+        FROM google_ads_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.lane = partition.lane
+          AND lease.lease_owner = partition.lease_owner
           AND lease.lease_expires_at > now()
       ) AS has_active_runner_lease
     FROM google_ads_sync_partitions partition
@@ -820,6 +831,7 @@ export async function queueGoogleAdsSyncPartition(
   const sql = getDb();
   const priorityResetSources = [
     "selected_range",
+    "finalize_day",
     "recent",
     "today",
     "recent_recovery",
@@ -931,6 +943,14 @@ export async function leaseGoogleAdsSyncPartitions(input: {
         SELECT id
         FROM google_ads_sync_partitions
         WHERE business_id = $1
+          AND EXISTS (
+            SELECT 1
+            FROM sync_runner_leases lease
+            WHERE lease.business_id = $1
+              AND lease.provider_scope = 'google_ads'
+              AND lease.lease_owner = $4
+              AND lease.lease_expires_at > now()
+          )
           AND ($2::text IS NULL OR lane = $2)
           AND (
             COALESCE(array_length($7::text[], 1), 0) = 0
@@ -939,7 +959,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
           AND (
             $6::text IS NULL
             OR $6::text = 'all'
-            OR ($6::text = 'recent_only' AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery'))
+            OR ($6::text = 'recent_only' AND source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery'))
             OR ($6::text = 'historical_only' AND source IN ('historical', 'historical_recovery'))
           )
           AND ($8::date IS NULL OR partition_date >= $8::date)
@@ -3643,12 +3663,12 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       COUNT(*) FILTER (WHERE lane = 'extended' AND status IN ('leased', 'running')) AS extended_leased_partitions,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery')
           AND status = 'queued'
       ) AS extended_recent_queue_depth,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery')
           AND status IN ('leased', 'running')
       ) AS extended_recent_leased_partitions,
       COUNT(*) FILTER (
@@ -4232,6 +4252,7 @@ export async function getLatestGoogleAdsSyncHealth(input: {
         id,
         provider_account_id,
         CASE
+          WHEN lane = 'maintenance' AND source = 'finalize_day' THEN 'repair_window'
           WHEN lane = 'maintenance' AND source = 'today' THEN 'today_refresh'
           WHEN lane = 'maintenance' THEN 'incremental_recent'
           ELSE 'initial_backfill'

@@ -1592,6 +1592,62 @@ export async function GET(request: NextRequest) {
       new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
     accounts: platformDateBoundaryAccounts,
   };
+  const primaryBoundary =
+    platformDateBoundaryAccounts.find((account) => account.isPrimary) ??
+    platformDateBoundaryAccounts[0] ??
+    null;
+  const d1TargetDate = primaryBoundary?.previousDate ?? null;
+  const [d1AccountCoverage, d1CampaignCoverage, d1ActiveRowsRaw] =
+    primaryBoundary && primaryBoundary.providerAccountId
+      ? await Promise.all([
+          getGoogleAdsCoveredDates({
+            businessId: businessId!,
+            providerAccountId: primaryBoundary.providerAccountId,
+            scope: "account_daily",
+            startDate: primaryBoundary.previousDate,
+            endDate: primaryBoundary.previousDate,
+          }).catch(() => [] as string[]),
+          getGoogleAdsCoveredDates({
+            businessId: businessId!,
+            providerAccountId: primaryBoundary.providerAccountId,
+            scope: "campaign_daily",
+            startDate: primaryBoundary.previousDate,
+            endDate: primaryBoundary.previousDate,
+          }).catch(() => [] as string[]),
+          sql`
+            SELECT COUNT(*)::int AS active_count
+            FROM google_ads_sync_partitions
+            WHERE business_id = ${businessId!}
+              AND provider_account_id = ${primaryBoundary.providerAccountId}
+              AND partition_date = ${primaryBoundary.previousDate}::date
+              AND lane IN ('core', 'maintenance')
+              AND scope IN ('account_daily', 'campaign_daily')
+              AND status IN ('queued', 'leased', 'running')
+          `.catch(() => [{ active_count: 0 }]),
+        ])
+      : [[], [], [{ active_count: 0 }]];
+  const d1ActiveRows = d1ActiveRowsRaw as Array<{
+    active_count: number | string | null;
+  }>;
+  const d1Covered =
+    d1TargetDate != null &&
+    d1AccountCoverage.includes(d1TargetDate) &&
+    d1CampaignCoverage.includes(d1TargetDate);
+  const d1ActiveCount = Number(d1ActiveRows[0]?.active_count ?? 0);
+  const d1FinalizeState =
+    d1TargetDate == null
+      ? null
+      : d1Covered && d1ActiveCount === 0
+        ? "ready"
+        : d1ActiveCount > 0
+          ? "processing"
+          : "blocked";
+  const d1BlockedReason =
+    d1FinalizeState === "processing"
+      ? "active_partitions"
+      : d1FinalizeState === "blocked"
+        ? "missing_warehouse_coverage"
+        : null;
 
   return NextResponse.json({
     state: overallState,
@@ -1611,6 +1667,9 @@ export async function GET(request: NextRequest) {
     selectedRangeReadinessBasis,
     requiredScopeCompletion,
     connected,
+    d1TargetDate,
+    d1FinalizeState,
+    d1BlockedReason,
     readinessLevel,
     surfaces,
     checkpointHealth: checkpointHealth ?? null,

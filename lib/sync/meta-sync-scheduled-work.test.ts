@@ -31,6 +31,11 @@ vi.mock("@/lib/sync/provider-status-truth", () => ({
   hasRecentProviderAdvancement: vi.fn(() => false),
 }));
 
+vi.mock("@/lib/sync/provider-day-rollover", () => ({
+  syncProviderDayRolloverState: vi.fn(() => Promise.resolve([])),
+  markProviderDayRolloverFinalizeCompleted: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("@/lib/meta/warehouse", () => ({
   backfillMetaRunningRunsForTerminalPartition: vi.fn(),
   cancelObsoleteMetaCoreScopePartitions: vi.fn().mockResolvedValue([]),
@@ -85,6 +90,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
 
 const apiMeta = await import("@/lib/api/meta");
 const warehouse = await import("@/lib/meta/warehouse");
+const providerDayRollover = await import("@/lib/sync/provider-day-rollover");
 const { enqueueMetaScheduledWork } = await import("@/lib/sync/meta-sync");
 
 type QueueMetaPartitionInput = Parameters<typeof warehouse.queueMetaSyncPartition>[0];
@@ -126,6 +132,7 @@ describe("enqueueMetaScheduledWork", () => {
       id: `${input.providerAccountId}:${input.partitionDate}:${input.scope}`,
       status: "queued",
     }));
+    vi.mocked(providerDayRollover.syncProviderDayRolloverState).mockResolvedValue([] as never);
   });
 
   it("returns a structured result for scheduled Meta work", async () => {
@@ -441,6 +448,55 @@ describe("enqueueMetaScheduledWork", () => {
       lastSameSourceSuccessAt: "2026-04-06T08:45:00.000Z",
       repeatedFailures24h: 0,
     } as never);
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    expect(
+      vi.mocked(warehouse.queueMetaSyncPartition).mock.calls.some(
+        ([input]) =>
+          input.providerAccountId === "act_1" &&
+          input.partitionDate === "2026-04-05" &&
+          input.source === "finalize_day" &&
+          input.scope === "account_daily",
+      ),
+    ).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it("still enqueues D-1 maintenance when backlog exists but rollover needs recovery", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 3,
+      leasedPartitions: 1,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      maintenanceQueueDepth: 2,
+      maintenanceLeasedPartitions: 1,
+    } as never);
+    vi.mocked(providerDayRollover.syncProviderDayRolloverState).mockResolvedValue([
+      {
+        provider: "meta",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        boundary: {
+          provider: "meta",
+          businessId: "biz-1",
+          providerAccountId: "act_1",
+          timeZone: "America/Anchorage",
+          currentDate: "2026-04-06",
+          previousDate: "2026-04-05",
+          isPrimary: true,
+        },
+        lastObservedCurrentDate: "2026-04-05",
+        currentD1TargetDate: "2026-04-05",
+        rolloverDetected: true,
+        d1FinalizeStartedAt: null,
+        d1FinalizeCompletedAt: null,
+        lastRecoveryAt: null,
+      },
+    ] as never);
 
     await enqueueMetaScheduledWork("biz-1");
 
