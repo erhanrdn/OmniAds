@@ -130,7 +130,7 @@ export async function runMigrations(options?: {
     return;
   }
 
-  const timeoutMs = getMigrationTimeoutMs();
+  const timeoutMs = options?.timeoutMs ?? getMigrationTimeoutMs();
   logStartupEvent("migrations_started", { reason, force, timeoutMs });
 
   migrationsPromise = withMigrationTimeout(

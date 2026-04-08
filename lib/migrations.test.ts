@@ -11,6 +11,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const db = await import("@/lib/db");
+const startupDiagnostics = await import("@/lib/startup-diagnostics");
 
 describe("runMigrations", () => {
   beforeEach(() => {
@@ -45,6 +46,14 @@ describe("runMigrations", () => {
 
     expect(db.getDbWithTimeout).toHaveBeenCalledWith(120_000);
     expect(db.getDb).not.toHaveBeenCalled();
+    expect(startupDiagnostics.logStartupEvent).toHaveBeenCalledWith(
+      "migrations_started",
+      expect.objectContaining({
+        reason: "test",
+        force: true,
+        timeoutMs: 120_000,
+      }),
+    );
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
