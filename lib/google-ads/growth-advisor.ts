@@ -34,6 +34,9 @@ import {
   applyCommerceSignalsToRecommendations,
   buildProductCommerceAssessments,
 } from "@/lib/google-ads/commerce-signals";
+import { buildGoogleDecisionSchema } from "@/lib/google-ads/decision-engine-v2";
+import { buildGoogleAdsExecutionSurface, isGoogleAdsDecisionEngineV2Enabled } from "@/lib/google-ads/decision-engine-config";
+import { buildGoogleAdsDecisionWindowPolicy } from "@/lib/google-ads/decision-window-policy";
 import { applyQueryOwnership, buildQueryOwnershipContext } from "@/lib/google-ads/query-ownership";
 
 interface WindowInput {
@@ -1016,6 +1019,29 @@ function enrichRecommendation(input: {
         toRollbackGuidance(input.recommendation) ??
         "No verified Adsecute rollback is exposed in V1. Reverse manually in Google Ads if you execute this plan.",
     },
+    decision: buildGoogleDecisionSchema({
+      recommendation: {
+        ...input.recommendation,
+        decisionState: input.recommendation.decisionState,
+        doBucket: toDoBucket({
+          recommendation: input.recommendation,
+          dataTrust,
+          blockers,
+          impactBand,
+        }),
+        dataTrust,
+        integrityState: "ready",
+        supportStrength: toSupportStrength(input.recommendation, input.windows),
+        actionability: toActionability(blockers),
+        reversibility: toReversibility(input.recommendation),
+        whyNow: toWhyNow(input.recommendation),
+        blockers,
+        validationChecklist: toValidationChecklist(input.recommendation),
+        rollbackGuidance: toRollbackGuidance(input.recommendation),
+        evidence: input.recommendation.evidence,
+      } as GoogleRecommendation,
+      decisionEngineEnabled: isGoogleAdsDecisionEngineV2Enabled(),
+    }),
     whyNow: toWhyNow(input.recommendation),
     whatChanged: toWhatChanged({ recommendation: input.recommendation, selectedLabel: input.selectedLabel }),
     reasonCodes: toReasonCodes(input.recommendation),
@@ -2644,6 +2670,8 @@ export function buildGoogleGrowthAdvisor(
   const actRecommendationCount = recommendations.filter(
     (recommendation) => recommendation.decisionState === "act"
   ).length;
+  const asOfDate = input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10);
+  const decisionWindowPolicy = buildGoogleAdsDecisionWindowPolicy(asOfDate);
 
   return {
     summary: {
@@ -2692,43 +2720,16 @@ export function buildGoogleGrowthAdvisor(
     clusters: [],
     metadata: {
       analysisMode: input.analysisMetadata?.analysisMode ?? "debug_custom",
-      asOfDate: input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10),
+      asOfDate,
       decisionEngineVersion: "v2",
       selectedWindowKey: input.analysisMetadata?.selectedWindowKey ?? "custom",
       analysisWindows: {
-        healthAlarmWindows: [],
-        operationalWindow: {
-          key: "operational_28d",
-          label: "operational 28d",
-          startDate: "",
-          endDate: "",
-          days: 28,
-          role: "operational_decision",
-        },
-        queryGovernanceWindow: {
-          key: "query_governance_56d",
-          label: "query governance 56d",
-          startDate: "",
-          endDate: "",
-          days: 56,
-          role: "query_governance",
-        },
-        baselineWindow: {
-          key: "baseline_84d",
-          label: "baseline 84d",
-          startDate: "",
-          endDate: "",
-          days: 84,
-          role: "baseline",
-        },
+        healthAlarmWindows: decisionWindowPolicy.healthAlarmWindows,
+        operationalWindow: decisionWindowPolicy.operationalWindow,
+        queryGovernanceWindow: decisionWindowPolicy.queryGovernanceWindow,
+        baselineWindow: decisionWindowPolicy.baselineWindow,
       },
-      executionSurface: {
-        mode: "operator_first_manual_plan",
-        mutateVerified: false,
-        rollbackVerified: false,
-        summary:
-          "Adsecute V1 is operator-first. Recommendations are exposed as manual plans; verified write-back is not exposed in-product.",
-      },
+      executionSurface: buildGoogleAdsExecutionSurface(),
       historicalSupportAvailable: input.historicalSupport?.available ?? false,
       historicalSupport: input.historicalSupport ?? null,
       canonicalWindowTotals: {

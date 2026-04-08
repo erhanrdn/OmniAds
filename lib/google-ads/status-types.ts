@@ -216,6 +216,8 @@ export interface GoogleAdsStatusResponse {
       totalDays: number;
       missingSurfaces: string[];
     }> | null;
+    decisionEngineV2Enabled?: boolean;
+    writebackEnabled?: boolean;
   } | null;
   jobHealth?: {
     runningJobs: number;
@@ -254,6 +256,8 @@ export interface GoogleAdsStatusResponse {
     canaryEligible: boolean;
     quotaPressure: number;
     breakerState: "open" | "half_open" | "closed";
+    decisionEngineV2Enabled?: boolean;
+    writebackEnabled?: boolean;
     statusDegraded?: boolean;
     statusDegradedReason?: string | null;
     extendedRecoveryBlockReason?: string | null;

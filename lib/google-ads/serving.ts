@@ -6,6 +6,8 @@ import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
 import { addDaysToIsoDate, getHistoricalWindowStart } from "@/lib/google-ads/history";
 import { getComparisonWindow, pctDelta } from "@/lib/google-ads/reporting-support";
 import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
+import { buildGoogleAdsExecutionSurface } from "@/lib/google-ads/decision-engine-config";
+import { buildGoogleAdsDecisionWindowPolicy } from "@/lib/google-ads/decision-window-policy";
 import { getCampaignBadges, generateOverviewInsights, type GadsCampaignRow } from "@/lib/google-ads-intelligence";
 import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
 import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
@@ -1995,32 +1997,7 @@ async function finalizeGoogleAdsAdvisorReport(input: {
     .filter((section) => section.recommendations.length > 0);
   const clusters = buildActionClusters({ recommendations: recommendations as GoogleRecommendation[] });
   const topCluster = clusters[0] ?? null;
-  const healthAlarmWindows = [
-    {
-      key: "alarm_1d" as const,
-      label: "alarm 1d",
-      startDate: addDaysToIsoDate(input.asOfDate, 0),
-      endDate: input.asOfDate,
-      days: 1,
-      role: "health_alarm" as const,
-    },
-    {
-      key: "alarm_3d" as const,
-      label: "alarm 3d",
-      startDate: addDaysToIsoDate(input.asOfDate, -2),
-      endDate: input.asOfDate,
-      days: 3,
-      role: "health_alarm" as const,
-    },
-    {
-      key: "alarm_7d" as const,
-      label: "alarm 7d",
-      startDate: addDaysToIsoDate(input.asOfDate, -6),
-      endDate: input.asOfDate,
-      days: 7,
-      role: "health_alarm" as const,
-    },
-  ];
+  const decisionWindowPolicy = buildGoogleAdsDecisionWindowPolicy(input.asOfDate);
 
   return {
     ...advisor,
@@ -2058,39 +2035,12 @@ async function finalizeGoogleAdsAdvisorReport(input: {
       ...advisor.metadata,
       decisionEngineVersion: "v2",
       analysisWindows: {
-        healthAlarmWindows,
-        operationalWindow: {
-          key: "operational_28d",
-          label: "operational 28d",
-          startDate: addDaysToIsoDate(input.asOfDate, -27),
-          endDate: input.asOfDate,
-          days: 28,
-          role: "operational_decision",
-        },
-        queryGovernanceWindow: {
-          key: "query_governance_56d",
-          label: "query governance 56d",
-          startDate: addDaysToIsoDate(input.asOfDate, -55),
-          endDate: input.asOfDate,
-          days: 56,
-          role: "query_governance",
-        },
-        baselineWindow: {
-          key: "baseline_84d",
-          label: "baseline 84d",
-          startDate: addDaysToIsoDate(input.asOfDate, -83),
-          endDate: input.asOfDate,
-          days: 84,
-          role: "baseline",
-        },
+        healthAlarmWindows: decisionWindowPolicy.healthAlarmWindows,
+        operationalWindow: decisionWindowPolicy.operationalWindow,
+        queryGovernanceWindow: decisionWindowPolicy.queryGovernanceWindow,
+        baselineWindow: decisionWindowPolicy.baselineWindow,
       },
-      executionSurface: {
-        mode: "operator_first_manual_plan",
-        mutateVerified: false,
-        rollbackVerified: false,
-        summary:
-          "Adsecute V1 is operator-first. Recommendations are manual plans; execute and rollback controls are intentionally hidden until write-back is verified.",
-      },
+      executionSurface: buildGoogleAdsExecutionSurface(),
     },
   };
 }

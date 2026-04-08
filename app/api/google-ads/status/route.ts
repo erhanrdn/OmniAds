@@ -30,6 +30,7 @@ import {
   getLatestGoogleAdsAdvisorSnapshot,
   isGoogleAdsAdvisorSnapshotFresh,
 } from "@/lib/google-ads/advisor-snapshots";
+import { getGoogleAdsDecisionEngineConfig } from "@/lib/google-ads/decision-engine-config";
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
 import { runMigrations } from "@/lib/migrations";
 import {
@@ -396,6 +397,7 @@ function buildGoogleAdsStatusDomains(input: {
 }
 
 export async function GET(request: NextRequest) {
+  const decisionEngineConfig = getGoogleAdsDecisionEngineConfig();
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
   const selectedStartDate = url.searchParams.get("startDate");
@@ -1774,6 +1776,8 @@ export async function GET(request: NextRequest) {
             }
           : null,
       supportWindows: null,
+      decisionEngineV2Enabled: decisionEngineConfig.decisionEngineV2Enabled,
+      writebackEnabled: decisionEngineConfig.writebackEnabled,
     },
     jobHealth: {
       runningJobs,
@@ -1806,6 +1810,8 @@ export async function GET(request: NextRequest) {
       canaryEligible,
       quotaPressure: quotaBudgetState?.pressure ?? 0,
       breakerState,
+      decisionEngineV2Enabled: decisionEngineConfig.decisionEngineV2Enabled,
+      writebackEnabled: decisionEngineConfig.writebackEnabled,
       statusDegraded: statusDegradedReasons.length > 0,
       statusDegradedReason: summarizeStatusDegradedReason(statusDegradedReasons),
       extendedRecoveryBlockReason,

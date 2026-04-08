@@ -235,6 +235,25 @@ export interface GoogleRecommendationEvidence {
   value: string;
 }
 
+export type GoogleDecisionV2Family =
+  | "measurement_trust"
+  | "waste_control"
+  | "demand_capture"
+  | "budget_bidding"
+  | "creative_feed"
+  | "structure_governance"
+  | "brand_governance";
+
+export type GoogleDecisionLane =
+  | "review"
+  | "test"
+  | "watch"
+  | "suppressed"
+  | "auto_hidden";
+
+export type GoogleDecisionRiskLevel = "low" | "medium" | "high";
+export type GoogleDecisionBlastRadius = "entity" | "campaign" | "account";
+
 export interface GoogleDecisionNarrative {
   whatHappened: string;
   whyItHappened: string;
@@ -242,6 +261,30 @@ export interface GoogleDecisionNarrative {
   risk: string;
   howToValidate: string[];
   howToRollBack: string;
+}
+
+export interface GoogleDecisionWindowsUsed {
+  healthWindow: GoogleAdvisorAnalysisWindowKey;
+  primaryWindow: GoogleAdvisorAnalysisWindowKey;
+  queryWindow?: GoogleAdvisorAnalysisWindowKey;
+  baselineWindow: GoogleAdvisorAnalysisWindowKey;
+  maturityCutoffDays: number;
+}
+
+export interface GoogleDecisionSchema {
+  decisionFamily: GoogleDecisionV2Family;
+  lane: GoogleDecisionLane;
+  riskLevel: GoogleDecisionRiskLevel;
+  blastRadius: GoogleDecisionBlastRadius;
+  confidence: number;
+  windowsUsed: GoogleDecisionWindowsUsed;
+  whyNow: string;
+  whyNot: string[];
+  blockers: string[];
+  validationPlan: string[];
+  rollbackPlan: string[];
+  evidenceSummary: string;
+  evidencePoints: GoogleRecommendationEvidence[];
 }
 
 export interface GoogleRecommendationTimeframeContext {
@@ -261,8 +304,11 @@ export interface GoogleAdvisorAnalysisWindow {
 
 export interface GoogleAdvisorExecutionSurface {
   mode: "operator_first_manual_plan";
+  decisionEngineV2Enabled: boolean;
+  writebackEnabled: boolean;
   mutateVerified: false;
   rollbackVerified: false;
+  capabilityGateReason: string;
   summary: string;
 }
 
@@ -447,6 +493,7 @@ export interface GoogleRecommendation {
   title: string;
   summary: string;
   why: string;
+  decision: GoogleDecisionSchema;
   decisionNarrative: GoogleDecisionNarrative;
   whyNow: string;
   whatChanged?: string | null;

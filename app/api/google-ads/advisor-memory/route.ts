@@ -18,6 +18,7 @@ import {
   preflightAdvisorMutation,
   rollbackAdvisorMutation,
 } from "@/lib/google-ads/advisor-mutate";
+import { getGoogleAdsWritebackCapabilityGate } from "@/lib/google-ads/decision-engine-config";
 import type {
   GoogleActionCluster,
   GoogleActionClusterStep,
@@ -106,6 +107,17 @@ function retryableRollbackError(message: string | null | undefined) {
     normalized.includes("temporar") ||
     normalized.includes("unavailable") ||
     normalized.includes("throttle")
+  );
+}
+
+function isWritebackExecutionRequested(body: RequestBody) {
+  return (
+    body?.executionAction === "apply_mutate" ||
+    body?.executionAction === "rollback_mutate" ||
+    body?.executionAction === "rollback_batch_mutate" ||
+    body?.executionAction === "execute_cluster" ||
+    body?.executionAction === "rollback_cluster" ||
+    body?.batchExecutionAction === "apply_batch_mutate"
   );
 }
 
@@ -590,6 +602,19 @@ export async function POST(request: NextRequest) {
 
   if (await isDemoBusiness(businessId)) {
     return NextResponse.json({ ok: true, demo: true });
+  }
+
+  if (isWritebackExecutionRequested(body)) {
+    const capabilityGate = getGoogleAdsWritebackCapabilityGate();
+    if (!capabilityGate.enabled) {
+      return NextResponse.json(
+        {
+          error: capabilityGate.reason,
+          capabilityGate,
+        },
+        { status: 403 }
+      );
+    }
   }
 
   const topLevelAccountId = body?.accountId ?? "all";
