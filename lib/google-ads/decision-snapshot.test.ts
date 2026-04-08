@@ -19,6 +19,14 @@ describe("Google Ads decision snapshot metadata", () => {
         conversions: 35,
         roas: 3.5,
       },
+      selectedRangeTotals: {
+        windowKey: "custom",
+        windowLabel: "selected 7d",
+        spend: 250,
+        revenue: 700,
+        conversions: 5,
+        roas: 2.8,
+      },
       selectedRangeContext: null,
     });
 
@@ -43,6 +51,14 @@ describe("Google Ads decision snapshot metadata", () => {
         revenue: 4200,
         conversions: 35,
         roas: 3.5,
+      },
+      selectedRangeTotals: {
+        windowKey: "custom",
+        windowLabel: "selected 7d",
+        spend: 250,
+        revenue: 700,
+        conversions: 5,
+        roas: 2.8,
       },
       canonicalWindowTotals: {
         spend: 1200,
@@ -118,6 +134,14 @@ describe("Google Ads decision snapshot metadata", () => {
           },
           historicalSupportAvailable: false,
           historicalSupport: null,
+          selectedRangeTotals: {
+            windowKey: "custom",
+            windowLabel: "selected 7d",
+            spend: 80,
+            revenue: 200,
+            conversions: 4,
+            roas: 2.5,
+          },
           canonicalWindowTotals: {
             spend: 100,
             revenue: 350,
@@ -145,6 +169,14 @@ describe("Google Ads decision snapshot metadata", () => {
         revenue: 350,
         conversions: 12,
         roas: 3.5,
+      },
+      selectedRangeTotals: {
+        windowKey: "custom",
+        windowLabel: "selected 7d",
+        spend: 80,
+        revenue: 200,
+        conversions: 4,
+        roas: 2.5,
       },
     });
   });

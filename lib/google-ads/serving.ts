@@ -2001,17 +2001,6 @@ async function finalizeGoogleAdsAdvisorReport(input: {
     .filter((section) => section.recommendations.length > 0);
   const clusters = buildActionClusters({ recommendations: recommendations as GoogleRecommendation[] });
   const topCluster = clusters[0] ?? null;
-  const decisionSummaryTotals = buildGoogleAdsDecisionSummaryTotals({
-    windowKey: "operational_28d",
-    windowLabel: "operational 28d",
-    spend: Number(advisor.metadata?.decisionSummaryTotals?.spend ?? advisor.metadata?.canonicalWindowTotals?.spend ?? 0),
-    revenue: Number(advisor.metadata?.decisionSummaryTotals?.revenue ?? advisor.metadata?.canonicalWindowTotals?.revenue ?? 0),
-    conversions: Number(
-      advisor.metadata?.decisionSummaryTotals?.conversions ?? advisor.metadata?.canonicalWindowTotals?.conversions ?? 0
-    ),
-    roas: Number(advisor.metadata?.decisionSummaryTotals?.roas ?? advisor.metadata?.canonicalWindowTotals?.roas ?? 0),
-  });
-
   return {
     ...advisor,
     summary: {
@@ -2049,7 +2038,8 @@ async function finalizeGoogleAdsAdvisorReport(input: {
       asOfDate: input.asOfDate,
       selectedWindowKey: input.selectedWindowKey,
       historicalSupport: input.historicalSupport,
-      decisionSummaryTotals,
+      decisionSummaryTotals: advisor.metadata?.decisionSummaryTotals ?? null,
+      selectedRangeTotals: advisor.metadata?.selectedRangeTotals ?? null,
       selectedRangeContext: advisor.metadata?.selectedRangeContext ?? null,
     }),
   };

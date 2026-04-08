@@ -830,6 +830,14 @@ export interface GoogleAdvisorMetadata {
     conversions: number;
     roas: number;
   } | null;
+  selectedRangeTotals?: {
+    windowKey: "custom";
+    windowLabel: string;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  } | null;
   canonicalWindowTotals?: {
     spend: number;
     revenue: number;

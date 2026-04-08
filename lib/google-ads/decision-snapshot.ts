@@ -7,6 +7,7 @@ import type {
 } from "@/lib/google-ads/growth-advisor-types";
 
 type DecisionSummaryTotals = NonNullable<GoogleAdvisorMetadata["decisionSummaryTotals"]>;
+type SelectedRangeTotals = NonNullable<GoogleAdvisorMetadata["selectedRangeTotals"]>;
 type SelectedRangeContext = NonNullable<GoogleAdvisorMetadata["selectedRangeContext"]>;
 
 export function buildGoogleAdsLagAdjustedEndDate(value?: string | null): NonNullable<GoogleAdvisorMetadata["lagAdjustedEndDate"]> {
@@ -42,12 +43,31 @@ export function buildGoogleAdsDecisionSummaryTotals(input: {
   };
 }
 
+export function buildGoogleAdsSelectedRangeTotals(input: {
+  windowKey: "custom";
+  windowLabel: string;
+  spend: number;
+  revenue: number;
+  conversions: number;
+  roas: number;
+}): SelectedRangeTotals {
+  return {
+    windowKey: input.windowKey,
+    windowLabel: input.windowLabel,
+    spend: input.spend,
+    revenue: input.revenue,
+    conversions: input.conversions,
+    roas: input.roas,
+  };
+}
+
 export function buildGoogleAdsDecisionSnapshotMetadata(input: {
   analysisMode: GoogleAdvisorMetadata["analysisMode"];
   asOfDate: string;
   selectedWindowKey: GoogleAdvisorMetadata["selectedWindowKey"];
   historicalSupport?: GoogleAdvisorHistoricalSupport | null;
   decisionSummaryTotals?: DecisionSummaryTotals | null;
+  selectedRangeTotals?: SelectedRangeTotals | null;
   selectedRangeContext?: SelectedRangeContext | null;
   lagAdjustedEndDate?: string | null;
 }): GoogleAdvisorMetadata {
@@ -74,6 +94,7 @@ export function buildGoogleAdsDecisionSnapshotMetadata(input: {
     historicalSupportAvailable: input.historicalSupport?.available ?? false,
     historicalSupport: input.historicalSupport ?? null,
     decisionSummaryTotals: input.decisionSummaryTotals ?? null,
+    selectedRangeTotals: input.selectedRangeTotals ?? null,
     canonicalWindowTotals: input.decisionSummaryTotals
       ? {
           spend: input.decisionSummaryTotals.spend,
@@ -114,6 +135,7 @@ export function normalizeGoogleAdsDecisionSnapshotPayload(input: {
             roas: existingMetadata.canonicalWindowTotals.roas,
           }
         : null),
+    selectedRangeTotals: existingMetadata?.selectedRangeTotals ?? null,
     selectedRangeContext: existingMetadata?.selectedRangeContext ?? null,
     lagAdjustedEndDate: existingMetadata?.lagAdjustedEndDate?.value ?? null,
   });

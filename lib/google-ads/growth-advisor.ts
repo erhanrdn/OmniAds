@@ -41,6 +41,7 @@ import { buildGoogleAdsExecutionSurface, isGoogleAdsDecisionEngineV2Enabled } fr
 import {
   buildGoogleAdsDecisionSnapshotMetadata,
   buildGoogleAdsDecisionSummaryTotals,
+  buildGoogleAdsSelectedRangeTotals,
 } from "@/lib/google-ads/decision-snapshot";
 import {
   applyQueryOwnership,
@@ -2800,14 +2801,29 @@ export function buildGoogleGrowthAdvisor(
     (recommendation) => recommendation.decisionState === "act"
   ).length;
   const asOfDate = input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10);
+  const operationalDecisionTotals =
+    aggregateCampaignRows(
+      input.windows.find((window) => window.key === "operational_28d")?.campaigns ?? input.selectedCampaigns
+    );
   const decisionSummaryTotals = buildGoogleAdsDecisionSummaryTotals({
     windowKey: "operational_28d",
     windowLabel: "operational 28d",
-    spend: selectedTotals.spend,
-    revenue: selectedTotals.revenue,
-    conversions: selectedTotals.conversions,
-    roas: selectedTotals.roas,
+    spend: operationalDecisionTotals.spend,
+    revenue: operationalDecisionTotals.revenue,
+    conversions: operationalDecisionTotals.conversions,
+    roas: operationalDecisionTotals.roas,
   });
+  const selectedRangeTotals =
+    input.analysisMetadata?.selectedWindowKey === "custom"
+      ? buildGoogleAdsSelectedRangeTotals({
+          windowKey: "custom",
+          windowLabel: input.selectedLabel,
+          spend: selectedTotals.spend,
+          revenue: selectedTotals.revenue,
+          conversions: selectedTotals.conversions,
+          roas: selectedTotals.roas,
+        })
+      : null;
 
   return {
     summary: {
@@ -2861,6 +2877,7 @@ export function buildGoogleGrowthAdvisor(
         selectedWindowKey: input.analysisMetadata?.selectedWindowKey ?? "custom",
         historicalSupport: input.historicalSupport ?? null,
         decisionSummaryTotals,
+        selectedRangeTotals,
         selectedRangeContext: null,
       }),
       executionSurface: buildGoogleAdsExecutionSurface(),

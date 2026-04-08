@@ -206,6 +206,85 @@ function device(overrides: Partial<DevicePerformanceRow> = {}): DevicePerformanc
 }
 
 describe("buildGoogleGrowthAdvisor", () => {
+  it("keeps decision summary totals anchored to the operational 28d window", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "operational 28d",
+      analysisMetadata: {
+        analysisMode: "snapshot",
+        asOfDate: "2026-04-08",
+        selectedWindowKey: "operational_28d",
+      },
+      selectedCampaigns: [campaign({ spend: 100, revenue: 400, conversions: 10, roas: 4 })],
+      selectedSearchTerms: [searchTerm()],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "alarm_1d", label: "alarm 1d", campaigns: [campaign({ spend: 5, revenue: 20, conversions: 1, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_3d", label: "alarm 3d", campaigns: [campaign({ spend: 12, revenue: 42, conversions: 2, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_7d", label: "alarm 7d", campaigns: [campaign({ spend: 25, revenue: 90, conversions: 3, roas: 3.6 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "operational_28d", label: "operational 28d", campaigns: [campaign({ spend: 100, revenue: 400, conversions: 10, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "query_governance_56d", label: "query governance 56d", campaigns: [campaign({ spend: 180, revenue: 630, conversions: 18, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "baseline_84d", label: "baseline 84d", campaigns: [campaign({ spend: 250, revenue: 850, conversions: 24, roas: 3.4 })], searchTerms: [searchTerm()], products: [product()] },
+      ],
+    });
+
+    expect(advisor.metadata?.decisionSummaryTotals).toMatchObject({
+      windowKey: "operational_28d",
+      windowLabel: "operational 28d",
+      spend: 100,
+      revenue: 400,
+      conversions: 10,
+      roas: 4,
+    });
+    expect(advisor.metadata?.selectedRangeTotals).toBeNull();
+  });
+
+  it("keeps custom selected-range totals separate from operational decision totals", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 7d",
+      analysisMetadata: {
+        analysisMode: "debug_custom",
+        asOfDate: "2026-04-08",
+        selectedWindowKey: "custom",
+      },
+      selectedCampaigns: [campaign({ spend: 40, revenue: 100, conversions: 3, roas: 2.5 })],
+      selectedSearchTerms: [searchTerm()],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "alarm_1d", label: "alarm 1d", campaigns: [campaign({ spend: 5, revenue: 20, conversions: 1, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_3d", label: "alarm 3d", campaigns: [campaign({ spend: 12, revenue: 42, conversions: 2, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "alarm_7d", label: "alarm 7d", campaigns: [campaign({ spend: 25, revenue: 90, conversions: 3, roas: 3.6 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "operational_28d", label: "operational 28d", campaigns: [campaign({ spend: 100, revenue: 400, conversions: 10, roas: 4 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "query_governance_56d", label: "query governance 56d", campaigns: [campaign({ spend: 180, revenue: 630, conversions: 18, roas: 3.5 })], searchTerms: [searchTerm()], products: [product()] },
+        { key: "baseline_84d", label: "baseline 84d", campaigns: [campaign({ spend: 250, revenue: 850, conversions: 24, roas: 3.4 })], searchTerms: [searchTerm()], products: [product()] },
+      ],
+    });
+
+    expect(advisor.metadata?.decisionSummaryTotals).toMatchObject({
+      windowKey: "operational_28d",
+      windowLabel: "operational 28d",
+      spend: 100,
+      revenue: 400,
+      conversions: 10,
+      roas: 4,
+    });
+    expect(advisor.metadata?.selectedRangeTotals).toMatchObject({
+      windowKey: "custom",
+      windowLabel: "selected 7d",
+      spend: 40,
+      revenue: 100,
+      conversions: 3,
+      roas: 2.5,
+    });
+  });
+
   it("recommends non-brand expansion when only brand + pmax exist and recurring non-brand demand is present", () => {
     const advisor = buildGoogleGrowthAdvisor({
       selectedLabel: "selected 14d",
