@@ -288,4 +288,27 @@ describe("GoogleAdvisorPanel", () => {
 
     expect(html).toContain("No decisions in this lane right now.");
   });
+
+  it("does not crash when a recommendation payload is missing decision and narrative fields", () => {
+    const partialRecommendation = {
+      ...buildRecommendation("legacy-demo", "review"),
+      decision: undefined,
+      decisionNarrative: undefined,
+      rollbackGuidance: "Reverse manually if needed.",
+      validationChecklist: ["Review next sync window."],
+    } as unknown as GoogleRecommendation;
+
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdvisorPanel, {
+        advisor: buildAdvisor([partialRecommendation]),
+      })
+    );
+
+    expect(html).toContain("review recommendation");
+    expect(html).toContain("review summary");
+    expect(html).toContain("review why");
+    expect(html).toContain("review action");
+    expect(html).toContain("Review next sync window.");
+    expect(html).toContain("Reverse manually if needed.");
+  });
 });

@@ -319,6 +319,36 @@ export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSear
   await runMigrations();
   const sql = getDb();
   for (const row of rows) {
+    const updatedRows = await sql`
+      UPDATE google_ads_search_query_hot_daily
+      SET
+        account_timezone = ${row.accountTimezone},
+        account_currency = ${row.accountCurrency},
+        campaign_name = ${row.campaignName},
+        ad_group_name = ${row.adGroupName},
+        cluster_key = ${row.clusterKey},
+        cluster_label = ${row.clusterLabel},
+        theme_key = ${row.themeKey},
+        intent_class = ${row.intentClass},
+        ownership_class = ${row.ownershipClass},
+        spend = ${row.spend},
+        revenue = ${row.revenue},
+        conversions = ${row.conversions},
+        impressions = ${row.impressions},
+        clicks = ${row.clicks},
+        source_snapshot_id = ${row.sourceSnapshotId},
+        updated_at = now()
+      WHERE business_id = ${row.businessId}
+        AND provider_account_id = ${row.providerAccountId}
+        AND date = ${normalizeIsoDate(row.date)}
+        AND query_hash = ${row.queryHash}
+        AND campaign_id IS NOT DISTINCT FROM ${row.campaignId}
+        AND ad_group_id IS NOT DISTINCT FROM ${row.adGroupId}
+      RETURNING 1
+    `;
+    if (Array.isArray(updatedRows) && updatedRows.length > 0) {
+      continue;
+    }
     await sql`
       INSERT INTO google_ads_search_query_hot_daily (
         business_id,
@@ -368,22 +398,6 @@ export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSear
         ${row.sourceSnapshotId},
         now()
       )
-      ON CONFLICT (business_id, provider_account_id, date, query_hash, campaign_id, ad_group_id)
-      DO UPDATE SET
-        campaign_name = EXCLUDED.campaign_name,
-        ad_group_name = EXCLUDED.ad_group_name,
-        cluster_key = EXCLUDED.cluster_key,
-        cluster_label = EXCLUDED.cluster_label,
-        theme_key = EXCLUDED.theme_key,
-        intent_class = EXCLUDED.intent_class,
-        ownership_class = EXCLUDED.ownership_class,
-        spend = EXCLUDED.spend,
-        revenue = EXCLUDED.revenue,
-        conversions = EXCLUDED.conversions,
-        impressions = EXCLUDED.impressions,
-        clicks = EXCLUDED.clicks,
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        updated_at = now()
     `;
   }
   return rows.length;

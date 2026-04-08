@@ -116,6 +116,26 @@ function renderWindowLabel(key: string | undefined, labelMap: Map<string, string
   return labelMap.get(key) ?? labelize(key);
 }
 
+function fallbackNarrative(recommendation: GoogleAdvisorRecommendation) {
+  return {
+    whatHappened: recommendation.decisionNarrative?.whatHappened ?? recommendation.summary,
+    whyItHappened: recommendation.decisionNarrative?.whyItHappened ?? recommendation.why,
+    whatToDo: recommendation.decisionNarrative?.whatToDo ?? recommendation.recommendedAction,
+    risk:
+      recommendation.decisionNarrative?.risk ??
+      recommendation.blockers?.join(" ") ??
+      "No explicit decision narrative is available for this payload. Keep this in operator review.",
+    howToValidate:
+      recommendation.decisionNarrative?.howToValidate ??
+      recommendation.validationChecklist ??
+      [],
+    howToRollBack:
+      recommendation.decisionNarrative?.howToRollBack ??
+      recommendation.rollbackGuidance ??
+      "No verified write-back rollback exists in V1. Reverse manually in Google Ads if needed.",
+  };
+}
+
 function DetailList({
   title,
   items,
@@ -170,6 +190,7 @@ function RecommendationCard({
   const rollbackPlan = recommendation.decision?.rollbackPlan ?? [];
   const evidencePoints = recommendation.decision?.evidencePoints ?? recommendation.evidence ?? [];
   const executionSurface = advisor.metadata?.executionSurface;
+  const narrative = fallbackNarrative(recommendation);
 
   return (
     <article className="space-y-4 rounded-xl border bg-card p-4">
@@ -215,15 +236,15 @@ function RecommendationCard({
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-lg border bg-muted/15 p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">What happened</div>
-          <p className="mt-2 text-sm text-slate-800">{recommendation.decisionNarrative.whatHappened}</p>
+          <p className="mt-2 text-sm text-slate-800">{narrative.whatHappened}</p>
         </div>
         <div className="rounded-lg border bg-muted/15 p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Why it happened</div>
-          <p className="mt-2 text-sm text-slate-800">{recommendation.decisionNarrative.whyItHappened}</p>
+          <p className="mt-2 text-sm text-slate-800">{narrative.whyItHappened}</p>
         </div>
         <div className="rounded-lg border bg-muted/15 p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">What to do</div>
-          <p className="mt-2 text-sm text-slate-800">{recommendation.decisionNarrative.whatToDo}</p>
+          <p className="mt-2 text-sm text-slate-800">{narrative.whatToDo}</p>
         </div>
         <div className="rounded-lg border bg-muted/15 p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Why now</div>
@@ -248,7 +269,7 @@ function RecommendationCard({
         </div>
         <div className="rounded-lg border bg-muted/15 p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Risk</div>
-          <p className="mt-2 text-sm text-slate-800">{recommendation.decisionNarrative.risk}</p>
+          <p className="mt-2 text-sm text-slate-800">{narrative.risk}</p>
         </div>
         <div className="rounded-lg border bg-muted/15 p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Evidence summary</div>
@@ -284,12 +305,12 @@ function RecommendationCard({
         />
         <DetailList
           title="Validation plan"
-          items={validationPlan}
+          items={validationPlan.length > 0 ? validationPlan : narrative.howToValidate}
           emptyLabel="No explicit validation plan is available."
         />
         <DetailList
           title="Rollback plan"
-          items={rollbackPlan}
+          items={rollbackPlan.length > 0 ? rollbackPlan : [narrative.howToRollBack]}
           emptyLabel="No verified write-back rollback exists in V1. Reverse manually in Google Ads if needed."
         />
         <DetailList

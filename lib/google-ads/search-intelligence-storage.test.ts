@@ -124,4 +124,46 @@ describe("Google Ads search intelligence storage", () => {
     expect(joined).toContain("INSERT INTO google_ads_top_query_weekly");
     expect(joined).toContain("INSERT INTO google_ads_search_cluster_daily");
   });
+
+  it("matches nullable campaign and ad-group ids deterministically during hot-daily upserts", async () => {
+    const calls: string[] = [];
+    let callCount = 0;
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      calls.push(query);
+      callCount += 1;
+      if (query.includes("UPDATE google_ads_search_query_hot_daily")) {
+        return callCount === 1 ? [{ "?column?": 1 }] : [];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await storage.upsertGoogleAdsSearchQueryHotDailyRows([
+      storage.buildGoogleAdsSearchQueryHotDailyRows({
+        businessId: "biz",
+        providerAccountId: "acct",
+        date: "2026-04-08",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        rows: [buildSearchRow({ campaignId: "cmp_1", adGroupId: undefined, adGroupName: undefined })],
+        sourceSnapshotId: "snap_1",
+      })[0]!,
+      storage.buildGoogleAdsSearchQueryHotDailyRows({
+        businessId: "biz",
+        providerAccountId: "acct",
+        date: "2026-04-08",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        rows: [buildSearchRow({ campaignId: "cmp_2", adGroupId: undefined, adGroupName: undefined })],
+        sourceSnapshotId: "snap_1",
+      })[0]!,
+    ]);
+
+    const joined = calls.join("\n");
+    expect(joined).toContain("UPDATE google_ads_search_query_hot_daily");
+    expect(joined).toContain("campaign_id IS NOT DISTINCT FROM");
+    expect(joined).toContain("ad_group_id IS NOT DISTINCT FROM");
+    expect(calls.filter((query) => query.includes("INSERT INTO google_ads_search_query_hot_daily"))).toHaveLength(1);
+  });
 });
