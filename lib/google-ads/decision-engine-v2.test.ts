@@ -74,8 +74,13 @@ function buildRecommendation(overrides: Partial<GoogleRecommendation> = {}): Goo
     rankExplanation: "High priority waste control issue.",
     impactScore: 70,
     recommendationFingerprint: "fp_1",
+    timeframeContext: {
+      coreVerdict: "stable",
+      selectedRangeNote: "Selected range is contextual only.",
+      historicalSupport: "Supported by the operational and baseline windows.",
+    },
     ...overrides,
-  };
+  } as GoogleRecommendation;
 }
 
 describe("Google Ads decision engine v2 helpers", () => {

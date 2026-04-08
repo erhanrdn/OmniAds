@@ -190,7 +190,14 @@ describe("google ads advisor ux helpers", () => {
       getGoogleAdsAdvisorIdleState(
         buildStatus({
           state: "ready",
-          advisor: { ready: true },
+          advisor: {
+            ready: true,
+            requiredSurfaces: [],
+            availableSurfaces: [],
+            missingSurfaces: [],
+            readyRangeStart: null,
+            readyRangeEnd: null,
+          },
         })
       )
     ).toEqual({

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SearchTermPerformanceRow } from "@/lib/google-ads/intelligence-model";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
@@ -11,7 +12,9 @@ vi.mock("@/lib/migrations", () => ({
 const db = await import("@/lib/db");
 const storage = await import("@/lib/google-ads/search-intelligence-storage");
 
-function buildSearchRow(overrides: Record<string, unknown> = {}) {
+function buildSearchRow(
+  overrides: Partial<SearchTermPerformanceRow> & Record<string, unknown> = {}
+): Partial<SearchTermPerformanceRow> & Record<string, unknown> {
   return {
     searchTerm: "Running Shoes",
     campaignId: "cmp_1",
@@ -27,7 +30,7 @@ function buildSearchRow(overrides: Record<string, unknown> = {}) {
     impressions: 120,
     clicks: 12,
     ...overrides,
-  };
+  } satisfies Partial<SearchTermPerformanceRow> & Record<string, unknown>;
 }
 
 describe("Google Ads search intelligence storage", () => {

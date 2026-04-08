@@ -5,9 +5,16 @@ import {
   getGoogleAdsWritebackCapabilityGate,
 } from "@/lib/google-ads/decision-engine-config";
 
+function env(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  return {
+    NODE_ENV: "test",
+    ...overrides,
+  };
+}
+
 describe("Google Ads decision engine config", () => {
   it("defaults to Decision Engine V2 enabled and write-back disabled", () => {
-    const config = getGoogleAdsDecisionEngineConfig({});
+    const config = getGoogleAdsDecisionEngineConfig(env());
 
     expect(config).toEqual({
       decisionEngineV2Enabled: true,
@@ -17,10 +24,10 @@ describe("Google Ads decision engine config", () => {
 
   it("builds an explicit write-back capability gate from env flags", () => {
     expect(
-      getGoogleAdsWritebackCapabilityGate({
+      getGoogleAdsWritebackCapabilityGate(env({
         GOOGLE_ADS_DECISION_ENGINE_V2: "true",
         GOOGLE_ADS_WRITEBACK_ENABLED: "false",
-      } as NodeJS.ProcessEnv)
+      }))
     ).toMatchObject({
       enabled: false,
       mutateEnabled: false,
@@ -29,10 +36,10 @@ describe("Google Ads decision engine config", () => {
     });
 
     expect(
-      getGoogleAdsWritebackCapabilityGate({
+      getGoogleAdsWritebackCapabilityGate(env({
         GOOGLE_ADS_DECISION_ENGINE_V2: "true",
         GOOGLE_ADS_WRITEBACK_ENABLED: "true",
-      } as NodeJS.ProcessEnv)
+      }))
     ).toMatchObject({
       enabled: true,
       mutateEnabled: true,
@@ -42,7 +49,7 @@ describe("Google Ads decision engine config", () => {
   });
 
   it("keeps the execution surface operator-first even when write-back is gated on", () => {
-    expect(buildGoogleAdsExecutionSurface({} as NodeJS.ProcessEnv)).toMatchObject({
+    expect(buildGoogleAdsExecutionSurface(env())).toMatchObject({
       mode: "operator_first_manual_plan",
       decisionEngineV2Enabled: true,
       writebackEnabled: false,
@@ -52,9 +59,10 @@ describe("Google Ads decision engine config", () => {
 
     expect(
       buildGoogleAdsExecutionSurface({
+        NODE_ENV: "test",
         GOOGLE_ADS_DECISION_ENGINE_V2: "true",
         GOOGLE_ADS_WRITEBACK_ENABLED: "true",
-      } as NodeJS.ProcessEnv)
+      })
     ).toMatchObject({
       mode: "operator_first_manual_plan",
       decisionEngineV2Enabled: true,
