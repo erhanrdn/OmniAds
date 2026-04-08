@@ -75,6 +75,10 @@ vi.mock("@/lib/meta/live", () => ({
   getMetaCurrentDayLiveAvailability: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/meta-sync", () => ({
+  getMetaSelectedRangeTruthReadiness: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
@@ -84,6 +88,7 @@ const warehouse = await import("@/lib/meta/warehouse");
 const workerHealth = await import("@/lib/sync/worker-health");
 const live = await import("@/lib/meta/live");
 const constraints = await import("@/lib/meta/constraints");
+const metaSync = await import("@/lib/sync/meta-sync");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -207,6 +212,14 @@ describe("GET /api/meta/status", () => {
     vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
       summaryAvailable: true,
       campaignsAvailable: true,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: true,
+      state: "finalized",
+      totalDays: 1,
+      completedCoreDays: 1,
+      blockingReasons: [],
+      reasonCounts: {},
     } as never);
   });
 
@@ -802,6 +815,86 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("keeps historical surfaces ready while finalize is pending for secondary blockers only", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 1,
+      blockingReasons: ["non_finalized"],
+      reasonCounts: {
+        non_finalized: 1,
+        validation_failed: 1,
+        missing_breakdown: 1,
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 1, ready_through_date: "2026-04-07" }],
+        ["breakdown_country", { completed_days: 1, ready_through_date: "2026-04-07" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 1, ready_through_date: "2026-04-07" },
+        ],
+      ]) as never
+    );
+    vi.mocked(db.getDb).mockReturnValue(
+      vi.fn(async () => [
+        {
+          has_account_row: true,
+          has_campaign_row: true,
+          active_finalize_count: 1,
+        },
+      ]) as never,
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-07&endDate=2026-04-07"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
+    expect(payload.d1FinalizeState).toBe("processing");
+    expect(payload.d1BlockedReason).toBe("active_finalize_day_partition");
+  });
+
   it("reports only the age breakdown surface as ready when only the age endpoint is complete", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
@@ -968,6 +1061,14 @@ describe("GET /api/meta/status", () => {
       extendedRecentLeasedPartitions: 0,
       extendedHistoricalQueueDepth: 0,
       extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: ["non_finalized"],
+      reasonCounts: { non_finalized: 1 },
     } as never);
 
     const response = await GET(

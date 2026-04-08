@@ -207,6 +207,55 @@ describe("overview-service canonical orchestration", () => {
     expect(overview.kpis.purchases).toBe(9);
   });
 
+  it("keeps Meta visible in overview when current-day live override has totals but no warehouse account rows yet", async () => {
+    vi.mocked(metaCanonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
+      totals: { spend: 23.22, revenue: 0, conversions: 0, roas: 0 },
+      accounts: [],
+      isPartial: false,
+      notReadyReason: null,
+      readSource: "warehouse_plus_live_override",
+    } as never);
+    vi.mocked(googleServing.getGoogleCanonicalOverviewSummary).mockResolvedValue({
+      kpis: {
+        spend: 14.31,
+        revenue: 0,
+        conversions: 0,
+        roas: 0,
+        cpa: 0,
+        cpc: 0,
+        ctr: 0,
+        impressions: 0,
+        clicks: 0,
+        convRate: 0,
+      },
+      kpiDeltas: undefined,
+      summary: {
+        totalAccounts: 1,
+        readSource: "live_overlay_current_day",
+      },
+      meta: {
+        readSource: "live_overlay_current_day",
+      },
+    } as never);
+
+    const overview = await getOverviewData({
+      businessId: "biz",
+      startDate: "2026-04-08",
+      endDate: "2026-04-08",
+      includeTrends: false,
+    });
+
+    expect(overview.platformEfficiency).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          platform: "meta",
+          spend: 23.22,
+        }),
+      ]),
+    );
+    expect(overview.kpis.spend).toBe(37.53);
+  });
+
   it("uses the summary Shopify read path for sparkline bundles", async () => {
     vi.mocked(metaCanonical.getMetaCanonicalOverviewTrends).mockResolvedValue({
       points: [{ date: "2026-03-01", spend: 10, revenue: 20, conversions: 1 }],

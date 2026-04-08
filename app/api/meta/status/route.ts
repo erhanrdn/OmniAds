@@ -77,6 +77,17 @@ function buildMetaDomainReadiness(input: {
   };
 }
 
+function canServeHistoricalCoreWhileFinalizePending(
+  selectedRangeTruth:
+    | Awaited<ReturnType<typeof getMetaSelectedRangeTruthReadiness>>
+    | null
+    | undefined,
+) {
+  if (!selectedRangeTruth) return false;
+  if (selectedRangeTruth.completedCoreDays < selectedRangeTruth.totalDays) return false;
+  return selectedRangeTruth.blockingReasons.every((reason) => reason === "non_finalized");
+}
+
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
@@ -739,7 +750,8 @@ export async function GET(request: NextRequest) {
       : selectedRangeIsToday
       ? currentDayLive?.summaryAvailable === true
       : selectedRangeTruth
-        ? selectedRangeTruth.truthReady
+        ? selectedRangeTruth.truthReady ||
+          canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
         : Boolean(selectedRangeTotalDays) &&
           (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const campaignsReady =
@@ -748,7 +760,8 @@ export async function GET(request: NextRequest) {
       : selectedRangeIsToday
       ? currentDayLive?.campaignsAvailable === true
       : selectedRangeTruth
-        ? selectedRangeTruth.truthReady
+        ? selectedRangeTruth.truthReady ||
+          canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
         : Boolean(selectedRangeTotalDays) &&
           (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const summarySurfaceReason = !connected
@@ -784,7 +797,11 @@ export async function GET(request: NextRequest) {
       const coverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
       const ready = selectedRangeIsToday
         ? coverage.isComplete
-        : coverage.isComplete && (selectedRangeTruth ? selectedRangeTruth.truthReady : true);
+        : coverage.isComplete &&
+          (selectedRangeTruth
+            ? selectedRangeTruth.truthReady ||
+              canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
+            : true);
       const blockedReason =
         coverage.isBlocked && coverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${coverage.supportStartDate} onward for the selected range.`

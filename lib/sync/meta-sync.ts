@@ -1117,9 +1117,26 @@ function collectMetaBlockingDirtyReasons(
 ): MetaDirtyRecentReason[] {
   const reasons = new Set<MetaDirtyRecentReason>();
   for (const row of rows) {
-    for (const reason of row.reasons) {
-      if (reason === "missing_breakdown") continue;
-      reasons.add(reason);
+    if (row.nonFinalized || row.reasons.includes("non_finalized")) {
+      reasons.add("non_finalized");
+    }
+    if (row.reasons.includes("missing_campaign")) {
+      reasons.add("missing_campaign");
+    }
+    if (row.reasons.includes("spend_drift")) {
+      reasons.add("spend_drift");
+    }
+    if (row.reasons.includes("tiny_stale_spend")) {
+      reasons.add("tiny_stale_spend");
+    }
+    if (
+      row.validationFailed &&
+      !row.breakdownOnly &&
+      !row.coverageMissing &&
+      !row.reasons.includes("missing_adset") &&
+      !row.reasons.includes("missing_breakdown")
+    ) {
+      reasons.add("validation_failed");
     }
   }
   return Array.from(reasons);
@@ -1196,7 +1213,6 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
   const completedCoreDays = Math.min(
     accountCoverage?.completed_days ?? 0,
     campaignCoverage?.completed_days ?? 0,
-    adsetCoverage?.completed_days ?? 0,
   );
   const blockingReasons = collectMetaBlockingDirtyReasons(dirtyRows);
   const reasonCounts: Record<string, number> = {};
@@ -3253,6 +3269,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
       partition.lease_owner,
       partition.lease_expires_at,
       checkpoint.updated_at AS checkpoint_updated_at,
+      run.status AS run_status,
       EXISTS (
         SELECT 1
         FROM sync_runner_leases lease
@@ -3270,6 +3287,13 @@ export async function recoverMetaD1FinalizePartitions(input: {
       ORDER BY checkpoint.updated_at DESC
       LIMIT 1
     ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT run.status
+      FROM meta_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.created_at DESC
+      LIMIT 1
+    ) run ON TRUE
     WHERE partition.business_id = ${input.businessId}
       AND partition.lane = 'maintenance'
       AND partition.scope = 'account_daily'
@@ -3284,6 +3308,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
     lease_owner: string | null;
     lease_expires_at: string | Date | null;
     checkpoint_updated_at: string | Date | null;
+    run_status: string | null;
     has_matching_runner_lease: boolean;
   }>;
   const matchingCandidates = candidates.filter((row) => {
@@ -3303,9 +3328,18 @@ export async function recoverMetaD1FinalizePartitions(input: {
       `${String(row.provider_account_id)}:${String(row.partition_date).slice(0, 10)}`,
     ),
   );
+  const succeededRunRows = matchingCandidates.filter(
+    (row) => row.run_status === "succeeded",
+  );
   const alreadyPublishedPartitionIds = alreadyPublishedRows.map((row) => String(row.id));
+  const succeededRunPartitionIds = succeededRunRows
+    .map((row) => String(row.id))
+    .filter((id) => !alreadyPublishedPartitionIds.includes(id));
+  const autoSucceededPartitionIds = Array.from(
+    new Set([...alreadyPublishedPartitionIds, ...succeededRunPartitionIds]),
+  );
 
-  if (alreadyPublishedPartitionIds.length > 0) {
+  if (autoSucceededPartitionIds.length > 0) {
     await sql`
       UPDATE meta_sync_partitions
       SET
@@ -3315,10 +3349,10 @@ export async function recoverMetaD1FinalizePartitions(input: {
         finished_at = COALESCE(finished_at, now()),
         last_error = NULL,
         updated_at = now()
-      WHERE id = ANY(${alreadyPublishedPartitionIds}::uuid[])
+      WHERE id = ANY(${autoSucceededPartitionIds}::uuid[])
     `;
     await Promise.all(
-      alreadyPublishedRows.map((row) =>
+      [...alreadyPublishedRows, ...succeededRunRows].map((row) =>
         markProviderDayRolloverFinalizeCompleted({
           provider: "meta",
           businessId: input.businessId,
@@ -3334,12 +3368,10 @@ export async function recoverMetaD1FinalizePartitions(input: {
   const stalledPartitionIds: string[] = [];
 
   for (const row of matchingCandidates) {
-    if (alreadyPublishedPartitionIds.includes(String(row.id))) {
+    if (autoSucceededPartitionIds.includes(String(row.id))) {
       continue;
     }
-    const progressMs = parseTimestampMs(
-      row.checkpoint_updated_at ?? row.updated_at,
-    );
+    const progressMs = parseTimestampMs(row.checkpoint_updated_at);
     const updatedMs = parseTimestampMs(row.updated_at);
     const leaseExpiresMs = parseTimestampMs(row.lease_expires_at);
     const hasRecentProgress =

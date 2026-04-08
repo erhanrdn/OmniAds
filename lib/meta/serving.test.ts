@@ -22,7 +22,9 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAccountDailyRange: vi.fn(),
   getMetaAdSetDailyRange: vi.fn(),
   getMetaBreakdownDailyRange: vi.fn(),
+  getMetaCampaignDailyCoverage: vi.fn(),
   getMetaCampaignDailyRange: vi.fn(),
+  getMetaDirtyRecentDates: vi.fn(),
   getMetaPublishedVerificationSummary: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
@@ -403,6 +405,143 @@ describe("meta historical serving", () => {
       spend: 25,
       revenue: 50,
     });
+  });
+
+  it("serves warehouse summary while finalize is still pending when only secondary blockers remain", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
+      accountIds: ["act_1"],
+      accountProfiles: {
+        act_1: { name: "Account 1", timezone: "UTC", currency: "USD" },
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-07",
+        accountName: "Account 1",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        frequency: 0,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+        updatedAt: "2026-04-08T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-07",
+        campaignId: "cmp-1",
+        campaignNameCurrent: "Campaign 1",
+        campaignNameHistorical: "Campaign 1",
+        campaignStatus: "ACTIVE",
+        objective: null,
+        buyingType: null,
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+        updatedAt: "2026-04-08T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "processing",
+      truthReady: false,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: null,
+      publishedAt: null,
+      asOf: null,
+      publishedSlices: 0,
+      totalExpectedSlices: 2,
+      reasonCounts: { non_finalized: 1, validation_failed: 1, missing_breakdown: 1 },
+      publishedKeysBySurface: {
+        account_daily: [],
+        campaign_daily: [],
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 1,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaDirtyRecentDates).mockResolvedValue([
+      {
+        providerAccountId: "act_1",
+        date: "2026-04-07",
+        severity: "critical",
+        reasons: ["non_finalized", "validation_failed", "missing_breakdown"],
+        nonFinalized: true,
+        validationFailed: true,
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 1, ready_through_date: "2026-04-07" }],
+        ["breakdown_country", { completed_days: 1, ready_through_date: "2026-04-07" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 1, ready_through_date: "2026-04-07" },
+        ],
+      ]) as never,
+    );
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      leasedPartitions: 0,
+      queueDepth: 0,
+    } as never);
+
+    const summary = await getMetaWarehouseSummary({
+      businessId: "biz-1",
+      startDate: "2026-04-07",
+      endDate: "2026-04-07",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(summary.isPartial).toBe(false);
+    expect(summary.totals.spend).toBe(0);
+    expect(summary.accounts).toHaveLength(1);
   });
 
   it("filters historical breakdown rows to published verified account-days when v2 is enabled", async () => {

@@ -9,6 +9,7 @@ import {
   getMetaWarehouseTrends,
 } from "@/lib/meta/serving";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 
 function getHistoricalVerificationReason(input: {
   verificationState?: string | null;
@@ -39,6 +40,21 @@ export type MetaCanonicalOverviewTrends = Awaited<
   readSource: "warehouse_published";
 };
 
+function canServeMetaHistoricalSummaryWhileFinalizePending(
+  selectedRangeTruth:
+    | Awaited<ReturnType<typeof getMetaSelectedRangeTruthReadiness>>
+    | null
+    | undefined,
+) {
+  if (!selectedRangeTruth) return false;
+  if (selectedRangeTruth.completedCoreDays < selectedRangeTruth.totalDays) {
+    return false;
+  }
+  return selectedRangeTruth.blockingReasons.every(
+    (reason) => reason === "non_finalized",
+  );
+}
+
 export async function getMetaCanonicalOverviewSummary(input: {
   businessId: string;
   startDate: string;
@@ -48,13 +64,20 @@ export async function getMetaCanonicalOverviewSummary(input: {
     () => null,
   );
   const providerAccountIds = assignment?.account_ids ?? [];
-  const [rangeContext, integration, warehouseSummary] = await Promise.all([
+  const [rangeContext, integration, warehouseSummary, selectedRangeTruth] = await Promise.all([
     getMetaRangePreparationContext(input),
     getIntegration(input.businessId, "meta").catch(() => null),
     getMetaWarehouseSummary({
       ...input,
       providerAccountIds,
     }),
+    providerAccountIds.length > 0
+      ? getMetaSelectedRangeTruthReadiness({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const connected = integration?.status === "connected";
@@ -89,10 +112,20 @@ export async function getMetaCanonicalOverviewSummary(input: {
     }
   }
 
+  const historicalServeableWhileFinalizePending =
+    !rangeContext.isSelectedCurrentDay &&
+    canServeMetaHistoricalSummaryWhileFinalizePending(selectedRangeTruth);
+
   const result = {
     ...warehouseSummary,
-    isPartial: Boolean(warehouseSummary.isPartial),
-    notReadyReason: warehouseSummary.isPartial
+    isPartial:
+      historicalServeableWhileFinalizePending
+        ? false
+        : Boolean(warehouseSummary.isPartial),
+    notReadyReason:
+      historicalServeableWhileFinalizePending
+        ? null
+        : warehouseSummary.isPartial
       ? getHistoricalVerificationReason({
           verificationState: warehouseSummary.verification?.verificationState ?? null,
           fallbackReason: getMetaPartialReason({
@@ -103,7 +136,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
               "Warehouse data is still being prepared for the requested range.",
           }),
         })
-      : null,
+        : null,
     readSource: "warehouse" as const,
   };
   console.info("[meta-canonical] summary_read", {

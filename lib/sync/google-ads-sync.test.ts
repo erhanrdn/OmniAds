@@ -12,6 +12,7 @@ import {
   getGoogleAdsGapPlannerBlockingStatuses,
   buildGoogleAdsWarehouseFetchPlan,
   classifyGoogleAdsQueuedCampaignDailyPartition,
+  canReuseExistingGoogleAdsSyncJob,
   evaluateGoogleAdsWorkerSchedulingState,
   getGoogleAdsScopeCheckpointChunkSize,
   logGoogleAdsLeaseStepResult,
@@ -186,6 +187,26 @@ describe("buildGoogleAdsWarehouseFetchPlan", () => {
     expect(productPlan.campaigns).toBe(false);
     expect(assetPlan.assets).toBe(true);
     expect(assetPlan.campaigns).toBe(false);
+  });
+});
+
+describe("canReuseExistingGoogleAdsSyncJob", () => {
+  it("reuses an existing running repair-window job", () => {
+    expect(
+      canReuseExistingGoogleAdsSyncJob({
+        syncType: "repair_window",
+        triggerSource: "manual_targeted_repair:campaign_daily",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not reuse ordinary background jobs", () => {
+    expect(
+      canReuseExistingGoogleAdsSyncJob({
+        syncType: "incremental_recent",
+        triggerSource: "background_recent",
+      }),
+    ).toBe(false);
   });
 });
 

@@ -345,6 +345,33 @@ async function getMetaOverviewFragment(input: {
       };
       return payload;
     }
+    if (
+      canonicalSummary.readSource === "warehouse_plus_live_override" &&
+      (
+        canonicalSummary.totals.spend > 0 ||
+        canonicalSummary.totals.revenue > 0 ||
+        canonicalSummary.totals.conversions > 0
+      )
+    ) {
+      return {
+        spend: canonicalSummary.totals.spend,
+        revenue: canonicalSummary.totals.revenue,
+        purchases: canonicalSummary.totals.conversions,
+        rows: [
+          {
+            platform: "meta",
+            spend: canonicalSummary.totals.spend,
+            revenue: canonicalSummary.totals.revenue,
+            purchases: canonicalSummary.totals.conversions,
+            cpa:
+              canonicalSummary.totals.conversions > 0
+                ? canonicalSummary.totals.spend / canonicalSummary.totals.conversions
+                : 0,
+            roas: canonicalSummary.totals.roas,
+          },
+        ],
+      };
+    }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] meta canonical summary unavailable", {

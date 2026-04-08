@@ -176,6 +176,17 @@ export function getGoogleAdsGapPlannerBlockingStatuses() {
   return getActivePartitionBlockingStatuses();
 }
 
+export function canReuseExistingGoogleAdsSyncJob(input: {
+  syncType: GoogleAdsSyncType;
+  triggerSource: string;
+}) {
+  return (
+    input.syncType === "repair_window" ||
+    input.triggerSource.startsWith("manual_targeted_repair:") ||
+    input.triggerSource.startsWith("repair_recent_")
+  );
+}
+
 function parseTimestampMs(value: unknown) {
   if (!value) return null;
   const parsed = value instanceof Date ? value : new Date(String(value));
@@ -2886,6 +2897,7 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
       partition.lease_owner,
       partition.lease_expires_at,
       checkpoint.updated_at AS checkpoint_updated_at,
+      run.status AS run_status,
       EXISTS (
         SELECT 1
         FROM sync_runner_leases lease
@@ -2910,6 +2922,13 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
       ORDER BY COALESCE(checkpoint.progress_heartbeat_at, checkpoint.updated_at) DESC
       LIMIT 1
     ) checkpoint ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT run.status
+      FROM google_ads_sync_runs run
+      WHERE run.partition_id = partition.id
+      ORDER BY run.created_at DESC
+      LIMIT 1
+    ) run ON TRUE
     WHERE partition.business_id = ${input.businessId}
       AND partition.scope = ANY(${GOOGLE_ADS_D1_FINALIZE_SCOPES}::text[])
       AND partition.status IN ('queued', 'leased', 'running')
@@ -2926,6 +2945,7 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
     lease_owner: string | null;
     lease_expires_at: string | Date | null;
     checkpoint_updated_at: string | Date | null;
+    run_status: string | null;
     has_matching_runner_lease: boolean;
   }>;
 
@@ -2942,11 +2962,16 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
   const stalledPartitionIds: string[] = [];
 
   for (const row of matchingCandidates) {
-    const progressMs = parseTimestampMs(row.checkpoint_updated_at ?? row.updated_at);
+    const progressMs = parseTimestampMs(row.checkpoint_updated_at);
     const updatedMs = parseTimestampMs(row.updated_at);
     const hasRecentProgress = progressMs != null && nowMs - progressMs <= staleThresholdMs;
     const hasMatchingRunnerLease = Boolean(row.has_matching_runner_lease);
     const finalizeSlaExceeded = updatedMs != null && nowMs - updatedMs > finalizeSlaMs;
+    const latestRunSucceeded = row.run_status === "succeeded";
+    if (latestRunSucceeded) {
+      stalledPartitionIds.push(String(row.id));
+      continue;
+    }
     if (hasRecentProgress || hasMatchingRunnerLease) {
       aliveSlowPartitionIds.push(String(row.id));
       continue;
@@ -3498,7 +3523,13 @@ async function syncGoogleAdsAccountDay(input: {
       scope: primaryScope,
     });
     if (!primaryJob?.id) return false;
-    if (!primaryJob.created) {
+    if (
+      !primaryJob.created &&
+      !canReuseExistingGoogleAdsSyncJob({
+        syncType: input.syncType,
+        triggerSource: input.triggerSource,
+      })
+    ) {
       return false;
     }
 
@@ -5295,6 +5326,25 @@ export async function runGoogleAdsTargetedRepair(input: {
       ? String(beforeCoverageRaw.ready_through_date).slice(0, 10)
       : null,
   };
+
+  await cleanupGoogleAdsObsoleteSyncJobs({
+    businessId: input.businessId,
+  }).catch(() => null);
+  await expireStaleGoogleAdsSyncJobs({
+    businessId: input.businessId,
+  }).catch(() => null);
+  await cleanupGoogleAdsPartitionOrchestration({
+    businessId: input.businessId,
+    staleRunMinutesByLane: {
+      core: GOOGLE_ADS_STALE_RUN_CORE_MINUTES,
+      maintenance: GOOGLE_ADS_STALE_RUN_MAINTENANCE_MINUTES,
+      extended: GOOGLE_ADS_STALE_RUN_EXTENDED_MINUTES,
+    },
+    runProgressGraceMinutes: GOOGLE_ADS_RUN_PROGRESS_GRACE_MINUTES,
+  }).catch(() => null);
+  await recoverGoogleAdsD1FinalizePartitions({
+    businessId: input.businessId,
+  }).catch(() => null);
 
   const syncResult = await syncGoogleAdsRange({
     businessId: input.businessId,
