@@ -28,6 +28,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Resolve deploy SHA
         id: deploy_sha
         shell: bash
