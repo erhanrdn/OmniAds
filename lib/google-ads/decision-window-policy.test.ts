@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GOOGLE_ADS_DECISION_WINDOW_POLICY,
+  buildGoogleAdsDecisionSnapshotWindowSet,
   buildGoogleAdsDecisionWindowPolicy,
 } from "@/lib/google-ads/decision-window-policy";
 
@@ -63,5 +64,37 @@ describe("Google Ads decision window policy", () => {
       role: "baseline",
     });
     expect(policy.maturityCutoffDays).toBe(84);
+  });
+
+  it("builds the V2 decision snapshot window set with anchored keys", () => {
+    const windowSet = buildGoogleAdsDecisionSnapshotWindowSet("2026-04-08");
+
+    expect(windowSet).toMatchObject({
+      asOfDate: "2026-04-08",
+      primaryWindowKey: "operational_28d",
+      queryWindowKey: "query_governance_56d",
+      baselineWindowKey: "baseline_84d",
+      maturityCutoffDays: 84,
+      primaryWindow: {
+        key: "operational_28d",
+        startDate: "2026-03-12",
+        endDate: "2026-04-08",
+      },
+      queryWindow: {
+        key: "query_governance_56d",
+        startDate: "2026-02-12",
+        endDate: "2026-04-08",
+      },
+      baselineWindow: {
+        key: "baseline_84d",
+        startDate: "2026-01-15",
+        endDate: "2026-04-08",
+      },
+    });
+    expect(windowSet.healthAlarmWindows.map((window) => window.key)).toEqual([
+      "alarm_1d",
+      "alarm_3d",
+      "alarm_7d",
+    ]);
   });
 });

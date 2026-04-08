@@ -3,6 +3,18 @@ import type {
   GoogleAdvisorAnalysisWindowKey,
 } from "@/lib/google-ads/growth-advisor-types";
 
+export interface GoogleAdsDecisionSnapshotWindowSet {
+  asOfDate: string;
+  healthAlarmWindows: GoogleAdvisorAnalysisWindow[];
+  primaryWindow: GoogleAdvisorAnalysisWindow;
+  queryWindow: GoogleAdvisorAnalysisWindow;
+  baselineWindow: GoogleAdvisorAnalysisWindow;
+  primaryWindowKey: "operational_28d";
+  queryWindowKey: "query_governance_56d";
+  baselineWindowKey: "baseline_84d";
+  maturityCutoffDays: number;
+}
+
 export const GOOGLE_ADS_DECISION_WINDOW_POLICY = {
   healthAlarmDays: [1, 3, 7] as const,
   primaryOperationalDays: 28,
@@ -70,3 +82,17 @@ export function buildGoogleAdsDecisionWindowPolicy(endDate: string) {
   };
 }
 
+export function buildGoogleAdsDecisionSnapshotWindowSet(asOfDate: string): GoogleAdsDecisionSnapshotWindowSet {
+  const policy = buildGoogleAdsDecisionWindowPolicy(asOfDate);
+  return {
+    asOfDate,
+    healthAlarmWindows: policy.healthAlarmWindows,
+    primaryWindow: policy.operationalWindow,
+    queryWindow: policy.queryGovernanceWindow,
+    baselineWindow: policy.baselineWindow,
+    primaryWindowKey: "operational_28d",
+    queryWindowKey: "query_governance_56d",
+    baselineWindowKey: "baseline_84d",
+    maturityCutoffDays: policy.maturityCutoffDays,
+  };
+}

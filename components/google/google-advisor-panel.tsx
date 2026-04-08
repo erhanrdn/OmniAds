@@ -1538,6 +1538,9 @@ export function GoogleAdvisorPanel({
                 Selected-Range Context
               </p>
               <p className="mt-1 text-xs text-slate-700">{selectedRangeContext.summary}</p>
+              <p className="mt-1 text-[11px] text-sky-800/80">
+                The selected range is contextual only. Decision priority comes from the anchored multi-window snapshot.
+              </p>
             </div>
           ) : null}
         </div>
@@ -1565,7 +1568,7 @@ export function GoogleAdvisorPanel({
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           <div className="rounded-lg border bg-muted/15 p-3">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Decision Windows</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Multi-Window Analysis</div>
             <div className="mt-1 text-sm">
               {advisor.metadata
                 ? [
@@ -1574,6 +1577,9 @@ export function GoogleAdvisorPanel({
                     advisor.metadata.analysisWindows.baselineWindow.label,
                   ].join(" · ")
                 : "Window metadata unavailable."}
+            </div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              Selected range stays contextual and does not replace the decision snapshot.
             </div>
           </div>
           <div className="rounded-lg border bg-muted/15 p-3">

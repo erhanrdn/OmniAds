@@ -81,10 +81,19 @@ export async function GET(request: NextRequest) {
     payload.metadata.selectedRangeContext =
       selectedTotals &&
       payload.metadata.asOfDate &&
-      payload.metadata.canonicalWindowTotals
+      (payload.metadata.decisionSummaryTotals || payload.metadata.canonicalWindowTotals)
         ? buildGoogleAdsSelectedRangeContext({
             canonicalAsOfDate: payload.metadata.asOfDate,
-            canonicalTotals: payload.metadata.canonicalWindowTotals,
+            canonicalTotals:
+              payload.metadata.canonicalWindowTotals ??
+              (payload.metadata.decisionSummaryTotals
+                ? {
+                    spend: payload.metadata.decisionSummaryTotals.spend,
+                    revenue: payload.metadata.decisionSummaryTotals.revenue,
+                    conversions: payload.metadata.decisionSummaryTotals.conversions,
+                    roas: payload.metadata.decisionSummaryTotals.roas,
+                  }
+                : null),
             selectedRangeStart: customStart,
             selectedRangeEnd: customEnd,
             selectedTotals,

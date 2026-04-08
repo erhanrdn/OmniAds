@@ -780,7 +780,18 @@ export interface GoogleAdvisorMetadata {
   analysisMode: "snapshot" | "debug_custom";
   asOfDate: string;
   decisionEngineVersion: "v2";
+  snapshotModel?: "decision_snapshot_v2";
   selectedWindowKey: "operational_28d" | "custom";
+  primaryWindowKey?: "operational_28d";
+  queryWindowKey?: "query_governance_56d";
+  baselineWindowKey?: "baseline_84d";
+  maturityCutoffDays?: number;
+  lagAdjustedEndDate?: {
+    available: boolean;
+    value: string | null;
+    note: string | null;
+  } | null;
+  selectedRangeRole?: "contextual_only";
   analysisWindows: {
     healthAlarmWindows: GoogleAdvisorAnalysisWindow[];
     operationalWindow: GoogleAdvisorAnalysisWindow;
@@ -790,6 +801,14 @@ export interface GoogleAdvisorMetadata {
   executionSurface: GoogleAdvisorExecutionSurface;
   historicalSupportAvailable: boolean;
   historicalSupport?: GoogleAdvisorHistoricalSupport | null;
+  decisionSummaryTotals?: {
+    windowKey: "operational_28d";
+    windowLabel: string;
+    spend: number;
+    revenue: number;
+    conversions: number;
+    roas: number;
+  } | null;
   canonicalWindowTotals?: {
     spend: number;
     revenue: number;

@@ -313,6 +313,24 @@ describe("GET /api/google-ads/status", () => {
   });
 
   it("returns selected-range readiness for all visible Google Ads extended surfaces", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
     const response = await GET(
       new NextRequest(
         "http://localhost/api/google-ads/status?businessId=biz&startDate=2026-03-01&endDate=2026-03-30"
@@ -342,5 +360,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.domains).toHaveProperty("core");
     expect(payload.domains).toHaveProperty("selectedRange");
     expect(payload.domains).toHaveProperty("advisor");
+    expect(payload.domains.advisor.detail).toBe("Multi-window analysis coverage is still syncing.");
+    expect(payload.advisor.blockingMessage).toContain("Decision snapshot");
   });
 });

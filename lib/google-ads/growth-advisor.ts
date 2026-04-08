@@ -36,7 +36,10 @@ import {
 } from "@/lib/google-ads/commerce-signals";
 import { buildGoogleDecisionSchema } from "@/lib/google-ads/decision-engine-v2";
 import { buildGoogleAdsExecutionSurface, isGoogleAdsDecisionEngineV2Enabled } from "@/lib/google-ads/decision-engine-config";
-import { buildGoogleAdsDecisionWindowPolicy } from "@/lib/google-ads/decision-window-policy";
+import {
+  buildGoogleAdsDecisionSnapshotMetadata,
+  buildGoogleAdsDecisionSummaryTotals,
+} from "@/lib/google-ads/decision-snapshot";
 import { applyQueryOwnership, buildQueryOwnershipContext } from "@/lib/google-ads/query-ownership";
 
 interface WindowInput {
@@ -2671,7 +2674,14 @@ export function buildGoogleGrowthAdvisor(
     (recommendation) => recommendation.decisionState === "act"
   ).length;
   const asOfDate = input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10);
-  const decisionWindowPolicy = buildGoogleAdsDecisionWindowPolicy(asOfDate);
+  const decisionSummaryTotals = buildGoogleAdsDecisionSummaryTotals({
+    windowKey: "operational_28d",
+    windowLabel: "operational 28d",
+    spend: selectedTotals.spend,
+    revenue: selectedTotals.revenue,
+    conversions: selectedTotals.conversions,
+    roas: selectedTotals.roas,
+  });
 
   return {
     summary: {
@@ -2719,26 +2729,15 @@ export function buildGoogleGrowthAdvisor(
     sections,
     clusters: [],
     metadata: {
-      analysisMode: input.analysisMetadata?.analysisMode ?? "debug_custom",
-      asOfDate,
-      decisionEngineVersion: "v2",
-      selectedWindowKey: input.analysisMetadata?.selectedWindowKey ?? "custom",
-      analysisWindows: {
-        healthAlarmWindows: decisionWindowPolicy.healthAlarmWindows,
-        operationalWindow: decisionWindowPolicy.operationalWindow,
-        queryGovernanceWindow: decisionWindowPolicy.queryGovernanceWindow,
-        baselineWindow: decisionWindowPolicy.baselineWindow,
-      },
+      ...buildGoogleAdsDecisionSnapshotMetadata({
+        analysisMode: input.analysisMetadata?.analysisMode ?? "debug_custom",
+        asOfDate,
+        selectedWindowKey: input.analysisMetadata?.selectedWindowKey ?? "custom",
+        historicalSupport: input.historicalSupport ?? null,
+        decisionSummaryTotals,
+        selectedRangeContext: null,
+      }),
       executionSurface: buildGoogleAdsExecutionSurface(),
-      historicalSupportAvailable: input.historicalSupport?.available ?? false,
-      historicalSupport: input.historicalSupport ?? null,
-      canonicalWindowTotals: {
-        spend: selectedTotals.spend,
-        revenue: selectedTotals.revenue,
-        conversions: selectedTotals.conversions,
-        roas: selectedTotals.roas,
-      },
-      selectedRangeContext: null,
     },
   };
 }

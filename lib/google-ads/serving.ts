@@ -6,8 +6,12 @@ import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
 import { addDaysToIsoDate, getHistoricalWindowStart } from "@/lib/google-ads/history";
 import { getComparisonWindow, pctDelta } from "@/lib/google-ads/reporting-support";
 import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
-import { buildGoogleAdsExecutionSurface } from "@/lib/google-ads/decision-engine-config";
-import { buildGoogleAdsDecisionWindowPolicy } from "@/lib/google-ads/decision-window-policy";
+import { buildGoogleAdsDecisionSnapshotWindowSet } from "@/lib/google-ads/decision-window-policy";
+import {
+  buildGoogleAdsDecisionSnapshotMetadata,
+  buildGoogleAdsDecisionSummaryTotals,
+  normalizeGoogleAdsDecisionSnapshotPayload,
+} from "@/lib/google-ads/decision-snapshot";
 import { getCampaignBadges, generateOverviewInsights, type GadsCampaignRow } from "@/lib/google-ads-intelligence";
 import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
 import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
@@ -633,7 +637,7 @@ export function buildGoogleAdsSelectedRangeContext(input: {
     roas: number;
   };
 }) {
-  const canonicalStart = addDaysToIsoDate(input.canonicalAsOfDate, -89);
+  const canonicalStart = addDaysToIsoDate(input.canonicalAsOfDate, -83);
   const insideCanonicalWindow =
     input.selectedRangeStart >= canonicalStart &&
     input.selectedRangeEnd <= input.canonicalAsOfDate;
@@ -673,7 +677,7 @@ export function buildGoogleAdsSelectedRangeContext(input: {
       eligible: true,
       state: "aligned" as const,
       label: "Selected range aligned",
-      summary: `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is broadly aligned with the canonical 90-day advisor.`,
+      summary: `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is broadly aligned with the multi-window decision snapshot.`,
       selectedRangeStart: input.selectedRangeStart,
       selectedRangeEnd: input.selectedRangeEnd,
       deltaPercent,
@@ -686,7 +690,7 @@ export function buildGoogleAdsSelectedRangeContext(input: {
       eligible: true,
       state: "volatile" as const,
       label: "Selected range volatile",
-      summary: `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view diverges from the canonical 90-day advisor, but conversion depth is still thin.`,
+      summary: `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view diverges from the multi-window decision snapshot, but conversion depth is still thin.`,
       selectedRangeStart: input.selectedRangeStart,
       selectedRangeEnd: input.selectedRangeEnd,
       deltaPercent,
@@ -700,8 +704,8 @@ export function buildGoogleAdsSelectedRangeContext(input: {
     label: deltaPercent > 10 ? "Selected range stronger" : "Selected range softer",
     summary:
       deltaPercent > 10
-        ? `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is stronger than the canonical 90-day snapshot.`
-        : `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is softer than the canonical 90-day snapshot.`,
+        ? `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is stronger than the multi-window decision snapshot.`
+        : `Selected ${countRangeDays(input.selectedRangeStart, input.selectedRangeEnd)}-day view is softer than the multi-window decision snapshot.`,
     selectedRangeStart: input.selectedRangeStart,
     selectedRangeEnd: input.selectedRangeEnd,
     deltaPercent,
@@ -1997,7 +2001,16 @@ async function finalizeGoogleAdsAdvisorReport(input: {
     .filter((section) => section.recommendations.length > 0);
   const clusters = buildActionClusters({ recommendations: recommendations as GoogleRecommendation[] });
   const topCluster = clusters[0] ?? null;
-  const decisionWindowPolicy = buildGoogleAdsDecisionWindowPolicy(input.asOfDate);
+  const decisionSummaryTotals = buildGoogleAdsDecisionSummaryTotals({
+    windowKey: "operational_28d",
+    windowLabel: "operational 28d",
+    spend: Number(advisor.metadata?.decisionSummaryTotals?.spend ?? advisor.metadata?.canonicalWindowTotals?.spend ?? 0),
+    revenue: Number(advisor.metadata?.decisionSummaryTotals?.revenue ?? advisor.metadata?.canonicalWindowTotals?.revenue ?? 0),
+    conversions: Number(
+      advisor.metadata?.decisionSummaryTotals?.conversions ?? advisor.metadata?.canonicalWindowTotals?.conversions ?? 0
+    ),
+    roas: Number(advisor.metadata?.decisionSummaryTotals?.roas ?? advisor.metadata?.canonicalWindowTotals?.roas ?? 0),
+  });
 
   return {
     ...advisor,
@@ -2031,17 +2044,14 @@ async function finalizeGoogleAdsAdvisorReport(input: {
       selectedAssets: input.selectedAssets.rows.length,
       freshness: input.selectedCampaigns.meta,
     },
-    metadata: {
-      ...advisor.metadata,
-      decisionEngineVersion: "v2",
-      analysisWindows: {
-        healthAlarmWindows: decisionWindowPolicy.healthAlarmWindows,
-        operationalWindow: decisionWindowPolicy.operationalWindow,
-        queryGovernanceWindow: decisionWindowPolicy.queryGovernanceWindow,
-        baselineWindow: decisionWindowPolicy.baselineWindow,
-      },
-      executionSurface: buildGoogleAdsExecutionSurface(),
-    },
+    metadata: buildGoogleAdsDecisionSnapshotMetadata({
+      analysisMode: input.analysisMode,
+      asOfDate: input.asOfDate,
+      selectedWindowKey: input.selectedWindowKey,
+      historicalSupport: input.historicalSupport,
+      decisionSummaryTotals,
+      selectedRangeContext: advisor.metadata?.selectedRangeContext ?? null,
+    }),
   };
 }
 
@@ -2049,18 +2059,33 @@ export async function buildCanonicalGoogleAdsAdvisorReport(params: BaseReportPar
   const advisorContext = await resolveWarehouseContext({
     businessId: params.businessId,
     accountId: params.accountId,
-    dateRange: "90",
+    dateRange: "84",
     customStart: null,
     customEnd: null,
   });
   const asOfDate = addDaysToIsoDate(advisorContext.endDate, -1);
-  const baseline84Start = addDaysToIsoDate(asOfDate, -83);
-  const supportWindows = buildGoogleAdsAdvisorWindows({
-    dateRange: "84",
-    customStart: baseline84Start,
-    customEnd: asOfDate,
-  }).supportWindows;
-  const [alarm1, alarm3, alarm7, operational28, queryGovernance56, baseline84] = supportWindows;
+  const snapshotWindowSet = buildGoogleAdsDecisionSnapshotWindowSet(asOfDate);
+  const alarm1 = snapshotWindowSet.healthAlarmWindows[0];
+  const alarm3 = snapshotWindowSet.healthAlarmWindows[1];
+  const alarm7 = snapshotWindowSet.healthAlarmWindows[2];
+  const operational28 = {
+    customStart: snapshotWindowSet.primaryWindow.startDate,
+    customEnd: snapshotWindowSet.primaryWindow.endDate,
+    key: snapshotWindowSet.primaryWindow.key,
+    label: snapshotWindowSet.primaryWindow.label,
+  };
+  const queryGovernance56 = {
+    customStart: snapshotWindowSet.queryWindow.startDate,
+    customEnd: snapshotWindowSet.queryWindow.endDate,
+    key: snapshotWindowSet.queryWindow.key,
+    label: snapshotWindowSet.queryWindow.label,
+  };
+  const baseline84 = {
+    customStart: snapshotWindowSet.baselineWindow.startDate,
+    customEnd: snapshotWindowSet.baselineWindow.endDate,
+    key: snapshotWindowSet.baselineWindow.key,
+    label: snapshotWindowSet.baselineWindow.label,
+  };
   const costHistoricalSupport = await buildGoogleAdsHistoricalSupport({
     businessId: params.businessId,
     accountId: params.accountId ?? null,
@@ -2143,6 +2168,10 @@ export async function buildCanonicalGoogleAdsAdvisorReport(params: BaseReportPar
   });
 }
 
+export async function buildGoogleAdsDecisionSnapshotReport(params: BaseReportParams) {
+  return buildCanonicalGoogleAdsAdvisorReport(params);
+}
+
 export async function getGoogleAdsAdvisorReport(
   params: BaseReportParams
 ) {
@@ -2205,7 +2234,8 @@ export async function getGoogleAdsAdvisorReport(
     2
   );
 
-  return finalizeGoogleAdsAdvisorReport({
+  return normalizeGoogleAdsDecisionSnapshotPayload({
+    advisorPayload: await finalizeGoogleAdsAdvisorReport({
     params,
     selectedLabel: selectedWindow.label,
     selectedWindowKey: "custom",
@@ -2227,5 +2257,10 @@ export async function getGoogleAdsAdvisorReport(
     historicalSupport: null,
     analysisMode: "debug_custom",
     asOfDate,
+    }),
+    analysisMode: "debug_custom",
+    asOfDate,
+    selectedWindowKey: "custom",
+    historicalSupport: null,
   });
 }

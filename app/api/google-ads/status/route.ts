@@ -282,22 +282,22 @@ function buildAdvisorBlockingMessage(input: {
   if (input.assignedAccountCount === 0) return "Assign a Google Ads account to prepare advisor inputs.";
   if (input.snapshotAvailable) {
     return input.snapshotFresh
-      ? "Advisor snapshot is ready."
-      : "Advisor snapshot is available but waiting for its next backend refresh.";
+      ? "Decision snapshot is ready."
+      : "Decision snapshot is available but waiting for its next backend refresh.";
   }
   if (
     input.advisorRelevantDeadLetterPartitions > 0 ||
     input.advisorRelevantFailedPartitions > 0
   ) {
-    return "Resolve Google Ads dead-letter partitions before generating the advisor snapshot.";
+    return "Resolve Google Ads dead-letter partitions before generating the decision snapshot.";
   }
   if (input.advisorRelevantUnhealthyLeases > 0) {
     return "Recent Google Ads recovery work is still active. Analysis will unlock automatically once it settles.";
   }
   if (input.recent90MissingSurfaces.length > 0) {
-    return `Waiting for recent 90-day coverage in ${input.recent90MissingSurfaces.join(", ")} before generating the advisor snapshot.`;
+    return `Waiting for recent analysis coverage in ${input.recent90MissingSurfaces.join(", ")} before generating the decision snapshot.`;
   }
-  return "Advisor snapshot can be generated as soon as you request a refresh.";
+  return "Decision snapshot can be generated as soon as you request a refresh.";
 }
 
 function buildGoogleAdsStatusDomains(input: {
@@ -375,13 +375,13 @@ function buildGoogleAdsStatusDomains(input: {
         ? {
             state: "ready" as const,
             label: "Advisor ready",
-            detail: "Canonical 90-day advisor coverage is ready.",
+            detail: "Multi-window analysis coverage is ready.",
           }
         : input.advisorNotReady
           ? {
               state: "advisor_not_ready" as const,
               label: "Advisor preparing",
-              detail: "Canonical 90-day advisor coverage is still syncing.",
+              detail: "Multi-window analysis coverage is still syncing.",
             }
           : {
               state: "syncing" as const,
@@ -1833,10 +1833,10 @@ export async function GET(request: NextRequest) {
           key: "analysis",
           state: snapshotAvailable ? "ready" : advisorSnapshotBlockedReason ? "blocked" : "building",
           detail: snapshotAvailable
-            ? "Google Ads analysis snapshot is ready."
+            ? "Google Ads decision snapshot is ready."
             : advisorSnapshotBlockedReason
               ? `Google Ads analysis is blocked by ${advisorSnapshotBlockedReason}.`
-              : "Google Ads analysis snapshot is still building after required coverage completed.",
+              : "Google Ads multi-window analysis is still building after required coverage completed.",
         },
       ],
       workerBuildId,

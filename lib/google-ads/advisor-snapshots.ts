@@ -4,7 +4,8 @@ import type {
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorResponse,
 } from "@/lib/google-ads/growth-advisor-types";
-import { buildCanonicalGoogleAdsAdvisorReport } from "@/lib/google-ads/serving";
+import { normalizeGoogleAdsDecisionSnapshotPayload } from "@/lib/google-ads/decision-snapshot";
+import { buildGoogleAdsDecisionSnapshotReport } from "@/lib/google-ads/serving";
 
 const GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION = "v2";
 const GOOGLE_ADVISOR_SNAPSHOT_STALE_MS = 36 * 60 * 60 * 1000;
@@ -17,6 +18,10 @@ export interface GoogleAdsAdvisorSnapshotRecord {
   analysisMode: "snapshot";
   asOfDate: string;
   selectedWindowKey: "operational_28d";
+  primaryWindowKey: "operational_28d";
+  queryWindowKey: "query_governance_56d";
+  baselineWindowKey: "baseline_84d";
+  maturityCutoffDays: number;
   advisorPayload: GoogleAdvisorResponse;
   historicalSupport: GoogleAdvisorHistoricalSupport | null;
   sourceMaxUpdatedAt: string | null;
@@ -37,19 +42,32 @@ function normalizeTimestamp(value: unknown) {
 }
 
 function mapSnapshotRow(row: Record<string, unknown>): GoogleAdsAdvisorSnapshotRecord {
+  const asOfDate = normalizeDate(String(row.as_of_date));
+  const historicalSupport =
+    row.historical_support_json && typeof row.historical_support_json === "object"
+      ? (row.historical_support_json as GoogleAdvisorHistoricalSupport)
+      : null;
+  const advisorPayload = normalizeGoogleAdsDecisionSnapshotPayload({
+    advisorPayload: (row.advisor_payload ?? {}) as GoogleAdvisorResponse,
+    analysisMode: "snapshot",
+    asOfDate,
+    selectedWindowKey: "operational_28d",
+    historicalSupport,
+  });
   return {
     id: String(row.id),
     businessId: String(row.business_id),
     accountId: row.account_id ? String(row.account_id) : null,
     analysisVersion: String(row.analysis_version ?? GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION),
     analysisMode: "snapshot",
-    asOfDate: normalizeDate(String(row.as_of_date)),
+    asOfDate,
     selectedWindowKey: "operational_28d",
-    advisorPayload: (row.advisor_payload ?? {}) as GoogleAdvisorResponse,
-    historicalSupport:
-      row.historical_support_json && typeof row.historical_support_json === "object"
-        ? (row.historical_support_json as GoogleAdvisorHistoricalSupport)
-        : null,
+    primaryWindowKey: "operational_28d",
+    queryWindowKey: "query_governance_56d",
+    baselineWindowKey: "baseline_84d",
+    maturityCutoffDays: advisorPayload.metadata?.maturityCutoffDays ?? 84,
+    advisorPayload,
+    historicalSupport,
     sourceMaxUpdatedAt: normalizeTimestamp(row.source_max_updated_at),
     status: String(row.status ?? "success"),
     errorMessage: row.error_message ? String(row.error_message) : null,
@@ -96,6 +114,13 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
 }) {
   await runMigrations();
   const sql = getDb();
+  const advisorPayload = normalizeGoogleAdsDecisionSnapshotPayload({
+    advisorPayload: input.advisorPayload,
+    analysisMode: "snapshot",
+    asOfDate: input.asOfDate,
+    selectedWindowKey: "operational_28d",
+    historicalSupport: input.historicalSupport,
+  });
   const rows = (await sql`
     INSERT INTO google_ads_advisor_snapshots (
       business_id,
@@ -119,7 +144,7 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
       'snapshot',
       ${input.asOfDate},
       'operational_28d',
-      ${JSON.stringify(input.advisorPayload)}::jsonb,
+      ${JSON.stringify(advisorPayload)}::jsonb,
       ${JSON.stringify(input.historicalSupport ?? null)}::jsonb,
       ${input.sourceMaxUpdatedAt ?? null},
       ${input.status ?? "success"},
@@ -145,10 +170,10 @@ export async function generateGoogleAdsAdvisorSnapshot(input: {
   businessId: string;
   accountId?: string | null;
 }) {
-  const payload = (await buildCanonicalGoogleAdsAdvisorReport({
+  const payload = (await buildGoogleAdsDecisionSnapshotReport({
     businessId: input.businessId,
     accountId: input.accountId ?? null,
-    dateRange: "90",
+    dateRange: "84",
   })) as GoogleAdvisorResponse;
 
   return upsertGoogleAdsAdvisorSnapshot({
