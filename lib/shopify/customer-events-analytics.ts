@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 function normalizeEventType(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
@@ -75,7 +75,30 @@ export async function getShopifyCustomerEventsAggregate(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_customer_events"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return {
+      sessions: 0,
+      sessionlessEvents: 0,
+      pageViews: 0,
+      productViews: 0,
+      addToCart: 0,
+      beginCheckout: 0,
+      purchases: 0,
+      productViewSessions: 0,
+      addToCartSessions: 0,
+      beginCheckoutSessions: 0,
+      purchaseSessions: 0,
+      productViewRate: null,
+      addToCartRate: null,
+      checkoutRate: null,
+      checkoutCompletionRate: null,
+      conversionRate: null,
+      daily: [],
+    } satisfies ShopifyCustomerEventsAggregate;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT

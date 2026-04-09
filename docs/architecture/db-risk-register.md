@@ -33,12 +33,17 @@ Status scale:
 | `lib/custom-report-store.ts` | `listCustomReportsByBusiness()`, `getCustomReportById()`, `getCustomReportShareSnapshot()` | Report/list/share reads could run migrations from GET routes and share pages. | Read-only readiness gate and null/empty degrade. | P1 | Resolved |
 | `lib/creative-share-store.ts` | `getCreativeShareSnapshot()` | Creative share GET route could bootstrap share tables on read. | Read-only readiness gate and null degrade. | P1 | Resolved |
 | `lib/shopify/install-context.ts` | `getShopifyInstallContext()`, `getLatestShopifyInstallContextForActor()` | Shopify OAuth context/pending GET routes could migrate on read. | Gate reads on `shopify_install_contexts` readiness. | P1 | Resolved |
-| `app/api/migrate/route.ts` | `POST()` | Legacy API route still runs migrations from an HTTP request. | Retire in favor of `npm run db:migrate` / `scripts/run-migrations.ts`; keep out of normal request flow. | P1 | Open |
-| `app/api/sync/refresh/route.ts` | `POST()` | Manual sync trigger route still bootstraps schema in-band. | Move migration step to explicit bootstrap before invoking refresh actions. | P1 | Open |
-| `app/api/businesses/[businessId]/route.ts` | `DELETE()` | Workspace delete still calls `runMigrations()` before mutation. | Replace with explicit readiness for affected tables or require pre-migrated environment. | P1 | Open |
-| `app/api/google-ads/repair-recent-gap/route.ts` | `POST()` | Repair endpoint still bootstraps schema via HTTP request. | Move to ops script / worker bootstrap lane. | P1 | Open |
-| `app/api/webhooks/shopify/sync/route.ts` | `POST()` | Webhook request can still trigger migrations before sync state writes. | Require bootstrap before webhook handling. | P1 | Open |
-| `app/api/webhooks/shopify/customer-events/route.ts` | `POST()` | Same in-band migration pattern in webhook path. | Same as above. | P1 | Open |
+| `app/api/migrate/route.ts` | `POST()` | Legacy API route previously bootstrapped schema via HTTP. | Retire HTTP entrypoint; return explicit operator guidance to `npm run db:migrate`. | P1 | Resolved |
+| `app/api/sync/refresh/route.ts` | `POST()` | Manual sync trigger previously bootstrapped schema in-band. | Require readiness up front and fail fast with `schema_not_ready`. | P1 | Resolved |
+| `app/api/businesses/[businessId]/route.ts` | `DELETE()` | Workspace delete previously bootstrapped schema before mutation. | Require readiness for destructive tables and fail closed when missing. | P1 | Resolved |
+| `app/api/google-ads/repair-recent-gap/route.ts` | `POST()` | Repair endpoint previously bootstrapped schema via HTTP request. | Require readiness up front and keep repair in explicit ops lane only. | P1 | Resolved |
+| `app/api/webhooks/shopify/sync/route.ts` | `POST()` | Webhook request previously bootstrapped schema before durable processing. | Fail closed with retry-friendly non-2xx until schema is ready. | P1 | Resolved |
+| `app/api/webhooks/shopify/customer-events/route.ts` | `POST()` | Same in-band migration pattern in webhook path. | Same as above; no success ack before durable schema is ready. | P1 | Resolved |
+| `app/businesses/[businessId]/meta/assign-accounts/route.ts` | `POST()` | UI mutation route retried writes by migrating the assignment table on demand. | Gate on assignment-table readiness and surface explicit `schema_not_ready` instead of retrying migrations. | P1 | Resolved |
+| `app/businesses/[businessId]/google/assign-accounts/route.ts` | `POST()` | Same migrate-on-request fallback as Meta account assignment. | Same as above. | P1 | Resolved |
+| `app/api/google-ads/advisor-memory/route.ts` | `POST()` via `lib/google-ads/advisor-memory.ts` | HTTP mutation route depended transitively on helper-level migrations for advisor memory and execution logs. | Route-adjacent helper now relies on readiness/fallback only; keep explicit bootstrap request-external. | P1 | Resolved |
+| `app/api/meta/recommendations/route.ts` | `GET()` via `lib/meta/creative-score-service.ts` | Recommendations route depended transitively on creative-score snapshot migrations. | Snapshot helper now degrades when schema is absent instead of bootstrapping. | P1 | Resolved |
+| `lib/reporting-cache.ts` | `clearCachedReports()` transitively reachable from HTTP route graph | Shared cache module still imported migrations even though route reads only needed non-mutating helpers. | Replace helper-level migration with readiness assertion so route graph is migration-free. | P1 | Resolved |
 
 ## GET sırasında write
 
@@ -96,6 +101,6 @@ Status scale:
 5. `lib/google-ads/serving.ts` mixes live, warehouse, and projection lanes in one module.
 6. `lib/google-ads/warehouse.ts` and `lib/meta/serving.ts` are oversized mixed-responsibility files.
 7. Status routes are coupled directly to sync-control schema, making later table moves high risk.
-8. Legacy HTTP mutation/ops routes (`app/api/migrate`, `app/api/sync/refresh`, Shopify webhooks, repair routes) still contain request-time migrations.
-9. `lib/overview-summary-store.ts` still invalidates/materializes projections from request-driven callers, even though it no longer bootstraps schema.
-10. `app/api/overview-summary/route.ts` still composes multiple freshness models in one large handler.
+8. `lib/overview-summary-store.ts` still invalidates/materializes projections from request-driven callers, even though it no longer bootstraps schema.
+9. `app/api/overview-summary/route.ts` still composes multiple freshness models in one large handler.
+10. `lib/google-ads/advisor-memory.ts` and webhook/storage mutation lanes still need broader GET-write and serving-lane cleanup after migration isolation.

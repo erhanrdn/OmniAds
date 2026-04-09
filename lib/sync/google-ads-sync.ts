@@ -20,7 +20,7 @@ import {
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   clearProviderGlobalCircuitBreaker,
   clearProviderGlobalCircuitBreakerRecoveryState,
@@ -2841,7 +2841,10 @@ async function queueGoogleAdsD1FinalizePartitions(input: {
   providerAccountId: string;
   targetDate: string;
 }) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: ["google_ads_sync_partitions"],
+    context: "google_ads_sync:queue_d1_finalize",
+  });
   const sql = getDb();
   await sql`
     UPDATE google_ads_sync_partitions
@@ -2888,7 +2891,10 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
   staleLeaseMinutes?: number;
   finalizeSlaMinutes?: number;
 }) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: ["google_ads_sync_partitions"],
+    context: "google_ads_sync:recover_d1_finalize",
+  });
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const finalizeSlaMs = Math.max(1, input.finalizeSlaMinutes ?? 20) * 60_000;

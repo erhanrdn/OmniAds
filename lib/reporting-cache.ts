@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+
+const REPORTING_CACHE_TABLES = ["provider_reporting_snapshots"] as const;
 
 export interface ProviderReportingSnapshotRow<TPayload = unknown> {
   id: string;
@@ -49,7 +50,7 @@ async function getSnapshotRow<TPayload>(input: {
   dateRangeKey: string;
 }): Promise<ProviderReportingSnapshotRow<TPayload> | null> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["provider_reporting_snapshots"],
+    tables: [...REPORTING_CACHE_TABLES],
   }).catch(() => null);
   if (!readiness?.ready) {
     return null;
@@ -120,7 +121,7 @@ export async function setCachedReport<TPayload>(input: {
   payload: TPayload;
 }): Promise<void> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["provider_reporting_snapshots"],
+    tables: [...REPORTING_CACHE_TABLES],
   }).catch(() => null);
   if (!readiness?.ready) {
     return;
@@ -156,7 +157,10 @@ export async function clearCachedReports(input: {
   businessId?: string | null;
   reportTypePrefix?: string | null;
 }) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: [...REPORTING_CACHE_TABLES],
+    context: "reporting_cache_clear",
+  });
   const sql = getDb();
   const rows = await sql`
     WITH deleted AS (

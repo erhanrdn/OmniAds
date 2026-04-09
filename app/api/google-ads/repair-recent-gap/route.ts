@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
   forceReplayGoogleAdsPoisonedPartitions,
   getGoogleAdsCoveredDates,
@@ -8,7 +9,6 @@ import {
 } from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseScope } from "@/lib/google-ads/warehouse-types";
 import { addDaysToIsoDate, enumerateDays } from "@/lib/google-ads/history";
-import { runMigrations } from "@/lib/migrations";
 import {
   refreshGoogleAdsSyncStateForBusiness,
   runGoogleAdsTargetedRepair,
@@ -20,6 +20,26 @@ const REPAIR_SCOPE_PRIORITY: GoogleAdsWarehouseScope[] = [
   "campaign_daily",
 ];
 const MAX_REPAIR_DATE_ATTEMPTS = 2;
+const GOOGLE_ADS_REPAIR_REQUIRED_TABLES = [
+  "google_ads_sync_jobs",
+  "google_ads_sync_partitions",
+  "google_ads_sync_runs",
+  "google_ads_sync_checkpoints",
+  "google_ads_sync_state",
+  "google_ads_raw_snapshots",
+  "google_ads_account_daily",
+  "google_ads_campaign_daily",
+  "google_ads_search_term_daily",
+  "google_ads_product_daily",
+  "provider_account_rollover_state",
+  "sync_reclaim_events",
+  "sync_runner_leases",
+  "google_ads_query_dictionary",
+  "google_ads_search_query_hot_daily",
+  "google_ads_top_query_weekly",
+  "google_ads_search_cluster_daily",
+  "google_ads_decision_action_outcome_logs",
+] as const;
 
 function getYesterdayIso() {
   return addDaysToIsoDate(new Date().toISOString().slice(0, 10), -1);
@@ -84,7 +104,6 @@ async function getActiveRunningRepair(input: {
   businessId: string;
   scope: GoogleAdsWarehouseScope;
 }) {
-  await runMigrations();
   const sql = getDb();
   const rows = await sql`
     SELECT id, scope, start_date, end_date, updated_at
@@ -125,6 +144,23 @@ export async function POST(request: NextRequest) {
   const resolvedBusinessId = body?.businessId ?? businessId;
   if (!resolvedBusinessId) {
     return NextResponse.json({ error: "businessId is required." }, { status: 400 });
+  }
+
+  const readiness = await getDbSchemaReadiness({
+    tables: [...GOOGLE_ADS_REPAIR_REQUIRED_TABLES],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return NextResponse.json(
+      {
+        error: "schema_not_ready",
+        message:
+          "Google Ads recent-gap repair is unavailable until request-external migrations are applied.",
+        provider: "google_ads",
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      },
+      { status: 503 },
+    );
   }
 
   const targetWindow = resolveTargetWindow({

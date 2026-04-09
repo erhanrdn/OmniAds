@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type {
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorResponse,
@@ -90,7 +90,12 @@ export async function getLatestGoogleAdsAdvisorSnapshot(input: {
   businessId: string;
   accountId?: string | null;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["google_ads_advisor_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -114,7 +119,10 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
   status?: string;
   errorMessage?: string | null;
 }) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: ["google_ads_advisor_snapshots"],
+    context: "google_ads_advisor_snapshot_upsert",
+  });
   const sql = getDb();
   const advisorPayload = normalizeGoogleAdsDecisionSnapshotPayload({
     advisorPayload: input.advisorPayload,

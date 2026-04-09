@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
 import { refreshOverviewSummaryFromGoogleAccountRows } from "@/lib/overview-summary-store";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
@@ -111,6 +110,27 @@ const GOOGLE_SCOPE_TABLES: Record<GoogleAdsWarehouseScope, string> = {
   product_daily: "google_ads_product_daily",
 };
 
+const GOOGLE_ADS_MUTATION_TABLES = [
+  "google_ads_sync_jobs",
+  "google_ads_sync_partitions",
+  "google_ads_sync_runs",
+  "google_ads_sync_checkpoints",
+  "google_ads_sync_state",
+  "google_ads_raw_snapshots",
+  "google_ads_account_daily",
+  "google_ads_campaign_daily",
+  "google_ads_ad_group_daily",
+  "google_ads_ad_daily",
+  "google_ads_keyword_daily",
+  "google_ads_search_term_daily",
+  "google_ads_asset_group_daily",
+  "google_ads_asset_daily",
+  "google_ads_audience_daily",
+  "google_ads_geo_daily",
+  "google_ads_device_daily",
+  "google_ads_product_daily",
+] as const;
+
 function normalizeDate(value: unknown) {
   if (value instanceof Date) {
     const year = value.getFullYear();
@@ -161,6 +181,13 @@ async function assertGoogleAdsRequestReadTablesReady(
 ) {
   await assertDbSchemaReady({
     tables,
+    context,
+  });
+}
+
+async function assertGoogleAdsMutationTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADS_MUTATION_TABLES],
     context,
   });
 }
@@ -448,7 +475,7 @@ export async function getGoogleAdsReclaimClassificationSummary(input: {
   businessId: string;
   staleLeaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const candidates = await readGoogleAdsReclaimCandidates({
     businessId: input.businessId,
@@ -582,7 +609,7 @@ export function mergeGoogleAdsWarehouseState(
 
 export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
   // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const staleRepairSupersededMessage = input.triggerSource.startsWith(
     "manual_targeted_repair:",
@@ -693,7 +720,7 @@ export async function updateGoogleAdsSyncJob(input: {
   finishedAt?: string | null;
 }) {
   // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`
     UPDATE google_ads_sync_jobs
@@ -712,7 +739,7 @@ export async function expireStaleGoogleAdsRunnerLeases(input?: {
   businessId?: string;
   lane?: GoogleAdsSyncLane;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`
     DELETE FROM google_ads_runner_leases
@@ -728,7 +755,7 @@ export async function acquireGoogleAdsRunnerLease(input: {
   leaseOwner: string;
   leaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await expireStaleGoogleAdsRunnerLeases({
     businessId: input.businessId,
@@ -795,7 +822,7 @@ export async function releaseGoogleAdsRunnerLease(input: {
   lane: GoogleAdsSyncLane;
   leaseOwner?: string | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`
     DELETE FROM google_ads_runner_leases
@@ -809,7 +836,7 @@ export async function getGoogleAdsRunnerLeaseHealth(input: {
   businessId: string;
   lanes?: GoogleAdsSyncLane[];
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const lanes =
     input.lanes?.map((lane) => String(lane).trim()).filter(Boolean) ?? [];
@@ -838,7 +865,7 @@ export async function getGoogleAdsRunnerLeaseHealth(input: {
 export async function queueGoogleAdsSyncPartition(
   input: GoogleAdsSyncPartitionRecord,
 ) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const priorityResetSources = [
     "selected_range",
@@ -944,7 +971,7 @@ export async function leaseGoogleAdsSyncPartitions(input: {
   startDate?: string | null;
   endDate?: string | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const scopePrioritySql = buildGoogleAdsScopeLeasePrioritySql();
   const sourcePrioritySql = buildGoogleAdsSourceLeasePrioritySql();
@@ -1077,7 +1104,7 @@ export async function markGoogleAdsPartitionRunning(input: {
   leaseEpoch: number;
   leaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     UPDATE google_ads_sync_partitions partition
@@ -1519,7 +1546,7 @@ export async function completeGoogleAdsPartitionAttempt(input: {
   lastError?: string | null;
   retryDelayMinutes?: number;
 }): Promise<GoogleAdsPartitionAttemptCompletionResult> {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const runStatus =
     input.runStatus ??
@@ -1730,7 +1757,7 @@ export async function cancelGoogleAdsPartitionsBySource(input: {
   scopeFilter?: GoogleAdsWarehouseScope[];
   lastError?: string | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     UPDATE google_ads_sync_partitions
@@ -1762,7 +1789,7 @@ export async function heartbeatGoogleAdsPartitionLease(input: {
   leaseEpoch: number;
   leaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     UPDATE google_ads_sync_partitions partition
@@ -1793,7 +1820,7 @@ export async function releaseGoogleAdsLeasedPartitionsForWorker(input: {
   retryDelayMinutes?: number;
   lastError?: string | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     UPDATE google_ads_sync_partitions partition
@@ -1824,7 +1851,7 @@ export async function cleanupGoogleAdsPartitionOrchestration(input: {
   runProgressGraceMinutes?: number;
   staleLegacyMinutes?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const terminalCleanupBatchSize = 100;
@@ -2238,7 +2265,7 @@ export async function getGoogleAdsPartitionDates(input: {
   endDate: string;
   statuses?: GoogleAdsPartitionStatus[];
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     SELECT DISTINCT partition_date
@@ -2264,7 +2291,7 @@ export async function getGoogleAdsPartitionDates(input: {
 }
 
 export async function createGoogleAdsSyncRun(input: GoogleAdsSyncRunRecord) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`
     UPDATE google_ads_sync_runs
@@ -2336,7 +2363,7 @@ export async function updateGoogleAdsSyncRun(input: {
   finishedAt?: string | null;
   onlyIfCurrentStatus?: GoogleAdsSyncRunRecord["status"] | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`
     UPDATE google_ads_sync_runs
@@ -2363,7 +2390,7 @@ export async function updateGoogleAdsSyncRun(input: {
 export async function getLatestRunningGoogleAdsSyncRunIdForPartition(input: {
   partitionId: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     SELECT id
@@ -2379,7 +2406,7 @@ export async function getLatestRunningGoogleAdsSyncRunIdForPartition(input: {
 export async function upsertGoogleAdsSyncState(
   input: GoogleAdsSyncStateRecord,
 ) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const existing =
     (
@@ -2445,7 +2472,7 @@ export async function upsertGoogleAdsSyncState(
 export async function persistGoogleAdsRawSnapshot(
   input: GoogleAdsRawSnapshotRecord,
 ) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO google_ads_raw_snapshots (
@@ -2500,7 +2527,7 @@ export async function persistGoogleAdsRawSnapshot(
 export async function upsertGoogleAdsSyncCheckpoint(
   input: GoogleAdsSyncCheckpointRecord,
 ) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const checkpointHash =
     input.checkpointHash ??
@@ -2634,7 +2661,7 @@ export async function getGoogleAdsSyncCheckpoint(input: {
   partitionId: string;
   checkpointScope: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -2693,7 +2720,7 @@ export async function getGoogleAdsSyncCheckpoint(input: {
 export async function getLatestGoogleAdsCheckpointForPartition(input: {
   partitionId: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -2753,7 +2780,7 @@ export async function listGoogleAdsRawSnapshotsForPartition(input: {
   partitionId: string;
   endpointName: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   return sql`
     SELECT
@@ -2823,7 +2850,7 @@ export async function upsertGoogleAdsDailyRows(
   rows: GoogleAdsWarehouseDailyRow[],
 ) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const table = tableNameForScope(scope);
   const batchSize = 100;
@@ -3056,7 +3083,7 @@ export async function getGoogleAdsWarehouseIntegrityIncidents(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     WITH account_rows AS (
@@ -4039,7 +4066,7 @@ export async function replayGoogleAdsDeadLetterPartitions(input: {
   startDate?: string | null;
   endDate?: string | null;
 }): Promise<GoogleAdsRecoveryActionResult> {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const matchedRows = (await sql`
     SELECT id
@@ -4110,7 +4137,7 @@ export async function releaseGoogleAdsPoisonedPartitions(input: {
   businessId: string;
   scope?: GoogleAdsWarehouseScope | null;
 }): Promise<GoogleAdsRecoveryActionResult> {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const matchedRows = (await sql`
     SELECT partition.id
@@ -4201,7 +4228,7 @@ export async function forceReplayGoogleAdsPoisonedPartitions(input: {
   startDate?: string | null;
   endDate?: string | null;
 }): Promise<GoogleAdsRecoveryActionResult> {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const matchedRows = (await sql`
     SELECT partition.id
@@ -4415,7 +4442,7 @@ export async function expireStaleGoogleAdsSyncJobs(input: {
   timeoutMinutes?: number;
 }) {
   // Legacy-only: retained to neutralize pre-partition job records during migration.
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`
     UPDATE google_ads_sync_jobs
@@ -4449,7 +4476,7 @@ export async function cleanupGoogleAdsObsoleteSyncJobs(input: {
   staleBackgroundMinutes?: number;
 }) {
   // Legacy-only: retained for cleanup/debug visibility. Queue/status truth must not depend on this table.
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     WITH cancelled_runtime AS (
@@ -4607,7 +4634,7 @@ export async function compactGoogleAdsExtendedBacklog(input: {
   reason: string;
   keepLatestPerScope?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const keepLatestPerScope = Math.max(0, input.keepLatestPerScope ?? 0);
   const rows = (await sql`
@@ -4655,7 +4682,7 @@ export async function getGoogleAdsBlockedSyncDates(input: {
   failedCooldownMinutes?: number;
 }) {
   // Legacy-only helper for older sync job semantics.
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     SELECT DISTINCT start_date
@@ -4683,7 +4710,7 @@ export async function hasBlockingGoogleAdsSyncJob(input: {
   lookbackMinutes?: number;
 }) {
   // Legacy-only helper for older manual/debug sync entrypoints.
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const rows = (await sql`
     SELECT id
@@ -4700,7 +4727,7 @@ export async function hasBlockingGoogleAdsSyncJob(input: {
 }
 
 export async function resetGoogleAdsState() {
-  await runMigrations();
+  await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   await sql`DELETE FROM provider_reporting_snapshots WHERE provider = 'google_ads' OR provider = 'google_ads_gaql'`;
   await sql`DELETE FROM provider_sync_jobs WHERE provider = 'google_ads'`;

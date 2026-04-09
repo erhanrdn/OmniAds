@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { measurePerf } from "@/lib/perf";
 
 function round2(value: number) {
@@ -58,7 +58,12 @@ export async function getShopifyWarehouseOverviewAggregate(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_orders", "shopify_refunds", "shopify_returns"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return summarizeShopifyWarehouseDailyRows([]);
+  }
   const sql = getDb();
   const providerAccountId = input.providerAccountId ?? null;
   const [orderRows, refundRows, returnRows] = await measurePerf(

@@ -5,6 +5,10 @@ vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
 
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
+}));
+
 vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
@@ -14,6 +18,8 @@ vi.mock("@/lib/shopify/warehouse", () => ({
 }));
 
 const db = await import("@/lib/db");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
+const migrations = await import("@/lib/migrations");
 const warehouse = await import("@/lib/shopify/warehouse");
 const { POST } = await import("@/app/api/webhooks/shopify/customer-events/route");
 
@@ -21,6 +27,44 @@ describe("POST /api/webhooks/shopify/customer-events", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     delete process.env.SHOPIFY_CUSTOMER_EVENTS_SECRET;
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+  });
+
+  it("fails closed when schema is not ready", async () => {
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: false,
+      missingTables: ["shopify_customer_events"],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+
+    const request = new NextRequest("http://localhost:3000/api/webhooks/shopify/customer-events", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-shopify-shop-domain": "test-shop.myshopify.com",
+      },
+      body: JSON.stringify({
+        eventId: "evt_schema",
+        eventType: "page_viewed",
+      }),
+    });
+
+    const response = await POST(request as never);
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toEqual({
+      error: "schema_not_ready",
+      received: false,
+      missingTables: ["shopify_customer_events"],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+    expect(warehouse.upsertShopifyCustomerEvents).not.toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
   it("stores Shopify customer events for a connected shop", async () => {
@@ -56,5 +100,6 @@ describe("POST /api/webhooks/shopify/customer-events", () => {
     expect(payload.received).toBe(true);
     expect(payload.written).toBe(1);
     expect(warehouse.upsertShopifyCustomerEvents).toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });

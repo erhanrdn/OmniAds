@@ -1,7 +1,6 @@
 import crypto from "crypto";
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 
 export interface ShopifyInstallContextRow {
@@ -42,7 +41,10 @@ export async function createShopifyInstallContext(input: {
   userId?: string | null;
   preferredBusinessId?: string | null;
 }): Promise<ShopifyInstallContextRow> {
-  await runMigrations({ reason: "shopify_install_context_create" });
+  await assertDbSchemaReady({
+    tables: ["shopify_install_contexts"],
+    context: "shopify_install_context_create",
+  });
   const sql = getDb();
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = buildExpiryDate().toISOString();

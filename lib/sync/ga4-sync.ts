@@ -12,7 +12,7 @@ import {
 } from "@/lib/google-analytics-reporting";
 import { setCachedRouteReport, getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 const REPORT_TYPE = "ga4_overview";
 const DATE_WINDOWS = [
@@ -38,7 +38,12 @@ async function upsertSyncJob(
   errorMessage?: string,
 ): Promise<void> {
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["provider_sync_jobs"],
+    });
+    if (!readiness.ready) {
+      return;
+    }
     const sql = getDb();
     if (status === "running") {
       await sql`

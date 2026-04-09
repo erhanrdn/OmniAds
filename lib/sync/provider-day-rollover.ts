@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   getProviderPlatformDateBoundaries,
   type ProviderPlatformBoundary,
@@ -67,11 +67,18 @@ function platformProviderFor(input: ProviderDayRolloverProvider) {
   return input === "google_ads" ? "google" : "meta";
 }
 
+async function assertProviderDayRolloverTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: ["provider_account_rollover_state"],
+    context,
+  });
+}
+
 export async function readProviderAccountRolloverStates(input: {
   provider: ProviderDayRolloverProvider;
   businessId: string;
 }) {
-  await runMigrations();
+  await assertProviderDayRolloverTablesReady("provider_day_rollover:read_states");
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -110,7 +117,7 @@ export async function syncProviderDayRolloverState(input: {
   provider: ProviderDayRolloverProvider;
   businessId: string;
 }) {
-  await runMigrations();
+  await assertProviderDayRolloverTablesReady("provider_day_rollover:sync_state");
   const sql = getDb();
   const existingRows = await readProviderAccountRolloverStates(input).catch(() => []);
   const existingByAccount = new Map(
@@ -199,7 +206,7 @@ export async function markProviderDayRolloverFinalizeStarted(input: {
   providerAccountId: string;
   targetDate: string;
 }) {
-  await runMigrations();
+  await assertProviderDayRolloverTablesReady("provider_day_rollover:mark_finalize_started");
   const sql = getDb();
   await sql`
     UPDATE provider_account_rollover_state
@@ -223,7 +230,7 @@ export async function markProviderDayRolloverFinalizeCompleted(input: {
   providerAccountId: string;
   targetDate: string;
 }) {
-  await runMigrations();
+  await assertProviderDayRolloverTablesReady("provider_day_rollover:mark_finalize_completed");
   const sql = getDb();
   await sql`
     UPDATE provider_account_rollover_state
@@ -244,7 +251,7 @@ export async function markProviderDayRolloverRecovered(input: {
   providerAccountId: string;
   targetDate: string;
 }) {
-  await runMigrations();
+  await assertProviderDayRolloverTablesReady("provider_day_rollover:mark_recovered");
   const sql = getDb();
   await sql`
     UPDATE provider_account_rollover_state

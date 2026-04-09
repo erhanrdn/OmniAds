@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { updateBusinessSettings } from "@/lib/account-store";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { resolveRequestLanguage } from "@/lib/request-language";
+
+const BUSINESS_DELETE_REQUIRED_TABLES = [
+  "memberships",
+  "invites",
+  "business_cost_models",
+  "provider_account_assignments",
+  "integrations",
+  "creative_share_snapshots",
+  "businesses",
+  "sessions",
+] as const;
 
 interface UpdateBusinessBody {
   name?: string;
@@ -87,7 +98,23 @@ export async function DELETE(
     );
   }
 
-  await runMigrations().catch(() => null);
+  const readiness = await getDbSchemaReadiness({
+    tables: [...BUSINESS_DELETE_REQUIRED_TABLES],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return NextResponse.json(
+      {
+        error: "schema_not_ready",
+        message:
+          language === "tr"
+            ? "Business silme işlemi için DB şeması hazır değil. `npm run db:migrate` çalıştırın."
+            : "Database schema is not ready for business deletion. Run `npm run db:migrate`.",
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      },
+      { status: 503 },
+    );
+  }
   const sql = getDb();
 
   await sql`DELETE FROM memberships WHERE business_id = ${businessId}`;

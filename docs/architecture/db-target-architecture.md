@@ -6,6 +6,8 @@ Goal: move from request-time mixed reads/writes to a layered, explicit read mode
 
 Request handlers, auth/access reads, server-side share/report lookups, and route-local cache readers must never call `runMigrations()` directly or transitively.
 
+No HTTP route may execute migrations. This includes `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, webhook handlers, and non-`/api` route handlers under `app/**/route.ts`.
+
 Allowed request-path schema behavior:
 - Read-only readiness checks via `lib/db-schema-readiness.ts`
 - Safe degraded empty/null/status responses that preserve existing contracts
@@ -13,7 +15,9 @@ Allowed request-path schema behavior:
 
 Disallowed request-path schema behavior:
 - `runMigrations()` in `GET`, auth/access checks, middleware, shared read helpers, or route-local missing-table fallback
+- `runMigrations()` in any HTTP mutation, admin, ops, OAuth, or webhook route
 - Migrate-on-read retries after `relation does not exist`
+- HTTP-triggered schema bootstrap through legacy operator endpoints such as `/api/migrate`
 
 ## Target layer model
 
@@ -67,9 +71,10 @@ The target architecture still allows narrow live exceptions, but they must be ex
 
 2. Remove request-path migrations.
    - `runMigrations()` must leave auth, overview, status, report/share, SEO, Shopify OAuth read helpers, and provider read helpers.
+   - No HTTP route may execute migrations; request handlers can only use readiness gates and explicit fail-fast behavior.
    - Request-time callers may only use `db-schema-readiness` and safe degrade paths.
    - Explicit request-external bootstrap entrypoints are `npm run db:migrate` and `node --import tsx scripts/run-migrations.ts`.
-   - Legacy HTTP ops routes that still migrate are transitional debt, not part of the target architecture.
+   - HTTP-triggered migration entrypoints are retired technical debt and must not be reintroduced.
 
 3. Remove GET-path writes.
    - Move Shopify serving-state persistence, reconciliation-run inserts, overview projection hydration, and report-cache writes to background or sync-completion hooks.

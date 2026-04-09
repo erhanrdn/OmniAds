@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import {
   buildShopifyOverviewCanaryKey,
@@ -18,6 +18,21 @@ import {
   upsertShopifyWebhookDelivery,
 } from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
+
+const SHOPIFY_SYNC_WEBHOOK_REQUIRED_TABLES = [
+  "integrations",
+  "shopify_webhook_deliveries",
+  "shopify_repair_intents",
+  "shopify_serving_state",
+  "shopify_sync_state",
+  "shopify_raw_snapshots",
+  "shopify_orders",
+  "shopify_order_lines",
+  "shopify_refunds",
+  "shopify_order_transactions",
+  "shopify_returns",
+  "shopify_sales_events",
+] as const;
 
 function shiftIsoDate(date: string, dayDelta: number) {
   const value = new Date(`${date}T00:00:00.000Z`);
@@ -152,6 +167,26 @@ export async function POST(request: NextRequest) {
     payload,
     receivedAt,
   });
+  const readiness = await getDbSchemaReadiness({
+    tables: [...SHOPIFY_SYNC_WEBHOOK_REQUIRED_TABLES],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    console.error("[shopify-webhook] schema_not_ready", {
+      topic,
+      shopDomain,
+      missingTables: readiness?.missingTables ?? [],
+      checkedAt: readiness?.checkedAt ?? null,
+    });
+    return NextResponse.json(
+      {
+        received: false,
+        error: "schema_not_ready",
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      },
+      { status: 503 },
+    );
+  }
   const existingDelivery = await getShopifyWebhookDelivery({
     shopDomain: shopDomain ?? "unknown",
     topic: topic ?? "unknown",
@@ -166,7 +201,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, ignored: true, duplicate: true }, { status: 200 });
   }
 
-  await runMigrations();
   const sql = getDb();
   const integrationRows = shopDomain
     ? ((await sql`

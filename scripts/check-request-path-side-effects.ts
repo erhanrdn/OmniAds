@@ -19,134 +19,33 @@ interface Finding {
   file: string;
   summary: string;
   evidence: Evidence[];
+  route?: string;
+  methods?: string[];
+  transitiveSource?: string | null;
 }
 
-interface RequestSurfaceRule {
-  file: string;
-  symbols: string[];
+interface ImportEntry {
+  specifier: string;
+  line: number;
+  snippet: string;
 }
 
-interface FunctionRange {
-  name: string;
-  start: number;
-  end: number;
+interface ModuleInfo {
+  filePath: string;
+  content: string;
+  imports: ImportEntry[];
+  lineCount: number;
+  migrationImportEvidence: Evidence[];
+  migrationCallEvidence: Evidence[];
+}
+
+interface RouteGraph {
+  dependencies: Set<string>;
+  parents: Map<string, string | null>;
 }
 
 const repoRoot = process.cwd();
-
-const routeEntrypoints = [
-  "app/api/overview/route.ts",
-  "app/api/overview-summary/route.ts",
-  "app/api/overview-sparklines/route.ts",
-  "app/api/auth/demo-login/route.ts",
-  "app/api/creatives/share/[token]/route.ts",
-  "app/api/meta/summary/route.ts",
-  "app/api/meta/status/route.ts",
-  "app/api/meta/campaigns/route.ts",
-  "app/api/meta/breakdowns/route.ts",
-  "app/api/meta/top-creatives/route.ts",
-  "app/api/google-ads/overview/route.ts",
-  "app/api/google-ads/status/route.ts",
-  "app/api/google-ads/campaigns/route.ts",
-  "app/api/google-ads/search-intelligence/route.ts",
-  "app/api/oauth/shopify/context/route.ts",
-  "app/api/oauth/shopify/pending/route.ts",
-  "app/api/reports/route.ts",
-  "app/api/reports/[reportId]/route.ts",
-  "app/api/reports/[reportId]/export/route.ts",
-  "app/api/reports/[reportId]/render/route.ts",
-  "app/api/seo/overview/route.ts",
-  "app/api/seo/findings/route.ts",
-  "app/api/seo/ai-analysis/route.ts",
-].map((value) => path.join(repoRoot, value));
-
-const requestReadSurfaceRules: RequestSurfaceRule[] = [
-  { file: "app/api/overview/route.ts", symbols: ["GET"] },
-  { file: "app/api/overview-summary/route.ts", symbols: ["GET"] },
-  { file: "app/api/overview-sparklines/route.ts", symbols: ["GET"] },
-  { file: "app/api/auth/demo-login/route.ts", symbols: ["getDemoUserId", "GET"] },
-  { file: "app/api/creatives/share/[token]/route.ts", symbols: ["GET"] },
-  { file: "app/api/meta/summary/route.ts", symbols: ["GET"] },
-  { file: "app/api/meta/status/route.ts", symbols: ["GET"] },
-  { file: "app/api/meta/campaigns/route.ts", symbols: ["fetchAssignedAccountIds", "GET"] },
-  { file: "app/api/meta/breakdowns/route.ts", symbols: ["fetchAssignedAccountIds", "GET"] },
-  { file: "app/api/meta/top-creatives/route.ts", symbols: ["fetchAssignedAccountIds", "GET"] },
-  { file: "app/api/google-ads/overview/route.ts", symbols: ["GET"] },
-  { file: "app/api/google-ads/status/route.ts", symbols: ["GET"] },
-  { file: "app/api/google-ads/campaigns/route.ts", symbols: ["GET"] },
-  { file: "app/api/google-ads/search-intelligence/route.ts", symbols: ["GET"] },
-  { file: "app/api/oauth/shopify/context/route.ts", symbols: ["GET"] },
-  { file: "app/api/oauth/shopify/pending/route.ts", symbols: ["GET"] },
-  { file: "app/api/reports/route.ts", symbols: ["GET"] },
-  { file: "app/api/reports/[reportId]/route.ts", symbols: ["GET"] },
-  { file: "app/api/reports/[reportId]/export/route.ts", symbols: ["GET"] },
-  { file: "app/api/reports/[reportId]/render/route.ts", symbols: ["GET"] },
-  { file: "app/api/seo/overview/route.ts", symbols: ["GET"] },
-  { file: "app/api/seo/findings/route.ts", symbols: ["GET"] },
-  { file: "app/api/seo/ai-analysis/route.ts", symbols: ["GET"] },
-  { file: "lib/access.ts", symbols: ["findMembership", "listUserBusinesses", "requireAuthedRequest", "requireBusinessAccess"] },
-  { file: "lib/auth.ts", symbols: ["findSessionByToken", "getSessionFromRequest", "getSessionFromCookies"] },
-  { file: "lib/business-timezone.ts", symbols: ["resolveDerivedBusinessTimezone", "getBusinessTimezoneSnapshot"] },
-  { file: "lib/business-mode.server.ts", symbols: ["isDemoBusiness", "resolveBusinessDataMode"] },
-  { file: "lib/account-store.ts", symbols: ["getBusinessTimezone", "getUserByEmail", "getUserById"] },
-  { file: "lib/business-cost-model.ts", symbols: ["getBusinessCostModel"] },
-  { file: "lib/creative-share-store.ts", symbols: ["getCreativeShareSnapshot"] },
-  { file: "lib/custom-report-store.ts", symbols: ["listCustomReportsByBusiness", "getCustomReportById", "getCustomReportShareSnapshot"] },
-  { file: "lib/google-ads-gaql.ts", symbols: ["readGaqlFromDb", "writeGaqlToDb"] },
-  { file: "lib/google-analytics-reporting.ts", symbols: ["logGa4QuotaUsage", "runGA4Report", "resolveGa4AnalyticsContext"] },
-  { file: "lib/reporting-cache.ts", symbols: ["getSnapshotRow", "getSnapshotAge", "getCachedReport", "setCachedReport"] },
-  { file: "lib/overview-service.ts", symbols: ["getMetaAccessContext"] },
-  { file: "lib/overview-summary-store.ts", symbols: ["readOverviewSummaryRange", "upsertOverviewSummaryRows", "markOverviewSummaryRangeHydrated", "hydrateOverviewSummaryRangeFromMeta", "hydrateOverviewSummaryRangeFromGoogle"] },
-  { file: "lib/provider-account-snapshots.ts", symbols: ["getSnapshotRow", "readProviderAccountSnapshot", "scheduleProviderAccountSnapshotRefresh", "requestProviderAccountSnapshotRefresh"] },
-  { file: "lib/provider-request-governance.ts", symbols: ["hydrateFromDbIfNeeded", "persistCooldownToDb", "clearCooldownFromDb", "upsertExplicitCooldownState", "getProviderGlobalCircuitBreaker", "getProviderCircuitBreakerRecoveryState", "getProviderQuotaBudgetState", "logQuotaUsage"] },
-  { file: "lib/meta/config-snapshots.ts", symbols: ["readLatestMetaConfigSnapshots", "readPreviousMetaConfigSnapshots", "readPreviousDifferentMetaConfigDiffs"] },
-  { file: "lib/meta/warehouse.ts", symbols: ["getMetaPublishedVerificationSummary", "getLatestMetaSyncHealth", "getMetaSyncJobHealth", "getMetaQueueHealth", "getMetaQueueComposition", "getMetaAdDailyPreviewCoverage", "getMetaRawSnapshotCoverageByEndpoint", "getMetaSyncState", "getMetaAccountDailyStats", "getMetaAccountDailyRange", "getMetaCheckpointHealth", "getMetaDirtyRecentDates", "getMetaCampaignDailyRange", "getMetaAdSetDailyRange", "getMetaBreakdownDailyRange"] },
-  { file: "lib/google-ads/warehouse.ts", symbols: ["readGoogleAdsDailyRange", "readGoogleAdsAggregatedRange", "getGoogleAdsDailyCoverage", "getGoogleAdsCoveredDates", "getGoogleAdsQueueHealth", "getGoogleAdsAdvisorQueueHealth", "getGoogleAdsPartitionHealth", "getGoogleAdsCheckpointHealth", "getGoogleAdsSyncState", "getLatestGoogleAdsSyncHealth"] },
-  { file: "lib/seo/results-cache.ts", symbols: ["getSeoResultsCache", "setSeoResultsCache"] },
-  { file: "lib/seo/monthly-ai-analysis-store.ts", symbols: ["getSeoMonthlyAiAnalysis"] },
-  { file: "lib/shopify/install-context.ts", symbols: ["getShopifyInstallContext", "consumeShopifyInstallContext", "getLatestShopifyInstallContextForActor"] },
-].map((rule) => ({
-  ...rule,
-  file: path.join(repoRoot, rule.file),
-}));
-
-const importGuardTargets = new Set(
-  [
-    "app/api/overview/route.ts",
-    "app/api/overview-summary/route.ts",
-    "app/api/overview-sparklines/route.ts",
-    "app/api/auth/demo-login/route.ts",
-    "app/api/creatives/share/[token]/route.ts",
-    "app/api/meta/summary/route.ts",
-    "app/api/meta/status/route.ts",
-    "app/api/meta/campaigns/route.ts",
-    "app/api/meta/breakdowns/route.ts",
-    "app/api/meta/top-creatives/route.ts",
-    "app/api/google-ads/overview/route.ts",
-    "app/api/google-ads/status/route.ts",
-    "app/api/google-ads/campaigns/route.ts",
-    "app/api/google-ads/search-intelligence/route.ts",
-    "app/api/oauth/shopify/context/route.ts",
-    "app/api/oauth/shopify/pending/route.ts",
-    "app/api/reports/route.ts",
-    "app/api/reports/[reportId]/route.ts",
-    "app/api/reports/[reportId]/export/route.ts",
-    "app/api/reports/[reportId]/render/route.ts",
-    "app/api/seo/overview/route.ts",
-    "app/api/seo/findings/route.ts",
-    "app/api/seo/ai-analysis/route.ts",
-    "lib/access.ts",
-    "lib/business-timezone.ts",
-    "lib/business-mode.server.ts",
-    "lib/google-ads-gaql.ts",
-    "lib/google-analytics-reporting.ts",
-    "lib/overview-service.ts",
-    "lib/overview-summary-store.ts",
-    "lib/provider-account-snapshots.ts",
-    "lib/provider-request-governance.ts",
-    "lib/seo/results-cache.ts",
-  ].map((value) => path.join(repoRoot, value)),
-);
+const routeRoot = path.join(repoRoot, "app");
 
 const mixedConcernTargets = new Set(
   [
@@ -155,16 +54,16 @@ const mixedConcernTargets = new Set(
     "lib/meta/serving.ts",
     "lib/migrations.ts",
     "lib/overview-service.ts",
+    "lib/shopify/read-adapter.ts",
     "app/api/overview-summary/route.ts",
     "app/(dashboard)/platforms/meta/page.tsx",
-    "lib/shopify/read-adapter.ts",
   ].map((value) => path.join(repoRoot, value)),
 );
 
 const notes = [
-  "Migration detection is function-scoped for mixed read/write modules such as lib/auth.ts, lib/account-store.ts, lib/meta/warehouse.ts, and lib/google-ads/warehouse.ts.",
-  "Import guards only apply to route files and helper modules that should never depend on migrations at all; mixed repository files rely on the function-scoped scan instead.",
-  "Legacy mutation, webhook, and worker migration entrypoints are intentionally not part of this read-surface guard; the phase only enforces no-migration for request-time read/access flows.",
+  "Migration detection now covers every Next HTTP route handler under app/**/route.ts and walks the transitive import graph.",
+  "Each migration finding is anchored to the route entrypoint and, when possible, the first transitive module that still imports or calls runMigrations().",
+  "Transitive detection is module-graph based; targeted route tests remain the final guard for dynamic branches inside large shared helpers.",
 ];
 
 function toRepoPath(filePath: string) {
@@ -173,6 +72,68 @@ function toRepoPath(filePath: string) {
 
 function readFile(filePath: string) {
   return fs.readFileSync(filePath, "utf8");
+}
+
+function walkDir(currentPath: string, found: string[] = []) {
+  if (!fs.existsSync(currentPath)) return found;
+  for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+    const absolutePath = path.join(currentPath, entry.name);
+    if (entry.isDirectory()) {
+      walkDir(absolutePath, found);
+      continue;
+    }
+    if (entry.isFile() && absolutePath.endsWith(`${path.sep}route.ts`)) {
+      found.push(path.normalize(absolutePath));
+    }
+  }
+  return found;
+}
+
+function discoverRouteEntrypoints() {
+  return walkDir(routeRoot).sort((left, right) => left.localeCompare(right));
+}
+
+function lineForOffset(content: string, offset: number) {
+  let line = 1;
+  for (let index = 0; index < offset; index += 1) {
+    if (content.charCodeAt(index) === 10) line += 1;
+  }
+  return line;
+}
+
+function collectEvidence(content: string, pattern: RegExp, limit = 5) {
+  const evidence: Evidence[] = [];
+  for (const match of content.matchAll(pattern)) {
+    if (match.index == null) continue;
+    evidence.push({
+      line: lineForOffset(content, match.index),
+      snippet: match[0].trim(),
+    });
+    if (evidence.length >= limit) break;
+  }
+  return evidence;
+}
+
+function extractImportEntries(content: string) {
+  const entries: ImportEntry[] = [];
+  const patterns = [
+    /import\s+[\s\S]*?\sfrom\s+["']([^"']+)["']/g,
+    /export\s+[\s\S]*?\sfrom\s+["']([^"']+)["']/g,
+    /import\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of content.matchAll(pattern)) {
+      if (!match[1] || match.index == null) continue;
+      entries.push({
+        specifier: match[1],
+        line: lineForOffset(content, match.index),
+        snippet: match[0].trim(),
+      });
+    }
+  }
+
+  return entries;
 }
 
 function resolveModule(specifier: string, fromFile: string) {
@@ -203,82 +164,72 @@ function resolveModule(specifier: string, fromFile: string) {
   return null;
 }
 
-function extractImportSpecifiers(content: string) {
-  const specifiers = new Set<string>();
-  const patterns = [
-    /import\s+[\s\S]*?\sfrom\s+["']([^"']+)["']/g,
-    /export\s+[\s\S]*?\sfrom\s+["']([^"']+)["']/g,
-    /import\(\s*["']([^"']+)["']\s*\)/g,
-  ];
+const moduleInfoCache = new Map<string, ModuleInfo>();
 
-  for (const pattern of patterns) {
-    for (const match of content.matchAll(pattern)) {
-      if (match[1]) specifiers.add(match[1]);
-    }
-  }
+function getModuleInfo(filePath: string): ModuleInfo {
+  const cached = moduleInfoCache.get(filePath);
+  if (cached) return cached;
 
-  return [...specifiers];
+  const content = readFile(filePath);
+  const info: ModuleInfo = {
+    filePath,
+    content,
+    imports: extractImportEntries(content),
+    lineCount: content.split("\n").length,
+    migrationImportEvidence: collectEvidence(
+      content,
+      /import\s+[\s\S]*?\brunMigrations\b[\s\S]*?from\s+["']@\/lib\/migrations["']|\{\s*runMigrations\s*\}\s*=\s*await\s*import\(\s*["']@\/lib\/migrations["']\s*\)/g,
+      5,
+    ),
+    migrationCallEvidence: collectEvidence(content, /\brunMigrations\s*\(/g, 5),
+  };
+
+  moduleInfoCache.set(filePath, info);
+  return info;
 }
 
-function collectDependencyGraph(entrypoints: string[]) {
-  const visited = new Set<string>();
-  const queue = [...entrypoints.filter((value) => fs.existsSync(value))];
+function collectRouteGraph(entrypoint: string): RouteGraph {
+  const dependencies = new Set<string>();
+  const parents = new Map<string, string | null>();
+  const queue = [entrypoint];
+  parents.set(entrypoint, null);
 
   while (queue.length > 0) {
     const current = queue.shift()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
+    if (dependencies.has(current)) continue;
+    dependencies.add(current);
 
-    const content = readFile(current);
-    for (const specifier of extractImportSpecifiers(content)) {
-      const resolved = resolveModule(specifier, current);
-      if (resolved && !visited.has(resolved)) {
-        queue.push(resolved);
+    for (const entry of getModuleInfo(current).imports) {
+      const resolved = resolveModule(entry.specifier, current);
+      if (!resolved || dependencies.has(resolved)) continue;
+      if (!parents.has(resolved)) {
+        parents.set(resolved, current);
       }
+      queue.push(resolved);
     }
   }
 
-  return visited;
+  return { dependencies, parents };
 }
 
-function lineForOffset(content: string, offset: number) {
-  let line = 1;
-  for (let index = 0; index < offset; index += 1) {
-    if (content.charCodeAt(index) === 10) line += 1;
+function extractRouteMethods(content: string) {
+  const methods = new Set<string>();
+  for (const match of content.matchAll(
+    /export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/g,
+  )) {
+    if (match[1]) methods.add(match[1]);
   }
-  return line;
+  return [...methods].sort();
 }
 
-function collectEvidence(content: string, pattern: RegExp, limit = 5) {
-  const evidence: Evidence[] = [];
-  for (const match of content.matchAll(pattern)) {
-    if (match.index == null) continue;
-    evidence.push({
-      line: lineForOffset(content, match.index),
-      snippet: match[0].trim(),
-    });
-    if (evidence.length >= limit) break;
+function buildImportChain(parents: Map<string, string | null>, targetFile: string) {
+  const chain: string[] = [];
+  let current: string | null | undefined = targetFile;
+  while (current) {
+    chain.unshift(toRepoPath(current));
+    current = parents.get(current) ?? null;
   }
-  return evidence;
-}
-
-function collectEvidenceInRange(
-  content: string,
-  pattern: RegExp,
-  range: { start: number; end: number },
-  limit = 5,
-) {
-  const evidence: Evidence[] = [];
-  for (const match of content.matchAll(pattern)) {
-    if (match.index == null) continue;
-    if (match.index < range.start || match.index > range.end) continue;
-    evidence.push({
-      line: lineForOffset(content, match.index),
-      snippet: match[0].trim(),
-    });
-    if (evidence.length >= limit) break;
-  }
-  return evidence;
+  return chain;
 }
 
 function hasMixedLiveWarehouseProjection(content: string) {
@@ -291,96 +242,68 @@ function hasMixedLiveWarehouseProjection(content: string) {
   return hasLive && hasWarehouse && hasProjection;
 }
 
-function countLines(content: string) {
-  return content.split("\n").length;
-}
-
-function findBlockRange(content: string, declarationIndex: number) {
-  let parenDepth = 0;
-  let sawOpeningParen = false;
-  for (let index = declarationIndex; index < content.length; index += 1) {
-    const char = content[index];
-    if (char === "(") {
-      parenDepth += 1;
-      sawOpeningParen = true;
-      continue;
-    }
-    if (char === ")") {
-      parenDepth = Math.max(0, parenDepth - 1);
-      continue;
-    }
-    if (char === "{" && (!sawOpeningParen || parenDepth === 0)) {
-      let braceDepth = 1;
-      for (let cursor = index + 1; cursor < content.length; cursor += 1) {
-        const nextChar = content[cursor];
-        if (nextChar === "{") braceDepth += 1;
-        if (nextChar === "}") braceDepth -= 1;
-        if (braceDepth === 0) {
-          return { start: declarationIndex, end: cursor };
-        }
-      }
-      return { start: declarationIndex, end: content.length - 1 };
-    }
-  }
-  return null;
-}
-
-function findFunctionRanges(content: string, symbol: string): FunctionRange[] {
-  const patterns = [
-    new RegExp(`export\\s+async\\s+function\\s+${symbol}\\b`, "g"),
-    new RegExp(`export\\s+function\\s+${symbol}\\b`, "g"),
-    new RegExp(`async\\s+function\\s+${symbol}\\b`, "g"),
-    new RegExp(`function\\s+${symbol}\\b`, "g"),
-    new RegExp(`const\\s+${symbol}\\s*=\\s*async\\s*\\(`, "g"),
-    new RegExp(`const\\s+${symbol}\\s*=\\s*\\(`, "g"),
-  ];
-
-  const ranges: FunctionRange[] = [];
-  for (const pattern of patterns) {
-    for (const match of content.matchAll(pattern)) {
-      if (match.index == null) continue;
-      const range = findBlockRange(content, match.index);
-      if (!range) continue;
-      ranges.push({
-        name: symbol,
-        start: range.start,
-        end: range.end,
-      });
-    }
-  }
-
-  return ranges;
-}
-
-function detectMigrationFindings(rule: RequestSurfaceRule, content: string): Finding[] {
+function detectMigrationFindings(input: {
+  routeFile: string;
+  routeMethods: string[];
+  graph: RouteGraph;
+}): Finding[] {
   const findings: Finding[] = [];
-  const repoPath = toRepoPath(rule.file);
-  const ranges = rule.symbols.flatMap((symbol) => findFunctionRanges(content, symbol));
-  const migrationEvidence = ranges.flatMap((range) =>
-    collectEvidenceInRange(content, /\brunMigrations\s*\(/g, range),
-  );
+  const routeRepoPath = toRepoPath(input.routeFile);
 
-  if (migrationEvidence.length > 0) {
-    findings.push({
-      type: "migration_call",
-      file: repoPath,
-      summary: "Request-path surface contains runMigrations() inside a read-path function",
-      evidence: migrationEvidence.slice(0, 5),
-    });
-  }
+  for (const dependency of input.graph.dependencies) {
+    const info = getModuleInfo(dependency);
+    const dependencyRepoPath = toRepoPath(dependency);
+    const chain = buildImportChain(input.graph.parents, dependency);
+    const transitiveSource =
+      dependency === input.routeFile ? null : dependencyRepoPath;
+    const chainSuffix =
+      chain.length > 1 ? ` via ${chain.join(" -> ")}` : "";
 
-  if (importGuardTargets.has(rule.file)) {
-    const importEvidence = collectEvidence(
-      content,
-      /import\s+[\s\S]*?\b(runMigrations)\b[\s\S]*?from\s+["']@\/lib\/migrations["']/g,
-      5,
-    );
-    if (importEvidence.length > 0) {
+    if (info.migrationImportEvidence.length > 0) {
       findings.push({
         type: "migration_import",
-        file: repoPath,
-        summary: "Request-path surface still imports runMigrations()",
-        evidence: importEvidence,
+        file: routeRepoPath,
+        route: routeRepoPath,
+        methods: input.routeMethods,
+        transitiveSource,
+        summary:
+          dependency === input.routeFile
+            ? `HTTP route imports runMigrations() directly (${input.routeMethods.join(", ") || "unknown"})`
+            : `HTTP route transitively imports runMigrations() from ${dependencyRepoPath} (${input.routeMethods.join(", ") || "unknown"})${chainSuffix}`,
+        evidence:
+          dependency === input.routeFile
+            ? info.migrationImportEvidence
+            : [
+                {
+                  line: 1,
+                  snippet: chain.join(" -> "),
+                },
+                ...info.migrationImportEvidence.slice(0, 2),
+              ],
+      });
+    }
+
+    if (info.migrationCallEvidence.length > 0) {
+      findings.push({
+        type: "migration_call",
+        file: routeRepoPath,
+        route: routeRepoPath,
+        methods: input.routeMethods,
+        transitiveSource,
+        summary:
+          dependency === input.routeFile
+            ? `HTTP route calls runMigrations() directly (${input.routeMethods.join(", ") || "unknown"})`
+            : `HTTP route transitively reaches runMigrations() in ${dependencyRepoPath} (${input.routeMethods.join(", ") || "unknown"})${chainSuffix}`,
+        evidence:
+          dependency === input.routeFile
+            ? info.migrationCallEvidence
+            : [
+                {
+                  line: 1,
+                  snippet: chain.join(" -> "),
+                },
+                ...info.migrationCallEvidence.slice(0, 2),
+              ],
       });
     }
   }
@@ -388,12 +311,12 @@ function detectMigrationFindings(rule: RequestSurfaceRule, content: string): Fin
   return findings;
 }
 
-function detectGeneralFindings(filePath: string, content: string, inRequestGraph: boolean): Finding[] {
+function detectGeneralFindings(filePath: string, inRouteGraph: boolean): Finding[] {
   const findings: Finding[] = [];
+  const { content, lineCount } = getModuleInfo(filePath);
   const repoPath = toRepoPath(filePath);
-  const lineCount = countLines(content);
 
-  if (inRequestGraph) {
+  if (inRouteGraph) {
     const stateWriteEvidence = collectEvidence(
       content,
       /\b(?:upsert|insert|hydrate|invalidate|mark)[A-Z][A-Za-z0-9_]*\s*\(/g,
@@ -402,7 +325,7 @@ function detectGeneralFindings(filePath: string, content: string, inRequestGraph
       findings.push({
         type: "state_write_call",
         file: repoPath,
-        summary: "Request-path dependency contains write-like state/projection calls",
+        summary: "HTTP-route dependency contains write-like state/projection calls",
         evidence: stateWriteEvidence,
       });
     }
@@ -412,7 +335,7 @@ function detectGeneralFindings(filePath: string, content: string, inRequestGraph
       findings.push({
         type: "cache_write_call",
         file: repoPath,
-        summary: "Request-path dependency writes shared reporting cache",
+        summary: "HTTP-route dependency writes shared reporting cache",
         evidence: cacheWriteEvidence,
       });
     }
@@ -458,6 +381,26 @@ function detectGeneralFindings(filePath: string, content: string, inRequestGraph
   return findings;
 }
 
+function dedupeFindings(findings: Finding[]) {
+  const seen = new Set<string>();
+  const deduped: Finding[] = [];
+
+  for (const finding of findings) {
+    const key = [
+      finding.type,
+      finding.file,
+      finding.summary,
+      finding.transitiveSource ?? "",
+      (finding.methods ?? []).join(","),
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(finding);
+  }
+
+  return deduped;
+}
+
 function sortFindings(findings: Finding[]) {
   return [...findings].sort((left, right) => {
     if (left.file === right.file) {
@@ -467,7 +410,7 @@ function sortFindings(findings: Finding[]) {
   });
 }
 
-function printReport(findings: Finding[], modulesScanned: number) {
+function printReport(findings: Finding[], modulesScanned: number, routesScanned: number) {
   const grouped = new Map<FindingType, Finding[]>();
   for (const finding of findings) {
     const bucket = grouped.get(finding.type) ?? [];
@@ -475,7 +418,8 @@ function printReport(findings: Finding[], modulesScanned: number) {
     grouped.set(finding.type, bucket);
   }
 
-  console.log("Request-path side-effect scan");
+  console.log("HTTP-route side-effect scan");
+  console.log(`Routes scanned: ${routesScanned}`);
   console.log(`Modules scanned: ${modulesScanned}`);
   console.log(`Findings: ${findings.length}`);
   for (const note of notes) {
@@ -495,7 +439,8 @@ function printReport(findings: Finding[], modulesScanned: number) {
     const entries = grouped.get(type) ?? [];
     console.log(`\n${title}: ${entries.length}`);
     for (const entry of entries) {
-      console.log(`- ${entry.file}: ${entry.summary}`);
+      const routeSuffix = entry.route ? ` [route: ${entry.route}]` : "";
+      console.log(`- ${entry.file}: ${entry.summary}${routeSuffix}`);
       for (const item of entry.evidence) {
         console.log(`  - line ${item.line}: ${item.snippet}`);
       }
@@ -504,23 +449,43 @@ function printReport(findings: Finding[], modulesScanned: number) {
 }
 
 function main() {
-  const dependencyGraph = collectDependencyGraph(routeEntrypoints);
-  const scannedFiles = new Set<string>([...dependencyGraph, ...mixedConcernTargets]);
-  const migrationFindings = requestReadSurfaceRules.flatMap((rule) =>
-    fs.existsSync(rule.file) ? detectMigrationFindings(rule, readFile(rule.file)) : [],
+  const routeEntrypoints = discoverRouteEntrypoints();
+  const routeGraphs = routeEntrypoints.map((routeFile) => ({
+    routeFile,
+    routeMethods: extractRouteMethods(getModuleInfo(routeFile).content),
+    graph: collectRouteGraph(routeFile),
+  }));
+
+  const migrationFindings = routeGraphs.flatMap((entry) =>
+    detectMigrationFindings({
+      routeFile: entry.routeFile,
+      routeMethods: entry.routeMethods,
+      graph: entry.graph,
+    }),
   );
-  const generalFindings = [...scannedFiles]
+
+  const allDependencies = new Set<string>();
+  for (const routeGraph of routeGraphs) {
+    for (const dependency of routeGraph.graph.dependencies) {
+      allDependencies.add(dependency);
+    }
+  }
+  for (const target of mixedConcernTargets) {
+    if (fs.existsSync(target)) allDependencies.add(target);
+  }
+
+  const generalFindings = [...allDependencies]
     .filter((filePath) => fs.existsSync(filePath))
-    .flatMap((filePath) =>
-      detectGeneralFindings(filePath, readFile(filePath), dependencyGraph.has(filePath)),
-    );
-  const findings = sortFindings([...migrationFindings, ...generalFindings]);
+    .flatMap((filePath) => detectGeneralFindings(filePath, allDependencies.has(filePath)));
+
+  const findings = sortFindings(dedupeFindings([...migrationFindings, ...generalFindings]));
 
   if (process.argv.includes("--json")) {
     console.log(
       JSON.stringify(
         {
-          modulesScanned: scannedFiles.size,
+          routesScanned: routeEntrypoints.length,
+          modulesScanned: allDependencies.size,
           notes,
           findings,
         },
@@ -531,7 +496,7 @@ function main() {
     return;
   }
 
-  printReport(findings, scannedFiles.size);
+  printReport(findings, allDependencies.size, routeEntrypoints.length);
 }
 
 main();

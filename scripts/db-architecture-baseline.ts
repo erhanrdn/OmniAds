@@ -103,6 +103,7 @@ function main() {
     "## Target data flow",
     "## direct-live lane exceptions",
     "## Safe implementation order",
+    "No HTTP route may execute migrations",
   ]);
   ensureFileContains("docs/architecture/live-db-baseline-checks.sql", [
     "Projection vs warehouse parity checks",
@@ -139,14 +140,21 @@ function main() {
     "exec",
     "vitest",
     "run",
+    "app/api/migrate/route.test.ts",
     "app/api/overview/route.test.ts",
     "app/api/overview-summary/route.test.ts",
     "app/api/overview-sparklines/route.test.ts",
+    "app/api/sync/refresh/route.test.ts",
+    "app/api/businesses/[businessId]/route.test.ts",
+    "app/api/google-ads/repair-recent-gap/route.test.ts",
     "app/api/google-ads/status/route.test.ts",
     "app/api/meta/campaigns/route.test.ts",
     "app/api/meta/breakdowns/route.test.ts",
+    "app/api/webhooks/shopify/sync/route.test.ts",
+    "app/api/webhooks/shopify/customer-events/route.test.ts",
     "lib/access.test.ts",
     "lib/auth.test.ts",
+    "lib/http-route-migration-guard.test.ts",
     "lib/request-path-migration-guard.test.ts",
   ]);
 }

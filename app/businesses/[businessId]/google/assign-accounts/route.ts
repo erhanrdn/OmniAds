@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { runMigrations } from "@/lib/migrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
+const GOOGLE_ASSIGNMENT_REQUIRED_TABLES = ["provider_account_assignments"] as const;
 
 /**
  * POST /businesses/:businessId/google/assign-accounts
@@ -131,6 +132,22 @@ export async function POST(
     );
   }
 
+  const readiness = await getDbSchemaReadiness({
+    tables: [...GOOGLE_ASSIGNMENT_REQUIRED_TABLES],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return NextResponse.json(
+      {
+        error: "schema_not_ready",
+        message:
+          "Google Ads account assignments are unavailable until request-external migrations are applied.",
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      },
+      { status: 503 },
+    );
+  }
+
   async function doUpsert() {
     return upsertProviderAccountAssignments({
       businessId,
@@ -145,50 +162,35 @@ export async function POST(
   } catch (firstError: unknown) {
     const firstMessage =
       firstError instanceof Error ? firstError.message : String(firstError);
-    console.warn("[google-assign-accounts] db write failed (first attempt)", {
+    console.warn("[google-assign-accounts] db write failed", {
       businessId,
       message: firstMessage,
     });
 
-    // If the table is missing, auto-run migrations and retry once.
-    const isMissingTable =
-      firstMessage.includes("does not exist") ||
-      firstMessage.includes("relation");
-    if (isMissingTable) {
-      try {
-        console.log(
-          "[google-assign-accounts] running migrations to create missing table",
-        );
-        await runMigrations();
-        row = await doUpsert();
-      } catch (retryError: unknown) {
-        const retryMessage =
-          retryError instanceof Error ? retryError.message : String(retryError);
-        console.error(
-          "[google-assign-accounts] db write failed after migration",
-          { businessId, message: retryMessage },
-        );
-        return NextResponse.json(
-          {
-            error: "assignment_save_failed",
-            message: "Could not save Google Ads account assignments.",
-          },
-          { status: 500 },
-        );
-      }
-    } else {
-      console.error("[google-assign-accounts] db write failed", {
-        businessId,
-        message: firstMessage,
-      });
+    if (isMissingRelationError(firstError, [...GOOGLE_ASSIGNMENT_REQUIRED_TABLES])) {
       return NextResponse.json(
         {
-          error: "assignment_save_failed",
-          message: "Could not save Google Ads account assignments.",
+          error: "schema_not_ready",
+          message:
+            "Google Ads account assignments are unavailable until request-external migrations are applied.",
+          missingTables: [...GOOGLE_ASSIGNMENT_REQUIRED_TABLES],
+          checkedAt: new Date().toISOString(),
         },
-        { status: 500 },
+        { status: 503 },
       );
     }
+
+    console.error("[google-assign-accounts] db write failed", {
+      businessId,
+      message: firstMessage,
+    });
+    return NextResponse.json(
+      {
+        error: "assignment_save_failed",
+        message: "Could not save Google Ads account assignments.",
+      },
+      { status: 500 },
+    );
   }
 
   console.log("[google-assign-accounts] db write success", {

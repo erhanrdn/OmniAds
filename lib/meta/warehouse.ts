@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
 import { refreshOverviewSummaryFromMetaAccountRows } from "@/lib/overview-summary-store";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
@@ -70,6 +69,24 @@ const META_SOURCE_PRIORITY_SQL = `
     ELSE 100
   END
 `;
+
+const META_MUTATION_TABLES = [
+  "meta_authoritative_source_manifests",
+  "meta_authoritative_slice_versions",
+  "meta_authoritative_reconciliation_events",
+  "meta_sync_jobs",
+  "meta_sync_partitions",
+  "meta_sync_runs",
+  "meta_sync_checkpoints",
+  "meta_sync_state",
+  "meta_raw_snapshots",
+  "meta_account_daily",
+  "meta_campaign_daily",
+  "meta_adset_daily",
+  "meta_breakdown_daily",
+  "meta_ad_daily",
+  "meta_creative_daily",
+] as const;
 
 function normalizeDate(value: unknown) {
   if (value instanceof Date) {
@@ -299,6 +316,13 @@ async function assertMetaRequestReadTablesReady(
 ) {
   await assertDbSchemaReady({
     tables,
+    context,
+  });
+}
+
+async function assertMetaMutationTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...META_MUTATION_TABLES],
     context,
   });
 }
@@ -647,7 +671,7 @@ export function emptyMetaWarehouseMetrics(): MetaWarehouseMetricSet {
 export async function createMetaAuthoritativeSourceManifest(
   input: MetaAuthoritativeSourceManifestRecord,
 ) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     INSERT INTO meta_authoritative_source_manifests (
@@ -726,7 +750,7 @@ export async function updateMetaAuthoritativeSourceManifest(input: {
   startedAt?: string | null;
   completedAt?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const metaJsonPatch = input.metaJson == null ? null : JSON.stringify(input.metaJson);
   const rows = await sql`
@@ -776,7 +800,7 @@ export async function getLatestMetaAuthoritativeSourceManifest(input: {
   day: string;
   surface: MetaWarehouseScope;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT *
@@ -818,7 +842,7 @@ export async function reserveNextMetaAuthoritativeCandidateVersion(input: {
   day: string;
   surface: MetaWarehouseScope;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT COALESCE(MAX(candidate_version), 0) + 1 AS next_candidate_version
@@ -862,7 +886,7 @@ async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
   sourceRunId?: string | null;
 }) {
   if (!input.sourceRunId) return null;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT *
@@ -905,7 +929,7 @@ export async function createMetaAuthoritativeSliceVersion(
     candidateVersion?: number;
   },
 ) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const existingForRun = await getExistingMetaAuthoritativeSliceVersionForRun(input);
   if (existingForRun) return existingForRun;
@@ -1029,7 +1053,7 @@ export async function updateMetaAuthoritativeSliceVersion(input: {
   publishedAt?: string | null;
   supersededAt?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const validationSummaryPatch =
     input.validationSummary == null ? null : JSON.stringify(input.validationSummary);
@@ -1086,7 +1110,7 @@ export async function getLatestMetaAuthoritativeSliceVersion(input: {
   day: string;
   surface: MetaWarehouseScope;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT *
@@ -1130,7 +1154,7 @@ export async function supersedeMetaAuthoritativeSliceVersions(input: {
   surface: MetaWarehouseScope;
   excludeSliceVersionId?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     UPDATE meta_authoritative_slice_versions
@@ -1181,7 +1205,7 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
   publishedByRunId?: string | null;
   publicationReason: string;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   return runInTransaction(async () => {
     await sql`
@@ -1273,7 +1297,7 @@ export async function getMetaActivePublishedSliceVersion(input: {
   day: string;
   surface: MetaWarehouseScope;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -1361,7 +1385,7 @@ export async function getMetaActivePublishedSliceVersion(input: {
 export async function createMetaAuthoritativeReconciliationEvent(
   input: MetaAuthoritativeReconciliationEventRecord,
 ) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     INSERT INTO meta_authoritative_reconciliation_events (
@@ -1650,7 +1674,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
   businessId: string;
   latestPublishLimit?: number;
 }): Promise<MetaAuthoritativeBusinessOpsSnapshot> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const latestPublishLimit = Math.max(1, input.latestPublishLimit ?? 10);
 
@@ -1977,7 +2001,7 @@ export async function getMetaAuthoritativeDayVerification(input: {
   providerAccountId: string;
   day: string;
 }): Promise<MetaAuthoritativeDayVerification> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const day = normalizeDate(input.day);
   const surfaces: MetaWarehouseScope[] = ["account_daily", "campaign_daily", "adset_daily"];
@@ -2182,7 +2206,7 @@ export function mergeMetaWarehouseState(
 }
 
 export async function createMetaSyncJob(input: MetaSyncJobRecord) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const existingRows = await sql`
     SELECT id
@@ -2247,7 +2271,7 @@ export async function updateMetaSyncJob(input: {
   startedAt?: string | null;
   finishedAt?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   await sql`
     UPDATE meta_sync_jobs
@@ -2263,7 +2287,7 @@ export async function updateMetaSyncJob(input: {
 }
 
 export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     INSERT INTO meta_sync_partitions (
@@ -2419,7 +2443,7 @@ export async function cancelObsoleteMetaCoreScopePartitions(input: {
   businessId: string;
   canonicalScope?: MetaWarehouseScope;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const canonicalScope = input.canonicalScope ?? META_PRODUCT_CORE_COVERAGE_SCOPES[0];
   const rows = await sql`
@@ -2453,7 +2477,7 @@ export async function leaseMetaSyncPartitions(input: {
   limit: number;
   leaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     WITH candidates AS (
@@ -2578,7 +2602,7 @@ export async function markMetaPartitionRunning(input: {
   leaseEpoch: number;
   leaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     UPDATE meta_sync_partitions partition
@@ -2999,7 +3023,7 @@ export async function completeMetaPartitionAttempt(input: {
   observabilityPath?: MetaRunObservabilityPath | null;
   recoveredRunId?: string | null;
 }): Promise<MetaPartitionAttemptCompletionResult> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const runStatus =
     input.runStatus ??
@@ -3358,7 +3382,7 @@ export async function getMetaReclaimClassificationSummary(input: {
   businessId: string;
   staleLeaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const candidates = await readMetaReclaimCandidates({ businessId: input.businessId });
   const counts: Record<ProviderReclaimDisposition, number> = {
@@ -3390,7 +3414,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
   runProgressGraceMinutes?: number;
   staleLegacyMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const candidates = await readMetaReclaimCandidates({ businessId: input.businessId });
@@ -3660,7 +3684,7 @@ export async function cleanupMetaPartitionOrchestration(input: {
 }
 
 export async function createMetaSyncRun(input: MetaSyncRunRecord) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   await sql`
     UPDATE meta_sync_runs
@@ -3744,7 +3768,7 @@ export async function updateMetaSyncRun(input: {
   finishedAt?: string | null;
   onlyIfCurrentStatus?: MetaSyncRunRecord["status"] | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   await sql`
     UPDATE meta_sync_runs
@@ -3771,7 +3795,7 @@ export async function updateMetaSyncRun(input: {
 export async function getLatestRunningMetaSyncRunIdForPartition(input: {
   partitionId: string;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT id
@@ -3807,7 +3831,7 @@ export function buildMetaSyncCheckpointHash(input: {
 }
 
 export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const normalizedLeaseEpoch =
     input.leaseEpoch == null ? null : Math.max(0, Math.trunc(input.leaseEpoch));
@@ -3918,7 +3942,7 @@ export async function getMetaSyncCheckpoint(input: {
   checkpointScope: string;
   runId: string;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT *
@@ -3968,7 +3992,7 @@ export async function getMetaSyncCheckpoint(input: {
 export async function getLatestMetaCheckpointForPartition(input: {
   partitionId: string;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT checkpoint_scope, phase, status, updated_at
@@ -3992,7 +4016,7 @@ export async function listMetaRawSnapshotsForRun(input: {
   endpointName: string;
   runId: string;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   return (sql`
     SELECT
@@ -4029,7 +4053,7 @@ export async function heartbeatMetaPartitionLease(input: {
   leaseEpoch: number;
   leaseMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     UPDATE meta_sync_partitions partition
@@ -4060,7 +4084,7 @@ export async function releaseMetaLeasedPartitionsForWorker(input: {
   retryDelayMinutes?: number;
   lastError?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     UPDATE meta_sync_partitions partition
@@ -4084,7 +4108,7 @@ export async function releaseMetaLeasedPartitionsForWorker(input: {
 }
 
 export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   await sql`
     INSERT INTO meta_sync_state (
@@ -4136,7 +4160,7 @@ export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
 }
 
 export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     INSERT INTO meta_raw_snapshots (
@@ -4284,7 +4308,7 @@ export async function expireStaleMetaSyncJobs(input: {
   businessId?: string | null;
   staleAfterMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const staleAfterMinutes = Math.max(10, Math.floor(input.staleAfterMinutes ?? 45));
   const rows = await sql`
@@ -4310,7 +4334,7 @@ export async function hasBlockingMetaSyncJob(input: {
   scopes?: string[] | null;
   lookbackMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const lookbackMinutes = Math.max(5, Math.floor(input.lookbackMinutes ?? 90));
   const [jobRows, partitionRows] = await Promise.all([
@@ -4557,7 +4581,7 @@ export async function getMetaPartitionStatesForDate(input: {
   partitionDate: string;
   scopes: MetaWarehouseScope[];
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT scope, status, source, finished_at
@@ -4602,7 +4626,7 @@ export async function getMetaIncompleteCoverageDates(input: {
   scopes: MetaWarehouseScope[];
   limit?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const scopes = Array.from(
     new Set(
@@ -4670,7 +4694,7 @@ export async function getMetaPartitionHealth(input: {
   scope?: MetaWarehouseScope | null;
   lane?: "core" | "extended" | "maintenance" | null;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -4701,7 +4725,7 @@ export async function requeueMetaRetryableFailedPartitions(input: {
   businessId: string;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     WITH candidates AS (
@@ -5014,7 +5038,7 @@ export async function replayMetaDeadLetterPartitions(input: {
   scope?: MetaWarehouseScope | null;
   sources?: string[] | null;
 }): Promise<MetaRecoveryActionResult> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const matchedRows = await sql`
     SELECT id, scope, partition_date, last_error
@@ -5182,7 +5206,7 @@ export async function getLatestMetaRawSnapshot(input: {
   providerAccountId: string;
   endpointName: string;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -5211,7 +5235,7 @@ export async function getLatestMetaRawSnapshot(input: {
 
 export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows)) {
@@ -5368,7 +5392,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
 
 export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows, 200)) {
@@ -5606,7 +5630,7 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
 
 export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows, 200)) {
@@ -5949,7 +5973,7 @@ export async function replaceMetaBreakdownDailySlice(input: {
 
 export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   for (const chunk of chunkRows(rows, 250)) {
     const values: unknown[] = [];
@@ -6020,7 +6044,7 @@ export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]
 
 export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   for (const chunk of chunkRows(rows, 150)) {
     const values: unknown[] = [];
@@ -6125,7 +6149,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
 
 export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   for (const chunk of chunkRows(rows, 150)) {
     const values: unknown[] = [];
@@ -6933,7 +6957,7 @@ export async function getMetaRecentAuthoritativeSliceGuard(input: {
   successCooldownMinutes?: number;
   failureLookbackHours?: number;
 }): Promise<MetaRecentAuthoritativeSliceGuard> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const cooldownMinutes = Math.max(1, Math.floor(input.cooldownMinutes ?? 15));
   const successCooldownMinutes = Math.max(
@@ -7723,7 +7747,7 @@ export async function getMetaAdDailyRange(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaAdDailyRow[]> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -7839,7 +7863,7 @@ export async function getMetaCreativeDailyRange(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaCreativeDailyRow[]> {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -8369,7 +8393,7 @@ export async function getMetaCanonicalDriftIncidents(input: {
   businessId: string;
   sinceHours?: number;
 }) {
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const sinceHours = Math.max(1, input.sinceHours ?? 24);
   const rows = await sql`
@@ -8430,7 +8454,7 @@ export async function getMetaRawSnapshotsForWindow(input: {
   const endpointNames = Array.from(new Set(input.endpointNames.filter(Boolean)));
   if (endpointNames.length === 0) return [];
 
-  await runMigrations();
+  await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const rows = await sql`
     WITH ranked AS (

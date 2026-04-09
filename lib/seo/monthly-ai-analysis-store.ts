@@ -1,6 +1,5 @@
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { SeoAiAnalysis } from "@/lib/seo/intelligence";
 
 export interface SeoMonthlyAiAnalysisRecord {
@@ -47,7 +46,10 @@ export async function saveSeoMonthlyAiAnalysisSuccess(params: {
   analysis: SeoAiAnalysis;
   rawResponse?: unknown;
 }) {
-  await runMigrations({ reason: "seo_monthly_ai_analysis_success" });
+  await assertDbSchemaReady({
+    tables: ["seo_ai_monthly_analyses"],
+    context: "seo_monthly_ai_analysis_success",
+  });
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO seo_ai_monthly_analyses (
@@ -93,7 +95,10 @@ export async function saveSeoMonthlyAiAnalysisFailure(params: {
   errorMessage: string;
   rawResponse?: unknown;
 }) {
-  await runMigrations({ reason: "seo_monthly_ai_analysis_failure" });
+  await assertDbSchemaReady({
+    tables: ["seo_ai_monthly_analyses"],
+    context: "seo_monthly_ai_analysis_failure",
+  });
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO seo_ai_monthly_analyses (

@@ -1,6 +1,5 @@
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 
 export interface BusinessCostModel {
   businessId: string;
@@ -67,7 +66,10 @@ export async function upsertBusinessCostModel(input: {
   feePercent: number;
   fixedCost: number;
 }): Promise<BusinessCostModel> {
-  await runMigrations({ reason: "business_cost_model_upsert" });
+  await assertDbSchemaReady({
+    tables: ["business_cost_models"],
+    context: "business_cost_model_upsert",
+  });
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO business_cost_models (
@@ -121,14 +123,4 @@ export async function upsertBusinessCostModel(input: {
     fixedCost: Number(row.fixed_monthly_cost ?? 0),
     updatedAt: row.updated_at,
   };
-}
-
-function isMissingRelationError(error: unknown) {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: string; message?: string };
-  return (
-    candidate.code === "42P01" ||
-    candidate.message?.toLowerCase().includes('relation "business_cost_models" does not exist') ===
-      true
-  );
 }

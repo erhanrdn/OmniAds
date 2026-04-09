@@ -16,7 +16,7 @@ import {
 import { setSeoResultsCache } from "@/lib/seo/results-cache";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 const DATE_WINDOWS = [
   { days: 30 },
@@ -41,7 +41,12 @@ async function upsertSyncJob(
   errorMessage?: string,
 ): Promise<void> {
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["provider_sync_jobs"],
+    });
+    if (!readiness.ready) {
+      return;
+    }
     const sql = getDb();
     if (status === "running") {
       await sql`

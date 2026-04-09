@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import type {
   ShopifyOrderTransactionWarehouseRow,
   ShopifyCustomerEventWarehouseRow,
@@ -18,6 +18,30 @@ import type {
   ShopifyServingOverrideRecord,
   ShopifyWebhookDeliveryRecord,
 } from "@/lib/shopify/warehouse-types";
+
+const SHOPIFY_WAREHOUSE_TABLES = [
+  "shopify_raw_snapshots",
+  "shopify_orders",
+  "shopify_order_lines",
+  "shopify_refunds",
+  "shopify_order_transactions",
+  "shopify_returns",
+  "shopify_sales_events",
+  "shopify_serving_overrides",
+  "shopify_webhook_deliveries",
+  "shopify_repair_intents",
+  "shopify_reconciliation_runs",
+  "shopify_customer_events",
+  "shopify_serving_state",
+  "shopify_serving_state_history",
+] as const;
+
+async function assertShopifyWarehouseTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...SHOPIFY_WAREHOUSE_TABLES],
+    context,
+  });
+}
 
 function normalizeDate(value: unknown) {
   if (!value) return null;
@@ -111,7 +135,7 @@ export function buildShopifyRawSnapshotHash(input: {
 }
 
 export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:insert_raw_snapshot");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO shopify_raw_snapshots (
@@ -151,7 +175,7 @@ export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) 
 
 export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_orders");
   const sql = getDb();
   let written = 0;
 
@@ -257,7 +281,7 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
 
 export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_lines");
   const sql = getDb();
   let written = 0;
 
@@ -326,7 +350,7 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
 
 export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_refunds");
   const sql = getDb();
   let written = 0;
 
@@ -385,7 +409,7 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
 
 export async function upsertShopifyOrderTransactions(rows: ShopifyOrderTransactionWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_transactions");
   const sql = getDb();
   let written = 0;
 
@@ -444,7 +468,7 @@ export async function upsertShopifyOrderTransactions(rows: ShopifyOrderTransacti
 
 export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_returns");
   const sql = getDb();
   let written = 0;
 
@@ -500,7 +524,7 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
 
 export async function upsertShopifySalesEvents(rows: ShopifySalesEventWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_sales_events");
   const sql = getDb();
   let written = 0;
 
@@ -574,7 +598,7 @@ export async function getShopifyServingOverride(input: {
   providerAccountId: string;
   overrideKey: string;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:get_serving_override");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -600,7 +624,7 @@ export async function getShopifyServingOverride(input: {
 }
 
 export async function upsertShopifyServingOverride(input: ShopifyServingOverrideRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_serving_override");
   const sql = getDb();
   await sql`
     INSERT INTO shopify_serving_overrides (
@@ -637,7 +661,7 @@ export async function upsertShopifyServingOverride(input: ShopifyServingOverride
 }
 
 export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDeliveryRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_webhook_delivery");
   const sql = getDb();
   await sql`
     INSERT INTO shopify_webhook_deliveries (
@@ -684,7 +708,7 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
 }
 
 export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_repair_intent");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO shopify_repair_intents (
@@ -762,7 +786,7 @@ export async function listShopifyRepairIntents(input: {
   providerAccountId: string;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_repair_intents");
   const sql = getDb();
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 10)));
   const rows = (await sql`
@@ -801,7 +825,7 @@ export async function getShopifyWebhookDelivery(input: {
   topic: string;
   payloadHash: string;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:get_webhook_delivery");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -840,7 +864,7 @@ export async function listShopifyWebhookDeliveries(input: {
   providerAccountId?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_webhook_deliveries");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -871,7 +895,7 @@ export async function listShopifyWebhookDeliveries(input: {
 }
 
 export async function insertShopifyReconciliationRun(input: ShopifyReconciliationRunRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:insert_reconciliation_run");
   const sql = getDb();
   await sql`
     INSERT INTO shopify_reconciliation_runs (
@@ -929,7 +953,7 @@ export async function listShopifyReconciliationRuns(input: {
   endDate?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_reconciliation_runs");
   const sql = getDb();
   const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 10)));
   const rows = (await sql`
@@ -991,7 +1015,7 @@ export async function listShopifyReconciliationRuns(input: {
 
 export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_customer_events");
   const sql = getDb();
   let written = 0;
 
@@ -1050,7 +1074,7 @@ export async function getShopifyServingState(input: {
   providerAccountId: string;
   canaryKey: string;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:get_serving_state");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -1115,7 +1139,7 @@ export async function listShopifyServingStateHistory(input: {
   endDate?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_serving_state_history");
   const sql = getDb();
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 10)));
   const rows = (await sql`
@@ -1178,7 +1202,7 @@ export async function listShopifyServingStateHistory(input: {
 }
 
 export async function upsertShopifyServingState(input: ShopifyServingStateRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_serving_state");
   const sql = getDb();
   await sql`
     INSERT INTO shopify_serving_state (

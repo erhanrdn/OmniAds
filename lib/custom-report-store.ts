@@ -6,8 +6,7 @@ import {
   ensureReportDefinition,
 } from "@/lib/custom-reports";
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 interface CustomReportRow {
   id: string;
@@ -21,11 +20,10 @@ interface CustomReportRow {
 }
 
 async function ensureCustomReportTables() {
-  try {
-    await runMigrations();
-  } catch {
-    // ignore concurrent migration races
-  }
+  await assertDbSchemaReady({
+    tables: ["custom_reports", "custom_report_share_snapshots"],
+    context: "custom_report_store",
+  });
 }
 
 function mapRow(row: CustomReportRow): CustomReportRecord {

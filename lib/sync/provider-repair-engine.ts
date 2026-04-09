@@ -12,7 +12,7 @@ import {
 import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getProviderPlatformPreviousDate } from "@/lib/provider-platform-date";
 import {
   buildBlockingReason,
@@ -86,7 +86,12 @@ async function countRecentRepairAttempts(input: {
   integritySignature: string | null;
 }) {
   if (!input.integritySignature) return 0;
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["admin_audit_logs"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return 0;
+  }
   const sql = getDb();
   const rows = await sql`
     SELECT COUNT(*)::int AS count

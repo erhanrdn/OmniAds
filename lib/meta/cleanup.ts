@@ -1,6 +1,37 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { clearCachedReports } from "@/lib/reporting-cache";
+
+const META_PURGE_TABLES = [
+  "provider_reporting_snapshots",
+  "meta_config_snapshots",
+  "meta_creatives_snapshots",
+  "meta_creative_daily",
+  "meta_ad_daily",
+  "meta_adset_daily",
+  "meta_campaign_daily",
+  "meta_account_daily",
+  "meta_raw_snapshots",
+  "meta_sync_jobs",
+  "provider_account_assignments",
+  "integrations",
+] as const;
+const META_LEGACY_CACHE_TABLES = [
+  "provider_reporting_snapshots",
+  "meta_creatives_snapshots",
+] as const;
+const META_CHECKPOINT_CLEANUP_TABLES = [
+  "meta_sync_checkpoints",
+  "meta_sync_partitions",
+] as const;
+const META_TERMINAL_RUN_REPAIR_TABLES = [
+  "meta_sync_runs",
+  "meta_sync_partitions",
+] as const;
+const META_CREATIVE_MEDIA_PRUNE_TABLES = [
+  "meta_ad_daily",
+  "meta_creative_daily",
+] as const;
 
 export interface MetaCleanupSummary {
   providerReportingSnapshotsDeleted: number;
@@ -59,6 +90,13 @@ export interface MetaTerminalParentRunningRunRepairSummary {
   groups: MetaTerminalParentRunningRunRepairGroup[];
 }
 
+async function assertMetaCleanupTablesReady(context: string, tables: readonly string[]) {
+  await assertDbSchemaReady({
+    tables: [...tables],
+    context,
+  });
+}
+
 async function execCount(query: Promise<unknown>) {
   const rows = await query;
   const first = Array.isArray(rows) ? rows[0] : null;
@@ -68,7 +106,7 @@ async function execCount(query: Promise<unknown>) {
 }
 
 export async function purgeAllMetaDataAndDisconnect(): Promise<MetaCleanupSummary> {
-  await runMigrations();
+  await assertMetaCleanupTablesReady("meta_cleanup_purge_all", META_PURGE_TABLES);
   const sql = getDb();
 
   const providerReportingSnapshotsDeleted = await execCount(sql`
@@ -186,7 +224,7 @@ export async function purgeAllMetaDataAndDisconnect(): Promise<MetaCleanupSummar
 }
 
 export async function purgeMetaLegacyCaches(businessId?: string | null): Promise<MetaCacheCleanupSummary> {
-  await runMigrations();
+  await assertMetaCleanupTablesReady("meta_cleanup_legacy_caches", META_LEGACY_CACHE_TABLES);
   const sql = getDb();
 
   const providerReportingSnapshotsDeleted = await clearCachedReports({
@@ -212,7 +250,10 @@ export async function purgeMetaLegacyCaches(businessId?: string | null): Promise
 export async function closeSucceededMetaParentRunningCheckpoints(input?: {
   businessId?: string | null;
 }): Promise<MetaSucceededParentRunningCheckpointCleanupSummary> {
-  await runMigrations({ reason: "meta_orphan_checkpoint_cleanup" });
+  await assertMetaCleanupTablesReady(
+    "meta_orphan_checkpoint_cleanup",
+    META_CHECKPOINT_CLEANUP_TABLES,
+  );
   const sql = getDb();
   const businessId = input?.businessId?.trim() || null;
 
@@ -323,7 +364,10 @@ export async function closeSucceededMetaParentRunningCheckpoints(input?: {
 export async function repairMetaRunningRunsUnderTerminalParents(input?: {
   businessId?: string | null;
 }): Promise<MetaTerminalParentRunningRunRepairSummary> {
-  await runMigrations({ reason: "meta_terminal_run_repair" });
+  await assertMetaCleanupTablesReady(
+    "meta_terminal_run_repair",
+    META_TERMINAL_RUN_REPAIR_TABLES,
+  );
   const sql = getDb();
   const businessId = input?.businessId?.trim() || null;
 
@@ -509,7 +553,10 @@ export async function pruneMetaCreativeMediaOutsideRetention(input: {
   businessId?: string | null;
   keepFromDate: string;
 }): Promise<MetaCreativeMediaPruneSummary> {
-  await runMigrations();
+  await assertMetaCleanupTablesReady(
+    "meta_creative_media_prune",
+    META_CREATIVE_MEDIA_PRUNE_TABLES,
+  );
   const sql = getDb();
 
   const metaAdDailyUpdated = await execCount(sql`

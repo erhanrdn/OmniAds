@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { PlanId } from "@/lib/pricing/plans";
 
 export type ShopifyPlanName = "Starter" | "Growth" | "Pro" | "Scale";
@@ -116,7 +116,10 @@ export async function upsertSubscriptionRecord(input: {
   status: string;
   billingCycle?: ShopifyBillingCycle;
 }): Promise<StoredSubscription> {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: ["shopify_subscriptions"],
+    context: "shopify_billing_upsert_subscription",
+  });
   const sql = getDb();
   const rowsResult = await sql`
     INSERT INTO shopify_subscriptions (
@@ -161,7 +164,12 @@ export async function upsertSubscriptionRecord(input: {
 }
 
 export async function getCurrentPlan(shopId: string): Promise<PlanId> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_subscriptions"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return "starter";
+  }
   const sql = getDb();
   const rowsResult = await sql`
     SELECT plan_id, status

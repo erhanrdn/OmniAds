@@ -3,12 +3,13 @@ import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
 import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services/data-service-ai";
-import { runMigrations } from "@/lib/migrations";
 
 export const META_CREATIVE_SCORE_RULE_VERSION = "meta-creative-score-v1";
+const META_CREATIVE_SCORE_TABLES = ["meta_creative_score_snapshots"] as const;
 
 type CreativeHistoryWindowKey =
   | "last3"
@@ -221,7 +222,12 @@ async function readScoreRows(input: {
   selectedEndDate: string;
   ruleVersion: string;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: [...META_CREATIVE_SCORE_TABLES],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   return (await sql`
     SELECT
@@ -257,8 +263,15 @@ async function writeScoreRows(input: {
   freshnessState: CreativeScoreFreshnessState;
   ruleVersion: string;
 }) {
+  const readiness = await getDbSchemaReadiness({
+    tables: [...META_CREATIVE_SCORE_TABLES],
+  }).catch(() => null);
   const sql = getDb();
   const decisionsById = buildDecisionCacheRows(input.selectedRows, input.historyById);
+
+  if (!readiness?.ready) {
+    return decisionsById;
+  }
 
   await Promise.all(
     input.selectedRows.map((row) => {

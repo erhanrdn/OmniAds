@@ -1,15 +1,13 @@
 import { randomUUID } from "crypto";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 async function ensureShareTable() {
-  try {
-    await runMigrations();
-  } catch {
-    // ignore migration race conditions between concurrent requests
-  }
+  await assertDbSchemaReady({
+    tables: ["creative_share_snapshots"],
+    context: "creative_share_store",
+  });
 }
 
 export async function createCreativeShareSnapshot(

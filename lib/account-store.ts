@@ -1,10 +1,19 @@
 import { randomBytes } from "crypto";
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { MembershipRole } from "@/lib/auth";
 import type { AppLanguage } from "@/lib/i18n";
 import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
+
+async function assertAccountStoreTablesReady(
+  tables: string[],
+  context: string,
+) {
+  await assertDbSchemaReady({
+    tables,
+    context,
+  });
+}
 
 export interface UserRow {
   id: string;
@@ -59,7 +68,7 @@ export async function createUser(input: {
   passwordHash: string;
   language?: AppLanguage;
 }): Promise<UserRow> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["users"], "account_store:create_user");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO users (name, email, password_hash, language)
@@ -74,7 +83,7 @@ export async function updateUserProfile(input: {
   name?: string;
   language?: AppLanguage;
 }): Promise<UserRow> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["users"], "account_store:update_user_profile");
   const sql = getDb();
   const rows = (await sql`
     UPDATE users
@@ -91,7 +100,7 @@ export async function updateUserPassword(input: {
   userId: string;
   passwordHash: string;
 }): Promise<void> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["users"], "account_store:update_user_password");
   const sql = getDb();
   await sql`
     UPDATE users
@@ -110,7 +119,7 @@ export async function findOrCreateGoogleUser(input: {
   name: string;
   avatar: string | null;
 }): Promise<UserRow> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["users"], "account_store:find_or_create_google_user");
   const sql = getDb();
 
   // First try to find by google_id
@@ -155,7 +164,7 @@ export async function findOrCreateFacebookUser(input: {
   name: string;
   avatar: string | null;
 }): Promise<UserRow> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["users"], "account_store:find_or_create_facebook_user");
   const sql = getDb();
 
   // First try to find by facebook_id
@@ -201,7 +210,10 @@ export async function createBusinessWithAdminMembership(input: {
   timezoneSource: BusinessTimezoneSource;
   currency: string;
 }> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(
+    ["businesses", "memberships"],
+    "account_store:create_business_with_admin_membership",
+  );
   const sql = getDb();
   const businessRows = (await sql`
     INSERT INTO businesses (name, owner_id, timezone, timezone_source, currency)
@@ -240,7 +252,7 @@ export async function updateBusinessCurrency(
   businessId: string,
   currency: string,
 ): Promise<void> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["businesses"], "account_store:update_business_currency");
   const sql = getDb();
   await sql`
     UPDATE businesses
@@ -277,7 +289,7 @@ export async function updateBusinessSettings(input: {
   timezoneSource: BusinessTimezoneSource;
   currency: string;
 }> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["businesses"], "account_store:update_business_settings");
   const sql = getDb();
   const rows = (await sql`
     UPDATE businesses
@@ -303,13 +315,18 @@ export async function updateBusinessSettings(input: {
 }
 
 export async function revokeAllUserSessions(userId: string): Promise<void> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["sessions"], "account_store:revoke_all_user_sessions");
   const sql = getDb();
   await sql`DELETE FROM sessions WHERE user_id = ${userId}`;
 }
 
 export async function listOwnedWorkspaces(userId: string): Promise<Array<{ id: string; name: string }>> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["businesses", "memberships"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   return (await sql`
     SELECT b.id, b.name
@@ -324,7 +341,12 @@ export async function getMemberWorkspaces(
   memberUserId: string,
   adminUserId: string,
 ): Promise<Array<{ business_id: string; business_name: string; role: MembershipRole }>> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships", "businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   return (await sql`
     SELECT m.business_id, b.name AS business_name, m.role
@@ -349,7 +371,10 @@ export async function updateMemberWorkspaces(input: {
   workspaceIds: string[];
   role: MembershipRole;
 }): Promise<void> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(
+    ["memberships", "businesses"],
+    "account_store:update_member_workspaces",
+  );
   const sql = getDb();
   // Remove memberships from workspaces the admin controls but aren't in the new list
   const adminWorkspaces = await listOwnedWorkspaces(input.adminUserId);
@@ -385,7 +410,7 @@ export async function createInvite(input: {
   created_at: string;
   expires_at: string;
 }> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["invites"], "account_store:create_invite");
   const sql = getDb();
   const token = randomBytes(32).toString("hex");
   const wsIds = input.workspaceIds && input.workspaceIds.length > 0 ? input.workspaceIds : null;
@@ -417,7 +442,12 @@ export async function createInvite(input: {
 }
 
 export async function listInvitesByBusiness(businessId: string) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["invites", "users"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   await sql`
     UPDATE invites
@@ -448,7 +478,12 @@ export async function listInvitesByBusiness(businessId: string) {
 }
 
 export async function getInviteByToken(token: string) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["invites"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -486,7 +521,10 @@ export async function acceptInvite(
   token: string,
   userId: string,
 ): Promise<{ businessId: string } | null> {
-  await runMigrations();
+  await assertAccountStoreTablesReady(
+    ["invites", "memberships"],
+    "account_store:accept_invite",
+  );
   const sql = getDb();
   const invite = await getInviteByToken(token);
   if (!invite || invite.status !== "pending") return null;
@@ -519,7 +557,7 @@ export async function revokeInvite(input: {
   inviteId: string;
   businessId: string;
 }) {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["invites"], "account_store:revoke_invite");
   const sql = getDb();
   await sql`
     UPDATE invites
@@ -531,7 +569,12 @@ export async function revokeInvite(input: {
 }
 
 export async function listBusinessMembers(businessId: string) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships", "users"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   return sql`
     SELECT
@@ -555,7 +598,7 @@ export async function updateMemberRole(input: {
   businessId: string;
   role: MembershipRole;
 }) {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["memberships"], "account_store:update_member_role");
   const sql = getDb();
   await sql`
     UPDATE memberships
@@ -568,7 +611,7 @@ export async function removeMember(input: {
   membershipId: string;
   businessId: string;
 }) {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["memberships"], "account_store:remove_member");
   const sql = getDb();
   await sql`
     DELETE FROM memberships
@@ -577,7 +620,12 @@ export async function removeMember(input: {
 }
 
 export async function listAccessRequestsByBusiness(businessId: string) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships", "users", "businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   return sql`
     SELECT
@@ -602,7 +650,7 @@ export async function approveAccessRequest(input: {
   membershipId: string;
   businessId: string;
 }) {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["memberships"], "account_store:approve_access_request");
   const sql = getDb();
   await sql`
     UPDATE memberships
@@ -615,7 +663,7 @@ export async function rejectAccessRequest(input: {
   membershipId: string;
   businessId: string;
 }) {
-  await runMigrations();
+  await assertAccountStoreTablesReady(["memberships"], "account_store:reject_access_request");
   const sql = getDb();
   await sql`
     DELETE FROM memberships

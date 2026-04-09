@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { getCachedValue, readThroughCache } from "@/lib/server-cache";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import type {
   MetaAccountMeta,
@@ -146,7 +146,12 @@ export async function fetchAssignedAccountIds(businessId: string): Promise<strin
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes("does not exist") || message.includes("relation")) {
-          await runMigrations().catch(() => null);
+          const readiness = await getDbSchemaReadiness({
+            tables: ["provider_account_assignments"],
+          }).catch(() => null);
+          if (!readiness?.ready) {
+            return [];
+          }
           const row = await getProviderAccountAssignments(businessId, "meta").catch(() => null);
           return row?.account_ids ?? [];
         }

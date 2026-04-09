@@ -1,9 +1,19 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import type {
   ProviderReclaimDisposition,
   ProviderReclaimReasonCode,
 } from "@/lib/sync/provider-orchestration";
+
+async function assertSyncWorkerHealthTablesReady(
+  tables: string[],
+  context: string,
+) {
+  await assertDbSchemaReady({
+    tables,
+    context,
+  });
+}
 
 function normalizeTimestamp(value: unknown) {
   if (!value) return null;
@@ -68,7 +78,10 @@ export async function heartbeatSyncWorker(input: {
   lastPartitionId?: string | null;
   metaJson?: Record<string, unknown>;
 }) {
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_worker_heartbeats"],
+    "sync_worker_health:heartbeat",
+  );
   const sql = getDb();
   await sql`
     INSERT INTO sync_worker_heartbeats (
@@ -111,7 +124,10 @@ export async function acquireSyncRunnerLease(input: {
   leaseOwner: string;
   leaseMinutes: number;
 }) {
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_runner_leases"],
+    "sync_worker_health:acquire_runner_lease",
+  );
   const sql = getDb();
   const rows = await sql`
     INSERT INTO sync_runner_leases (
@@ -151,7 +167,10 @@ export async function renewSyncRunnerLease(input: {
   leaseOwner: string;
   leaseMinutes: number;
 }) {
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_runner_leases"],
+    "sync_worker_health:renew_runner_lease",
+  );
   const sql = getDb();
   const rows = await sql`
     UPDATE sync_runner_leases
@@ -172,7 +191,10 @@ export async function releaseSyncRunnerLease(input: {
   providerScope: string;
   leaseOwner: string;
 }) {
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_runner_leases"],
+    "sync_worker_health:release_runner_lease",
+  );
   const sql = getDb();
   await sql`
     DELETE FROM sync_runner_leases
@@ -186,7 +208,10 @@ export async function getSyncRunnerLeaseHealth(input: {
   businessId: string;
   providerScope: string;
 }) {
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_runner_leases"],
+    "sync_worker_health:get_runner_lease_health",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -213,7 +238,10 @@ export async function getSyncWorkerHealthSummary(input?: {
   providerScopes?: string[];
   onlineWindowMinutes?: number;
 }) {
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_worker_heartbeats"],
+    "sync_worker_health:get_health_summary",
+  );
   const sql = getDb();
   const providerScopes =
     input?.providerScopes
@@ -383,7 +411,10 @@ export async function recordSyncReclaimEvents(input: {
   detail?: string | null;
 }) {
   if (input.partitionIds.length === 0) return;
-  await runMigrations();
+  await assertSyncWorkerHealthTablesReady(
+    ["sync_reclaim_events"],
+    "sync_worker_health:record_reclaim_events",
+  );
   const sql = getDb();
   for (const partitionId of input.partitionIds) {
     await sql`

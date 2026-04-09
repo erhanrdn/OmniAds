@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type {
   GoogleCompletionMode,
   GoogleExecutionStatus,
@@ -8,7 +9,6 @@ import type {
   GoogleRecommendation,
   GoogleRecommendationMemoryStatus,
 } from "@/lib/google-ads/growth-advisor-types";
-import { runMigrations } from "@/lib/migrations";
 
 interface RecommendationMemoryRow {
   business_id: string;
@@ -52,12 +52,36 @@ interface RecommendationMemoryRow {
 const globalStore = globalThis as typeof globalThis & {
   __googleAdvisorMemoryFallback?: Map<string, Map<string, RecommendationMemoryRow>>;
 };
+const GOOGLE_ADVISOR_MEMORY_TABLES = ["google_ads_advisor_memory"] as const;
+const GOOGLE_ADVISOR_EXECUTION_LOG_TABLES = [
+  "google_ads_advisor_execution_logs",
+] as const;
 
 function getFallbackStore() {
   if (!globalStore.__googleAdvisorMemoryFallback) {
     globalStore.__googleAdvisorMemoryFallback = new Map();
   }
   return globalStore.__googleAdvisorMemoryFallback;
+}
+
+async function getAdvisorMemorySchemaReadiness() {
+  return getDbSchemaReadiness({
+    tables: [...GOOGLE_ADVISOR_MEMORY_TABLES],
+  }).catch(() => null);
+}
+
+async function assertAdvisorMemoryTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADVISOR_MEMORY_TABLES],
+    context,
+  });
+}
+
+async function assertAdvisorExecutionLogTableReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADVISOR_EXECUTION_LOG_TABLES],
+    context,
+  });
 }
 
 function bucketWeight(bucket: GoogleRecommendation["doBucket"]) {
@@ -558,7 +582,10 @@ export async function annotateAdvisorMemory(input: {
   if (!isDbConfigured()) {
     return annotateAdvisorMemoryFallback(input);
   }
-  await runMigrations({ reason: "google_advisor_memory" });
+  const readiness = await getAdvisorMemorySchemaReadiness();
+  if (!readiness?.ready) {
+    return annotateAdvisorMemoryFallback(input);
+  }
   const sql = getDb();
   const nowIso = new Date().toISOString();
   const fingerprints = Array.from(
@@ -1041,7 +1068,7 @@ export async function updateAdvisorMemoryAction(input: {
     }
     return;
   }
-  await runMigrations({ reason: "google_advisor_memory_action" });
+  await assertAdvisorMemoryTablesReady("google_advisor_memory_action");
   const sql = getDb();
   const nextStatus =
     input.action === "dismissed"
@@ -1149,7 +1176,7 @@ export async function updateAdvisorExecutionState(input: {
     }
     return;
   }
-  await runMigrations({ reason: "google_advisor_execution_state" });
+  await assertAdvisorMemoryTablesReady("google_advisor_execution_state");
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
@@ -1208,7 +1235,7 @@ export async function updateAdvisorCompletionState(input: {
     }
     return;
   }
-  await runMigrations({ reason: "google_advisor_completion_state" });
+  await assertAdvisorMemoryTablesReady("google_advisor_completion_state");
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
@@ -1236,7 +1263,10 @@ export async function getAdvisorExecutionCalibration(input: {
     const rows = Array.from(scope?.values() ?? []);
     return buildExecutionCalibration(rows);
   }
-  await runMigrations({ reason: "google_advisor_execution_calibration" });
+  const readiness = await getAdvisorMemorySchemaReadiness();
+  if (!readiness?.ready) {
+    return buildExecutionCalibration([]);
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT recommendation_type, outcome_verdict, outcome_verdict_fail_reason, execution_status, rollback_executed_at, completion_mode, execution_metadata, execution_error
@@ -1373,7 +1403,7 @@ export async function logAdvisorExecutionEvent(input: {
   errorMessage?: string | null;
 }) {
   if (!isDbConfigured()) return;
-  await runMigrations({ reason: "google_advisor_execution_log" });
+  await assertAdvisorExecutionLogTableReady("google_advisor_execution_log");
   const sql = getDb();
   await sql`
     INSERT INTO google_ads_advisor_execution_logs (
