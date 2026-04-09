@@ -51,6 +51,10 @@ vi.mock("@/lib/shopify/revenue-ledger", () => ({
   getShopifyRevenueLedgerAggregate: vi.fn(),
 }));
 
+vi.mock("@/lib/user-facing-report-cache-owners", () => ({
+  warmShopifyOverviewReportCache: vi.fn(),
+}));
+
 const admin = await import("@/lib/shopify/admin");
 const integrations = await import("@/lib/integrations");
 const commerceSync = await import("@/lib/shopify/commerce-sync");
@@ -61,6 +65,7 @@ const webhooks = await import("@/lib/shopify/webhooks");
 const syncState = await import("@/lib/shopify/sync-state");
 const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
 const revenueLedger = await import("@/lib/shopify/revenue-ledger");
+const cacheOwners = await import("@/lib/user-facing-report-cache-owners");
 const { syncShopifyCommerceReports, ensureShopifyProviderReady } = await import("@/lib/sync/shopify-sync");
 
 describe("syncShopifyCommerceReports", () => {
@@ -206,6 +211,10 @@ describe("syncShopifyCommerceReports", () => {
       pages: 1,
       maxUpdatedAt: "2026-03-31T22:00:00Z",
     } as never);
+    vi.mocked(cacheOwners.warmShopifyOverviewReportCache).mockResolvedValue({
+      reportType: "overview_shopify_orders_aggregate_v6",
+      wrote: true,
+    } as never);
   });
 
   it("runs a bounded commerce sync and records sync state", async () => {
@@ -226,6 +235,13 @@ describe("syncShopifyCommerceReports", () => {
     );
     expect(overviewMaterializer.persistShopifyOverviewServingState).toHaveBeenCalledTimes(1);
     expect(overviewMaterializer.recordShopifyOverviewReconciliationRun).toHaveBeenCalledTimes(1);
+    expect(cacheOwners.warmShopifyOverviewReportCache).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz_1",
+        startDate: expect.any(String),
+        endDate: expect.any(String),
+      })
+    );
     expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
       expect.objectContaining({
         syncTarget: "commerce_orders_recent",
@@ -332,6 +348,7 @@ describe("syncShopifyCommerceReports", () => {
     );
     expect(overviewMaterializer.persistShopifyOverviewServingState).not.toHaveBeenCalled();
     expect(overviewMaterializer.recordShopifyOverviewReconciliationRun).not.toHaveBeenCalled();
+    expect(cacheOwners.warmShopifyOverviewReportCache).not.toHaveBeenCalled();
   });
 
   it("can narrow webhook-triggered sync to orders only without historical backfill", async () => {
@@ -420,5 +437,27 @@ describe("syncShopifyCommerceReports", () => {
         businessId: "biz_1",
       })
     );
+  });
+
+  it("logs and continues when overview snapshot warming fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(cacheOwners.warmShopifyOverviewReportCache).mockRejectedValue(
+      new Error("snapshot warm failed"),
+    );
+
+    const result = await syncShopifyCommerceReports("biz_1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[shopify-sync] overview_snapshot_warm_failed",
+      expect.objectContaining({
+        businessId: "biz_1",
+      }),
+    );
+    warnSpy.mockRestore();
   });
 });

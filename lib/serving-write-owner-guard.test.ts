@@ -41,6 +41,7 @@ const explicitOwnerEntrypoints = [
   ["scripts/materialize-overview-summary-range.ts", "@/lib/overview-summary-range-owner"],
   ["lib/sync/ga4-sync.ts", "@/lib/user-facing-report-cache-owners"],
   ["scripts/warm-user-facing-report-cache.ts", "@/lib/user-facing-report-cache-owners"],
+  ["lib/sync/shopify-sync.ts", "@/lib/user-facing-report-cache-owners"],
   ["lib/meta/cleanup.ts", "@/lib/reporting-cache-writer"],
   ["lib/sync/search-console-sync.ts", "@/lib/seo/results-cache-writer"],
   ["lib/sync/shopify-sync.ts", "@/lib/shopify/overview-materializer"],
@@ -58,7 +59,7 @@ const inScopeOwnerCoverage = [
   },
   {
     surface: "provider_reporting_snapshots_shopify_overview",
-    entrypoints: ["scripts/warm-user-facing-report-cache.ts"],
+    entrypoints: ["scripts/warm-user-facing-report-cache.ts", "lib/sync/shopify-sync.ts"],
   },
   {
     surface: "seo_results_cache_findings",

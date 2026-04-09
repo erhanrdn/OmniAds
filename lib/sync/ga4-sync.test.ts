@@ -57,9 +57,12 @@ describe("syncGA4Reports", () => {
       missingTables: [],
       checkedAt: "2026-04-09T00:00:00.000Z",
     });
-    vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mockResolvedValue({
-      reportType: "ga4_analytics_overview",
-    } as never);
+    vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mockImplementation(
+      async (input) =>
+        ({
+          reportType: input.reportType,
+        }) as never,
+    );
     vi.mocked(cacheOwners.warmGa4EcommerceFallbackCache).mockResolvedValue({
       reportType: "ecommerce_fallback",
       wrote: true,
@@ -73,21 +76,123 @@ describe("syncGA4Reports", () => {
   it("warms overview and ecommerce fallback caches through the sync owner", async () => {
     const result = await syncGA4Reports("biz_1");
 
-    expect(cacheOwners.warmGa4UserFacingRouteReportCache).toHaveBeenNthCalledWith(1, {
-      businessId: "biz_1",
-      reportType: "ga4_analytics_overview",
-      startDate: "2026-03-10",
-      endDate: "2026-04-09",
-    });
+    expect(vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mock.calls).toEqual([
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_analytics_overview",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_audience",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_cohorts",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_demographics",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_landing_page_performance_v1",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_landing_pages",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_products",
+          startDate: "2026-03-10",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_analytics_overview",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_audience",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_cohorts",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_demographics",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_landing_page_performance_v1",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_landing_pages",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+      [
+        {
+          businessId: "biz_1",
+          reportType: "ga4_detailed_products",
+          startDate: "2026-04-02",
+          endDate: "2026-04-09",
+        },
+      ],
+    ]);
     expect(cacheOwners.warmGa4EcommerceFallbackCache).toHaveBeenNthCalledWith(1, {
       businessId: "biz_1",
       startDate: "2026-03-10",
-      endDate: "2026-04-09",
-    });
-    expect(cacheOwners.warmGa4UserFacingRouteReportCache).toHaveBeenNthCalledWith(2, {
-      businessId: "biz_1",
-      reportType: "ga4_analytics_overview",
-      startDate: "2026-04-02",
       endDate: "2026-04-09",
     });
     expect(cacheOwners.warmGa4EcommerceFallbackCache).toHaveBeenNthCalledWith(2, {
@@ -120,5 +225,37 @@ describe("syncGA4Reports", () => {
     });
     expect(cacheOwners.warmGa4UserFacingRouteReportCache).not.toHaveBeenCalled();
     expect(cacheOwners.warmGa4EcommerceFallbackCache).not.toHaveBeenCalled();
+  });
+
+  it("logs and continues when a detailed warmer fails after the core GA4 warmers succeed", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mockImplementation(
+      async (input) => {
+        if (input.reportType === "ga4_detailed_products") {
+          throw new Error("detail warmer failed");
+        }
+        return {
+          reportType: input.reportType,
+        } as never;
+      },
+    );
+
+    const result = await syncGA4Reports("biz_1");
+
+    expect(result).toEqual({
+      businessId: "biz_1",
+      attempted: 2,
+      succeeded: 2,
+      failed: 0,
+      skipped: false,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ga4-sync] detail_cache_warm_failed",
+      expect.objectContaining({
+        businessId: "biz_1",
+        reportType: "ga4_detailed_products",
+      }),
+    );
+    warnSpy.mockRestore();
   });
 });

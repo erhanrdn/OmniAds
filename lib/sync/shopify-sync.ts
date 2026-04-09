@@ -16,6 +16,7 @@ import { registerShopifySyncWebhooks, verifyShopifySyncWebhooks } from "@/lib/sh
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
+import { warmShopifyOverviewReportCache } from "@/lib/user-facing-report-cache-owners";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -764,6 +765,25 @@ export async function syncShopifyCommerceReports(
         skipped: true,
         reason: "disabled_for_call_site",
       };
+    }
+
+    if (input?.materializeOverviewState !== false) {
+      try {
+        await warmShopifyOverviewReportCache({
+          businessId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[shopify-sync] overview_snapshot_warm_failed", {
+          businessId,
+          providerAccountId: credentials.shopId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          message,
+        });
+      }
     }
 
     return {

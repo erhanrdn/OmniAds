@@ -79,7 +79,7 @@ Status scale:
 | `lib/reporting-cache.ts` / `lib/route-report-cache.ts` | durable cache persistence helpers | User-facing cache writes used to share a file with read helpers, obscuring which callers were allowed to persist snapshots. | Keep reads in shared helpers and route persistence through `lib/reporting-cache-writer.ts`. | P0 | Resolved |
 | `lib/seo/results-cache.ts` | `setSeoResultsCache()` | SEO cache persistence lived next to passive cache reads. | Keep reads in `lib/seo/results-cache.ts` and write only through `lib/seo/results-cache-writer.ts`. | P1 | Resolved |
 | `lib/shopify/warehouse.ts` | `upsertShopifyServingState()` / `insertShopifyReconciliationRun()` | User-facing Shopify serving-state writes were buried in a broad warehouse repository. | Keep reads in `lib/shopify/warehouse.ts` and route serving-state/reconciliation persistence through `lib/shopify/overview-materializer.ts`. | P0 | Resolved |
-| `lib/reporting-cache-writer.ts` | `writeCachedReportSnapshot()` | Explicit writer needed concrete owner triggers for user-facing GA4 overview/detail, ecommerce fallback, and Shopify overview cache keys. | Use `lib/sync/ga4-sync.ts` for automated default-window warmers and `npm run reporting:cache:warm` for explicit manual refresh/backfill. | P1 | Resolved |
+| `lib/reporting-cache-writer.ts` | `writeCachedReportSnapshot()` | Explicit writer needed concrete owner triggers for user-facing GA4 overview/detail, ecommerce fallback, and Shopify overview cache keys. | Use `lib/sync/ga4-sync.ts` for automated GA4 default-window warmers, `lib/sync/shopify-sync.ts` for synced Shopify recent-window warmers, and `npm run reporting:cache:warm` for explicit manual refresh/backfill. | P1 | Resolved |
 | `lib/seo/results-cache-writer.ts` | `writeSeoResultsCacheEntry()` | SEO `findings` cache needed a non-`GET` warmer after read-through writes were removed. | Keep both `overview` and `findings` warming in `lib/sync/search-console-sync.ts`. | P1 | Resolved |
 | `lib/shopify/overview-materializer.ts` | `recordShopifyOverviewReconciliationRun()` | Explicit reconciliation and serving-state writers needed a non-webhook owner for post-sync trust recovery. | Invoke materialization from `lib/sync/shopify-sync.ts`; keep webhook lane limited to lightweight pending-repair updates. | P1 | Resolved |
 
@@ -119,7 +119,7 @@ Status scale:
 3. `lib/meta/serving.ts` remains a large mixed-concern module even after repair-on-read removal.
 4. Status routes are coupled directly to sync-control schema, making later table moves high risk.
 5. `lib/overview-summary-materializer.ts` still relies on callers deriving affected ranges ad hoc after warehouse writes.
-6. Detailed GA4 cache warming and Shopify overview snapshot warming are now explicit CLI/manual owners; freshness depends on operator scheduling when no automated lane is used.
+6. Default-window GA4 detail warming and Shopify recent-window overview snapshot warming now ride existing sync lanes, but custom windows, alternate demographics dimensions, and arbitrary/custom overview summary ranges still depend on explicit operator scheduling.
 7. `lib/shopify/read-adapter.ts` still encodes serving trust decisions across many tables, even though persistence now lives in an explicit materializer.
 8. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
 9. `lib/migrations.ts` remains a large runtime migration bundle, and broader non-`GET` mutation/admin/webhook cleanup is still ahead.
