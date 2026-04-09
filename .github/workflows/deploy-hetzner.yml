@@ -228,6 +228,10 @@ jobs:
                 return 1
               }
 
+              extract_build_id() {
+                python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+              }
+
               check_optional_health() {
                 service_name="$1"
                 max_attempts="${2:-40}"
@@ -324,7 +328,7 @@ jobs:
 
               log "Checking runtime build info"
               BUILD_INFO_JSON="$(wait_for_build_info 30 3)"
-              BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});")"
+              BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | extract_build_id)"
               echo "DEPLOY_SHA=${DEPLOY_SHA}"
               echo "BUILD_ID=${BUILD_ID}"
               test -n "${BUILD_ID}"
@@ -346,7 +350,7 @@ jobs:
             while [ "$attempt" -le "$attempts" ]; do
               if build_info_json="$(curl -fsSL "$url" 2>/dev/null)"; then
                 build_id="$(
-                  printf '%s' "${build_info_json}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});"
+                  printf '%s' "${build_info_json}" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
                 )"
                 echo "url=${url} build_id=${build_id} attempt=${attempt}/${attempts}"
                 if [ -n "${build_id}" ] && [ "${build_id}" = "${DEPLOY_SHA}" ]; then
