@@ -1,4 +1,5 @@
 .git
+.github
 .gitignore
 .next
 node_modules
@@ -11,4 +12,13 @@ pnpm-debug.log*
 coverage
 dist
 tmp
+tmp*
+preview*
+docs
+README.md
+name
+image_url
+thumbnail_url
+poster_url
+render_mode
 .DS_Store

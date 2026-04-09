@@ -7,8 +7,6 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM deps AS builder
-ARG APP_BUILD_ID=dev-build
-ENV APP_BUILD_ID=$APP_BUILD_ID
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DISABLE_WEBPACK_CACHE=1
 COPY . .

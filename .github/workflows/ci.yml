@@ -66,7 +66,7 @@ jobs:
           changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
           printf 'Changed files:\n%s\n' "${changed_files}"
 
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(app/|components/|hooks/|lib/|providers/|public/|scripts/|src/|store/|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$|middleware\.ts$|middleware\.test\.ts$)'; then
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/workflows/|app/|components/|hooks/|lib/|providers/|public/|scripts/|src/|store/|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$|middleware\.ts$|middleware\.test\.ts$)'; then
             echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
             echo "Runtime-affecting change detected."
             exit 0
@@ -134,7 +134,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ env.BUILD_CACHE_SCOPE }}
 
   dispatch-deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-runtime-changes.outputs.runtime_changed == 'true' &&
+      needs.publish-images.result == 'success'
     needs:
       - publish-images
       - detect-runtime-changes
@@ -166,3 +171,20 @@ jobs:
             }
           }
           EOF
+
+  skip-runtime-deploy:
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.detect-runtime-changes.outputs.runtime_changed != 'true'
+    needs:
+      - build-test
+      - detect-runtime-changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain deploy skip
+        shell: bash
+        run: |
+          echo "No runtime-affecting files changed."
+          echo "Image publish and deploy were intentionally skipped."
