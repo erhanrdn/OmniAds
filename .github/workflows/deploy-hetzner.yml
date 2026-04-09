@@ -28,9 +28,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Resolve deploy SHA
         id: deploy_sha
         shell: bash
@@ -58,14 +55,53 @@ jobs:
               ;;
           esac
 
-          if [ "${#target_sha}" -lt 7 ] || [ "${#target_sha}" -gt 40 ]; then
-            echo "Deploy SHA length must be between 7 and 40 characters."
+          if [ "${#target_sha}" -ne 40 ]; then
+            echo "Deploy SHA must be the full 40-character commit SHA."
             exit 1
           fi
 
           echo "sha=${target_sha}" >> "$GITHUB_OUTPUT"
 
+      - name: Skip superseded workflow-run deploys
+        id: freshness
+        if: github.event_name == 'workflow_run'
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          current_main_sha="$(
+            git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" refs/heads/main \
+              | awk '{print $1}'
+          )"
+
+          if [ -z "${current_main_sha}" ]; then
+            echo "Unable to resolve current main HEAD."
+            exit 1
+          fi
+
+          echo "current_main_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"
+
+          if [ "${DEPLOY_SHA}" != "${current_main_sha}" ]; then
+            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping superseded deploy for ${DEPLOY_SHA}; current main is ${current_main_sha}."
+            exit 0
+          fi
+
+          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout deploy ref
+        if: github.event_name != 'workflow_run' || steps.freshness.outputs.should_deploy == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.deploy_sha.outputs.sha }}
+          fetch-depth: 1
+
       - name: Deploy over SSH
+        if: github.event_name != 'workflow_run' || steps.freshness.outputs.should_deploy == 'true'
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
@@ -193,3 +229,39 @@ jobs:
             check_optional_health web
             check_optional_health worker
           EOF
+
+      - name: Verify public build info
+        if: github.event_name != 'workflow_run' || steps.freshness.outputs.should_deploy == 'true'
+        env:
+          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          wait_for_expected_build_id() {
+            url="$1"
+            attempts="$2"
+            sleep_seconds="$3"
+            attempt=1
+
+            while [ "$attempt" -le "$attempts" ]; do
+              if build_info_json="$(curl -fsSL "$url" 2>/dev/null)"; then
+                build_id="$(
+                  printf '%s' "${build_info_json}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});"
+                )"
+                echo "url=${url} build_id=${build_id} attempt=${attempt}/${attempts}"
+                if [ -n "${build_id}" ] && [ "${build_id}" = "${DEPLOY_SHA}" ]; then
+                  return 0
+                fi
+              fi
+
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+
+            echo "Public build info verification failed for ${url}; expected ${DEPLOY_SHA}."
+            return 1
+          }
+
+          wait_for_expected_build_id "https://adsecute.com/api/build-info" 20 5
+          wait_for_expected_build_id "https://www.adsecute.com/api/build-info" 20 5
