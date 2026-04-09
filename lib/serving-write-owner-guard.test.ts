@@ -166,6 +166,27 @@ describe("serving write owner guard", () => {
     }
   });
 
+  it("scheduled cache warmers keep their automated versus manual guardrails explicit", () => {
+    const ga4SyncContent = fs.readFileSync(
+      path.join(repoRoot, "lib/sync/ga4-sync.ts"),
+      "utf8",
+    );
+    expect(ga4SyncContent).toContain('const AUTO_WARM_DATE_WINDOWS = [');
+    expect(ga4SyncContent).toContain('{ label: "30d", days: 30 }');
+    expect(ga4SyncContent).toContain('{ label: "7d", days: 7 }');
+    expect(ga4SyncContent).toContain('{ reportType: "ga4_detailed_demographics", dimension: "country" }');
+    expect(ga4SyncContent).toContain("npm run reporting:cache:warm");
+
+    const shopifySyncContent = fs.readFileSync(
+      path.join(repoRoot, "lib/sync/shopify-sync.ts"),
+      "utf8",
+    );
+    expect(shopifySyncContent).toContain(
+      "const shouldMaterializeOverviewState = input?.materializeOverviewState !== false;",
+    );
+    expect(shopifySyncContent.match(/if \(shouldMaterializeOverviewState\)/g)?.length ?? 0).toBe(2);
+  });
+
   it("target surfaces are written only from approved owner modules", () => {
     const sourceFiles = [
       ...walkSourceFiles(path.join(repoRoot, "app")),

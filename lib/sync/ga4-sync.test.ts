@@ -105,6 +105,7 @@ describe("syncGA4Reports", () => {
         {
           businessId: "biz_1",
           reportType: "ga4_detailed_demographics",
+          dimension: "country",
           startDate: "2026-03-10",
           endDate: "2026-04-09",
         },
@@ -161,6 +162,7 @@ describe("syncGA4Reports", () => {
         {
           businessId: "biz_1",
           reportType: "ga4_detailed_demographics",
+          dimension: "country",
           startDate: "2026-04-02",
           endDate: "2026-04-09",
         },
@@ -227,6 +229,32 @@ describe("syncGA4Reports", () => {
     expect(cacheOwners.warmGa4EcommerceFallbackCache).not.toHaveBeenCalled();
   });
 
+  it("keeps non-default windows and non-country demographics manual", async () => {
+    await syncGA4Reports("biz_1");
+
+    const routeWarmCalls = vi
+      .mocked(cacheOwners.warmGa4UserFacingRouteReportCache)
+      .mock.calls.map(([input]) => input);
+    const detailWarmCalls = routeWarmCalls.filter(
+      (input) => input.reportType !== "ga4_analytics_overview",
+    );
+
+    expect(detailWarmCalls).toHaveLength(12);
+    expect(
+      new Set(detailWarmCalls.map((input) => `${input.startDate}:${input.endDate}`)),
+    ).toEqual(new Set(["2026-03-10:2026-04-09", "2026-04-02:2026-04-09"]));
+    expect(
+      detailWarmCalls
+        .filter((input) => input.reportType === "ga4_detailed_demographics")
+        .map((input) => input.dimension ?? null),
+    ).toEqual(["country", "country"]);
+    expect(
+      detailWarmCalls
+        .filter((input) => input.reportType !== "ga4_detailed_demographics")
+        .every((input) => input.dimension == null),
+    ).toBe(true);
+  });
+
   it("logs and continues when a detailed warmer fails after the core GA4 warmers succeed", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mockImplementation(
@@ -254,6 +282,7 @@ describe("syncGA4Reports", () => {
       expect.objectContaining({
         businessId: "biz_1",
         reportType: "ga4_detailed_products",
+        dimension: null,
       }),
     );
     warnSpy.mockRestore();

@@ -283,6 +283,10 @@ export async function syncShopifyCommerceReports(
   const runOrdersRecent = input?.recentTargets?.orders !== false;
   const runReturnsRecent = input?.recentTargets?.returns !== false;
   const allowHistorical = input?.allowHistorical !== false;
+  // Lightweight webhook sync paths opt out by passing
+  // `materializeOverviewState: false`; only the heavier overview-materializing
+  // sync lanes are allowed to warm the durable overview snapshot.
+  const shouldMaterializeOverviewState = input?.materializeOverviewState !== false;
   const historical = classifyShopifyHistoricalWindow(credentials);
   const existingOrdersState = await getShopifySyncState({
     businessId,
@@ -727,7 +731,7 @@ export async function syncShopifyCommerceReports(
           skipped?: boolean;
           reason?: string;
         } = null;
-    if (input?.materializeOverviewState !== false) {
+    if (shouldMaterializeOverviewState) {
       try {
         materialization = await materializeShopifyOverviewAfterSync({
           businessId,
@@ -767,7 +771,7 @@ export async function syncShopifyCommerceReports(
       };
     }
 
-    if (input?.materializeOverviewState !== false) {
+    if (shouldMaterializeOverviewState) {
       try {
         await warmShopifyOverviewReportCache({
           businessId,

@@ -351,7 +351,7 @@ describe("syncShopifyCommerceReports", () => {
     expect(cacheOwners.warmShopifyOverviewReportCache).not.toHaveBeenCalled();
   });
 
-  it("can narrow webhook-triggered sync to orders only without historical backfill", async () => {
+  it("keeps lightweight webhook-triggered sync paths out of overview materialization and snapshot warming", async () => {
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
 
     const result = await syncShopifyCommerceReports("biz_1", {
@@ -362,6 +362,7 @@ describe("syncShopifyCommerceReports", () => {
         returns: false,
       },
       allowHistorical: false,
+      materializeOverviewState: false,
     });
 
     expect(result).toEqual(
@@ -369,6 +370,10 @@ describe("syncShopifyCommerceReports", () => {
         success: true,
         returns: 0,
         historical: null,
+        materialization: expect.objectContaining({
+          skipped: true,
+          reason: "disabled_for_call_site",
+        }),
         reconciliation: expect.objectContaining({
           triggerReason: "webhook:orders:update",
           recentTargets: {
@@ -391,6 +396,9 @@ describe("syncShopifyCommerceReports", () => {
         syncTarget: "commerce_orders_historical",
       })
     );
+    expect(overviewMaterializer.persistShopifyOverviewServingState).not.toHaveBeenCalled();
+    expect(overviewMaterializer.recordShopifyOverviewReconciliationRun).not.toHaveBeenCalled();
+    expect(cacheOwners.warmShopifyOverviewReportCache).not.toHaveBeenCalled();
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
   });
 
