@@ -182,6 +182,34 @@ jobs:
                 printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
               }
 
+              dump_service_diagnostics() {
+                log "Collecting deploy diagnostics"
+                docker compose ps || true
+                docker compose ps migrate || true
+                docker compose logs --tail=120 migrate || true
+
+                for service_name in web worker; do
+                  container_id="$(docker compose ps -q "${service_name}" || true)"
+                  if [ -z "${container_id}" ]; then
+                    echo "Missing container for service ${service_name}"
+                    continue
+                  fi
+
+                  echo "--- ${service_name} inspect"
+                  docker inspect "${container_id}" --format '{{json .Config.Image}} {{json .State}}' || true
+                  echo "--- ${service_name} logs"
+                  docker logs --tail=120 "${container_id}" || true
+                done
+              }
+
+              on_deploy_error() {
+                status="$?"
+                dump_service_diagnostics
+                exit "${status}"
+              }
+
+              trap on_deploy_error ERR
+
               wait_for_build_info() {
                 attempts="$1"
                 sleep_seconds="$2"
@@ -202,6 +230,7 @@ jobs:
 
               check_optional_health() {
                 service_name="$1"
+                max_attempts="${2:-40}"
                 container_id="$(docker compose ps -q "${service_name}" || true)"
 
                 if [ -z "${container_id}" ]; then
@@ -215,9 +244,9 @@ jobs:
                 fi
 
                 attempt=1
-                while [ "$attempt" -le 20 ]; do
+                while [ "$attempt" -le "${max_attempts}" ]; do
                   health_status="$(docker inspect "${container_id}" --format '{{.State.Health.Status}}')"
-                  echo "${service_name}_health_status=${health_status} attempt=${attempt}/20"
+                  echo "${service_name}_health_status=${health_status} attempt=${attempt}/${max_attempts}"
                   if [ "${health_status}" = "healthy" ]; then
                     return 0
                   fi
@@ -231,14 +260,57 @@ jobs:
                 return 1
               }
 
+              verify_service_image() {
+                service_name="$1"
+                expected_image="$2"
+                container_id="$(docker compose ps -q "${service_name}" || true)"
+
+                if [ -z "${container_id}" ]; then
+                  echo "Missing container for service ${service_name}"
+                  return 1
+                fi
+
+                actual_image="$(docker inspect "${container_id}" --format '{{.Config.Image}}')"
+                echo "${service_name}_actual_image=${actual_image}"
+                echo "${service_name}_expected_image=${expected_image}"
+                test "${actual_image}" = "${expected_image}"
+              }
+
+              run_migrations_service() {
+                migration_timeout_seconds="${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-600}"
+                docker compose rm -f migrate >/dev/null 2>&1 || true
+
+                if command -v timeout >/dev/null 2>&1; then
+                  set +e
+                  timeout "${migration_timeout_seconds}" docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
+                  status="$?"
+                  set -e
+                else
+                  set +e
+                  docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
+                  status="$?"
+                  set -e
+                fi
+
+                if [ "${status}" -ne 0 ]; then
+                  docker compose ps migrate || true
+                  docker compose logs --tail=200 migrate || true
+                fi
+
+                docker compose rm -f migrate >/dev/null 2>&1 || true
+                return "${status}"
+              }
+
               export APP_IMAGE_TAG="${DEPLOY_SHA}"
               export APP_BUILD_ID="${DEPLOY_SHA}"
+              expected_web_image="ghcr.io/erhanrdn/omniads-web:${DEPLOY_SHA}"
+              expected_worker_image="ghcr.io/erhanrdn/omniads-worker:${DEPLOY_SHA}"
 
               log "Pulling exact SHA images"
-              docker compose pull web worker migrate
+              docker compose pull web worker
 
               log "Running migrations for ${DEPLOY_SHA}"
-              docker compose run --rm --no-deps migrate
+              run_migrations_service
 
               log "Recreating web and worker"
               docker compose up -d --force-recreate web worker
@@ -246,8 +318,12 @@ jobs:
               log "Checking running services"
               docker compose ps
 
+              log "Verifying exact service images"
+              verify_service_image web "${expected_web_image}"
+              verify_service_image worker "${expected_worker_image}"
+
               log "Checking runtime build info"
-              BUILD_INFO_JSON="$(wait_for_build_info 20 3)"
+              BUILD_INFO_JSON="$(wait_for_build_info 30 3)"
               BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});")"
               echo "DEPLOY_SHA=${DEPLOY_SHA}"
               echo "BUILD_ID=${BUILD_ID}"
@@ -255,8 +331,9 @@ jobs:
               test "${BUILD_ID}" = "${DEPLOY_SHA}"
 
               log "Checking optional container health"
-              check_optional_health web
-              check_optional_health worker
+              check_optional_health web 20
+              check_optional_health worker 40
+              trap - ERR
           EOF
           }
 
