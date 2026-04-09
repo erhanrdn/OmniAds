@@ -410,6 +410,87 @@ describe("syncShopifyCommerceReports", () => {
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
   });
 
+  it("emits runtime-validation phase markers for the recent orders sub-flow", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.mocked(commerceSync.syncShopifyOrdersWindow).mockImplementation(async (input) => {
+      input.runtimeValidationLog?.("recent_orders_source_fetch_started", {
+        pageCount: 1,
+        cursorPresent: false,
+      });
+      input.runtimeValidationLog?.("recent_orders_upsert_succeeded", {
+        pageCount: 1,
+        ordersWritten: 4,
+      });
+      return {
+        success: true,
+        reason: "ok",
+        orders: 4,
+        orderLines: 7,
+        refunds: 1,
+        transactions: 4,
+        pages: 1,
+        maxUpdatedAt: "2026-03-31T22:00:00Z",
+      } as never;
+    });
+
+    await syncShopifyCommerceReports("biz_1", {
+      allowHistorical: false,
+      materializeOverviewState: false,
+      triggerReason: "runtime_validation",
+      recentTargets: {
+        orders: true,
+        returns: false,
+      },
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "recent_orders_phase_started",
+        summary: expect.objectContaining({
+          queryField: "updated_at",
+        }),
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "recent_orders_source_fetch_started",
+        summary: expect.objectContaining({
+          pageCount: 1,
+        }),
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "recent_orders_cursor_or_state_persist_succeeded",
+        summary: expect.objectContaining({
+          maxUpdatedAt: "2026-03-31T22:00:00Z",
+        }),
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "recent_orders_phase_completed",
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "transition_to_shadow_started",
+      }),
+    );
+
+    infoSpy.mockRestore();
+  });
+
   it("orchestrates provider readiness and persists readiness summary", async () => {
     const result = await ensureShopifyProviderReady({
       businessId: "biz_1",

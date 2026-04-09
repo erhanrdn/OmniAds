@@ -502,3 +502,117 @@ Target-split conclusion:
 - This run reused a live-like local app process that was already listening on port `3000`; `npm run dev` was not used because the port was already occupied.
 - Background owner activity can overlap the GET window on a live-like environment. For this run, the only observed overlap was Search Console sync, and it was attributable via `provider_sync_jobs`.
 - Automated Shopify recent-window overview advancement is still the remaining runtime-truth blocker for a full signoff of all in-scope surfaces in one evidence pass, but it is now localized to the recent-orders-enabled segment of the Shopify sync lane.
+
+## Phase 9B Closeout: Shopify Recent-Orders Sub-Phase Localization
+
+Exact rerun case executed:
+
+```bash
+node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: false, triggerReason: 'runtime_validation', recentTargets: { orders: true, returns: false } }); console.log(JSON.stringify(result, null, 2));"
+```
+
+Exact wait / retry policy reused:
+
+- Poll the exact recent `7d` markers every `10s`
+- Keep the original comparability boundary at `120s`
+- If still live at `120s`, extend once to `240s`
+- If still live at `240s`, send `SIGINT`, wait up to `10s`, and then capture the exact after snapshot
+
+Phase markers added for the recent orders sub-flow:
+
+- outer lane:
+  - `recent_orders_phase_started`
+  - `recent_orders_phase_failed`
+  - `recent_orders_cursor_or_state_persist_started`
+  - `recent_orders_cursor_or_state_persist_succeeded`
+  - `recent_orders_phase_completed`
+  - `transition_to_shadow_started`
+- recent orders fetch / normalization:
+  - `recent_orders_page_loop_started`
+  - `recent_orders_source_fetch_started`
+  - `recent_orders_source_fetch_succeeded`
+  - `recent_orders_source_fetch_failed`
+  - `recent_orders_page_received`
+  - `recent_orders_snapshot_persist_started`
+  - `recent_orders_snapshot_persist_succeeded`
+  - `recent_orders_normalization_started`
+  - `recent_orders_normalization_succeeded`
+- recent orders upsert chain:
+  - `recent_orders_upsert_started`
+  - `recent_orders_orders_upsert_started`
+  - `recent_orders_orders_upsert_succeeded`
+  - `recent_orders_order_lines_upsert_started`
+  - `recent_orders_order_lines_upsert_succeeded`
+  - `recent_orders_refunds_upsert_started`
+  - `recent_orders_refunds_upsert_succeeded`
+  - `recent_orders_sales_events_upsert_started`
+  - `recent_orders_sales_events_upsert_succeeded`
+  - `recent_orders_transactions_upsert_started`
+  - `recent_orders_transactions_upsert_succeeded`
+  - `recent_orders_upsert_succeeded`
+
+Orders-only rerun with page-level markers:
+
+- Start: `2026-04-09T17:01:39.903Z`
+- End: `2026-04-09T17:06:12.249Z`
+- Total wait: `272s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Extension started: `2026-04-09T17:03:55.730Z`
+- Exact last emitted phase marker: `recent_orders_upsert_started`
+- Exact last successful page-3 phase before the stall: `recent_orders_normalization_succeeded`
+- Before / after recent markers:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key stayed:
+    - before `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+    - after `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+  - `shopify_serving_state` exact recent canary key stayed:
+    - before `row_count=0`, `max_updated_at=null`
+    - after `row_count=0`, `max_updated_at=null`
+  - `shopify_reconciliation_runs` exact recent window stayed:
+    - before `row_count=0`, `max_recorded_at=null`
+    - after `row_count=0`, `max_recorded_at=null`
+  - `shopify_sync_state.commerce_orders_recent` / `commerce_returns_recent` still changed independently of the runtime-validation run:
+    - before both rows already reflected a concurrent null-trigger run in `running`
+    - after both rows reflected a concurrent null-trigger run in `succeeded`
+
+Orders-only rerun with per-upsert markers:
+
+- Start: `2026-04-09T17:07:58.168Z`
+- End: `2026-04-09T17:12:31.309Z`
+- Total wait: `273s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Extension started: `2026-04-09T17:10:14.892Z`
+- Exact last emitted phase marker: `recent_orders_sales_events_upsert_started`
+- Exact last successful phase before the stall: `recent_orders_refunds_upsert_succeeded`
+- Exact page context at the stall:
+  - `pageCount=3`
+  - `ordersBatchCount=100`
+  - `orderLinesBatchCount=204`
+  - `refundsBatchCount=3`
+  - `salesEventsBatchCount=106`
+  - `transactionsBatchCount=152`
+- Before / after recent markers:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key stayed:
+    - before `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+    - after `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+  - `shopify_serving_state` exact recent canary key stayed:
+    - before `row_count=0`, `max_updated_at=null`
+    - after `row_count=0`, `max_updated_at=null`
+  - `shopify_reconciliation_runs` exact recent window stayed:
+    - before `row_count=0`, `max_recorded_at=null`
+    - after `row_count=0`, `max_recorded_at=null`
+  - `shopify_sync_state.commerce_orders_recent` / `commerce_returns_recent` again changed independently of the runtime-validation run:
+    - before both rows reflected a concurrent null-trigger run in `succeeded`
+    - after both rows reflected a later concurrent null-trigger run in `succeeded`
+
+Phase 9B closeout conclusion:
+
+- Automated Shopify recent-window advancement is still not proven.
+- The remaining blocker is now localized to the existing recent-orders owner lane at:
+  - `recent_orders_sales_events_upsert_started`
+  - page `3` of the `updated_at` recent-orders loop
+- The exact last successful phase before the observed stall is:
+  - `recent_orders_refunds_upsert_succeeded`
+- This means the current evidence no longer supports a source-fetch, raw-snapshot, normalization, orders-table, order-lines-table, refunds-table, transactions-table, shadow-read, or overview-materialization blocker as the primary cause of the still-unproven recent Shopify path.
+- No small safe correctness bug is proven yet from this run alone. The live-like evidence is still consistent with a stall or lock wait inside `upsertShopifySalesEvents()` on page `3`, potentially while concurrent non-runtime owner activity is also present in the same environment.

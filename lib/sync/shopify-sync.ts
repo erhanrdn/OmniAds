@@ -385,6 +385,13 @@ export async function syncShopifyCommerceReports(
   }
 
   try {
+    if (runOrdersRecent) {
+      logValidationPhase("recent_orders_phase_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        queryField: "updated_at",
+      });
+    }
     const [ordersSettled, returnsSettled] = await Promise.allSettled([
       runOrdersRecent
         ? syncShopifyOrdersWindow({
@@ -392,6 +399,9 @@ export async function syncShopifyCommerceReports(
             startDate: window.startDate,
             endDate: window.endDate,
             queryField: "updated_at",
+            runtimeValidationLog: (phase, summary) => {
+              logValidationPhase(phase, summary);
+            },
           })
         : Promise.resolve({
             success: true as const,
@@ -448,6 +458,13 @@ export async function syncShopifyCommerceReports(
           };
     if (!ordersResult.success) {
       if (runOrdersRecent) {
+        logValidationPhase("recent_orders_phase_failed", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+          reason: ordersResult.reason,
+        });
+      }
+      if (runOrdersRecent) {
         await upsertShopifySyncState({
           businessId,
           providerAccountId: credentials.shopId,
@@ -474,6 +491,11 @@ export async function syncShopifyCommerceReports(
       }
     }
 
+    logValidationPhase("transition_to_shadow_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      shouldMaterializeOverviewState,
+    });
     logValidationPhase("warehouse_shadow_started", {
       startDate: window.startDate,
       endDate: window.endDate,
@@ -709,6 +731,11 @@ export async function syncShopifyCommerceReports(
     }
 
     if (runOrdersRecent) {
+      logValidationPhase("recent_orders_cursor_or_state_persist_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        maxUpdatedAt: ordersResult.maxUpdatedAt ?? null,
+      });
       await upsertShopifySyncState({
         businessId,
         providerAccountId: credentials.shopId,
@@ -725,6 +752,19 @@ export async function syncShopifyCommerceReports(
         latestSyncWindowEnd: window.endDate,
         lastError: null,
         lastResultSummary: result.reconciliation,
+      });
+      logValidationPhase("recent_orders_cursor_or_state_persist_succeeded", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        maxUpdatedAt: ordersResult.maxUpdatedAt ?? null,
+      });
+      logValidationPhase("recent_orders_phase_completed", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        orders: result.orders,
+        orderLines: result.orderLines,
+        refunds: result.refunds,
+        transactions: result.transactions,
       });
     }
     if (runReturnsRecent) {

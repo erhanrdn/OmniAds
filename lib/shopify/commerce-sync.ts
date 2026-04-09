@@ -588,7 +588,9 @@ export async function syncShopifyOrdersWindow(input: {
   startDate: string;
   endDate: string;
   queryField?: "created_at" | "updated_at";
+  runtimeValidationLog?: (phase: string, summary?: Record<string, unknown>) => void;
 }) {
+  const logRuntimeValidation = input.runtimeValidationLog ?? (() => {});
   const credentials = await resolveShopifyAdminCredentials(input.businessId);
   if (!credentials) {
     return {
@@ -633,16 +635,56 @@ export async function syncShopifyOrdersWindow(input: {
 
   while (pageCount < 20) {
     pageCount += 1;
-    const payload: ShopifyOrdersPagePayload = await shopifyAdminGraphql<ShopifyOrdersPagePayload>({
-      shopId: credentials.shopId,
-      accessToken: credentials.accessToken,
-      query: ORDERS_QUERY,
-      variables: {
-        query,
-        cursor,
-      },
+    logRuntimeValidation("recent_orders_page_loop_started", {
+      pageCount,
+      cursorPresent: cursor !== null,
+      queryField,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    });
+    logRuntimeValidation("recent_orders_source_fetch_started", {
+      pageCount,
+      cursorPresent: cursor !== null,
+    });
+    let payload: ShopifyOrdersPagePayload;
+    try {
+      payload = await shopifyAdminGraphql<ShopifyOrdersPagePayload>({
+        shopId: credentials.shopId,
+        accessToken: credentials.accessToken,
+        query: ORDERS_QUERY,
+        variables: {
+          query,
+          cursor,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logRuntimeValidation("recent_orders_source_fetch_failed", {
+        pageCount,
+        cursorPresent: cursor !== null,
+        message,
+      });
+      throw error;
+    }
+    const edges = Array.isArray(payload.orders?.edges) ? payload.orders?.edges : [];
+    logRuntimeValidation("recent_orders_source_fetch_succeeded", {
+      pageCount,
+      edgeCount: edges.length,
+      hasNextPage: payload.orders?.pageInfo?.hasNextPage === true,
+      endCursorPresent: Boolean(payload.orders?.pageInfo?.endCursor),
+    });
+    logRuntimeValidation("recent_orders_page_received", {
+      pageCount,
+      edgeCount: edges.length,
+      hasNextPage: payload.orders?.pageInfo?.hasNextPage === true,
+      endCursorPresent: Boolean(payload.orders?.pageInfo?.endCursor),
     });
 
+    logRuntimeValidation("recent_orders_snapshot_persist_started", {
+      pageCount,
+      edgeCount: edges.length,
+      cursorPresent: cursor !== null,
+    });
     const snapshotId = await insertShopifyRawSnapshot({
       businessId: input.businessId,
       providerAccountId: credentials.shopId,
@@ -665,14 +707,21 @@ export async function syncShopifyOrdersWindow(input: {
       },
       status: "fetched",
     });
+    logRuntimeValidation("recent_orders_snapshot_persist_succeeded", {
+      pageCount,
+      snapshotId,
+    });
 
-    const edges = Array.isArray(payload.orders?.edges) ? payload.orders?.edges : [];
     const ordersBatch: ShopifyOrderWarehouseRow[] = [];
     const orderLinesBatch: ShopifyOrderLineWarehouseRow[] = [];
     const refundsBatch: ShopifyRefundWarehouseRow[] = [];
     const transactionsBatch: ShopifyOrderTransactionWarehouseRow[] = [];
     const salesEventsBatch: ShopifySalesEventWarehouseRow[] = [];
 
+    logRuntimeValidation("recent_orders_normalization_started", {
+      pageCount,
+      edgeCount: edges.length,
+    });
     for (const edge of edges) {
       const node = edge?.node;
       if (!node?.id || !node.createdAt) continue;
@@ -699,12 +748,76 @@ export async function syncShopifyOrdersWindow(input: {
         })
       );
     }
+    logRuntimeValidation("recent_orders_normalization_succeeded", {
+      pageCount,
+      ordersBatchCount: ordersBatch.length,
+      orderLinesBatchCount: orderLinesBatch.length,
+      refundsBatchCount: refundsBatch.length,
+      transactionsBatchCount: transactionsBatch.length,
+      salesEventsBatchCount: salesEventsBatch.length,
+    });
 
+    logRuntimeValidation("recent_orders_upsert_started", {
+      pageCount,
+      ordersBatchCount: ordersBatch.length,
+      orderLinesBatchCount: orderLinesBatch.length,
+      refundsBatchCount: refundsBatch.length,
+      transactionsBatchCount: transactionsBatch.length,
+      salesEventsBatchCount: salesEventsBatch.length,
+    });
+    logRuntimeValidation("recent_orders_orders_upsert_started", {
+      pageCount,
+      ordersBatchCount: ordersBatch.length,
+    });
     ordersWritten += await upsertShopifyOrders(ordersBatch);
+    logRuntimeValidation("recent_orders_orders_upsert_succeeded", {
+      pageCount,
+      ordersWritten,
+    });
+    logRuntimeValidation("recent_orders_order_lines_upsert_started", {
+      pageCount,
+      orderLinesBatchCount: orderLinesBatch.length,
+    });
     orderLinesWritten += await upsertShopifyOrderLines(orderLinesBatch);
+    logRuntimeValidation("recent_orders_order_lines_upsert_succeeded", {
+      pageCount,
+      orderLinesWritten,
+    });
+    logRuntimeValidation("recent_orders_refunds_upsert_started", {
+      pageCount,
+      refundsBatchCount: refundsBatch.length,
+    });
     refundsWritten += await upsertShopifyRefunds(refundsBatch);
+    logRuntimeValidation("recent_orders_refunds_upsert_succeeded", {
+      pageCount,
+      refundsWritten,
+    });
+    logRuntimeValidation("recent_orders_sales_events_upsert_started", {
+      pageCount,
+      salesEventsBatchCount: salesEventsBatch.length,
+    });
     await upsertShopifySalesEvents(salesEventsBatch);
+    logRuntimeValidation("recent_orders_sales_events_upsert_succeeded", {
+      pageCount,
+      salesEventsBatchCount: salesEventsBatch.length,
+    });
+    logRuntimeValidation("recent_orders_transactions_upsert_started", {
+      pageCount,
+      transactionsBatchCount: transactionsBatch.length,
+    });
     transactionsWritten += await upsertShopifyOrderTransactions(transactionsBatch);
+    logRuntimeValidation("recent_orders_transactions_upsert_succeeded", {
+      pageCount,
+      transactionsWritten,
+    });
+    logRuntimeValidation("recent_orders_upsert_succeeded", {
+      pageCount,
+      ordersWritten,
+      orderLinesWritten,
+      refundsWritten,
+      transactionsWritten,
+      maxUpdatedAt,
+    });
 
     if (!payload.orders?.pageInfo?.hasNextPage || !payload.orders?.pageInfo?.endCursor) {
       break;
