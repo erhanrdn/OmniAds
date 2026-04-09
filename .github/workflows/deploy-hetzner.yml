@@ -104,8 +104,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${HETZNER_HOST}" ] || [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
+          if [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
             echo "Missing required Hetzner deploy secrets."
+            exit 1
+          fi
+
+          resolve_host() {
+            host="$1"
+            if [ -z "${host}" ]; then
+              return 0
+            fi
+            python3 -c 'import socket, sys; print(socket.gethostbyname(sys.argv[1]))' "${host}" 2>/dev/null || printf '%s\n' "${host}"
+          }
+
+          PRIMARY_DEPLOY_HOST="${HETZNER_HOST}"
+          PUBLIC_DEPLOY_HOST="$(resolve_host "adsecute.com")"
+          PRIMARY_DEPLOY_HOST_IP="$(resolve_host "${PRIMARY_DEPLOY_HOST}")"
+          PUBLIC_DEPLOY_HOST_IP="$(resolve_host "${PUBLIC_DEPLOY_HOST}")"
+
+          if [ -z "${PRIMARY_DEPLOY_HOST}" ]; then
+            PRIMARY_DEPLOY_HOST="${PUBLIC_DEPLOY_HOST}"
+            PRIMARY_DEPLOY_HOST_IP="${PUBLIC_DEPLOY_HOST_IP}"
+          fi
+
+          if [ -z "${PRIMARY_DEPLOY_HOST}" ]; then
+            echo "No deploy target host resolved."
             exit 1
           fi
 
@@ -116,6 +139,15 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
 
           printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          if [ -n "${PRIMARY_DEPLOY_HOST}" ]; then
+            ssh-keyscan -H "${PRIMARY_DEPLOY_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          if [ -n "${PUBLIC_DEPLOY_HOST}" ]; then
+            ssh-keyscan -H "${PUBLIC_DEPLOY_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          if [ -n "${PUBLIC_DEPLOY_HOST_IP}" ]; then
+            ssh-keyscan -H "${PUBLIC_DEPLOY_HOST_IP}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
           chmod 644 ~/.ssh/known_hosts
 
           PORT="${HETZNER_PORT:-22}"
@@ -129,119 +161,158 @@ jobs:
           )
           REMOTE_APP_DIR="/var/www/adsecute"
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${HETZNER_HOST}" \
-            "mkdir -p '${REMOTE_APP_DIR}' && cat > '${REMOTE_APP_DIR}/docker-compose.yml.tmp'" \
-            < docker-compose.yml
+          deploy_target() {
+            target_host="$1"
+            target_label="$2"
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${HETZNER_HOST}" \
-            "mv '${REMOTE_APP_DIR}/docker-compose.yml.tmp' '${REMOTE_APP_DIR}/docker-compose.yml'"
+            echo "Deploying ${DEPLOY_SHA} to ${target_label} (${target_host})"
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${HETZNER_HOST}" \
-            "DEPLOY_SHA='${DEPLOY_SHA}' bash -seuo pipefail" <<'EOF'
-            cd /var/www/adsecute
+            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+              "mkdir -p '${REMOTE_APP_DIR}' && cat > '${REMOTE_APP_DIR}/docker-compose.yml.tmp'" \
+              < docker-compose.yml
 
-            log() {
-              printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
-            }
+            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+              "mv '${REMOTE_APP_DIR}/docker-compose.yml.tmp' '${REMOTE_APP_DIR}/docker-compose.yml'"
 
-            wait_for_build_info() {
-              attempts="$1"
-              sleep_seconds="$2"
-              attempt=1
+            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+              "DEPLOY_SHA='${DEPLOY_SHA}' bash -seuo pipefail" <<'EOF'
+              cd /var/www/adsecute
 
-              while [ "$attempt" -le "$attempts" ]; do
-                if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
-                  printf '%s\n' "${build_info_json}"
-                  return 0
-                fi
+              log() {
+                printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+              }
 
-                sleep "${sleep_seconds}"
-                attempt=$((attempt + 1))
-              done
+              wait_for_build_info() {
+                attempts="$1"
+                sleep_seconds="$2"
+                attempt=1
 
-              return 1
-            }
+                while [ "$attempt" -le "$attempts" ]; do
+                  if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
+                    printf '%s\n' "${build_info_json}"
+                    return 0
+                  fi
 
-            check_optional_health() {
-              service_name="$1"
-              container_id="$(docker compose ps -q "${service_name}" || true)"
+                  sleep "${sleep_seconds}"
+                  attempt=$((attempt + 1))
+                done
 
-              if [ -z "${container_id}" ]; then
-                echo "Missing container for service ${service_name}"
                 return 1
-              fi
+              }
 
-              has_healthcheck="$(docker inspect "${container_id}" --format '{{if .Config.Healthcheck}}yes{{else}}no{{end}}')"
-              if [ "${has_healthcheck}" != "yes" ]; then
-                return 0
-              fi
+              check_optional_health() {
+                service_name="$1"
+                container_id="$(docker compose ps -q "${service_name}" || true)"
 
-              attempt=1
-              while [ "$attempt" -le 20 ]; do
-                health_status="$(docker inspect "${container_id}" --format '{{.State.Health.Status}}')"
-                echo "${service_name}_health_status=${health_status} attempt=${attempt}/20"
-                if [ "${health_status}" = "healthy" ]; then
+                if [ -z "${container_id}" ]; then
+                  echo "Missing container for service ${service_name}"
+                  return 1
+                fi
+
+                has_healthcheck="$(docker inspect "${container_id}" --format '{{if .Config.Healthcheck}}yes{{else}}no{{end}}')"
+                if [ "${has_healthcheck}" != "yes" ]; then
                   return 0
                 fi
 
-                sleep 3
-                attempt=$((attempt + 1))
-              done
+                attempt=1
+                while [ "$attempt" -le 20 ]; do
+                  health_status="$(docker inspect "${container_id}" --format '{{.State.Health.Status}}')"
+                  echo "${service_name}_health_status=${health_status} attempt=${attempt}/20"
+                  if [ "${health_status}" = "healthy" ]; then
+                    return 0
+                  fi
 
-              docker inspect "${container_id}" --format '{{json .State.Health}}' || true
-              docker logs --tail=120 "${container_id}" || true
-              return 1
-            }
+                  sleep 3
+                  attempt=$((attempt + 1))
+                done
 
-            export APP_IMAGE_TAG="${DEPLOY_SHA}"
-            export APP_BUILD_ID="${DEPLOY_SHA}"
+                docker inspect "${container_id}" --format '{{json .State.Health}}' || true
+                docker logs --tail=120 "${container_id}" || true
+                return 1
+              }
 
-            log "Pulling exact SHA images"
-            docker compose pull web worker migrate
+              export APP_IMAGE_TAG="${DEPLOY_SHA}"
+              export APP_BUILD_ID="${DEPLOY_SHA}"
 
-            log "Running migrations for ${DEPLOY_SHA}"
-            docker compose run --rm --no-deps migrate
+              log "Pulling exact SHA images"
+              docker compose pull web worker migrate
 
-            log "Recreating web and worker"
-            docker compose up -d --force-recreate web worker
+              log "Running migrations for ${DEPLOY_SHA}"
+              docker compose run --rm --no-deps migrate
 
-            log "Checking running services"
-            docker compose ps
+              log "Recreating web and worker"
+              docker compose up -d --force-recreate web worker
 
-            log "Checking runtime build info"
-            BUILD_INFO_JSON="$(wait_for_build_info 20 3)"
-            BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});")"
-            echo "DEPLOY_SHA=${DEPLOY_SHA}"
-            echo "BUILD_ID=${BUILD_ID}"
-            test -n "${BUILD_ID}"
-            test "${BUILD_ID}" = "${DEPLOY_SHA}"
+              log "Checking running services"
+              docker compose ps
 
-            log "Checking optional container health"
-            check_optional_health web
-            check_optional_health worker
-          EOF
+              log "Checking runtime build info"
+              BUILD_INFO_JSON="$(wait_for_build_info 20 3)"
+              BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});")"
+              echo "DEPLOY_SHA=${DEPLOY_SHA}"
+              echo "BUILD_ID=${BUILD_ID}"
+              test -n "${BUILD_ID}"
+              test "${BUILD_ID}" = "${DEPLOY_SHA}"
+
+              log "Checking optional container health"
+              check_optional_health web
+              check_optional_health worker
+            EOF
+          }
+
+          public_build_matches() {
+            url="$1"
+            attempts="$2"
+            sleep_seconds="$3"
+            attempt=1
+
+            while [ "$attempt" -le "$attempts" ]; do
+              if build_info_json="$(curl -fsSL "$url" 2>/dev/null)"; then
+                build_id="$(
+                  printf '%s' "${build_info_json}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});"
+                )"
+                echo "url=${url} build_id=${build_id} attempt=${attempt}/${attempts}"
+                if [ -n "${build_id}" ] && [ "${build_id}" = "${DEPLOY_SHA}" ]; then
+                  return 0
+                fi
+              fi
+
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+
+            return 1
+          }
+
+          require_public_build_match() {
+            public_build_matches "https://adsecute.com/api/build-info" 12 5
+            public_build_matches "https://www.adsecute.com/api/build-info" 12 5
+          }
+
+          deploy_target "${PRIMARY_DEPLOY_HOST}" "primary"
+
+          if ! require_public_build_match; then
+            echo "Public build info does not match ${DEPLOY_SHA} after primary deploy."
+
+            if [ -z "${PUBLIC_DEPLOY_HOST_IP}" ]; then
+              echo "Unable to resolve public deploy host for remediation."
+              exit 1
+            fi
+
+            if [ "${PUBLIC_DEPLOY_HOST_IP}" = "${PRIMARY_DEPLOY_HOST_IP}" ]; then
+              echo "Primary deploy target already resolves to public host ${PUBLIC_DEPLOY_HOST_IP}; failing."
+              exit 1
+            fi
+
+            deploy_target "${PUBLIC_DEPLOY_HOST_IP}" "public_fallback"
+            require_public_build_match
+          fi
 
       - name: Smoke test public ingress
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
-        env:
-          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
 
-          check_public_build_info() {
-            url="$1"
-            build_info_json="$(curl -fsSL "$url")"
-            build_id="$(
-              printf '%s' "${build_info_json}" | node -e "let data='';process.stdin.on('data',chunk=>data+=chunk);process.stdin.on('end',()=>{const parsed=JSON.parse(data);process.stdout.write(parsed.buildId || '');});"
-            )"
-            echo "url=${url} build_id=${build_id}"
-            if [ -n "${build_id}" ] && [ "${build_id}" != "${DEPLOY_SHA}" ]; then
-              echo "::warning::Public build info at ${url} is ${build_id}, expected ${DEPLOY_SHA}. Internal deploy verification passed; check Hetzner ingress or nginx upstream configuration."
-            fi
-          }
-
           curl -fsSI https://adsecute.com/about >/dev/null
           curl -fsSI https://www.adsecute.com/about >/dev/null
-          check_public_build_info "https://adsecute.com/api/build-info"
-          check_public_build_info "https://www.adsecute.com/api/build-info"
