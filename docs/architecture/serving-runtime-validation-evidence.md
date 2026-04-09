@@ -2,7 +2,7 @@
 
 Date: 2026-04-09
 
-Status: partial pass with one explicit blocker
+Status: partial pass with one narrowed explicit blocker
 
 This artifact records real runtime evidence for the in-scope serving/projection/cache surfaces on branch `arch/wire-serving-owner-triggers`.
 
@@ -132,6 +132,8 @@ node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync
 node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: true, triggerReason: 'runtime_validation' }); console.log(JSON.stringify(result, null, 2));"
 ```
 
+Phase 9 closeout reruns reused the same constrained Shopify owner command above. A non-committed local wait/poll shell wrapper surrounded that command; it only took exact before/after snapshots for the recent `7d` Shopify surfaces, polled those markers every `10s` for `120s`, sent `SIGINT` when the owner process was still live, and captured the owner log.
+
 ## Exact GET Routes Exercised
 
 All route calls below returned `200` twice with the same authenticated session:
@@ -256,6 +258,99 @@ Shopify sync owner:
   - `shopify_serving_state` business-wide max `updated_at` remained `2026-04-08 11:36:07.712972+00`
   - `shopify_reconciliation_runs` business-wide max `recorded_at` remained `2026-04-08 11:36:07.925+00`
 
+### Phase 9 Closeout: Shopify Recent-Window Rerun
+
+Exact constrained owner command:
+
+```bash
+node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: true, triggerReason: 'runtime_validation' }); console.log(JSON.stringify(result, null, 2));"
+```
+
+Wait / retry / termination strategy:
+
+- Take an exact before snapshot for:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key `2026-04-03:2026-04-09`
+  - `shopify_serving_state` exact recent canary key `overview_shopify:2026-04-03:2026-04-09:shop_local`
+  - `shopify_reconciliation_runs` exact recent `2026-04-03..2026-04-09` rows
+  - `shopify_sync_state` recent `commerce_orders_recent` and `commerce_returns_recent` rows
+- Poll the same markers every `10s` for `120s`
+- If the owner process is still live after `120s`, send `SIGINT` and wait `5s`
+- Capture the exact after snapshot and the owner log
+
+Existing-code rerun:
+
+- Start: `2026-04-09T15:10:23Z`
+- End: `2026-04-09T15:12:47Z`
+- Total wait: `144s`
+- Termination: `SIGINT`
+- Exit code: `130`
+- Before snapshot: `2026-04-09T15:10:22.009Z`
+- After snapshot: `2026-04-09T15:12:47.509Z`
+
+Observed markers:
+
+- `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key stayed:
+  - `row_count=1`
+  - `max_updated_at=2026-04-09 04:00:02.710425+00`
+- `shopify_serving_state` exact recent canary key stayed:
+  - `row_count=0`
+  - `max_updated_at=null`
+- `shopify_reconciliation_runs` exact recent window stayed:
+  - `row_count=0`
+  - `max_recorded_at=null`
+- `shopify_sync_state` still advanced for the recent owner lane itself:
+  - `commerce_orders_recent latest_successful_sync_at=2026-04-09T15:12:22.825Z`
+  - `commerce_returns_recent latest_successful_sync_at=2026-04-09T15:12:22.831Z`
+
+Minimal observability refinement added for closeout:
+
+- `lib/sync/shopify-sync.ts` now emits `runtime_validation`-only phase logs around the post-recent-sync path so the blocker is diagnosable without changing ownership or request behavior.
+
+Diagnostic rerun with the same constrained owner command:
+
+- Start: `2026-04-09T15:17:09Z`
+- End: `2026-04-09T15:19:32Z`
+- Total wait: `143s`
+- Termination: `SIGINT`
+- Exit code: `130`
+- Before snapshot: `2026-04-09T15:17:08.070Z`
+- Poll `120s`: `2026-04-09T15:19:26.327Z`
+- After snapshot: `2026-04-09T15:19:32.802Z`
+
+Observed markers on the diagnostic rerun:
+
+- `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key still stayed:
+  - `row_count=1`
+  - `max_updated_at=2026-04-09 04:00:02.710425+00`
+- `shopify_serving_state` exact recent canary key still stayed:
+  - `row_count=0`
+  - `max_updated_at=null`
+- `shopify_reconciliation_runs` exact recent window still stayed:
+  - `row_count=0`
+  - `max_recorded_at=null`
+- `shopify_sync_state` again moved for the recent owner lane itself:
+  - at poll `120s`, both recent sync targets were still `running` with fresh `latest_sync_started_at`
+  - by the after snapshot, both recent sync targets had flipped back to `succeeded`
+  - exact after values:
+    - `commerce_orders_recent latest_successful_sync_at=2026-04-09T15:19:32.261Z`
+    - `commerce_returns_recent latest_successful_sync_at=2026-04-09T15:19:32.270Z`
+- Owner log output remained limited to:
+
+```text
+[startup] db_client_initialized { timeoutMs: 8000 }
+```
+
+Closeout conclusion for the Shopify blocker:
+
+- Automated Shopify recent-window advancement is still not proven.
+- The constrained owner lane repeatedly stays live past the fixed `120s` window and must be interrupted.
+- The only durable advancement observed during these closeout reruns is the recent `shopify_sync_state` owner-state rows.
+- No exact recent-window advancement was observed for:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` auto `7d`
+  - `shopify_serving_state`
+  - `shopify_reconciliation_runs`
+- The blocker is now narrowed to: the owner lane can persist recent sync-state progress, but in this environment it does not persist the recent overview-facing Shopify artifacts before the process is interrupted.
+
 ## Matrix
 
 | Surface | GET changed rows/timestamps? | Owner trigger executed | Owner changed rows/timestamps? | Conclusion |
@@ -271,11 +366,11 @@ Shopify sync owner:
 | `provider_reporting_snapshots.ga4_detailed_products` | No | `ga4-sync` | Yes on default `7d` and `30d` keys | Same as intended |
 | `provider_reporting_snapshots.ecommerce_fallback` | No on tracked stable key | `ga4-sync` | Yes on default `7d` and `30d` keys | Same as intended |
 | `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` tracked historical GET key | No | Manual `reporting:cache:warm` CLI owner for `2026-03-01..2026-03-31` | Yes | Manual targeted warmer advanced snapshot outside recent auto window |
-| `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key | Not changed by GET | `shopify-sync` attempted | No completion observed | Automated Shopify recent-window advancement remains unproven in this run |
+| `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key | Not changed by GET | `shopify-sync` constrained rerun | No exact recent key advancement observed; process required `SIGINT` after `120s` | Automated Shopify recent-window advancement remains unproven |
 | `seo_results_cache overview` tracked GET key `2026-03-09..2026-04-08` | No | `search-console-sync` | Yes on default `30d` and `7d` keys | GET key stayed read-only; automated owner advanced current default windows |
 | `seo_results_cache findings` tracked GET key `2026-03-01..2026-03-31` | No | `search-console-sync` | Yes on default `30d` and `7d` keys | Same as intended |
-| `shopify_serving_state` | No on tracked exact GET row | `shopify-sync` attempted | No completion observed | GET stayed read-only; automated sync advancement remains unproven in this run |
-| `shopify_reconciliation_runs` | No on tracked exact GET rows | `shopify-sync` attempted | No completion observed | GET stayed read-only; automated sync advancement remains unproven in this run |
+| `shopify_serving_state` | No on tracked exact GET row | `shopify-sync` constrained rerun | No exact recent canary row observed; process required `SIGINT` after `120s` | GET stayed read-only; automated Shopify serving-state advancement remains unproven |
+| `shopify_reconciliation_runs` | No on tracked exact GET rows | `shopify-sync` constrained rerun | No exact recent reconciliation row observed; process required `SIGINT` after `120s` | GET stayed read-only; automated Shopify reconciliation advancement remains unproven |
 
 ## Conclusions
 
@@ -287,10 +382,10 @@ Shopify sync owner:
   - manual Shopify overview snapshot warmer for a non-recent custom range
   - GA4 sync default `7d` / `30d` overview, fallback, and eligible detail keys
   - Search Console sync default `7d` / `30d` overview and findings keys
-- Automated Shopify recent-window advancement through `syncShopifyCommerceReports()` remains unproven in this run because the existing lane did not complete within the validation window, even when constrained to `allowHistorical: false`.
+- Automated Shopify recent-window advancement through `syncShopifyCommerceReports()` remains unproven after repeated constrained closeout reruns. In this environment the lane advances recent `shopify_sync_state` owner rows but does not persist the exact recent overview-facing Shopify artifacts before the process must be interrupted.
 
 ## Remaining Caveats / Blockers
 
 - This run reused a live-like local app process that was already listening on port `3000`; `npm run dev` was not used because the port was already occupied.
 - Background owner activity can overlap the GET window on a live-like environment. For this run, the only observed overlap was Search Console sync, and it was attributable via `provider_sync_jobs`.
-- Automated Shopify sync completion is the remaining runtime-truth blocker for a full signoff of all in-scope surfaces in one evidence pass.
+- Automated Shopify recent-window overview advancement is the remaining runtime-truth blocker for a full signoff of all in-scope surfaces in one evidence pass.

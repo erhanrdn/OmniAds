@@ -265,6 +265,16 @@ export async function syncShopifyCommerceReports(
     materializeOverviewState?: boolean;
   }
 ) {
+  const logValidationPhase = (phase: string, summary?: Record<string, unknown>) => {
+    if (input?.triggerReason !== "runtime_validation") {
+      return;
+    }
+    console.info("[shopify-sync] runtime_validation_phase", {
+      businessId,
+      phase,
+      ...(summary ? { summary } : {}),
+    });
+  };
   const credentials = await resolveShopifyAdminCredentials(businessId).catch(() => null);
   if (!credentials) {
     return {
@@ -464,18 +474,36 @@ export async function syncShopifyCommerceReports(
       }
     }
 
+    logValidationPhase("warehouse_shadow_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+    });
     const warehouseShadow = await getShopifyWarehouseOverviewAggregate({
       businessId,
       providerAccountId: credentials.shopId,
       startDate: window.startDate,
       endDate: window.endDate,
     }).catch(() => null);
+    logValidationPhase("warehouse_shadow_succeeded", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      found: warehouseShadow !== null,
+    });
+    logValidationPhase("ledger_shadow_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+    });
     const ledgerShadow = await getShopifyRevenueLedgerAggregate({
       businessId,
       providerAccountId: credentials.shopId,
       startDate: window.startDate,
       endDate: window.endDate,
     }).catch(() => null);
+    logValidationPhase("ledger_shadow_succeeded", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      found: ledgerShadow !== null,
+    });
 
     const result = {
       success: true as const,
@@ -523,6 +551,13 @@ export async function syncShopifyCommerceReports(
         returnsSyncReason: returnsResult.success ? null : returnsResult.reason,
       },
     };
+    logValidationPhase("recent_sync_succeeded", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      orders: result.orders,
+      returns: result.returns,
+      shouldMaterializeOverviewState,
+    });
 
     let historicalResult: null | {
       orders: number;
@@ -733,11 +768,22 @@ export async function syncShopifyCommerceReports(
         } = null;
     if (shouldMaterializeOverviewState) {
       try {
+        logValidationPhase("overview_materialization_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
         materialization = await materializeShopifyOverviewAfterSync({
           businessId,
           providerAccountId: credentials.shopId,
           startDate: window.startDate,
           endDate: window.endDate,
+        });
+        logValidationPhase("overview_materialization_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+          preferredSource: materialization.preferredSource,
+          trustState: materialization.trustState,
+          pendingRepair: materialization.pendingRepair,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -773,8 +819,16 @@ export async function syncShopifyCommerceReports(
 
     if (shouldMaterializeOverviewState) {
       try {
+        logValidationPhase("overview_snapshot_warm_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
         await warmShopifyOverviewReportCache({
           businessId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("overview_snapshot_warm_succeeded", {
           startDate: window.startDate,
           endDate: window.endDate,
         });
