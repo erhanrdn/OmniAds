@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 
 async function ensureShareTable() {
@@ -31,7 +32,12 @@ export async function createCreativeShareSnapshot(
 }
 
 export async function getCreativeShareSnapshot(token: string): Promise<SharePayload | null> {
-  await ensureShareTable();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["creative_share_snapshots"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT payload, expires_at

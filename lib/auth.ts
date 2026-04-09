@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { logStartupError } from "@/lib/startup-diagnostics";
 import type { AppLanguage } from "@/lib/i18n";
 
@@ -55,7 +55,12 @@ async function findSessionByToken(
     return null;
   }
 
-  await runMigrations({ reason: "auth_session_lookup" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["sessions", "users"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const tokenHash = hashToken(rawToken);
   const rows = (await sql`
@@ -101,7 +106,6 @@ async function findSessionByToken(
 
   const expiresAtMs = new Date(row.expires_at).getTime();
   if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now()) {
-    await sql`DELETE FROM sessions WHERE id = ${row.session_id}`;
     return null;
   }
 
@@ -137,7 +141,10 @@ export async function createSession(input: {
   userId: string;
   activeBusinessId?: string | null;
 }): Promise<{ token: string; sessionId: string; expiresAt: Date }> {
-  await runMigrations({ reason: "auth_create_session" });
+  await assertDbSchemaReady({
+    tables: ["sessions"],
+    context: "auth_create_session",
+  });
   const sql = getDb();
   const expiresAt = sessionExpiryDate();
 
@@ -199,7 +206,12 @@ export async function destroySessionByRequest(
 ): Promise<void> {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return;
-  await runMigrations({ reason: "auth_destroy_session" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["sessions"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return;
+  }
   const sql = getDb();
   await sql`DELETE FROM sessions WHERE token_hash = ${hashToken(token)}`;
 }
@@ -218,7 +230,12 @@ export async function setSessionActiveBusiness(
   sessionId: string,
   businessId: string | null,
 ): Promise<void> {
-  await runMigrations({ reason: "auth_set_active_business" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["sessions"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return;
+  }
   const sql = getDb();
   await sql`UPDATE sessions SET active_business_id = ${businessId} WHERE id = ${sessionId}`;
 }

@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 
 export interface BusinessCostModel {
@@ -14,7 +15,12 @@ export async function getBusinessCostModel(
   businessId: string
 ): Promise<BusinessCostModel | null> {
   try {
-    await runMigrations({ reason: "business_cost_model_read" });
+    const readiness = await getDbSchemaReadiness({
+      tables: ["business_cost_models"],
+    });
+    if (!readiness.ready) {
+      return null;
+    }
     const sql = getDb();
     const rows = (await sql`
       SELECT

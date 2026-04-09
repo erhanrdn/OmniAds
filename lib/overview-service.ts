@@ -8,8 +8,8 @@ import {
   resolveGa4AnalyticsContext,
   runGA4Report,
 } from "@/lib/google-analytics-reporting";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getIntegration, getIntegrationMetadata } from "@/lib/integrations";
-import { runMigrations } from "@/lib/migrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   enumerateDays,
@@ -258,31 +258,19 @@ async function getMetaAccessContext(businessId: string): Promise<MetaAccessConte
   const value = (async () => {
     let assignedAccountIds: string[] = [];
     try {
-      const row = await getProviderAccountAssignments(businessId, "meta");
-      assignedAccountIds = row?.account_ids ?? [];
-    } catch (firstError: unknown) {
-      const message = firstError instanceof Error ? firstError.message : String(firstError);
-      const isMissingTable = message.includes("does not exist") || message.includes("relation");
-
-      if (isMissingTable) {
-        try {
-          await runMigrations();
-          const row = await getProviderAccountAssignments(businessId, "meta");
-          assignedAccountIds = row?.account_ids ?? [];
-        } catch (retryError: unknown) {
-          const retryMessage =
-            retryError instanceof Error ? retryError.message : String(retryError);
-          console.error("[overview] assignment read failed after migration", {
-            businessId,
-            message: retryMessage,
-          });
-        }
-      } else {
-        console.error("[overview] assignment read failed", {
-          businessId,
-          message,
-        });
+      const readiness = await getDbSchemaReadiness({
+        tables: ["provider_account_assignments"],
+      });
+      if (readiness.ready) {
+        const row = await getProviderAccountAssignments(businessId, "meta");
+        assignedAccountIds = row?.account_ids ?? [];
       }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[overview] assignment read failed", {
+        businessId,
+        message,
+      });
     }
 
     let connected = false;

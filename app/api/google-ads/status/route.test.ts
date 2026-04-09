@@ -10,6 +10,10 @@ vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
 }));
 
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
+}));
+
 vi.mock("@/lib/integrations", () => ({
   getIntegrationMetadata: vi.fn(),
 }));
@@ -124,11 +128,13 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
 const integrations = await import("@/lib/integrations");
 const snapshots = await import("@/lib/provider-account-snapshots");
 const assignments = await import("@/lib/provider-account-assignments");
 const warehouse = await import("@/lib/google-ads/warehouse");
 const advisorSnapshots = await import("@/lib/google-ads/advisor-snapshots");
+const migrations = await import("@/lib/migrations");
 const statusMachine = await import("@/lib/google-ads/status-machine");
 
 describe("GET /api/google-ads/status", () => {
@@ -137,6 +143,11 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
       membership: {} as never,
+    });
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-09T00:00:00.000Z",
     });
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_google",
@@ -344,6 +355,7 @@ describe("GET /api/google-ads/status", () => {
       advisorReadinessModel: "recent_90d_required_support",
       advisorReadinessWindowDays: 90,
     });
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
   it("reports warehouse readiness even when Google is disconnected", async () => {

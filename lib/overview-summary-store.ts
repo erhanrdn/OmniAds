@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
 import type { MetaAccountDailyRow } from "@/lib/meta/warehouse-types";
 
@@ -65,6 +65,13 @@ function countRangeDays(startDate: string, endDate: string) {
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
 }
 
+async function isOverviewSummarySchemaReady() {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["platform_overview_daily_summary", "platform_overview_summary_ranges"],
+  }).catch(() => null);
+  return Boolean(readiness?.ready);
+}
+
 function toOverviewSummaryRowsFromMeta(rows: MetaAccountDailyRow[]): OverviewSummaryDailyRow[] {
   return rows.map((row) => ({
     businessId: row.businessId,
@@ -107,7 +114,9 @@ export async function readOverviewSummaryRange(input: {
   if (input.providerAccountIds.length === 0) {
     return { hydrated: false, rows: [] as OverviewSummaryDailyRow[] };
   }
-  await runMigrations();
+  if (!(await isOverviewSummarySchemaReady())) {
+    return { hydrated: false, rows: [] as OverviewSummaryDailyRow[] };
+  }
   const sql = getDb();
   const providerAccountIdsHash = hashAccountIds(input.providerAccountIds);
   const manifestRows = (await sql.query(
@@ -234,7 +243,9 @@ export async function readOverviewSummaryRange(input: {
 
 export async function upsertOverviewSummaryRows(rows: OverviewSummaryDailyRow[]) {
   if (rows.length === 0) return;
-  await runMigrations();
+  if (!(await isOverviewSummarySchemaReady())) {
+    return;
+  }
   const sql = getDb();
 
   for (const chunk of chunkRows(rows, 200)) {
@@ -301,7 +312,9 @@ export async function markOverviewSummaryRangeHydrated(input: {
   projectionVersion?: number;
 }) {
   if (input.providerAccountIds.length === 0) return;
-  await runMigrations();
+  if (!(await isOverviewSummarySchemaReady())) {
+    return;
+  }
   const sql = getDb();
   await sql.query(
     `
@@ -355,7 +368,9 @@ export async function invalidateOverviewSummaryRanges(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  if (!(await isOverviewSummarySchemaReady())) {
+    return;
+  }
   const sql = getDb();
   await sql.query(
     `

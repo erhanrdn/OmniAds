@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 import { MembershipRole } from "@/lib/auth";
 import type { AppLanguage } from "@/lib/i18n";
@@ -19,7 +20,12 @@ export interface UserRow {
 }
 
 export async function getUserByEmail(email: string): Promise<UserRow | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["users"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT id, name, email, password_hash, avatar, language, created_at, suspended_at, last_login_at, is_superadmin
@@ -31,7 +37,12 @@ export async function getUserByEmail(email: string): Promise<UserRow | null> {
 }
 
 export async function getUserById(userId: string): Promise<UserRow | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["users"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT id, name, email, password_hash, avatar, language, created_at
@@ -239,7 +250,12 @@ export async function updateBusinessCurrency(
 }
 
 export async function getBusinessTimezone(businessId: string): Promise<string | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT timezone

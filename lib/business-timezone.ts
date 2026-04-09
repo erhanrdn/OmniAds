@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
 
 type IntegrationTimezoneCandidateRow = {
@@ -44,7 +44,12 @@ function deriveBusinessTimezoneFromIntegrations(
 export async function resolveDerivedBusinessTimezone(
   businessId: string,
 ): Promise<DerivedBusinessTimezone> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["integrations"],
+  });
+  if (!readiness.ready) {
+    return { timezone: null, timezoneSource: null };
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT provider, status, metadata
@@ -79,7 +84,12 @@ export async function recomputeBusinessDerivedTimezone(
 export async function getBusinessTimezoneSnapshot(
   businessId: string,
 ): Promise<DerivedBusinessTimezone> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["businesses"],
+  });
+  if (!readiness.ready) {
+    return { timezone: null, timezoneSource: null };
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT timezone, timezone_source

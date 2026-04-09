@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 import {
   normalizeTargetRoasValue,
@@ -68,7 +69,12 @@ export async function readLatestMetaConfigSnapshots(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["meta_config_snapshots"],
+    });
+    if (!readiness.ready) {
+      return new Map();
+    }
     const sql = getDb();
     const rows = (await sql`
       WITH ranked AS (
@@ -109,7 +115,12 @@ export async function readPreviousMetaConfigSnapshots(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["meta_config_snapshots"],
+    });
+    if (!readiness.ready) {
+      return new Map();
+    }
     const sql = getDb();
     const rows = (await sql`
       WITH informative AS (
@@ -177,7 +188,12 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["meta_config_snapshots"],
+    });
+    if (!readiness.ready) {
+      return new Map();
+    }
     const sql = getDb();
     const rows = (await sql`
       SELECT entity_id, captured_at, payload

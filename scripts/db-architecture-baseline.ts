@@ -61,6 +61,20 @@ function runCommand(command: string, args: string[]) {
   }
 }
 
+function runCommandCapture(command: string, args: string[]) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout ?? "");
+    process.stderr.write(result.stderr ?? "");
+    fail(`Command failed: ${command} ${args.join(" ")}`);
+  }
+  return result.stdout ?? "";
+}
+
 function main() {
   ensureFileContains("docs/architecture/db-dependency-map.md", [
     "## core",
@@ -96,6 +110,25 @@ function main() {
   ]);
   validateReadOnlySql("docs/architecture/live-db-baseline-checks.sql");
 
+  const scanOutput = runCommandCapture(process.execPath, [
+    "--import",
+    "tsx",
+    "scripts/check-request-path-side-effects.ts",
+    "--json",
+  ]);
+  const scanResult = JSON.parse(scanOutput) as {
+    findings: Array<{ type: string; file: string; summary: string }>;
+  };
+  const migrationViolations = scanResult.findings.filter(
+    (finding) =>
+      finding.type === "migration_call" || finding.type === "migration_import",
+  );
+  if (migrationViolations.length > 0) {
+    const summary = migrationViolations
+      .map((finding) => `${finding.file}: ${finding.summary}`)
+      .join("\n");
+    fail(`Request-path migration guard failed:\n${summary}`);
+  }
   runCommand(process.execPath, [
     "--import",
     "tsx",
@@ -109,6 +142,12 @@ function main() {
     "app/api/overview/route.test.ts",
     "app/api/overview-summary/route.test.ts",
     "app/api/overview-sparklines/route.test.ts",
+    "app/api/google-ads/status/route.test.ts",
+    "app/api/meta/campaigns/route.test.ts",
+    "app/api/meta/breakdowns/route.test.ts",
+    "lib/access.test.ts",
+    "lib/auth.test.ts",
+    "lib/request-path-migration-guard.test.ts",
   ]);
 }
 

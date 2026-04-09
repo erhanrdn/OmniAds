@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 
@@ -83,7 +84,12 @@ export async function createShopifyInstallContext(input: {
 export async function getShopifyInstallContext(
   token: string,
 ): Promise<ShopifyInstallContextRow | null> {
-  await runMigrations({ reason: "shopify_install_context_get" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_install_contexts"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   await sql`DELETE FROM shopify_install_contexts WHERE expires_at <= now()`;
   const rows = (await sql`
@@ -115,7 +121,12 @@ export async function getLatestShopifyInstallContextForActor(input: {
   const userId = sanitizeUuid(input.userId);
   if (!sessionId && !userId) return null;
 
-  await runMigrations({ reason: "shopify_install_context_lookup_actor" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_install_contexts"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   await sql`DELETE FROM shopify_install_contexts WHERE expires_at <= now()`;
 

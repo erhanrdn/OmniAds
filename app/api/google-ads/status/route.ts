@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getIntegrationMetadata } from "@/lib/integrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
@@ -37,7 +38,6 @@ import {
   GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES,
   isGoogleAdsAdvisorWindowReady,
 } from "@/lib/google-ads/advisor-readiness";
-import { runMigrations } from "@/lib/migrations";
 import {
   buildProviderStateContract,
   buildProviderSurfaces,
@@ -411,9 +411,25 @@ export async function GET(request: NextRequest) {
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
 
-  await runMigrations();
   const sql = getDb();
   const statusDegradedReasons: string[] = [];
+  const statusSchemaReadiness = await getDbSchemaReadiness({
+    tables: [
+      "provider_account_assignments",
+      "provider_account_snapshots",
+      "provider_quota_usage",
+      "provider_cooldown_state",
+      "google_ads_sync_runs",
+      "google_ads_sync_partitions",
+      "google_ads_sync_checkpoints",
+      "google_ads_sync_state",
+    ],
+  }).catch(() => null);
+  if (statusSchemaReadiness && !statusSchemaReadiness.ready) {
+    statusDegradedReasons.push(
+      `schema not ready for ${statusSchemaReadiness.missingTables.join(", ")}`,
+    );
+  }
   const captureOptional = async <T,>(
     label: string,
     promise: Promise<T>,

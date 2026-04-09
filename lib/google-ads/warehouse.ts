@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { getDb, getDbWithTimeout } from "@/lib/db";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 import { refreshOverviewSummaryFromGoogleAccountRows } from "@/lib/overview-summary-store";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
@@ -152,6 +153,16 @@ function normalizeTimestamp(value: unknown) {
 
 function tableNameForScope(scope: GoogleAdsWarehouseScope) {
   return GOOGLE_SCOPE_TABLES[scope];
+}
+
+async function assertGoogleAdsRequestReadTablesReady(
+  tables: string[],
+  context: string,
+) {
+  await assertDbSchemaReady({
+    tables,
+    context,
+  });
 }
 
 function buildGoogleAdsScopeLeasePrioritySql() {
@@ -2949,7 +2960,10 @@ export async function readGoogleAdsDailyRange(input: {
   endDate: string;
   timeoutMs?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    [tableNameForScope(input.scope)],
+    "google_ads_daily_range",
+  );
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const rows = (await sql.query(
@@ -3180,7 +3194,10 @@ export async function readGoogleAdsAggregatedRange(input: {
   endDate: string;
   timeoutMs?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    [tableNameForScope(input.scope)],
+    "google_ads_aggregated_range",
+  );
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const payloadProjection = payloadProjectionSqlForScope(input.scope);
@@ -3458,7 +3475,10 @@ export async function getGoogleAdsDailyCoverage(input: {
   timeoutMs?: number;
   includeMetadata?: boolean;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    [tableNameForScope(input.scope), "google_ads_sync_partitions"],
+    "google_ads_daily_coverage",
+  );
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const normalizedStartDate = normalizeDate(input.startDate);
@@ -3641,7 +3661,10 @@ export async function getGoogleAdsCoveredDates(input: {
   endDate: string;
   timeoutMs?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    [tableNameForScope(input.scope), "google_ads_sync_partitions"],
+    "google_ads_covered_dates",
+  );
   const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const table = tableNameForScope(input.scope);
   const normalizedStartDate = normalizeDate(input.startDate);
@@ -3722,7 +3745,10 @@ export async function getGoogleAdsCoveredDates(input: {
 }
 
 export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    ["google_ads_sync_partitions"],
+    "google_ads_queue_health",
+  );
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -3823,7 +3849,10 @@ export async function getGoogleAdsAdvisorQueueHealth(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    ["google_ads_sync_partitions"],
+    "google_ads_advisor_queue_health",
+  );
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -3876,7 +3905,10 @@ export async function getGoogleAdsPartitionHealth(input: {
   scope?: GoogleAdsWarehouseScope | null;
   lane?: GoogleAdsSyncLane | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    ["google_ads_sync_partitions"],
+    "google_ads_partition_health",
+  );
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -3907,7 +3939,10 @@ export async function getGoogleAdsCheckpointHealth(input: {
   businessId: string;
   providerAccountId?: string | null;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    ["google_ads_sync_partitions", "google_ads_sync_checkpoints"],
+    "google_ads_checkpoint_health",
+  );
   const sql = getDb();
   const rows = (await sql`
     WITH active_partitions AS (
@@ -4262,7 +4297,10 @@ export async function getGoogleAdsSyncState(input: {
   providerAccountId?: string | null;
   scope: GoogleAdsWarehouseScope;
 }) {
-  await runMigrations();
+  await assertGoogleAdsRequestReadTablesReady(
+    ["google_ads_sync_state"],
+    "google_ads_sync_state",
+  );
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -4314,7 +4352,6 @@ export async function getLatestGoogleAdsSyncHealth(input: {
   businessId: string;
   providerAccountId?: string | null;
 }) {
-  await runMigrations();
   const sql = getDb();
   const [runRows, partitionRows] = await Promise.all([
     sql`

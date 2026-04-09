@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -11,7 +11,12 @@ export async function getSeoResultsCache<T>(params: {
   startDate: string;
   endDate: string;
 }): Promise<T | null> {
-  await runMigrations({ reason: "seo_results_cache_read" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["seo_results_cache"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT payload, generated_at
@@ -39,7 +44,12 @@ export async function setSeoResultsCache<T>(params: {
   endDate: string;
   payload: T;
 }): Promise<void> {
-  await runMigrations({ reason: "seo_results_cache_write" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["seo_results_cache"],
+  });
+  if (!readiness.ready) {
+    return;
+  }
   const sql = getDb();
   await sql`
     INSERT INTO seo_results_cache (business_id, cache_type, start_date, end_date, payload, generated_at)

@@ -42,6 +42,7 @@
     "google:ads:requeue-stale-core-frontier": "node --import tsx scripts/google-ads-requeue-stale-core-frontier.ts",
     "google:ads:progress-diff": "node --import tsx scripts/google-ads-progress-diff.ts",
     "benchmark:overview": "node --import tsx scripts/overview-benchmark.ts",
+    "db:migrate": "node --import tsx scripts/run-migrations.ts",
     "db:architecture:baseline": "node --import tsx scripts/db-architecture-baseline.ts"
   },
   "dependencies": {

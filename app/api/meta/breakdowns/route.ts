@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaBreakdowns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { runMigrations } from "@/lib/migrations";
 import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseBreakdowns } from "@/lib/meta/serving";
@@ -107,19 +107,15 @@ function parseNum(input: string | undefined): number {
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
   try {
+    const readiness = await getDbSchemaReadiness({
+      tables: ["provider_account_assignments"],
+    });
+    if (!readiness.ready) {
+      return [];
+    }
     const row = await getProviderAccountAssignments(businessId, "meta");
     return row?.account_ids ?? [];
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("does not exist") || msg.includes("relation")) {
-      try {
-        await runMigrations();
-        const row = await getProviderAccountAssignments(businessId, "meta");
-        return row?.account_ids ?? [];
-      } catch {
-        return [];
-      }
-    }
+  } catch {
     return [];
   }
 }

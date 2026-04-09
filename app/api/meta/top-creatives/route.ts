@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { CreativeFormat, CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
 import { requireBusinessAccess } from "@/lib/access";
 
@@ -114,20 +114,16 @@ function nDaysAgo(n: number) {
 }
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_account_assignments"],
+  });
+  if (!readiness.ready) {
+    return [];
+  }
   try {
     const row = await getProviderAccountAssignments(businessId, "meta");
     return row?.account_ids ?? [];
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("does not exist") || msg.includes("relation")) {
-      try {
-        await runMigrations();
-        const row = await getProviderAccountAssignments(businessId, "meta");
-        return row?.account_ids ?? [];
-      } catch {
-        return [];
-      }
-    }
+  } catch {
     return [];
   }
 }

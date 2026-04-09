@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 import type { SeoAiAnalysis } from "@/lib/seo/intelligence";
 
@@ -20,7 +21,12 @@ export async function getSeoMonthlyAiAnalysis(params: {
   businessId: string;
   analysisMonth: string;
 }) {
-  await runMigrations({ reason: "seo_monthly_ai_analysis_lookup" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["seo_ai_monthly_analyses"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT *

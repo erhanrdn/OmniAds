@@ -144,6 +144,7 @@ Legend:
 
 ## Notes
 
+- Request-time read/access surfaces in this phase depend on `lib/db-schema-readiness.ts` instead of `runMigrations()`. Missing tables now degrade to empty/null/status responses without mutating schema state.
 - The hottest request-path pivots are `memberships`, `integrations`, `provider_account_assignments`, `provider_account_snapshots`, `meta_account_daily`, `google_ads_account_daily`, `shopify_orders`, `shopify_refunds`, `shopify_returns`, `platform_overview_*`, and `shopify_serving_state`.
 - `provider_reporting_snapshots`, `platform_overview_*`, and `shopify_*serving*` are serving/projection tables, not source-of-truth tables.
 - `meta_*_daily` and `google_ads_*_daily` are the historical warehouse truth tables currently mixed with live exceptions in request-time orchestration.

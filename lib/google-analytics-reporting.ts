@@ -1,7 +1,7 @@
 import { getIntegration, upsertIntegration } from "@/lib/integrations";
 import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 const REPORTING_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 // 60 sn → 5 dk: quota hatasında daha uzun bekleme
@@ -30,7 +30,12 @@ function updateQuotaFromHeaders(propertyId: string, headers: Headers): void {
 }
 
 function logGa4QuotaUsage(businessId: string, isError: boolean): void {
-  runMigrations().then(() => {
+  getDbSchemaReadiness({
+    tables: ["provider_quota_usage"],
+  }).then((readiness) => {
+    if (!readiness.ready) {
+      return;
+    }
     const sql = getDb();
     return sql`
       INSERT INTO provider_quota_usage (business_id, provider, quota_date, call_count, error_count, last_called_at)

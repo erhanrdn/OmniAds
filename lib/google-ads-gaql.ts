@@ -6,7 +6,7 @@ import { runProviderRequestWithGovernance } from "@/lib/provider-request-governa
 import { createHash } from "node:crypto";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 interface GaqlSearchResult {
   results?: Array<{
@@ -84,7 +84,12 @@ const GAQL_DB_PROVIDER = "google_ads_gaql";
 
 async function readGaqlFromDb(cacheKey: string): Promise<GaqlSearchResult | null> {
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["provider_reporting_snapshots"],
+    });
+    if (!readiness.ready) {
+      return null;
+    }
     const sql = getDb();
     const rows = await sql`
       SELECT payload, updated_at
@@ -102,7 +107,12 @@ async function readGaqlFromDb(cacheKey: string): Promise<GaqlSearchResult | null
 }
 
 function writeGaqlToDb(businessId: string, cacheKey: string, value: GaqlSearchResult): void {
-  runMigrations().then(() => {
+  getDbSchemaReadiness({
+    tables: ["provider_reporting_snapshots"],
+  }).then((readiness) => {
+    if (!readiness.ready) {
+      return;
+    }
     const sql = getDb();
     return sql`
       INSERT INTO provider_reporting_snapshots (business_id, provider, report_type, date_range_key, payload, updated_at)

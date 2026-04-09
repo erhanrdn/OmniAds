@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 
 export interface ProviderReportingSnapshotRow<TPayload = unknown> {
@@ -47,7 +48,12 @@ async function getSnapshotRow<TPayload>(input: {
   reportType: string;
   dateRangeKey: string;
 }): Promise<ProviderReportingSnapshotRow<TPayload> | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_reporting_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -113,7 +119,12 @@ export async function setCachedReport<TPayload>(input: {
   dateRangeKey: string;
   payload: TPayload;
 }): Promise<void> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_reporting_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return;
+  }
   const sql = getDb();
   const payloadJson = JSON.stringify(sanitizeForJson(input.payload));
 

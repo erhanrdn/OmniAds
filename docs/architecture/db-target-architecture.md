@@ -2,6 +2,19 @@
 
 Goal: move from request-time mixed reads/writes to a layered, explicit read model without changing contracts until the dedicated cutover phase.
 
+## Request-path rule
+
+Request handlers, auth/access reads, server-side share/report lookups, and route-local cache readers must never call `runMigrations()` directly or transitively.
+
+Allowed request-path schema behavior:
+- Read-only readiness checks via `lib/db-schema-readiness.ts`
+- Safe degraded empty/null/status responses that preserve existing contracts
+- Existing request-time DML that is already part of the contract, but only after schema readiness is confirmed
+
+Disallowed request-path schema behavior:
+- `runMigrations()` in `GET`, auth/access checks, middleware, shared read helpers, or route-local missing-table fallback
+- Migrate-on-read retries after `relation does not exist`
+
 ## Target layer model
 
 | Layer | Responsibility | Allowed writes | Allowed request-time reads |
@@ -19,6 +32,7 @@ Goal: move from request-time mixed reads/writes to a layered, explicit read mode
 
 Expected behaviors:
 - Request handlers read `core`, `warehouse`, and `serving`.
+- Request handlers may probe schema readiness, but they do not bootstrap schema.
 - Workers/webhooks mutate `control`, `raw`, `warehouse`, `serving`, and `audit`.
 - `control` tables should not be the primary UI contract; routes should read from compact serving summaries derived from control state.
 - `serving` tables should be populated by sync completion hooks, workers, or explicit admin actions, not by passive `GET` traffic.
@@ -52,8 +66,10 @@ The target architecture still allows narrow live exceptions, but they must be ex
    - Maintain the docs, route contract tests, and side-effect scan added in this phase.
 
 2. Remove request-path migrations.
-   - `runMigrations()` must leave auth, overview, status, and provider read helpers.
-   - Startup/admin/deploy lanes become the only schema bootstrap points.
+   - `runMigrations()` must leave auth, overview, status, report/share, SEO, Shopify OAuth read helpers, and provider read helpers.
+   - Request-time callers may only use `db-schema-readiness` and safe degrade paths.
+   - Explicit request-external bootstrap entrypoints are `npm run db:migrate` and `node --import tsx scripts/run-migrations.ts`.
+   - Legacy HTTP ops routes that still migrate are transitional debt, not part of the target architecture.
 
 3. Remove GET-path writes.
    - Move Shopify serving-state persistence, reconciliation-run inserts, overview projection hydration, and report-cache writes to background or sync-completion hooks.
@@ -76,7 +92,7 @@ The target architecture still allows narrow live exceptions, but they must be ex
 | Phase | Goal | Safe changes allowed | Exit criteria |
 | --- | --- | --- | --- |
 | `Phase 0` | Audit + baseline | Docs, tests, scripts, read-only SQL only | Current contract and risk map are frozen |
-| `Phase 1` | Migration isolation | Startup/bootstrap changes, no route contract changes | No request-path `runMigrations()` |
+| `Phase 1` | Migration isolation | Startup/bootstrap changes, readiness gates, no route contract changes | No request-path read/access `runMigrations()`; explicit request-external migration entrypoint documented |
 | `Phase 2` | Read-path write removal | Move cache/projection/serving-state writes off-path | No `GET` write side effects for overview/meta/google/shopify |
 | `Phase 3` | Lane separation | Refactor live/warehouse/projection adapters behind same contracts | Historical reads are warehouse-or-serving only |
 | `Phase 4` | Serving-model stabilization | New materializers and provider-status projections | Status/overview routes no longer query raw control tables directly |

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb } from "@/lib/db";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { runMigrations } from "@/lib/migrations";
 import { refreshOverviewSummaryFromMetaAccountRows } from "@/lib/overview-summary-store";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
@@ -290,6 +291,16 @@ async function hasMetaTruthLifecycleColumns() {
     }
   })();
   return cachedMetaTruthLifecycleColumnsAvailablePromise;
+}
+
+async function assertMetaRequestReadTablesReady(
+  tables: string[],
+  context: string,
+) {
+  await assertDbSchemaReady({
+    tables,
+    context,
+  });
 }
 
 function parseTimestampMs(value: unknown) {
@@ -1433,7 +1444,13 @@ export async function getMetaPublishedVerificationSummary(input: {
     };
   }
 
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    [
+      "meta_authoritative_slice_versions",
+      "meta_authoritative_publication_pointers",
+    ],
+    "meta_published_verification_summary",
+  );
   const sql = getDb();
   const [rows, accountTimezoneRows] = await Promise.all([
     sql`
@@ -4177,7 +4194,10 @@ export async function getLatestMetaSyncHealth(input: {
   businessId: string;
   providerAccountId?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_runs", "meta_sync_partitions", "meta_sync_jobs"],
+    "meta_latest_sync_health",
+  );
   const sql = getDb();
   const [runRows, partitionRows, legacyRows] = await Promise.all([
     sql`
@@ -4338,7 +4358,10 @@ export async function getMetaSyncJobHealth(input: {
   businessId: string;
   staleAfterMinutes?: number;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_jobs"],
+    "meta_sync_job_health",
+  );
   const sql = getDb();
   const staleAfterMinutes = Math.max(10, Math.floor(input.staleAfterMinutes ?? 45));
   const rows = await sql`
@@ -4361,7 +4384,10 @@ export async function getMetaSyncJobHealth(input: {
 }
 
 export async function getMetaQueueHealth(input: { businessId: string }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_partitions"],
+    "meta_queue_health",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -4456,7 +4482,10 @@ export interface MetaQueueComposition {
 }
 
 export async function getMetaQueueComposition(input: { businessId: string }): Promise<MetaQueueComposition> {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_partitions"],
+    "meta_queue_composition",
+  );
   const sql = getDb();
   const [statusRows, breakdownRows] = (await Promise.all([
     sql`
@@ -4726,7 +4755,10 @@ async function getMetaCoverageForTable(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    [input.tableName, "meta_sync_partitions"],
+    "meta_coverage",
+  );
   const sql = getDb();
   const [rows, partitionRows] = await Promise.all([
     sql.query(
@@ -4874,7 +4906,10 @@ export async function getMetaAdDailyPreviewCoverage(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_ad_daily"],
+    "meta_ad_preview_coverage",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -4915,7 +4950,10 @@ export async function getMetaRawSnapshotCoverageByEndpoint(input: {
     return new Map<string, { completed_days: number; ready_through_date: string | null }>();
   }
 
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_raw_snapshots"],
+    "meta_raw_snapshot_coverage",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -5067,7 +5105,10 @@ export async function getMetaSyncState(input: {
   providerAccountId?: string | null;
   scope: MetaWarehouseScope;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_state"],
+    "meta_sync_state",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -5115,7 +5156,10 @@ export async function getMetaAccountDailyStats(input: {
   businessId: string;
   providerAccountId?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_account_daily"],
+    "meta_account_daily_stats",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -6195,7 +6239,10 @@ export async function getMetaAccountDailyRange(input: {
   providerAccountIds?: string[] | null;
   includeProvisional?: boolean;
 }): Promise<MetaAccountDailyRow[]> {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_account_daily"],
+    "meta_account_daily_range",
+  );
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   const rows = supportsTruthLifecycle
@@ -6378,7 +6425,10 @@ export async function getMetaCheckpointHealth(input: {
   businessId: string;
   providerAccountId?: string | null;
 }) {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_checkpoints"],
+    "meta_checkpoint_health",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
@@ -6433,7 +6483,17 @@ export async function getMetaDirtyRecentDates(input: {
   endDate: string;
   slowPathDates?: string[] | null;
 }): Promise<MetaDirtyRecentDateRow[]> {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    [
+      "meta_account_daily",
+      "meta_campaign_daily",
+      "meta_adset_daily",
+      "meta_breakdown_daily",
+      "meta_sync_partitions",
+      "meta_sync_checkpoints",
+    ],
+    "meta_dirty_recent_dates",
+  );
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   const fastRows = supportsTruthLifecycle
@@ -7011,7 +7071,10 @@ export async function getMetaCampaignDailyRange(input: {
   providerAccountIds?: string[] | null;
   includeProvisional?: boolean;
 }): Promise<MetaCampaignDailyRow[]> {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_campaign_daily"],
+    "meta_campaign_daily_range",
+  );
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   const rows = supportsTruthLifecycle
@@ -7288,7 +7351,10 @@ export async function getMetaAdSetDailyRange(input: {
   campaignIds?: string[] | null;
   includeProvisional?: boolean;
 }): Promise<MetaAdSetDailyRow[]> {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_adset_daily"],
+    "meta_adset_daily_range",
+  );
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   const rows = supportsTruthLifecycle
@@ -7569,7 +7635,10 @@ export async function getMetaBreakdownDailyRange(input: {
   breakdownTypes?: MetaBreakdownType[] | null;
   includeProvisional?: boolean;
 }): Promise<MetaBreakdownDailyRow[]> {
-  await runMigrations();
+  await assertMetaRequestReadTablesReady(
+    ["meta_breakdown_daily"],
+    "meta_breakdown_daily_range",
+  );
   const sql = getDb();
   const rows = await sql`
     SELECT
