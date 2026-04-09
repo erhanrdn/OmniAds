@@ -5,17 +5,40 @@ import {
   buildMetaFairnessLeasePlan,
   buildMetaFollowupLeasePlan,
   buildMetaLaneProgressEvidence,
+  hasMetaInProcessBackgroundWorkerIdentity,
   getDeprecatedMetaPartitionCancellationReason,
   getMetaExtendedHistoricalFairnessLimit,
   getMetaHistoricalCoreFairnessLimit,
   isMetaAuthoritativeHistoricalSource,
   logMetaQueueVisibility,
+  resolveMetaTruthState,
   resolveMetaHistoricalReplaySource,
   shouldBypassMetaCoverageShortCircuit,
 } from "@/lib/sync/meta-sync";
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("hasMetaInProcessBackgroundWorkerIdentity", () => {
+  it("requires an explicit tracked worker id", () => {
+    expect(
+      hasMetaInProcessBackgroundWorkerIdentity({
+        NODE_ENV: "development",
+        SYNC_WORKER_MODE: "1",
+      } as NodeJS.ProcessEnv),
+    ).toBe(false);
+    expect(
+      hasMetaInProcessBackgroundWorkerIdentity({
+        META_WORKER_ID: "meta-repair:biz-1",
+      } as unknown as NodeJS.ProcessEnv),
+    ).toBe(true);
+    expect(
+      hasMetaInProcessBackgroundWorkerIdentity({
+        WORKER_INSTANCE_ID: "worker-1",
+      } as unknown as NodeJS.ProcessEnv),
+    ).toBe(true);
+  });
 });
 
 describe("buildMetaLaneProgressEvidence", () => {
@@ -347,5 +370,20 @@ describe("authoritative finalization gating", () => {
         businessId: "biz-1",
       }),
     ).toBe(true);
+  });
+
+  it("keeps current-day repair work provisional", () => {
+    expect(
+      resolveMetaTruthState({
+        day: "2026-04-08",
+        referenceToday: "2026-04-08",
+      }),
+    ).toBe("provisional");
+    expect(
+      resolveMetaTruthState({
+        day: "2026-04-07",
+        referenceToday: "2026-04-08",
+      }),
+    ).toBe("finalized");
   });
 });

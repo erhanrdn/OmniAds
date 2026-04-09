@@ -71,11 +71,21 @@ const META_SOURCE_PRIORITY_SQL = `
 `;
 
 function normalizeDate(value: unknown) {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   const text = String(value ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
   const parsed = new Date(text);
-  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  if (Number.isFinite(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   return text.slice(0, 10);
 }
 
@@ -104,6 +114,29 @@ function getTodayIsoForTimeZone(timeZone: string) {
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
+}
+
+function getMetaAccountTimeZone(
+  accountTimeZoneById: Map<string, string>,
+  providerAccountId: string,
+) {
+  return accountTimeZoneById.get(providerAccountId) ?? "UTC";
+}
+
+function isMetaCurrentAccountDay(input: {
+  day: string;
+  providerAccountId: string;
+  accountTimeZoneById: Map<string, string>;
+}) {
+  return (
+    normalizeDate(input.day) ===
+    getTodayIsoForTimeZone(
+      getMetaAccountTimeZone(
+        input.accountTimeZoneById,
+        input.providerAccountId,
+      ),
+    )
+  );
 }
 
 function addIsoDays(value: string, days: number) {
@@ -163,6 +196,21 @@ const META_EXPECTED_FINALIZED_BREAKDOWN_TYPES = [
   "country",
   "placement",
 ] as const satisfies readonly MetaBreakdownType[];
+
+const META_BREAKDOWN_CHECKPOINT_SCOPES = [
+  "breakdown:age,gender",
+  "breakdown:country",
+  "breakdown:publisher_platform,platform_position,impression_device",
+] as const;
+
+const META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_SQL = `
+  CASE checkpoint.checkpoint_scope
+    WHEN 'breakdown:age,gender' THEN 'age'
+    WHEN 'breakdown:country' THEN 'country'
+    WHEN 'breakdown:publisher_platform,platform_position,impression_device' THEN 'placement'
+    ELSE NULL
+  END
+`;
 
 const META_AUTHORITATIVE_CORE_SCOPES = [
   "account_daily",
@@ -1143,9 +1191,17 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
     await sql`
       UPDATE meta_authoritative_slice_versions
       SET
-        state = 'finalized_verified',
-        truth_state = 'finalized',
-        validation_status = 'passed',
+        state = CASE
+          WHEN COALESCE(truth_state, 'finalized') = 'finalized'
+            THEN 'finalized_verified'
+          ELSE 'live'
+        END,
+        truth_state = COALESCE(truth_state, 'finalized'),
+        validation_status = CASE
+          WHEN COALESCE(truth_state, 'finalized') = 'finalized'
+            THEN 'passed'
+          ELSE COALESCE(validation_status, 'pending')
+        END,
         status = 'published',
         published_at = now(),
         updated_at = now()
@@ -1183,7 +1239,7 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
         published_at = now(),
         updated_at = now()
       RETURNING *
-    ` as Array<{
+    ` as unknown as Array<{
       id: string;
       business_id: string;
       provider_account_id: string;
@@ -1379,66 +1435,104 @@ export async function getMetaPublishedVerificationSummary(input: {
 
   await runMigrations();
   const sql = getDb();
-  const rows = await sql`
-    WITH latest_slice AS (
-      SELECT *
-      FROM (
-        SELECT
-          slice.*,
-          ROW_NUMBER() OVER (
-            PARTITION BY slice.business_id, slice.provider_account_id, slice.day, slice.surface
-            ORDER BY slice.candidate_version DESC, slice.created_at DESC, slice.id DESC
-          ) AS row_num
-        FROM meta_authoritative_slice_versions slice
-        WHERE slice.business_id = ${input.businessId}
-          AND slice.provider_account_id = ANY(${providerAccountIds}::text[])
-          AND slice.day >= ${normalizeDate(input.startDate)}
-          AND slice.day <= ${normalizeDate(input.endDate)}
-          AND slice.surface = ANY(${surfaces}::text[])
-      ) ranked
-      WHERE row_num = 1
-    )
-    SELECT
-      latest_slice.business_id,
-      latest_slice.provider_account_id,
-      latest_slice.day,
-      latest_slice.surface,
-      latest_slice.id AS latest_slice_id,
-      latest_slice.state AS latest_state,
-      latest_slice.status AS latest_status,
-      latest_slice.validation_status AS latest_validation_status,
-      latest_slice.published_at AS latest_slice_published_at,
-      manifest.completed_at AS source_fetched_at,
-      pointer.active_slice_version_id,
-      pointer.published_at,
-      published_slice.state AS published_state,
-      published_slice.status AS published_status
-    FROM latest_slice
-    LEFT JOIN meta_authoritative_source_manifests manifest
-      ON manifest.id = latest_slice.manifest_id
-    LEFT JOIN meta_authoritative_publication_pointers pointer
-      ON pointer.business_id = latest_slice.business_id
-      AND pointer.provider_account_id = latest_slice.provider_account_id
-      AND pointer.day = latest_slice.day
-      AND pointer.surface = latest_slice.surface
-    LEFT JOIN meta_authoritative_slice_versions published_slice
-      ON published_slice.id = pointer.active_slice_version_id
-  ` as Array<{
-    business_id: string;
-    provider_account_id: string;
-    day: string;
-    surface: MetaWarehouseScope;
-    latest_slice_id: string | null;
-    latest_state: string | null;
-    latest_status: string | null;
-    latest_validation_status: string | null;
-    latest_slice_published_at: string | null;
-    source_fetched_at: string | null;
-    active_slice_version_id: string | null;
-    published_at: string | null;
-    published_state: string | null;
-    published_status: string | null;
-  }>;
+  const [rows, accountTimezoneRows] = await Promise.all([
+    sql`
+      WITH latest_slice AS (
+        SELECT *
+        FROM (
+          SELECT
+            slice.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY slice.business_id, slice.provider_account_id, slice.day, slice.surface
+              ORDER BY slice.candidate_version DESC, slice.created_at DESC, slice.id DESC
+            ) AS row_num
+          FROM meta_authoritative_slice_versions slice
+          WHERE slice.business_id = ${input.businessId}
+            AND slice.provider_account_id = ANY(${providerAccountIds}::text[])
+            AND slice.day >= ${normalizeDate(input.startDate)}
+            AND slice.day <= ${normalizeDate(input.endDate)}
+            AND slice.surface = ANY(${surfaces}::text[])
+        ) ranked
+        WHERE row_num = 1
+      )
+      SELECT
+        latest_slice.business_id,
+        latest_slice.provider_account_id,
+        latest_slice.day,
+        latest_slice.surface,
+        latest_slice.id AS latest_slice_id,
+        latest_slice.state AS latest_state,
+        latest_slice.status AS latest_status,
+        latest_slice.validation_status AS latest_validation_status,
+        latest_slice.published_at AS latest_slice_published_at,
+        manifest.completed_at AS source_fetched_at,
+        pointer.active_slice_version_id,
+        pointer.published_at,
+        published_slice.state AS published_state,
+        published_slice.status AS published_status
+      FROM latest_slice
+      LEFT JOIN meta_authoritative_source_manifests manifest
+        ON manifest.id = latest_slice.manifest_id
+      LEFT JOIN meta_authoritative_publication_pointers pointer
+        ON pointer.business_id = latest_slice.business_id
+        AND pointer.provider_account_id = latest_slice.provider_account_id
+        AND pointer.day = latest_slice.day
+        AND pointer.surface = latest_slice.surface
+      LEFT JOIN meta_authoritative_slice_versions published_slice
+        ON published_slice.id = pointer.active_slice_version_id
+    ` as unknown as Array<{
+      business_id: string;
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      latest_slice_id: string | null;
+      latest_state: string | null;
+      latest_status: string | null;
+      latest_validation_status: string | null;
+      latest_slice_published_at: string | null;
+      source_fetched_at: string | null;
+      active_slice_version_id: string | null;
+      published_at: string | null;
+      published_state: string | null;
+      published_status: string | null;
+    }>,
+    sql`
+      WITH manifest_accounts AS (
+        SELECT DISTINCT ON (provider_account_id)
+          provider_account_id,
+          COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
+        FROM meta_authoritative_source_manifests
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ANY(${providerAccountIds}::text[])
+        ORDER BY provider_account_id, updated_at DESC
+      ),
+      warehouse_accounts AS (
+        SELECT DISTINCT ON (provider_account_id)
+          provider_account_id,
+          COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
+        FROM meta_account_daily
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ANY(${providerAccountIds}::text[])
+        ORDER BY provider_account_id, date DESC, updated_at DESC
+      )
+      SELECT
+        COALESCE(manifest_accounts.provider_account_id, warehouse_accounts.provider_account_id) AS provider_account_id,
+        COALESCE(manifest_accounts.account_timezone, warehouse_accounts.account_timezone, 'UTC') AS account_timezone
+      FROM manifest_accounts
+      FULL OUTER JOIN warehouse_accounts
+        ON warehouse_accounts.provider_account_id = manifest_accounts.provider_account_id
+      WHERE COALESCE(manifest_accounts.provider_account_id, warehouse_accounts.provider_account_id) IS NOT NULL
+    ` as unknown as Array<{
+      provider_account_id: string;
+      account_timezone: string;
+    }>,
+  ]);
+  const accountTimeZoneById = new Map(
+    accountTimezoneRows.map((row) => [
+      row.provider_account_id,
+      row.account_timezone || "UTC",
+    ]),
+  );
 
   const rowByKey = new Map(
     rows.map((row) => [
@@ -1463,7 +1557,13 @@ export async function getMetaPublishedVerificationSummary(input: {
       for (const surface of surfaces) {
         const key = `${providerAccountId}:${day}:${surface}`;
         const row = rowByKey.get(key);
+        const isCurrentDay = isMetaCurrentAccountDay({
+          day,
+          providerAccountId,
+          accountTimeZoneById,
+        });
         const isPublished =
+          !isCurrentDay &&
           row?.active_slice_version_id != null &&
           row.published_status === "published" &&
           row.published_state === "finalized_verified";
@@ -1732,6 +1832,12 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
   }
 
   const progressionRow = progressionRows[0] ?? {};
+  const accountTimeZoneById = new Map(
+    accountRows.map((row) => [
+      row.provider_account_id,
+      row.account_timezone || "UTC",
+    ]),
+  );
   const recentCoreByKey = new Map(
     recentCoreRows.map((row) => [
       `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
@@ -1754,9 +1860,9 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
             campaignRow?.latest_failure_result === "repair_required"
           ? "repair_required"
           : null;
-    const publishedAtCandidates = [accountRow?.published_at, campaignRow?.published_at].filter(
-      (value): value is string => Boolean(value),
-    );
+    const publishedAtCandidates = [accountRow?.published_at, campaignRow?.published_at]
+      .map((value) => normalizeTimestamp(value))
+      .filter((value): value is string => Boolean(value));
     const verificationState =
       finalized
         ? "finalized_verified"
@@ -1789,20 +1895,29 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
       repairBacklog: toNumber(progressionRow.repair_backlog),
     },
     latestPublishes: latestPublishRows.map(
-      (row): MetaAuthoritativeLatestPublishRecord => ({
-        providerAccountId: row.provider_account_id,
-        day: normalizeDate(row.day),
-        surface: row.surface,
-        publishedAt: normalizeTimestamp(row.published_at),
-        verificationState:
-          row.verification_state === "failed" || row.verification_state === "repair_required"
-            ? row.verification_state
-            : row.verification_state === "finalized_verified"
-              ? "finalized_verified"
-              : "processing",
-        sourceKind: row.source_kind,
-        manifestFetchStatus: (row.manifest_fetch_status as MetaAuthoritativeSourceManifestRecord["fetchStatus"] | null) ?? null,
-      }),
+      (row): MetaAuthoritativeLatestPublishRecord => {
+        const normalizedDay = normalizeDate(row.day);
+        const isCurrentDay = isMetaCurrentAccountDay({
+          day: normalizedDay,
+          providerAccountId: row.provider_account_id,
+          accountTimeZoneById,
+        });
+        return {
+          providerAccountId: row.provider_account_id,
+          day: normalizedDay,
+          surface: row.surface,
+          publishedAt: normalizeTimestamp(row.published_at),
+          verificationState:
+            row.verification_state === "failed" ||
+            row.verification_state === "repair_required"
+              ? row.verification_state
+              : row.verification_state === "finalized_verified" && !isCurrentDay
+                ? "finalized_verified"
+                : "processing",
+          sourceKind: row.source_kind,
+          manifestFetchStatus: (row.manifest_fetch_status as MetaAuthoritativeSourceManifestRecord["fetchStatus"] | null) ?? null,
+        };
+      },
     ),
     d1FinalizeSla: {
       totalAccounts: d1Accounts.length,
@@ -1824,7 +1939,16 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
     ),
     lastSuccessfulPublishAt:
       latestPublishRows
-        .filter((row) => row.verification_state === "finalized_verified" && row.published_at)
+        .filter(
+          (row) =>
+            row.verification_state === "finalized_verified" &&
+            row.published_at &&
+            !isMetaCurrentAccountDay({
+              day: normalizeDate(row.day),
+              providerAccountId: row.provider_account_id,
+              accountTimeZoneById,
+            }),
+        )
         .map((row) => normalizeTimestamp(row.published_at))
         .filter((value): value is string => Boolean(value))
         .sort((a, b) => b.localeCompare(a))[0] ?? null,
@@ -2319,6 +2443,14 @@ export async function leaseMetaSyncPartitions(input: {
       SELECT id
       FROM meta_sync_partitions
       WHERE business_id = ${input.businessId}
+        AND EXISTS (
+          SELECT 1
+          FROM sync_runner_leases lease
+          WHERE lease.business_id = ${input.businessId}
+            AND lease.provider_scope = 'meta'
+            AND lease.lease_owner = ${input.workerId}
+            AND lease.lease_expires_at > now()
+        )
         AND (${input.lane ?? null}::text IS NULL OR lane = ${input.lane ?? null})
         AND (
           ${input.sources ?? null}::text[] IS NULL
@@ -2432,7 +2564,7 @@ export async function markMetaPartitionRunning(input: {
   await runMigrations();
   const sql = getDb();
   const rows = await sql`
-    UPDATE meta_sync_partitions
+    UPDATE meta_sync_partitions partition
     SET
       status = 'running',
       lease_owner = ${input.workerId},
@@ -2440,11 +2572,19 @@ export async function markMetaPartitionRunning(input: {
       lease_expires_at = now() + (${input.leaseMinutes ?? 15} || ' minutes')::interval,
       attempt_count = attempt_count + 1,
       updated_at = now()
-    WHERE id = ${input.partitionId}
-      AND lease_owner = ${input.workerId}
-      AND lease_epoch = ${input.leaseEpoch}
-      AND COALESCE(lease_expires_at, now()) > now()
-    RETURNING id
+    WHERE partition.id = ${input.partitionId}
+      AND partition.lease_owner = ${input.workerId}
+      AND partition.lease_epoch = ${input.leaseEpoch}
+      AND COALESCE(partition.lease_expires_at, now()) > now()
+      AND EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'meta'
+          AND lease.lease_owner = ${input.workerId}
+          AND lease.lease_expires_at > now()
+      )
+    RETURNING partition.id AS id
   ` as Array<{ id: string }>;
   return rows.length > 0;
 }
@@ -3875,18 +4015,55 @@ export async function heartbeatMetaPartitionLease(input: {
   await runMigrations();
   const sql = getDb();
   const rows = await sql`
-    UPDATE meta_sync_partitions
+    UPDATE meta_sync_partitions partition
     SET
       lease_owner = ${input.workerId},
       lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
       updated_at = now()
-    WHERE id = ${input.partitionId}
-      AND lease_owner = ${input.workerId}
-      AND lease_epoch = ${input.leaseEpoch}
-      AND COALESCE(lease_expires_at, now()) > now()
-    RETURNING id
+    WHERE partition.id = ${input.partitionId}
+      AND partition.lease_owner = ${input.workerId}
+      AND partition.lease_epoch = ${input.leaseEpoch}
+      AND COALESCE(partition.lease_expires_at, now()) > now()
+      AND EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'meta'
+          AND lease.lease_owner = ${input.workerId}
+          AND lease.lease_expires_at > now()
+      )
+    RETURNING partition.id AS id
   ` as Array<{ id: string }>;
   return rows.length > 0;
+}
+
+export async function releaseMetaLeasedPartitionsForWorker(input: {
+  businessId: string;
+  workerId: string;
+  retryDelayMinutes?: number;
+  lastError?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE meta_sync_partitions partition
+    SET
+      status = 'failed',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = now() + (${input.retryDelayMinutes ?? 3} || ' minutes')::interval,
+      last_error = COALESCE(
+        ${input.lastError ?? null}::text,
+        partition.last_error,
+        'leased partition released automatically after worker exit'
+      ),
+      updated_at = now()
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.lease_owner = ${input.workerId}
+      AND partition.status = 'leased'
+    RETURNING partition.id AS id
+  ` as Array<{ id: string }>;
+  return rows.length;
 }
 
 export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
@@ -6285,16 +6462,43 @@ export async function getMetaDirtyRecentDates(input: {
         AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
       GROUP BY provider_account_id, date
     ),
-    breakdown_totals AS (
+    breakdown_coverage AS (
       SELECT
         provider_account_id,
         date,
-        COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
+        breakdown_type
       FROM meta_breakdown_daily
       WHERE business_id = ${input.businessId}
         AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
         AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
         AND COALESCE(truth_state, 'finalized') = 'finalized'
+      UNION
+      SELECT
+        partition.provider_account_id,
+        partition.partition_date AS date,
+        CASE checkpoint.checkpoint_scope
+          WHEN 'breakdown:age,gender' THEN 'age'
+          WHEN 'breakdown:country' THEN 'country'
+          WHEN 'breakdown:publisher_platform,platform_position,impression_device' THEN 'placement'
+          ELSE NULL
+        END AS breakdown_type
+      FROM meta_sync_partitions partition
+      JOIN meta_sync_checkpoints checkpoint
+        ON checkpoint.partition_id = partition.id
+      WHERE partition.business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR partition.provider_account_id = ${input.providerAccountId ?? null})
+        AND partition.partition_date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+        AND checkpoint.phase = 'finalize'
+        AND checkpoint.status = 'succeeded'
+        AND checkpoint.checkpoint_scope = ANY(${Array.from(META_BREAKDOWN_CHECKPOINT_SCOPES)}::text[])
+    ),
+    breakdown_totals AS (
+      SELECT
+        provider_account_id,
+        date,
+        COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
+      FROM breakdown_coverage
+      WHERE breakdown_type IS NOT NULL
       GROUP BY provider_account_id, date
     )
     SELECT
@@ -6347,15 +6551,41 @@ export async function getMetaDirtyRecentDates(input: {
         AND date BETWEEN $3 AND $4
       GROUP BY provider_account_id, date
     ),
+    breakdown_coverage AS (
+      SELECT
+        provider_account_id,
+        date,
+        breakdown_type
+      FROM meta_breakdown_daily
+      WHERE business_id = $1
+        AND ($2::text IS NULL OR provider_account_id = $2)
+        AND date BETWEEN $3 AND $4
+      UNION
+      SELECT
+        partition.provider_account_id,
+        partition.partition_date AS date,
+        ${META_BREAKDOWN_CHECKPOINT_SCOPE_TO_TYPE_SQL} AS breakdown_type
+      FROM meta_sync_partitions partition
+      JOIN meta_sync_checkpoints checkpoint
+        ON checkpoint.partition_id = partition.id
+      WHERE partition.business_id = $1
+        AND ($2::text IS NULL OR partition.provider_account_id = $2)
+        AND partition.partition_date BETWEEN $3 AND $4
+        AND checkpoint.phase = 'finalize'
+        AND checkpoint.status = 'succeeded'
+        AND checkpoint.checkpoint_scope IN (
+          'breakdown:age,gender',
+          'breakdown:country',
+          'breakdown:publisher_platform,platform_position,impression_device'
+        )
+    ),
     breakdown_totals AS (
       SELECT
         provider_account_id,
         date,
         COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
-      FROM meta_breakdown_daily
-      WHERE business_id = $1
-        AND ($2::text IS NULL OR provider_account_id = $2)
-        AND date BETWEEN $3 AND $4
+      FROM breakdown_coverage
+      WHERE breakdown_type IS NOT NULL
       GROUP BY provider_account_id, date
     )
     SELECT
@@ -6408,15 +6638,42 @@ export async function getMetaDirtyRecentDates(input: {
         AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
       GROUP BY provider_account_id, date
     ),
+    breakdown_coverage AS (
+      SELECT
+        provider_account_id,
+        date,
+        breakdown_type
+      FROM meta_breakdown_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      UNION
+      SELECT
+        partition.provider_account_id,
+        partition.partition_date AS date,
+        CASE checkpoint.checkpoint_scope
+          WHEN 'breakdown:age,gender' THEN 'age'
+          WHEN 'breakdown:country' THEN 'country'
+          WHEN 'breakdown:publisher_platform,platform_position,impression_device' THEN 'placement'
+          ELSE NULL
+        END AS breakdown_type
+      FROM meta_sync_partitions partition
+      JOIN meta_sync_checkpoints checkpoint
+        ON checkpoint.partition_id = partition.id
+      WHERE partition.business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR partition.provider_account_id = ${input.providerAccountId ?? null})
+        AND partition.partition_date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+        AND checkpoint.phase = 'finalize'
+        AND checkpoint.status = 'succeeded'
+        AND checkpoint.checkpoint_scope = ANY(${Array.from(META_BREAKDOWN_CHECKPOINT_SCOPES)}::text[])
+    ),
     breakdown_totals AS (
       SELECT
         provider_account_id,
         date,
         COUNT(DISTINCT breakdown_type)::int AS finalized_breakdown_type_count
-      FROM meta_breakdown_daily
-      WHERE business_id = ${input.businessId}
-        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-        AND date BETWEEN ${normalizeDate(input.startDate)} AND ${normalizeDate(input.endDate)}
+      FROM breakdown_coverage
+      WHERE breakdown_type IS NOT NULL
       GROUP BY provider_account_id, date
     )
     SELECT

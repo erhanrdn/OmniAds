@@ -63,7 +63,7 @@ const {
 describe("syncMetaAccountCoreWarehouseDay", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    delete process.env.META_AUTHORITATIVE_FINALIZATION_V2;
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "0";
     delete process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES;
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
     vi.mocked(warehouse.listMetaRawSnapshotsForRun).mockResolvedValue([]);
@@ -1464,21 +1464,68 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
   });
 
-  it("replaces only the targeted breakdown slice with explicit metadata", async () => {
+  it("maps runtime breakdown params to the correct warehouse slice", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/insights")) {
+        const breakdowns = new URL(url).searchParams.get("breakdowns");
+        if (breakdowns === "age,gender") {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  age: "25-34",
+                  spend: "3.25",
+                  impressions: "100",
+                  clicks: "4",
+                  reach: "90",
+                  frequency: "1.11",
+                  ctr: "4.0",
+                  cpm: "32.5",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (breakdowns === "country") {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  country: "US",
+                  spend: "2.10",
+                  impressions: "90",
+                  clicks: "3",
+                  reach: "75",
+                  frequency: "1.2",
+                  ctr: "3.33",
+                  cpm: "23.33",
+                  actions: [],
+                  action_values: [],
+                  purchase_roas: [],
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
         return new Response(
           JSON.stringify({
             data: [
               {
-                age: "25-34",
-                spend: "3.25",
-                impressions: "100",
-                clicks: "4",
-                reach: "90",
-                frequency: "1.11",
-                ctr: "4.0",
-                cpm: "32.5",
+                publisher_platform: "facebook",
+                platform_position: "feed",
+                impression_device: "mobile",
+                spend: "4.20",
+                impressions: "120",
+                clicks: "5",
+                reach: "95",
+                frequency: "1.26",
+                ctr: "4.17",
+                cpm: "35.0",
                 actions: [],
                 action_values: [],
                 purchase_roas: [],
@@ -1492,37 +1539,59 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await syncMetaAccountBreakdownWarehouseDay({
-      credentials: {
-        businessId: "biz-1",
-        accessToken: "token-1",
-        accountIds: ["act_1"],
-        currency: "USD",
-        accountProfiles: {
-          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
-        },
+    const credentials: Parameters<typeof syncMetaAccountBreakdownWarehouseDay>[0]["credentials"] = {
+      businessId: "biz-1",
+      accessToken: "token-1",
+      accountIds: ["act_1"],
+      currency: "USD",
+      accountProfiles: {
+        act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
       },
-      accountId: "act_1",
-      day: "2026-04-03",
-      partitionId: "partition-breakdown",
-      workerId: "worker-1",
-      leaseEpoch: 31,
-      attemptCount: 1,
-      breakdowns: "breakdown_age",
-      endpointName: "breakdown_age",
-      positiveSpendAdIds: [],
-      leaseMinutes: 15,
-    });
+    };
 
-    expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenCalledWith(
-      expect.objectContaining({
-        slice: {
-          businessId: "biz-1",
-          providerAccountId: "act_1",
-          date: "2026-04-03",
-          breakdownType: "age",
-        },
-      }),
-    );
+    const cases = [
+      {
+        breakdowns: "age,gender",
+        endpointName: "breakdown_age",
+        expected: "age",
+      },
+      {
+        breakdowns: "country",
+        endpointName: "breakdown_country",
+        expected: "country",
+      },
+      {
+        breakdowns: "publisher_platform,platform_position,impression_device",
+        endpointName: "breakdown_publisher_platform,platform_position,impression_device",
+        expected: "placement",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      await syncMetaAccountBreakdownWarehouseDay({
+        credentials,
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: `partition-${testCase.expected}`,
+        workerId: "worker-1",
+        leaseEpoch: 31,
+        attemptCount: 1,
+        breakdowns: testCase.breakdowns,
+        endpointName: testCase.endpointName,
+        positiveSpendAdIds: [],
+        leaseMinutes: 15,
+      });
+
+      expect(warehouse.replaceMetaBreakdownDailySlice).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          slice: {
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            date: "2026-04-03",
+            breakdownType: testCase.expected,
+          },
+        }),
+      );
+    }
   });
 });

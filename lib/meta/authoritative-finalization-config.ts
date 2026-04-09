@@ -12,7 +12,7 @@ function envNumber(name: string, fallback: number) {
 }
 
 export function isMetaAuthoritativeFinalizationV2Enabled() {
-  return envBoolean("META_AUTHORITATIVE_FINALIZATION_V2", false);
+  return envBoolean("META_AUTHORITATIVE_FINALIZATION_V2", true);
 }
 
 export function getMetaAuthoritativeFinalizationCanaryBusinessIds() {

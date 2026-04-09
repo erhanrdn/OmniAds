@@ -1,4 +1,7 @@
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  configureOperationalScriptRuntime,
+  withOperationalRunnerLease,
+} from "./_operational-runtime";
 import { replayMetaDeadLetterPartitions } from "@/lib/meta/warehouse";
 import { syncMetaReports } from "@/lib/sync/meta-sync";
 
@@ -14,8 +17,18 @@ async function main() {
     console.error("usage: node --import tsx scripts/meta-replay-dead-letter.ts <businessId> [scope]");
     process.exit(1);
   }
+  if (process.env.SYNC_WORKER_MODE === "1" && !process.env.META_WORKER_ID) {
+    process.env.META_WORKER_ID = `meta-replay-dead-letter:${businessId}`;
+  }
   const result = await replayMetaDeadLetterPartitions({ businessId, scope: scope as never });
-  const syncResult = await syncMetaReports(businessId);
+  const leaseOwner =
+    process.env.META_WORKER_ID ?? `meta-replay-dead-letter:${businessId}`;
+  const syncResult = await withOperationalRunnerLease({
+    businessId,
+    providerScope: "meta",
+    leaseOwner,
+    run: () => syncMetaReports(businessId, { runtimeWorkerId: leaseOwner }),
+  });
   const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({ businessId }).catch(() => null);
   console.log(
     JSON.stringify(

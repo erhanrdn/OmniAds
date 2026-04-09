@@ -2521,8 +2521,8 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
 function getMetaBreakdownTypeFromInput(
   breakdowns: string,
 ): "age" | "country" | "placement" {
-  if (breakdowns === "breakdown_age") return "age";
-  if (breakdowns === "breakdown_country") return "country";
+  if (breakdowns === "breakdown_age" || breakdowns === "age,gender") return "age";
+  if (breakdowns === "breakdown_country" || breakdowns === "country") return "country";
   return "placement";
 }
 

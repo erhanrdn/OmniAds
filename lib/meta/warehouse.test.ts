@@ -26,6 +26,7 @@ const {
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaAuthoritativeDayVerification,
   getMetaActivePublishedSliceVersion,
+  getMetaPublishedVerificationSummary,
   upsertMetaAdDailyRows,
   getMetaAdSetDailyRange,
   getMetaCampaignDailyRange,
@@ -36,6 +37,7 @@ const {
   publishMetaAuthoritativeSliceVersion,
   replaceMetaBreakdownDailySlice,
   replayMetaDeadLetterPartitions,
+  releaseMetaLeasedPartitionsForWorker,
   reserveNextMetaAuthoritativeCandidateVersion,
   supersedeMetaAuthoritativeSliceVersions,
   upsertMetaAdSetDailyRows,
@@ -130,6 +132,29 @@ describe("meta warehouse ownership safety", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.leaseEpoch).toBe(4);
     expect(queries.some((query) => query.includes("lease_epoch = partition.lease_epoch + 1"))).toBe(true);
+    expect(queries.some((query) => query.includes("FROM sync_runner_leases lease"))).toBe(true);
+    expect(queries.some((query) => query.includes("lease.provider_scope = 'meta'"))).toBe(true);
+  });
+
+  it("releases leased partitions owned by a worker after the worker exits", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "partition-1" }, { id: "partition-2" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const released = await releaseMetaLeasedPartitionsForWorker({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      lastError: "worker_exit",
+    });
+
+    expect(released).toBe(2);
+    const query = queries.join("\n");
+    expect(query).toContain("status = 'failed'");
+    expect(query).toContain("AND partition.lease_owner =");
+    expect(query).toContain("AND partition.status = 'leased'");
   });
 
   it("prioritizes newest dates first across priority and historical meta partitions", async () => {
@@ -535,7 +560,9 @@ describe("meta warehouse ownership safety", () => {
     });
 
     expect(result).toBe(true);
-    expect(queries.some((query) => query.includes("AND lease_epoch = "))).toBe(true);
+    expect(queries.some((query) => query.includes("partition.lease_epoch = "))).toBe(true);
+    expect(queries.some((query) => query.includes("FROM sync_runner_leases lease"))).toBe(true);
+    expect(queries.some((query) => query.includes("lease.provider_scope = 'meta'"))).toBe(true);
     expect(calls.at(0)).toContain(7);
     expect(calls.at(0)).toContain(15);
   });
@@ -728,6 +755,45 @@ describe("meta warehouse ownership safety", () => {
 
     expect(rows).toEqual([]);
     expect(slowQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats successful empty breakdown checkpoints as complete coverage", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("information_schema.columns")) {
+        return [{ present: true }];
+      }
+      return [
+        {
+          date: "2026-04-03",
+          provider_account_id: "acct-1",
+          campaign_count: 1,
+          adset_count: 1,
+          account_truth_state: "finalized",
+          account_validation_status: "passed",
+          campaigns_finalized: true,
+          adsets_finalized: true,
+          finalized_breakdown_type_count: 3,
+        },
+      ];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await getMetaDirtyRecentDates({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+    });
+
+    expect(rows).toEqual([]);
+    expect(
+      queries.some((query) => query.includes("meta_sync_checkpoints checkpoint")),
+    ).toBe(true);
+    expect(
+      queries.some((query) => query.includes("breakdown:publisher_platform,platform_position,impression_device")),
+    ).toBe(true);
   });
 
   it("returns cooldown and repeated-failure guard data for authoritative slices", async () => {
@@ -1662,6 +1728,50 @@ describe("meta warehouse ownership safety", () => {
     ).toBe(true);
   });
 
+  it("preserves live semantics when publishing a provisional slice", async () => {
+    const templateCalls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      templateCalls.push(strings.join(" "));
+      return [
+        {
+          id: "pub-live-1",
+          business_id: "biz-1",
+          provider_account_id: "acct-1",
+          day: "2026-04-08",
+          surface: "account_daily",
+          active_slice_version_id: "slice-live-1",
+          published_by_run_id: "run-live-1",
+          publication_reason: "today_refresh",
+          published_at: "2026-04-08T18:03:00.000Z",
+          created_at: "2026-04-08T18:03:00.000Z",
+          updated_at: "2026-04-08T18:03:00.000Z",
+        },
+      ];
+    });
+    Object.assign(sql, {
+      query: vi.fn(async () => []),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const publication = await publishMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-08",
+      surface: "account_daily",
+      sliceVersionId: "slice-live-1",
+      publishedByRunId: "run-live-1",
+      publicationReason: "today_refresh",
+    });
+
+    expect(publication?.activeSliceVersionId).toBe("slice-live-1");
+    expect(templateCalls.some((query) => query.includes("ELSE 'live'"))).toBe(true);
+    expect(
+      templateCalls.some((query) =>
+        query.includes("ELSE COALESCE(validation_status, 'pending')"),
+      ),
+    ).toBe(true);
+  });
+
   it("reuses an existing slice version for the same source run id", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -2087,6 +2197,206 @@ describe("meta warehouse ownership safety", () => {
     expect(report.lastFailure?.reason).toBe("source mismatch");
     expect(report.deadLetters).toBe(1);
     expect(report.repairBacklog).toBe(2);
+  });
+
+  it("normalizes date-backed publish timestamps in the business ops snapshot", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("GROUP BY fetch_status")) {
+        return [{ fetch_status: "completed", count: 2 }];
+      }
+      if (query.includes("WITH published_days AS")) {
+        return [
+          {
+            queued: 0,
+            leased: 0,
+            retryable_failed: 0,
+            dead_letter: 0,
+            stale_leases: 0,
+            repair_backlog: 0,
+            published: 2,
+          },
+        ];
+      }
+      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "account_daily",
+            published_at: "2026-04-08T00:10:00.000Z",
+            source_kind: "finalize_day",
+            manifest_fetch_status: "completed",
+            verification_state: "finalized_verified",
+          },
+        ];
+      }
+      if (query.includes("created_at > now() - interval '24 hours'")) {
+        return [];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            account_timezone: "UTC",
+          },
+        ];
+      }
+      if (query.includes("WITH recent_core AS")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: new Date("2026-04-06T21:00:00.000Z"),
+            surface: "account_daily",
+            validation_status: "passed",
+            latest_failure_result: null,
+            published_at: new Date("2026-04-08T00:10:00.000Z"),
+          },
+          {
+            provider_account_id: "act_1",
+            day: new Date("2026-04-06T21:00:00.000Z"),
+            surface: "campaign_daily",
+            validation_status: "passed",
+            latest_failure_result: null,
+            published_at: new Date("2026-04-08T00:11:00.000Z"),
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({
+      businessId: "biz-1",
+      latestPublishLimit: 5,
+    });
+
+    expect(snapshot.d1FinalizeSla.totalAccounts).toBe(1);
+    expect(snapshot.d1FinalizeSla.accounts[0]).toMatchObject({
+      providerAccountId: "act_1",
+      publishedAt: "2026-04-08T00:10:00.000Z",
+    });
+  });
+
+  it("treats SQL date objects as local calendar dates in published verification", async () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "Europe/Istanbul";
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH latest_slice AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: new Date("2026-04-06T21:00:00.000Z"),
+            surface: "account_daily",
+            latest_slice_id: "slice-1",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2026-04-07T00:10:00.000Z",
+            source_fetched_at: "2026-04-07T00:01:00.000Z",
+            active_slice_version_id: "slice-1",
+            published_at: "2026-04-07T00:10:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: new Date("2026-04-06T21:00:00.000Z"),
+            surface: "campaign_daily",
+            latest_slice_id: "slice-2",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2026-04-07T00:11:00.000Z",
+            source_fetched_at: "2026-04-07T00:01:00.000Z",
+            active_slice_version_id: "slice-2",
+            published_at: "2026-04-07T00:11:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    try {
+      const summary = await getMetaPublishedVerificationSummary({
+        businessId: "biz-1",
+        providerAccountIds: ["act_1"],
+        startDate: "2026-04-07",
+        endDate: "2026-04-07",
+        surfaces: ["account_daily", "campaign_daily"],
+      });
+
+      expect(summary.verificationState).toBe("finalized_verified");
+      expect(summary.truthReady).toBe(true);
+      expect(summary.completedCoreDays).toBe(1);
+      expect(summary.publishedSlices).toBe(2);
+      expect(summary.publishedKeysBySurface.account_daily).toEqual(["act_1:2026-04-07"]);
+      expect(summary.publishedKeysBySurface.campaign_daily).toEqual(["act_1:2026-04-07"]);
+    } finally {
+      process.env.TZ = previousTz;
+    }
+  });
+
+  it("treats current-day published slices as processing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T18:00:00.000Z"));
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH latest_slice AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-08",
+            surface: "account_daily",
+            latest_slice_id: "slice-1",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2026-04-08T17:55:00.000Z",
+            source_fetched_at: "2026-04-08T17:50:00.000Z",
+            active_slice_version_id: "slice-1",
+            published_at: "2026-04-08T17:55:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+        ];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            account_timezone: "America/Anchorage",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    try {
+      const summary = await getMetaPublishedVerificationSummary({
+        businessId: "biz-1",
+        providerAccountIds: ["act_1"],
+        startDate: "2026-04-08",
+        endDate: "2026-04-08",
+        surfaces: ["account_daily"],
+      });
+
+      expect(summary.verificationState).toBe("processing");
+      expect(summary.truthReady).toBe(false);
+      expect(summary.publishedSlices).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

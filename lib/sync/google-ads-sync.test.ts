@@ -10,6 +10,7 @@ import {
   getGoogleAdsExtendedRecoveryBlockReason,
   getGoogleAdsHistoricalFairnessLeaseLimit,
   getGoogleAdsGapPlannerBlockingStatuses,
+  hasGoogleAdsInProcessBackgroundWorkerIdentity,
   buildGoogleAdsWarehouseFetchPlan,
   classifyGoogleAdsQueuedCampaignDailyPartition,
   canReuseExistingGoogleAdsSyncJob,
@@ -25,6 +26,27 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("hasGoogleAdsInProcessBackgroundWorkerIdentity", () => {
+  it("requires an explicit tracked worker id", () => {
+    expect(
+      hasGoogleAdsInProcessBackgroundWorkerIdentity({
+        NODE_ENV: "development",
+        SYNC_WORKER_MODE: "1",
+      } as NodeJS.ProcessEnv),
+    ).toBe(false);
+    expect(
+      hasGoogleAdsInProcessBackgroundWorkerIdentity({
+        GOOGLE_ADS_WORKER_ID: "google-repair:biz-1",
+      } as unknown as NodeJS.ProcessEnv),
+    ).toBe(true);
+    expect(
+      hasGoogleAdsInProcessBackgroundWorkerIdentity({
+        WORKER_INSTANCE_ID: "worker-1",
+      } as unknown as NodeJS.ProcessEnv),
+    ).toBe(true);
+  });
 });
 
 describe("buildGoogleAdsLaneAdmissionPolicy", () => {

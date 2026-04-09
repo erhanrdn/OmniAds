@@ -8,6 +8,8 @@ const getGoogleAdsCheckpointHealth = vi.fn();
 const getAssignedGoogleAccounts = vi.fn();
 const processGoogleAdsLifecyclePartition = vi.fn();
 const buildGoogleAdsWorkerLeasePlan = vi.fn();
+const syncGoogleAdsReports = vi.fn();
+const releaseGoogleAdsLeasedPartitionsForWorker = vi.fn();
 
 const resolveMetaCredentials = vi.fn();
 const getMetaCheckpointHealth = vi.fn();
@@ -17,6 +19,8 @@ const processMetaLifecyclePartition = vi.fn();
 const leaseMetaSyncPartitions = vi.fn();
 const queueMetaSyncPartition = vi.fn();
 const buildMetaWorkerLeasePlan = vi.fn();
+const consumeMetaQueuedWork = vi.fn();
+const releaseMetaLeasedPartitionsForWorker = vi.fn();
 const runMetaRepairCycle = vi.fn();
 const runGoogleAdsRepairCycle = vi.fn();
 
@@ -29,6 +33,7 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
   getGoogleAdsSyncCheckpoint,
   leaseGoogleAdsSyncPartitions,
   queueGoogleAdsSyncPartition,
+  releaseGoogleAdsLeasedPartitionsForWorker,
   upsertGoogleAdsSyncCheckpoint,
 }));
 
@@ -41,17 +46,18 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaSyncCheckpoint,
   leaseMetaSyncPartitions,
   queueMetaSyncPartition,
+  releaseMetaLeasedPartitionsForWorker,
   upsertMetaSyncCheckpoint,
 }));
 
 vi.mock("@/lib/sync/google-ads-sync", () => ({
-  syncGoogleAdsReports: vi.fn(),
+  syncGoogleAdsReports,
   processGoogleAdsLifecyclePartition,
   buildGoogleAdsWorkerLeasePlan,
 }));
 
 vi.mock("@/lib/sync/meta-sync", () => ({
-  consumeMetaQueuedWork: vi.fn(),
+  consumeMetaQueuedWork,
   processMetaLifecyclePartition,
   buildMetaWorkerLeasePlan,
 }));
@@ -211,6 +217,70 @@ describe("provider-worker-adapters", () => {
     );
   });
 
+  it("forwards the durable runtime worker id through Meta fallback consumption", async () => {
+    consumeMetaQueuedWork.mockResolvedValue({ outcome: "consume_succeeded" });
+
+    const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    await metaWorkerAdapter.consumeBusiness("biz-1", {
+      runtimeWorkerId: "worker-1",
+    });
+
+    expect(consumeMetaQueuedWork).toHaveBeenCalledWith("biz-1", {
+      runtimeWorkerId: "worker-1",
+    });
+  });
+
+  it("forwards the durable runtime worker id through Google fallback consumption", async () => {
+    syncGoogleAdsReports.mockResolvedValue({ outcome: "consume_succeeded" });
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    await googleAdsWorkerAdapter.consumeBusiness("biz-1", {
+      runtimeWorkerId: "worker-1",
+    });
+
+    expect(syncGoogleAdsReports).toHaveBeenCalledWith("biz-1", {
+      runtimeWorkerId: "worker-1",
+    });
+  });
+
+  it("releases leftover Meta leased partitions for the current runtime worker", async () => {
+    releaseMetaLeasedPartitionsForWorker.mockResolvedValue(2);
+
+    const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const released = await metaWorkerAdapter.cleanupOwnedLeasedPartitions?.({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      failureReason: "runner_lease_conflict",
+    });
+
+    expect(released).toBe(2);
+    expect(releaseMetaLeasedPartitionsForWorker).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      lastError:
+        "leased partition released automatically after runner_lease_conflict",
+    });
+  });
+
+  it("releases leftover Google leased partitions for the current runtime worker", async () => {
+    releaseGoogleAdsLeasedPartitionsForWorker.mockResolvedValue(3);
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const released = await googleAdsWorkerAdapter.cleanupOwnedLeasedPartitions?.({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      failureReason: "runner_lease_conflict",
+    });
+
+    expect(released).toBe(3);
+    expect(releaseGoogleAdsLeasedPartitionsForWorker).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      lastError:
+        "leased partition released automatically after runner_lease_conflict",
+    });
+  });
+
   it("routes Meta writeFacts through the legacy partition processor", async () => {
     processMetaLifecyclePartition.mockResolvedValue(true);
 
@@ -252,6 +322,7 @@ describe("provider-worker-adapters", () => {
         scope: "campaign_daily",
         partitionDate: "2026-04-01",
         lane: "core",
+        leaseEpoch: 9,
         leaseOwner: "worker-1",
         attemptCount: 1,
         source: "selected_range",
@@ -264,6 +335,7 @@ describe("provider-worker-adapters", () => {
         id: "part-1",
         businessId: "biz-1",
         scope: "campaign_daily",
+        leaseEpoch: 9,
       }),
       workerId: "worker-1",
     });
@@ -281,7 +353,9 @@ describe("provider-worker-adapters", () => {
         providerAccountId: "acct-1",
         scope: "campaign_daily",
         partitionDate: "2026-03-01",
+        leaseEpoch: 7,
         leaseOwner: "worker-1",
+        leaseExpiresAt: "2026-03-01T00:05:00.000Z",
       } as never,
       chunk: {
         pageIndex: 2,
@@ -302,7 +376,9 @@ describe("provider-worker-adapters", () => {
         nextPageToken: "token-2",
         rowsFetched: 25,
         rowsWritten: 25,
+        leaseEpoch: 7,
         leaseOwner: "worker-1",
+        leaseExpiresAt: "2026-03-01T00:05:00.000Z",
       })
     );
   });

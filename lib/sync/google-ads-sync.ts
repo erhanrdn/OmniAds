@@ -74,6 +74,7 @@ import {
   persistGoogleAdsRawSnapshot,
   queueGoogleAdsSyncPartition,
   heartbeatGoogleAdsPartitionLease,
+  releaseGoogleAdsLeasedPartitionsForWorker,
   upsertGoogleAdsSyncState,
   upsertGoogleAdsSyncCheckpoint,
   updateGoogleAdsSyncRun,
@@ -540,6 +541,17 @@ async function logGoogleAdsCompletionDenied(input: {
   return denialSnapshot;
 }
 
+function isGoogleAdsTerminalSuccessDenial(
+  denialSnapshot: Awaited<
+    ReturnType<typeof getGoogleAdsPartitionCompletionDenialSnapshot>
+  > | null,
+) {
+  return (
+    denialSnapshot?.denialClassification === "already_terminal" &&
+    denialSnapshot.currentPartitionStatus === "succeeded"
+  );
+}
+
 async function backfillGoogleAdsDeniedTerminalChildren(input: {
   partitionId: string;
   runId?: string | null;
@@ -732,11 +744,20 @@ const GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS = new Set(
   parseEnvList("GOOGLE_ADS_EXTENDED_CANARY_BUSINESS_IDS"),
 );
 
+export function hasGoogleAdsInProcessBackgroundWorkerIdentity(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return Boolean(
+    env.GOOGLE_ADS_WORKER_ID?.trim() || env.WORKER_INSTANCE_ID?.trim(),
+  );
+}
+
 function canUseInProcessBackgroundScheduling() {
   return (
     process.env.NODE_ENV !== "production" &&
     process.env.SYNC_WORKER_MODE === "1" &&
-    GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED
+    GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED &&
+    hasGoogleAdsInProcessBackgroundWorkerIdentity()
   );
 }
 
@@ -2786,6 +2807,10 @@ async function getMissingDatesForScope(input: {
 }
 
 function getGoogleAdsWorkerId() {
+  const overridden = process.env.GOOGLE_ADS_WORKER_ID?.trim();
+  if (overridden) return overridden;
+  const sharedWorkerId = process.env.WORKER_INSTANCE_ID?.trim();
+  if (sharedWorkerId) return sharedWorkerId;
   return `worker:${process.pid}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -3350,7 +3375,19 @@ export function scheduleGoogleAdsBackgroundSync(input: {
   businessId: string;
   delayMs?: number;
 }) {
-  if (!canUseInProcessBackgroundScheduling()) return false;
+  if (!canUseInProcessBackgroundScheduling()) {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      process.env.SYNC_WORKER_MODE === "1" &&
+      GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED &&
+      !hasGoogleAdsInProcessBackgroundWorkerIdentity()
+    ) {
+      console.info("[google-ads-sync] background_sync_skipped_missing_worker_identity", {
+        businessId: input.businessId,
+      });
+    }
+    return false;
+  }
   const timers = getBackgroundWorkerTimers();
   if (timers.has(input.businessId)) return false;
 
@@ -3358,7 +3395,14 @@ export function scheduleGoogleAdsBackgroundSync(input: {
     async () => {
       timers.delete(input.businessId);
       try {
-        await syncGoogleAdsReports(input.businessId);
+        const runtimeWorkerId =
+          process.env.GOOGLE_ADS_WORKER_ID?.trim() ||
+          process.env.WORKER_INSTANCE_ID?.trim() ||
+          undefined;
+        await syncGoogleAdsReports(
+          input.businessId,
+          runtimeWorkerId ? { runtimeWorkerId } : undefined,
+        );
       } catch (error) {
         console.error("[google-ads-sync] background_loop_failed", {
           businessId: input.businessId,
@@ -3755,6 +3799,7 @@ async function syncGoogleAdsAccountDay(input: {
           },
           partitionId: input.partitionId,
           workerId: input.workerId,
+          leaseEpoch: input.leaseEpoch,
           attemptCount: input.attemptCount,
           mapRow: (row, snapshotId) =>
             buildWarehouseRow({
@@ -3801,6 +3846,7 @@ async function syncGoogleAdsAccountDay(input: {
           requestContext: { source: "sync", report: "campaigns" },
           partitionId: input.partitionId,
           workerId: input.workerId,
+          leaseEpoch: input.leaseEpoch,
           attemptCount: input.attemptCount,
           mapRow: (row, snapshotId) =>
             buildWarehouseRow({
@@ -3852,6 +3898,7 @@ async function syncGoogleAdsAccountDay(input: {
                 },
                 partitionId: input.partitionId,
                 workerId: input.workerId,
+                leaseEpoch: input.leaseEpoch,
                 attemptCount: input.attemptCount,
                 mapRow: (row, snapshotId) =>
                   buildWarehouseRow({
@@ -3926,6 +3973,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "keywords" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -3975,6 +4023,7 @@ async function syncGoogleAdsAccountDay(input: {
                 requestContext: { source: "sync", report: "ads" },
                 partitionId: input.partitionId,
                 workerId: input.workerId,
+                leaseEpoch: input.leaseEpoch,
                 attemptCount: input.attemptCount,
                 mapRow: (row, snapshotId) =>
                   buildWarehouseRow({
@@ -4169,6 +4218,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "assets" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -4222,6 +4272,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "asset_groups" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -4272,6 +4323,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "audiences" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -4322,6 +4374,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "geo" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -4367,6 +4420,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "devices" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -4407,6 +4461,7 @@ async function syncGoogleAdsAccountDay(input: {
             requestContext: { source: "sync", report: "products" },
             partitionId: input.partitionId,
             workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
             attemptCount: input.attemptCount,
             mapRow: (row, snapshotId) =>
               buildWarehouseRow({
@@ -4844,6 +4899,18 @@ async function processGoogleAdsPartition(input: {
           pathKind: "primary",
         });
       }
+      if (isGoogleAdsTerminalSuccessDenial(denialSnapshot)) {
+        if (runId) {
+          await updateGoogleAdsSyncRun({
+            id: runId,
+            status: "succeeded",
+            durationMs: Date.now() - startedAt,
+            finishedAt: new Date().toISOString(),
+            onlyIfCurrentStatus: "running",
+          }).catch(() => null);
+        }
+        return true;
+      }
       if (runId) {
         await updateGoogleAdsSyncRun({
           id: runId,
@@ -4914,6 +4981,18 @@ async function processGoogleAdsPartition(input: {
           scope: input.partition.scope,
           pathKind: "primary",
         });
+      }
+      if (isGoogleAdsTerminalSuccessDenial(denialSnapshot)) {
+        if (runId) {
+          await updateGoogleAdsSyncRun({
+            id: runId,
+            status: "succeeded",
+            durationMs: Date.now() - startedAt,
+            finishedAt: new Date().toISOString(),
+            onlyIfCurrentStatus: "running",
+          }).catch(() => null);
+        }
+        return true;
       }
       if (runId) {
         await updateGoogleAdsSyncRun({
@@ -5516,6 +5595,7 @@ export async function syncGoogleAdsReports(
   businessId: string,
   input?: {
     runtimeLeaseGuard?: RunnerLeaseGuard;
+    runtimeWorkerId?: string;
   },
 ): Promise<GoogleAdsSyncResult> {
   if (process.env.SYNC_WORKER_MODE !== "1") {
@@ -5625,7 +5705,7 @@ export async function syncGoogleAdsReports(
   }
 
   backgroundSyncKeys.add(lockKey);
-  const workerId = getGoogleAdsWorkerId();
+  const workerId = input?.runtimeWorkerId ?? getGoogleAdsWorkerId();
   let hasReachedLeasing = false;
   try {
     const leaseConflictReason = () =>
@@ -5988,6 +6068,7 @@ export async function syncGoogleAdsReports(
           scope: partition.scope,
           partitionDate: partition.partitionDate,
           attemptCount: partition.attemptCount,
+          leaseEpoch: partition.leaseEpoch,
           source: partition.source,
         },
         workerId,
@@ -6083,6 +6164,7 @@ export async function syncGoogleAdsReports(
             scope: partition.scope,
             partitionDate: partition.partitionDate,
             attemptCount: partition.attemptCount,
+            leaseEpoch: partition.leaseEpoch,
             source: partition.source,
           },
           workerId,
@@ -6142,6 +6224,11 @@ export async function syncGoogleAdsReports(
       failureReason: error instanceof Error ? error.message : String(error),
     };
   } finally {
+    await releaseGoogleAdsLeasedPartitionsForWorker({
+      businessId,
+      workerId,
+      lastError: "leased partition released automatically after syncGoogleAdsReports returned",
+    }).catch(() => null);
     backgroundSyncKeys.delete(lockKey);
   }
 }

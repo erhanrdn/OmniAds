@@ -46,6 +46,7 @@ import {
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
   queueMetaSyncPartition,
+  releaseMetaLeasedPartitionsForWorker,
   replayMetaDeadLetterPartitions,
   requeueMetaRetryableFailedPartitions,
   updateMetaSyncJob,
@@ -228,6 +229,17 @@ async function logMetaSuccessCompletionDenied(input: {
       denialSnapshot?.denialClassification ?? "unknown_denial",
   });
   return denialSnapshot;
+}
+
+function isMetaTerminalSuccessDenial(
+  denialSnapshot: Awaited<
+    ReturnType<typeof getMetaPartitionCompletionDenialSnapshot>
+  > | null,
+) {
+  return (
+    denialSnapshot?.denialClassification === "already_terminal" &&
+    denialSnapshot.currentPartitionStatus === "succeeded"
+  );
 }
 
 async function backfillMetaDeniedTerminalRuns(input: {
@@ -430,11 +442,20 @@ const META_IN_PROCESS_RUNTIME_ENABLED =
   process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "1" ||
   process.env.META_ENABLE_IN_PROCESS_RUNTIME?.trim().toLowerCase() === "true";
 
+export function hasMetaInProcessBackgroundWorkerIdentity(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return Boolean(
+    env.META_WORKER_ID?.trim() || env.WORKER_INSTANCE_ID?.trim(),
+  );
+}
+
 function canUseInProcessBackgroundScheduling() {
   return (
     process.env.NODE_ENV !== "production" &&
     process.env.SYNC_WORKER_MODE === "1" &&
-    META_IN_PROCESS_RUNTIME_ENABLED
+    META_IN_PROCESS_RUNTIME_ENABLED &&
+    hasMetaInProcessBackgroundWorkerIdentity()
   );
 }
 
@@ -1012,6 +1033,8 @@ function classifyMetaRecentAction(input: {
 function getMetaWorkerId() {
   const overridden = process.env.META_WORKER_ID?.trim();
   if (overridden) return overridden;
+  const sharedWorkerId = process.env.WORKER_INSTANCE_ID?.trim();
+  if (sharedWorkerId) return sharedWorkerId;
   return `meta-worker:${process.pid}:${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -1308,6 +1331,13 @@ export function shouldBypassMetaCoverageShortCircuit(input: {
   );
 }
 
+export function resolveMetaTruthState(input: {
+  day: string;
+  referenceToday: string;
+}) {
+  return input.day === input.referenceToday ? "provisional" : "finalized";
+}
+
 async function syncMetaPartitionDay(input: {
   credentials: MetaCredentials;
   businessId: string;
@@ -1335,10 +1365,10 @@ async function syncMetaPartitionDay(input: {
   });
   const beforeCoverage = coverageState;
   const sourceTodayWindow = normalizedDay === getMetaReferenceToday(credentials);
-  const truthState =
-    sourceTodayWindow && !isMetaAuthoritativeHistoricalSource(input.source)
-      ? "provisional"
-      : "finalized";
+  const truthState = resolveMetaTruthState({
+    day: normalizedDay,
+    referenceToday: getMetaReferenceToday(credentials),
+  });
   const freshStart =
     truthState === "finalized" &&
     isMetaAuthoritativeHistoricalSource(input.source);
@@ -2062,7 +2092,21 @@ export function scheduleMetaBackgroundSync(input: {
   businessId: string;
   delayMs?: number;
 }) {
-  if (!canUseInProcessBackgroundScheduling()) return false;
+  if (!canUseInProcessBackgroundScheduling()) {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      process.env.SYNC_WORKER_MODE === "1" &&
+      META_IN_PROCESS_RUNTIME_ENABLED &&
+      !hasMetaInProcessBackgroundWorkerIdentity()
+    ) {
+      logMetaQueueVisibility("meta_runner_lease_not_acquired", {
+        businessId: input.businessId,
+        reason: "in_process_worker_identity_missing",
+        source: "schedule",
+      });
+    }
+    return false;
+  }
   const backgroundSyncKeys = getBackgroundSyncKeys();
   const timers = getBackgroundWorkerTimers();
   const key = input.businessId;
@@ -2078,10 +2122,18 @@ export function scheduleMetaBackgroundSync(input: {
   const timer = setTimeout(
     () => {
       timers.delete(key);
-      void syncMetaReports(input.businessId)
+      const runtimeWorkerId =
+        process.env.META_WORKER_ID?.trim() ||
+        process.env.WORKER_INSTANCE_ID?.trim() ||
+        undefined;
+      void syncMetaReports(
+        input.businessId,
+        runtimeWorkerId ? { runtimeWorkerId } : undefined,
+      )
         .catch((error) => {
           console.warn("[meta-sync] background_run_failed", {
             businessId: input.businessId,
+            workerId: runtimeWorkerId ?? null,
             message: error instanceof Error ? error.message : String(error),
           });
         })
@@ -2428,6 +2480,23 @@ async function processMetaPartition(input: {
             pathKind: "primary",
           });
         }
+        if (isMetaTerminalSuccessDenial(denialSnapshot)) {
+          await backfillMetaRunTerminalState({
+            runId,
+            recoveredRunId,
+            startedAtMs: startedAt,
+            status: "succeeded",
+            finishedAt: new Date().toISOString(),
+            context: {
+              partitionId,
+              workerId: input.workerId,
+              leaseEpoch: input.partition.leaseEpoch,
+              lane: input.partition.lane,
+              scope: input.partition.scope,
+            },
+          });
+          return true;
+        }
         if (runId) {
           await updateMetaSyncRun({
             id: runId,
@@ -2493,6 +2562,23 @@ async function processMetaPartition(input: {
             scope: input.partition.scope,
             pathKind: "primary",
           });
+        }
+        if (isMetaTerminalSuccessDenial(denialSnapshot)) {
+          await backfillMetaRunTerminalState({
+            runId,
+            recoveredRunId,
+            startedAtMs: startedAt,
+            status: "succeeded",
+            finishedAt: new Date().toISOString(),
+            context: {
+              partitionId,
+              workerId: input.workerId,
+              leaseEpoch: input.partition.leaseEpoch,
+              lane: input.partition.lane,
+              scope: input.partition.scope,
+            },
+          });
+          return true;
         }
         if (runId) {
           await updateMetaSyncRun({
@@ -2726,6 +2812,7 @@ export async function consumeMetaQueuedWork(
   businessId: string,
   input?: {
     runtimeLeaseGuard?: RunnerLeaseGuard;
+    runtimeWorkerId?: string;
   },
 ): Promise<MetaSyncResult> {
   const credentials = await resolveMetaCredentials(businessId).catch(
@@ -2776,7 +2863,7 @@ export async function consumeMetaQueuedWork(
   }
 
   backgroundSyncKeys.add(lockKey);
-  const workerId = getMetaWorkerId();
+  const workerId = input?.runtimeWorkerId ?? getMetaWorkerId();
   try {
     const leaseConflictReason = () =>
       input?.runtimeLeaseGuard?.getLeaseLossReason() ?? "runner_lease_conflict";
@@ -3079,12 +3166,21 @@ export async function consumeMetaQueuedWork(
         failed > 0 && succeeded === 0 ? leaseConflictReason() : null,
     };
   } finally {
+    await releaseMetaLeasedPartitionsForWorker({
+      businessId,
+      workerId,
+      lastError: "leased partition released automatically after consumeMetaQueuedWork returned",
+    }).catch(() => null);
     backgroundSyncKeys.delete(lockKey);
   }
 }
 
 export async function syncMetaReports(
   businessId: string,
+  input?: {
+    runtimeLeaseGuard?: RunnerLeaseGuard;
+    runtimeWorkerId?: string;
+  },
 ): Promise<MetaSyncResult> {
   if (process.env.SYNC_WORKER_MODE !== "1") {
     await enqueueMetaScheduledWork(businessId).catch(() => null);
@@ -3093,7 +3189,7 @@ export async function syncMetaReports(
   await recoverMetaD1FinalizePartitions({
     businessId,
   }).catch(() => null);
-  return consumeMetaQueuedWork(businessId);
+  return consumeMetaQueuedWork(businessId, input);
 }
 
 async function enqueueMetaRangeJob(input: {

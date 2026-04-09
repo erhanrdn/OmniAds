@@ -268,7 +268,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         id: "run-1",
         status: "failed",
         errorClass: "lease_conflict",
-        errorMessage: "partition lost ownership before success completion",
+        errorMessage: expect.stringContaining("partition lost ownership before"),
       })
     );
     expect(warnSpy).toHaveBeenCalledWith(
@@ -314,7 +314,10 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       latest_updated_at: null,
       ready_through_date: null,
     } as never);
-    vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(false);
+    vi.mocked(warehouse.heartbeatMetaPartitionLease)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
 
     const processed = await processMetaLifecyclePartition({
       partition: {
@@ -338,19 +341,17 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         id: "run-1",
         status: "failed",
         errorClass: "lease_conflict",
-        errorMessage: "partition lost ownership before success completion",
+        errorMessage: expect.stringContaining("partition lost ownership before"),
       })
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      "[meta-sync] partition_success_completion_denied",
+      "[meta-sync] partition_failed",
       expect.objectContaining({
-        partitionId: "partition-3",
-        runId: "run-1",
-        recoveredRunId: null,
-        workerId: "worker-1",
-        leaseEpoch: 15,
-        reason: "lease_conflict",
-        denialClassification: "owner_mismatch",
+        businessId: "biz-1",
+        scope: "account_daily",
+        lane: "extended",
+        source: "recent_recovery",
+        message: "lease_conflict:lease_heartbeat_rejected",
       })
     );
   });
@@ -453,12 +454,18 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       workerId: "worker-1",
     });
 
-    expect(processed).toBe(false);
+    expect(processed).toBe(true);
     expect(warehouse.backfillMetaRunningRunsForTerminalPartition).toHaveBeenCalledWith({
       partitionId: "partition-2b",
       runId: "run-1",
       recoveredRunId: null,
     });
+    expect(warehouse.updateMetaSyncRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "run-1",
+        status: "succeeded",
+      })
+    );
     expect(warnSpy).toHaveBeenCalledWith(
       "[meta-sync] terminal_parent_running_runs_backfilled",
       expect.objectContaining({

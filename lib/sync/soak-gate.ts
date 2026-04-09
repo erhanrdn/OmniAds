@@ -31,6 +31,34 @@ export interface SyncSoakEvaluation {
   summary: string;
 }
 
+function countBlockingBacklog(sync: AdminSyncHealthPayload) {
+  const googleBlockedQueueDepth = (sync.googleAdsBusinesses ?? [])
+    .filter(
+      (business) =>
+        business.progressState === "partial_stuck" ||
+        business.deadLetterPartitions > 0 ||
+        (business.reclaimCandidateCount ?? 0) > 0 ||
+        (business.poisonedCheckpointCount ?? 0) > 0 ||
+        (business.leaseConflictRuns24h ?? 0) > 0 ||
+        (business.integrityBlockedCount ?? 0) > 0,
+    )
+    .reduce((sum, business) => sum + business.queueDepth, 0);
+  const metaBlockedQueueDepth = (sync.metaBusinesses ?? [])
+    .filter(
+      (business) =>
+        business.progressState === "partial_stuck" ||
+        business.deadLetterPartitions > 0 ||
+        business.staleLeasePartitions > 0 ||
+        (business.reclaimCandidateCount ?? 0) > 0 ||
+        (business.staleRunCount24h ?? 0) > 0 ||
+        (business.integrityBlockedCount ?? 0) > 0 ||
+        (business.d1FinalizeNonTerminalCount ?? 0) > 0,
+    )
+    .reduce((sum, business) => sum + business.queueDepth, 0);
+
+  return googleBlockedQueueDepth + metaBlockedQueueDepth;
+}
+
 export function readSyncSoakThresholds(env: NodeJS.ProcessEnv = process.env): SyncSoakThresholds {
   const readThreshold = (name: string, fallback: number) => {
     const raw = env[name];
@@ -55,6 +83,7 @@ export function evaluateSyncSoakHealth(
 ): SyncSoakEvaluation {
   const summary = sync.summary;
   const criticalIssues = sync.issues.filter((issue) => issue.severity === "critical");
+  const blockingBacklogDepth = countBlockingBacklog(sync);
   const unresolvedRunbooks = sync.issues
     .filter((issue) => issue.runbookKey)
     .filter((issue) => !getSyncRunbook(issue.runbookKey))
@@ -92,8 +121,8 @@ export function evaluateSyncSoakHealth(
     },
     {
       key: "queue_depth",
-      ok: (summary.googleAdsQueueDepth ?? 0) + (summary.metaQueueDepth ?? 0) <= thresholds.maxQueueDepth,
-      actual: (summary.googleAdsQueueDepth ?? 0) + (summary.metaQueueDepth ?? 0),
+      ok: blockingBacklogDepth <= thresholds.maxQueueDepth,
+      actual: blockingBacklogDepth,
       threshold: thresholds.maxQueueDepth,
     },
     {

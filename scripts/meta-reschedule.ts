@@ -1,4 +1,7 @@
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  configureOperationalScriptRuntime,
+  withOperationalRunnerLease,
+} from "./_operational-runtime";
 
 async function main() {
   configureOperationalScriptRuntime();
@@ -17,7 +20,13 @@ async function main() {
   if (process.env.SYNC_WORKER_MODE === "1" && !process.env.META_WORKER_ID) {
     process.env.META_WORKER_ID = `meta-repair:${businessId}`;
   }
-  const result = await syncMetaReports(businessId);
+  const leaseOwner = process.env.META_WORKER_ID ?? `meta-repair:${businessId}`;
+  const result = await withOperationalRunnerLease({
+    businessId,
+    providerScope: "meta",
+    leaseOwner,
+    run: () => syncMetaReports(businessId, { runtimeWorkerId: leaseOwner }),
+  });
   const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({ businessId }).catch(() => null);
   console.log(
     JSON.stringify(

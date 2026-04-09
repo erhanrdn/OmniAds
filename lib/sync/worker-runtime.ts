@@ -192,6 +192,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const globalDbConcurrency = envNumber("WORKER_GLOBAL_DB_CONCURRENCY", 4);
   const partitionTickLimit = envNumber("WORKER_PARTITION_TICK_LIMIT", 1);
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
+  const pruneRetryIntervalMs = envNumber("WORKER_PRUNE_RETRY_INTERVAL_MS", 15 * 60_000);
   const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getCurrentRuntimeBuildId();
@@ -199,7 +200,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const lastAutoHealAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
-  let lastPruneAt = 0;
+  let nextPruneAt = 0;
 
   async function heartbeat(input: {
     providerScope: string;
@@ -242,13 +243,16 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   });
 
   while (!shuttingDown) {
-    if (Date.now() - lastPruneAt >= pruneIntervalMs) {
+    if (Date.now() >= nextPruneAt) {
       await pruneSyncLifecycleData()
         .then((result) => {
-          lastPruneAt = Date.now();
+          nextPruneAt =
+            Date.now() +
+            (result.skippedDueToActiveLease ? pruneRetryIntervalMs : pruneIntervalMs);
           console.log("[durable-worker] lifecycle_prune", result);
         })
         .catch((error) => {
+          nextPruneAt = Date.now() + pruneRetryIntervalMs;
           console.error("[durable-worker] lifecycle_prune_failed", {
             message: error instanceof Error ? error.message : String(error),
           });
@@ -512,6 +516,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             }).catch(() => null);
             result = await adapter.consumeBusiness(business.id, {
               runtimeLeaseGuard: leaseGuard,
+              runtimeWorkerId: workerId,
             });
           } else {
             result = {
@@ -639,6 +644,13 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             const renewalPromise: Promise<void> = leaseRenewalInFlight;
             await renewalPromise.catch(() => null);
           }
+          await adapter
+            .cleanupOwnedLeasedPartitions?.({
+              businessId: business.id,
+              workerId,
+              failureReason: leaseGuard.getLeaseLossReason(),
+            })
+            .catch(() => null);
           await releaseSyncRunnerLease({
             businessId: business.id,
             providerScope: adapter.providerScope,

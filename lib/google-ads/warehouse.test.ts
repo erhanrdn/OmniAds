@@ -62,6 +62,7 @@ const {
   leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
   replayGoogleAdsDeadLetterPartitions,
+  releaseGoogleAdsLeasedPartitionsForWorker,
   upsertGoogleAdsSyncCheckpoint,
 } = await import("@/lib/google-ads/warehouse");
 
@@ -220,6 +221,27 @@ describe("google ads warehouse ownership safety", () => {
     ).toBe(true);
   });
 
+  it("releases leased Google Ads partitions owned by a worker after the worker exits", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "partition-1" }, { id: "partition-2" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const released = await releaseGoogleAdsLeasedPartitionsForWorker({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      lastError: "worker_exit",
+    });
+
+    expect(released).toBe(2);
+    const query = queries.join("\n");
+    expect(query).toContain("status = 'failed'");
+    expect(query).toContain("AND partition.lease_owner =");
+    expect(query).toContain("AND partition.status = 'leased'");
+  });
+
   it("prioritizes finalize_day ahead of today in recent leasing queries", async () => {
     const queries: string[] = [];
     const sql = Object.assign(vi.fn(), {
@@ -244,14 +266,22 @@ describe("google ads warehouse ownership safety", () => {
     expect(leaseQuery).toContain("lease.provider_scope = 'google_ads'");
     expect(leaseQuery).toContain("lease.lease_owner = $4");
     expect(leaseQuery).toContain(
-      "source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery')",
+      "source IN ('selected_range', 'finalize_day', 'today', 'recent', 'recent_recovery')",
+    );
+    expect(leaseQuery).toContain(
+      "source = 'core_success'",
+    );
+    expect(leaseQuery).toContain(
+      "partition_date >= CURRENT_DATE - interval '13 days'",
     );
   });
 
   it("extends the running lease using the requested lease minutes", async () => {
+    const queries: string[] = [];
     const calls: unknown[][] = [];
     const sql = vi.fn(
-      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        queries.push(strings.join(" "));
         calls.push(values);
         return [{ id: "partition-1" }];
       },
@@ -267,6 +297,13 @@ describe("google ads warehouse ownership safety", () => {
 
     expect(result).toBe(true);
     expect(calls.at(0)).toContain(15);
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("FROM sync_runner_leases lease") &&
+          query.includes("lease.provider_scope = 'google_ads'"),
+      ),
+    ).toBe(true);
   });
 
   it("requires an active owned lease to write an owned checkpoint update", async () => {
@@ -300,6 +337,37 @@ describe("google ads warehouse ownership safety", () => {
           query.includes(
             "COALESCE(lease_expires_at, now() - interval '1 second') > now()",
           ),
+      ),
+    ).toBe(true);
+  });
+
+  it("clears poison markers when a succeeded checkpoint upsert omits poison metadata", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "checkpoint-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const checkpointId = await upsertGoogleAdsSyncCheckpoint({
+      partitionId: "partition-1",
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      checkpointScope: "campaign_daily",
+      phase: "finalize",
+      status: "succeeded",
+      pageIndex: 0,
+      attemptCount: 3,
+      leaseOwner: "worker-1",
+      leaseEpoch: 7,
+    });
+
+    expect(checkpointId).toBe("checkpoint-1");
+    expect(
+      queries.some(
+        (query) =>
+          query.includes("WHEN EXCLUDED.status = 'succeeded' AND EXCLUDED.poisoned_at IS NULL") &&
+          query.includes("poison_reason = CASE"),
       ),
     ).toBe(true);
   });
@@ -582,9 +650,11 @@ describe("google ads warehouse ownership safety", () => {
       queries.some(
         (query) =>
           query.includes("UPDATE google_ads_sync_partitions") &&
-          query.includes("AND lease_epoch = ") &&
+          query.includes("partition.lease_epoch = ") &&
           query.includes("lease_expires_at = now() +") &&
-          query.includes("COALESCE(lease_expires_at, now()) > now()"),
+          query.includes("COALESCE(partition.lease_expires_at, now()) > now()") &&
+          query.includes("FROM sync_runner_leases lease") &&
+          query.includes("lease.provider_scope = 'google_ads'"),
       ),
     ).toBe(true);
   });

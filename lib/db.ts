@@ -2,14 +2,24 @@ import { neon } from "@neondatabase/serverless";
 import { logStartupEvent } from "@/lib/startup-diagnostics";
 
 const DEFAULT_DB_TIMEOUT_MS = 8_000;
+const DEFAULT_WORKER_DB_TIMEOUT_MS = 30_000;
 const DEFAULT_DB_RETRY_ATTEMPTS = 4;
 const DB_RETRY_DELAY_MS = 400;
 
-function getDbTimeoutMs() {
-  const raw = process.env.DB_QUERY_TIMEOUT_MS?.trim();
-  if (!raw) return DEFAULT_DB_TIMEOUT_MS;
+export function resolveDbTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
+  const raw = env.DB_QUERY_TIMEOUT_MS?.trim();
+  const workerMode = env.SYNC_WORKER_MODE?.trim().toLowerCase();
+  const fallback =
+    workerMode === "1" || workerMode === "true"
+      ? DEFAULT_WORKER_DB_TIMEOUT_MS
+      : DEFAULT_DB_TIMEOUT_MS;
+  if (!raw) return fallback;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DB_TIMEOUT_MS;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getDbTimeoutMs() {
+  return resolveDbTimeoutMs(process.env);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {

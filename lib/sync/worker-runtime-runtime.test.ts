@@ -39,6 +39,7 @@ describe("worker runtime heartbeat repair metadata", () => {
 
   it("includes auto-heal cleanup details in provider heartbeats", async () => {
     const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+    const cleanupOwnedLeasedPartitions = vi.fn().mockResolvedValue(1);
 
     const runtime = runDurableWorkerRuntime({
       adapters: [
@@ -55,6 +56,7 @@ describe("worker runtime heartbeat repair metadata", () => {
           completePartition: async () => {},
           classifyFailure: () => "x",
           buildLeasePlan: async () => null,
+          cleanupOwnedLeasedPartitions,
           getReadiness: async () => ({
             readinessLevel: "usable",
             checkpointHealth: null,
@@ -96,6 +98,15 @@ describe("worker runtime heartbeat repair metadata", () => {
     });
 
     await runtime;
+
+    expect(cleanupOwnedLeasedPartitions).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      workerId: expect.stringMatching(/^sync-worker:/),
+      failureReason: null,
+    });
+    expect(cleanupOwnedLeasedPartitions.mock.invocationCallOrder[0]).toBeLessThan(
+      releaseSyncRunnerLease.mock.invocationCallOrder[0]
+    );
 
     expect(
       heartbeatSyncWorker.mock.calls.some(([input]) => {

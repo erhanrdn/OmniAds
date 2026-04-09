@@ -1,4 +1,7 @@
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  configureOperationalScriptRuntime,
+  withOperationalRunnerLease,
+} from "./_operational-runtime";
 
 async function main() {
   configureOperationalScriptRuntime();
@@ -17,7 +20,14 @@ async function main() {
     process.exit(1);
   }
 
-  const result = await syncGoogleAdsReports(businessId);
+  const leaseOwner =
+    process.env.WORKER_INSTANCE_ID ?? `script-google-ads-run-once:${process.pid}`;
+  const result = await withOperationalRunnerLease({
+    businessId,
+    providerScope: "google_ads",
+    leaseOwner,
+    run: () => syncGoogleAdsReports(businessId, { runtimeWorkerId: leaseOwner }),
+  });
   console.log(JSON.stringify({ businessId, result }, null, 2));
 }
 

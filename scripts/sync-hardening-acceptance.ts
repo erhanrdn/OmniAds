@@ -78,11 +78,22 @@ function slugify(value: string) {
 
 function normalizeDate(value: unknown) {
   if (!value) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   const text = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   const parsed = new Date(text);
-  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : text;
+  if (Number.isFinite(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return text;
 }
 
 function normalizeTimestamp(value: unknown) {
@@ -488,6 +499,35 @@ async function main() {
       ORDER BY snapshot.created_at DESC
     `,
     sql`
+      WITH manifest_accounts AS (
+        SELECT DISTINCT ON (business_id, provider_account_id)
+          business_id::text AS business_id,
+          provider_account_id,
+          COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
+        FROM meta_authoritative_source_manifests
+        WHERE business_id::text = ANY(${targetBusinessIds}::text[])
+        ORDER BY business_id, provider_account_id, updated_at DESC
+      ),
+      warehouse_accounts AS (
+        SELECT DISTINCT ON (business_id, provider_account_id)
+          business_id::text AS business_id,
+          provider_account_id,
+          COALESCE(NULLIF(account_timezone, ''), 'UTC') AS account_timezone
+        FROM meta_account_daily
+        WHERE business_id::text = ANY(${targetBusinessIds}::text[])
+        ORDER BY business_id, provider_account_id, date DESC, updated_at DESC
+      ),
+      account_timezones AS (
+        SELECT
+          COALESCE(manifest_accounts.business_id, warehouse_accounts.business_id) AS business_id,
+          COALESCE(manifest_accounts.provider_account_id, warehouse_accounts.provider_account_id) AS provider_account_id,
+          COALESCE(manifest_accounts.account_timezone, warehouse_accounts.account_timezone, 'UTC') AS account_timezone
+        FROM manifest_accounts
+        FULL OUTER JOIN warehouse_accounts
+          ON warehouse_accounts.business_id = manifest_accounts.business_id
+          AND warehouse_accounts.provider_account_id = manifest_accounts.provider_account_id
+        WHERE COALESCE(manifest_accounts.business_id, warehouse_accounts.business_id) IS NOT NULL
+      )
       SELECT
         b.name AS business_name,
         event.business_id,
@@ -499,8 +539,12 @@ async function main() {
         event.details_json
       FROM meta_authoritative_reconciliation_events event
       JOIN businesses b ON b.id::text = event.business_id
+      LEFT JOIN account_timezones account_timezones
+        ON account_timezones.business_id = event.business_id::text
+        AND account_timezones.provider_account_id = event.provider_account_id
       WHERE event.business_id::text = ANY(${targetBusinessIds}::text[])
         AND event.event_kind = 'totals_mismatch'
+        AND event.day::date < (now() AT TIME ZONE COALESCE(account_timezones.account_timezone, 'UTC'))::date
         AND event.created_at > now() - interval '24 hours'
       ORDER BY event.created_at DESC
     `,

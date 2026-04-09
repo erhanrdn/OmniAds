@@ -293,6 +293,49 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.reclaimCandidateCount).toBe(2);
   });
 
+  it("suppresses stale reclaim, poison, and stale-checkpoint Google issues when live summaries are healthy", () => {
+    const staleCheckpoint = new Date(Date.now() - 45 * 60_000).toISOString();
+    const freshActivity = new Date().toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      googleAdsHealth: [
+        {
+          business_id: "biz-g",
+          business_name: "IwaStore",
+          queue_depth: 9,
+          leased_partitions: 7,
+          dead_letter_partitions: 0,
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: freshActivity,
+          latest_checkpoint_updated_at: staleCheckpoint,
+          latest_checkpoint_phase: "finalize",
+          campaign_completed_days: 90,
+          campaign_dead_letter_count: 0,
+          search_term_completed_days: 14,
+          product_completed_days: 14,
+          asset_completed_days: 14,
+          poisoned_checkpoint_count: 4,
+          reclaim_candidate_count: 6,
+        },
+      ],
+      googleAdsReclaimSummaries: {
+        "biz-g": {
+          activeSlowPartitions: 1,
+          reclaimCandidateCount: 0,
+          poisonCandidateCount: 0,
+        },
+      },
+    });
+
+    expect(payload.googleAdsBusinesses?.[0]?.reclaimCandidateCount).toBe(0);
+    expect(payload.googleAdsBusinesses?.[0]?.poisonedCheckpointCount).toBe(0);
+    expect(payload.googleAdsBusinesses?.[0]?.progressState).not.toBe("blocked");
+    expect(payload.issues.some((issue) => issue.reportType === "stalled_reclaimable")).toBe(false);
+    expect(payload.issues.some((issue) => issue.reportType === "poisoned_checkpoint")).toBe(false);
+    expect(payload.issues.some((issue) => issue.reportType === "stale_checkpoint")).toBe(false);
+  });
+
   it("surfaces lease-conflict and skipped-active-lease counters as actionable issues", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],
@@ -379,6 +422,149 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.recentExtendedReady).toBe(true);
     expect(payload.metaBusinesses?.[0]?.historicalExtendedReady).toBe(false);
     expect(payload.metaBusinesses?.[0]?.effectiveMode).toBe("extended_recovery");
+  });
+
+  it("suppresses stale reclaim, stale-checkpoint, and current-day-missing Meta issues when live summaries are healthy", () => {
+    const staleCheckpoint = new Date(Date.now() - 30 * 60_000).toISOString();
+    const freshActivity = new Date().toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "TheSwaf",
+          queue_depth: 144,
+          leased_partitions: 4,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: null,
+          oldest_queued_partition: "2024-05-15",
+          latest_partition_activity_at: freshActivity,
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: staleCheckpoint,
+          latest_progress_heartbeat_at: staleCheckpoint,
+          last_successful_page_index: 0,
+          checkpoint_failures: 0,
+          reclaim_candidate_count: 3,
+          last_reclaim_reason: "historical_finalize_misclassified",
+          today_account_rows: 0,
+          today_adset_rows: 0,
+          account_completed_days: 730,
+          adset_completed_days: 730,
+          creative_completed_days: 120,
+          ad_completed_days: 120,
+          recent_account_completed_days: 14,
+          recent_adset_completed_days: 14,
+          recent_creative_completed_days: 14,
+          recent_ad_completed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+      metaReclaimSummaries: {
+        "biz-meta": {
+          activeSlowPartitions: 1,
+          reclaimCandidateCount: 0,
+        },
+      },
+    });
+
+    expect(payload.metaBusinesses?.[0]?.reclaimCandidateCount).toBe(0);
+    expect(payload.metaBusinesses?.[0]?.progressState).not.toBe("blocked");
+    expect(payload.issues.some((issue) => issue.reportType === "stalled_reclaimable")).toBe(false);
+    expect(payload.issues.some((issue) => issue.reportType === "stale_checkpoint")).toBe(false);
+    expect(payload.issues.some((issue) => issue.reportType === "current_day_missing")).toBe(false);
+  });
+
+  it("prefers authoritative Meta D-1 status over raw nonterminal partition counters", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "IwaStore",
+          queue_depth: 3,
+          leased_partitions: 1,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: "2026-04-07",
+          oldest_queued_partition: "2026-04-07",
+          latest_partition_activity_at: new Date().toISOString(),
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: new Date().toISOString(),
+          latest_progress_heartbeat_at: new Date().toISOString(),
+          last_successful_page_index: 1,
+          checkpoint_failures: 0,
+          reclaim_candidate_count: 0,
+          today_account_rows: 2,
+          today_adset_rows: 2,
+          account_completed_days: 100,
+          adset_completed_days: 100,
+          creative_completed_days: 80,
+          ad_completed_days: 80,
+          recent_account_completed_days: 14,
+          recent_adset_completed_days: 14,
+          recent_creative_completed_days: 14,
+          recent_ad_completed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+      metaAuthoritativeSnapshots: [
+        {
+          businessId: "biz-meta",
+          capturedAt: "2026-04-08T22:00:00.000Z",
+          manifestCounts: {
+            pending: 0,
+            running: 0,
+            completed: 2,
+            failed: 0,
+            superseded: 0,
+            total: 2,
+          },
+          progression: {
+            queued: 3,
+            leased: 1,
+            published: 2,
+            retryableFailed: 0,
+            deadLetter: 0,
+            staleLeases: 0,
+            repairBacklog: 1,
+          },
+          latestPublishes: [],
+          d1FinalizeSla: {
+            totalAccounts: 1,
+            breachedAccounts: 0,
+            accounts: [
+              {
+                providerAccountId: "act_1",
+                accountTimezone: "UTC",
+                expectedDay: "2026-04-07",
+                verificationState: "finalized_verified",
+                publishedAt: "2026-04-08T21:55:00.000Z",
+                breached: false,
+              },
+            ],
+          },
+          validationFailures24h: 0,
+          recentFailures: [],
+          lastSuccessfulPublishAt: "2026-04-08T21:55:00.000Z",
+        },
+      ],
+      metaD1FinalizeNonTerminalCounts: {
+        "biz-meta": 1,
+      },
+    });
+
+    expect(payload.summary.metaD1FinalizeNonTerminalCount).toBe(0);
+    expect(payload.metaBusinesses?.[0]?.d1FinalizeNonTerminalCount).toBe(0);
+    expect(payload.issues.some((issue) => issue.reportType === "d1_finalize_nonterminal")).toBe(false);
   });
 
   it("surfaces meta stale-run and skipped-active-lease counters as actionable issues", () => {
@@ -725,9 +911,9 @@ describe("buildAdminSyncHealth", () => {
 
     expect(payload.summary.metaIntegrityIncidentCount).toBe(2);
     expect(payload.summary.metaIntegrityBlockedCount).toBe(1);
-    expect(payload.summary.metaD1FinalizeNonTerminalCount).toBe(2);
+    expect(payload.summary.metaD1FinalizeNonTerminalCount).toBe(1);
     expect(payload.metaBusinesses?.[0]?.integrityBlockedCount).toBe(1);
-    expect(payload.metaBusinesses?.[0]?.d1FinalizeNonTerminalCount).toBe(2);
+    expect(payload.metaBusinesses?.[0]?.d1FinalizeNonTerminalCount).toBe(1);
     expect(payload.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

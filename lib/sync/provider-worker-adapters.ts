@@ -15,6 +15,7 @@ import {
   getGoogleAdsSyncCheckpoint,
   leaseGoogleAdsSyncPartitions,
   queueGoogleAdsSyncPartition,
+  releaseGoogleAdsLeasedPartitionsForWorker,
   upsertGoogleAdsSyncCheckpoint,
 } from "@/lib/google-ads/warehouse";
 import type {
@@ -27,6 +28,7 @@ import {
   getMetaSyncCheckpoint,
   leaseMetaSyncPartitions,
   queueMetaSyncPartition,
+  releaseMetaLeasedPartitionsForWorker,
   upsertMetaSyncCheckpoint,
 } from "@/lib/meta/warehouse";
 import type {
@@ -63,8 +65,14 @@ export interface ProviderWorkerAdapter
     businessId: string,
     input?: {
       runtimeLeaseGuard?: RunnerLeaseGuard;
+      runtimeWorkerId?: string;
     }
   ): Promise<unknown>;
+  cleanupOwnedLeasedPartitions?(input: {
+    businessId: string;
+    workerId: string;
+    failureReason?: string | null;
+  }): Promise<number>;
   buildLeasePlan?(input: {
     businessId: string;
     leaseLimit: number;
@@ -473,6 +481,15 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
   async consumeBusiness(businessId: string, input) {
     return consumeMetaQueuedWork(businessId, input);
   },
+  async cleanupOwnedLeasedPartitions(input) {
+    return releaseMetaLeasedPartitionsForWorker({
+      businessId: input.businessId,
+      workerId: input.workerId,
+      lastError: input.failureReason
+        ? `leased partition released automatically after ${input.failureReason}`
+        : null,
+    });
+  },
   async buildLeasePlan(input) {
     return buildMetaWorkerLeasePlan(input);
   },
@@ -556,6 +573,7 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
         scope: partition.scope as GoogleAdsWarehouseScope,
         partitionDate: partition.partitionDate,
         attemptCount: partition.attemptCount ?? 0,
+        leaseEpoch: partition.leaseEpoch ?? 0,
         source: partition.source ?? "selected_range",
       },
       workerId: partition.leaseOwner ?? "",
@@ -588,7 +606,9 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
       attemptCount: normalized.attemptCount,
       progressHeartbeatAt: new Date().toISOString(),
       retryAfterAt: normalized.retryAfterAt,
+      leaseEpoch: partition.leaseEpoch ?? null,
       leaseOwner: partition.leaseOwner ?? null,
+      leaseExpiresAt: partition.leaseExpiresAt ?? null,
       poisonedAt: normalized.poisonedAt,
       poisonReason: normalized.poisonReason,
     };
@@ -619,6 +639,15 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
   },
   async consumeBusiness(businessId: string, input) {
     return syncGoogleAdsReports(businessId, input);
+  },
+  async cleanupOwnedLeasedPartitions(input) {
+    return releaseGoogleAdsLeasedPartitionsForWorker({
+      businessId: input.businessId,
+      workerId: input.workerId,
+      lastError: input.failureReason
+        ? `leased partition released automatically after ${input.failureReason}`
+        : null,
+    });
   },
   async buildLeasePlan(input) {
     return buildGoogleAdsWorkerLeasePlan(input);

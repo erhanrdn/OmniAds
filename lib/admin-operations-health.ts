@@ -570,6 +570,11 @@ function computeLagMinutes(value: string | null) {
   return Math.max(0, Math.round((Date.now() - ms) / 60_000));
 }
 
+function isLagOverWindow(value: string | null, windowMinutes: number) {
+  const lag = computeLagMinutes(value);
+  return lag != null && lag > windowMinutes;
+}
+
 function parseScopes(value: string | null) {
   return new Set((value ?? "").split(/\s+/).filter(Boolean));
 }
@@ -890,16 +895,20 @@ export function buildAdminSyncHealth(input: {
       incidentCount: 0,
       blockedCount: 0,
     };
+    const googlePoisonCandidateCount =
+      googleReclaimSummary.poisonCandidateCount ??
+      Number(row.poisoned_checkpoint_count ?? 0);
+    const googleCheckpointLagMinutes = computeLagMinutes(googleProgressHeartbeat);
 
     const progressState = classifyGoogleAdsProgressState({
       queueDepth,
       leasedPartitions,
       deadLetterPartitions,
-      checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
+      checkpointLagMinutes: googleCheckpointLagMinutes,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
-      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      reclaimCandidateCount: googleReclaimSummary.reclaimCandidateCount,
       leaseConflictRuns24h: Number(row.lease_conflict_runs_24h ?? 0),
-      poisonedCheckpointCount: Number(row.poisoned_checkpoint_count ?? 0),
+      poisonedCheckpointCount: googlePoisonCandidateCount,
       staleRunPressure,
       recentExtendedReady,
       historicalExtendedReady,
@@ -908,13 +917,13 @@ export function buildAdminSyncHealth(input: {
     const stallFingerprints = deriveProviderStallFingerprints({
       queueDepth,
       leasedPartitions,
-      checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
+      checkpointLagMinutes: googleCheckpointLagMinutes,
       latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
       blocked:
         deadLetterPartitions > 0 ||
-        Number(row.reclaim_candidate_count ?? 0) > 0 ||
+        googleReclaimSummary.reclaimCandidateCount > 0 ||
         Number(row.lease_conflict_runs_24h ?? 0) > 0 ||
-        Number(row.poisoned_checkpoint_count ?? 0) > 0,
+        googlePoisonCandidateCount > 0,
       staleRunPressure,
       progressEvidence: googleProgressEvidence,
       blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
@@ -937,14 +946,14 @@ export function buildAdminSyncHealth(input: {
       latestCheckpointPhase: row.latest_checkpoint_phase ?? null,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
       lastProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null,
-      checkpointLagMinutes: computeLagMinutes(googleProgressHeartbeat),
+      checkpointLagMinutes: googleCheckpointLagMinutes,
       lastSuccessfulPageIndex:
         row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
       resumeCapable:
         Boolean(row.latest_checkpoint_updated_at) &&
-        Number(row.poisoned_checkpoint_count ?? 0) === 0,
+        googlePoisonCandidateCount === 0,
       checkpointFailures: Number(row.checkpoint_failures ?? 0),
-      poisonedCheckpointCount: Number(row.poisoned_checkpoint_count ?? 0),
+      poisonedCheckpointCount: googlePoisonCandidateCount,
       activeSlowPartitions: googleReclaimSummary.activeSlowPartitions,
       reclaimCandidateCount: googleReclaimSummary.reclaimCandidateCount,
       skippedActiveLeaseRecoveries: Number(row.skipped_active_lease_recoveries ?? 0),
@@ -1049,8 +1058,9 @@ export function buildAdminSyncHealth(input: {
 
     if (
       googleProgressHeartbeat &&
-      computeLagMinutes(googleProgressHeartbeat) != null &&
-      (computeLagMinutes(googleProgressHeartbeat) ?? 0) > 20
+      googleCheckpointLagMinutes != null &&
+      googleCheckpointLagMinutes > 20 &&
+      isLagOverWindow(row.latest_partition_activity_at ?? null, 20)
     ) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Google Ads stale checkpoints");
@@ -1060,7 +1070,7 @@ export function buildAdminSyncHealth(input: {
         provider: "google_ads",
         reportType: "stale_checkpoint",
         status: leasedPartitions > 0 ? "running" : "failed",
-        detail: `Google Ads checkpoint progress has not moved recently. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(googleProgressHeartbeat)}m, page=${Number(row.last_successful_page_index ?? 0)}`,
+        detail: `Google Ads checkpoint progress has not moved recently. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${googleCheckpointLagMinutes}m, page=${Number(row.last_successful_page_index ?? 0)}`,
         triggeredAt: googleProgressHeartbeat,
         completedAt: row.oldest_queued_partition,
       });
@@ -1069,8 +1079,8 @@ export function buildAdminSyncHealth(input: {
     if (
       leasedPartitions > 0 &&
       googleProgressHeartbeat &&
-      (computeLagMinutes(googleProgressHeartbeat) ?? 0) > 8 &&
-      (computeLagMinutes(googleProgressHeartbeat) ?? 0) <= 20
+      (googleCheckpointLagMinutes ?? 0) > 8 &&
+      (googleCheckpointLagMinutes ?? 0) <= 20
     ) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Google Ads alive-slow partitions");
@@ -1080,13 +1090,13 @@ export function buildAdminSyncHealth(input: {
         provider: "google_ads",
         reportType: "alive_slow",
         status: "running",
-        detail: `Google Ads sync is still leased but progressing slowly. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(googleProgressHeartbeat)}m.`,
+        detail: `Google Ads sync is still leased but progressing slowly. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${googleCheckpointLagMinutes}m.`,
         triggeredAt: googleProgressHeartbeat,
         completedAt: row.oldest_queued_partition,
       });
     }
 
-    if (Number(row.poisoned_checkpoint_count ?? 0) > 0) {
+    if (googlePoisonCandidateCount > 0) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Google Ads poisoned checkpoints");
       issues.push({
@@ -1095,7 +1105,7 @@ export function buildAdminSyncHealth(input: {
         provider: "google_ads",
         reportType: "poisoned_checkpoint",
         status: "failed",
-        detail: `${Number(row.poisoned_checkpoint_count ?? 0)} Google Ads checkpoints are marked as poison candidates and need review.`,
+        detail: `${googlePoisonCandidateCount} Google Ads checkpoints are marked as poison candidates and need review.`,
         triggeredAt:
           row.latest_poisoned_at ??
           row.latest_checkpoint_updated_at ??
@@ -1104,7 +1114,7 @@ export function buildAdminSyncHealth(input: {
       });
     }
 
-    if (Number(row.reclaim_candidate_count ?? 0) > 0) {
+    if (googleReclaimSummary.reclaimCandidateCount > 0) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Google Ads stalled reclaim candidates");
       issues.push({
@@ -1113,7 +1123,7 @@ export function buildAdminSyncHealth(input: {
         provider: "google_ads",
         reportType: "stalled_reclaimable",
         status: "failed",
-        detail: `Recent reclaim activity detected. Last reason: ${row.last_reclaim_reason ?? "unknown"}.`,
+        detail: `${googleReclaimSummary.reclaimCandidateCount} active Google Ads reclaim candidate(s) detected and should be recovered.`,
         triggeredAt: row.latest_checkpoint_updated_at ?? row.latest_partition_activity_at,
         completedAt: row.oldest_queued_partition,
       });
@@ -1241,18 +1251,19 @@ export function buildAdminSyncHealth(input: {
       blockedCount: 0,
     };
     const d1FinalizeNonTerminalCount =
-      input.metaD1FinalizeNonTerminalCounts?.[row.business_id] ??
       metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla?.breachedAccounts ??
+      input.metaD1FinalizeNonTerminalCounts?.[row.business_id] ??
       0;
+    const metaCheckpointLagMinutes = computeLagMinutes(metaProgressHeartbeat);
     const progressState = classifyMetaProgressState({
       queueDepth,
       leasedPartitions,
       deadLetterPartitions,
       retryableFailedPartitions,
       staleLeasePartitions,
-      checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
+      checkpointLagMinutes: metaCheckpointLagMinutes,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
-      reclaimCandidateCount: Number(row.reclaim_candidate_count ?? 0),
+      reclaimCandidateCount: metaReclaimSummary.reclaimCandidateCount,
       staleRunCount24h: Number(row.stale_run_count_24h ?? 0),
       recentExtendedReady,
       historicalExtendedReady,
@@ -1261,12 +1272,12 @@ export function buildAdminSyncHealth(input: {
     const stallFingerprints = deriveProviderStallFingerprints({
       queueDepth,
       leasedPartitions,
-      checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
+      checkpointLagMinutes: metaCheckpointLagMinutes,
       latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
       blocked:
         deadLetterPartitions > 0 ||
         staleLeasePartitions > 0 ||
-        Number(row.reclaim_candidate_count ?? 0) > 0 ||
+        metaReclaimSummary.reclaimCandidateCount > 0 ||
         Number(row.stale_run_count_24h ?? 0) > 0,
       hasRepairableBacklog: retryableFailedPartitions > 0,
       staleRunPressure: Number(row.stale_run_count_24h ?? 0),
@@ -1297,7 +1308,7 @@ export function buildAdminSyncHealth(input: {
       latestCheckpointPhase: row.latest_checkpoint_phase,
       latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at,
       lastProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at,
-      checkpointLagMinutes: computeLagMinutes(metaProgressHeartbeat),
+      checkpointLagMinutes: metaCheckpointLagMinutes,
       lastSuccessfulPageIndex:
         row.last_successful_page_index == null ? null : Number(row.last_successful_page_index),
       resumeCapable: Boolean(row.latest_checkpoint_updated_at),
@@ -1418,7 +1429,12 @@ export function buildAdminSyncHealth(input: {
       });
     }
 
-    if (row.latest_checkpoint_updated_at && computeLagMinutes(row.latest_checkpoint_updated_at) != null && (computeLagMinutes(row.latest_checkpoint_updated_at) ?? 0) > 20) {
+    if (
+      row.latest_checkpoint_updated_at &&
+      metaCheckpointLagMinutes != null &&
+      metaCheckpointLagMinutes > 20 &&
+      isLagOverWindow(row.latest_partition_activity_at ?? null, 20)
+    ) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Meta stale checkpoints");
       issues.push({
@@ -1427,7 +1443,7 @@ export function buildAdminSyncHealth(input: {
         provider: "meta",
         reportType: "stale_checkpoint",
         status: leasedPartitions > 0 ? "running" : "failed",
-        detail: `Meta checkpoint progress has not moved recently. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(row.latest_checkpoint_updated_at)}m, page=${Number(row.last_successful_page_index ?? 0)}`,
+        detail: `Meta checkpoint progress has not moved recently. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${metaCheckpointLagMinutes}m, page=${Number(row.last_successful_page_index ?? 0)}`,
         triggeredAt: row.latest_checkpoint_updated_at,
         completedAt: row.oldest_queued_partition,
       });
@@ -1476,7 +1492,11 @@ export function buildAdminSyncHealth(input: {
       }
     }
 
-    if ((todayAccountRows === 0 || todayAdsetRows === 0) && queueDepth > 0) {
+    if (
+      row.current_day_reference &&
+      (todayAccountRows === 0 || todayAdsetRows === 0) &&
+      queueDepth > 0
+    ) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Meta current day missing");
       issues.push({
@@ -1494,8 +1514,8 @@ export function buildAdminSyncHealth(input: {
     if (
       leasedPartitions > 0 &&
       metaProgressHeartbeat &&
-      (computeLagMinutes(metaProgressHeartbeat) ?? 0) > 8 &&
-      (computeLagMinutes(metaProgressHeartbeat) ?? 0) <= 20
+      (metaCheckpointLagMinutes ?? 0) > 8 &&
+      (metaCheckpointLagMinutes ?? 0) <= 20
     ) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Meta alive-slow partitions");
@@ -1505,13 +1525,13 @@ export function buildAdminSyncHealth(input: {
         provider: "meta",
         reportType: "alive_slow",
         status: "running",
-        detail: `Meta sync is still leased but progressing slowly. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${computeLagMinutes(metaProgressHeartbeat)}m.`,
+        detail: `Meta sync is still leased but progressing slowly. phase=${row.latest_checkpoint_phase ?? "unknown"}, lag=${metaCheckpointLagMinutes}m.`,
         triggeredAt: metaProgressHeartbeat,
         completedAt: row.oldest_queued_partition,
       });
     }
 
-    if (Number(row.reclaim_candidate_count ?? 0) > 0) {
+    if (metaReclaimSummary.reclaimCandidateCount > 0) {
       impactedBusinesses.add(row.business_id);
       issueTypes.push("Meta stalled reclaim candidates");
       issues.push({
@@ -1520,7 +1540,7 @@ export function buildAdminSyncHealth(input: {
         provider: "meta",
         reportType: "stalled_reclaimable",
         status: "failed",
-        detail: `Recent reclaim activity detected. Last reason: ${row.last_reclaim_reason ?? "unknown"}.`,
+        detail: `${metaReclaimSummary.reclaimCandidateCount} active Meta reclaim candidate(s) detected and should be recovered.`,
         triggeredAt: row.latest_checkpoint_updated_at ?? row.latest_partition_activity_at,
         completedAt: row.oldest_queued_partition,
       });
@@ -1849,22 +1869,46 @@ async function readGoogleAdsHealthRows() {
         ) AS compacted_partitions,
         COUNT(*) FILTER (
           WHERE lane = 'extended'
-            AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+            AND (
+              source IN ('selected_range', 'today', 'recent', 'recent_recovery')
+              OR (
+                source = 'core_success'
+                AND partition_date >= CURRENT_DATE - interval '13 days'
+              )
+            )
             AND status = 'queued'
         ) AS extended_recent_queue_depth,
         COUNT(*) FILTER (
           WHERE lane = 'extended'
-            AND source IN ('selected_range', 'today', 'recent', 'core_success', 'recent_recovery')
+            AND (
+              source IN ('selected_range', 'today', 'recent', 'recent_recovery')
+              OR (
+                source = 'core_success'
+                AND partition_date >= CURRENT_DATE - interval '13 days'
+              )
+            )
             AND status IN ('leased', 'running')
         ) AS extended_recent_leased_partitions,
         COUNT(*) FILTER (
           WHERE lane = 'extended'
-            AND source IN ('historical', 'historical_recovery')
+            AND (
+              source IN ('historical', 'historical_recovery')
+              OR (
+                source = 'core_success'
+                AND partition_date < CURRENT_DATE - interval '13 days'
+              )
+            )
             AND status = 'queued'
         ) AS extended_historical_queue_depth,
         COUNT(*) FILTER (
           WHERE lane = 'extended'
-            AND source IN ('historical', 'historical_recovery')
+            AND (
+              source IN ('historical', 'historical_recovery')
+              OR (
+                source = 'core_success'
+                AND partition_date < CURRENT_DATE - interval '13 days'
+              )
+            )
             AND status IN ('leased', 'running')
         ) AS extended_historical_leased_partitions
       FROM google_ads_sync_partitions

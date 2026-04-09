@@ -959,8 +959,26 @@ export async function leaseGoogleAdsSyncPartitions(input: {
           AND (
             $6::text IS NULL
             OR $6::text = 'all'
-            OR ($6::text = 'recent_only' AND source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery'))
-            OR ($6::text = 'historical_only' AND source IN ('historical', 'historical_recovery'))
+            OR (
+              $6::text = 'recent_only'
+              AND (
+                source IN ('selected_range', 'finalize_day', 'today', 'recent', 'recent_recovery')
+                OR (
+                  source = 'core_success'
+                  AND partition_date >= CURRENT_DATE - interval '13 days'
+                )
+              )
+            )
+            OR (
+              $6::text = 'historical_only'
+              AND (
+                source IN ('historical', 'historical_recovery')
+                OR (
+                  source = 'core_success'
+                  AND partition_date < CURRENT_DATE - interval '13 days'
+                )
+              )
+            )
           )
           AND ($8::date IS NULL OR partition_date >= $8::date)
           AND ($9::date IS NULL OR partition_date <= $9::date)
@@ -1051,7 +1069,7 @@ export async function markGoogleAdsPartitionRunning(input: {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
-    UPDATE google_ads_sync_partitions
+    UPDATE google_ads_sync_partitions partition
     SET
       status = 'running',
       lease_owner = ${input.workerId},
@@ -1059,11 +1077,19 @@ export async function markGoogleAdsPartitionRunning(input: {
       lease_expires_at = now() + (${input.leaseMinutes ?? 15} || ' minutes')::interval,
       attempt_count = attempt_count + 1,
       updated_at = now()
-    WHERE id = ${input.partitionId}
-      AND lease_owner = ${input.workerId}
-      AND lease_epoch = ${input.leaseEpoch}
-      AND COALESCE(lease_expires_at, now()) > now()
-    RETURNING id
+    WHERE partition.id = ${input.partitionId}
+      AND partition.lease_owner = ${input.workerId}
+      AND partition.lease_epoch = ${input.leaseEpoch}
+      AND COALESCE(partition.lease_expires_at, now()) > now()
+      AND EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'google_ads'
+          AND lease.lease_owner = ${input.workerId}
+          AND lease.lease_expires_at > now()
+      )
+    RETURNING partition.id AS id
   `) as Array<{ id: string }>;
   return rows.length > 0;
 }
@@ -1728,18 +1754,55 @@ export async function heartbeatGoogleAdsPartitionLease(input: {
   await runMigrations();
   const sql = getDb();
   const rows = (await sql`
-    UPDATE google_ads_sync_partitions
+    UPDATE google_ads_sync_partitions partition
     SET
       lease_owner = ${input.workerId},
       lease_expires_at = now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
       updated_at = now()
-    WHERE id = ${input.partitionId}
-      AND lease_owner = ${input.workerId}
-      AND lease_epoch = ${input.leaseEpoch}
-      AND COALESCE(lease_expires_at, now()) > now()
-    RETURNING id
+    WHERE partition.id = ${input.partitionId}
+      AND partition.lease_owner = ${input.workerId}
+      AND partition.lease_epoch = ${input.leaseEpoch}
+      AND COALESCE(partition.lease_expires_at, now()) > now()
+      AND EXISTS (
+        SELECT 1
+        FROM sync_runner_leases lease
+        WHERE lease.business_id = partition.business_id
+          AND lease.provider_scope = 'google_ads'
+          AND lease.lease_owner = ${input.workerId}
+          AND lease.lease_expires_at > now()
+      )
+    RETURNING partition.id AS id
   `) as Array<{ id: string }>;
   return rows.length > 0;
+}
+
+export async function releaseGoogleAdsLeasedPartitionsForWorker(input: {
+  businessId: string;
+  workerId: string;
+  retryDelayMinutes?: number;
+  lastError?: string | null;
+}) {
+  await runMigrations();
+  const sql = getDb();
+  const rows = (await sql`
+    UPDATE google_ads_sync_partitions partition
+    SET
+      status = 'failed',
+      lease_owner = NULL,
+      lease_expires_at = NULL,
+      next_retry_at = now() + (${input.retryDelayMinutes ?? 3} || ' minutes')::interval,
+      last_error = COALESCE(
+        ${input.lastError ?? null}::text,
+        partition.last_error,
+        'leased partition released automatically after worker exit'
+      ),
+      updated_at = now()
+    WHERE partition.business_id = ${input.businessId}
+      AND partition.lease_owner = ${input.workerId}
+      AND partition.status = 'leased'
+    RETURNING partition.id AS id
+  `) as Array<{ id: string }>;
+  return rows.length;
 }
 
 export async function cleanupGoogleAdsPartitionOrchestration(input: {
@@ -2535,8 +2598,16 @@ export async function upsertGoogleAdsSyncCheckpoint(
       lease_epoch = EXCLUDED.lease_epoch,
       lease_owner = EXCLUDED.lease_owner,
       lease_expires_at = EXCLUDED.lease_expires_at,
-      poisoned_at = COALESCE(EXCLUDED.poisoned_at, google_ads_sync_checkpoints.poisoned_at),
-      poison_reason = COALESCE(EXCLUDED.poison_reason, google_ads_sync_checkpoints.poison_reason),
+      poisoned_at = CASE
+        WHEN EXCLUDED.status = 'succeeded' AND EXCLUDED.poisoned_at IS NULL
+          THEN NULL
+        ELSE COALESCE(EXCLUDED.poisoned_at, google_ads_sync_checkpoints.poisoned_at)
+      END,
+      poison_reason = CASE
+        WHEN EXCLUDED.status = 'succeeded' AND EXCLUDED.poisoned_at IS NULL
+          THEN NULL
+        ELSE COALESCE(EXCLUDED.poison_reason, google_ads_sync_checkpoints.poison_reason)
+      END,
       replay_reason_code = COALESCE(EXCLUDED.replay_reason_code, google_ads_sync_checkpoints.replay_reason_code),
       replay_detail = COALESCE(EXCLUDED.replay_detail, google_ads_sync_checkpoints.replay_detail),
       started_at = COALESCE(google_ads_sync_checkpoints.started_at, EXCLUDED.started_at, now()),
@@ -3663,22 +3734,46 @@ export async function getGoogleAdsQueueHealth(input: { businessId: string }) {
       COUNT(*) FILTER (WHERE lane = 'extended' AND status IN ('leased', 'running')) AS extended_leased_partitions,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND (
+            source IN ('selected_range', 'finalize_day', 'today', 'recent', 'recent_recovery')
+            OR (
+              source = 'core_success'
+              AND partition_date >= CURRENT_DATE - interval '13 days'
+            )
+          )
           AND status = 'queued'
       ) AS extended_recent_queue_depth,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('selected_range', 'finalize_day', 'today', 'recent', 'core_success', 'recent_recovery')
+          AND (
+            source IN ('selected_range', 'finalize_day', 'today', 'recent', 'recent_recovery')
+            OR (
+              source = 'core_success'
+              AND partition_date >= CURRENT_DATE - interval '13 days'
+            )
+          )
           AND status IN ('leased', 'running')
       ) AS extended_recent_leased_partitions,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('historical', 'historical_recovery')
+          AND (
+            source IN ('historical', 'historical_recovery')
+            OR (
+              source = 'core_success'
+              AND partition_date < CURRENT_DATE - interval '13 days'
+            )
+          )
           AND status = 'queued'
       ) AS extended_historical_queue_depth,
       COUNT(*) FILTER (
         WHERE lane = 'extended'
-          AND source IN ('historical', 'historical_recovery')
+          AND (
+            source IN ('historical', 'historical_recovery')
+            OR (
+              source = 'core_success'
+              AND partition_date < CURRENT_DATE - interval '13 days'
+            )
+          )
           AND status IN ('leased', 'running')
       ) AS extended_historical_leased_partitions,
       COUNT(*) FILTER (WHERE lane = 'maintenance' AND status = 'queued') AS maintenance_queue_depth,
