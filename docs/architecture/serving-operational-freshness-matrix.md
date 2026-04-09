@@ -7,6 +7,7 @@ Phase 10 outcome on branch `arch/wire-serving-owner-triggers`:
 - No new scheduler, public route, or lane redesign was introduced.
 - No additional safe automation candidate was found beyond the existing GA4, Search Console, and Shopify sync owners already wired in earlier phases.
 - The remaining operator-dependent boundaries are intentional and stay explicit manual/CLI because the repo does not already contain an exact bounded non-`GET` lane that safely owns them.
+- Phase 11 adds a read-only operator status CLI: `node --import tsx scripts/report-serving-freshness-status.ts <businessId> [...]`.
 
 ## Matrix
 
@@ -43,3 +44,4 @@ Phase 10 outcome on branch `arch/wire-serving-owner-triggers`:
 - Runtime proof: `docs/architecture/serving-runtime-validation-evidence.md`
 - Ownership map: `docs/architecture/serving-write-ownership-map.md`
 - Shared GA4 / Shopify scheduling boundaries: `lib/sync/report-warmer-boundaries.ts`
+- Read-only observability runbook: `docs/architecture/serving-freshness-observability-runbook.md`

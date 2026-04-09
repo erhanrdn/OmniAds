@@ -119,7 +119,7 @@ Status scale:
 3. `lib/meta/serving.ts` remains a large mixed-concern module even after repair-on-read removal.
 4. Status routes are coupled directly to sync-control schema, making later table moves high risk.
 5. `lib/overview-summary-materializer.ts` still relies on callers deriving affected ranges ad hoc after warehouse writes.
-6. The remaining operator-dependent freshness boundaries are now intentional and documented: exact overview summary range hydration, non-default GA4 windows, non-`country` demographics dimensions, and non-recent Shopify overview snapshots still rely on explicit operator-triggered owners.
+6. The remaining operator-dependent freshness boundaries are intentional and now have a read-only status CLI, but exact overview summary range hydration, non-default GA4 windows, non-`country` demographics dimensions, and non-recent Shopify overview snapshots still rely on explicit operator-triggered owners.
 7. `lib/shopify/read-adapter.ts` still encodes serving trust decisions across many tables, even though persistence now lives in an explicit materializer.
 8. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
 9. `lib/migrations.ts` remains a large runtime migration bundle, and broader non-`GET` mutation/admin/webhook cleanup is still ahead.
