@@ -589,6 +589,7 @@ export async function syncShopifyOrdersWindow(input: {
   endDate: string;
   queryField?: "created_at" | "updated_at";
   runtimeValidationLog?: (phase: string, summary?: Record<string, unknown>) => void;
+  runtimeValidationRunId?: string;
 }) {
   const logRuntimeValidation = input.runtimeValidationLog ?? (() => {});
   const credentials = await resolveShopifyAdminCredentials(input.businessId);
@@ -796,7 +797,16 @@ export async function syncShopifyOrdersWindow(input: {
       pageCount,
       salesEventsBatchCount: salesEventsBatch.length,
     });
-    await upsertShopifySalesEvents(salesEventsBatch);
+    await upsertShopifySalesEvents(salesEventsBatch, {
+      runtimeValidation:
+        input.runtimeValidationRunId && input.runtimeValidationLog
+          ? {
+              runId: input.runtimeValidationRunId,
+              pageCount,
+              log: input.runtimeValidationLog,
+            }
+          : undefined,
+    });
     logRuntimeValidation("recent_orders_sales_events_upsert_succeeded", {
       pageCount,
       salesEventsBatchCount: salesEventsBatch.length,

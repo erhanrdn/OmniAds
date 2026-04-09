@@ -257,6 +257,7 @@ export async function syncShopifyCommerceReports(
     runtimeLeaseGuard?: RunnerLeaseGuard;
     recentWindowDays?: number;
     triggerReason?: string;
+    runtimeValidationRunId?: string;
     recentTargets?: {
       orders?: boolean;
       returns?: boolean;
@@ -275,6 +276,11 @@ export async function syncShopifyCommerceReports(
       ...(summary ? { summary } : {}),
     });
   };
+  const runtimeValidationRunId =
+    input?.triggerReason === "runtime_validation"
+      ? input.runtimeValidationRunId ??
+        `shopify_rtval_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      : null;
   const credentials = await resolveShopifyAdminCredentials(businessId).catch(() => null);
   if (!credentials) {
     return {
@@ -390,6 +396,7 @@ export async function syncShopifyCommerceReports(
         startDate: window.startDate,
         endDate: window.endDate,
         queryField: "updated_at",
+        runId: runtimeValidationRunId,
       });
     }
     const [ordersSettled, returnsSettled] = await Promise.allSettled([
@@ -402,6 +409,7 @@ export async function syncShopifyCommerceReports(
             runtimeValidationLog: (phase, summary) => {
               logValidationPhase(phase, summary);
             },
+            runtimeValidationRunId: runtimeValidationRunId ?? undefined,
           })
         : Promise.resolve({
             success: true as const,

@@ -112,6 +112,12 @@ function chunkRows<T>(rows: T[], size = 100) {
   return chunks;
 }
 
+function sanitizeRuntimeValidationSqlCommentValue(value: unknown, fallback = "na") {
+  const text = String(value ?? "").trim();
+  const cleaned = text.replace(/[^a-zA-Z0-9:_-]+/g, "_").slice(0, 80);
+  return cleaned || fallback;
+}
+
 export function buildShopifyRawSnapshotHash(input: {
   businessId: string;
   providerAccountId: string;
@@ -522,71 +528,169 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   return written;
 }
 
-export async function upsertShopifySalesEvents(rows: ShopifySalesEventWarehouseRow[]) {
+export async function upsertShopifySalesEvents(
+  rows: ShopifySalesEventWarehouseRow[],
+  input?: {
+    runtimeValidation?: {
+      runId: string;
+      pageCount?: number;
+      log?: (phase: string, summary?: Record<string, unknown>) => void;
+    };
+  }
+) {
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_sales_events");
   const sql = getDb();
   let written = 0;
 
-  for (const row of rows) {
-    await sql`
-      INSERT INTO shopify_sales_events (
-        business_id,
-        provider_account_id,
-        shop_id,
-        event_id,
-        source_kind,
-        source_id,
-        order_id,
-        occurred_at,
-        occurred_date_local,
-        gross_sales,
-        refunded_sales,
-        refunded_shipping,
-        refunded_taxes,
-        net_revenue,
-        currency_code,
-        payload_json,
-        source_snapshot_id,
-        updated_at
-      )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${row.shopId},
-        ${row.eventId},
-        ${row.sourceKind},
-        ${row.sourceId},
-        ${row.orderId ?? null},
-        ${normalizeTimestamp(row.occurredAt)},
-        ${normalizeDate(row.occurredDateLocal)},
-        ${toNumber(row.grossSales)},
-        ${toNumber(row.refundedSales)},
-        ${toNumber(row.refundedShipping)},
-        ${toNumber(row.refundedTaxes)},
-        ${toNumber(row.netRevenue)},
-        ${row.currencyCode ?? null},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
-        ${row.sourceSnapshotId ?? null},
-        now()
-      )
-      ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
-      DO UPDATE SET
-        source_kind = EXCLUDED.source_kind,
-        source_id = EXCLUDED.source_id,
-        order_id = EXCLUDED.order_id,
-        occurred_at = EXCLUDED.occurred_at,
-        occurred_date_local = EXCLUDED.occurred_date_local,
-        gross_sales = EXCLUDED.gross_sales,
-        refunded_sales = EXCLUDED.refunded_sales,
-        refunded_shipping = EXCLUDED.refunded_shipping,
-        refunded_taxes = EXCLUDED.refunded_taxes,
-        net_revenue = EXCLUDED.net_revenue,
-        currency_code = EXCLUDED.currency_code,
-        payload_json = EXCLUDED.payload_json,
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        updated_at = now()
-    `;
+  for (const [index, row] of rows.entries()) {
+    const summary = {
+      pageCount: input?.runtimeValidation?.pageCount ?? null,
+      rowIndex: index + 1,
+      totalBatchSize: rows.length,
+      eventId: row.eventId,
+      sourceId: row.sourceId,
+      sourceKind: row.sourceKind,
+    } satisfies Record<string, unknown>;
+    input?.runtimeValidation?.log?.("recent_orders_sales_events_row_upsert_started", summary);
+    const runtimeValidationComment = input?.runtimeValidation
+      ? `/* shopify_rtval_sales_events run_id=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.runId,
+        )} page=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.pageCount ?? null,
+        )} row=${sanitizeRuntimeValidationSqlCommentValue(
+          index + 1,
+        )} total=${sanitizeRuntimeValidationSqlCommentValue(rows.length)} event_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.eventId,
+        )} source_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.sourceId,
+        )} source_kind=${sanitizeRuntimeValidationSqlCommentValue(row.sourceKind)} */`
+      : null;
+
+    if (runtimeValidationComment) {
+      await sql.query(
+        `${runtimeValidationComment}
+        INSERT INTO shopify_sales_events (
+          business_id,
+          provider_account_id,
+          shop_id,
+          event_id,
+          source_kind,
+          source_id,
+          order_id,
+          occurred_at,
+          occurred_date_local,
+          gross_sales,
+          refunded_sales,
+          refunded_shipping,
+          refunded_taxes,
+          net_revenue,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9,
+          $10, $11, $12, $13, $14, $15, $16::jsonb, $17, now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
+        DO UPDATE SET
+          source_kind = EXCLUDED.source_kind,
+          source_id = EXCLUDED.source_id,
+          order_id = EXCLUDED.order_id,
+          occurred_at = EXCLUDED.occurred_at,
+          occurred_date_local = EXCLUDED.occurred_date_local,
+          gross_sales = EXCLUDED.gross_sales,
+          refunded_sales = EXCLUDED.refunded_sales,
+          refunded_shipping = EXCLUDED.refunded_shipping,
+          refunded_taxes = EXCLUDED.refunded_taxes,
+          net_revenue = EXCLUDED.net_revenue,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()`,
+        [
+          row.businessId,
+          row.providerAccountId,
+          row.shopId,
+          row.eventId,
+          row.sourceKind,
+          row.sourceId,
+          row.orderId ?? null,
+          normalizeTimestamp(row.occurredAt),
+          normalizeDate(row.occurredDateLocal),
+          toNumber(row.grossSales),
+          toNumber(row.refundedSales),
+          toNumber(row.refundedShipping),
+          toNumber(row.refundedTaxes),
+          toNumber(row.netRevenue),
+          row.currencyCode ?? null,
+          JSON.stringify(row.payloadJson ?? {}),
+          row.sourceSnapshotId ?? null,
+        ]
+      );
+    } else {
+      await sql`
+        INSERT INTO shopify_sales_events (
+          business_id,
+          provider_account_id,
+          shop_id,
+          event_id,
+          source_kind,
+          source_id,
+          order_id,
+          occurred_at,
+          occurred_date_local,
+          gross_sales,
+          refunded_sales,
+          refunded_shipping,
+          refunded_taxes,
+          net_revenue,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          ${row.businessId},
+          ${row.providerAccountId},
+          ${row.shopId},
+          ${row.eventId},
+          ${row.sourceKind},
+          ${row.sourceId},
+          ${row.orderId ?? null},
+          ${normalizeTimestamp(row.occurredAt)},
+          ${normalizeDate(row.occurredDateLocal)},
+          ${toNumber(row.grossSales)},
+          ${toNumber(row.refundedSales)},
+          ${toNumber(row.refundedShipping)},
+          ${toNumber(row.refundedTaxes)},
+          ${toNumber(row.netRevenue)},
+          ${row.currencyCode ?? null},
+          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
+          ${row.sourceSnapshotId ?? null},
+          now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
+        DO UPDATE SET
+          source_kind = EXCLUDED.source_kind,
+          source_id = EXCLUDED.source_id,
+          order_id = EXCLUDED.order_id,
+          occurred_at = EXCLUDED.occurred_at,
+          occurred_date_local = EXCLUDED.occurred_date_local,
+          gross_sales = EXCLUDED.gross_sales,
+          refunded_sales = EXCLUDED.refunded_sales,
+          refunded_shipping = EXCLUDED.refunded_shipping,
+          refunded_taxes = EXCLUDED.refunded_taxes,
+          net_revenue = EXCLUDED.net_revenue,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `;
+    }
+    input?.runtimeValidation?.log?.("recent_orders_sales_events_row_upsert_succeeded", summary);
     written += 1;
   }
 

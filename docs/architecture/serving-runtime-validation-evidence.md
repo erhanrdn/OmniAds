@@ -616,3 +616,123 @@ Phase 9B closeout conclusion:
   - `recent_orders_refunds_upsert_succeeded`
 - This means the current evidence no longer supports a source-fetch, raw-snapshot, normalization, orders-table, order-lines-table, refunds-table, transactions-table, shadow-read, or overview-materialization blocker as the primary cause of the still-unproven recent Shopify path.
 - No small safe correctness bug is proven yet from this run alone. The live-like evidence is still consistent with a stall or lock wait inside `upsertShopifySalesEvents()` on page `3`, potentially while concurrent non-runtime owner activity is also present in the same environment.
+
+## Phase 9C Closeout: Shopify Sales-Events Writer Truth
+
+Existing lease mechanism used:
+
+- Yes. The reruns below used the existing `sync_runner_leases` lane with `provider_scope='shopify'`.
+- Lease owner format:
+  - `runtime_validation:shopify_sales_events:<run_id>`
+- This was used to reduce lease-aware concurrent overlap without changing ownership or scheduling behavior.
+
+Reusable validation command introduced for this phase:
+
+```bash
+node --env-file=.env.local --import tsx scripts/runtime-validate-shopify-sales-events.ts <BUSINESS_ID> --recent-targets=orders --materialize=0 --use-runner-lease=1
+```
+
+That wrapper:
+
+- acquires and renews the existing Shopify runner lease
+- spawns the constrained `syncShopifyCommerceReports()` owner command with `triggerReason: "runtime_validation"`
+- polls the tracked Shopify recent surfaces every `10s`
+- captures `pg_stat_activity`, `pg_blocking_pids()`, and `pg_locks` for tagged sales-events queries when visible
+- terminates the child cleanly after the same `120s + 120s` wait policy
+
+Runtime-validation-only writer diagnostics added for this phase:
+
+- row-level sales-events markers:
+  - `recent_orders_sales_events_row_upsert_started`
+  - `recent_orders_sales_events_row_upsert_succeeded`
+- tagged SQL comment on each sales-events row upsert:
+  - `shopify_rtval_sales_events run_id=<run_id> page=<page> row=<row> total=<total> event_id=<...> source_id=<...> source_kind=<...>`
+- This tagging is only used when `triggerReason: "runtime_validation"` is routed through the shared diagnostics path.
+
+Lease-backed rerun A:
+
+```bash
+node --env-file=.env.local --import tsx scripts/runtime-validate-shopify-sales-events.ts <BUSINESS_ID> --recent-targets=orders --materialize=0 --use-runner-lease=1
+```
+
+- Run id: `shopify_rtval_mnrro0o3_91dtuf`
+- Start: `2026-04-09T17:44:23.385Z`
+- End: `2026-04-09T17:48:37.146Z`
+- Total wait: `254s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Existing runner lease used: yes
+- Result:
+  - page `3` sales-events row loop advanced through all `106` rows
+  - `recent_orders_sales_events_upsert_succeeded` was emitted
+  - the last emitted marker then moved forward to `recent_orders_transactions_upsert_started`
+- Interpretation:
+  - the previously suspected `upsertShopifySalesEvents()` blocker did not reproduce on this isolated run
+  - this disproved a stable always-blocking sales-events writer failure mode
+
+Lease-backed rerun B, captured to artifact file for detailed lock inspection:
+
+```bash
+node --env-file=.env.local --import tsx scripts/runtime-validate-shopify-sales-events.ts <BUSINESS_ID> --recent-targets=orders --materialize=0 --use-runner-lease=1 > /tmp/shopify-sales-events-runtime-validation.json
+```
+
+- Run id: `shopify_rtval_mnrrundr_1dy2m3`
+- Start: `2026-04-09T17:49:31.984Z`
+- End: `2026-04-09T17:53:47.574Z`
+- Total wait: `256s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Existing runner lease used: yes
+- Exact last emitted phase marker:
+  - `recent_orders_sales_events_row_upsert_started`
+- Exact last successful sales-events row before the stall:
+  - page `3`, row `88`
+  - `event_id='order:6419435192562'`
+  - `source_id='6419435192562'`
+  - `source_kind='order'`
+- Exact first row not observed to succeed afterward:
+  - page `3`, row `89`
+  - `event_id='order:6388240744690'`
+  - `source_id='6388240744690'`
+  - `source_kind='order'`
+
+Exact DB-level writer evidence captured for rerun B:
+
+- Non-empty tagged writer activity polls: `1`
+- Observed tagged writer backend:
+  - `pid=25389`
+  - `state='idle'`
+  - `wait_event_type='Client'`
+  - `wait_event='ClientRead'`
+  - query text still showed the tagged `shopify_rtval_sales_events ...` insert comment
+- `pg_blocking_pids(25389) = []`
+- `pg_locks` snapshot for that pid: no relation lock wait evidence was captured
+- blocking activity summary: none
+
+What that means:
+
+- The lease-backed sales-events reruns do not prove an external DB lock/contention blocker.
+- The one poll where the tagged writer query was visible did not show `Lock` waiting, blocking pids, or relation lock pressure.
+- At the same time, the sales-events row loop still failed to finish consistently under the isolated runner lease.
+- Therefore the Phase 9C conclusion is:
+  - not proven writer correctness bug
+  - not proven external DB lock/contention
+  - still inconclusive overall, but the evidence now weighs against a simple external lock-wait explanation for the sales-events writer
+
+Tracked recent Shopify surfaces during the lease-backed reruns:
+
+- `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key stayed unchanged
+- `shopify_serving_state` exact recent canary key stayed absent
+- `shopify_reconciliation_runs` exact recent window stayed absent
+- automated Shopify recent-window advancement is still not proven
+
+Phase 9C closeout conclusion:
+
+- Phase 9 is still not fully closed.
+- Automated Shopify recent-window advancement is still not proven.
+- The sales-events writer is no longer a cleanly reproduced lock-wait culprit:
+  - one isolated run completed the full page-3 sales-events batch and moved the stall forward to transactions
+  - another isolated run stalled at page `3` row `89`, but without captured `pg_blocking_pids()` or lock-wait evidence
+- The exact blocker conclusion for this phase is therefore:
+  - `still inconclusive`
+  - with current evidence favoring neither a proven small internal correctness bug nor a proven external DB lock/contention explanation inside `upsertShopifySalesEvents()`

@@ -437,11 +437,19 @@ describe("syncShopifyCommerceReports", () => {
       allowHistorical: false,
       materializeOverviewState: false,
       triggerReason: "runtime_validation",
+      runtimeValidationRunId: "shopify_rtval_test",
       recentTargets: {
         orders: true,
         returns: false,
       },
     });
+
+    expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeValidationRunId: "shopify_rtval_test",
+        runtimeValidationLog: expect.any(Function),
+      }),
+    );
 
     expect(infoSpy).toHaveBeenCalledWith(
       "[shopify-sync] runtime_validation_phase",
