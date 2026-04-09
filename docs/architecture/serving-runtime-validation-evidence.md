@@ -2,7 +2,7 @@
 
 Date: 2026-04-09
 
-Status: partial pass with one narrowed explicit blocker
+Status: partial pass with Shopify recent-orders blocker localized
 
 This artifact records real runtime evidence for the in-scope serving/projection/cache surfaces on branch `arch/wire-serving-owner-triggers`.
 
@@ -351,6 +351,119 @@ Closeout conclusion for the Shopify blocker:
   - `shopify_reconciliation_runs`
 - The blocker is now narrowed to: the owner lane can persist recent sync-state progress, but in this environment it does not persist the recent overview-facing Shopify artifacts before the process is interrupted.
 
+### Phase 9 Closeout: Shopify Target-Split Matrix
+
+Exact matrix cases executed:
+
+- Case A: orders-only recent sync, no overview materialization
+
+```bash
+node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: false, triggerReason: 'runtime_validation', recentTargets: { orders: true, returns: false } }); console.log(JSON.stringify(result, null, 2));"
+```
+
+- Case B: returns-only recent sync, no overview materialization
+
+```bash
+node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: false, triggerReason: 'runtime_validation', recentTargets: { orders: false, returns: true } }); console.log(JSON.stringify(result, null, 2));"
+```
+
+- Case C: both recent targets, no overview materialization
+
+```bash
+node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: false, triggerReason: 'runtime_validation', recentTargets: { orders: true, returns: true } }); console.log(JSON.stringify(result, null, 2));"
+```
+
+- Case D: both recent targets, overview materialization enabled
+
+```bash
+node --env-file=.env.local --import tsx -e "const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('<BUSINESS_ID>', { allowHistorical: false, recentWindowDays: 7, materializeOverviewState: true, triggerReason: 'runtime_validation', recentTargets: { orders: true, returns: true } }); console.log(JSON.stringify(result, null, 2));"
+```
+
+Exact wait / extension policy used for every case:
+
+- Poll the exact recent `7d` markers every `10s`
+- Keep the original comparability boundary at `120s`
+- If the process is still live at `120s`, extend once for another `120s`
+- If the process is still live at `240s`, send `SIGINT` and capture the exact after snapshot
+
+Tracked recent markers for every case:
+
+- `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` exact auto key `2026-04-03:2026-04-09`
+- `shopify_serving_state` exact canary key `overview_shopify:2026-04-03:2026-04-09:shop_local`
+- `shopify_reconciliation_runs` exact `2026-04-03..2026-04-09` rows
+- `shopify_sync_state.commerce_orders_recent`
+- `shopify_sync_state.commerce_returns_recent`
+
+Case A summary:
+
+- Start: `2026-04-09T15:54:32.062Z`
+- End: `2026-04-09T15:58:42.396Z`
+- Total wait: `250s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Exact recent overview-facing markers: unchanged
+- `shopify_sync_state`:
+  - `commerce_orders_recent latest_successful_sync_at` advanced from `2026-04-09T15:53:45.846Z` to `2026-04-09T15:57:54.623Z`
+  - `commerce_returns_recent latest_successful_sync_at` also advanced from `2026-04-09T15:53:45.851Z` to `2026-04-09T15:57:54.628Z`
+- Runtime-validation log: only startup line; no `warehouse_shadow_started` marker was emitted
+
+Case B summary:
+
+- Start: `2026-04-09T15:58:43.190Z`
+- End: `2026-04-09T15:58:55.333Z`
+- Total wait: `12s`
+- Completion: `completed_within_base_wait`
+- Termination: none
+- Exact recent overview-facing markers: unchanged, as expected with materialization disabled
+- `shopify_sync_state`:
+  - `commerce_returns_recent latest_successful_sync_at` advanced from `2026-04-09T15:57:54.628Z` to `2026-04-09T15:58:47.736Z`
+  - `commerce_orders_recent` moved to `running` during the same wall-clock window, but the owner output for this case explicitly recorded `recentTargets.orders=false`
+- Runtime-validation log reached:
+  - `warehouse_shadow_succeeded`
+  - `ledger_shadow_succeeded`
+  - `recent_sync_succeeded`
+- Owner result for this case ended with:
+  - `orders: 0`
+  - `returns: 0`
+  - `recentTargets: { orders: false, returns: true }`
+
+Case C summary:
+
+- Start: `2026-04-09T15:58:56.125Z`
+- End: `2026-04-09T16:02:56.947Z`
+- Total wait: `241s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Exact recent overview-facing markers: unchanged
+- `shopify_sync_state`:
+  - `commerce_orders_recent latest_successful_sync_at` advanced to `2026-04-09T16:02:10.740Z`
+  - `commerce_returns_recent latest_successful_sync_at` advanced to `2026-04-09T16:02:10.744Z`
+- Runtime-validation log: only startup line; no `warehouse_shadow_started` marker was emitted
+
+Case D summary:
+
+- Start: `2026-04-09T16:02:57.679Z`
+- End: `2026-04-09T16:07:00.399Z`
+- Total wait: `243s`
+- Completion: `terminated_after_extended_wait`
+- Termination: `SIGINT`
+- Exact recent overview-facing markers: unchanged
+- `shopify_sync_state`:
+  - `commerce_orders_recent latest_successful_sync_at` advanced to `2026-04-09T16:06:15.953Z`
+  - `commerce_returns_recent latest_successful_sync_at` advanced to `2026-04-09T16:06:15.958Z`
+- Runtime-validation log: only startup line; no `warehouse_shadow_started` marker was emitted
+
+Target-split conclusion:
+
+- By the stated decision rule, the blocker localizes to the recent orders sync path because Case A failed while Case B succeeded.
+- Cases C and D matched Case A rather than diverging from each other.
+- Because Case C already failed with overview materialization disabled, the matrix does not support a post-recent overview-facing persistence blocker as the primary cause of the current runtime-truth gap.
+- The current runtime-validation instrumentation sharpens that conclusion further:
+  - Case B reached `warehouse_shadow_*`, `ledger_shadow_*`, and `recent_sync_succeeded`
+  - Cases A, C, and D emitted only the startup line
+  - This places the stall before the post-recent shadow/materialization path whenever the recent orders target is enabled
+- Automated Shopify recent-window advancement remains unproven after the matrix because the exact recent overview-facing artifacts never advanced in any case.
+
 ## Matrix
 
 | Surface | GET changed rows/timestamps? | Owner trigger executed | Owner changed rows/timestamps? | Conclusion |
@@ -366,11 +479,11 @@ Closeout conclusion for the Shopify blocker:
 | `provider_reporting_snapshots.ga4_detailed_products` | No | `ga4-sync` | Yes on default `7d` and `30d` keys | Same as intended |
 | `provider_reporting_snapshots.ecommerce_fallback` | No on tracked stable key | `ga4-sync` | Yes on default `7d` and `30d` keys | Same as intended |
 | `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` tracked historical GET key | No | Manual `reporting:cache:warm` CLI owner for `2026-03-01..2026-03-31` | Yes | Manual targeted warmer advanced snapshot outside recent auto window |
-| `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key | Not changed by GET | `shopify-sync` constrained rerun | No exact recent key advancement observed; process required `SIGINT` after `120s` | Automated Shopify recent-window advancement remains unproven |
+| `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key | Not changed by GET | `shopify-sync` target-split matrix cases A-D | No exact recent key advancement observed in any case | Automated Shopify recent-window advancement remains unproven; target-split matrix localizes the blocker to runs that include recent orders sync |
 | `seo_results_cache overview` tracked GET key `2026-03-09..2026-04-08` | No | `search-console-sync` | Yes on default `30d` and `7d` keys | GET key stayed read-only; automated owner advanced current default windows |
 | `seo_results_cache findings` tracked GET key `2026-03-01..2026-03-31` | No | `search-console-sync` | Yes on default `30d` and `7d` keys | Same as intended |
-| `shopify_serving_state` | No on tracked exact GET row | `shopify-sync` constrained rerun | No exact recent canary row observed; process required `SIGINT` after `120s` | GET stayed read-only; automated Shopify serving-state advancement remains unproven |
-| `shopify_reconciliation_runs` | No on tracked exact GET rows | `shopify-sync` constrained rerun | No exact recent reconciliation row observed; process required `SIGINT` after `120s` | GET stayed read-only; automated Shopify reconciliation advancement remains unproven |
+| `shopify_serving_state` | No on tracked exact GET row | `shopify-sync` target-split matrix cases A-D | No exact recent canary row observed in any case | GET stayed read-only; automated Shopify serving-state advancement remains unproven and does not appear to be the primary blocker segment |
+| `shopify_reconciliation_runs` | No on tracked exact GET rows | `shopify-sync` target-split matrix cases A-D | No exact recent reconciliation row observed in any case | GET stayed read-only; automated Shopify reconciliation advancement remains unproven and does not appear to be the primary blocker segment |
 
 ## Conclusions
 
@@ -382,10 +495,10 @@ Closeout conclusion for the Shopify blocker:
   - manual Shopify overview snapshot warmer for a non-recent custom range
   - GA4 sync default `7d` / `30d` overview, fallback, and eligible detail keys
   - Search Console sync default `7d` / `30d` overview and findings keys
-- Automated Shopify recent-window advancement through `syncShopifyCommerceReports()` remains unproven after repeated constrained closeout reruns. In this environment the lane advances recent `shopify_sync_state` owner rows but does not persist the exact recent overview-facing Shopify artifacts before the process must be interrupted.
+- Automated Shopify recent-window advancement through `syncShopifyCommerceReports()` remains unproven after the target-split matrix. The remaining blocker is now localized to runs that include recent orders sync, before the post-recent shadow/materialization path.
 
 ## Remaining Caveats / Blockers
 
 - This run reused a live-like local app process that was already listening on port `3000`; `npm run dev` was not used because the port was already occupied.
 - Background owner activity can overlap the GET window on a live-like environment. For this run, the only observed overlap was Search Console sync, and it was attributable via `provider_sync_jobs`.
-- Automated Shopify recent-window overview advancement is the remaining runtime-truth blocker for a full signoff of all in-scope surfaces in one evidence pass.
+- Automated Shopify recent-window overview advancement is still the remaining runtime-truth blocker for a full signoff of all in-scope surfaces in one evidence pass, but it is now localized to the recent-orders-enabled segment of the Shopify sync lane.
