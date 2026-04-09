@@ -257,7 +257,7 @@ jobs:
               log "Checking optional container health"
               check_optional_health web
               check_optional_health worker
-            EOF
+          EOF
           }
 
           public_build_matches() {
