@@ -11,6 +11,10 @@ vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(() => false),
 }));
 
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
+}));
+
 vi.mock("@/lib/integrations", () => ({
   getIntegration: vi.fn(),
 }));
@@ -41,8 +45,10 @@ vi.mock("@/lib/sync/meta-sync", () => ({
 }));
 
 const access = await import("@/lib/access");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
+const migrations = await import("@/lib/migrations");
 const readiness = await import("@/lib/meta/readiness");
 const serving = await import("@/lib/meta/serving");
 const metaSync = await import("@/lib/sync/meta-sync");
@@ -53,6 +59,11 @@ describe("GET /api/meta/breakdowns", () => {
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
       membership: {} as never,
+    });
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-09T00:00:00.000Z",
     });
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       status: "connected",
@@ -100,6 +111,7 @@ describe("GET /api/meta/breakdowns", () => {
     expect(payload.age).toHaveLength(1);
     expect(payload.location).toHaveLength(1);
     expect(payload.placement).toHaveLength(1);
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
   it("keeps the page-contract assertions focused on age, location, and placement only", async () => {
@@ -191,5 +203,31 @@ describe("GET /api/meta/breakdowns", () => {
     expect(metaSync.getMetaSelectedRangeTruthReadiness).not.toHaveBeenCalled();
     expect(payload.isPartial).toBe(false);
     expect(payload.age).toHaveLength(1);
+  });
+
+  it("degrades to the existing no-accounts contract when assignment schema is not ready", async () => {
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: false,
+      missingTables: ["provider_account_assignments"],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&startDate=2026-04-01&endDate=2026-04-03"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "no_accounts_assigned",
+      age: [],
+      location: [],
+      placement: [],
+      isPartial: false,
+    });
+    expect(assignments.getProviderAccountAssignments).not.toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });

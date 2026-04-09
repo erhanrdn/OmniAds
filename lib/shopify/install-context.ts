@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { sanitizeNextPath } from "@/lib/auth-routing";
 
 export interface ShopifyInstallContextRow {
@@ -41,7 +41,10 @@ export async function createShopifyInstallContext(input: {
   userId?: string | null;
   preferredBusinessId?: string | null;
 }): Promise<ShopifyInstallContextRow> {
-  await runMigrations({ reason: "shopify_install_context_create" });
+  await assertDbSchemaReady({
+    tables: ["shopify_install_contexts"],
+    context: "shopify_install_context_create",
+  });
   const sql = getDb();
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = buildExpiryDate().toISOString();
@@ -83,7 +86,12 @@ export async function createShopifyInstallContext(input: {
 export async function getShopifyInstallContext(
   token: string,
 ): Promise<ShopifyInstallContextRow | null> {
-  await runMigrations({ reason: "shopify_install_context_get" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_install_contexts"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   await sql`DELETE FROM shopify_install_contexts WHERE expires_at <= now()`;
   const rows = (await sql`
@@ -115,7 +123,12 @@ export async function getLatestShopifyInstallContextForActor(input: {
   const userId = sanitizeUuid(input.userId);
   if (!sessionId && !userId) return null;
 
-  await runMigrations({ reason: "shopify_install_context_lookup_actor" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_install_contexts"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   await sql`DELETE FROM shopify_install_contexts WHERE expires_at <= now()`;
 

@@ -1,7 +1,22 @@
 import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import type { SearchTermPerformanceRow } from "@/lib/google-ads/intelligence-model";
+
+const GOOGLE_ADS_SEARCH_INTELLIGENCE_TABLES = [
+  "google_ads_query_dictionary",
+  "google_ads_search_query_hot_daily",
+  "google_ads_top_query_weekly",
+  "google_ads_search_cluster_daily",
+  "google_ads_decision_action_outcome_logs",
+] as const;
+
+async function assertGoogleAdsSearchIntelligenceTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADS_SEARCH_INTELLIGENCE_TABLES],
+    context,
+  });
+}
 
 export interface GoogleAdsQueryDictionaryEntry {
   queryHash: string;
@@ -335,7 +350,7 @@ export async function readGoogleAdsSearchQueryHotDailyRows(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -351,7 +366,7 @@ export async function readGoogleAdsSearchQueryHotDailyRows(input: {
 
 export async function upsertGoogleAdsQueryDictionaryEntries(entries: GoogleAdsQueryDictionaryEntry[]) {
   if (entries.length === 0) return 0;
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   for (const entry of entries) {
     await sql`
@@ -388,7 +403,7 @@ export async function upsertGoogleAdsQueryDictionaryEntries(entries: GoogleAdsQu
 
 export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSearchQueryHotDailyRow[]) {
   if (rows.length === 0) return 0;
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   for (const row of rows) {
     const updatedRows = await sql`
@@ -477,7 +492,7 @@ export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSear
 
 export async function upsertGoogleAdsTopQueryWeeklyRows(rows: GoogleAdsTopQueryWeeklyRow[]) {
   if (rows.length === 0) return 0;
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   for (const row of rows) {
     await sql`
@@ -526,7 +541,7 @@ export async function upsertGoogleAdsTopQueryWeeklyRows(rows: GoogleAdsTopQueryW
 
 export async function upsertGoogleAdsSearchClusterDailyRows(rows: GoogleAdsSearchClusterDailyRow[]) {
   if (rows.length === 0) return 0;
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   for (const row of rows) {
     await sql`
@@ -583,7 +598,7 @@ export async function upsertGoogleAdsSearchClusterDailyRows(rows: GoogleAdsSearc
 }
 
 export async function appendGoogleAdsDecisionActionOutcomeLog(input: GoogleAdsDecisionActionOutcomeLogRow) {
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO google_ads_decision_action_outcome_logs (
@@ -670,7 +685,7 @@ export async function readGoogleAdsTopQueryWeeklyRows(input: {
   startWeek: string;
   endWeek: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   return sql`
     SELECT *
@@ -689,7 +704,7 @@ export async function readGoogleAdsSearchClusterDailyRows(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   return sql`
     SELECT *
@@ -708,7 +723,7 @@ export async function readGoogleAdsDecisionActionOutcomeLogs(input: {
   recommendationFingerprint?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
   return sql`
     SELECT *

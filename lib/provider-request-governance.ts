@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 interface GovernedProviderRequestInput<T> {
   provider: string;
@@ -148,6 +148,20 @@ function getErrorStatus(error: unknown): number | undefined {
   return typeof status === "number" ? status : undefined;
 }
 
+async function isProviderCooldownSchemaReady() {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_cooldown_state"],
+  }).catch(() => null);
+  return Boolean(readiness?.ready);
+}
+
+async function isProviderQuotaUsageSchemaReady() {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_quota_usage"],
+  }).catch(() => null);
+  return Boolean(readiness?.ready);
+}
+
 // Hata tipini ayrıştır: quota, auth, permission veya generic
 function classifyError(error: unknown): "quota" | "auth" | "permission" | "generic" | null {
   const status = getErrorStatus(error);
@@ -193,7 +207,9 @@ async function hydrateFromDbIfNeeded(
   hydrated.add(key);
 
   try {
-    await runMigrations();
+    if (!(await isProviderCooldownSchemaReady())) {
+      return;
+    }
     const sql = getDb();
     const rows = await sql`
       SELECT error_message, http_status, failure_count, failed_at, cooldown_until
@@ -239,7 +255,10 @@ function persistCooldownToDb(
   cooldownMs: number,
 ): void {
   const cooldownUntil = new Date(state.failedAt + cooldownMs).toISOString();
-  runMigrations().then(() => {
+  isProviderCooldownSchemaReady().then((ready) => {
+    if (!ready) {
+      return;
+    }
     const sql = getDb();
     return sql`
       INSERT INTO provider_cooldown_state (
@@ -264,7 +283,10 @@ function persistCooldownToDb(
 
 // Cooldown kaldırıldığında DB'den de sil
 function clearCooldownFromDb(provider: string, businessId: string, requestType: string): void {
-  runMigrations().then(() => {
+  isProviderCooldownSchemaReady().then((ready) => {
+    if (!ready) {
+      return;
+    }
     const sql = getDb();
     return sql`
       DELETE FROM provider_cooldown_state
@@ -284,7 +306,9 @@ async function upsertExplicitCooldownState(input: {
   failureCount?: number;
   cooldownUntil: string;
 }) {
-  await runMigrations();
+  if (!(await isProviderCooldownSchemaReady())) {
+    return;
+  }
   const sql = getDb();
   await sql`
     INSERT INTO provider_cooldown_state (
@@ -309,7 +333,9 @@ export async function getProviderGlobalCircuitBreaker(input: {
   provider: string;
   businessId: string;
 }) {
-  await runMigrations();
+  if (!(await isProviderCooldownSchemaReady())) {
+    return null;
+  }
   const sql = getDb();
   const rows = await sql`
     SELECT error_message, http_status, failure_count, failed_at, cooldown_until
@@ -343,10 +369,13 @@ export async function getProviderCircuitBreakerRecoveryState(input: {
   provider: string;
   businessId: string;
 }): Promise<"open" | "half_open" | "closed"> {
+  const cooldownSchemaReady = await isProviderCooldownSchemaReady();
+  if (!cooldownSchemaReady) {
+    return "closed";
+  }
   const [breaker, recovery] = await Promise.all([
     getProviderGlobalCircuitBreaker(input).catch(() => null),
     (async () => {
-      await runMigrations();
       const sql = getDb();
       const rows = await sql`
         SELECT cooldown_until
@@ -374,14 +403,6 @@ export async function enterProviderGlobalCircuitBreakerRecoveryState(input: {
 }) {
   const cooldownMs = Math.max(60_000, input.cooldownMs ?? 5 * 60_000);
   const cooldownUntil = new Date(Date.now() + cooldownMs).toISOString();
-  await upsertExplicitCooldownState({
-    provider: input.provider,
-    businessId: input.businessId,
-    requestType: GLOBAL_CIRCUIT_BREAKER_RECOVERY_REQUEST_TYPE,
-    message: input.message ?? "Provider circuit breaker is in half-open recovery mode.",
-    status: 429,
-    cooldownUntil,
-  });
   return {
     state: "half_open" as const,
     cooldownUntil,
@@ -392,7 +413,9 @@ export async function clearProviderGlobalCircuitBreakerRecoveryState(input: {
   provider: string;
   businessId: string;
 }) {
-  await runMigrations();
+  if (!(await isProviderCooldownSchemaReady())) {
+    return;
+  }
   const sql = getDb();
   await sql`
     DELETE FROM provider_cooldown_state
@@ -413,8 +436,6 @@ export async function openProviderGlobalCircuitBreaker(input: {
     provider: input.provider,
     businessId: input.businessId,
   }).catch(() => null);
-  await runMigrations();
-  const sql = getDb();
   const failureStore = getFailureStore();
   const key = getRequestKey(
     input.provider,
@@ -433,6 +454,18 @@ export async function openProviderGlobalCircuitBreaker(input: {
     status: input.status,
   });
   getDbHydratedStore().add(key);
+
+  if (!(await isProviderCooldownSchemaReady())) {
+    return {
+      message: input.message,
+      status: input.status,
+      failureCount: nextCount,
+      failedAt: new Date(failedAt).toISOString(),
+      cooldownUntil,
+    };
+  }
+
+  const sql = getDb();
 
   await sql`
     INSERT INTO provider_cooldown_state (
@@ -472,7 +505,9 @@ export async function clearProviderGlobalCircuitBreaker(input: {
   );
   getFailureStore().delete(key);
   getDbHydratedStore().add(key);
-  await runMigrations();
+  if (!(await isProviderCooldownSchemaReady())) {
+    return;
+  }
   const sql = getDb();
   await sql`
     DELETE FROM provider_cooldown_state
@@ -517,7 +552,15 @@ export async function getProviderQuotaBudgetState(input: {
   provider: string;
   businessId: string;
 }): Promise<ProviderQuotaBudgetState> {
-  await runMigrations();
+  if (!(await isProviderQuotaUsageSchemaReady())) {
+    return buildProviderQuotaBudgetState({
+      provider: input.provider,
+      businessId: input.businessId,
+      quotaDate: new Date().toISOString().slice(0, 10),
+      callCount: 0,
+      errorCount: 0,
+    });
+  }
   const sql = getDb();
   const rows = await sql`
     SELECT quota_date, call_count, error_count
@@ -562,33 +605,15 @@ async function enforceProviderQuotaBudget(input: {
   const budgetState = await getProviderQuotaBudgetState(input).catch(() => null);
   if (!budgetState || budgetState.withinDailyBudget) return;
 
-  const key = getRequestKey(input.provider, input.businessId, DAILY_QUOTA_BUDGET_REQUEST_TYPE);
-  const failureState: FailureState = {
-    failedAt: Date.now(),
-    message: `Daily Google Ads request budget reached for business ${input.businessId}.`,
-    count: Math.max(1, budgetState.errorCount),
-    status: 429,
-  };
-  getFailureStore().set(key, failureState);
-  getDbHydratedStore().add(key);
   const tomorrow = new Date();
   tomorrow.setUTCHours(24, 0, 0, 0);
   const cooldownUntil = tomorrow.toISOString();
-  await upsertExplicitCooldownState({
-    provider: input.provider,
-    businessId: input.businessId,
-    requestType: DAILY_QUOTA_BUDGET_REQUEST_TYPE,
-    message: failureState.message,
-    status: 429,
-    failureCount: failureState.count,
-    cooldownUntil,
-  }).catch(() => null);
 
   throw new ProviderRequestCooldownError({
     provider: input.provider,
     businessId: input.businessId,
     requestType: DAILY_QUOTA_BUDGET_REQUEST_TYPE,
-    message: failureState.message,
+    message: `Daily Google Ads request budget reached for business ${input.businessId}.`,
     retryAfterMs: Math.max(0, new Date(cooldownUntil).getTime() - Date.now()),
     status: 429,
   });
@@ -600,7 +625,10 @@ function logQuotaUsage(
   businessId: string,
   isError: boolean,
 ): void {
-  runMigrations().then(() => {
+  isProviderQuotaUsageSchemaReady().then((ready) => {
+    if (!ready) {
+      return;
+    }
     const sql = getDb();
     return sql`
       INSERT INTO provider_quota_usage (business_id, provider, quota_date, call_count, error_count, last_called_at)
@@ -656,11 +684,6 @@ export async function runProviderRequestWithGovernance<T>(
       }
       if (retryAfterMs <= 0) {
         failures.delete(globalKey);
-        clearCooldownFromDb(
-          input.provider,
-          input.businessId,
-          GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
-        );
       }
     }
   }
@@ -690,7 +713,6 @@ export async function runProviderRequestWithGovernance<T>(
       });
     }
     failures.delete(key);
-    clearCooldownFromDb(input.provider, input.businessId, input.requestType);
   }
 
   const existingRequest = inflight.get(key) as Promise<T> | undefined;
@@ -720,8 +742,6 @@ export async function runProviderRequestWithGovernance<T>(
     .execute()
     .then((result) => {
       failures.delete(key);
-      clearCooldownFromDb(input.provider, input.businessId, input.requestType);
-      logQuotaUsage(input.provider, input.businessId, false);
       console.log("[provider-request] success", {
         provider: input.provider,
         businessId: input.businessId,
@@ -731,10 +751,8 @@ export async function runProviderRequestWithGovernance<T>(
     })
     .catch((error: unknown) => {
       const errorType = classifyError(error);
-      logQuotaUsage(input.provider, input.businessId, true);
       if (errorType !== null) {
         const previousCount = failures.get(key)?.count ?? 0;
-        const cooldownMs = getCooldownMsForErrorType(errorType);
         const newState: FailureState = {
           failedAt: Date.now(),
           message: getErrorMessage(error),
@@ -742,7 +760,6 @@ export async function runProviderRequestWithGovernance<T>(
           status: getErrorStatus(error),
         };
         failures.set(key, newState);
-        persistCooldownToDb(input.provider, input.businessId, input.requestType, newState, cooldownMs);
       }
       console.error("[provider-request] failure", {
         provider: input.provider,

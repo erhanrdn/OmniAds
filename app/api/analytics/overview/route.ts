@@ -5,10 +5,7 @@ import {
   GA4AuthError,
   getAnalyticsOverviewData,
 } from "@/lib/analytics-overview";
-import {
-  getCachedRouteReport,
-  setCachedRouteReport,
-} from "@/lib/route-report-cache";
+import { getCachedRouteReport } from "@/lib/route-report-cache";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -42,13 +39,6 @@ export async function GET(request: NextRequest) {
       businessId,
       startDate,
       endDate,
-    });
-    await setCachedRouteReport({
-      businessId,
-      provider: "ga4",
-      reportType: "ga4_analytics_overview",
-      searchParams: request.nextUrl.searchParams,
-      payload,
     });
     return NextResponse.json(payload);
   } catch (err) {

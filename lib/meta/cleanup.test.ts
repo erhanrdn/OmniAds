@@ -8,8 +8,8 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
-vi.mock("@/lib/reporting-cache", () => ({
-  clearCachedReports: vi.fn(),
+vi.mock("@/lib/reporting-cache-writer", () => ({
+  clearCachedReportSnapshots: vi.fn(),
 }));
 
 const db = await import("@/lib/db");

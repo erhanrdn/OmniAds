@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { runMigrations } from "@/lib/migrations";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
 import { getMetaLiveCampaignRows } from "@/lib/meta/live";
@@ -137,19 +137,15 @@ function nDaysAgo(n: number) {
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
   try {
+    const readiness = await getDbSchemaReadiness({
+      tables: ["provider_account_assignments"],
+    });
+    if (!readiness.ready) {
+      return [];
+    }
     const row = await getProviderAccountAssignments(businessId, "meta");
     return row?.account_ids ?? [];
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("does not exist") || message.includes("relation")) {
-      try {
-        await runMigrations();
-        const row = await getProviderAccountAssignments(businessId, "meta");
-        return row?.account_ids ?? [];
-      } catch {
-        return [];
-      }
-    }
+  } catch {
     return [];
   }
 }

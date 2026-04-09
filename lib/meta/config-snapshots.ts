@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
   normalizeTargetRoasValue,
   type MetaConfigSnapshotPayload,
@@ -68,7 +68,12 @@ export async function readLatestMetaConfigSnapshots(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["meta_config_snapshots"],
+    });
+    if (!readiness.ready) {
+      return new Map();
+    }
     const sql = getDb();
     const rows = (await sql`
       WITH ranked AS (
@@ -109,7 +114,12 @@ export async function readPreviousMetaConfigSnapshots(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["meta_config_snapshots"],
+    });
+    if (!readiness.ready) {
+      return new Map();
+    }
     const sql = getDb();
     const rows = (await sql`
       WITH informative AS (
@@ -177,7 +187,12 @@ export async function readPreviousDifferentMetaConfigDiffs(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["meta_config_snapshots"],
+    });
+    if (!readiness.ready) {
+      return new Map();
+    }
     const sql = getDb();
     const rows = (await sql`
       SELECT entity_id, captured_at, payload
@@ -267,7 +282,10 @@ export async function appendMetaConfigSnapshots(
   if (rows.length === 0) return;
 
   try {
-    await runMigrations();
+    await assertDbSchemaReady({
+      tables: ["meta_config_snapshots"],
+      context: "meta_config_snapshots:append",
+    });
     const sql = getDb();
     const payload = JSON.stringify(
       rows.map((row) => ({
@@ -318,7 +336,10 @@ export async function readMetaBidRegimeHistorySummaries(input: {
   if (entityIds.length === 0) return new Map();
 
   try {
-    await runMigrations();
+    await assertDbSchemaReady({
+      tables: ["meta_config_snapshots"],
+      context: "meta_config_snapshots:read_bid_regime_history",
+    });
     const sql = getDb();
     const rows = (await sql`
       SELECT entity_id, payload

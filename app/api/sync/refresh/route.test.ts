@@ -63,6 +63,10 @@ vi.mock("@/lib/admin-logger", () => ({
   logAdminAction: vi.fn(),
 }));
 
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
+}));
+
 vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
@@ -73,9 +77,11 @@ const metaSync = await import("@/lib/sync/meta-sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
 const adminLogger = await import("@/lib/admin-logger");
 const db = await import("@/lib/db");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
 const metaWarehouse = await import("@/lib/meta/warehouse");
 const googleAdsWarehouse = await import("@/lib/google-ads/warehouse");
 const providerRepair = await import("@/lib/sync/provider-repair-engine");
+const migrations = await import("@/lib/migrations");
 const { POST } = await import("@/app/api/sync/refresh/route");
 
 function buildRequest(body: Record<string, unknown>) {
@@ -102,6 +108,11 @@ describe("POST /api/sync/refresh", () => {
     delete (globalThis as typeof globalThis & { __syncRefreshInFlightKeys?: Set<string> })
       .__syncRefreshInFlightKeys;
     vi.mocked(internalAuth.businessExists).mockResolvedValue(true);
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
     vi.mocked(db.getDb).mockReturnValue(
       vi.fn().mockResolvedValue([{ already_running: false, acquired: true }]) as never
     );
@@ -201,6 +212,31 @@ describe("POST /api/sync/refresh", () => {
         blocked: false,
       },
     } as never);
+  });
+
+  it("fails fast when refresh tables are not ready", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: false,
+      missingTables: ["provider_sync_jobs"],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+
+    const response = await POST(buildRequest({ businessId: "biz", provider: "google_ads" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toEqual({
+      error: "schema_not_ready",
+      message: "Sync refresh is unavailable until request-external migrations are applied.",
+      provider: "google_ads",
+      missingTables: ["provider_sync_jobs"],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+    expect(providerRepair.runGoogleAdsRepairCycle).not.toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
   it("rejects unauthorized callers", async () => {

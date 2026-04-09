@@ -26,8 +26,6 @@ vi.mock("@/lib/shopify/warehouse", () => ({
   getShopifyServingState: vi.fn(),
   getShopifyServingOverride: vi.fn(),
   listShopifyReconciliationRuns: vi.fn(),
-  insertShopifyReconciliationRun: vi.fn(),
-  upsertShopifyServingState: vi.fn(),
 }));
 
 const overview = await import("@/lib/shopify/overview");
@@ -53,8 +51,6 @@ describe("getShopifyOverviewReadCandidate", () => {
       status: "connected",
       provider_account_id: "shop",
     } as never);
-    vi.mocked(warehouseState.upsertShopifyServingState).mockResolvedValue(undefined);
-    vi.mocked(warehouseState.insertShopifyReconciliationRun).mockResolvedValue(undefined);
     vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue(null as never);
     vi.mocked(warehouseState.getShopifyServingOverride).mockResolvedValue(null as never);
     vi.mocked(warehouseState.listShopifyReconciliationRuns).mockResolvedValue([] as never);
@@ -167,8 +163,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.servingMetadata.source).toBe("ledger");
     expect(result.servingMetadata.trustState).toBe("trusted");
     expect(result.servingMetadata.productionMode).toBe("auto");
-    expect(warehouseState.upsertShopifyServingState).toHaveBeenCalled();
-    expect(warehouseState.insertShopifyReconciliationRun).toHaveBeenCalled();
+    expect(warehouseState.getShopifyServingState).toHaveBeenCalled();
     expect(status.getShopifyStatus).toHaveBeenCalledWith({
       businessId: "biz_1",
       startDate: "2026-03-01",
@@ -295,36 +290,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.decisionReasons).toEqual([]);
     expect(result.servingMetadata.source).toBe("ledger");
     expect(result.servingMetadata.trustState).toBe("trusted");
-    expect(warehouseState.upsertShopifyServingState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        canaryKey: buildShopifyOverviewCanaryKey({
-          startDate: "2026-03-01",
-          endDate: "2026-03-31",
-          timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
-        }),
-        startDate: "2026-03-01",
-        endDate: "2026-03-31",
-        timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
-        productionMode: "auto",
-        trustState: "trusted",
-        fallbackReason: null,
-        coverageStatus: "historical_incomplete",
-        ordersRecentSyncedAt: "2026-04-02T10:00:00.000Z",
-        ordersRecentCursorTimestamp: "2026-04-02T09:59:00.000Z",
-        ordersRecentCursorValue: "orders_cursor",
-        returnsRecentSyncedAt: "2026-04-02T10:00:00.000Z",
-        returnsRecentCursorTimestamp: "2026-04-02T09:58:00.000Z",
-        returnsRecentCursorValue: "returns_cursor",
-        ordersHistoricalSyncedAt: null,
-        ordersHistoricalReadyThroughDate: null,
-        ordersHistoricalTargetEnd: null,
-        returnsHistoricalSyncedAt: null,
-        returnsHistoricalReadyThroughDate: null,
-        returnsHistoricalTargetEnd: null,
-        canServeWarehouse: true,
-        preferredSource: "ledger",
-      })
-    );
+    expect(result.servingMetadata.pendingRepair).toBe(false);
   });
 
   it("blocks warehouse canary when preview allowlist excludes the business", async () => {

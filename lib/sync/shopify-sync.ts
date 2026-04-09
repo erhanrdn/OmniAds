@@ -1,13 +1,25 @@
 import { mergeIntegrationMetadata } from "@/lib/integrations";
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
+import {
+  buildShopifyOverviewCanaryKey,
+  SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+} from "@/lib/shopify/serving";
+import {
+  persistShopifyOverviewServingState,
+  recordShopifyOverviewReconciliationRun,
+} from "@/lib/shopify/overview-materializer";
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyStatus } from "@/lib/shopify/status";
 import { registerShopifySyncWebhooks, verifyShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
+import {
+  shouldAutoWarmShopifyOverviewSnapshot,
+} from "@/lib/sync/report-warmer-boundaries";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
+import { warmShopifyOverviewReportCache } from "@/lib/user-facing-report-cache-owners";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -116,19 +128,185 @@ function computeHistoricalChunk(input: {
   return { startDate, endDate };
 }
 
+function toSerializableRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+async function materializeShopifyOverviewAfterSync(input: {
+  businessId: string;
+  providerAccountId: string;
+  startDate: string;
+  endDate: string;
+  runtimeValidationLog?: (phase: string, summary?: Record<string, unknown>) => void;
+}) {
+  const logRuntimeValidation = input.runtimeValidationLog ?? (() => {});
+  const assessedAt = new Date().toISOString();
+  const canaryKey = buildShopifyOverviewCanaryKey({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+  });
+  const candidate = await getShopifyOverviewReadCandidate({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+
+  const previousValidations = candidate.status.serving?.consecutiveCleanValidations ?? 0;
+  const consecutiveCleanValidations =
+    candidate.servingMetadata.pendingRepair
+      ? previousValidations
+      : candidate.servingMetadata.trustState === "trusted"
+        ? Math.max(
+            1,
+            previousValidations + (candidate.status.serving?.pendingRepair ? 1 : 0),
+          )
+        : 0;
+  const divergenceSnapshot = {
+    aggregateDivergence: candidate.divergence ?? null,
+    ledgerConsistency: candidate.ledgerConsistency ?? null,
+    withinThreshold: candidate.divergence?.withinThreshold === true,
+    selectedRevenueTruthBasis: candidate.servingMetadata.selectedRevenueTruthBasis,
+    basisSelectionReason: candidate.servingMetadata.basisSelectionReason,
+    transactionCoverageOrderRate: candidate.servingMetadata.transactionCoverageOrderRate,
+    transactionCoverageAmountRate: candidate.servingMetadata.transactionCoverageAmountRate,
+    explainedAdjustmentRevenue: candidate.servingMetadata.explainedAdjustmentRevenue,
+    unexplainedAdjustmentRevenue: candidate.servingMetadata.unexplainedAdjustmentRevenue,
+  } satisfies Record<string, unknown>;
+
+  logRuntimeValidation("post_recent_serving_state_started", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    canaryKey,
+  });
+  await persistShopifyOverviewServingState({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    canaryKey,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+    assessedAt,
+    statusState: candidate.status.state,
+    preferredSource: candidate.preferredSource,
+    productionMode: candidate.servingMetadata.productionMode,
+    trustState: candidate.servingMetadata.trustState,
+    fallbackReason: candidate.servingMetadata.fallbackReason,
+    coverageStatus: candidate.servingMetadata.coverageStatus,
+    pendingRepair: candidate.servingMetadata.pendingRepair,
+    pendingRepairStartedAt: candidate.servingMetadata.pendingRepairStartedAt,
+    pendingRepairLastTopic: candidate.servingMetadata.pendingRepairLastTopic,
+    pendingRepairLastReceivedAt: candidate.servingMetadata.pendingRepairLastReceivedAt,
+    consecutiveCleanValidations,
+    ordersRecentSyncedAt: candidate.status.sync?.ordersRecent?.latestSuccessfulSyncAt ?? null,
+    ordersRecentCursorTimestamp: candidate.status.sync?.ordersRecent?.cursorTimestamp ?? null,
+    ordersRecentCursorValue: candidate.status.sync?.ordersRecent?.cursorValue ?? null,
+    returnsRecentSyncedAt: candidate.status.sync?.returnsRecent?.latestSuccessfulSyncAt ?? null,
+    returnsRecentCursorTimestamp: candidate.status.sync?.returnsRecent?.cursorTimestamp ?? null,
+    returnsRecentCursorValue: candidate.status.sync?.returnsRecent?.cursorValue ?? null,
+    ordersHistoricalSyncedAt:
+      candidate.status.sync?.ordersHistorical?.latestSuccessfulSyncAt ?? null,
+    ordersHistoricalReadyThroughDate:
+      candidate.status.sync?.ordersHistorical?.readyThroughDate ?? null,
+    ordersHistoricalTargetEnd:
+      candidate.status.sync?.ordersHistorical?.historicalTargetEnd ?? null,
+    returnsHistoricalSyncedAt:
+      candidate.status.sync?.returnsHistorical?.latestSuccessfulSyncAt ?? null,
+    returnsHistoricalReadyThroughDate:
+      candidate.status.sync?.returnsHistorical?.readyThroughDate ?? null,
+    returnsHistoricalTargetEnd:
+      candidate.status.sync?.returnsHistorical?.historicalTargetEnd ?? null,
+    canServeWarehouse: candidate.canServeWarehouse,
+    canaryEnabled: candidate.canaryEnabled,
+    decisionReasons: candidate.decisionReasons,
+    divergence: divergenceSnapshot,
+  });
+
+  logRuntimeValidation("post_recent_serving_state_succeeded", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    canaryKey,
+    assessedAt,
+  });
+
+  logRuntimeValidation("post_recent_reconciliation_started", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    reconciliationKey: canaryKey,
+  });
+  await recordShopifyOverviewReconciliationRun({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    reconciliationKey: canaryKey,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    preferredSource: candidate.preferredSource,
+    canServeWarehouse: candidate.canServeWarehouse,
+    selectedRevenueTruthBasis: candidate.servingMetadata.selectedRevenueTruthBasis,
+    basisSelectionReason: candidate.servingMetadata.basisSelectionReason,
+    transactionCoverageOrderRate: candidate.servingMetadata.transactionCoverageOrderRate,
+    transactionCoverageAmountRate: candidate.servingMetadata.transactionCoverageAmountRate,
+    orderRevenueTruthDelta: candidate.ledgerConsistency?.orderRevenueTruthDelta ?? null,
+    transactionRevenueDelta: candidate.ledgerConsistency?.transactionRevenueDelta ?? null,
+    explainedAdjustmentRevenue: candidate.servingMetadata.explainedAdjustmentRevenue,
+    unexplainedAdjustmentRevenue: candidate.servingMetadata.unexplainedAdjustmentRevenue,
+    divergence: divergenceSnapshot,
+    warehouseAggregate: toSerializableRecord(candidate.warehouse),
+    ledgerAggregate: toSerializableRecord(candidate.ledger),
+    liveAggregate: toSerializableRecord(candidate.live),
+    recordedAt: assessedAt,
+  });
+
+  logRuntimeValidation("post_recent_reconciliation_succeeded", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    reconciliationKey: canaryKey,
+    assessedAt,
+  });
+
+  return {
+    preferredSource: candidate.preferredSource,
+    trustState: candidate.servingMetadata.trustState,
+    fallbackReason: candidate.servingMetadata.fallbackReason,
+    pendingRepair: candidate.servingMetadata.pendingRepair,
+    canServeWarehouse: candidate.canServeWarehouse,
+    recordedAt: assessedAt,
+  };
+}
+
 export async function syncShopifyCommerceReports(
   businessId: string,
   input?: {
     runtimeLeaseGuard?: RunnerLeaseGuard;
     recentWindowDays?: number;
     triggerReason?: string;
+    runtimeValidationRunId?: string;
     recentTargets?: {
       orders?: boolean;
       returns?: boolean;
     };
     allowHistorical?: boolean;
+    materializeOverviewState?: boolean;
   }
 ) {
+  const logValidationPhase = (phase: string, summary?: Record<string, unknown>) => {
+    if (input?.triggerReason !== "runtime_validation") {
+      return;
+    }
+    console.info("[shopify-sync] runtime_validation_phase", {
+      businessId,
+      phase,
+      ...(summary ? { summary } : {}),
+    });
+  };
+  const runtimeValidationRunId =
+    input?.triggerReason === "runtime_validation"
+      ? input.runtimeValidationRunId ??
+        `shopify_rtval_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      : null;
   const credentials = await resolveShopifyAdminCredentials(businessId).catch(() => null);
   if (!credentials) {
     return {
@@ -150,6 +328,7 @@ export async function syncShopifyCommerceReports(
   const runOrdersRecent = input?.recentTargets?.orders !== false;
   const runReturnsRecent = input?.recentTargets?.returns !== false;
   const allowHistorical = input?.allowHistorical !== false;
+  const shouldMaterializeOverviewState = shouldAutoWarmShopifyOverviewSnapshot(input);
   const historical = classifyShopifyHistoricalWindow(credentials);
   const existingOrdersState = await getShopifySyncState({
     businessId,
@@ -238,6 +417,14 @@ export async function syncShopifyCommerceReports(
   }
 
   try {
+    if (runOrdersRecent) {
+      logValidationPhase("recent_orders_phase_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        queryField: "updated_at",
+        runId: runtimeValidationRunId,
+      });
+    }
     const [ordersSettled, returnsSettled] = await Promise.allSettled([
       runOrdersRecent
         ? syncShopifyOrdersWindow({
@@ -245,6 +432,10 @@ export async function syncShopifyCommerceReports(
             startDate: window.startDate,
             endDate: window.endDate,
             queryField: "updated_at",
+            runtimeValidationLog: (phase, summary) => {
+              logValidationPhase(phase, summary);
+            },
+            runtimeValidationRunId: runtimeValidationRunId ?? undefined,
           })
         : Promise.resolve({
             success: true as const,
@@ -301,6 +492,13 @@ export async function syncShopifyCommerceReports(
           };
     if (!ordersResult.success) {
       if (runOrdersRecent) {
+        logValidationPhase("recent_orders_phase_failed", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+          reason: ordersResult.reason,
+        });
+      }
+      if (runOrdersRecent) {
         await upsertShopifySyncState({
           businessId,
           providerAccountId: credentials.shopId,
@@ -327,18 +525,41 @@ export async function syncShopifyCommerceReports(
       }
     }
 
+    logValidationPhase("transition_to_shadow_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      shouldMaterializeOverviewState,
+    });
+    logValidationPhase("warehouse_shadow_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+    });
     const warehouseShadow = await getShopifyWarehouseOverviewAggregate({
       businessId,
       providerAccountId: credentials.shopId,
       startDate: window.startDate,
       endDate: window.endDate,
     }).catch(() => null);
+    logValidationPhase("warehouse_shadow_succeeded", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      found: warehouseShadow !== null,
+    });
+    logValidationPhase("ledger_shadow_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+    });
     const ledgerShadow = await getShopifyRevenueLedgerAggregate({
       businessId,
       providerAccountId: credentials.shopId,
       startDate: window.startDate,
       endDate: window.endDate,
     }).catch(() => null);
+    logValidationPhase("ledger_shadow_succeeded", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      found: ledgerShadow !== null,
+    });
 
     const result = {
       success: true as const,
@@ -386,6 +607,13 @@ export async function syncShopifyCommerceReports(
         returnsSyncReason: returnsResult.success ? null : returnsResult.reason,
       },
     };
+    logValidationPhase("recent_sync_succeeded", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      orders: result.orders,
+      returns: result.returns,
+      shouldMaterializeOverviewState,
+    });
 
     let historicalResult: null | {
       orders: number;
@@ -537,6 +765,23 @@ export async function syncShopifyCommerceReports(
     }
 
     if (runOrdersRecent) {
+      logValidationPhase("recent_orders_cursor_or_state_persist_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        maxUpdatedAt: ordersResult.maxUpdatedAt ?? null,
+      });
+      logValidationPhase("recent_orders_cursor_persist_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+        cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
+      });
+      logValidationPhase("recent_orders_state_persist_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "succeeded",
+      });
       await upsertShopifySyncState({
         businessId,
         providerAccountId: credentials.shopId,
@@ -553,6 +798,31 @@ export async function syncShopifyCommerceReports(
         latestSyncWindowEnd: window.endDate,
         lastError: null,
         lastResultSummary: result.reconciliation,
+      });
+      logValidationPhase("recent_orders_cursor_or_state_persist_succeeded", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        maxUpdatedAt: ordersResult.maxUpdatedAt ?? null,
+      });
+      logValidationPhase("recent_orders_cursor_persist_succeeded", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+        cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
+      });
+      logValidationPhase("recent_orders_state_persist_succeeded", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "succeeded",
+      });
+      logValidationPhase("recent_orders_phase_completed", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        orders: result.orders,
+        orderLines: result.orderLines,
+        refunds: result.refunds,
+        transactions: result.transactions,
       });
     }
     if (runReturnsRecent) {
@@ -582,9 +852,116 @@ export async function syncShopifyCommerceReports(
       });
     }
 
+    let materialization:
+      | null
+      | {
+          preferredSource: string;
+          trustState: string;
+          fallbackReason: string | null;
+          pendingRepair: boolean;
+          canServeWarehouse: boolean;
+          recordedAt: string;
+          skipped?: boolean;
+          reason?: string;
+        } = null;
+    logValidationPhase("transition_to_post_recent_path_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      shouldMaterializeOverviewState,
+    });
+    if (shouldMaterializeOverviewState) {
+      try {
+        logValidationPhase("overview_materialization_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        materialization = await materializeShopifyOverviewAfterSync({
+          businessId,
+          providerAccountId: credentials.shopId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          runtimeValidationLog: (phase, summary) => {
+            logValidationPhase(phase, summary);
+          },
+        });
+        logValidationPhase("overview_materialization_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+          preferredSource: materialization.preferredSource,
+          trustState: materialization.trustState,
+          pendingRepair: materialization.pendingRepair,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[shopify-sync] overview_materialization_failed", {
+          businessId,
+          providerAccountId: credentials.shopId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          message,
+        });
+        materialization = {
+          preferredSource: "none",
+          trustState: "no_data",
+          fallbackReason: "materialization_failed",
+          pendingRepair: false,
+          canServeWarehouse: false,
+          recordedAt: new Date().toISOString(),
+          reason: message,
+        };
+      }
+    } else {
+      materialization = {
+        preferredSource: "none",
+        trustState: "no_data",
+        fallbackReason: null,
+        pendingRepair: false,
+        canServeWarehouse: false,
+        recordedAt: new Date().toISOString(),
+        skipped: true,
+        reason: "disabled_for_call_site",
+      };
+    }
+
+    if (shouldMaterializeOverviewState) {
+      try {
+        logValidationPhase("post_recent_overview_snapshot_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("overview_snapshot_warm_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        await warmShopifyOverviewReportCache({
+          businessId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("overview_snapshot_warm_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("post_recent_overview_snapshot_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[shopify-sync] overview_snapshot_warm_failed", {
+          businessId,
+          providerAccountId: credentials.shopId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          message,
+        });
+      }
+    }
+
     return {
       ...result,
       historical: historicalResult,
+      materialization,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

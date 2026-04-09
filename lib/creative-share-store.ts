@@ -1,14 +1,13 @@
 import { randomUUID } from "crypto";
 import type { SharePayload } from "@/components/creatives/shareCreativeTypes";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 async function ensureShareTable() {
-  try {
-    await runMigrations();
-  } catch {
-    // ignore migration race conditions between concurrent requests
-  }
+  await assertDbSchemaReady({
+    tables: ["creative_share_snapshots"],
+    context: "creative_share_store",
+  });
 }
 
 export async function createCreativeShareSnapshot(
@@ -31,7 +30,12 @@ export async function createCreativeShareSnapshot(
 }
 
 export async function getCreativeShareSnapshot(token: string): Promise<SharePayload | null> {
-  await ensureShareTable();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["creative_share_snapshots"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT payload, expires_at
@@ -44,7 +48,6 @@ export async function getCreativeShareSnapshot(token: string): Promise<SharePayl
 
   const expires = new Date(row.expires_at).getTime();
   if (Number.isFinite(expires) && expires < Date.now()) {
-    await sql`DELETE FROM creative_share_snapshots WHERE token = ${token}`;
     return null;
   }
 

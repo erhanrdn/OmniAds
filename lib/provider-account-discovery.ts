@@ -1,10 +1,7 @@
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
-  forceProviderAccountSnapshotRefresh,
   readProviderAccountSnapshot,
-  requestProviderAccountSnapshotRefresh,
   type ProviderAccountSnapshotItem,
-  type ProviderSnapshotFailureClass,
   type ProviderAccountSnapshotMeta,
   type ProviderAccountSnapshotResult,
 } from "@/lib/provider-account-snapshots";
@@ -103,21 +100,6 @@ export async function resolveProviderDiscoveryPayload(input: {
   );
   const assignedIds = assignmentRow?.account_ids ?? [];
 
-  if (input.refreshRequested) {
-    const snapshot = await forceProviderAccountSnapshotRefresh({
-      businessId: input.businessId,
-      provider: input.provider,
-      freshnessMs,
-      liveLoader: input.liveLoader,
-      reason: "manual_refresh",
-    });
-    return {
-      data: mergeAssignments(snapshot.accounts, assignedIds),
-      meta: snapshot.meta,
-      notice: null,
-    };
-  }
-
   const snapshot = await readProviderAccountSnapshot({
     businessId: input.businessId,
     provider: input.provider,
@@ -125,16 +107,6 @@ export async function resolveProviderDiscoveryPayload(input: {
   });
 
   if (snapshot) {
-    if (snapshot.meta.stale && !snapshot.meta.refreshInProgress) {
-      void requestProviderAccountSnapshotRefresh({
-        businessId: input.businessId,
-        provider: input.provider,
-        freshnessMs,
-        liveLoader: input.liveLoader,
-        reason: "stale_snapshot_refresh",
-      }).catch(() => undefined);
-    }
-
     return {
       data: mergeAssignments(snapshot.accounts, assignedIds),
       meta: snapshot.meta,
@@ -145,14 +117,6 @@ export async function resolveProviderDiscoveryPayload(input: {
       }),
     };
   }
-
-  void requestProviderAccountSnapshotRefresh({
-    businessId: input.businessId,
-    provider: input.provider,
-    freshnessMs,
-    liveLoader: input.liveLoader,
-    reason: "initial_snapshot_refresh",
-  }).catch(() => undefined);
 
   if (assignedIds.length > 0) {
     return {

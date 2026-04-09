@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 export interface ProviderAccountSnapshotItem {
   id: string;
@@ -241,7 +241,12 @@ async function getSnapshotRow(
   businessId: string,
   provider: string
 ): Promise<ProviderAccountSnapshotRow | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_account_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -284,7 +289,12 @@ async function upsertSnapshotRow(input: {
   lastSuccessfulRefreshAt?: Date | null;
   refreshFailureStreak?: number;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_account_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return;
+  }
   const sql = getDb();
   const accountsHash = computeAccountsHash(input.accounts);
   await sql`
@@ -352,7 +362,12 @@ async function updateSnapshotLifecycle(input: {
   lastSuccessfulRefreshAt?: Date | null;
   refreshFailureStreak?: number;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_account_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return;
+  }
   const sql = getDb();
   await sql`
     INSERT INTO provider_account_snapshots (

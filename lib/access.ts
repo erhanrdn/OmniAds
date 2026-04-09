@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { MembershipRole, SessionContext, getSessionFromRequest } from "@/lib/auth";
-import { runMigrations } from "@/lib/migrations";
 import { canReviewerAccessBusiness } from "@/lib/reviewer-access";
 import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
 
@@ -24,7 +24,12 @@ export async function findMembership(input: {
   userId: string;
   businessId: string;
 }): Promise<MembershipRecord | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT id, user_id, business_id, role, status, joined_at
@@ -67,7 +72,12 @@ export async function listUserBusinesses(userId: string): Promise<
     platform?: string;
   }>
 > {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships", "businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT

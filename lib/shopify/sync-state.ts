@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 function normalizeDate(value: unknown) {
   if (!value) return null;
@@ -43,7 +43,12 @@ export async function getShopifySyncState(input: {
   providerAccountId: string;
   syncTarget: string;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_sync_state"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -78,7 +83,10 @@ export async function getShopifySyncState(input: {
 }
 
 export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: ["shopify_sync_state"],
+    context: "shopify_sync_state_upsert",
+  });
   const sql = getDb();
   await sql`
     INSERT INTO shopify_sync_state (

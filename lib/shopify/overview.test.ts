@@ -11,7 +11,6 @@ vi.mock("@/lib/account-store", () => ({
 vi.mock("@/lib/reporting-cache", () => ({
   getCachedReport: vi.fn(),
   getReportingDateRangeKey: vi.fn(() => "range-key"),
-  setCachedReport: vi.fn(),
 }));
 
 const accountStore = await import("@/lib/account-store");
@@ -131,7 +130,6 @@ describe("getShopifyOverviewAggregate", () => {
         },
       ],
     });
-    expect(reportingCache.setCachedReport).toHaveBeenCalledTimes(1);
   });
 
   it("returns null when neither reports nor orders scopes are available", async () => {
@@ -261,7 +259,6 @@ describe("getShopifyOverviewAggregate", () => {
         },
       ],
     });
-    expect(reportingCache.setCachedReport).toHaveBeenCalledTimes(1);
   });
 
   it("uses created_at shop-local boundaries and excludes test orders", async () => {

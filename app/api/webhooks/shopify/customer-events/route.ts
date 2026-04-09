@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { upsertShopifyCustomerEvents } from "@/lib/shopify/warehouse";
+
+const SHOPIFY_CUSTOMER_EVENTS_REQUIRED_TABLES = [
+  "integrations",
+  "shopify_customer_events",
+] as const;
 
 function toStringOrNull(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -72,7 +77,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid_payload" }, { status: 400 });
     }
 
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: [...SHOPIFY_CUSTOMER_EVENTS_REQUIRED_TABLES],
+    }).catch(() => null);
+    if (!readiness?.ready) {
+      console.error("[shopify-customer-events] schema_not_ready", {
+        shopDomain,
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      });
+      return NextResponse.json(
+        {
+          error: "schema_not_ready",
+          received: false,
+          missingTables: readiness?.missingTables ?? [],
+          checkedAt: readiness?.checkedAt ?? null,
+        },
+        { status: 503 },
+      );
+    }
     const sql = getDb();
     const integrationRows = (await sql`
       SELECT business_id, provider_account_id

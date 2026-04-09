@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import type {
   ShopifyOrderTransactionWarehouseRow,
   ShopifyCustomerEventWarehouseRow,
@@ -18,6 +18,30 @@ import type {
   ShopifyServingOverrideRecord,
   ShopifyWebhookDeliveryRecord,
 } from "@/lib/shopify/warehouse-types";
+
+const SHOPIFY_WAREHOUSE_TABLES = [
+  "shopify_raw_snapshots",
+  "shopify_orders",
+  "shopify_order_lines",
+  "shopify_refunds",
+  "shopify_order_transactions",
+  "shopify_returns",
+  "shopify_sales_events",
+  "shopify_serving_overrides",
+  "shopify_webhook_deliveries",
+  "shopify_repair_intents",
+  "shopify_reconciliation_runs",
+  "shopify_customer_events",
+  "shopify_serving_state",
+  "shopify_serving_state_history",
+] as const;
+
+async function assertShopifyWarehouseTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...SHOPIFY_WAREHOUSE_TABLES],
+    context,
+  });
+}
 
 function normalizeDate(value: unknown) {
   if (!value) return null;
@@ -88,6 +112,12 @@ function chunkRows<T>(rows: T[], size = 100) {
   return chunks;
 }
 
+function sanitizeRuntimeValidationSqlCommentValue(value: unknown, fallback = "na") {
+  const text = String(value ?? "").trim();
+  const cleaned = text.replace(/[^a-zA-Z0-9:_-]+/g, "_").slice(0, 80);
+  return cleaned || fallback;
+}
+
 export function buildShopifyRawSnapshotHash(input: {
   businessId: string;
   providerAccountId: string;
@@ -111,7 +141,7 @@ export function buildShopifyRawSnapshotHash(input: {
 }
 
 export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:insert_raw_snapshot");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO shopify_raw_snapshots (
@@ -151,7 +181,7 @@ export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) 
 
 export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_orders");
   const sql = getDb();
   let written = 0;
 
@@ -257,7 +287,7 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
 
 export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_lines");
   const sql = getDb();
   let written = 0;
 
@@ -326,7 +356,7 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
 
 export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_refunds");
   const sql = getDb();
   let written = 0;
 
@@ -383,59 +413,149 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
   return written;
 }
 
-export async function upsertShopifyOrderTransactions(rows: ShopifyOrderTransactionWarehouseRow[]) {
+export async function upsertShopifyOrderTransactions(
+  rows: ShopifyOrderTransactionWarehouseRow[],
+  input?: {
+    runtimeValidation?: {
+      runId: string;
+      pageCount?: number;
+      log?: (phase: string, summary?: Record<string, unknown>) => void;
+    };
+  }
+) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_transactions");
   const sql = getDb();
   let written = 0;
 
-  for (const row of rows) {
-    await sql`
-      INSERT INTO shopify_order_transactions (
-        business_id,
-        provider_account_id,
-        shop_id,
-        order_id,
-        transaction_id,
-        kind,
-        status,
-        gateway,
-        processed_at,
-        amount,
-        currency_code,
-        payload_json,
-        source_snapshot_id,
-        updated_at
-      )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${row.shopId},
-        ${row.orderId},
-        ${row.transactionId},
-        ${row.kind ?? null},
-        ${row.status ?? null},
-        ${row.gateway ?? null},
-        ${normalizeTimestamp(row.processedAt)},
-        ${toNumber(row.amount)},
-        ${row.currencyCode ?? null},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
-        ${row.sourceSnapshotId ?? null},
-        now()
-      )
-      ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
-      DO UPDATE SET
-        order_id = EXCLUDED.order_id,
-        kind = EXCLUDED.kind,
-        status = EXCLUDED.status,
-        gateway = EXCLUDED.gateway,
-        processed_at = EXCLUDED.processed_at,
-        amount = EXCLUDED.amount,
-        currency_code = EXCLUDED.currency_code,
-        payload_json = EXCLUDED.payload_json,
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        updated_at = now()
-    `;
+  for (const [index, row] of rows.entries()) {
+    const summary = {
+      pageCount: input?.runtimeValidation?.pageCount ?? null,
+      rowIndex: index + 1,
+      totalBatchSize: rows.length,
+      transactionId: row.transactionId,
+      orderId: row.orderId,
+      kind: row.kind ?? null,
+      status: row.status ?? null,
+    } satisfies Record<string, unknown>;
+    input?.runtimeValidation?.log?.("recent_orders_transactions_row_upsert_started", summary);
+
+    const runtimeValidationComment = input?.runtimeValidation
+      ? `/* shopify_rtval_transactions run_id=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.runId,
+        )} page=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.pageCount ?? null,
+        )} row=${sanitizeRuntimeValidationSqlCommentValue(
+          index + 1,
+        )} total=${sanitizeRuntimeValidationSqlCommentValue(rows.length)} transaction_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.transactionId,
+        )} order_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.orderId,
+        )} kind=${sanitizeRuntimeValidationSqlCommentValue(
+          row.kind ?? null,
+        )} status=${sanitizeRuntimeValidationSqlCommentValue(row.status ?? null)} */`
+      : null;
+
+    if (runtimeValidationComment) {
+      await sql.query(
+        `${runtimeValidationComment}
+        INSERT INTO shopify_order_transactions (
+          business_id,
+          provider_account_id,
+          shop_id,
+          order_id,
+          transaction_id,
+          kind,
+          status,
+          gateway,
+          processed_at,
+          amount,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9,
+          $10, $11, $12::jsonb, $13, now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
+        DO UPDATE SET
+          order_id = EXCLUDED.order_id,
+          kind = EXCLUDED.kind,
+          status = EXCLUDED.status,
+          gateway = EXCLUDED.gateway,
+          processed_at = EXCLUDED.processed_at,
+          amount = EXCLUDED.amount,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()`,
+        [
+          row.businessId,
+          row.providerAccountId,
+          row.shopId,
+          row.orderId,
+          row.transactionId,
+          row.kind ?? null,
+          row.status ?? null,
+          row.gateway ?? null,
+          normalizeTimestamp(row.processedAt),
+          toNumber(row.amount),
+          row.currencyCode ?? null,
+          JSON.stringify(row.payloadJson ?? {}),
+          row.sourceSnapshotId ?? null,
+        ]
+      );
+    } else {
+      await sql`
+        INSERT INTO shopify_order_transactions (
+          business_id,
+          provider_account_id,
+          shop_id,
+          order_id,
+          transaction_id,
+          kind,
+          status,
+          gateway,
+          processed_at,
+          amount,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          ${row.businessId},
+          ${row.providerAccountId},
+          ${row.shopId},
+          ${row.orderId},
+          ${row.transactionId},
+          ${row.kind ?? null},
+          ${row.status ?? null},
+          ${row.gateway ?? null},
+          ${normalizeTimestamp(row.processedAt)},
+          ${toNumber(row.amount)},
+          ${row.currencyCode ?? null},
+          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
+          ${row.sourceSnapshotId ?? null},
+          now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
+        DO UPDATE SET
+          order_id = EXCLUDED.order_id,
+          kind = EXCLUDED.kind,
+          status = EXCLUDED.status,
+          gateway = EXCLUDED.gateway,
+          processed_at = EXCLUDED.processed_at,
+          amount = EXCLUDED.amount,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `;
+    }
+    input?.runtimeValidation?.log?.("recent_orders_transactions_row_upsert_succeeded", summary);
     written += 1;
   }
 
@@ -444,7 +564,7 @@ export async function upsertShopifyOrderTransactions(rows: ShopifyOrderTransacti
 
 export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_returns");
   const sql = getDb();
   let written = 0;
 
@@ -498,71 +618,169 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   return written;
 }
 
-export async function upsertShopifySalesEvents(rows: ShopifySalesEventWarehouseRow[]) {
+export async function upsertShopifySalesEvents(
+  rows: ShopifySalesEventWarehouseRow[],
+  input?: {
+    runtimeValidation?: {
+      runId: string;
+      pageCount?: number;
+      log?: (phase: string, summary?: Record<string, unknown>) => void;
+    };
+  }
+) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_sales_events");
   const sql = getDb();
   let written = 0;
 
-  for (const row of rows) {
-    await sql`
-      INSERT INTO shopify_sales_events (
-        business_id,
-        provider_account_id,
-        shop_id,
-        event_id,
-        source_kind,
-        source_id,
-        order_id,
-        occurred_at,
-        occurred_date_local,
-        gross_sales,
-        refunded_sales,
-        refunded_shipping,
-        refunded_taxes,
-        net_revenue,
-        currency_code,
-        payload_json,
-        source_snapshot_id,
-        updated_at
-      )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${row.shopId},
-        ${row.eventId},
-        ${row.sourceKind},
-        ${row.sourceId},
-        ${row.orderId ?? null},
-        ${normalizeTimestamp(row.occurredAt)},
-        ${normalizeDate(row.occurredDateLocal)},
-        ${toNumber(row.grossSales)},
-        ${toNumber(row.refundedSales)},
-        ${toNumber(row.refundedShipping)},
-        ${toNumber(row.refundedTaxes)},
-        ${toNumber(row.netRevenue)},
-        ${row.currencyCode ?? null},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
-        ${row.sourceSnapshotId ?? null},
-        now()
-      )
-      ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
-      DO UPDATE SET
-        source_kind = EXCLUDED.source_kind,
-        source_id = EXCLUDED.source_id,
-        order_id = EXCLUDED.order_id,
-        occurred_at = EXCLUDED.occurred_at,
-        occurred_date_local = EXCLUDED.occurred_date_local,
-        gross_sales = EXCLUDED.gross_sales,
-        refunded_sales = EXCLUDED.refunded_sales,
-        refunded_shipping = EXCLUDED.refunded_shipping,
-        refunded_taxes = EXCLUDED.refunded_taxes,
-        net_revenue = EXCLUDED.net_revenue,
-        currency_code = EXCLUDED.currency_code,
-        payload_json = EXCLUDED.payload_json,
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        updated_at = now()
-    `;
+  for (const [index, row] of rows.entries()) {
+    const summary = {
+      pageCount: input?.runtimeValidation?.pageCount ?? null,
+      rowIndex: index + 1,
+      totalBatchSize: rows.length,
+      eventId: row.eventId,
+      sourceId: row.sourceId,
+      sourceKind: row.sourceKind,
+    } satisfies Record<string, unknown>;
+    input?.runtimeValidation?.log?.("recent_orders_sales_events_row_upsert_started", summary);
+    const runtimeValidationComment = input?.runtimeValidation
+      ? `/* shopify_rtval_sales_events run_id=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.runId,
+        )} page=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.pageCount ?? null,
+        )} row=${sanitizeRuntimeValidationSqlCommentValue(
+          index + 1,
+        )} total=${sanitizeRuntimeValidationSqlCommentValue(rows.length)} event_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.eventId,
+        )} source_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.sourceId,
+        )} source_kind=${sanitizeRuntimeValidationSqlCommentValue(row.sourceKind)} */`
+      : null;
+
+    if (runtimeValidationComment) {
+      await sql.query(
+        `${runtimeValidationComment}
+        INSERT INTO shopify_sales_events (
+          business_id,
+          provider_account_id,
+          shop_id,
+          event_id,
+          source_kind,
+          source_id,
+          order_id,
+          occurred_at,
+          occurred_date_local,
+          gross_sales,
+          refunded_sales,
+          refunded_shipping,
+          refunded_taxes,
+          net_revenue,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9,
+          $10, $11, $12, $13, $14, $15, $16::jsonb, $17, now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
+        DO UPDATE SET
+          source_kind = EXCLUDED.source_kind,
+          source_id = EXCLUDED.source_id,
+          order_id = EXCLUDED.order_id,
+          occurred_at = EXCLUDED.occurred_at,
+          occurred_date_local = EXCLUDED.occurred_date_local,
+          gross_sales = EXCLUDED.gross_sales,
+          refunded_sales = EXCLUDED.refunded_sales,
+          refunded_shipping = EXCLUDED.refunded_shipping,
+          refunded_taxes = EXCLUDED.refunded_taxes,
+          net_revenue = EXCLUDED.net_revenue,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()`,
+        [
+          row.businessId,
+          row.providerAccountId,
+          row.shopId,
+          row.eventId,
+          row.sourceKind,
+          row.sourceId,
+          row.orderId ?? null,
+          normalizeTimestamp(row.occurredAt),
+          normalizeDate(row.occurredDateLocal),
+          toNumber(row.grossSales),
+          toNumber(row.refundedSales),
+          toNumber(row.refundedShipping),
+          toNumber(row.refundedTaxes),
+          toNumber(row.netRevenue),
+          row.currencyCode ?? null,
+          JSON.stringify(row.payloadJson ?? {}),
+          row.sourceSnapshotId ?? null,
+        ]
+      );
+    } else {
+      await sql`
+        INSERT INTO shopify_sales_events (
+          business_id,
+          provider_account_id,
+          shop_id,
+          event_id,
+          source_kind,
+          source_id,
+          order_id,
+          occurred_at,
+          occurred_date_local,
+          gross_sales,
+          refunded_sales,
+          refunded_shipping,
+          refunded_taxes,
+          net_revenue,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          ${row.businessId},
+          ${row.providerAccountId},
+          ${row.shopId},
+          ${row.eventId},
+          ${row.sourceKind},
+          ${row.sourceId},
+          ${row.orderId ?? null},
+          ${normalizeTimestamp(row.occurredAt)},
+          ${normalizeDate(row.occurredDateLocal)},
+          ${toNumber(row.grossSales)},
+          ${toNumber(row.refundedSales)},
+          ${toNumber(row.refundedShipping)},
+          ${toNumber(row.refundedTaxes)},
+          ${toNumber(row.netRevenue)},
+          ${row.currencyCode ?? null},
+          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
+          ${row.sourceSnapshotId ?? null},
+          now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
+        DO UPDATE SET
+          source_kind = EXCLUDED.source_kind,
+          source_id = EXCLUDED.source_id,
+          order_id = EXCLUDED.order_id,
+          occurred_at = EXCLUDED.occurred_at,
+          occurred_date_local = EXCLUDED.occurred_date_local,
+          gross_sales = EXCLUDED.gross_sales,
+          refunded_sales = EXCLUDED.refunded_sales,
+          refunded_shipping = EXCLUDED.refunded_shipping,
+          refunded_taxes = EXCLUDED.refunded_taxes,
+          net_revenue = EXCLUDED.net_revenue,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `;
+    }
+    input?.runtimeValidation?.log?.("recent_orders_sales_events_row_upsert_succeeded", summary);
     written += 1;
   }
 
@@ -574,7 +792,7 @@ export async function getShopifyServingOverride(input: {
   providerAccountId: string;
   overrideKey: string;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:get_serving_override");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -600,7 +818,7 @@ export async function getShopifyServingOverride(input: {
 }
 
 export async function upsertShopifyServingOverride(input: ShopifyServingOverrideRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_serving_override");
   const sql = getDb();
   await sql`
     INSERT INTO shopify_serving_overrides (
@@ -637,7 +855,7 @@ export async function upsertShopifyServingOverride(input: ShopifyServingOverride
 }
 
 export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDeliveryRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_webhook_delivery");
   const sql = getDb();
   await sql`
     INSERT INTO shopify_webhook_deliveries (
@@ -684,7 +902,7 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
 }
 
 export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_repair_intent");
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO shopify_repair_intents (
@@ -762,7 +980,7 @@ export async function listShopifyRepairIntents(input: {
   providerAccountId: string;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_repair_intents");
   const sql = getDb();
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 10)));
   const rows = (await sql`
@@ -801,7 +1019,7 @@ export async function getShopifyWebhookDelivery(input: {
   topic: string;
   payloadHash: string;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:get_webhook_delivery");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -840,7 +1058,7 @@ export async function listShopifyWebhookDeliveries(input: {
   providerAccountId?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_webhook_deliveries");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -870,57 +1088,6 @@ export async function listShopifyWebhookDeliveries(input: {
   })) satisfies ShopifyWebhookDeliveryRecord[];
 }
 
-export async function insertShopifyReconciliationRun(input: ShopifyReconciliationRunRecord) {
-  await runMigrations();
-  const sql = getDb();
-  await sql`
-    INSERT INTO shopify_reconciliation_runs (
-      business_id,
-      provider_account_id,
-      reconciliation_key,
-      start_date,
-      end_date,
-      preferred_source,
-      can_serve_warehouse,
-      selected_revenue_truth_basis,
-      basis_selection_reason,
-      transaction_coverage_order_rate,
-      transaction_coverage_amount_rate,
-      order_revenue_truth_delta,
-      transaction_revenue_delta,
-      explained_adjustment_revenue,
-      unexplained_adjustment_revenue,
-      divergence,
-      warehouse_aggregate,
-      ledger_aggregate,
-      live_aggregate,
-      recorded_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.providerAccountId},
-      ${input.reconciliationKey},
-      ${normalizeDate(input.startDate)},
-      ${normalizeDate(input.endDate)},
-      ${input.preferredSource ?? null},
-      ${Boolean(input.canServeWarehouse)},
-      ${input.selectedRevenueTruthBasis ?? null},
-      ${input.basisSelectionReason ?? null},
-      ${input.transactionCoverageOrderRate ?? null},
-      ${input.transactionCoverageAmountRate ?? null},
-      ${input.orderRevenueTruthDelta ?? null},
-      ${input.transactionRevenueDelta ?? null},
-      ${input.explainedAdjustmentRevenue ?? null},
-      ${input.unexplainedAdjustmentRevenue ?? null},
-      ${JSON.stringify(input.divergence ?? null)}::jsonb,
-      ${JSON.stringify(input.warehouseAggregate ?? null)}::jsonb,
-      ${JSON.stringify(input.ledgerAggregate ?? null)}::jsonb,
-      ${JSON.stringify(input.liveAggregate ?? null)}::jsonb,
-      COALESCE(${normalizeTimestamp(input.recordedAt)}, now())
-    )
-  `;
-}
-
 export async function listShopifyReconciliationRuns(input: {
   businessId: string;
   providerAccountId: string;
@@ -929,7 +1096,7 @@ export async function listShopifyReconciliationRuns(input: {
   endDate?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_reconciliation_runs");
   const sql = getDb();
   const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 10)));
   const rows = (await sql`
@@ -991,7 +1158,7 @@ export async function listShopifyReconciliationRuns(input: {
 
 export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWarehouseRow[]) {
   if (rows.length <= 0) return 0;
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_customer_events");
   const sql = getDb();
   let written = 0;
 
@@ -1050,7 +1217,7 @@ export async function getShopifyServingState(input: {
   providerAccountId: string;
   canaryKey: string;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:get_serving_state");
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -1115,7 +1282,7 @@ export async function listShopifyServingStateHistory(input: {
   endDate?: string | null;
   limit?: number;
 }) {
-  await runMigrations();
+  await assertShopifyWarehouseTablesReady("shopify_warehouse:list_serving_state_history");
   const sql = getDb();
   const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 10)));
   const rows = (await sql`
@@ -1175,195 +1342,4 @@ export async function listShopifyServingStateHistory(input: {
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   })) satisfies ShopifyServingStateHistoryRecord[];
-}
-
-export async function upsertShopifyServingState(input: ShopifyServingStateRecord) {
-  await runMigrations();
-  const sql = getDb();
-  await sql`
-    INSERT INTO shopify_serving_state (
-      business_id,
-      provider_account_id,
-      canary_key,
-      start_date,
-      end_date,
-      time_zone_basis,
-      assessed_at,
-      status_state,
-      preferred_source,
-      production_mode,
-      trust_state,
-      fallback_reason,
-      coverage_status,
-      pending_repair,
-      pending_repair_started_at,
-      pending_repair_last_topic,
-      pending_repair_last_received_at,
-      consecutive_clean_validations,
-      orders_recent_synced_at,
-      orders_recent_cursor_timestamp,
-      orders_recent_cursor_value,
-      returns_recent_synced_at,
-      returns_recent_cursor_timestamp,
-      returns_recent_cursor_value,
-      orders_historical_synced_at,
-      orders_historical_ready_through_date,
-      orders_historical_target_end,
-      returns_historical_synced_at,
-      returns_historical_ready_through_date,
-      returns_historical_target_end,
-      can_serve_warehouse,
-      canary_enabled,
-      decision_reasons,
-      divergence,
-      updated_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.providerAccountId},
-      ${input.canaryKey},
-      ${normalizeDate(input.startDate)},
-      ${normalizeDate(input.endDate)},
-      ${input.timeZoneBasis ?? null},
-      COALESCE(${normalizeTimestamp(input.assessedAt)}, now()),
-      ${input.statusState ?? null},
-      ${input.preferredSource ?? null},
-      ${input.productionMode ?? null},
-      ${input.trustState ?? null},
-      ${input.fallbackReason ?? null},
-      ${input.coverageStatus ?? null},
-      ${Boolean(input.pendingRepair)},
-      ${normalizeTimestamp(input.pendingRepairStartedAt)},
-      ${input.pendingRepairLastTopic ?? null},
-      ${normalizeTimestamp(input.pendingRepairLastReceivedAt)},
-      ${Math.max(0, Math.trunc(input.consecutiveCleanValidations ?? 0))},
-      ${normalizeTimestamp(input.ordersRecentSyncedAt)},
-      ${normalizeTimestamp(input.ordersRecentCursorTimestamp)},
-      ${input.ordersRecentCursorValue ?? null},
-      ${normalizeTimestamp(input.returnsRecentSyncedAt)},
-      ${normalizeTimestamp(input.returnsRecentCursorTimestamp)},
-      ${input.returnsRecentCursorValue ?? null},
-      ${normalizeTimestamp(input.ordersHistoricalSyncedAt)},
-      ${normalizeDate(input.ordersHistoricalReadyThroughDate)},
-      ${normalizeDate(input.ordersHistoricalTargetEnd)},
-      ${normalizeTimestamp(input.returnsHistoricalSyncedAt)},
-      ${normalizeDate(input.returnsHistoricalReadyThroughDate)},
-      ${normalizeDate(input.returnsHistoricalTargetEnd)},
-      ${Boolean(input.canServeWarehouse)},
-      ${Boolean(input.canaryEnabled)},
-      ${JSON.stringify(input.decisionReasons ?? [])}::jsonb,
-      ${JSON.stringify(input.divergence ?? null)}::jsonb,
-      now()
-    )
-    ON CONFLICT (business_id, provider_account_id, canary_key)
-    DO UPDATE SET
-      assessed_at = EXCLUDED.assessed_at,
-      start_date = COALESCE(EXCLUDED.start_date, shopify_serving_state.start_date),
-      end_date = COALESCE(EXCLUDED.end_date, shopify_serving_state.end_date),
-      time_zone_basis = COALESCE(EXCLUDED.time_zone_basis, shopify_serving_state.time_zone_basis),
-      status_state = EXCLUDED.status_state,
-      preferred_source = EXCLUDED.preferred_source,
-      production_mode = EXCLUDED.production_mode,
-      trust_state = EXCLUDED.trust_state,
-      fallback_reason = EXCLUDED.fallback_reason,
-      coverage_status = EXCLUDED.coverage_status,
-      pending_repair = EXCLUDED.pending_repair,
-      pending_repair_started_at = EXCLUDED.pending_repair_started_at,
-      pending_repair_last_topic = EXCLUDED.pending_repair_last_topic,
-      pending_repair_last_received_at = EXCLUDED.pending_repair_last_received_at,
-      consecutive_clean_validations = EXCLUDED.consecutive_clean_validations,
-      orders_recent_synced_at = EXCLUDED.orders_recent_synced_at,
-      orders_recent_cursor_timestamp = EXCLUDED.orders_recent_cursor_timestamp,
-      orders_recent_cursor_value = EXCLUDED.orders_recent_cursor_value,
-      returns_recent_synced_at = EXCLUDED.returns_recent_synced_at,
-      returns_recent_cursor_timestamp = EXCLUDED.returns_recent_cursor_timestamp,
-      returns_recent_cursor_value = EXCLUDED.returns_recent_cursor_value,
-      orders_historical_synced_at = EXCLUDED.orders_historical_synced_at,
-      orders_historical_ready_through_date = EXCLUDED.orders_historical_ready_through_date,
-      orders_historical_target_end = EXCLUDED.orders_historical_target_end,
-      returns_historical_synced_at = EXCLUDED.returns_historical_synced_at,
-      returns_historical_ready_through_date = EXCLUDED.returns_historical_ready_through_date,
-      returns_historical_target_end = EXCLUDED.returns_historical_target_end,
-      can_serve_warehouse = EXCLUDED.can_serve_warehouse,
-      canary_enabled = EXCLUDED.canary_enabled,
-      decision_reasons = EXCLUDED.decision_reasons,
-      divergence = EXCLUDED.divergence,
-      updated_at = now()
-  `;
-  await sql`
-    INSERT INTO shopify_serving_state_history (
-      business_id,
-      provider_account_id,
-      canary_key,
-      start_date,
-      end_date,
-      time_zone_basis,
-      assessed_at,
-      status_state,
-      preferred_source,
-      production_mode,
-      trust_state,
-      fallback_reason,
-      coverage_status,
-      pending_repair,
-      pending_repair_started_at,
-      pending_repair_last_topic,
-      pending_repair_last_received_at,
-      consecutive_clean_validations,
-      orders_recent_synced_at,
-      orders_recent_cursor_timestamp,
-      orders_recent_cursor_value,
-      returns_recent_synced_at,
-      returns_recent_cursor_timestamp,
-      returns_recent_cursor_value,
-      orders_historical_synced_at,
-      orders_historical_ready_through_date,
-      orders_historical_target_end,
-      returns_historical_synced_at,
-      returns_historical_ready_through_date,
-      returns_historical_target_end,
-      can_serve_warehouse,
-      canary_enabled,
-      decision_reasons,
-      divergence,
-      updated_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.providerAccountId},
-      ${input.canaryKey},
-      ${normalizeDate(input.startDate)},
-      ${normalizeDate(input.endDate)},
-      ${input.timeZoneBasis ?? null},
-      COALESCE(${normalizeTimestamp(input.assessedAt)}, now()),
-      ${input.statusState ?? null},
-      ${input.preferredSource ?? null},
-      ${input.productionMode ?? null},
-      ${input.trustState ?? null},
-      ${input.fallbackReason ?? null},
-      ${input.coverageStatus ?? null},
-      ${Boolean(input.pendingRepair)},
-      ${normalizeTimestamp(input.pendingRepairStartedAt)},
-      ${input.pendingRepairLastTopic ?? null},
-      ${normalizeTimestamp(input.pendingRepairLastReceivedAt)},
-      ${Math.max(0, Math.trunc(input.consecutiveCleanValidations ?? 0))},
-      ${normalizeTimestamp(input.ordersRecentSyncedAt)},
-      ${normalizeTimestamp(input.ordersRecentCursorTimestamp)},
-      ${input.ordersRecentCursorValue ?? null},
-      ${normalizeTimestamp(input.returnsRecentSyncedAt)},
-      ${normalizeTimestamp(input.returnsRecentCursorTimestamp)},
-      ${input.returnsRecentCursorValue ?? null},
-      ${normalizeTimestamp(input.ordersHistoricalSyncedAt)},
-      ${normalizeDate(input.ordersHistoricalReadyThroughDate)},
-      ${normalizeDate(input.ordersHistoricalTargetEnd)},
-      ${normalizeTimestamp(input.returnsHistoricalSyncedAt)},
-      ${normalizeDate(input.returnsHistoricalReadyThroughDate)},
-      ${normalizeDate(input.returnsHistoricalTargetEnd)},
-      ${Boolean(input.canServeWarehouse)},
-      ${Boolean(input.canaryEnabled)},
-      ${JSON.stringify(input.decisionReasons ?? [])}::jsonb,
-      ${JSON.stringify(input.divergence ?? null)}::jsonb,
-      now()
-    )
-  `;
 }

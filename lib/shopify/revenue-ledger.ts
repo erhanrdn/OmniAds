@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { ShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 
 function round2(value: number) {
@@ -52,7 +52,36 @@ export async function getShopifyRevenueLedgerAggregate(input: {
   startDate: string;
   endDate: string;
 }) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["shopify_sales_events", "shopify_orders", "shopify_order_transactions"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return {
+      revenue: 0,
+      grossRevenue: 0,
+      refundedRevenue: 0,
+      purchases: 0,
+      returnEvents: 0,
+      averageOrderValue: null,
+      daily: [],
+      ledgerRows: 0,
+      orderEventCount: 0,
+      adjustmentEventCount: 0,
+      refundEventCount: 0,
+      adjustmentRevenue: 0,
+      refundPressure: 0,
+      dailySemanticDrift: 0,
+      currentOrderRevenue: null,
+      grossMinusRefundsOrderRevenue: null,
+      transactionCapturedRevenue: null,
+      transactionRefundedRevenue: null,
+      transactionNetRevenue: null,
+      transactionCoveredOrders: 0,
+      transactionCoveredRevenue: null,
+      transactionCoverageRate: null,
+      transactionCoverageAmountRate: null,
+    } satisfies ShopifyRevenueLedgerAggregate;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT

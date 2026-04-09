@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 const DEMO_BUSINESS_FALLBACK_ID = "11111111-1111-4111-8111-111111111111";
 const CACHE_TTL_MS = 60_000;
@@ -23,16 +23,22 @@ export async function isDemoBusiness(
 
   let value = false;
   try {
-    await runMigrations();
-    const sql = getDb();
-    const rows = (await sql`
-      SELECT is_demo_business
-      FROM businesses
-      WHERE id = ${businessId}
-      LIMIT 1
-    `) as Array<{ is_demo_business?: unknown }>;
-    const row = rows[0];
-    value = Boolean(row?.is_demo_business);
+    const readiness = await getDbSchemaReadiness({
+      tables: ["businesses"],
+    });
+    if (!readiness.ready) {
+      value = businessId === DEMO_BUSINESS_FALLBACK_ID;
+    } else {
+      const sql = getDb();
+      const rows = (await sql`
+        SELECT is_demo_business
+        FROM businesses
+        WHERE id = ${businessId}
+        LIMIT 1
+      `) as Array<{ is_demo_business?: unknown }>;
+      const row = rows[0];
+      value = Boolean(row?.is_demo_business);
+    }
   } catch {
     value = businessId === DEMO_BUSINESS_FALLBACK_ID;
   }

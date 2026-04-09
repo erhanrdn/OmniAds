@@ -1,24 +1,12 @@
 import { NextResponse } from "next/server";
-import { runMigrations } from "@/lib/migrations";
-
-/**
- * POST /api/migrate
- *
- * Runs all database migrations.
- * Idempotent — safe to call multiple times.
- */
 export async function POST() {
-  try {
-    await runMigrations({ force: true, reason: "api_migrate_route" });
-    return NextResponse.json({
-      status: "OK",
-      message: "Migrations applied successfully.",
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json(
-      { status: "FAILED", error: message },
-      { status: 500 },
-    );
-  }
+  return NextResponse.json(
+    {
+      status: "DISABLED",
+      message:
+        "HTTP-triggered migrations are retired. Use `npm run db:migrate` or `node --import tsx scripts/run-migrations.ts`.",
+      entrypoint: "npm run db:migrate",
+    },
+    { status: 410 },
+  );
 }

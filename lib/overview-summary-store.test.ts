@@ -12,16 +12,16 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
-const { hydrateOverviewSummaryRangeFromMeta } = await import("@/lib/overview-summary-store");
+const { materializeOverviewSummaryRangeFromMeta } = await import("@/lib/overview-summary-materializer");
 
-describe("overview summary store", () => {
+describe("overview summary materializer", () => {
   beforeEach(() => {
     dbQuery.mockReset();
     dbQuery.mockResolvedValue([]);
   });
 
   it("normalizes Date-based Meta warehouse rows before hydrating the summary range", async () => {
-    const rows = await hydrateOverviewSummaryRangeFromMeta({
+    const rows = await materializeOverviewSummaryRangeFromMeta({
       businessId: "biz",
       providerAccountIds: ["act_1"],
       startDate: "2026-03-29",

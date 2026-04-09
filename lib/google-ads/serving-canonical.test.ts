@@ -39,7 +39,6 @@ vi.mock("@/lib/google-ads/warehouse", () => ({
 
 vi.mock("@/lib/overview-summary-store", () => ({
   evaluateOverviewSummaryProjectionValidity: vi.fn(),
-  hydrateOverviewSummaryRangeFromGoogle: vi.fn(),
   readOverviewSummaryRange: vi.fn(),
 }));
 
@@ -81,7 +80,6 @@ describe("google canonical overview helpers", () => {
       latest_updated_at: "2026-03-03T12:00:00Z",
     } as never);
     vi.mocked(warehouse.getLatestGoogleAdsSyncHealth).mockResolvedValue(null as never);
-    vi.mocked(overviewStore.hydrateOverviewSummaryRangeFromGoogle).mockResolvedValue([] as never);
   });
 
   afterEach(() => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { requireInternalOrAdminSyncAccess, businessExists } from "@/lib/internal-sync-auth";
 import { logAdminAction } from "@/lib/admin-logger";
 import { runGoogleAdsRepairCycle, runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
@@ -42,13 +42,76 @@ function getRefreshKey(businessId: string, provider: string) {
 const DURABLE_REFRESH_REPORT_TYPE = "scheduled_refresh";
 const DURABLE_REFRESH_RANGE_KEY = "full";
 const DURABLE_REFRESH_LOCK_MINUTES = 5;
+const SYNC_REFRESH_COMMON_TABLES = [
+  "provider_sync_jobs",
+  "admin_audit_logs",
+  "sync_runner_leases",
+  "sync_reclaim_events",
+  "provider_account_rollover_state",
+] as const;
+const SYNC_REFRESH_GOOGLE_TABLES = [
+  ...SYNC_REFRESH_COMMON_TABLES,
+  "google_ads_sync_jobs",
+  "google_ads_sync_partitions",
+  "google_ads_sync_runs",
+  "google_ads_sync_checkpoints",
+  "google_ads_sync_state",
+  "google_ads_raw_snapshots",
+  "google_ads_account_daily",
+  "google_ads_campaign_daily",
+  "google_ads_search_term_daily",
+  "google_ads_product_daily",
+  "google_ads_query_dictionary",
+  "google_ads_search_query_hot_daily",
+  "google_ads_top_query_weekly",
+  "google_ads_search_cluster_daily",
+  "google_ads_decision_action_outcome_logs",
+] as const;
+const SYNC_REFRESH_META_TABLES = [
+  ...SYNC_REFRESH_COMMON_TABLES,
+  "meta_sync_jobs",
+  "meta_sync_partitions",
+  "meta_sync_runs",
+  "meta_sync_checkpoints",
+  "meta_sync_state",
+  "meta_raw_snapshots",
+  "meta_account_daily",
+  "meta_campaign_daily",
+  "meta_adset_daily",
+  "meta_breakdown_daily",
+  "meta_ad_daily",
+  "meta_creative_daily",
+] as const;
+const SYNC_REFRESH_SHOPIFY_TABLES = [
+  ...SYNC_REFRESH_COMMON_TABLES,
+  "shopify_sync_state",
+  "shopify_raw_snapshots",
+  "shopify_orders",
+  "shopify_order_lines",
+  "shopify_refunds",
+  "shopify_order_transactions",
+  "shopify_returns",
+  "shopify_sales_events",
+] as const;
+
+function getSyncRefreshRequiredTables(provider: string) {
+  switch (provider) {
+    case "google_ads":
+      return [...SYNC_REFRESH_GOOGLE_TABLES];
+    case "meta":
+      return [...SYNC_REFRESH_META_TABLES];
+    case "shopify":
+      return [...SYNC_REFRESH_SHOPIFY_TABLES];
+    default:
+      return [...SYNC_REFRESH_COMMON_TABLES];
+  }
+}
 
 async function isJobAlreadyRunning(
   businessId: string,
   provider: string,
 ): Promise<boolean> {
   try {
-    await runMigrations();
     const sql = getDb();
     if (provider === "meta") {
       await metaWarehouse.expireStaleMetaSyncJobs({ businessId }).catch(() => null);
@@ -81,7 +144,6 @@ async function hasMetaQueueConsumerRunning(
   businessId: string,
 ): Promise<boolean> {
   try {
-    await runMigrations();
     const sql = getDb();
     const rows = await sql`
       SELECT COUNT(*)::int AS leased_count
@@ -131,7 +193,6 @@ async function acquireDurableRefreshLock(input: {
   ownerToken: string;
 }): Promise<{ acquired: boolean; error: boolean }> {
   try {
-    await runMigrations();
     const sql = getDb();
     const rows = await sql`
       WITH active AS (
@@ -202,7 +263,6 @@ async function getActiveDurableRefreshLockAgeSeconds(input: {
   provider: string;
 }): Promise<number | null> {
   try {
-    await runMigrations();
     const sql = getDb();
     const rows = await sql`
       SELECT EXTRACT(EPOCH FROM (now() - started_at))::int AS age_seconds
@@ -228,7 +288,6 @@ async function expireDurableRefreshLock(input: {
   provider: string;
 }): Promise<boolean> {
   try {
-    await runMigrations();
     const sql = getDb();
     await sql`
       UPDATE provider_sync_jobs
@@ -258,7 +317,6 @@ async function releaseDurableRefreshLock(input: {
   errorMessage?: string | null;
 }) {
   try {
-    await runMigrations();
     const sql = getDb();
     await sql`
       UPDATE provider_sync_jobs
@@ -473,6 +531,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "unsupported_provider_for_refresh", supportedProviders: validProviders },
       { status: 400 },
+    );
+  }
+
+  const readiness = await getDbSchemaReadiness({
+    tables: getSyncRefreshRequiredTables(provider),
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return NextResponse.json(
+      {
+        error: "schema_not_ready",
+        message:
+          "Sync refresh is unavailable until request-external migrations are applied.",
+        provider,
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      },
+      { status: 503 },
     );
   }
 

@@ -1,12 +1,10 @@
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
-import { getIntegration, upsertIntegration } from "@/lib/integrations";
+import { getIntegration } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
 import { createHash } from "node:crypto";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
-import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 
 interface GaqlSearchResult {
   results?: Array<{
@@ -75,44 +73,8 @@ const GOOGLE_ADS_SEARCH_CACHE_TTL_MS = 30_000;
 const GOOGLE_ADS_OPTIONAL_SEARCH_CACHE_TTL_MS = 15_000;
 const GOOGLE_ADS_LOGIN_CONTEXT_FAILURE_TTL_MS = 5 * 60_000;
 
-// DB snapshot'tan warm-up için maksimum yaş (5 dakika)
-const GAQL_DB_WARMUP_MAX_AGE_MS = 5 * 60_000;
-// Yalnızca bu sorgular DB'ye de yazılır/okunur
+// Yalnızca bu sorgular daha uzun in-memory TTL alır.
 const GAQL_DB_PERSIST_QUERY_NAMES = new Set(["customer_summary", "campaign_core_basic"]);
-
-const GAQL_DB_PROVIDER = "google_ads_gaql";
-
-async function readGaqlFromDb(cacheKey: string): Promise<GaqlSearchResult | null> {
-  try {
-    await runMigrations();
-    const sql = getDb();
-    const rows = await sql`
-      SELECT payload, updated_at
-      FROM provider_reporting_snapshots
-      WHERE provider       = ${GAQL_DB_PROVIDER}
-        AND report_type    = 'gaql'
-        AND date_range_key = ${cacheKey}
-        AND updated_at     > now() - interval '5 minutes'
-      LIMIT 1
-    ` as Array<{ payload: GaqlSearchResult; updated_at: string }>;
-    return rows[0]?.payload ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function writeGaqlToDb(businessId: string, cacheKey: string, value: GaqlSearchResult): void {
-  runMigrations().then(() => {
-    const sql = getDb();
-    return sql`
-      INSERT INTO provider_reporting_snapshots (business_id, provider, report_type, date_range_key, payload, updated_at)
-      VALUES (${businessId}, ${GAQL_DB_PROVIDER}, 'gaql', ${cacheKey}, ${JSON.stringify(value)}::jsonb, now())
-      ON CONFLICT (business_id, provider, report_type, date_range_key) DO UPDATE SET
-        payload    = EXCLUDED.payload,
-        updated_at = now()
-    `;
-  }).catch(() => {});
-}
 
 interface CachedGaqlResult {
   expiresAt: number;
@@ -302,14 +264,6 @@ export async function executeGaqlQuery(params: {
         const refreshed = await refreshGoogleAccessToken(
           integration.refresh_token,
         );
-        await upsertIntegration({
-          businessId: params.businessId,
-          provider: "google",
-          status: "connected",
-          accessToken: refreshed.accessToken,
-          refreshToken: integration.refresh_token,
-          tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
-        });
         accessToken = refreshed.accessToken;
       } catch (error) {
         console.error("[google-ads-gaql] token refresh failed", error);
@@ -338,23 +292,7 @@ export async function executeGaqlQuery(params: {
     cacheStore.delete(cacheKey);
   }
 
-  // Cold start warm-up: in-memory cache boş ise DB snapshot'tan yükle (kritik sorgular)
   const isCriticalQuery = params.queryName != null && GAQL_DB_PERSIST_QUERY_NAMES.has(params.queryName);
-  if (isCriticalQuery) {
-    const dbCached = await readGaqlFromDb(cacheKey);
-    if (dbCached) {
-      cacheStore.set(cacheKey, {
-        value: dbCached,
-        expiresAt: Date.now() + GOOGLE_ADS_SEARCH_CACHE_TTL_MS,
-      });
-      console.log("[google-ads-search] db_warmup_hit", {
-        businessId: params.businessId,
-        customerId: normalizedCustomerId,
-        queryName: params.queryName,
-      });
-      return dbCached;
-    }
-  }
   const loginCustomerIdCandidates = await getLoginCustomerIdCandidates(
     params.businessId,
     params.customerId
@@ -473,10 +411,6 @@ export async function executeGaqlQuery(params: {
             ? GOOGLE_ADS_SEARCH_CACHE_TTL_MS
             : GOOGLE_ADS_OPTIONAL_SEARCH_CACHE_TTL_MS;
           cacheStore.set(cacheKey, { value: result, expiresAt: Date.now() + ttl });
-          // Kritik sorgular için DB'ye de yaz (cold start warm-up)
-          if (isCriticalQuery) {
-            writeGaqlToDb(params.businessId, cacheKey, result);
-          }
           console.log("[google-ads-search] success", {
             source: params.source ?? "unknown",
             requestId: params.requestId ?? null,

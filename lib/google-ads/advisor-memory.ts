@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type {
   GoogleCompletionMode,
   GoogleExecutionStatus,
@@ -8,7 +9,6 @@ import type {
   GoogleRecommendation,
   GoogleRecommendationMemoryStatus,
 } from "@/lib/google-ads/growth-advisor-types";
-import { runMigrations } from "@/lib/migrations";
 
 interface RecommendationMemoryRow {
   business_id: string;
@@ -52,12 +52,36 @@ interface RecommendationMemoryRow {
 const globalStore = globalThis as typeof globalThis & {
   __googleAdvisorMemoryFallback?: Map<string, Map<string, RecommendationMemoryRow>>;
 };
+const GOOGLE_ADVISOR_MEMORY_TABLES = ["google_ads_advisor_memory"] as const;
+const GOOGLE_ADVISOR_EXECUTION_LOG_TABLES = [
+  "google_ads_advisor_execution_logs",
+] as const;
 
 function getFallbackStore() {
   if (!globalStore.__googleAdvisorMemoryFallback) {
     globalStore.__googleAdvisorMemoryFallback = new Map();
   }
   return globalStore.__googleAdvisorMemoryFallback;
+}
+
+async function getAdvisorMemorySchemaReadiness() {
+  return getDbSchemaReadiness({
+    tables: [...GOOGLE_ADVISOR_MEMORY_TABLES],
+  }).catch(() => null);
+}
+
+async function assertAdvisorMemoryTablesReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADVISOR_MEMORY_TABLES],
+    context,
+  });
+}
+
+async function assertAdvisorExecutionLogTableReady(context: string) {
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADVISOR_EXECUTION_LOG_TABLES],
+    context,
+  });
 }
 
 function bucketWeight(bucket: GoogleRecommendation["doBucket"]) {
@@ -558,7 +582,10 @@ export async function annotateAdvisorMemory(input: {
   if (!isDbConfigured()) {
     return annotateAdvisorMemoryFallback(input);
   }
-  await runMigrations({ reason: "google_advisor_memory" });
+  const readiness = await getAdvisorMemorySchemaReadiness();
+  if (!readiness?.ready) {
+    return annotateAdvisorMemoryFallback(input);
+  }
   const sql = getDb();
   const nowIso = new Date().toISOString();
   const fingerprints = Array.from(
@@ -710,123 +737,6 @@ export async function annotateAdvisorMemory(input: {
       recommendation_snapshot: safeSnapshot(recommendation),
     };
 
-    await sql`
-      INSERT INTO google_ads_advisor_memory (
-        business_id,
-        account_id,
-        recommendation_fingerprint,
-        recommendation_type,
-        entity_id,
-        first_seen_at,
-        last_seen_at,
-        prior_status,
-        current_status,
-        seen_count,
-        last_do_bucket,
-        user_action,
-        dismiss_reason,
-        suppress_until,
-        applied_at,
-        outcome_check_at,
-        outcome_check_window_days,
-        outcome_verdict,
-        outcome_metric,
-        outcome_delta,
-        outcome_verdict_fail_reason,
-        outcome_confidence,
-        execution_status,
-        executed_at,
-        execution_error,
-        rollback_available,
-        rollback_executed_at,
-        completion_mode,
-        completed_step_count,
-        total_step_count,
-        completed_step_ids,
-        skipped_step_ids,
-        core_step_ids,
-        execution_metadata,
-        applied_snapshot,
-        recommendation_snapshot,
-        created_at,
-        updated_at
-      ) VALUES (
-        ${row.business_id},
-        ${row.account_id},
-        ${row.recommendation_fingerprint},
-        ${row.recommendation_type},
-        ${row.entity_id},
-        ${row.first_seen_at},
-        ${row.last_seen_at},
-        ${row.prior_status},
-        ${row.current_status},
-        ${row.seen_count},
-        ${row.last_do_bucket},
-        ${row.user_action},
-        ${row.dismiss_reason},
-        ${row.suppress_until},
-        ${row.applied_at},
-        ${row.outcome_check_at},
-        ${row.outcome_check_window_days},
-        ${row.outcome_verdict},
-        ${row.outcome_metric},
-        ${row.outcome_delta},
-        ${row.outcome_verdict_fail_reason},
-        ${row.outcome_confidence},
-        ${row.execution_status},
-        ${row.executed_at},
-        ${row.execution_error},
-        ${row.rollback_available},
-        ${row.rollback_executed_at},
-        ${row.completion_mode},
-        ${row.completed_step_count},
-        ${row.total_step_count},
-        ${JSON.stringify(row.completed_step_ids ?? [])}::jsonb,
-        ${JSON.stringify(row.skipped_step_ids ?? [])}::jsonb,
-        ${JSON.stringify(row.core_step_ids ?? [])}::jsonb,
-        ${JSON.stringify(row.execution_metadata ?? {})}::jsonb,
-        ${JSON.stringify(row.applied_snapshot ?? {})}::jsonb,
-        ${JSON.stringify(row.recommendation_snapshot ?? {})}::jsonb,
-        now(),
-        now()
-      )
-      ON CONFLICT (business_id, account_id, recommendation_fingerprint)
-      DO UPDATE SET
-        recommendation_type = EXCLUDED.recommendation_type,
-        entity_id = EXCLUDED.entity_id,
-        last_seen_at = EXCLUDED.last_seen_at,
-        prior_status = EXCLUDED.prior_status,
-        current_status = EXCLUDED.current_status,
-        seen_count = EXCLUDED.seen_count,
-        last_do_bucket = EXCLUDED.last_do_bucket,
-        user_action = EXCLUDED.user_action,
-        dismiss_reason = EXCLUDED.dismiss_reason,
-        suppress_until = EXCLUDED.suppress_until,
-        applied_at = EXCLUDED.applied_at,
-        outcome_check_at = EXCLUDED.outcome_check_at,
-        outcome_check_window_days = EXCLUDED.outcome_check_window_days,
-        outcome_verdict = EXCLUDED.outcome_verdict,
-        outcome_metric = EXCLUDED.outcome_metric,
-        outcome_delta = EXCLUDED.outcome_delta,
-        outcome_verdict_fail_reason = EXCLUDED.outcome_verdict_fail_reason,
-        outcome_confidence = EXCLUDED.outcome_confidence,
-        execution_status = EXCLUDED.execution_status,
-        executed_at = EXCLUDED.executed_at,
-        execution_error = EXCLUDED.execution_error,
-        rollback_available = EXCLUDED.rollback_available,
-        rollback_executed_at = EXCLUDED.rollback_executed_at,
-        completion_mode = EXCLUDED.completion_mode,
-        completed_step_count = EXCLUDED.completed_step_count,
-        total_step_count = EXCLUDED.total_step_count,
-        completed_step_ids = EXCLUDED.completed_step_ids,
-        skipped_step_ids = EXCLUDED.skipped_step_ids,
-        core_step_ids = EXCLUDED.core_step_ids,
-        execution_metadata = EXCLUDED.execution_metadata,
-        applied_snapshot = EXCLUDED.applied_snapshot,
-        recommendation_snapshot = EXCLUDED.recommendation_snapshot,
-        updated_at = now()
-    `;
-
     if (suppress) {
       suppressedFingerprints.push(recommendation.recommendationFingerprint);
       continue;
@@ -962,30 +872,6 @@ export async function annotateAdvisorMemory(input: {
     });
   }
 
-  for (const row of scopeRows) {
-    if (currentFingerprints.has(row.recommendation_fingerprint)) continue;
-    const outcome = outcomeForCurrentState({ previous: row, currentRecommendation: null });
-    await sql`
-      UPDATE google_ads_advisor_memory
-      SET
-        prior_status = current_status,
-        current_status = CASE
-          WHEN user_action = 'dismissed' AND suppress_until IS NOT NULL AND suppress_until > ${nowIso}
-            THEN 'suppressed'
-          ELSE 'resolved'
-        END,
-        outcome_verdict = COALESCE(${outcome?.verdict ?? null}, outcome_verdict),
-        outcome_metric = COALESCE(${outcome?.metric ?? null}, outcome_metric),
-        outcome_delta = COALESCE(${outcome?.delta ?? null}, outcome_delta),
-        outcome_verdict_fail_reason = COALESCE(${outcome?.failReason ?? null}, outcome_verdict_fail_reason),
-        outcome_confidence = COALESCE(${outcome?.confidence ?? null}, outcome_confidence),
-        updated_at = now()
-      WHERE business_id = ${input.businessId}
-        AND account_id = ${input.accountId}
-        AND recommendation_fingerprint = ${row.recommendation_fingerprint}
-    `;
-  }
-
   return persisted;
 }
 
@@ -1041,7 +927,7 @@ export async function updateAdvisorMemoryAction(input: {
     }
     return;
   }
-  await runMigrations({ reason: "google_advisor_memory_action" });
+  await assertAdvisorMemoryTablesReady("google_advisor_memory_action");
   const sql = getDb();
   const nextStatus =
     input.action === "dismissed"
@@ -1149,7 +1035,7 @@ export async function updateAdvisorExecutionState(input: {
     }
     return;
   }
-  await runMigrations({ reason: "google_advisor_execution_state" });
+  await assertAdvisorMemoryTablesReady("google_advisor_execution_state");
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
@@ -1208,7 +1094,7 @@ export async function updateAdvisorCompletionState(input: {
     }
     return;
   }
-  await runMigrations({ reason: "google_advisor_completion_state" });
+  await assertAdvisorMemoryTablesReady("google_advisor_completion_state");
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
@@ -1236,7 +1122,10 @@ export async function getAdvisorExecutionCalibration(input: {
     const rows = Array.from(scope?.values() ?? []);
     return buildExecutionCalibration(rows);
   }
-  await runMigrations({ reason: "google_advisor_execution_calibration" });
+  const readiness = await getAdvisorMemorySchemaReadiness();
+  if (!readiness?.ready) {
+    return buildExecutionCalibration([]);
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT recommendation_type, outcome_verdict, outcome_verdict_fail_reason, execution_status, rollback_executed_at, completion_mode, execution_metadata, execution_error
@@ -1373,7 +1262,7 @@ export async function logAdvisorExecutionEvent(input: {
   errorMessage?: string | null;
 }) {
   if (!isDbConfigured()) return;
-  await runMigrations({ reason: "google_advisor_execution_log" });
+  await assertAdvisorExecutionLogTableReady("google_advisor_execution_log");
   const sql = getDb();
   await sql`
     INSERT INTO google_ads_advisor_execution_logs (

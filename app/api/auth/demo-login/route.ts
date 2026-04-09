@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attachSessionCookie, createSession } from "@/lib/auth";
-import { getUserByEmail } from "@/lib/account-store";
 import { DEMO_BUSINESS_ID } from "@/lib/demo-business-support";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
@@ -14,14 +13,24 @@ function errorRedirect(message: string) {
 }
 
 async function getDemoUserId(): Promise<string | null> {
-  await runMigrations({ reason: "demo_login" });
+  const readiness = await getDbSchemaReadiness({
+    tables: ["memberships", "sessions", "users"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
 
   // If DEMO_USER_EMAIL is explicitly set, use it.
   const overrideEmail = process.env.DEMO_USER_EMAIL?.trim().toLowerCase();
   if (overrideEmail) {
-    const user = await getUserByEmail(overrideEmail);
-    return user?.id ?? null;
+    const users = (await sql`
+      SELECT id
+      FROM users
+      WHERE lower(email) = lower(${overrideEmail})
+      LIMIT 1
+    `) as Array<{ id: string }>;
+    return users[0]?.id ?? null;
   }
 
   // Fallback: find the first admin of the demo business.

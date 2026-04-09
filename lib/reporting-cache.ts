@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 export interface ProviderReportingSnapshotRow<TPayload = unknown> {
   id: string;
@@ -12,42 +12,18 @@ export interface ProviderReportingSnapshotRow<TPayload = unknown> {
   updated_at: string;
 }
 
-function sanitizeForJson(value: unknown): unknown {
-  if (value === null || value === undefined) return value ?? null;
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (typeof value === "bigint") {
-    return value.toString();
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (Array.isArray(value)) {
-    return value.map((entry) => sanitizeForJson(entry));
-  }
-  if (typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-        key,
-        sanitizeForJson(entry),
-      ])
-    );
-  }
-  return String(value);
-}
-
 async function getSnapshotRow<TPayload>(input: {
   businessId: string;
   provider: string;
   reportType: string;
   dateRangeKey: string;
 }): Promise<ProviderReportingSnapshotRow<TPayload> | null> {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_reporting_snapshots"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT
@@ -104,63 +80,6 @@ export async function getCachedReport<TPayload>(input: {
   }
 
   return row.payload;
-}
-
-export async function setCachedReport<TPayload>(input: {
-  businessId: string;
-  provider: string;
-  reportType: string;
-  dateRangeKey: string;
-  payload: TPayload;
-}): Promise<void> {
-  await runMigrations();
-  const sql = getDb();
-  const payloadJson = JSON.stringify(sanitizeForJson(input.payload));
-
-  await sql`
-    INSERT INTO provider_reporting_snapshots (
-      business_id,
-      provider,
-      report_type,
-      date_range_key,
-      payload,
-      updated_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.provider},
-      ${input.reportType},
-      ${input.dateRangeKey},
-      ${payloadJson}::jsonb,
-      now()
-    )
-    ON CONFLICT (business_id, provider, report_type, date_range_key) DO UPDATE SET
-      payload = EXCLUDED.payload,
-      updated_at = now()
-  `;
-}
-
-export async function clearCachedReports(input: {
-  provider: string;
-  businessId?: string | null;
-  reportTypePrefix?: string | null;
-}) {
-  await runMigrations();
-  const sql = getDb();
-  const rows = await sql`
-    WITH deleted AS (
-      DELETE FROM provider_reporting_snapshots
-      WHERE provider = ${input.provider}
-        AND (${input.businessId ?? null}::text IS NULL OR business_id = ${input.businessId ?? null})
-        AND (
-          ${input.reportTypePrefix ?? null}::text IS NULL
-          OR report_type LIKE ${`${input.reportTypePrefix ?? ""}%`}
-        )
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS count FROM deleted
-  ` as Array<{ count: number }>;
-  return Number(rows[0]?.count ?? 0);
 }
 
 export function getReportingDateRangeKey(startDate: string, endDate: string) {

@@ -83,7 +83,7 @@ import {
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   markProviderDayRolloverFinalizeCompleted,
   syncProviderDayRolloverState,
@@ -3324,7 +3324,10 @@ export async function recoverMetaD1FinalizePartitions(input: {
   staleLeaseMinutes?: number;
   finalizeSlaMinutes?: number;
 }) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: ["meta_sync_partitions"],
+    context: "meta_sync:recover_d1_finalize",
+  });
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const finalizeSlaMs = Math.max(1, input.finalizeSlaMinutes ?? 20) * 60_000;

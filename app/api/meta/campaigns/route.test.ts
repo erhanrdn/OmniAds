@@ -11,12 +11,20 @@ vi.mock("@/lib/access", () => ({
   requireBusinessAccess: vi.fn(),
 }));
 
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
+}));
+
 vi.mock("@/lib/integrations", () => ({
   getIntegration: vi.fn(),
 }));
 
 vi.mock("@/lib/provider-account-assignments", () => ({
   getProviderAccountAssignments: vi.fn(),
+}));
+
+vi.mock("@/lib/migrations", () => ({
+  runMigrations: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/readiness", () => ({
@@ -34,8 +42,10 @@ vi.mock("@/lib/meta/live", () => ({
 
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
 const integrations = await import("@/lib/integrations");
 const assignments = await import("@/lib/provider-account-assignments");
+const migrations = await import("@/lib/migrations");
 const readiness = await import("@/lib/meta/readiness");
 const serving = await import("@/lib/meta/serving");
 const live = await import("@/lib/meta/live");
@@ -46,6 +56,11 @@ describe("GET /api/meta/campaigns", () => {
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
       membership: {} as never,
+    });
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-09T00:00:00.000Z",
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
     vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
@@ -120,6 +135,7 @@ describe("GET /api/meta/campaigns", () => {
       })
     );
     expect(live.getMetaLiveCampaignRows).not.toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
   it("uses the live path for current-day requests and keeps the page-visible campaign subset", async () => {
@@ -263,5 +279,29 @@ describe("GET /api/meta/campaigns", () => {
     expect(response.status).toBe(200);
     expect(payload.status).toBe("no_accounts_assigned");
     expect(payload.rows).toEqual([]);
+  });
+
+  it("degrades to the existing no-accounts contract when assignment schema is not ready", async () => {
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: false,
+      missingTables: ["provider_account_assignments"],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-01&endDate=2026-03-15"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      status: "no_accounts_assigned",
+      rows: [],
+      isPartial: false,
+    });
+    expect(assignments.getProviderAccountAssignments).not.toHaveBeenCalled();
+    expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });

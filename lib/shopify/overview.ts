@@ -1,6 +1,6 @@
 import { getIntegration } from "@/lib/integrations";
 import { enumerateDays, round2 } from "@/lib/overview-service-support";
-import { getCachedReport, getReportingDateRangeKey, setCachedReport } from "@/lib/reporting-cache";
+import { getCachedReport, getReportingDateRangeKey } from "@/lib/reporting-cache";
 
 const SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const SHOPIFY_ANALYTICS_API_VERSION = process.env.SHOPIFY_ANALYTICS_API_VERSION ?? "2025-10";
@@ -589,14 +589,6 @@ export async function getShopifyOverviewAggregate(params: {
       returningCustomers: totals.returningCustomers,
     })),
   };
-
-  await setCachedReport({
-    businessId: params.businessId,
-    provider: "shopify",
-    reportType: SHOPIFY_OVERVIEW_REPORT_TYPE,
-    dateRangeKey,
-    payload,
-  });
 
   return payload;
 }

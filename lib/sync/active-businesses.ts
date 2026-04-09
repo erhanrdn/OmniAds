@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 export interface ActiveBusinessRow {
   id: string;
@@ -7,7 +7,12 @@ export interface ActiveBusinessRow {
 }
 
 export async function getActiveBusinesses(limit?: number) {
-  await runMigrations();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["businesses"],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return [];
+  }
   const sql = getDb();
   return (await sql`
     SELECT id, name

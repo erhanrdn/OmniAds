@@ -6,7 +6,7 @@ import {
   ensureReportDefinition,
 } from "@/lib/custom-reports";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 interface CustomReportRow {
   id: string;
@@ -20,11 +20,10 @@ interface CustomReportRow {
 }
 
 async function ensureCustomReportTables() {
-  try {
-    await runMigrations();
-  } catch {
-    // ignore concurrent migration races
-  }
+  await assertDbSchemaReady({
+    tables: ["custom_reports", "custom_report_share_snapshots"],
+    context: "custom_report_store",
+  });
 }
 
 function mapRow(row: CustomReportRow): CustomReportRecord {
@@ -43,7 +42,12 @@ function mapRow(row: CustomReportRow): CustomReportRecord {
 export async function listCustomReportsByBusiness(
   businessId: string
 ): Promise<CustomReportRecord[]> {
-  await ensureCustomReportTables();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["custom_reports"],
+  });
+  if (!readiness.ready) {
+    return [];
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -55,7 +59,12 @@ export async function listCustomReportsByBusiness(
 }
 
 export async function getCustomReportById(reportId: string): Promise<CustomReportRecord | null> {
-  await ensureCustomReportTables();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["custom_reports"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT *
@@ -150,7 +159,12 @@ export async function createCustomReportShareSnapshot(
 export async function getCustomReportShareSnapshot(
   token: string
 ): Promise<CustomReportSharePayload | null> {
-  await ensureCustomReportTables();
+  const readiness = await getDbSchemaReadiness({
+    tables: ["custom_report_share_snapshots"],
+  });
+  if (!readiness.ready) {
+    return null;
+  }
   const sql = getDb();
   const rows = (await sql`
     SELECT payload, expires_at

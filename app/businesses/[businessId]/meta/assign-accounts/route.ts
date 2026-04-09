@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
+import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { runMigrations } from "@/lib/migrations";
+
+const META_ASSIGNMENT_REQUIRED_TABLES = ["provider_account_assignments"] as const;
 
 export async function POST(
   request: NextRequest,
@@ -76,6 +78,21 @@ export async function POST(
   }
 
   const cleaned = Array.from(new Set(accountIds.map((id) => id.trim()).filter(Boolean)));
+  const readiness = await getDbSchemaReadiness({
+    tables: [...META_ASSIGNMENT_REQUIRED_TABLES],
+  }).catch(() => null);
+  if (!readiness?.ready) {
+    return NextResponse.json(
+      {
+        error: "schema_not_ready",
+        message:
+          "Meta account assignments are unavailable until request-external migrations are applied.",
+        missingTables: readiness?.missingTables ?? [],
+        checkedAt: readiness?.checkedAt ?? null,
+      },
+      { status: 503 },
+    );
+  }
 
   async function doUpsert() {
     return upsertProviderAccountAssignments({
@@ -90,46 +107,35 @@ export async function POST(
     row = await doUpsert();
   } catch (firstError: unknown) {
     const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
-    console.warn("[meta-assign-accounts] db write failed (first attempt)", {
+    console.warn("[meta-assign-accounts] db write failed", {
       businessId,
       message: firstMessage,
     });
 
-    // If the table is missing, auto-run migrations and retry once.
-    const isMissingTable =
-      firstMessage.includes("does not exist") || firstMessage.includes("relation");
-    if (isMissingTable) {
-      try {
-        console.log("[meta-assign-accounts] running migrations to create missing table");
-        await runMigrations();
-        row = await doUpsert();
-      } catch (retryError: unknown) {
-        const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
-        console.error("[meta-assign-accounts] db write failed after migration", {
-          businessId,
-          message: retryMessage,
-        });
-        return NextResponse.json(
-          {
-            error: "assignment_save_failed",
-            message: "Could not save Meta account assignments.",
-          },
-          { status: 500 }
-        );
-      }
-    } else {
-      console.error("[meta-assign-accounts] db write failed", {
-        businessId,
-        message: firstMessage,
-      });
+    if (isMissingRelationError(firstError, [...META_ASSIGNMENT_REQUIRED_TABLES])) {
       return NextResponse.json(
         {
-          error: "assignment_save_failed",
-          message: "Could not save Meta account assignments.",
+          error: "schema_not_ready",
+          message:
+            "Meta account assignments are unavailable until request-external migrations are applied.",
+          missingTables: [...META_ASSIGNMENT_REQUIRED_TABLES],
+          checkedAt: new Date().toISOString(),
         },
-        { status: 500 }
+        { status: 503 },
       );
     }
+
+    console.error("[meta-assign-accounts] db write failed", {
+      businessId,
+      message: firstMessage,
+    });
+    return NextResponse.json(
+      {
+        error: "assignment_save_failed",
+        message: "Could not save Meta account assignments.",
+      },
+      { status: 500 }
+    );
   }
 
   console.log("[meta-assign-accounts] db write success", {

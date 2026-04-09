@@ -1,5 +1,5 @@
 import { getDbWithTimeout } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
@@ -13,6 +13,16 @@ const TERMINAL_PARTITION_STATUSES = [
 ] as const;
 const RETENTION_LEASE_BUSINESS_ID = "__sync_retention__";
 const RETENTION_LEASE_PROVIDER_SCOPE = "maintenance";
+const SYNC_RETENTION_REQUIRED_TABLES = [
+  "google_ads_raw_snapshots",
+  "google_ads_sync_partitions",
+  "google_ads_sync_checkpoints",
+  "meta_raw_snapshots",
+  "meta_sync_partitions",
+  "meta_sync_checkpoints",
+  "sync_reclaim_events",
+  "sync_runner_leases",
+] as const;
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -70,7 +80,10 @@ export async function pruneSyncLifecycleData(input?: {
   checkpointRetentionDays?: number;
   reclaimEventRetentionDays?: number;
 }) {
-  await runMigrations();
+  await assertDbSchemaReady({
+    tables: [...SYNC_RETENTION_REQUIRED_TABLES],
+    context: "sync_retention_prune",
+  });
   const sql = getDbWithTimeout(envNumber("SYNC_RETENTION_QUERY_TIMEOUT_MS", 30_000));
   const rawRetentionDays = input?.rawRetentionDays ?? envNumber("SYNC_RAW_RETENTION_DAYS", 7);
   const checkpointRetentionDays =

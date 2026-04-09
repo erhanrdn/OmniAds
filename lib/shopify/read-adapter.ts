@@ -12,8 +12,6 @@ import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-ov
 import {
   getShopifyServingState,
   getShopifyServingOverride,
-  insertShopifyReconciliationRun,
-  upsertShopifyServingState,
 } from "@/lib/shopify/warehouse";
 
 export type ShopifyProductionServingMode = "disabled" | "auto" | "force_live" | "force_warehouse";
@@ -491,135 +489,6 @@ export async function getShopifyOverviewReadCandidate(input: {
     status.sync?.returnsHistorical?.latestSuccessfulSyncAt ?? null,
   ]);
 
-  const canaryKey = buildShopifyOverviewCanaryKey({
-    startDate: input.startDate,
-    endDate: input.endDate,
-    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
-  });
-
-  await upsertShopifyServingState({
-    businessId: input.businessId,
-    providerAccountId: status.shopId ?? "unknown",
-    canaryKey,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
-    assessedAt: new Date().toISOString(),
-    statusState: status.state,
-    preferredSource,
-    productionMode,
-    trustState,
-    fallbackReason,
-    coverageStatus,
-    pendingRepair: shouldHoldLiveForPendingRepair,
-    pendingRepairStartedAt:
-      shouldHoldLiveForPendingRepair
-        ? persistedServing?.pendingRepairStartedAt ?? new Date().toISOString()
-        : null,
-    pendingRepairLastTopic:
-      shouldHoldLiveForPendingRepair
-        ? persistedServing?.pendingRepairLastTopic ?? null
-        : null,
-    pendingRepairLastReceivedAt:
-      shouldHoldLiveForPendingRepair
-        ? persistedServing?.pendingRepairLastReceivedAt ?? null
-        : null,
-    consecutiveCleanValidations: canServeTrustedShopify ? nextConsecutiveCleanValidations : 0,
-    ordersRecentSyncedAt: status.sync?.ordersRecent?.latestSuccessfulSyncAt ?? null,
-    ordersRecentCursorTimestamp: status.sync?.ordersRecent?.cursorTimestamp ?? null,
-    ordersRecentCursorValue: status.sync?.ordersRecent?.cursorValue ?? null,
-    returnsRecentSyncedAt: status.sync?.returnsRecent?.latestSuccessfulSyncAt ?? null,
-    returnsRecentCursorTimestamp: status.sync?.returnsRecent?.cursorTimestamp ?? null,
-    returnsRecentCursorValue: status.sync?.returnsRecent?.cursorValue ?? null,
-    ordersHistoricalSyncedAt: status.sync?.ordersHistorical?.latestSuccessfulSyncAt ?? null,
-    ordersHistoricalReadyThroughDate: status.sync?.ordersHistorical?.readyThroughDate ?? null,
-    ordersHistoricalTargetEnd: status.sync?.ordersHistorical?.historicalTargetEnd ?? null,
-    returnsHistoricalSyncedAt: status.sync?.returnsHistorical?.latestSuccessfulSyncAt ?? null,
-    returnsHistoricalReadyThroughDate: status.sync?.returnsHistorical?.readyThroughDate ?? null,
-    returnsHistoricalTargetEnd: status.sync?.returnsHistorical?.historicalTargetEnd ?? null,
-    canServeWarehouse: canServeTrustedShopify,
-    canaryEnabled,
-    decisionReasons,
-    divergence: divergence
-      ? {
-          ...divergence,
-          ledgerConsistency,
-          servingMetadata: {
-            selectedRevenueTruthBasis,
-            basisSelectionReason:
-              selectedRevenueTruthBasis === "current_total_price"
-                ? "closest_current_order_revenue"
-                : selectedRevenueTruthBasis === "gross_minus_total_refunded"
-                  ? "closest_gross_minus_refunds_revenue"
-                  : null,
-            transactionCoverageAmountRate,
-            transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
-            explainedAdjustmentRevenue,
-            unexplainedAdjustmentRevenue,
-          },
-          ledgerRevenue: ledger?.revenue ?? null,
-          ledgerGrossRevenue: ledger?.grossRevenue ?? null,
-          ledgerRefundedRevenue: ledger?.refundedRevenue ?? null,
-          ledgerPurchases: ledger?.purchases ?? null,
-          ledgerRows: ledger?.ledgerRows ?? null,
-        }
-      : ledger
-        ? {
-            ledgerRevenue: ledger.revenue,
-            ledgerGrossRevenue: ledger.grossRevenue,
-            ledgerRefundedRevenue: ledger.refundedRevenue,
-            ledgerPurchases: ledger.purchases,
-            ledgerRows: ledger.ledgerRows,
-          }
-        : null,
-  }).catch(() => null);
-  await insertShopifyReconciliationRun({
-    businessId: input.businessId,
-    providerAccountId: status.shopId ?? "unknown",
-    reconciliationKey: canaryKey,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    preferredSource,
-    canServeWarehouse: canServeTrustedShopify,
-    selectedRevenueTruthBasis,
-    basisSelectionReason:
-      selectedRevenueTruthBasis === "current_total_price"
-        ? "closest_current_order_revenue"
-        : selectedRevenueTruthBasis === "gross_minus_total_refunded"
-          ? "closest_gross_minus_refunds_revenue"
-          : null,
-    transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
-    transactionCoverageAmountRate,
-    orderRevenueTruthDelta: ledgerConsistency?.orderRevenueTruthDelta ?? null,
-    transactionRevenueDelta: ledgerConsistency?.transactionRevenueDelta ?? null,
-    explainedAdjustmentRevenue,
-    unexplainedAdjustmentRevenue,
-    divergence:
-      divergence || ledgerConsistency
-        ? {
-            ...(divergence ? { ...divergence } : {}),
-            ...(ledgerConsistency ? { ledgerConsistency } : {}),
-            selectedRevenueTruthBasis,
-            basisSelectionReason:
-              selectedRevenueTruthBasis === "current_total_price"
-                ? "closest_current_order_revenue"
-                : selectedRevenueTruthBasis === "gross_minus_total_refunded"
-                  ? "closest_gross_minus_refunds_revenue"
-                  : null,
-            transactionCoverageAmountRate,
-            transactionCoverageOrderRate: ledgerConsistency?.transactionCoverageRate ?? null,
-            orderRevenueTruthDelta: ledgerConsistency?.orderRevenueTruthDelta ?? null,
-            transactionRevenueDelta: ledgerConsistency?.transactionRevenueDelta ?? null,
-            explainedAdjustmentRevenue,
-            unexplainedAdjustmentRevenue,
-          }
-        : null,
-    warehouseAggregate: warehouse ? { ...warehouse } : null,
-    ledgerAggregate: ledger ? { ...ledger } : null,
-    liveAggregate: live ? { ...live } : null,
-    recordedAt: new Date().toISOString(),
-  }).catch(() => null);
-
   return {
     status,
     live,
@@ -649,7 +518,9 @@ export async function getShopifyOverviewReadCandidate(input: {
       productionMode,
       pendingRepair: shouldHoldLiveForPendingRepair,
       pendingRepairStartedAt:
-        shouldHoldLiveForPendingRepair ? persistedServing?.pendingRepairStartedAt ?? new Date().toISOString() : null,
+        shouldHoldLiveForPendingRepair
+          ? persistedServing?.pendingRepairStartedAt ?? lastSyncedAt
+          : null,
       pendingRepairLastTopic:
         shouldHoldLiveForPendingRepair ? persistedServing?.pendingRepairLastTopic ?? null : null,
       pendingRepairLastReceivedAt:

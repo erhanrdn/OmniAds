@@ -12,7 +12,7 @@ import {
   SearchConsoleAuthError,
 } from "@/lib/search-console";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
-import { getSeoResultsCache, setSeoResultsCache } from "@/lib/seo/results-cache";
+import { getSeoResultsCache } from "@/lib/seo/results-cache";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -98,8 +98,6 @@ export async function GET(request: NextRequest) {
       previousRows,
       businessId,
     });
-
-    await setSeoResultsCache({ businessId, cacheType: "overview", startDate, endDate, payload });
 
     return NextResponse.json(payload);
   } catch (error) {

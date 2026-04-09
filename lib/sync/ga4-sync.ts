@@ -1,24 +1,27 @@
 /**
  * Proactive GA4 sync service.
  *
- * Warms up the GA4 session/user/event metrics for the last 30 days so the UI
- * never hits a cold API call. Results are stored in `provider_reporting_snapshots`
- * via the existing route-report-cache layer.
+ * Warms user-facing GA4 dashboard/reporting caches through explicit writer lanes.
+ * Shared read helpers stay read-only; route/report snapshots are persisted only
+ * via `lib/reporting-cache-writer.ts`.
  */
 import {
   resolveGa4AnalyticsContext,
-  runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
-import { setCachedRouteReport, getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
+import { getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import {
+  GA4_AUTO_WARM_DATE_WINDOWS,
+  GA4_AUTO_WARM_DETAIL_REQUESTS,
+} from "@/lib/sync/report-warmer-boundaries";
+import {
+  warmGa4EcommerceFallbackCache,
+  warmGa4UserFacingRouteReportCache,
+} from "@/lib/user-facing-report-cache-owners";
 
 const REPORT_TYPE = "ga4_overview";
-const DATE_WINDOWS = [
-  { label: "30d", days: 30 },
-  { label: "7d", days: 7 },
-];
 
 function buildDateRange(days: number): { startDate: string; endDate: string } {
   const end = new Date();
@@ -38,7 +41,12 @@ async function upsertSyncJob(
   errorMessage?: string,
 ): Promise<void> {
   try {
-    await runMigrations();
+    const readiness = await getDbSchemaReadiness({
+      tables: ["provider_sync_jobs"],
+    });
+    if (!readiness.ready) {
+      return;
+    }
     const sql = getDb();
     if (status === "running") {
       await sql`
@@ -77,9 +85,8 @@ export interface GA4SyncResult {
 
 export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult> {
   // GA4 bağlantısını doğrula
-  let context: Awaited<ReturnType<typeof resolveGa4AnalyticsContext>>;
   try {
-    context = await resolveGa4AnalyticsContext(businessId, { requireProperty: true });
+    await resolveGa4AnalyticsContext(businessId, { requireProperty: true });
   } catch (err) {
     if (err instanceof GA4AuthError) {
       return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -87,52 +94,47 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
     throw err;
   }
 
-  const propertyId = context.propertyId!;
   let succeeded = 0;
   let failed = 0;
 
-  for (const window of DATE_WINDOWS) {
+  for (const window of GA4_AUTO_WARM_DATE_WINDOWS) {
     const { startDate, endDate } = buildDateRange(window.days);
     const searchParams = new URLSearchParams({ businessId, startDate, endDate });
     const dateRangeKey = getNormalizedSearchParamsKey(searchParams);
 
     await upsertSyncJob(businessId, REPORT_TYPE, dateRangeKey, "running");
     try {
-      const result = await runGA4Report({
-        propertyId,
-        accessToken: context.accessToken,
-        dateRanges: [{ startDate, endDate }],
-        dimensions: [{ name: "date" }],
-        metrics: [
-          { name: "sessions" },
-          { name: "activeUsers" },
-          { name: "screenPageViews" },
-          { name: "bounceRate" },
-          { name: "averageSessionDuration" },
-          { name: "conversions" },
-        ],
-        limit: 100,
-      });
-
-      const payload = {
-        propertyId,
-        propertyName: context.propertyName,
+      await warmGa4UserFacingRouteReportCache({
+        businessId,
+        reportType: "ga4_analytics_overview",
         startDate,
         endDate,
-        dimensionHeaders: result.dimensionHeaders,
-        metricHeaders: result.metricHeaders,
-        rows: result.rows,
-        rowCount: result.rowCount,
-        totals: result.totals,
-      };
-
-      await setCachedRouteReport({
-        businessId,
-        provider: "ga4",
-        reportType: REPORT_TYPE,
-        searchParams,
-        payload,
       });
+      await warmGa4EcommerceFallbackCache({
+        businessId,
+        startDate,
+        endDate,
+      });
+      for (const report of GA4_AUTO_WARM_DETAIL_REQUESTS) {
+        try {
+          await warmGa4UserFacingRouteReportCache({
+            businessId,
+            startDate,
+            endDate,
+            ...report,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn("[ga4-sync] detail_cache_warm_failed", {
+            businessId,
+            reportType: report.reportType,
+            dimension: "dimension" in report ? report.dimension : null,
+            startDate,
+            endDate,
+            message,
+          });
+        }
+      }
       await upsertSyncJob(businessId, REPORT_TYPE, dateRangeKey, "done");
       succeeded++;
     } catch (err) {
@@ -145,6 +147,17 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
     }
   }
 
-  console.log("[ga4-sync] completed", { businessId, attempted: DATE_WINDOWS.length, succeeded, failed });
-  return { businessId, attempted: DATE_WINDOWS.length, succeeded, failed, skipped: false };
+  console.log("[ga4-sync] completed", {
+    businessId,
+    attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
+    succeeded,
+    failed,
+  });
+  return {
+    businessId,
+    attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
+    succeeded,
+    failed,
+    skipped: false,
+  };
 }
