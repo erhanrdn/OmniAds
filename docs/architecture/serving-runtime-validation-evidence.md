@@ -2,7 +2,7 @@
 
 Date: 2026-04-09
 
-Status: partial pass with Shopify recent-orders blocker localized
+Status: pass; Phase 9 runtime truth closed
 
 This artifact records real runtime evidence for the in-scope serving/projection/cache surfaces on branch `arch/wire-serving-owner-triggers`.
 
