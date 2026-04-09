@@ -6,7 +6,9 @@ const repoRoot = process.cwd();
 
 const writerImportSpecifiers = [
   "@/lib/overview-summary-materializer",
+  "@/lib/overview-summary-range-owner",
   "@/lib/reporting-cache-writer",
+  "@/lib/user-facing-report-cache-owners",
   "@/lib/seo/results-cache-writer",
   "@/lib/shopify/overview-materializer",
 ];
@@ -36,10 +38,40 @@ const sharedReadModules = [
 const explicitOwnerEntrypoints = [
   ["lib/google-ads/warehouse.ts", "@/lib/overview-summary-materializer"],
   ["lib/meta/warehouse.ts", "@/lib/overview-summary-materializer"],
-  ["lib/sync/ga4-sync.ts", "@/lib/reporting-cache-writer"],
+  ["scripts/materialize-overview-summary-range.ts", "@/lib/overview-summary-range-owner"],
+  ["lib/sync/ga4-sync.ts", "@/lib/user-facing-report-cache-owners"],
+  ["scripts/warm-user-facing-report-cache.ts", "@/lib/user-facing-report-cache-owners"],
   ["lib/meta/cleanup.ts", "@/lib/reporting-cache-writer"],
   ["lib/sync/search-console-sync.ts", "@/lib/seo/results-cache-writer"],
+  ["lib/sync/shopify-sync.ts", "@/lib/shopify/overview-materializer"],
   ["app/api/webhooks/shopify/sync/route.ts", "@/lib/shopify/overview-materializer"],
+] as const;
+
+const inScopeOwnerCoverage = [
+  {
+    surface: "platform_overview_summary_ranges",
+    entrypoints: ["scripts/materialize-overview-summary-range.ts"],
+  },
+  {
+    surface: "provider_reporting_snapshots_ga4_user_facing",
+    entrypoints: ["lib/sync/ga4-sync.ts", "scripts/warm-user-facing-report-cache.ts"],
+  },
+  {
+    surface: "provider_reporting_snapshots_shopify_overview",
+    entrypoints: ["scripts/warm-user-facing-report-cache.ts"],
+  },
+  {
+    surface: "seo_results_cache_findings",
+    entrypoints: ["lib/sync/search-console-sync.ts"],
+  },
+  {
+    surface: "shopify_serving_state",
+    entrypoints: ["lib/sync/shopify-sync.ts", "app/api/webhooks/shopify/sync/route.ts"],
+  },
+  {
+    surface: "shopify_reconciliation_runs",
+    entrypoints: ["lib/sync/shopify-sync.ts"],
+  },
 ] as const;
 
 const targetWriteRules = [
@@ -119,6 +151,17 @@ describe("serving write owner guard", () => {
     for (const [relativePath, specifier] of explicitOwnerEntrypoints) {
       const content = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
       expect(content).toContain(specifier);
+    }
+  });
+
+  it("in-scope serving surfaces retain explicit non-GET owner triggers", () => {
+    for (const coverage of inScopeOwnerCoverage) {
+      for (const relativePath of coverage.entrypoints) {
+        expect(
+          fs.existsSync(path.join(repoRoot, relativePath)),
+          `${coverage.surface} is missing trigger entrypoint ${relativePath}`,
+        ).toBe(true);
+      }
     }
   });
 

@@ -4,28 +4,31 @@ Purpose: make ownership of user-facing serving/projection/cache persistence expl
 
 ## Overview serving projections
 
-| Surface | Owner module | Allowed entrypoints | Forbidden contexts | Freshness strategy | Current gap |
+| Surface | Owner module | Actual trigger / entrypoint | Ownership mode | Forbidden contexts | Freshness strategy |
 | --- | --- | --- | --- | --- | --- |
-| `platform_overview_daily_summary` | `lib/overview-summary-materializer.ts` | `lib/meta/warehouse.ts`, `lib/google-ads/warehouse.ts` | Passive `GET`, `lib/overview-service.ts`, `lib/google-ads/serving.ts`, `lib/overview-summary-store.ts` | Sync/warehouse upserts refresh daily rows; GET serves durable rows or computes ephemeral fallback | None for account-daily refresh |
-| `platform_overview_summary_ranges` | `lib/overview-summary-materializer.ts` | `lib/meta/warehouse.ts`, `lib/google-ads/warehouse.ts`, future explicit backfill/materialize script | Passive `GET`, shared read helpers, route handlers | Warehouse upserts invalidate manifests; explicit materializer/backfill should hydrate ranges | Arbitrary range hydration is intentionally unwired after GET write removal |
+| `platform_overview_daily_summary` | `lib/overview-summary-materializer.ts` | `lib/meta/warehouse.ts`, `lib/google-ads/warehouse.ts` | Automated sync/warehouse completion | Passive `GET`, `lib/overview-service.ts`, `lib/google-ads/serving.ts`, `lib/overview-summary-store.ts` | Warehouse upserts refresh daily rows; GET serves durable rows or computes ephemeral fallback |
+| `platform_overview_summary_ranges` | `lib/overview-summary-materializer.ts` via `lib/overview-summary-range-owner.ts` | `npm run overview:summary:materialize -- --business-id ... --provider meta|google --start-date ... --end-date ... [--provider-account-ids ...]` | Manual/script owner for backfill and manual refresh | Passive `GET`, shared read helpers, route handlers | Warehouse upserts invalidate manifests; explicit CLI materialization hydrates custom ranges on demand |
 
 ## User-facing durable reporting caches
 
-| Surface | Owner module | Allowed entrypoints | Forbidden contexts | Freshness strategy | Current gap |
+| Surface | Owner module | Actual trigger / entrypoint | Ownership mode | Forbidden contexts | Freshness strategy |
 | --- | --- | --- | --- | --- | --- |
-| `provider_reporting_snapshots` route/report cache rows | `lib/reporting-cache-writer.ts` | `lib/sync/ga4-sync.ts`, `lib/meta/cleanup.ts`, future explicit warmers/scripts | Passive `GET`, `lib/reporting-cache.ts`, `lib/route-report-cache.ts`, overview/shopify read helpers | Sync/admin/manual warmers write durable snapshots; GET only reads fresh/stale snapshots | `ga4_analytics_overview`, `ga4_detailed_*`, `ecommerce_fallback`, and `overview_shopify_orders_aggregate_v6` have explicit writer ownership but no automated non-GET warmer yet |
-| `seo_results_cache` | `lib/seo/results-cache-writer.ts` | `lib/sync/search-console-sync.ts`, future explicit SEO generation jobs | Passive `GET`, `lib/seo/results-cache.ts`, SEO route handlers | Search Console sync warms durable rows; GET only reads cache or computes ephemeral fallback | `findings` cache warming has no automated non-GET owner yet |
+| `provider_reporting_snapshots` `ga4_analytics_overview` | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `lib/sync/ga4-sync.ts` | Automated sync owner | Passive `GET`, `lib/reporting-cache.ts`, `lib/route-report-cache.ts`, overview/shopify read helpers | GA4 sync proactively warms the default overview windows |
+| `provider_reporting_snapshots` `ecommerce_fallback` | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `lib/sync/ga4-sync.ts` | Automated sync owner | Passive `GET`, `lib/overview-service.ts`, shared read helpers | GA4 sync warms the overview fallback snapshot for default windows |
+| `provider_reporting_snapshots` `ga4_detailed_audience`, `ga4_detailed_cohorts`, `ga4_detailed_demographics`, `ga4_landing_page_performance_v1`, `ga4_detailed_landing_pages`, `ga4_detailed_products` | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `npm run reporting:cache:warm -- --business-id ... --report-type <ga4_type> --start-date ... --end-date ... [--dimension ...]` | Manual/script owner for backfill or targeted refresh | Passive `GET`, analytics route handlers, shared read helpers | Explicit operator warmers precompute durable route snapshots without mutating reads |
+| `provider_reporting_snapshots` `overview_shopify_orders_aggregate_v6` | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `npm run reporting:cache:warm -- --business-id ... --report-type overview_shopify_orders_aggregate_v6 --start-date ... --end-date ...` | Manual/script owner for targeted Shopify overview warmups | Passive `GET`, `lib/shopify/overview.ts`, overview/shared read helpers | Explicit warmers snapshot Shopify overview aggregates without reintroducing write-on-read |
+| `seo_results_cache` `overview` / `findings` | `lib/seo/results-cache-writer.ts` | `lib/sync/search-console-sync.ts` | Automated sync owner | Passive `GET`, `lib/seo/results-cache.ts`, SEO route handlers | Search Console sync warms both cache shapes for default windows; GET only reads cache or computes ephemeral fallback |
 
 ## Shopify overview serving state
 
-| Surface | Owner module | Allowed entrypoints | Forbidden contexts | Freshness strategy | Current gap |
+| Surface | Owner module | Actual trigger / entrypoint | Ownership mode | Forbidden contexts | Freshness strategy |
 | --- | --- | --- | --- | --- | --- |
-| `shopify_serving_state` | `lib/shopify/overview-materializer.ts` | `app/api/webhooks/shopify/sync/route.ts`, future sync/admin serving refresh owners | Passive `GET`, `lib/shopify/read-adapter.ts`, `lib/shopify/overview.ts`, `lib/shopify/warehouse.ts` read helpers | Webhook-triggered repair intent persists serving trust transitions; GET only consumes latest durable state | No post-sync serving-state refresh owner yet for non-webhook trust recovery |
-| `shopify_reconciliation_runs` | `lib/shopify/overview-materializer.ts` | Future explicit sync/admin reconciliation owner | Passive `GET`, `lib/shopify/read-adapter.ts`, `lib/shopify/status.ts` | Reconciliation evidence should be recorded only by explicit non-GET materialization lanes | No active owner is wired today; gap is documented rather than hidden in GET |
+| `shopify_serving_state` | `lib/shopify/overview-materializer.ts` | `lib/sync/shopify-sync.ts` for post-sync trust recovery; `app/api/webhooks/shopify/sync/route.ts` only for lightweight pending-repair marks | Automated sync owner plus limited webhook mutation lane | Passive `GET`, `lib/shopify/read-adapter.ts`, `lib/shopify/overview.ts`, `lib/shopify/warehouse.ts` read helpers | Sync completion advances durable trust state; webhook path can only mark pending repair, never do heavy reconciliation inline |
+| `shopify_reconciliation_runs` | `lib/shopify/overview-materializer.ts` | `lib/sync/shopify-sync.ts` | Automated sync owner | Passive `GET`, `lib/shopify/read-adapter.ts`, `lib/shopify/status.ts` | Reconciliation evidence is recorded only after explicit sync completion, not during reads or webhook ack paths |
 
 ## Rules
 
 - Shared read helpers must not import the writer/materializer modules above.
 - `GET` routes may only read the durable state these tables/caches already hold.
-- If a surface has no legitimate non-`GET` owner yet, keep the explicit writer module available but leave it unwired and documented.
+- If no safe automated owner exists, add an explicit script/CLI owner and document the exact command. Do not leave in-scope serving surfaces unwired.
 - Owner exceptions are intentionally tiny. Current explicit allowlist outside the owner modules is limited to `lib/google-ads/warehouse.ts` and `scripts/reset-google-ads-stack.ts` for out-of-scope Google Ads reset/deletion flows touching `provider_reporting_snapshots`.

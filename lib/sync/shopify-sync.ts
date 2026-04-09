@@ -1,6 +1,14 @@
 import { mergeIntegrationMetadata } from "@/lib/integrations";
 import { hasShopifyScope, resolveShopifyAdminCredentials } from "@/lib/shopify/admin";
 import { getShopifyOverviewReadCandidate } from "@/lib/shopify/read-adapter";
+import {
+  buildShopifyOverviewCanaryKey,
+  SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+} from "@/lib/shopify/serving";
+import {
+  persistShopifyOverviewServingState,
+  recordShopifyOverviewReconciliationRun,
+} from "@/lib/shopify/overview-materializer";
 import { syncShopifyOrdersWindow, syncShopifyReturnsWindow } from "@/lib/shopify/commerce-sync";
 import { getShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
 import { getShopifyStatus } from "@/lib/shopify/status";
@@ -116,6 +124,129 @@ function computeHistoricalChunk(input: {
   return { startDate, endDate };
 }
 
+function toSerializableRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+async function materializeShopifyOverviewAfterSync(input: {
+  businessId: string;
+  providerAccountId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const assessedAt = new Date().toISOString();
+  const canaryKey = buildShopifyOverviewCanaryKey({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+  });
+  const candidate = await getShopifyOverviewReadCandidate({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+
+  const previousValidations = candidate.status.serving?.consecutiveCleanValidations ?? 0;
+  const consecutiveCleanValidations =
+    candidate.servingMetadata.pendingRepair
+      ? previousValidations
+      : candidate.servingMetadata.trustState === "trusted"
+        ? Math.max(
+            1,
+            previousValidations + (candidate.status.serving?.pendingRepair ? 1 : 0),
+          )
+        : 0;
+  const divergenceSnapshot = {
+    aggregateDivergence: candidate.divergence ?? null,
+    ledgerConsistency: candidate.ledgerConsistency ?? null,
+    withinThreshold: candidate.divergence?.withinThreshold === true,
+    selectedRevenueTruthBasis: candidate.servingMetadata.selectedRevenueTruthBasis,
+    basisSelectionReason: candidate.servingMetadata.basisSelectionReason,
+    transactionCoverageOrderRate: candidate.servingMetadata.transactionCoverageOrderRate,
+    transactionCoverageAmountRate: candidate.servingMetadata.transactionCoverageAmountRate,
+    explainedAdjustmentRevenue: candidate.servingMetadata.explainedAdjustmentRevenue,
+    unexplainedAdjustmentRevenue: candidate.servingMetadata.unexplainedAdjustmentRevenue,
+  } satisfies Record<string, unknown>;
+
+  await persistShopifyOverviewServingState({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    canaryKey,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    timeZoneBasis: SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
+    assessedAt,
+    statusState: candidate.status.state,
+    preferredSource: candidate.preferredSource,
+    productionMode: candidate.servingMetadata.productionMode,
+    trustState: candidate.servingMetadata.trustState,
+    fallbackReason: candidate.servingMetadata.fallbackReason,
+    coverageStatus: candidate.servingMetadata.coverageStatus,
+    pendingRepair: candidate.servingMetadata.pendingRepair,
+    pendingRepairStartedAt: candidate.servingMetadata.pendingRepairStartedAt,
+    pendingRepairLastTopic: candidate.servingMetadata.pendingRepairLastTopic,
+    pendingRepairLastReceivedAt: candidate.servingMetadata.pendingRepairLastReceivedAt,
+    consecutiveCleanValidations,
+    ordersRecentSyncedAt: candidate.status.sync?.ordersRecent?.latestSuccessfulSyncAt ?? null,
+    ordersRecentCursorTimestamp: candidate.status.sync?.ordersRecent?.cursorTimestamp ?? null,
+    ordersRecentCursorValue: candidate.status.sync?.ordersRecent?.cursorValue ?? null,
+    returnsRecentSyncedAt: candidate.status.sync?.returnsRecent?.latestSuccessfulSyncAt ?? null,
+    returnsRecentCursorTimestamp: candidate.status.sync?.returnsRecent?.cursorTimestamp ?? null,
+    returnsRecentCursorValue: candidate.status.sync?.returnsRecent?.cursorValue ?? null,
+    ordersHistoricalSyncedAt:
+      candidate.status.sync?.ordersHistorical?.latestSuccessfulSyncAt ?? null,
+    ordersHistoricalReadyThroughDate:
+      candidate.status.sync?.ordersHistorical?.readyThroughDate ?? null,
+    ordersHistoricalTargetEnd:
+      candidate.status.sync?.ordersHistorical?.historicalTargetEnd ?? null,
+    returnsHistoricalSyncedAt:
+      candidate.status.sync?.returnsHistorical?.latestSuccessfulSyncAt ?? null,
+    returnsHistoricalReadyThroughDate:
+      candidate.status.sync?.returnsHistorical?.readyThroughDate ?? null,
+    returnsHistoricalTargetEnd:
+      candidate.status.sync?.returnsHistorical?.historicalTargetEnd ?? null,
+    canServeWarehouse: candidate.canServeWarehouse,
+    canaryEnabled: candidate.canaryEnabled,
+    decisionReasons: candidate.decisionReasons,
+    divergence: divergenceSnapshot,
+  });
+
+  await recordShopifyOverviewReconciliationRun({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    reconciliationKey: canaryKey,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    preferredSource: candidate.preferredSource,
+    canServeWarehouse: candidate.canServeWarehouse,
+    selectedRevenueTruthBasis: candidate.servingMetadata.selectedRevenueTruthBasis,
+    basisSelectionReason: candidate.servingMetadata.basisSelectionReason,
+    transactionCoverageOrderRate: candidate.servingMetadata.transactionCoverageOrderRate,
+    transactionCoverageAmountRate: candidate.servingMetadata.transactionCoverageAmountRate,
+    orderRevenueTruthDelta: candidate.ledgerConsistency?.orderRevenueTruthDelta ?? null,
+    transactionRevenueDelta: candidate.ledgerConsistency?.transactionRevenueDelta ?? null,
+    explainedAdjustmentRevenue: candidate.servingMetadata.explainedAdjustmentRevenue,
+    unexplainedAdjustmentRevenue: candidate.servingMetadata.unexplainedAdjustmentRevenue,
+    divergence: divergenceSnapshot,
+    warehouseAggregate: toSerializableRecord(candidate.warehouse),
+    ledgerAggregate: toSerializableRecord(candidate.ledger),
+    liveAggregate: toSerializableRecord(candidate.live),
+    recordedAt: assessedAt,
+  });
+
+  return {
+    preferredSource: candidate.preferredSource,
+    trustState: candidate.servingMetadata.trustState,
+    fallbackReason: candidate.servingMetadata.fallbackReason,
+    pendingRepair: candidate.servingMetadata.pendingRepair,
+    canServeWarehouse: candidate.canServeWarehouse,
+    recordedAt: assessedAt,
+  };
+}
+
 export async function syncShopifyCommerceReports(
   businessId: string,
   input?: {
@@ -127,6 +258,7 @@ export async function syncShopifyCommerceReports(
       returns?: boolean;
     };
     allowHistorical?: boolean;
+    materializeOverviewState?: boolean;
   }
 ) {
   const credentials = await resolveShopifyAdminCredentials(businessId).catch(() => null);
@@ -582,9 +714,62 @@ export async function syncShopifyCommerceReports(
       });
     }
 
+    let materialization:
+      | null
+      | {
+          preferredSource: string;
+          trustState: string;
+          fallbackReason: string | null;
+          pendingRepair: boolean;
+          canServeWarehouse: boolean;
+          recordedAt: string;
+          skipped?: boolean;
+          reason?: string;
+        } = null;
+    if (input?.materializeOverviewState !== false) {
+      try {
+        materialization = await materializeShopifyOverviewAfterSync({
+          businessId,
+          providerAccountId: credentials.shopId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[shopify-sync] overview_materialization_failed", {
+          businessId,
+          providerAccountId: credentials.shopId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          message,
+        });
+        materialization = {
+          preferredSource: "none",
+          trustState: "no_data",
+          fallbackReason: "materialization_failed",
+          pendingRepair: false,
+          canServeWarehouse: false,
+          recordedAt: new Date().toISOString(),
+          reason: message,
+        };
+      }
+    } else {
+      materialization = {
+        preferredSource: "none",
+        trustState: "no_data",
+        fallbackReason: null,
+        pendingRepair: false,
+        canServeWarehouse: false,
+        recordedAt: new Date().toISOString(),
+        skipped: true,
+        reason: "disabled_for_call_site",
+      };
+    }
+
     return {
       ...result,
       historical: historicalResult,
+      materialization,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

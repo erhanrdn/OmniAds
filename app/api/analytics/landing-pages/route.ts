@@ -5,10 +5,9 @@ import {
 } from "@/lib/demo-business";
 import { requireBusinessAccess } from "@/lib/access";
 import {
-  getGA4TokenAndProperty,
-  runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
+import { getGa4DetailedLandingPagesData } from "@/lib/ga4-user-facing-reports";
 import { getCachedRouteReport } from "@/lib/route-report-cache";
 
 export async function GET(request: NextRequest) {
@@ -41,10 +40,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(cached);
   }
 
-  let accessToken: string;
-  let propertyId: string;
   try {
-    ({ accessToken, propertyId } = await getGA4TokenAndProperty(businessId));
+    const payload = await getGa4DetailedLandingPagesData({
+      businessId,
+      startDate,
+      endDate,
+    });
+    return NextResponse.json(payload);
   } catch (err) {
     if (err instanceof GA4AuthError) {
       return NextResponse.json(
@@ -59,45 +61,4 @@ export async function GET(request: NextRequest) {
     }
     throw err;
   }
-
-  const report = await runGA4Report({
-    propertyId,
-    accessToken,
-    dateRanges: [{ startDate, endDate }],
-    dimensions: [{ name: "landingPage" }],
-    metrics: [
-      { name: "sessions" },
-      { name: "engagedSessions" },
-      { name: "engagementRate" },
-      { name: "averageSessionDuration" },
-      { name: "ecommercePurchases" },
-      { name: "bounceRate" },
-    ],
-    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-    limit: 100,
-  });
-
-  const pages = report.rows.map((row) => {
-    const path = row.dimensions[0] ?? "/";
-    const sessions = parseFloat(row.metrics[0] ?? "0");
-    const engagedSessions = parseFloat(row.metrics[1] ?? "0");
-    const engagementRate = parseFloat(row.metrics[2] ?? "0");
-    const avgEngagementTime = parseFloat(row.metrics[3] ?? "0");
-    const purchases = parseFloat(row.metrics[4] ?? "0");
-    const bounceRate = parseFloat(row.metrics[5] ?? "0");
-
-    return {
-      path,
-      sessions,
-      engagedSessions,
-      engagementRate,
-      avgEngagementTime,
-      purchases,
-      purchaseCvr: sessions > 0 ? purchases / sessions : 0,
-      bounceRate,
-    };
-  });
-
-  const payload = { pages };
-  return NextResponse.json(payload);
 }

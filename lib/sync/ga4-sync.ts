@@ -1,19 +1,21 @@
 /**
  * Proactive GA4 sync service.
  *
- * Warms up the GA4 session/user/event metrics for the last 30 days so the UI
- * never hits a cold API call. Results are stored in `provider_reporting_snapshots`
- * via the existing route-report-cache layer.
+ * Warms user-facing GA4 dashboard/reporting caches through explicit writer lanes.
+ * Shared read helpers stay read-only; route/report snapshots are persisted only
+ * via `lib/reporting-cache-writer.ts`.
  */
 import {
   resolveGa4AnalyticsContext,
-  runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
 import { getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
-import { writeCachedRouteReport } from "@/lib/reporting-cache-writer";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import {
+  warmGa4EcommerceFallbackCache,
+  warmGa4UserFacingRouteReportCache,
+} from "@/lib/user-facing-report-cache-owners";
 
 const REPORT_TYPE = "ga4_overview";
 const DATE_WINDOWS = [
@@ -83,9 +85,8 @@ export interface GA4SyncResult {
 
 export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult> {
   // GA4 bağlantısını doğrula
-  let context: Awaited<ReturnType<typeof resolveGa4AnalyticsContext>>;
   try {
-    context = await resolveGa4AnalyticsContext(businessId, { requireProperty: true });
+    await resolveGa4AnalyticsContext(businessId, { requireProperty: true });
   } catch (err) {
     if (err instanceof GA4AuthError) {
       return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
@@ -93,7 +94,6 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
     throw err;
   }
 
-  const propertyId = context.propertyId!;
   let succeeded = 0;
   let failed = 0;
 
@@ -104,40 +104,16 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
 
     await upsertSyncJob(businessId, REPORT_TYPE, dateRangeKey, "running");
     try {
-      const result = await runGA4Report({
-        propertyId,
-        accessToken: context.accessToken,
-        dateRanges: [{ startDate, endDate }],
-        dimensions: [{ name: "date" }],
-        metrics: [
-          { name: "sessions" },
-          { name: "activeUsers" },
-          { name: "screenPageViews" },
-          { name: "bounceRate" },
-          { name: "averageSessionDuration" },
-          { name: "conversions" },
-        ],
-        limit: 100,
-      });
-
-      const payload = {
-        propertyId,
-        propertyName: context.propertyName,
+      await warmGa4UserFacingRouteReportCache({
+        businessId,
+        reportType: "ga4_analytics_overview",
         startDate,
         endDate,
-        dimensionHeaders: result.dimensionHeaders,
-        metricHeaders: result.metricHeaders,
-        rows: result.rows,
-        rowCount: result.rowCount,
-        totals: result.totals,
-      };
-
-      await writeCachedRouteReport({
+      });
+      await warmGa4EcommerceFallbackCache({
         businessId,
-        provider: "ga4",
-        reportType: REPORT_TYPE,
-        searchParams,
-        payload,
+        startDate,
+        endDate,
       });
       await upsertSyncJob(businessId, REPORT_TYPE, dateRangeKey, "done");
       succeeded++;

@@ -1,9 +1,9 @@
 /**
  * Proactive Search Console sync service.
  *
- * Warms up the SEO overview cache so users never wait on API calls.
+ * Warms up the SEO overview and findings caches so users never wait on API calls.
  * Uses the exact same functions as the SEO route handlers and stores
- * results via the existing seo_results_cache layer.
+ * results via the explicit seo_results_cache writer.
  */
 import {
   resolveSearchConsoleContext,
@@ -13,6 +13,7 @@ import {
   fetchSearchConsoleAnalyticsRows,
   buildSeoOverviewPayload,
 } from "@/lib/seo/intelligence";
+import { buildSeoTechnicalFindings } from "@/lib/seo/findings";
 import { writeSeoResultsCacheEntry } from "@/lib/seo/results-cache-writer";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getDb } from "@/lib/db";
@@ -122,22 +123,39 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
         }),
       ]);
 
-      const payload = await buildSeoOverviewPayload({
-        siteUrl,
-        startDate,
-        endDate,
-        currentRows,
-        previousRows,
-        businessId,
-      });
+      const [overviewPayload, findingsPayload] = await Promise.all([
+        buildSeoOverviewPayload({
+          siteUrl,
+          startDate,
+          endDate,
+          currentRows,
+          previousRows,
+          businessId,
+        }),
+        buildSeoTechnicalFindings({
+          siteUrl,
+          accessToken: context.accessToken,
+          currentRows,
+          previousRows,
+        }),
+      ]);
 
-      await writeSeoResultsCacheEntry({
-        businessId,
-        cacheType: "overview",
-        startDate,
-        endDate,
-        payload,
-      });
+      await Promise.all([
+        writeSeoResultsCacheEntry({
+          businessId,
+          cacheType: "overview",
+          startDate,
+          endDate,
+          payload: overviewPayload,
+        }),
+        writeSeoResultsCacheEntry({
+          businessId,
+          cacheType: "findings",
+          startDate,
+          endDate,
+          payload: findingsPayload,
+        }),
+      ]);
       await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "done");
       succeeded++;
     } catch (err) {

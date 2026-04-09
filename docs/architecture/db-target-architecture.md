@@ -100,7 +100,7 @@ The target architecture still allows narrow live exceptions, but they must be ex
 4. Make serving/cache write ownership explicit.
    - Shared read modules stay read-only; user-facing serving/projection/cache persistence moves to named materializer/writer modules.
    - Non-`GET` owners should be existing sync, webhook, admin, worker, or explicit manual-refresh lanes.
-   - If an owner does not exist yet, keep the writer explicit but unwired and document the gap instead of reintroducing write-on-read.
+   - If no safe automated owner exists, add an explicit script/CLI owner with a documented command instead of reintroducing write-on-read.
 
 5. Isolate live lanes.
    - Split Meta live, Google live overlay, Shopify live fallback, and GA4 fallback behind narrow adapters with explicit precedence rules.
@@ -122,7 +122,7 @@ The target architecture still allows narrow live exceptions, but they must be ex
 | `Phase 0` | Audit + baseline | Docs, tests, scripts, read-only SQL only | Current contract and risk map are frozen |
 | `Phase 1` | Migration isolation | Startup/bootstrap changes, readiness gates, no route contract changes | No request-path read/access `runMigrations()`; explicit request-external migration entrypoint documented |
 | `Phase 2` | Read-path write removal | Move cache/projection/serving-state writes off-path | No `GET`-path DB writes, durable cache writes, projection hydrations, or refresh triggers |
-| `Phase 3` | Explicit serving write ownership | Extract materializer/writer modules and wire non-`GET` owners without contract changes | User-facing serving/projection/cache writes come only from explicit owner modules |
+| `Phase 3` | Explicit serving write ownership | Extract materializer/writer modules and wire non-`GET` owners without contract changes | User-facing serving/projection/cache writes come only from explicit owner modules, and every in-scope surface has a documented non-`GET` trigger |
 | `Phase 4` | Lane separation | Refactor live/warehouse/projection adapters behind same contracts | Historical reads are warehouse-or-serving only |
 | `Phase 5` | Serving-model stabilization | New materializers and provider-status projections | Status/overview routes no longer query raw control tables directly |
 | `Phase 6` | Cutover and cleanup | Repository split, dead-code removal, schema cleanup planning | Stable serving contracts and controlled cutover plan |

@@ -314,6 +314,7 @@ export async function POST(request: NextRequest) {
       triggerReason: topicMeta.triggerReason ?? undefined,
       recentTargets: topicMeta.recentTargets,
       allowHistorical: topicMeta.allowHistorical,
+      materializeOverviewState: false,
     });
     await upsertShopifyWebhookDelivery({
       businessId: match.business_id,

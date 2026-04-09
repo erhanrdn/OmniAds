@@ -19,6 +19,11 @@ vi.mock("@/lib/shopify/read-adapter", () => ({
   getShopifyOverviewReadCandidate: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/overview-materializer", () => ({
+  persistShopifyOverviewServingState: vi.fn(),
+  recordShopifyOverviewReconciliationRun: vi.fn(),
+}));
+
 vi.mock("@/lib/shopify/status", () => ({
   getShopifyStatus: vi.fn(),
 }));
@@ -50,6 +55,7 @@ const admin = await import("@/lib/shopify/admin");
 const integrations = await import("@/lib/integrations");
 const commerceSync = await import("@/lib/shopify/commerce-sync");
 const readAdapter = await import("@/lib/shopify/read-adapter");
+const overviewMaterializer = await import("@/lib/shopify/overview-materializer");
 const shopifyStatus = await import("@/lib/shopify/status");
 const webhooks = await import("@/lib/shopify/webhooks");
 const syncState = await import("@/lib/shopify/sync-state");
@@ -72,12 +78,81 @@ describe("syncShopifyCommerceReports", () => {
     vi.mocked(syncState.upsertShopifySyncState).mockResolvedValue(undefined);
     vi.mocked(integrations.mergeIntegrationMetadata).mockResolvedValue(undefined);
     vi.mocked(readAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
-      preferredSource: "live",
+      preferredSource: "warehouse",
+      canServeWarehouse: true,
+      canaryEnabled: true,
+      decisionReasons: ["warehouse_ready"],
+      warehouse: {
+        revenue: 999,
+        purchases: 4,
+      },
+      ledger: {
+        revenue: 998,
+        purchases: 4,
+      },
+      live: {
+        revenue: 997,
+        purchases: 4,
+      },
+      divergence: {
+        withinThreshold: true,
+      },
+      ledgerConsistency: {
+        orderRevenueTruthDelta: 1,
+        transactionRevenueDelta: 0,
+      },
       servingMetadata: {
-        trustState: "live_fallback",
-        fallbackReason: "pending_repair",
+        productionMode: "auto",
+        trustState: "trusted",
+        fallbackReason: null,
+        coverageStatus: "recent_ready",
+        pendingRepair: false,
+        pendingRepairStartedAt: null,
+        pendingRepairLastTopic: null,
+        pendingRepairLastReceivedAt: null,
+        selectedRevenueTruthBasis: "warehouse",
+        basisSelectionReason: "warehouse_consistent",
+        transactionCoverageOrderRate: 1,
+        transactionCoverageAmountRate: 1,
+        explainedAdjustmentRevenue: 0,
+        unexplainedAdjustmentRevenue: 0,
+      },
+      status: {
+        state: "ready",
+        serving: {
+          consecutiveCleanValidations: 2,
+          pendingRepair: false,
+        },
+        sync: {
+          ordersRecent: {
+            latestSuccessfulSyncAt: "2026-04-09T00:00:00.000Z",
+            cursorTimestamp: "2026-04-09T00:00:00.000Z",
+            cursorValue: "2026-04-09T00:00:00.000Z",
+          },
+          returnsRecent: {
+            latestSuccessfulSyncAt: "2026-04-09T00:00:00.000Z",
+            cursorTimestamp: "2026-04-09T00:00:00.000Z",
+            cursorValue: "2026-04-09T00:00:00.000Z",
+          },
+          ordersHistorical: {
+            latestSuccessfulSyncAt: "2026-04-09T00:00:00.000Z",
+            readyThroughDate: "2026-04-09",
+            historicalTargetEnd: "2026-04-09",
+          },
+          returnsHistorical: {
+            latestSuccessfulSyncAt: "2026-04-09T00:00:00.000Z",
+            readyThroughDate: "2026-04-09",
+            historicalTargetEnd: "2026-04-09",
+          },
+        },
       },
     } as never);
+    vi.mocked(overviewMaterializer.persistShopifyOverviewServingState).mockResolvedValue(
+      undefined,
+    );
+    vi.mocked(overviewMaterializer.recordShopifyOverviewReconciliationRun).mockResolvedValue(
+      undefined,
+    );
     vi.mocked(shopifyStatus.getShopifyStatus).mockResolvedValue({
       state: "partial",
       issues: [],
@@ -143,8 +218,14 @@ describe("syncShopifyCommerceReports", () => {
         refunds: 1,
         returns: 2,
         historical: null,
+        materialization: expect.objectContaining({
+          trustState: "trusted",
+          canServeWarehouse: true,
+        }),
       })
     );
+    expect(overviewMaterializer.persistShopifyOverviewServingState).toHaveBeenCalledTimes(1);
+    expect(overviewMaterializer.recordShopifyOverviewReconciliationRun).toHaveBeenCalledTimes(1);
     expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
       expect.objectContaining({
         syncTarget: "commerce_orders_recent",
@@ -232,6 +313,25 @@ describe("syncShopifyCommerceReports", () => {
       })
     );
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+  });
+
+  it("can skip overview materialization for call sites that must stay lightweight", async () => {
+    const result = await syncShopifyCommerceReports("biz_1", {
+      materializeOverviewState: false,
+      allowHistorical: false,
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        materialization: expect.objectContaining({
+          skipped: true,
+          reason: "disabled_for_call_site",
+        }),
+      }),
+    );
+    expect(overviewMaterializer.persistShopifyOverviewServingState).not.toHaveBeenCalled();
+    expect(overviewMaterializer.recordShopifyOverviewReconciliationRun).not.toHaveBeenCalled();
   });
 
   it("can narrow webhook-triggered sync to orders only without historical backfill", async () => {

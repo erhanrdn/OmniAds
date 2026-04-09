@@ -133,6 +133,7 @@ describe("POST /api/webhooks/shopify/sync", () => {
         returns: false,
       },
       allowHistorical: false,
+      materializeOverviewState: false,
     });
     expect(overviewMaterializer.persistShopifyOverviewServingState).toHaveBeenCalledTimes(3);
     expect(warehouse.upsertShopifyRepairIntent).toHaveBeenCalled();
@@ -245,6 +246,7 @@ describe("POST /api/webhooks/shopify/sync", () => {
         returns: true,
       },
       allowHistorical: false,
+      materializeOverviewState: false,
     });
     expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
   });
@@ -293,6 +295,7 @@ describe("POST /api/webhooks/shopify/sync", () => {
         returns: false,
       },
       allowHistorical: false,
+      materializeOverviewState: false,
     });
     vi.useRealTimers();
   });

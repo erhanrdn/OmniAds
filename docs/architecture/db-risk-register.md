@@ -68,7 +68,7 @@ Status scale:
 | File | Function | Impact | Recommended fix | Priority | Status |
 | --- | --- | --- | --- | --- | --- |
 | `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Projection hydration was fire-and-forget, so request success was decoupled from projection correctness and retries. | Introduce explicit projection job table/worker or hydrate during sync completion hooks only. | P0 | Resolved |
-| `lib/overview-summary-materializer.ts` | `materializeOverviewSummaryRangeFromGoogle()` / `materializeOverviewSummaryRange()` | Projection writes now have explicit ownership, but arbitrary range hydration is not yet wired to an automated backfill/materializer trigger. | Keep range hydration in explicit materializer lane and add a dedicated backfill/manual trigger later. | P1 | Partially resolved |
+| `lib/overview-summary-materializer.ts` | `materializeOverviewSummaryRangeFromGoogle()` / `materializeOverviewSummaryRange()` | Projection writes needed an explicit non-`GET` owner for arbitrary/custom windows after GET hydration removal. | Keep range hydration in explicit materializer lane and invoke it only through `lib/overview-summary-range-owner.ts` / `npm run overview:summary:materialize`. | P1 | Resolved |
 | `lib/overview-summary-materializer.ts` | `clearOverviewSummaryRangeManifests()` | Range invalidation ownership is now explicit, but callers still derive affected windows ad hoc from warehouse upserts. | Centralize invalidation in sync completion hooks and schema-aware materializer service. | P1 | Partially resolved |
 
 ## explicit serving/cache write ownership
@@ -79,9 +79,9 @@ Status scale:
 | `lib/reporting-cache.ts` / `lib/route-report-cache.ts` | durable cache persistence helpers | User-facing cache writes used to share a file with read helpers, obscuring which callers were allowed to persist snapshots. | Keep reads in shared helpers and route persistence through `lib/reporting-cache-writer.ts`. | P0 | Resolved |
 | `lib/seo/results-cache.ts` | `setSeoResultsCache()` | SEO cache persistence lived next to passive cache reads. | Keep reads in `lib/seo/results-cache.ts` and write only through `lib/seo/results-cache-writer.ts`. | P1 | Resolved |
 | `lib/shopify/warehouse.ts` | `upsertShopifyServingState()` / `insertShopifyReconciliationRun()` | User-facing Shopify serving-state writes were buried in a broad warehouse repository. | Keep reads in `lib/shopify/warehouse.ts` and route serving-state/reconciliation persistence through `lib/shopify/overview-materializer.ts`. | P0 | Resolved |
-| `lib/reporting-cache-writer.ts` | `writeCachedReportSnapshot()` | Explicit writer exists, but several user-facing cache keys no longer have automated non-`GET` warmers. | Add dedicated non-GET warmers for analytics overview/detail, GA4 ecommerce fallback, and Shopify overview cache or keep them documented as deliberate gaps. | P1 | Partially resolved |
-| `lib/seo/results-cache-writer.ts` | `writeSeoResultsCacheEntry()` | Explicit writer exists, but only SEO overview warming is wired today. | Add a dedicated non-GET findings cache warmer or leave findings cache read-through only. | P1 | Partially resolved |
-| `lib/shopify/overview-materializer.ts` | `recordShopifyOverviewReconciliationRun()` | Explicit reconciliation writer exists, but no current non-`GET` owner invokes it. | Wire an explicit sync/admin reconciliation owner or keep the gap documented until that lane exists. | P1 | Partially resolved |
+| `lib/reporting-cache-writer.ts` | `writeCachedReportSnapshot()` | Explicit writer needed concrete owner triggers for user-facing GA4 overview/detail, ecommerce fallback, and Shopify overview cache keys. | Use `lib/sync/ga4-sync.ts` for automated default-window warmers and `npm run reporting:cache:warm` for explicit manual refresh/backfill. | P1 | Resolved |
+| `lib/seo/results-cache-writer.ts` | `writeSeoResultsCacheEntry()` | SEO `findings` cache needed a non-`GET` warmer after read-through writes were removed. | Keep both `overview` and `findings` warming in `lib/sync/search-console-sync.ts`. | P1 | Resolved |
+| `lib/shopify/overview-materializer.ts` | `recordShopifyOverviewReconciliationRun()` | Explicit reconciliation and serving-state writers needed a non-webhook owner for post-sync trust recovery. | Invoke materialization from `lib/sync/shopify-sync.ts`; keep webhook lane limited to lightweight pending-repair updates. | P1 | Resolved |
 
 ## aynı endpoint içinde mixed live + warehouse + projection okuma
 
@@ -118,9 +118,9 @@ Status scale:
 2. `lib/google-ads/warehouse.ts` is still an oversized mixed-responsibility file with sync, control, and read concerns co-located.
 3. `lib/meta/serving.ts` remains a large mixed-concern module even after repair-on-read removal.
 4. Status routes are coupled directly to sync-control schema, making later table moves high risk.
-5. `provider_reporting_snapshots` now has an explicit writer lane, but analytics detail caches, GA4 ecommerce fallback, and Shopify overview cache still lack automated non-`GET` owners.
-6. `seo_results_cache` findings warming still has no explicit non-`GET` trigger.
+5. `lib/overview-summary-materializer.ts` still relies on callers deriving affected ranges ad hoc after warehouse writes.
+6. Detailed GA4 cache warming and Shopify overview snapshot warming are now explicit CLI/manual owners; freshness depends on operator scheduling when no automated lane is used.
 7. `lib/shopify/read-adapter.ts` still encodes serving trust decisions across many tables, even though persistence now lives in an explicit materializer.
-8. `shopify_reconciliation_runs` has an explicit writer module, but no active owner is wired to use it.
-9. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
-10. `lib/migrations.ts` remains a large runtime migration bundle, and broader non-`GET` mutation/admin/webhook cleanup is still ahead.
+8. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
+9. `lib/migrations.ts` remains a large runtime migration bundle, and broader non-`GET` mutation/admin/webhook cleanup is still ahead.
+10. Status routes are still coupled directly to control-plane tables instead of dedicated serving summaries.

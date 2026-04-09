@@ -1,0 +1,120 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+class MockSearchConsoleAuthError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status = 401) {
+    super(message);
+    this.name = "SearchConsoleAuthError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+const sql = vi.fn();
+
+vi.mock("@/lib/search-console", () => ({
+  resolveSearchConsoleContext: vi.fn(),
+  SearchConsoleAuthError: MockSearchConsoleAuthError,
+}));
+
+vi.mock("@/lib/seo/intelligence", () => ({
+  fetchSearchConsoleAnalyticsRows: vi.fn(),
+  buildSeoOverviewPayload: vi.fn(),
+}));
+
+vi.mock("@/lib/seo/findings", () => ({
+  buildSeoTechnicalFindings: vi.fn(),
+}));
+
+vi.mock("@/lib/seo/results-cache-writer", () => ({
+  writeSeoResultsCacheEntry: vi.fn(),
+}));
+
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => sql),
+}));
+
+vi.mock("@/lib/db-schema-readiness", () => ({
+  getDbSchemaReadiness: vi.fn(),
+}));
+
+const searchConsole = await import("@/lib/search-console");
+const intelligence = await import("@/lib/seo/intelligence");
+const findings = await import("@/lib/seo/findings");
+const resultsCacheWriter = await import("@/lib/seo/results-cache-writer");
+const schemaReadiness = await import("@/lib/db-schema-readiness");
+const { syncSearchConsoleReports } = await import("@/lib/sync/search-console-sync");
+
+describe("syncSearchConsoleReports", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-09T00:00:00.000Z"));
+    vi.resetAllMocks();
+    sql.mockResolvedValue([]);
+    vi.mocked(searchConsole.resolveSearchConsoleContext).mockResolvedValue({
+      accessToken: "token",
+      siteUrl: "https://example.com",
+    } as never);
+    vi.mocked(intelligence.fetchSearchConsoleAnalyticsRows).mockResolvedValue([
+      { keys: ["/"], clicks: 12 },
+    ] as never);
+    vi.mocked(intelligence.buildSeoOverviewPayload).mockResolvedValue({
+      summary: { clicks: 12 },
+    } as never);
+    vi.mocked(findings.buildSeoTechnicalFindings).mockResolvedValue({
+      summary: { critical: 0, warning: 1, opportunity: 0 },
+      findings: [],
+    } as never);
+    vi.mocked(resultsCacheWriter.writeSeoResultsCacheEntry).mockResolvedValue(undefined);
+    vi.mocked(schemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-09T00:00:00.000Z",
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("warms overview and findings caches through the search-console sync owner", async () => {
+    const result = await syncSearchConsoleReports("biz_1");
+
+    expect(resultsCacheWriter.writeSeoResultsCacheEntry).toHaveBeenCalledTimes(4);
+    expect(
+      vi.mocked(resultsCacheWriter.writeSeoResultsCacheEntry).mock.calls.map(
+        ([input]) => input.cacheType,
+      ),
+    ).toEqual(["overview", "findings", "overview", "findings"]);
+    expect(result).toEqual({
+      businessId: "biz_1",
+      attempted: 2,
+      succeeded: 2,
+      failed: 0,
+      skipped: false,
+    });
+  });
+
+  it("skips warming when Search Console auth is unavailable", async () => {
+    vi.mocked(searchConsole.resolveSearchConsoleContext).mockRejectedValue(
+      new searchConsole.SearchConsoleAuthError(
+        "search_console_not_connected",
+        "Not connected",
+        404,
+      ),
+    );
+
+    const result = await syncSearchConsoleReports("biz_1");
+
+    expect(result).toEqual({
+      businessId: "biz_1",
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    });
+    expect(resultsCacheWriter.writeSeoResultsCacheEntry).not.toHaveBeenCalled();
+  });
+});
