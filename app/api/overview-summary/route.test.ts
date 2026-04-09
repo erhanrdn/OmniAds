@@ -142,13 +142,45 @@ describe("GET /api/overview-summary", () => {
 
   it("returns a non-blank summary contract with shopify serving metadata", async () => {
     const request = new NextRequest(
-      "http://localhost:3000/api/overview-summary?businessId=biz_1&startDate=2026-03-01&endDate=2026-03-30"
+      "http://localhost:3000/api/overview-summary?businessId=biz_1&startDate=2026-03-01&endDate=2026-03-30&compareMode=none"
     );
 
     const response = await GET(request as never);
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(Object.keys(payload)).toEqual(["summary"]);
+    expect(Object.keys(payload.summary).sort()).toEqual(
+      [
+        "attribution",
+        "businessId",
+        "comparison",
+        "costModel",
+        "customMetrics",
+        "dateRange",
+        "expenses",
+        "insights",
+        "ltv",
+        "pins",
+        "platforms",
+        "shopifyServing",
+        "storeMetrics",
+        "webAnalytics",
+      ].sort()
+    );
+    expect(payload.summary.comparison).toEqual({
+      mode: "none",
+      startDate: null,
+      endDate: null,
+    });
+    expect(payload.summary.pins.map((metric: { id: string }) => metric.id)).toEqual([
+      "pins-revenue",
+      "pins-spend",
+      "pins-mer",
+      "pins-blended-roas",
+      "pins-conversion-rate",
+      "pins-orders",
+    ]);
     expect(payload.summary.shopifyServing).toEqual(
       expect.objectContaining({
         source: "live",
@@ -165,5 +197,6 @@ describe("GET /api/overview-summary", () => {
       "store-return-events",
       "store-return-rate",
     ]);
+    expect(payload.summary.platforms).toEqual([]);
   });
 });

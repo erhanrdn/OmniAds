@@ -41,7 +41,8 @@
     "google:ads:run-once": "node --import tsx scripts/google-ads-run-once.ts",
     "google:ads:requeue-stale-core-frontier": "node --import tsx scripts/google-ads-requeue-stale-core-frontier.ts",
     "google:ads:progress-diff": "node --import tsx scripts/google-ads-progress-diff.ts",
-    "benchmark:overview": "node --import tsx scripts/overview-benchmark.ts"
+    "benchmark:overview": "node --import tsx scripts/overview-benchmark.ts",
+    "db:architecture:baseline": "node --import tsx scripts/db-architecture-baseline.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
