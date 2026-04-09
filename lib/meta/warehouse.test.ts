@@ -2200,6 +2200,9 @@ describe("meta warehouse ownership safety", () => {
   });
 
   it("normalizes date-backed publish timestamps in the business ops snapshot", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("GROUP BY fetch_status")) {
@@ -2218,7 +2221,7 @@ describe("meta warehouse ownership safety", () => {
           },
         ];
       }
-      if (query.includes("FROM meta_authoritative_publication_pointers pointer")) {
+      if (query.includes("manifest.fetch_status AS manifest_fetch_status")) {
         return [
           {
             provider_account_id: "act_1",
@@ -2242,11 +2245,11 @@ describe("meta warehouse ownership safety", () => {
           },
         ];
       }
-      if (query.includes("WITH recent_core AS")) {
+      if (query.includes("latest_failure.result AS latest_failure_result")) {
         return [
           {
             provider_account_id: "act_1",
-            day: new Date("2026-04-06T21:00:00.000Z"),
+            day: "2026-04-07",
             surface: "account_daily",
             validation_status: "passed",
             latest_failure_result: null,
@@ -2254,7 +2257,7 @@ describe("meta warehouse ownership safety", () => {
           },
           {
             provider_account_id: "act_1",
-            day: new Date("2026-04-06T21:00:00.000Z"),
+            day: "2026-04-07",
             surface: "campaign_daily",
             validation_status: "passed",
             latest_failure_result: null,
@@ -2271,11 +2274,15 @@ describe("meta warehouse ownership safety", () => {
       latestPublishLimit: 5,
     });
 
-    expect(snapshot.d1FinalizeSla.totalAccounts).toBe(1);
-    expect(snapshot.d1FinalizeSla.accounts[0]).toMatchObject({
-      providerAccountId: "act_1",
-      publishedAt: "2026-04-08T00:10:00.000Z",
-    });
+    try {
+      expect(snapshot.d1FinalizeSla.totalAccounts).toBe(1);
+      expect(snapshot.d1FinalizeSla.accounts[0]).toMatchObject({
+        providerAccountId: "act_1",
+        publishedAt: "2026-04-08T00:11:00.000Z",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("treats SQL date objects as local calendar dates in published verification", async () => {
