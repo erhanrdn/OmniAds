@@ -163,7 +163,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(result.servingMetadata.source).toBe("ledger");
     expect(result.servingMetadata.trustState).toBe("trusted");
     expect(result.servingMetadata.productionMode).toBe("auto");
-    expect(warehouseState.getShopifyServingState).toHaveBeenCalled();
+    expect(warehouseState.getShopifyServingState).not.toHaveBeenCalled();
     expect(status.getShopifyStatus).toHaveBeenCalledWith({
       businessId: "biz_1",
       startDate: "2026-03-01",
