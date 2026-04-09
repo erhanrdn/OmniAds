@@ -48,7 +48,6 @@ export async function getCreativeShareSnapshot(token: string): Promise<SharePayl
 
   const expires = new Date(row.expires_at).getTime();
   if (Number.isFinite(expires) && expires < Date.now()) {
-    await sql`DELETE FROM creative_share_snapshots WHERE token = ${token}`;
     return null;
   }
 

@@ -130,6 +130,20 @@ function main() {
       .join("\n");
     fail(`Request-path migration guard failed:\n${summary}`);
   }
+  const getWriteViolations = scanResult.findings.filter((finding) =>
+    [
+      "state_write_call",
+      "projection_write_call",
+      "cache_write_call",
+      "refresh_trigger_call",
+    ].includes(finding.type),
+  );
+  if (getWriteViolations.length > 0) {
+    const summary = getWriteViolations
+      .map((finding) => `${finding.file}: ${finding.summary}`)
+      .join("\n");
+    fail(`GET/read-path side-effect guard failed:\n${summary}`);
+  }
   runCommand(process.execPath, [
     "--import",
     "tsx",
@@ -154,6 +168,9 @@ function main() {
     "app/api/webhooks/shopify/customer-events/route.test.ts",
     "lib/access.test.ts",
     "lib/auth.test.ts",
+    "lib/provider-account-discovery.test.ts",
+    "lib/get-read-path-module-guard.test.ts",
+    "lib/get-route-side-effect-guard.test.ts",
     "lib/http-route-migration-guard.test.ts",
     "lib/request-path-migration-guard.test.ts",
   ]);

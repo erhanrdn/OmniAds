@@ -14,10 +14,7 @@ import {
   normalizeLandingPagePath,
   summarizeLandingPageRows,
 } from "@/lib/landing-pages/performance";
-import {
-  getCachedRouteReport,
-  setCachedRouteReport,
-} from "@/lib/route-report-cache";
+import { getCachedRouteReport } from "@/lib/route-report-cache";
 import type { LandingPagePerformanceResponse } from "@/src/types/landing-pages";
 
 const REPORT_TYPE = "ga4_landing_page_performance_v1";
@@ -178,14 +175,6 @@ export async function GET(request: NextRequest) {
         propertyName,
       },
     };
-
-    await setCachedRouteReport({
-      businessId,
-      provider: "ga4",
-      reportType: REPORT_TYPE,
-      searchParams: request.nextUrl.searchParams,
-      payload,
-    });
 
     return NextResponse.json(payload);
   } catch (error) {

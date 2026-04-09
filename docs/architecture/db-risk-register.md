@@ -1,6 +1,6 @@
 # DB Risk Register
 
-Scope: baseline audit plus request-path migration isolation status. This document reflects the Phase 1 guardrail pass; runtime contracts remain unchanged.
+Scope: baseline audit plus request-path migration isolation and GET/read-path side-effect cleanup status. This document reflects the Phase 2 guardrail pass; runtime contracts remain unchanged.
 
 Priority scale:
 - `P0`: remove from request path before any DB cutover/refactor.
@@ -8,8 +8,9 @@ Priority scale:
 - `P2`: clean up after runtime behavior is stabilized behind guardrails.
 
 Status scale:
-- `Resolved`: request/access read path no longer runs migrations; route/helper now uses read-only schema readiness or safe degrade.
-- `Open`: still present and must move to explicit request-external bootstrap or later mutation-lane cleanup.
+- `Resolved`: no longer reachable from request/access read paths or passive `GET` traffic; route/helper now uses read-only readiness or stale/empty degrade.
+- `Partially resolved`: removed from `GET`/read graphs, but the mutating helper still exists for explicit non-`GET`, worker, sync, or admin lanes.
+- `Open`: still present and must move to explicit request-external bootstrap, worker/materializer ownership, or later mutation-lane cleanup.
 
 ## request path içinde migration
 
@@ -47,21 +48,28 @@ Status scale:
 
 ## GET sırasında write
 
-| File | Function | Impact | Recommended fix | Priority |
-| --- | --- | --- | --- | --- |
-| `lib/shopify/read-adapter.ts` | `getShopifyOverviewReadCandidate()` | Overview `GET` persists `shopify_serving_state` and `shopify_reconciliation_runs`; repeated reads mutate serving state. | Move assessment persistence to webhook/worker/admin reconciliation job; keep request path read-only. | P0 |
-| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Historical trend `GET` fires `hydrateOverviewSummaryRangeFromGoogle()` and writes `platform_overview_*` projection rows/manifests. | Hydrate projections asynchronously in worker/backfill lane, not in request thread. | P0 |
-| `lib/overview-service.ts` | `getGa4EcommerceFallback()` | Overview `GET` writes GA4 fallback cache rows into `provider_reporting_snapshots`. | Separate read cache warmer from request handler or make cache write explicitly asynchronous/off-path. | P1 |
-| `lib/shopify/overview.ts` | `getShopifyOverviewAggregate()` | Shopify live aggregate writes `provider_reporting_snapshots` during request evaluation. | Shift cache hydration to worker/cron or make it a non-blocking background task guarded outside core response path. | P1 |
-| `lib/reporting-cache.ts` | `setCachedReport()` usage from request-time callers | Shared cache utility means multiple read paths write through the same serving table. | Restrict request paths to `getCachedReport()` and move `setCachedReport()` behind background population APIs. | P1 |
+| File | Function | Impact | Recommended fix | Priority | Status |
+| --- | --- | --- | --- | --- | --- |
+| `lib/shopify/read-adapter.ts` | `getShopifyOverviewReadCandidate()` | Overview `GET` used to persist `shopify_serving_state` and `shopify_reconciliation_runs`; repeated reads mutated serving state. | Move assessment persistence to webhook/worker/admin reconciliation job; keep request path read-only. | P0 | Resolved |
+| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Historical trend `GET` used to fire `hydrateOverviewSummaryRangeFromGoogle()` and write `platform_overview_*` projection rows/manifests. | Hydrate projections asynchronously in worker/backfill lane, not in request thread. | P0 | Resolved |
+| `lib/overview-service.ts` | `getGa4EcommerceFallback()` | Overview `GET` used to write GA4 fallback cache rows into `provider_reporting_snapshots`. | Separate read cache warmer from request handler or make cache write explicitly asynchronous/off-path. | P1 | Resolved |
+| `lib/shopify/overview.ts` | `getShopifyOverviewAggregate()` | Shopify live aggregate used to write `provider_reporting_snapshots` during request evaluation. | Shift cache hydration to worker/cron or make it a non-blocking background task guarded outside core response path. | P1 | Resolved |
+| `lib/reporting-cache.ts` | `setCachedReport()` usage from request-time callers | Shared cache utility made overview, Shopify, analytics, and GAQL read paths write through the same serving table. | Restrict request paths to `getCachedReport()` and keep `setCachedReport()` behind background population APIs. | P1 | Partially resolved |
+| `app/api/analytics/*/route.ts` | route-local cached report read flows | Analytics `GET` routes performed durable cache write-through via `setCachedRouteReport()`. | Serve cached rows read-only and return live/degraded payloads without persistence. | P1 | Resolved |
+| `app/api/seo/overview/route.ts`, `app/api/seo/findings/route.ts` | route-local SEO cache fills | SEO `GET` routes persisted cache rows on misses. | Keep cache reads only; move persistence to explicit warmers or generation actions. | P1 | Resolved |
+| `lib/provider-account-discovery.ts` | `listAccessibleProviderAccounts()` | GET-driven provider-account discovery could request or force snapshot refresh side effects. | Use stale snapshot or assignment fallback only; no refresh trigger from passive reads. | P1 | Resolved |
+| `lib/business-context.ts` | `getBusinessContextFromRequest()` | Business context resolution updated active-business session state during `GET`. | Keep GET access resolution read-only; leave active-business mutation to explicit user action. | P1 | Resolved |
+| `lib/meta/serving.ts` | warehouse read repair helpers | Meta read helpers could repair missing warehouse campaign/adset rows during `GET`. | Keep warehouse reads pure and move repair/backfill to sync/admin lanes. | P1 | Resolved |
+| `lib/creative-share-store.ts` | `getCreativeShareSnapshot()` | Share snapshot GET deleted expired snapshots during reads. | Return null for expired shares and leave cleanup to explicit jobs/admin maintenance. | P2 | Resolved |
+| `lib/account-store.ts` | `listInvitesByBusiness()` | Invite listing could expire stale rows during reads. | Keep GET/admin read surfaces pure; let invite expiry happen in explicit mutation/maintenance flows. | P2 | Resolved |
 
 ## request sırasında lazy projection hydration
 
-| File | Function | Impact | Recommended fix | Priority |
-| --- | --- | --- | --- | --- |
-| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Projection hydration is fire-and-forget, so request success is decoupled from projection correctness and retries. | Introduce explicit projection job table/worker or hydrate during sync completion hooks only. | P0 |
-| `lib/overview-summary-store.ts` | `hydrateOverviewSummaryRangeFromGoogle()` / `markOverviewSummaryRangeHydrated()` | Projection validity is tightly coupled to request-time availability of Google warehouse rows. | Convert projection writes into post-sync materialization step with durable job ownership. | P1 |
-| `lib/overview-summary-store.ts` | `invalidateOverviewSummaryRanges()` | Projection invalidation currently depends on write callers knowing affected date windows. | Centralize invalidation in sync completion hooks and schema-aware materializer service. | P1 |
+| File | Function | Impact | Recommended fix | Priority | Status |
+| --- | --- | --- | --- | --- | --- |
+| `lib/google-ads/serving.ts` | `getGoogleCanonicalOverviewTrends()` | Projection hydration was fire-and-forget, so request success was decoupled from projection correctness and retries. | Introduce explicit projection job table/worker or hydrate during sync completion hooks only. | P0 | Resolved |
+| `lib/overview-summary-store.ts` | `hydrateOverviewSummaryRangeFromGoogle()` / `markOverviewSummaryRangeHydrated()` | Projection validity remains tightly coupled to on-demand availability of Google warehouse rows, even though `GET` routes no longer invoke these writers. | Convert projection writes into post-sync materialization step with durable job ownership. | P1 | Partially resolved |
+| `lib/overview-summary-store.ts` | `invalidateOverviewSummaryRanges()` | Projection invalidation still depends on write callers knowing affected date windows. | Centralize invalidation in sync completion hooks and schema-aware materializer service. | P1 | Open |
 
 ## aynı endpoint içinde mixed live + warehouse + projection okuma
 
@@ -94,13 +102,13 @@ Status scale:
 
 ## Top 10 current risks
 
-1. `lib/shopify/read-adapter.ts#getShopifyOverviewReadCandidate()` writes serving state during overview `GET`.
-2. `lib/google-ads/serving.ts#getGoogleCanonicalOverviewTrends()` hydrates projections during request handling.
-3. `lib/overview-service.ts#getGa4EcommerceFallback()` writes provider cache rows inside a read path.
-4. `lib/shopify/overview.ts#getShopifyOverviewAggregate()` writes provider cache rows inside a read path.
-5. `lib/google-ads/serving.ts` mixes live, warehouse, and projection lanes in one module.
-6. `lib/google-ads/warehouse.ts` and `lib/meta/serving.ts` are oversized mixed-responsibility files.
-7. Status routes are coupled directly to sync-control schema, making later table moves high risk.
-8. `lib/overview-summary-store.ts` still invalidates/materializes projections from request-driven callers, even though it no longer bootstraps schema.
-9. `app/api/overview-summary/route.ts` still composes multiple freshness models in one large handler.
-10. `lib/google-ads/advisor-memory.ts` and webhook/storage mutation lanes still need broader GET-write and serving-lane cleanup after migration isolation.
+1. `lib/google-ads/serving.ts` still mixes live, warehouse, and projection lanes in one module.
+2. `lib/google-ads/warehouse.ts` is still an oversized mixed-responsibility file with sync, control, and read concerns co-located.
+3. `lib/meta/serving.ts` remains a large mixed-concern module even after repair-on-read removal.
+4. Status routes are coupled directly to sync-control schema, making later table moves high risk.
+5. `lib/overview-summary-store.ts` still owns projection invalidation/materialization APIs; GET paths no longer call them, but ownership is still blurred.
+6. `app/api/overview-summary/route.ts` still composes multiple freshness models in one large handler.
+7. `lib/shopify/read-adapter.ts` still encodes serving trust decisions across many tables, even though GET no longer persists them.
+8. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
+9. `lib/migrations.ts` remains a large runtime migration bundle that should eventually move fully to offline/bootstrap ownership.
+10. Non-GET mutation, admin, and webhook write lanes still need their own side-effect cleanup pass after this read-only phase.

@@ -449,13 +449,6 @@ export async function listInvitesByBusiness(businessId: string) {
     return [];
   }
   const sql = getDb();
-  await sql`
-    UPDATE invites
-    SET status = 'expired'
-    WHERE business_id = ${businessId}
-      AND status = 'pending'
-      AND expires_at < now()
-  `;
   return sql`
     SELECT
       i.id,

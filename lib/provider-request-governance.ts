@@ -403,14 +403,6 @@ export async function enterProviderGlobalCircuitBreakerRecoveryState(input: {
 }) {
   const cooldownMs = Math.max(60_000, input.cooldownMs ?? 5 * 60_000);
   const cooldownUntil = new Date(Date.now() + cooldownMs).toISOString();
-  await upsertExplicitCooldownState({
-    provider: input.provider,
-    businessId: input.businessId,
-    requestType: GLOBAL_CIRCUIT_BREAKER_RECOVERY_REQUEST_TYPE,
-    message: input.message ?? "Provider circuit breaker is in half-open recovery mode.",
-    status: 429,
-    cooldownUntil,
-  });
   return {
     state: "half_open" as const,
     cooldownUntil,
@@ -613,33 +605,15 @@ async function enforceProviderQuotaBudget(input: {
   const budgetState = await getProviderQuotaBudgetState(input).catch(() => null);
   if (!budgetState || budgetState.withinDailyBudget) return;
 
-  const key = getRequestKey(input.provider, input.businessId, DAILY_QUOTA_BUDGET_REQUEST_TYPE);
-  const failureState: FailureState = {
-    failedAt: Date.now(),
-    message: `Daily Google Ads request budget reached for business ${input.businessId}.`,
-    count: Math.max(1, budgetState.errorCount),
-    status: 429,
-  };
-  getFailureStore().set(key, failureState);
-  getDbHydratedStore().add(key);
   const tomorrow = new Date();
   tomorrow.setUTCHours(24, 0, 0, 0);
   const cooldownUntil = tomorrow.toISOString();
-  await upsertExplicitCooldownState({
-    provider: input.provider,
-    businessId: input.businessId,
-    requestType: DAILY_QUOTA_BUDGET_REQUEST_TYPE,
-    message: failureState.message,
-    status: 429,
-    failureCount: failureState.count,
-    cooldownUntil,
-  }).catch(() => null);
 
   throw new ProviderRequestCooldownError({
     provider: input.provider,
     businessId: input.businessId,
     requestType: DAILY_QUOTA_BUDGET_REQUEST_TYPE,
-    message: failureState.message,
+    message: `Daily Google Ads request budget reached for business ${input.businessId}.`,
     retryAfterMs: Math.max(0, new Date(cooldownUntil).getTime() - Date.now()),
     status: 429,
   });
@@ -710,11 +684,6 @@ export async function runProviderRequestWithGovernance<T>(
       }
       if (retryAfterMs <= 0) {
         failures.delete(globalKey);
-        clearCooldownFromDb(
-          input.provider,
-          input.businessId,
-          GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE
-        );
       }
     }
   }
@@ -744,7 +713,6 @@ export async function runProviderRequestWithGovernance<T>(
       });
     }
     failures.delete(key);
-    clearCooldownFromDb(input.provider, input.businessId, input.requestType);
   }
 
   const existingRequest = inflight.get(key) as Promise<T> | undefined;
@@ -774,8 +742,6 @@ export async function runProviderRequestWithGovernance<T>(
     .execute()
     .then((result) => {
       failures.delete(key);
-      clearCooldownFromDb(input.provider, input.businessId, input.requestType);
-      logQuotaUsage(input.provider, input.businessId, false);
       console.log("[provider-request] success", {
         provider: input.provider,
         businessId: input.businessId,
@@ -785,10 +751,8 @@ export async function runProviderRequestWithGovernance<T>(
     })
     .catch((error: unknown) => {
       const errorType = classifyError(error);
-      logQuotaUsage(input.provider, input.businessId, true);
       if (errorType !== null) {
         const previousCount = failures.get(key)?.count ?? 0;
-        const cooldownMs = getCooldownMsForErrorType(errorType);
         const newState: FailureState = {
           failedAt: Date.now(),
           message: getErrorMessage(error),
@@ -796,7 +760,6 @@ export async function runProviderRequestWithGovernance<T>(
           status: getErrorStatus(error),
         };
         failures.set(key, newState);
-        persistCooldownToDb(input.provider, input.businessId, input.requestType, newState, cooldownMs);
       }
       console.error("[provider-request] failure", {
         provider: input.provider,

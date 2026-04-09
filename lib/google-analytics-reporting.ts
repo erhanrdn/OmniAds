@@ -1,7 +1,5 @@
-import { getIntegration, upsertIntegration } from "@/lib/integrations";
+import { getIntegration } from "@/lib/integrations";
 import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
-import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
 const REPORTING_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 // 60 sn → 5 dk: quota hatasında daha uzun bekleme
@@ -27,25 +25,6 @@ function updateQuotaFromHeaders(propertyId: string, headers: Headers): void {
   if (value < 2000) {
     console.warn("[ga4-quota] low_quota", { propertyId, remaining: value });
   }
-}
-
-function logGa4QuotaUsage(businessId: string, isError: boolean): void {
-  getDbSchemaReadiness({
-    tables: ["provider_quota_usage"],
-  }).then((readiness) => {
-    if (!readiness.ready) {
-      return;
-    }
-    const sql = getDb();
-    return sql`
-      INSERT INTO provider_quota_usage (business_id, provider, quota_date, call_count, error_count, last_called_at)
-      VALUES (${businessId}, 'ga4', CURRENT_DATE, 1, ${isError ? 1 : 0}, now())
-      ON CONFLICT (business_id, provider, quota_date) DO UPDATE SET
-        call_count     = provider_quota_usage.call_count + 1,
-        error_count    = provider_quota_usage.error_count + ${isError ? 1 : 0},
-        last_called_at = now()
-    `;
-  }).catch(() => {});
 }
 
 export function isGa4InvalidArgumentError(error: unknown): boolean {
@@ -145,7 +124,6 @@ export async function runGA4Report(
   updateQuotaFromHeaders(params.propertyId, res.headers);
 
   if (!res.ok) {
-    if (params.businessId) logGa4QuotaUsage(params.businessId, true);
     const errorText = await res.text();
     const normalizedError = errorText.toUpperCase();
 
@@ -191,7 +169,6 @@ export async function runGA4Report(
     throw new Error(`GA4 Reporting API error ${res.status}: ${errorText}`);
   }
 
-  if (params.businessId) logGa4QuotaUsage(params.businessId, false);
   const data = await res.json();
 
   const dimensionHeaders: string[] =
@@ -310,13 +287,6 @@ export async function resolveGa4AnalyticsContext(
     try {
       const refreshed = await refreshGA4AccessToken(refreshToken);
       accessToken = refreshed.accessToken;
-      await upsertIntegration({
-        businessId,
-        provider: "ga4",
-        status: "connected",
-        accessToken: refreshed.accessToken,
-        tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
-      });
     } catch {
       throw new GA4AuthError(
         "token_refresh_failed",

@@ -1,7 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveProviderDiscoveryPayload } from "@/lib/provider-account-discovery";
-import * as assignments from "@/lib/provider-account-assignments";
-import * as snapshots from "@/lib/provider-account-snapshots";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/provider-account-assignments", () => ({
   getProviderAccountAssignments: vi.fn(),
@@ -13,157 +10,80 @@ vi.mock("@/lib/provider-account-snapshots", () => ({
   forceProviderAccountSnapshotRefresh: vi.fn(),
 }));
 
-describe("resolveProviderDiscoveryPayload", () => {
-  afterEach(() => {
-    vi.clearAllMocks();
+const providerAssignments = await import("@/lib/provider-account-assignments");
+const providerSnapshots = await import("@/lib/provider-account-snapshots");
+const { resolveProviderDiscoveryPayload } = await import("@/lib/provider-account-discovery");
+
+function buildSnapshotMeta(overrides: Record<string, unknown> = {}) {
+  return {
+    source: "snapshot",
+    sourceHealth: "stale_cached",
+    fetchedAt: "2026-04-08T10:00:00.000Z",
+    stale: true,
+    refreshFailed: false,
+    failureClass: null,
+    lastError: null,
+    lastKnownGoodAvailable: true,
+    refreshRequestedAt: null,
+    lastRefreshAttemptAt: null,
+    nextRefreshAfter: null,
+    retryAfterAt: null,
+    refreshInProgress: false,
+    sourceReason: "stale_snapshot",
+    trustLevel: "safe",
+    trustScore: 72,
+    snapshotAgeHours: 8,
+    lastSuccessfulRefreshAgeHours: 8,
+    refreshFailureStreak: 0,
+    ...overrides,
+  };
+}
+
+describe("provider discovery read path", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(providerAssignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["acct_1"],
+    } as never);
   });
 
-  it("returns snapshot data immediately and schedules a background refresh when stale", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
-      id: "1",
-      business_id: "biz",
-      provider: "google",
-      account_ids: ["123"],
-      created_at: "",
-      updated_at: "",
-    });
-    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
-      accounts: [{ id: "123", name: "Main account" }],
-      meta: {
-        source: "snapshot",
-        sourceHealth: "stale_cached",
-        fetchedAt: "2026-03-21T10:00:00.000Z",
-        stale: true,
-        refreshFailed: false,
-        failureClass: null,
-        lastError: null,
-        lastKnownGoodAvailable: true,
-        refreshRequestedAt: null,
-        lastRefreshAttemptAt: null,
-        nextRefreshAfter: null,
-        retryAfterAt: null,
-        refreshInProgress: false,
-        sourceReason: "stale_snapshot_refresh",
-      },
-    });
-    vi.mocked(snapshots.requestProviderAccountSnapshotRefresh).mockResolvedValue(null);
+  it("does not schedule a background refresh when a stale snapshot is served", async () => {
+    vi.mocked(providerSnapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "acct_1", name: "Account 1" }],
+      meta: buildSnapshotMeta(),
+    } as never);
 
     const payload = await resolveProviderDiscoveryPayload({
-      businessId: "biz",
+      businessId: "biz_1",
       provider: "google",
       refreshRequested: false,
-      liveLoader: vi.fn(),
+      liveLoader: vi.fn().mockResolvedValue([]),
       missingSnapshotNotice: "missing",
       degradedNotice: "degraded",
       unavailableNotice: "unavailable",
     });
 
-    expect(payload.data).toEqual([{ id: "123", name: "Main account", assigned: true }]);
-    expect(payload.notice).toBeNull();
-    expect(snapshots.requestProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
+    expect(payload.data).toEqual([{ id: "acct_1", name: "Account 1", assigned: true }]);
+    expect(providerSnapshots.requestProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
+    expect(providerSnapshots.forceProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
   });
 
-  it("shows degraded notice when a stale snapshot is being served after refresh failure", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
-      id: "1",
-      business_id: "biz",
-      provider: "google",
-      account_ids: ["123"],
-      created_at: "",
-      updated_at: "",
-    });
-    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
-      accounts: [{ id: "123", name: "Main account" }],
-      meta: {
-        source: "snapshot",
-        sourceHealth: "stale_cached",
-        fetchedAt: "2026-03-21T10:00:00.000Z",
-        stale: true,
-        refreshFailed: true,
-        failureClass: "quota",
-        lastError: "Google Ads API quota exceeded. Account list will refresh automatically later today. (listAccessibleCustomers HTTP 429)",
-        lastKnownGoodAvailable: true,
-        refreshRequestedAt: null,
-        lastRefreshAttemptAt: null,
-        nextRefreshAfter: "2026-03-21T12:00:00.000Z",
-        retryAfterAt: "2026-03-21T12:00:00.000Z",
-        refreshInProgress: false,
-        sourceReason: "stale_snapshot_refresh",
-      },
-    });
-    vi.mocked(snapshots.requestProviderAccountSnapshotRefresh).mockResolvedValue(null);
+  it("does not force a snapshot refresh when GET requests ask for refresh", async () => {
+    vi.mocked(providerSnapshots.readProviderAccountSnapshot).mockResolvedValue(null as never);
 
     const payload = await resolveProviderDiscoveryPayload({
-      businessId: "biz",
-      provider: "google",
-      refreshRequested: false,
-      liveLoader: vi.fn(),
-      missingSnapshotNotice: "missing",
-      degradedNotice: "degraded",
-      quotaNotice: (retryAfterAt) => `quota:${retryAfterAt}`,
-      unavailableNotice: "unavailable",
-    });
-
-    expect(payload.notice).toBe("quota:2026-03-21T12:00:00.000Z");
-    expect(snapshots.requestProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
-  });
-
-  it("returns empty terminal payload and schedules refresh when no snapshot exists", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue(null);
-    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue(null);
-    vi.mocked(snapshots.requestProviderAccountSnapshotRefresh).mockResolvedValue(null);
-
-    const payload = await resolveProviderDiscoveryPayload({
-      businessId: "biz",
-      provider: "meta",
-      refreshRequested: false,
-      liveLoader: vi.fn(),
-      missingSnapshotNotice: "missing",
-      degradedNotice: "degraded",
-      unavailableNotice: "unavailable",
-    });
-
-    expect(payload.data).toEqual([]);
-    expect(payload.notice).toBe("unavailable");
-    expect(payload.meta.stale).toBe(true);
-    expect(payload.meta.lastKnownGoodAvailable).toBe(false);
-    expect(snapshots.requestProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
-  });
-
-  it("forces live refresh only for explicit refresh requests", async () => {
-    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue(null);
-    vi.mocked(snapshots.forceProviderAccountSnapshotRefresh).mockResolvedValue({
-      accounts: [{ id: "act_1", name: "Account 1" }],
-      meta: {
-        source: "live",
-        sourceHealth: "fresh",
-        fetchedAt: "2026-03-21T10:00:00.000Z",
-        stale: false,
-        refreshFailed: false,
-        failureClass: null,
-        lastError: null,
-        lastKnownGoodAvailable: true,
-        refreshRequestedAt: null,
-        lastRefreshAttemptAt: null,
-        nextRefreshAfter: null,
-        retryAfterAt: null,
-        refreshInProgress: false,
-        sourceReason: "manual_refresh",
-      },
-    });
-
-    const payload = await resolveProviderDiscoveryPayload({
-      businessId: "biz",
+      businessId: "biz_1",
       provider: "meta",
       refreshRequested: true,
-      liveLoader: vi.fn(),
+      liveLoader: vi.fn().mockResolvedValue([]),
       missingSnapshotNotice: "missing",
       degradedNotice: "degraded",
       unavailableNotice: "unavailable",
     });
 
-    expect(payload.data).toEqual([{ id: "act_1", name: "Account 1", assigned: false }]);
-    expect(snapshots.forceProviderAccountSnapshotRefresh).toHaveBeenCalledTimes(1);
-    expect(snapshots.requestProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
+    expect(payload.data).toEqual([{ id: "acct_1", name: "acct_1", assigned: true }]);
+    expect(payload.notice).toBe("missing");
+    expect(providerSnapshots.requestProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
+    expect(providerSnapshots.forceProviderAccountSnapshotRefresh).not.toHaveBeenCalled();
   });
 });

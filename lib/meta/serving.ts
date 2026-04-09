@@ -1706,16 +1706,13 @@ export async function getMetaWarehouseCampaignTable(input: {
       }).catch(() => null)
     : null;
   const payload = await getMetaWarehouseCampaigns(input);
-  const campaignDailyRows = await repairCampaignRowsFromSnapshots({
-    businessId: input.businessId,
-    rows: v2Enabled
-      ? filterRowsToPublishedKeys(
-          await getMetaCampaignDailyRange(input),
-          verification,
-          "campaign_daily",
-        )
-      : await getMetaCampaignDailyRange(input),
-  });
+  const campaignDailyRows = v2Enabled
+    ? filterRowsToPublishedKeys(
+        await getMetaCampaignDailyRange(input),
+        verification,
+        "campaign_daily",
+      )
+    : await getMetaCampaignDailyRange(input);
   const campaignHistoryByKey = new Map<string, MetaCampaignDailyRow[]>();
   for (const row of campaignDailyRows) {
     const key = `${row.providerAccountId}:${row.campaignId}`;
@@ -1821,28 +1818,25 @@ export async function getMetaWarehouseAdSets(input: {
         surfaces: ["adset_daily"],
       }).catch(() => null)
     : null;
-  const rows = await repairAdSetRowsFromSnapshots({
-    businessId: input.businessId,
-    rows: v2Enabled
-      ? filterRowsToPublishedKeys(
-          await getMetaAdSetDailyRange({
-            businessId: input.businessId,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            providerAccountIds: input.providerAccountIds,
-            campaignIds: input.campaignId ? [input.campaignId] : null,
-          }),
-          verification,
-          "adset_daily",
-        )
-      : await getMetaAdSetDailyRange({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-      campaignIds: input.campaignId ? [input.campaignId] : null,
-    }),
-  });
+  const rows = v2Enabled
+    ? filterRowsToPublishedKeys(
+        await getMetaAdSetDailyRange({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          providerAccountIds: input.providerAccountIds,
+          campaignIds: input.campaignId ? [input.campaignId] : null,
+        }),
+        verification,
+        "adset_daily",
+      )
+    : await getMetaAdSetDailyRange({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+        campaignIds: input.campaignId ? [input.campaignId] : null,
+      });
   const previousSnapshotDiffs = input.includePrev
     ? await readPreviousDifferentMetaConfigDiffs({
         businessId: input.businessId,

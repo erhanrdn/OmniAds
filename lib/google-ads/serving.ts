@@ -44,7 +44,6 @@ import {
 } from "@/lib/google-ads/warehouse";
 import {
   evaluateOverviewSummaryProjectionValidity,
-  hydrateOverviewSummaryRangeFromGoogle,
   readOverviewSummaryRange,
 } from "@/lib/overview-summary-store";
 import {
@@ -1425,13 +1424,6 @@ export async function getGoogleCanonicalOverviewTrends(input: {
       rowCount: effectiveRows.length,
       readSource,
     });
-    void hydrateOverviewSummaryRangeFromGoogle({
-      businessId: input.businessId,
-      providerAccountIds: context.providerAccountIds,
-      startDate: context.startDate,
-      endDate: context.endDate,
-      rows: effectiveRows,
-    }).catch(() => undefined);
     return {
       points: aggregateGoogleOverviewTrendPoints(effectiveRows),
       meta: {

@@ -1,4 +1,4 @@
-import { setSessionActiveBusiness, type SessionContext } from "@/lib/auth";
+import type { SessionContext } from "@/lib/auth";
 import { listUserBusinesses } from "@/lib/access";
 import { logServerAuthEvent } from "@/lib/auth-diagnostics";
 import { scopeBusinessesForUser } from "@/lib/reviewer-access";
@@ -12,10 +12,6 @@ export async function resolveBusinessContext(session: SessionContext) {
     session.activeBusinessId && businesses.some((business) => business.id === session.activeBusinessId)
       ? session.activeBusinessId
       : businesses.find((business) => business.membershipStatus === "active")?.id ?? null;
-
-  if (activeBusinessId !== session.activeBusinessId) {
-    await setSessionActiveBusiness(session.sessionId, activeBusinessId);
-  }
 
   logServerAuthEvent("business_context_resolved", {
     sessionId: session.sessionId,

@@ -25,7 +25,6 @@ import {
 import {
   getCachedReport,
   getReportingDateRangeKey,
-  setCachedReport,
 } from "@/lib/reporting-cache";
 import {
   getMetaCanonicalOverviewSummary,
@@ -226,14 +225,6 @@ async function getGa4EcommerceFallback(
             ? revenue / purchases
             : null,
     };
-
-    await setCachedReport({
-      businessId,
-      provider: "ga4",
-      reportType: "ecommerce_fallback",
-      dateRangeKey,
-      payload,
-    });
 
     ga4FallbackFailureUntilByBusiness.delete(businessId);
 

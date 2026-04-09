@@ -1,4 +1,4 @@
-import { getIntegration, type IntegrationRow, upsertIntegration } from "@/lib/integrations";
+import { getIntegration, type IntegrationRow } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 
 const SEARCH_CONSOLE_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
@@ -82,13 +82,6 @@ export async function resolveSearchConsoleContext(params: {
     try {
       const refreshed = await refreshGoogleAccessToken(refreshToken);
       accessToken = refreshed.accessToken;
-      await upsertIntegration({
-        businessId: params.businessId,
-        provider: "google",
-        status: "connected",
-        accessToken: refreshed.accessToken,
-        tokenExpiresAt: new Date(Date.now() + refreshed.expiresIn * 1000),
-      });
     } catch {
       throw new SearchConsoleAuthError(
         "search_console_reconnect_required",

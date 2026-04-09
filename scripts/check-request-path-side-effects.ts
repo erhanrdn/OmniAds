@@ -1,13 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
+import ts from "typescript";
 
 type FindingType =
   | "migration_call"
   | "migration_import"
   | "state_write_call"
+  | "projection_write_call"
   | "cache_write_call"
+  | "refresh_trigger_call"
   | "mixed_live_warehouse_projection"
   | "large_mixed_concern";
+
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD";
 
 interface Evidence {
   line: number;
@@ -24,16 +29,45 @@ interface Finding {
   transitiveSource?: string | null;
 }
 
-interface ImportEntry {
+interface ImportBinding {
+  localName: string;
+  importedName: string | null;
   specifier: string;
+  kind: "named" | "namespace" | "default";
   line: number;
   snippet: string;
+}
+
+interface ReExportBinding {
+  exportName: string;
+  importedName: string;
+  specifier: string;
+}
+
+interface FunctionCall {
+  type: "identifier" | "namespace";
+  name?: string;
+  namespace?: string;
+  propertyName?: string;
+  line: number;
+  snippet: string;
+}
+
+interface FunctionInfo {
+  name: string;
+  line: number;
+  exported: boolean;
+  bodyText: string;
+  calls: FunctionCall[];
 }
 
 interface ModuleInfo {
   filePath: string;
   content: string;
-  imports: ImportEntry[];
+  sourceFile: ts.SourceFile;
+  imports: Map<string, ImportBinding>;
+  reExports: Map<string, ReExportBinding>;
+  functions: Map<string, FunctionInfo>;
   lineCount: number;
   migrationImportEvidence: Evidence[];
   migrationCallEvidence: Evidence[];
@@ -44,8 +78,27 @@ interface RouteGraph {
   parents: Map<string, string | null>;
 }
 
+interface ResolvedFunctionTarget {
+  modulePath: string;
+  functionName: string;
+}
+
 const repoRoot = process.cwd();
 const routeRoot = path.join(repoRoot, "app");
+const HTTP_METHODS = new Set<HttpMethod>([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "HEAD",
+]);
+const READ_ONLY_METHODS = new Set<HttpMethod>(["GET", "HEAD"]);
+const readOnlyRouteExclusions = new Set([
+  path.join(repoRoot, "app/api/oauth/google/callback/route.ts"),
+  path.join(repoRoot, "app/api/oauth/meta/callback/route.ts"),
+]);
 
 const mixedConcernTargets = new Set(
   [
@@ -60,10 +113,42 @@ const mixedConcernTargets = new Set(
   ].map((value) => path.join(repoRoot, value)),
 );
 
+const cacheWriteTargets = new Set([
+  "setCachedReport",
+  "setCachedRouteReport",
+  "setSeoResultsCache",
+]);
+const projectionWriteTargets = new Set([
+  "hydrateOverviewSummaryRangeFromMeta",
+  "hydrateOverviewSummaryRangeFromGoogle",
+  "upsertOverviewSummaryRows",
+  "markOverviewSummaryRangeHydrated",
+  "refreshOverviewSummaryFromMetaAccountRows",
+  "refreshOverviewSummaryFromGoogleAccountRows",
+]);
+const stateWriteTargets = new Set([
+  "upsertShopifyServingState",
+  "insertShopifyReconciliationRun",
+  "setSessionActiveBusiness",
+]);
+const refreshTriggerTargets = new Set([
+  "requestProviderAccountSnapshotRefresh",
+  "scheduleProviderAccountSnapshotRefresh",
+  "forceProviderAccountSnapshotRefresh",
+  "enqueueGoogleAdsScheduledWork",
+  "enqueueMetaScheduledWork",
+  "refreshGoogleAdsSyncStateForBusiness",
+  "refreshMetaSyncStateForBusiness",
+  "repairMetaWarehouseTruthRange",
+  "repairCampaignRowsFromSnapshots",
+  "repairAdSetRowsFromSnapshots",
+]);
+
 const notes = [
-  "Migration detection now covers every Next HTTP route handler under app/**/route.ts and walks the transitive import graph.",
-  "Each migration finding is anchored to the route entrypoint and, when possible, the first transitive module that still imports or calls runMigrations().",
-  "Transitive detection is module-graph based; targeted route tests remain the final guard for dynamic branches inside large shared helpers.",
+  "Migration detection still covers every Next HTTP route handler under app/**/route.ts.",
+  "GET/HEAD write detection is now function-scoped: it starts from exported read handlers and follows local, named, and namespace imports transitively.",
+  "Read-path findings are grouped as state writes, projection writes, durable cache writes, and refresh/repair triggers.",
+  "OAuth callback GET routes that intentionally mutate integration/bootstrap state are excluded from read-only GET guard coverage.",
 ];
 
 function toRepoPath(filePath: string) {
@@ -114,26 +199,21 @@ function collectEvidence(content: string, pattern: RegExp, limit = 5) {
   return evidence;
 }
 
-function extractImportEntries(content: string) {
-  const entries: ImportEntry[] = [];
-  const patterns = [
-    /import\s+[\s\S]*?\sfrom\s+["']([^"']+)["']/g,
-    /export\s+[\s\S]*?\sfrom\s+["']([^"']+)["']/g,
-    /import\(\s*["']([^"']+)["']\s*\)/g,
-  ];
+function normalizeSnippet(snippet: string, maxLength = 220) {
+  const normalized = snippet.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
 
-  for (const pattern of patterns) {
-    for (const match of content.matchAll(pattern)) {
-      if (!match[1] || match.index == null) continue;
-      entries.push({
-        specifier: match[1],
-        line: lineForOffset(content, match.index),
-        snippet: match[0].trim(),
-      });
-    }
-  }
+function getNodeLine(sourceFile: ts.SourceFile, node: ts.Node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
 
-  return entries;
+function hasExportModifier(node: ts.Node) {
+  if (!ts.canHaveModifiers(node)) return false;
+  return (ts.getModifiers(node) ?? []).some(
+    (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+  );
 }
 
 function resolveModule(specifier: string, fromFile: string) {
@@ -164,6 +244,55 @@ function resolveModule(specifier: string, fromFile: string) {
   return null;
 }
 
+function collectFunctionCalls(
+  sourceFile: ts.SourceFile,
+  node: ts.FunctionLikeDeclarationBase,
+): FunctionCall[] {
+  const calls: FunctionCall[] = [];
+  const visit = (child: ts.Node) => {
+    if (ts.isCallExpression(child)) {
+      const line = getNodeLine(sourceFile, child);
+      const snippet = normalizeSnippet(child.getText(sourceFile));
+      if (ts.isIdentifier(child.expression)) {
+        calls.push({
+          type: "identifier",
+          name: child.expression.text,
+          line,
+          snippet,
+        });
+      } else if (
+        ts.isPropertyAccessExpression(child.expression) &&
+        ts.isIdentifier(child.expression.expression)
+      ) {
+        calls.push({
+          type: "namespace",
+          namespace: child.expression.expression.text,
+          propertyName: child.expression.name.text,
+          line,
+          snippet,
+        });
+      }
+    }
+    ts.forEachChild(child, visit);
+  };
+
+  if (node.body) {
+    ts.forEachChild(node.body, visit);
+  }
+
+  return calls;
+}
+
+function createSourceFile(filePath: string, content: string) {
+  return ts.createSourceFile(
+    filePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+}
+
 const moduleInfoCache = new Map<string, ModuleInfo>();
 
 function getModuleInfo(filePath: string): ModuleInfo {
@@ -171,10 +300,107 @@ function getModuleInfo(filePath: string): ModuleInfo {
   if (cached) return cached;
 
   const content = readFile(filePath);
+  const sourceFile = createSourceFile(filePath, content);
+  const imports = new Map<string, ImportBinding>();
+  const reExports = new Map<string, ReExportBinding>();
+  const functions = new Map<string, FunctionInfo>();
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const specifier = statement.moduleSpecifier.text;
+      const importClause = statement.importClause;
+      if (importClause?.name) {
+        imports.set(importClause.name.text, {
+          localName: importClause.name.text,
+          importedName: "default",
+          specifier,
+          kind: "default",
+          line: getNodeLine(sourceFile, statement),
+          snippet: normalizeSnippet(statement.getText(sourceFile)),
+        });
+      }
+      const namedBindings = importClause?.namedBindings;
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) {
+        imports.set(namedBindings.name.text, {
+          localName: namedBindings.name.text,
+          importedName: null,
+          specifier,
+          kind: "namespace",
+          line: getNodeLine(sourceFile, statement),
+          snippet: normalizeSnippet(statement.getText(sourceFile)),
+        });
+      } else if (namedBindings && ts.isNamedImports(namedBindings)) {
+        for (const element of namedBindings.elements) {
+          const localName = element.name.text;
+          const importedName = (element.propertyName ?? element.name).text;
+          imports.set(localName, {
+            localName,
+            importedName,
+            specifier,
+            kind: "named",
+            line: getNodeLine(sourceFile, element),
+            snippet: normalizeSnippet(element.getText(sourceFile)),
+          });
+        }
+      }
+      continue;
+    }
+
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const specifier = statement.moduleSpecifier.text;
+      if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          const exportName = element.name.text;
+          const importedName = (element.propertyName ?? element.name).text;
+          reExports.set(exportName, {
+            exportName,
+            importedName,
+            specifier,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      functions.set(statement.name.text, {
+        name: statement.name.text,
+        line: getNodeLine(sourceFile, statement),
+        exported: hasExportModifier(statement),
+        bodyText: statement.body.getText(sourceFile),
+        calls: collectFunctionCalls(sourceFile, statement),
+      });
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      const exported = hasExportModifier(statement);
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+        if (
+          !ts.isArrowFunction(declaration.initializer) &&
+          !ts.isFunctionExpression(declaration.initializer)
+        ) {
+          continue;
+        }
+        functions.set(declaration.name.text, {
+          name: declaration.name.text,
+          line: getNodeLine(sourceFile, declaration),
+          exported,
+          bodyText: declaration.initializer.body.getText(sourceFile),
+          calls: collectFunctionCalls(sourceFile, declaration.initializer),
+        });
+      }
+    }
+  }
+
   const info: ModuleInfo = {
     filePath,
     content,
-    imports: extractImportEntries(content),
+    sourceFile,
+    imports,
+    reExports,
+    functions,
     lineCount: content.split("\n").length,
     migrationImportEvidence: collectEvidence(
       content,
@@ -199,8 +425,17 @@ function collectRouteGraph(entrypoint: string): RouteGraph {
     if (dependencies.has(current)) continue;
     dependencies.add(current);
 
-    for (const entry of getModuleInfo(current).imports) {
-      const resolved = resolveModule(entry.specifier, current);
+    const moduleInfo = getModuleInfo(current);
+    const specifiers = new Set<string>();
+    for (const binding of moduleInfo.imports.values()) {
+      specifiers.add(binding.specifier);
+    }
+    for (const binding of moduleInfo.reExports.values()) {
+      specifiers.add(binding.specifier);
+    }
+
+    for (const specifier of specifiers) {
+      const resolved = resolveModule(specifier, current);
       if (!resolved || dependencies.has(resolved)) continue;
       if (!parents.has(resolved)) {
         parents.set(resolved, current);
@@ -210,16 +445,6 @@ function collectRouteGraph(entrypoint: string): RouteGraph {
   }
 
   return { dependencies, parents };
-}
-
-function extractRouteMethods(content: string) {
-  const methods = new Set<string>();
-  for (const match of content.matchAll(
-    /export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/g,
-  )) {
-    if (match[1]) methods.add(match[1]);
-  }
-  return [...methods].sort();
 }
 
 function buildImportChain(parents: Map<string, string | null>, targetFile: string) {
@@ -232,6 +457,51 @@ function buildImportChain(parents: Map<string, string | null>, targetFile: strin
   return chain;
 }
 
+function extractRouteMethods(filePath: string) {
+  const methods: HttpMethod[] = [];
+  for (const [name, fn] of getModuleInfo(filePath).functions.entries()) {
+    if (fn.exported && HTTP_METHODS.has(name as HttpMethod)) {
+      methods.push(name as HttpMethod);
+    }
+  }
+  return methods.sort();
+}
+
+function resolveExportedFunction(
+  modulePath: string,
+  exportName: string,
+  seen = new Set<string>(),
+): ResolvedFunctionTarget | null {
+  const loopKey = `${modulePath}:${exportName}`;
+  if (seen.has(loopKey)) return null;
+  seen.add(loopKey);
+
+  const moduleInfo = getModuleInfo(modulePath);
+  if (moduleInfo.functions.has(exportName)) {
+    return { modulePath, functionName: exportName };
+  }
+
+  const reExport = moduleInfo.reExports.get(exportName);
+  if (!reExport) {
+    return null;
+  }
+
+  const resolvedModule = resolveModule(reExport.specifier, modulePath);
+  if (!resolvedModule) {
+    return null;
+  }
+
+  return resolveExportedFunction(resolvedModule, reExport.importedName, seen);
+}
+
+function getFindingTypeForTarget(targetName: string): FindingType | null {
+  if (cacheWriteTargets.has(targetName)) return "cache_write_call";
+  if (projectionWriteTargets.has(targetName)) return "projection_write_call";
+  if (stateWriteTargets.has(targetName)) return "state_write_call";
+  if (refreshTriggerTargets.has(targetName)) return "refresh_trigger_call";
+  return null;
+}
+
 function hasMixedLiveWarehouseProjection(content: string) {
   const hasLive = /\blive\b|liveReport|liveTotals|current_day|current-day/i.test(content);
   const hasWarehouse = /\bwarehouse\b|_daily\b/i.test(content);
@@ -242,9 +512,54 @@ function hasMixedLiveWarehouseProjection(content: string) {
   return hasLive && hasWarehouse && hasProjection;
 }
 
+function detectGeneralFindings(filePath: string, inRouteGraph: boolean): Finding[] {
+  const findings: Finding[] = [];
+  const { content, lineCount } = getModuleInfo(filePath);
+  const repoPath = toRepoPath(filePath);
+
+  if (inRouteGraph && hasMixedLiveWarehouseProjection(content)) {
+    findings.push({
+      type: "mixed_live_warehouse_projection",
+      file: repoPath,
+      summary: "Module mixes live, warehouse, and projection concerns",
+      evidence: [
+        {
+          line: 1,
+          snippet: "Detected live + warehouse + projection keywords in the same module",
+        },
+      ],
+    });
+  }
+
+  const shouldCheckMixedConcern = mixedConcernTargets.has(filePath) || lineCount >= 800;
+  if (shouldCheckMixedConcern) {
+    const hasFetch = /\bfetch\s*\(/.test(content);
+    const hasSql = /\bSELECT\b|\bINSERT INTO\b|\bUPDATE\b|\bDELETE FROM\b|sql`/i.test(content);
+    const hasRouteOrUiComposition =
+      /NextResponse\.json|buildMetricCard|useQuery\s*\(|return\s*\(/.test(content);
+    const concernCount = [hasFetch, hasSql, hasRouteOrUiComposition].filter(Boolean).length;
+
+    if (lineCount >= 800 && concernCount >= 2) {
+      findings.push({
+        type: "large_mixed_concern",
+        file: repoPath,
+        summary: `Large mixed-concern file (${lineCount} lines)`,
+        evidence: [
+          {
+            line: 1,
+            snippet: `signals: fetch=${hasFetch}, sql=${hasSql}, compose=${hasRouteOrUiComposition}`,
+          },
+        ],
+      });
+    }
+  }
+
+  return findings;
+}
+
 function detectMigrationFindings(input: {
   routeFile: string;
-  routeMethods: string[];
+  routeMethods: HttpMethod[];
   graph: RouteGraph;
 }): Finding[] {
   const findings: Finding[] = [];
@@ -254,10 +569,8 @@ function detectMigrationFindings(input: {
     const info = getModuleInfo(dependency);
     const dependencyRepoPath = toRepoPath(dependency);
     const chain = buildImportChain(input.graph.parents, dependency);
-    const transitiveSource =
-      dependency === input.routeFile ? null : dependencyRepoPath;
-    const chainSuffix =
-      chain.length > 1 ? ` via ${chain.join(" -> ")}` : "";
+    const transitiveSource = dependency === input.routeFile ? null : dependencyRepoPath;
+    const chainSuffix = chain.length > 1 ? ` via ${chain.join(" -> ")}` : "";
 
     if (info.migrationImportEvidence.length > 0) {
       findings.push({
@@ -311,72 +624,160 @@ function detectMigrationFindings(input: {
   return findings;
 }
 
-function detectGeneralFindings(filePath: string, inRouteGraph: boolean): Finding[] {
+function createReadWriteFinding(input: {
+  type: FindingType;
+  routeFile: string;
+  method: HttpMethod;
+  call: FunctionCall;
+  mutationTarget: string;
+  chain: string[];
+  transitiveSource: string | null;
+}) {
+  const routeRepoPath = toRepoPath(input.routeFile);
+  const categoryLabel =
+    input.type === "cache_write_call"
+      ? "durable cache write"
+      : input.type === "projection_write_call"
+        ? "projection write"
+        : input.type === "state_write_call"
+          ? "state write"
+          : "refresh/repair trigger";
+
+  return {
+    type: input.type,
+    file: routeRepoPath,
+    route: routeRepoPath,
+    methods: [input.method],
+    transitiveSource: input.transitiveSource,
+    summary: `${input.method} route reaches ${categoryLabel} ${input.mutationTarget}()`,
+    evidence: [
+      {
+        line: 1,
+        snippet: input.chain.join(" -> "),
+      },
+      {
+        line: input.call.line,
+        snippet: input.call.snippet,
+      },
+    ],
+  } satisfies Finding;
+}
+
+function detectReadPathWriteFindingsForRouteMethod(input: {
+  routeFile: string;
+  method: HttpMethod;
+}): Finding[] {
   const findings: Finding[] = [];
-  const { content, lineCount } = getModuleInfo(filePath);
-  const repoPath = toRepoPath(filePath);
+  const visited = new Set<string>();
 
-  if (inRouteGraph) {
-    const stateWriteEvidence = collectEvidence(
-      content,
-      /\b(?:upsert|insert|hydrate|invalidate|mark)[A-Z][A-Za-z0-9_]*\s*\(/g,
-    );
-    if (stateWriteEvidence.length > 0) {
-      findings.push({
-        type: "state_write_call",
-        file: repoPath,
-        summary: "HTTP-route dependency contains write-like state/projection calls",
-        evidence: stateWriteEvidence,
-      });
+  const traceFunction = (target: ResolvedFunctionTarget, chain: string[]) => {
+    const visitKey = `${target.modulePath}:${target.functionName}`;
+    if (visited.has(visitKey)) return;
+    visited.add(visitKey);
+
+    const moduleInfo = getModuleInfo(target.modulePath);
+    const fn = moduleInfo.functions.get(target.functionName);
+    if (!fn) return;
+
+    for (const call of fn.calls) {
+      if (call.type === "identifier" && call.name) {
+        const localTargetType = getFindingTypeForTarget(call.name);
+        if (localTargetType) {
+          findings.push(
+            createReadWriteFinding({
+              type: localTargetType,
+              routeFile: input.routeFile,
+              method: input.method,
+              call,
+              mutationTarget: call.name,
+              chain,
+              transitiveSource: toRepoPath(target.modulePath),
+            }),
+          );
+          continue;
+        }
+
+        const localFunction = moduleInfo.functions.get(call.name);
+        if (localFunction) {
+          traceFunction(
+            {
+              modulePath: target.modulePath,
+              functionName: call.name,
+            },
+            [...chain, `${toRepoPath(target.modulePath)}#${call.name}`],
+          );
+          continue;
+        }
+
+        const importBinding = moduleInfo.imports.get(call.name);
+        if (!importBinding) continue;
+        const resolvedModule = resolveModule(importBinding.specifier, target.modulePath);
+        if (!resolvedModule) continue;
+        const importedName = importBinding.importedName ?? call.name;
+        const importTargetType = getFindingTypeForTarget(importedName);
+        if (importTargetType) {
+          findings.push(
+            createReadWriteFinding({
+              type: importTargetType,
+              routeFile: input.routeFile,
+              method: input.method,
+              call,
+              mutationTarget: importedName,
+              chain,
+              transitiveSource: toRepoPath(resolvedModule),
+            }),
+          );
+          continue;
+        }
+
+        if (importBinding.kind === "namespace") continue;
+        const resolvedTarget =
+          importedName === "default"
+            ? null
+            : resolveExportedFunction(resolvedModule, importedName);
+        if (!resolvedTarget) continue;
+        traceFunction(
+          resolvedTarget,
+          [...chain, `${toRepoPath(resolvedTarget.modulePath)}#${resolvedTarget.functionName}`],
+        );
+        continue;
+      }
+
+      if (call.type === "namespace" && call.namespace && call.propertyName) {
+        const importBinding = moduleInfo.imports.get(call.namespace);
+        if (!importBinding || importBinding.kind !== "namespace") continue;
+        const resolvedModule = resolveModule(importBinding.specifier, target.modulePath);
+        if (!resolvedModule) continue;
+        const targetType = getFindingTypeForTarget(call.propertyName);
+        if (targetType) {
+          findings.push(
+            createReadWriteFinding({
+              type: targetType,
+              routeFile: input.routeFile,
+              method: input.method,
+              call,
+              mutationTarget: call.propertyName,
+              chain,
+              transitiveSource: toRepoPath(resolvedModule),
+            }),
+          );
+          continue;
+        }
+
+        const resolvedTarget = resolveExportedFunction(resolvedModule, call.propertyName);
+        if (!resolvedTarget) continue;
+        traceFunction(
+          resolvedTarget,
+          [...chain, `${toRepoPath(resolvedTarget.modulePath)}#${resolvedTarget.functionName}`],
+        );
+      }
     }
+  };
 
-    const cacheWriteEvidence = collectEvidence(content, /\bsetCachedReport\s*\(/g);
-    if (cacheWriteEvidence.length > 0) {
-      findings.push({
-        type: "cache_write_call",
-        file: repoPath,
-        summary: "HTTP-route dependency writes shared reporting cache",
-        evidence: cacheWriteEvidence,
-      });
-    }
-
-    if (hasMixedLiveWarehouseProjection(content)) {
-      findings.push({
-        type: "mixed_live_warehouse_projection",
-        file: repoPath,
-        summary: "Module mixes live, warehouse, and projection concerns",
-        evidence: [
-          {
-            line: 1,
-            snippet: "Detected live + warehouse + projection keywords in the same module",
-          },
-        ],
-      });
-    }
-  }
-
-  const shouldCheckMixedConcern = mixedConcernTargets.has(filePath) || lineCount >= 800;
-  if (shouldCheckMixedConcern) {
-    const hasFetch = /\bfetch\s*\(/.test(content);
-    const hasSql = /\bSELECT\b|\bINSERT INTO\b|\bUPDATE\b|\bDELETE FROM\b|sql`/i.test(content);
-    const hasRouteOrUiComposition =
-      /NextResponse\.json|buildMetricCard|useQuery\s*\(|return\s*\(/.test(content);
-    const concernCount = [hasFetch, hasSql, hasRouteOrUiComposition].filter(Boolean).length;
-
-    if (lineCount >= 800 && concernCount >= 2) {
-      findings.push({
-        type: "large_mixed_concern",
-        file: repoPath,
-        summary: `Large mixed-concern file (${lineCount} lines)`,
-        evidence: [
-          {
-            line: 1,
-            snippet: `signals: fetch=${hasFetch}, sql=${hasSql}, compose=${hasRouteOrUiComposition}`,
-          },
-        ],
-      });
-    }
-  }
+  traceFunction(
+    { modulePath: input.routeFile, functionName: input.method },
+    [`${toRepoPath(input.routeFile)}#${input.method}`],
+  );
 
   return findings;
 }
@@ -392,6 +793,7 @@ function dedupeFindings(findings: Finding[]) {
       finding.summary,
       finding.transitiveSource ?? "",
       (finding.methods ?? []).join(","),
+      finding.evidence.map((item) => `${item.line}:${item.snippet}`).join("|"),
     ].join("|");
     if (seen.has(key)) continue;
     seen.add(key);
@@ -429,8 +831,10 @@ function printReport(findings: Finding[], modulesScanned: number, routesScanned:
   const sections: Array<[FindingType, string]> = [
     ["migration_import", "Migration imports"],
     ["migration_call", "Migration calls"],
-    ["state_write_call", "State/projection writes"],
-    ["cache_write_call", "Cache writes"],
+    ["state_write_call", "GET state writes"],
+    ["projection_write_call", "GET projection writes"],
+    ["cache_write_call", "GET durable cache writes"],
+    ["refresh_trigger_call", "GET refresh/repair triggers"],
     ["mixed_live_warehouse_projection", "Mixed live/warehouse/projection modules"],
     ["large_mixed_concern", "Large mixed-concern files"],
   ];
@@ -452,7 +856,7 @@ function main() {
   const routeEntrypoints = discoverRouteEntrypoints();
   const routeGraphs = routeEntrypoints.map((routeFile) => ({
     routeFile,
-    routeMethods: extractRouteMethods(getModuleInfo(routeFile).content),
+    routeMethods: extractRouteMethods(routeFile),
     graph: collectRouteGraph(routeFile),
   }));
 
@@ -462,6 +866,20 @@ function main() {
       routeMethods: entry.routeMethods,
       graph: entry.graph,
     }),
+  );
+
+  const getWriteFindings = routeGraphs.flatMap((entry) =>
+    readOnlyRouteExclusions.has(entry.routeFile)
+      ? []
+      :
+    entry.routeMethods
+      .filter((method) => READ_ONLY_METHODS.has(method))
+      .flatMap((method) =>
+        detectReadPathWriteFindingsForRouteMethod({
+          routeFile: entry.routeFile,
+          method,
+        }),
+      ),
   );
 
   const allDependencies = new Set<string>();
@@ -478,7 +896,9 @@ function main() {
     .filter((filePath) => fs.existsSync(filePath))
     .flatMap((filePath) => detectGeneralFindings(filePath, allDependencies.has(filePath)));
 
-  const findings = sortFindings(dedupeFindings([...migrationFindings, ...generalFindings]));
+  const findings = sortFindings(
+    dedupeFindings([...migrationFindings, ...getWriteFindings, ...generalFindings]),
+  );
 
   if (process.argv.includes("--json")) {
     console.log(

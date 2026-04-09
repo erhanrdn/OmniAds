@@ -9,10 +9,7 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
-import {
-  getCachedRouteReport,
-  setCachedRouteReport,
-} from "@/lib/route-report-cache";
+import { getCachedRouteReport } from "@/lib/route-report-cache";
 
 const ALLOWED_DIMENSIONS = [
   "country",
@@ -139,12 +136,5 @@ export async function GET(request: NextRequest) {
         }
       : null,
   };
-  await setCachedRouteReport({
-    businessId,
-    provider: "ga4",
-    reportType: "ga4_detailed_demographics",
-    searchParams: request.nextUrl.searchParams,
-    payload,
-  });
   return NextResponse.json(payload);
 }

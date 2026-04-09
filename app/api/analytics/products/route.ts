@@ -9,10 +9,7 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
-import {
-  getCachedRouteReport,
-  setCachedRouteReport,
-} from "@/lib/route-report-cache";
+import { getCachedRouteReport } from "@/lib/route-report-cache";
 
 const PRODUCT_DIMENSION = { name: "itemName" };
 const PRODUCT_LIMIT = 100;
@@ -278,13 +275,6 @@ export async function GET(request: NextRequest) {
       products,
       meta,
     };
-    await setCachedRouteReport({
-      businessId,
-      provider: "ga4",
-      reportType: "ga4_detailed_products",
-      searchParams: request.nextUrl.searchParams,
-      payload,
-    });
     return NextResponse.json(payload);
   } catch (error) {
     const message =
