@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import { refreshOverviewSummaryFromMetaAccountRows } from "@/lib/overview-summary-store";
+import { refreshOverviewSummaryMaterializationFromMetaAccountRows } from "@/lib/overview-summary-materializer";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
   ProviderReclaimDecision,
@@ -5381,7 +5381,7 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
       `;
     await sql.query(query, values);
   }
-  await refreshOverviewSummaryFromMetaAccountRows(rows).catch((error: unknown) => {
+  await refreshOverviewSummaryMaterializationFromMetaAccountRows(rows).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[meta-warehouse] overview summary refresh failed", {
       businessId: rows[0]?.businessId ?? null,

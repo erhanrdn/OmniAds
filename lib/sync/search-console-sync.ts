@@ -13,7 +13,7 @@ import {
   fetchSearchConsoleAnalyticsRows,
   buildSeoOverviewPayload,
 } from "@/lib/seo/intelligence";
-import { setSeoResultsCache } from "@/lib/seo/results-cache";
+import { writeSeoResultsCacheEntry } from "@/lib/seo/results-cache-writer";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
@@ -131,7 +131,13 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
         businessId,
       });
 
-      await setSeoResultsCache({ businessId, cacheType: "overview", startDate, endDate, payload });
+      await writeSeoResultsCacheEntry({
+        businessId,
+        cacheType: "overview",
+        startDate,
+        endDate,
+        payload,
+      });
       await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "done");
       succeeded++;
     } catch (err) {

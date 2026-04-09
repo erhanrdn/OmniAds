@@ -105,6 +105,11 @@ function main() {
     "## Safe implementation order",
     "No HTTP route may execute migrations",
   ]);
+  ensureFileContains("docs/architecture/serving-write-ownership-map.md", [
+    "## Overview serving projections",
+    "## User-facing durable reporting caches",
+    "## Shopify overview serving state",
+  ]);
   ensureFileContains("docs/architecture/live-db-baseline-checks.sql", [
     "Projection vs warehouse parity checks",
     "Provider sanity aggregates",
@@ -144,6 +149,15 @@ function main() {
       .join("\n");
     fail(`GET/read-path side-effect guard failed:\n${summary}`);
   }
+  const ownerViolations = scanResult.findings.filter(
+    (finding) => finding.type === "serving_write_owner_violation",
+  );
+  if (ownerViolations.length > 0) {
+    const summary = ownerViolations
+      .map((finding) => `${finding.file}: ${finding.summary}`)
+      .join("\n");
+    fail(`Serving write-owner guard failed:\n${summary}`);
+  }
   runCommand(process.execPath, [
     "--import",
     "tsx",
@@ -171,6 +185,11 @@ function main() {
     "lib/provider-account-discovery.test.ts",
     "lib/get-read-path-module-guard.test.ts",
     "lib/get-route-side-effect-guard.test.ts",
+    "lib/serving-write-owner-guard.test.ts",
+    "lib/overview-summary-materializer.test.ts",
+    "lib/reporting-cache-writer.test.ts",
+    "lib/seo/results-cache-writer.test.ts",
+    "lib/shopify/overview-materializer.test.ts",
     "lib/http-route-migration-guard.test.ts",
     "lib/request-path-migration-guard.test.ts",
   ]);

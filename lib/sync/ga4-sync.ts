@@ -10,7 +10,8 @@ import {
   runGA4Report,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
-import { setCachedRouteReport, getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
+import { getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
+import { writeCachedRouteReport } from "@/lib/reporting-cache-writer";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
@@ -131,7 +132,7 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
         totals: result.totals,
       };
 
-      await setCachedRouteReport({
+      await writeCachedRouteReport({
         businessId,
         provider: "ga4",
         reportType: REPORT_TYPE,

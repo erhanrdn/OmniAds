@@ -21,11 +21,14 @@ vi.mock("@/lib/sync/shopify-sync", () => ({
   syncShopifyCommerceReports: vi.fn(),
 }));
 
+vi.mock("@/lib/shopify/overview-materializer", () => ({
+  persistShopifyOverviewServingState: vi.fn(),
+}));
+
 vi.mock("@/lib/shopify/warehouse", () => ({
   getShopifyWebhookDelivery: vi.fn(),
   upsertShopifyRepairIntent: vi.fn(),
   getShopifyServingState: vi.fn(),
-  upsertShopifyServingState: vi.fn(),
   upsertShopifyWebhookDelivery: vi.fn(),
 }));
 
@@ -34,6 +37,7 @@ const db = await import("@/lib/db");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
 const migrations = await import("@/lib/migrations");
 const shopifySync = await import("@/lib/sync/shopify-sync");
+const overviewMaterializer = await import("@/lib/shopify/overview-materializer");
 const warehouse = await import("@/lib/shopify/warehouse");
 const { POST } = await import("@/app/api/webhooks/shopify/sync/route");
 
@@ -48,7 +52,7 @@ describe("POST /api/webhooks/shopify/sync", () => {
     vi.mocked(warehouse.getShopifyWebhookDelivery).mockResolvedValue(null as never);
     vi.mocked(warehouse.upsertShopifyRepairIntent).mockResolvedValue(undefined as never);
     vi.mocked(warehouse.getShopifyServingState).mockResolvedValue(null as never);
-    vi.mocked(warehouse.upsertShopifyServingState).mockResolvedValue(undefined as never);
+    vi.mocked(overviewMaterializer.persistShopifyOverviewServingState).mockResolvedValue(undefined as never);
   });
 
   it("fails closed when schema is not ready", async () => {
@@ -130,7 +134,7 @@ describe("POST /api/webhooks/shopify/sync", () => {
       },
       allowHistorical: false,
     });
-    expect(warehouse.upsertShopifyServingState).toHaveBeenCalledTimes(3);
+    expect(overviewMaterializer.persistShopifyOverviewServingState).toHaveBeenCalledTimes(3);
     expect(warehouse.upsertShopifyRepairIntent).toHaveBeenCalled();
     expect(warehouse.upsertShopifyWebhookDelivery).toHaveBeenCalled();
     expect(migrations.runMigrations).not.toHaveBeenCalled();

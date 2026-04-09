@@ -36,33 +36,3 @@ export async function getSeoResultsCache<T>(params: {
 
   return row.payload;
 }
-
-export async function setSeoResultsCache<T>(params: {
-  businessId: string;
-  cacheType: SeoCacheType;
-  startDate: string;
-  endDate: string;
-  payload: T;
-}): Promise<void> {
-  const readiness = await getDbSchemaReadiness({
-    tables: ["seo_results_cache"],
-  });
-  if (!readiness.ready) {
-    return;
-  }
-  const sql = getDb();
-  await sql`
-    INSERT INTO seo_results_cache (business_id, cache_type, start_date, end_date, payload, generated_at)
-    VALUES (
-      ${params.businessId},
-      ${params.cacheType},
-      ${params.startDate}::date,
-      ${params.endDate}::date,
-      ${JSON.stringify(params.payload)}::jsonb,
-      now()
-    )
-    ON CONFLICT (business_id, cache_type, start_date, end_date) DO UPDATE SET
-      payload      = EXCLUDED.payload,
-      generated_at = now()
-  `;
-}

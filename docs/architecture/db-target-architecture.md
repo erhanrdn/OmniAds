@@ -55,6 +55,8 @@ Expected behaviors:
 - Workers/webhooks mutate `control`, `raw`, `warehouse`, `serving`, and `audit`.
 - `control` tables should not be the primary UI contract; routes should read from compact serving summaries derived from control state.
 - `serving` tables should be populated by sync completion hooks, workers, or explicit admin actions, not by passive `GET` traffic.
+- User-facing serving/projection/cache persistence must happen only in explicit materializer/writer lanes, never in shared read helpers.
+- Explicit writer modules in the current phase are `lib/overview-summary-materializer.ts`, `lib/reporting-cache-writer.ts`, `lib/seo/results-cache-writer.ts`, and `lib/shopify/overview-materializer.ts`.
 
 ## direct-live lane exceptions
 
@@ -95,17 +97,22 @@ The target architecture still allows narrow live exceptions, but they must be ex
    - Move Shopify serving-state persistence, reconciliation-run inserts, overview projection hydration, report-cache writes, and refresh triggers to background or sync-completion hooks.
    - `GET` routes may only read durable projections, compute ephemeral fallbacks, or return existing degraded contracts.
 
-4. Isolate live lanes.
+4. Make serving/cache write ownership explicit.
+   - Shared read modules stay read-only; user-facing serving/projection/cache persistence moves to named materializer/writer modules.
+   - Non-`GET` owners should be existing sync, webhook, admin, worker, or explicit manual-refresh lanes.
+   - If an owner does not exist yet, keep the writer explicit but unwired and document the gap instead of reintroducing write-on-read.
+
+5. Isolate live lanes.
    - Split Meta live, Google live overlay, Shopify live fallback, and GA4 fallback behind narrow adapters with explicit precedence rules.
 
-5. Introduce stable repository boundaries.
+6. Introduce stable repository boundaries.
    - Separate `core`, `control`, `warehouse`, and `serving` repositories so API routes and UI services consume small, typed contracts.
 
-6. Publish serving read models for status and overview.
+7. Publish serving read models for status and overview.
    - Provider status should come from serving summaries, not direct queue/checkpoint joins.
    - Overview projection materialization should run after sync completion, not during reads.
 
-7. Break large modules after the seams are stable.
+8. Break large modules after the seams are stable.
    - Split `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` along layer boundaries.
 
 ## Phase plan
@@ -115,9 +122,10 @@ The target architecture still allows narrow live exceptions, but they must be ex
 | `Phase 0` | Audit + baseline | Docs, tests, scripts, read-only SQL only | Current contract and risk map are frozen |
 | `Phase 1` | Migration isolation | Startup/bootstrap changes, readiness gates, no route contract changes | No request-path read/access `runMigrations()`; explicit request-external migration entrypoint documented |
 | `Phase 2` | Read-path write removal | Move cache/projection/serving-state writes off-path | No `GET`-path DB writes, durable cache writes, projection hydrations, or refresh triggers |
-| `Phase 3` | Lane separation | Refactor live/warehouse/projection adapters behind same contracts | Historical reads are warehouse-or-serving only |
-| `Phase 4` | Serving-model stabilization | New materializers and provider-status projections | Status/overview routes no longer query raw control tables directly |
-| `Phase 5` | Cutover and cleanup | Repository split, dead-code removal, schema cleanup planning | Stable serving contracts and controlled cutover plan |
+| `Phase 3` | Explicit serving write ownership | Extract materializer/writer modules and wire non-`GET` owners without contract changes | User-facing serving/projection/cache writes come only from explicit owner modules |
+| `Phase 4` | Lane separation | Refactor live/warehouse/projection adapters behind same contracts | Historical reads are warehouse-or-serving only |
+| `Phase 5` | Serving-model stabilization | New materializers and provider-status projections | Status/overview routes no longer query raw control tables directly |
+| `Phase 6` | Cutover and cleanup | Repository split, dead-code removal, schema cleanup planning | Stable serving contracts and controlled cutover plan |
 
 ## Non-goals for this phase
 

@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import { clearCachedReports } from "@/lib/reporting-cache";
+import { clearCachedReportSnapshots } from "@/lib/reporting-cache-writer";
 
 const META_PURGE_TABLES = [
   "provider_reporting_snapshots",
@@ -109,14 +109,9 @@ export async function purgeAllMetaDataAndDisconnect(): Promise<MetaCleanupSummar
   await assertMetaCleanupTablesReady("meta_cleanup_purge_all", META_PURGE_TABLES);
   const sql = getDb();
 
-  const providerReportingSnapshotsDeleted = await execCount(sql`
-    WITH deleted AS (
-      DELETE FROM provider_reporting_snapshots
-      WHERE provider = 'meta'
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS count FROM deleted
-  `);
+  const providerReportingSnapshotsDeleted = await clearCachedReportSnapshots({
+    provider: "meta",
+  });
   const metaConfigSnapshotsDeleted = await execCount(sql`
     WITH deleted AS (
       DELETE FROM meta_config_snapshots
@@ -227,7 +222,7 @@ export async function purgeMetaLegacyCaches(businessId?: string | null): Promise
   await assertMetaCleanupTablesReady("meta_cleanup_legacy_caches", META_LEGACY_CACHE_TABLES);
   const sql = getDb();
 
-  const providerReportingSnapshotsDeleted = await clearCachedReports({
+  const providerReportingSnapshotsDeleted = await clearCachedReportSnapshots({
     provider: "meta",
     businessId: businessId ?? null,
   });

@@ -1,6 +1,5 @@
 import {
   getCachedReport,
-  setCachedReport,
   getSnapshotAge,
 } from "@/lib/reporting-cache";
 
@@ -36,7 +35,7 @@ function hasPermissionDeniedMarker(value: unknown): boolean {
   return false;
 }
 
-function shouldBypassRouteCache(provider: string, payload: unknown) {
+export function shouldBypassRouteCachePayload(provider: string, payload: unknown) {
   if (provider !== "google_ads") return false;
   return hasPermissionDeniedMarker(payload);
 }
@@ -71,7 +70,7 @@ export async function getCachedRouteReport<TPayload>(input: {
       maxAgeMinutes: freshMaxAge,
     });
 
-    if (freshPayload !== null && !shouldBypassRouteCache(input.provider, freshPayload)) {
+    if (freshPayload !== null && !shouldBypassRouteCachePayload(input.provider, freshPayload)) {
       return freshPayload;
     }
 
@@ -93,7 +92,7 @@ export async function getCachedRouteReport<TPayload>(input: {
         maxAgeMinutes: STALE_SERVE_MAX_MINUTES,
       });
 
-      if (stalePayload !== null && !shouldBypassRouteCache(input.provider, stalePayload)) {
+      if (stalePayload !== null && !shouldBypassRouteCachePayload(input.provider, stalePayload)) {
         console.log("[route-report-cache] stale_hit", {
           businessId: input.businessId,
           provider: input.provider,
@@ -113,33 +112,5 @@ export async function getCachedRouteReport<TPayload>(input: {
       message: error instanceof Error ? error.message : String(error),
     });
     return null;
-  }
-}
-
-export async function setCachedRouteReport<TPayload>(input: {
-  businessId: string;
-  provider: string;
-  reportType: string;
-  searchParams: URLSearchParams;
-  payload: TPayload;
-}): Promise<void> {
-  if (shouldBypassRouteCache(input.provider, input.payload)) {
-    return;
-  }
-  try {
-    await setCachedReport({
-      businessId: input.businessId,
-      provider: input.provider,
-      reportType: input.reportType,
-      dateRangeKey: getNormalizedSearchParamsKey(input.searchParams),
-      payload: input.payload,
-    });
-  } catch (error) {
-    console.warn("[route-report-cache] write_failed", {
-      businessId: input.businessId,
-      provider: input.provider,
-      reportType: input.reportType,
-      message: error instanceof Error ? error.message : String(error),
-    });
   }
 }

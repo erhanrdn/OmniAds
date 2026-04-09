@@ -9,6 +9,7 @@ type FindingType =
   | "projection_write_call"
   | "cache_write_call"
   | "refresh_trigger_call"
+  | "serving_write_owner_violation"
   | "mixed_live_warehouse_projection"
   | "large_mixed_concern";
 
@@ -117,6 +118,9 @@ const cacheWriteTargets = new Set([
   "setCachedReport",
   "setCachedRouteReport",
   "setSeoResultsCache",
+  "writeCachedReportSnapshot",
+  "writeCachedRouteReport",
+  "writeSeoResultsCacheEntry",
 ]);
 const projectionWriteTargets = new Set([
   "hydrateOverviewSummaryRangeFromMeta",
@@ -125,11 +129,20 @@ const projectionWriteTargets = new Set([
   "markOverviewSummaryRangeHydrated",
   "refreshOverviewSummaryFromMetaAccountRows",
   "refreshOverviewSummaryFromGoogleAccountRows",
+  "materializeOverviewSummaryRows",
+  "materializeOverviewSummaryRange",
+  "materializeOverviewSummaryRangeFromMeta",
+  "materializeOverviewSummaryRangeFromGoogle",
+  "refreshOverviewSummaryMaterializationFromMetaAccountRows",
+  "refreshOverviewSummaryMaterializationFromGoogleAccountRows",
+  "clearOverviewSummaryRangeManifests",
 ]);
 const stateWriteTargets = new Set([
   "upsertShopifyServingState",
   "insertShopifyReconciliationRun",
   "setSessionActiveBusiness",
+  "persistShopifyOverviewServingState",
+  "recordShopifyOverviewReconciliationRun",
 ]);
 const refreshTriggerTargets = new Set([
   "requestProviderAccountSnapshotRefresh",
@@ -143,12 +156,64 @@ const refreshTriggerTargets = new Set([
   "repairCampaignRowsFromSnapshots",
   "repairAdSetRowsFromSnapshots",
 ]);
+const servingWriteOwnerRules = [
+  {
+    surface: "overview_summary_projection",
+    patterns: [
+      /\bINSERT\s+INTO\s+platform_overview_daily_summary\b/i,
+      /\bINSERT\s+INTO\s+platform_overview_summary_ranges\b/i,
+      /\bDELETE\s+FROM\s+platform_overview_summary_ranges\b/i,
+    ],
+    allowedFiles: new Set([
+      path.join(repoRoot, "lib/overview-summary-materializer.ts"),
+    ]),
+  },
+  {
+    surface: "user_facing_reporting_cache",
+    patterns: [
+      /\bINSERT\s+INTO\s+provider_reporting_snapshots\b/i,
+      /\bDELETE\s+FROM\s+provider_reporting_snapshots\b/i,
+      /\bUPDATE\s+provider_reporting_snapshots\b/i,
+    ],
+    allowedFiles: new Set([
+      path.join(repoRoot, "lib/reporting-cache-writer.ts"),
+      path.join(repoRoot, "lib/google-ads/warehouse.ts"),
+      path.join(repoRoot, "scripts/reset-google-ads-stack.ts"),
+    ]),
+  },
+  {
+    surface: "seo_results_cache",
+    patterns: [
+      /\bINSERT\s+INTO\s+seo_results_cache\b/i,
+      /\bDELETE\s+FROM\s+seo_results_cache\b/i,
+      /\bUPDATE\s+seo_results_cache\b/i,
+    ],
+    allowedFiles: new Set([
+      path.join(repoRoot, "lib/seo/results-cache-writer.ts"),
+    ]),
+  },
+  {
+    surface: "shopify_overview_serving_state",
+    patterns: [
+      /\bINSERT\s+INTO\s+shopify_reconciliation_runs\b/i,
+      /\bINSERT\s+INTO\s+shopify_serving_state\b/i,
+      /\bINSERT\s+INTO\s+shopify_serving_state_history\b/i,
+      /\bUPDATE\s+shopify_serving_state\b/i,
+      /\bDELETE\s+FROM\s+shopify_reconciliation_runs\b/i,
+      /\bDELETE\s+FROM\s+shopify_serving_state\b/i,
+    ],
+    allowedFiles: new Set([
+      path.join(repoRoot, "lib/shopify/overview-materializer.ts"),
+    ]),
+  },
+] as const;
 
 const notes = [
   "Migration detection still covers every Next HTTP route handler under app/**/route.ts.",
   "GET/HEAD write detection is now function-scoped: it starts from exported read handlers and follows local, named, and namespace imports transitively.",
   "Read-path findings are grouped as state writes, projection writes, durable cache writes, and refresh/repair triggers.",
   "OAuth callback GET routes that intentionally mutate integration/bootstrap state are excluded from read-only GET guard coverage.",
+  "User-facing serving/projection/cache writes are also checked for explicit owner-module ownership; tiny allowlists cover out-of-scope admin/reset lanes only.",
 ];
 
 function toRepoPath(filePath: string) {
@@ -174,8 +239,33 @@ function walkDir(currentPath: string, found: string[] = []) {
   return found;
 }
 
+function walkSourceFiles(currentPath: string, found: string[] = []) {
+  if (!fs.existsSync(currentPath)) return found;
+  for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+    const absolutePath = path.join(currentPath, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "node_modules" || entry.name === ".next") continue;
+      walkSourceFiles(absolutePath, found);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!/\.(ts|tsx|mts|cts|mjs)$/.test(entry.name)) continue;
+    if (/\.test\.(ts|tsx|mts|cts|mjs)$/.test(entry.name)) continue;
+    found.push(path.normalize(absolutePath));
+  }
+  return found;
+}
+
 function discoverRouteEntrypoints() {
   return walkDir(routeRoot).sort((left, right) => left.localeCompare(right));
+}
+
+function discoverSourceFiles() {
+  return [
+    ...walkSourceFiles(path.join(repoRoot, "app")),
+    ...walkSourceFiles(path.join(repoRoot, "lib")),
+    ...walkSourceFiles(path.join(repoRoot, "scripts")),
+  ].sort((left, right) => left.localeCompare(right));
 }
 
 function lineForOffset(content: string, offset: number) {
@@ -188,7 +278,10 @@ function lineForOffset(content: string, offset: number) {
 
 function collectEvidence(content: string, pattern: RegExp, limit = 5) {
   const evidence: Evidence[] = [];
-  for (const match of content.matchAll(pattern)) {
+  const globalPattern = pattern.global
+    ? pattern
+    : new RegExp(pattern.source, `${pattern.flags}g`);
+  for (const match of content.matchAll(globalPattern)) {
     if (match.index == null) continue;
     evidence.push({
       line: lineForOffset(content, match.index),
@@ -557,6 +650,27 @@ function detectGeneralFindings(filePath: string, inRouteGraph: boolean): Finding
   return findings;
 }
 
+function detectServingWriteOwnerViolations(sourceFiles: string[]): Finding[] {
+  const findings: Finding[] = [];
+
+  for (const filePath of sourceFiles) {
+    const content = readFile(filePath);
+    for (const rule of servingWriteOwnerRules) {
+      if (rule.allowedFiles.has(filePath)) continue;
+      const evidence = rule.patterns.flatMap((pattern) => collectEvidence(content, pattern, 2));
+      if (evidence.length === 0) continue;
+      findings.push({
+        type: "serving_write_owner_violation",
+        file: toRepoPath(filePath),
+        summary: `Writes ${rule.surface} outside approved owner modules`,
+        evidence,
+      });
+    }
+  }
+
+  return findings;
+}
+
 function detectMigrationFindings(input: {
   routeFile: string;
   routeMethods: HttpMethod[];
@@ -835,6 +949,7 @@ function printReport(findings: Finding[], modulesScanned: number, routesScanned:
     ["projection_write_call", "GET projection writes"],
     ["cache_write_call", "GET durable cache writes"],
     ["refresh_trigger_call", "GET refresh/repair triggers"],
+    ["serving_write_owner_violation", "Serving write-owner violations"],
     ["mixed_live_warehouse_projection", "Mixed live/warehouse/projection modules"],
     ["large_mixed_concern", "Large mixed-concern files"],
   ];
@@ -895,9 +1010,15 @@ function main() {
   const generalFindings = [...allDependencies]
     .filter((filePath) => fs.existsSync(filePath))
     .flatMap((filePath) => detectGeneralFindings(filePath, allDependencies.has(filePath)));
+  const servingOwnerFindings = detectServingWriteOwnerViolations(discoverSourceFiles());
 
   const findings = sortFindings(
-    dedupeFindings([...migrationFindings, ...getWriteFindings, ...generalFindings]),
+    dedupeFindings([
+      ...migrationFindings,
+      ...getWriteFindings,
+      ...servingOwnerFindings,
+      ...generalFindings,
+    ]),
   );
 
   if (process.argv.includes("--json")) {

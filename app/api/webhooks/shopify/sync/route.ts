@@ -10,11 +10,11 @@ import {
   buildShopifyWebhookPayloadHash,
   resolveShopifySyncWebhookRepairPolicy,
 } from "@/lib/shopify/webhooks";
+import { persistShopifyOverviewServingState } from "@/lib/shopify/overview-materializer";
 import {
   getShopifyWebhookDelivery,
   upsertShopifyRepairIntent,
   getShopifyServingState,
-  upsertShopifyServingState,
   upsertShopifyWebhookDelivery,
 } from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
@@ -80,7 +80,7 @@ async function markRecentShopifyRangesPendingRepair(input: {
         providerAccountId: input.providerAccountId,
         canaryKey,
       }).catch(() => null);
-      await upsertShopifyServingState({
+      await persistShopifyOverviewServingState({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         canaryKey,
