@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  SHOPIFY_AUTOMATED_OVERVIEW_SNAPSHOT_REPORT_TYPE,
+  shouldAutoWarmShopifyOverviewSnapshot,
+} from "@/lib/sync/report-warmer-boundaries";
 
 vi.mock("@/lib/shopify/admin", () => ({
   resolveShopifyAdminCredentials: vi.fn(),
@@ -212,7 +216,7 @@ describe("syncShopifyCommerceReports", () => {
       maxUpdatedAt: "2026-03-31T22:00:00Z",
     } as never);
     vi.mocked(cacheOwners.warmShopifyOverviewReportCache).mockResolvedValue({
-      reportType: "overview_shopify_orders_aggregate_v6",
+      reportType: SHOPIFY_AUTOMATED_OVERVIEW_SNAPSHOT_REPORT_TYPE,
       wrote: true,
     } as never);
   });
@@ -220,6 +224,7 @@ describe("syncShopifyCommerceReports", () => {
   it("runs a bounded commerce sync and records sync state", async () => {
     const result = await syncShopifyCommerceReports("biz_1");
 
+    expect(shouldAutoWarmShopifyOverviewSnapshot()).toBe(true);
     expect(result).toEqual(
       expect.objectContaining({
         success: true,
@@ -332,6 +337,8 @@ describe("syncShopifyCommerceReports", () => {
   });
 
   it("can skip overview materialization for call sites that must stay lightweight", async () => {
+    expect(shouldAutoWarmShopifyOverviewSnapshot({ materializeOverviewState: false })).toBe(false);
+
     const result = await syncShopifyCommerceReports("biz_1", {
       materializeOverviewState: false,
       allowHistorical: false,
@@ -353,6 +360,7 @@ describe("syncShopifyCommerceReports", () => {
 
   it("keeps lightweight webhook-triggered sync paths out of overview materialization and snapshot warming", async () => {
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    expect(shouldAutoWarmShopifyOverviewSnapshot({ materializeOverviewState: false })).toBe(false);
 
     const result = await syncShopifyCommerceReports("biz_1", {
       recentWindowDays: 3,

@@ -1,6 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  GA4_AUTO_WARM_DATE_WINDOWS,
+  GA4_AUTO_WARM_DETAIL_REQUESTS,
+  SHOPIFY_AUTOMATED_OVERVIEW_SNAPSHOT_REPORT_TYPE,
+  isGa4AutoWarmDemographicsDimension,
+  isGa4AutoWarmDetailRequest,
+  isGa4AutoWarmWindowDays,
+  shouldAutoWarmShopifyOverviewSnapshot,
+} from "@/lib/sync/report-warmer-boundaries";
 
 const repoRoot = process.cwd();
 
@@ -167,24 +176,49 @@ describe("serving write owner guard", () => {
   });
 
   it("scheduled cache warmers keep their automated versus manual guardrails explicit", () => {
-    const ga4SyncContent = fs.readFileSync(
-      path.join(repoRoot, "lib/sync/ga4-sync.ts"),
-      "utf8",
-    );
-    expect(ga4SyncContent).toContain('const AUTO_WARM_DATE_WINDOWS = [');
-    expect(ga4SyncContent).toContain('{ label: "30d", days: 30 }');
-    expect(ga4SyncContent).toContain('{ label: "7d", days: 7 }');
-    expect(ga4SyncContent).toContain('{ reportType: "ga4_detailed_demographics", dimension: "country" }');
-    expect(ga4SyncContent).toContain("npm run reporting:cache:warm");
+    expect(GA4_AUTO_WARM_DATE_WINDOWS).toEqual([
+      { label: "30d", days: 30 },
+      { label: "7d", days: 7 },
+    ]);
+    expect(isGa4AutoWarmWindowDays(30)).toBe(true);
+    expect(isGa4AutoWarmWindowDays(7)).toBe(true);
+    expect(isGa4AutoWarmWindowDays(14)).toBe(false);
 
-    const shopifySyncContent = fs.readFileSync(
-      path.join(repoRoot, "lib/sync/shopify-sync.ts"),
-      "utf8",
+    expect(GA4_AUTO_WARM_DETAIL_REQUESTS).toEqual([
+      { reportType: "ga4_detailed_audience" },
+      { reportType: "ga4_detailed_cohorts" },
+      { reportType: "ga4_detailed_demographics", dimension: "country" },
+      { reportType: "ga4_landing_page_performance_v1" },
+      { reportType: "ga4_detailed_landing_pages" },
+      { reportType: "ga4_detailed_products" },
+    ]);
+    expect(isGa4AutoWarmDemographicsDimension("country")).toBe(true);
+    expect(isGa4AutoWarmDemographicsDimension("city")).toBe(false);
+    expect(
+      isGa4AutoWarmDetailRequest({
+        reportType: "ga4_detailed_demographics",
+        dimension: "country",
+      }),
+    ).toBe(true);
+    expect(
+      isGa4AutoWarmDetailRequest({
+        reportType: "ga4_detailed_demographics",
+        dimension: "city",
+      }),
+    ).toBe(false);
+    expect(
+      isGa4AutoWarmDetailRequest({
+        reportType: "ga4_detailed_audience",
+        dimension: "country",
+      }),
+    ).toBe(false);
+
+    expect(SHOPIFY_AUTOMATED_OVERVIEW_SNAPSHOT_REPORT_TYPE).toBe(
+      "overview_shopify_orders_aggregate_v6",
     );
-    expect(shopifySyncContent).toContain(
-      "const shouldMaterializeOverviewState = input?.materializeOverviewState !== false;",
-    );
-    expect(shopifySyncContent.match(/if \(shouldMaterializeOverviewState\)/g)?.length ?? 0).toBe(2);
+    expect(shouldAutoWarmShopifyOverviewSnapshot()).toBe(true);
+    expect(shouldAutoWarmShopifyOverviewSnapshot({ materializeOverviewState: true })).toBe(true);
+    expect(shouldAutoWarmShopifyOverviewSnapshot({ materializeOverviewState: false })).toBe(false);
   });
 
   it("target surfaces are written only from approved owner modules", () => {

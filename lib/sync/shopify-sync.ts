@@ -15,6 +15,9 @@ import { getShopifyStatus } from "@/lib/shopify/status";
 import { registerShopifySyncWebhooks, verifyShopifySyncWebhooks } from "@/lib/shopify/webhooks";
 import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
 import { getShopifySyncState, upsertShopifySyncState } from "@/lib/shopify/sync-state";
+import {
+  shouldAutoWarmShopifyOverviewSnapshot,
+} from "@/lib/sync/report-warmer-boundaries";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { warmShopifyOverviewReportCache } from "@/lib/user-facing-report-cache-owners";
 
@@ -283,10 +286,7 @@ export async function syncShopifyCommerceReports(
   const runOrdersRecent = input?.recentTargets?.orders !== false;
   const runReturnsRecent = input?.recentTargets?.returns !== false;
   const allowHistorical = input?.allowHistorical !== false;
-  // Lightweight webhook sync paths opt out by passing
-  // `materializeOverviewState: false`; only the heavier overview-materializing
-  // sync lanes are allowed to warm the durable overview snapshot.
-  const shouldMaterializeOverviewState = input?.materializeOverviewState !== false;
+  const shouldMaterializeOverviewState = shouldAutoWarmShopifyOverviewSnapshot(input);
   const historical = classifyShopifyHistoricalWindow(credentials);
   const existingOrdersState = await getShopifySyncState({
     businessId,

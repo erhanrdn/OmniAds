@@ -13,25 +13,15 @@ import { getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
+  GA4_AUTO_WARM_DATE_WINDOWS,
+  GA4_AUTO_WARM_DETAIL_REQUESTS,
+} from "@/lib/sync/report-warmer-boundaries";
+import {
   warmGa4EcommerceFallbackCache,
   warmGa4UserFacingRouteReportCache,
 } from "@/lib/user-facing-report-cache-owners";
 
 const REPORT_TYPE = "ga4_overview";
-// Non-default windows and non-country demographics stay manual via
-// `npm run reporting:cache:warm`.
-const AUTO_WARM_DETAIL_REPORTS = [
-  { reportType: "ga4_detailed_audience" },
-  { reportType: "ga4_detailed_cohorts" },
-  { reportType: "ga4_detailed_demographics", dimension: "country" },
-  { reportType: "ga4_landing_page_performance_v1" },
-  { reportType: "ga4_detailed_landing_pages" },
-  { reportType: "ga4_detailed_products" },
-] as const;
-const AUTO_WARM_DATE_WINDOWS = [
-  { label: "30d", days: 30 },
-  { label: "7d", days: 7 },
-];
 
 function buildDateRange(days: number): { startDate: string; endDate: string } {
   const end = new Date();
@@ -107,7 +97,7 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
   let succeeded = 0;
   let failed = 0;
 
-  for (const window of AUTO_WARM_DATE_WINDOWS) {
+  for (const window of GA4_AUTO_WARM_DATE_WINDOWS) {
     const { startDate, endDate } = buildDateRange(window.days);
     const searchParams = new URLSearchParams({ businessId, startDate, endDate });
     const dateRangeKey = getNormalizedSearchParamsKey(searchParams);
@@ -125,7 +115,7 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
         startDate,
         endDate,
       });
-      for (const report of AUTO_WARM_DETAIL_REPORTS) {
+      for (const report of GA4_AUTO_WARM_DETAIL_REQUESTS) {
         try {
           await warmGa4UserFacingRouteReportCache({
             businessId,
@@ -159,13 +149,13 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
 
   console.log("[ga4-sync] completed", {
     businessId,
-    attempted: AUTO_WARM_DATE_WINDOWS.length,
+    attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
     succeeded,
     failed,
   });
   return {
     businessId,
-    attempted: AUTO_WARM_DATE_WINDOWS.length,
+    attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
     succeeded,
     failed,
     skipped: false,

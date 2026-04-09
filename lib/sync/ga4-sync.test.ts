@@ -1,4 +1,11 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import {
+  GA4_AUTO_WARM_DATE_WINDOWS,
+  GA4_AUTO_WARM_DETAIL_REQUESTS,
+  isGa4AutoWarmDemographicsDimension,
+  isGa4AutoWarmDetailRequest,
+  isGa4AutoWarmWindowDays,
+} from "@/lib/sync/report-warmer-boundaries";
 
 class MockGA4AuthError extends Error {
   code: string;
@@ -43,6 +50,16 @@ const schemaReadiness = await import("@/lib/db-schema-readiness");
 const cacheOwners = await import("@/lib/user-facing-report-cache-owners");
 const { syncGA4Reports } = await import("@/lib/sync/ga4-sync");
 
+function buildDateRange(days: number) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(end.getDate() - days);
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+}
+
 describe("syncGA4Reports", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -76,136 +93,42 @@ describe("syncGA4Reports", () => {
   it("warms overview and ecommerce fallback caches through the sync owner", async () => {
     const result = await syncGA4Reports("biz_1");
 
-    expect(vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mock.calls).toEqual([
-      [
+    const expectedDateRanges = GA4_AUTO_WARM_DATE_WINDOWS.map((window) =>
+      buildDateRange(window.days),
+    );
+    expect(vi.mocked(cacheOwners.warmGa4UserFacingRouteReportCache).mock.calls).toEqual(
+      expectedDateRanges.flatMap(({ startDate, endDate }) => [
+        [
+          {
+            businessId: "biz_1",
+            reportType: "ga4_analytics_overview",
+            startDate,
+            endDate,
+          },
+        ],
+        ...GA4_AUTO_WARM_DETAIL_REQUESTS.map((report) => [
+          {
+            businessId: "biz_1",
+            startDate,
+            endDate,
+            ...report,
+          },
+        ]),
+      ]),
+    );
+    expect(vi.mocked(cacheOwners.warmGa4EcommerceFallbackCache).mock.calls).toEqual(
+      expectedDateRanges.map(({ startDate, endDate }) => [
         {
           businessId: "biz_1",
-          reportType: "ga4_analytics_overview",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
+          startDate,
+          endDate,
         },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_audience",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_cohorts",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_demographics",
-          dimension: "country",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_landing_page_performance_v1",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_landing_pages",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_products",
-          startDate: "2026-03-10",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_analytics_overview",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_audience",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_cohorts",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_demographics",
-          dimension: "country",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_landing_page_performance_v1",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_landing_pages",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-      [
-        {
-          businessId: "biz_1",
-          reportType: "ga4_detailed_products",
-          startDate: "2026-04-02",
-          endDate: "2026-04-09",
-        },
-      ],
-    ]);
-    expect(cacheOwners.warmGa4EcommerceFallbackCache).toHaveBeenNthCalledWith(1, {
-      businessId: "biz_1",
-      startDate: "2026-03-10",
-      endDate: "2026-04-09",
-    });
-    expect(cacheOwners.warmGa4EcommerceFallbackCache).toHaveBeenNthCalledWith(2, {
-      businessId: "biz_1",
-      startDate: "2026-04-02",
-      endDate: "2026-04-09",
-    });
+      ]),
+    );
     expect(result).toEqual({
       businessId: "biz_1",
-      attempted: 2,
-      succeeded: 2,
+      attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
+      succeeded: GA4_AUTO_WARM_DATE_WINDOWS.length,
       failed: 0,
       skipped: false,
     });
@@ -232,6 +155,30 @@ describe("syncGA4Reports", () => {
   it("keeps non-default windows and non-country demographics manual", async () => {
     await syncGA4Reports("biz_1");
 
+    expect(isGa4AutoWarmWindowDays(30)).toBe(true);
+    expect(isGa4AutoWarmWindowDays(7)).toBe(true);
+    expect(isGa4AutoWarmWindowDays(14)).toBe(false);
+    expect(isGa4AutoWarmDemographicsDimension("country")).toBe(true);
+    expect(isGa4AutoWarmDemographicsDimension("city")).toBe(false);
+    expect(
+      isGa4AutoWarmDetailRequest({
+        reportType: "ga4_detailed_demographics",
+        dimension: "country",
+      }),
+    ).toBe(true);
+    expect(
+      isGa4AutoWarmDetailRequest({
+        reportType: "ga4_detailed_demographics",
+        dimension: "city",
+      }),
+    ).toBe(false);
+    expect(
+      isGa4AutoWarmDetailRequest({
+        reportType: "ga4_detailed_audience",
+        dimension: "country",
+      }),
+    ).toBe(false);
+
     const routeWarmCalls = vi
       .mocked(cacheOwners.warmGa4UserFacingRouteReportCache)
       .mock.calls.map(([input]) => input);
@@ -247,7 +194,9 @@ describe("syncGA4Reports", () => {
       detailWarmCalls
         .filter((input) => input.reportType === "ga4_detailed_demographics")
         .map((input) => input.dimension ?? null),
-    ).toEqual(["country", "country"]);
+    ).toEqual(
+      GA4_AUTO_WARM_DATE_WINDOWS.map(() => "country"),
+    );
     expect(
       detailWarmCalls
         .filter((input) => input.reportType !== "ga4_detailed_demographics")
@@ -272,8 +221,8 @@ describe("syncGA4Reports", () => {
 
     expect(result).toEqual({
       businessId: "biz_1",
-      attempted: 2,
-      succeeded: 2,
+      attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
+      succeeded: GA4_AUTO_WARM_DATE_WINDOWS.length,
       failed: 0,
       skipped: false,
     });
