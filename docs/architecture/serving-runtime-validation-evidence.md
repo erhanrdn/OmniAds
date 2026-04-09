@@ -501,7 +501,7 @@ Target-split conclusion:
 
 - This run reused a live-like local app process that was already listening on port `3000`; `npm run dev` was not used because the port was already occupied.
 - Background owner activity can overlap the GET window on a live-like environment. For this run, the only observed overlap was Search Console sync, and it was attributable via `provider_sync_jobs`.
-- Automated Shopify recent-window overview advancement is still the remaining runtime-truth blocker for a full signoff of all in-scope surfaces in one evidence pass, but it is now localized to the recent-orders-enabled segment of the Shopify sync lane.
+- Shopify recent-window runtime proof required a longer bounded validation window than the original `120s + 120s` policy because the recent-orders lane uses slow row-by-row warehouse upserts and only reaches the post-recent overview path after those writes finish.
 
 ## Phase 9B Closeout: Shopify Recent-Orders Sub-Phase Localization
 
@@ -736,3 +736,149 @@ Phase 9C closeout conclusion:
 - The exact blocker conclusion for this phase is therefore:
   - `still inconclusive`
   - with current evidence favoring neither a proven small internal correctness bug nor a proven external DB lock/contention explanation inside `upsertShopifySalesEvents()`
+
+## Phase 9D Closeout: Shopify Recent-Orders Lane Completion Truth
+
+Why the prior blocker no longer reproduced:
+
+- The earlier `120s + 120s` validation boundary was not long enough for the existing recent-orders lane to finish its row-by-row `orders`, `order_lines`, `sales_events`, and `transactions` writes and then transition into the post-recent path.
+- The new child-process lifecycle summary showed that the child was still actively emitting in-lane phase markers late in the run, not becoming silently wedged after a completed phase.
+- No correctness fix was needed. The existing owner lane completed once the validation window was long enough.
+
+Exact lease-backed reruns used for Phase 9D:
+
+```bash
+node --env-file=.env.local --import tsx scripts/runtime-validate-shopify-sales-events.ts <BUSINESS_ID> --recent-targets=orders --materialize=0 --use-runner-lease=1 --base-wait-seconds=120 --extended-wait-seconds=480
+node --env-file=.env.local --import tsx scripts/runtime-validate-shopify-sales-events.ts <BUSINESS_ID> --recent-targets=both --materialize=0 --use-runner-lease=1 --base-wait-seconds=120 --extended-wait-seconds=480
+node --env-file=.env.local --import tsx scripts/runtime-validate-shopify-sales-events.ts <BUSINESS_ID> --recent-targets=both --materialize=1 --use-runner-lease=1 --base-wait-seconds=120 --extended-wait-seconds=480
+```
+
+Common validation facts for all three reruns:
+
+- Existing `sync_runner_leases` runner lease used: yes
+- Poll cadence: every `10s`
+- Base wait: `120s`
+- Extended wait: `480s`
+- Child lifecycle capture included:
+  - `startTime`
+  - `endTime`
+  - `totalWaitSeconds`
+  - `exitCode`
+  - `exitSignal`
+  - `lastStdoutMarker`
+  - `lastStderrMarker`
+  - `childBecameSilentAfterKnownSuccessfulPhase`
+
+Lease-backed rerun D1, orders-only, no overview materialization:
+
+- Start: `2026-04-09T18:22:19.503Z`
+- End: `2026-04-09T18:27:49.275Z`
+- Total wait: `330s`
+- Completion: `completed_within_extended_wait`
+- Exit code: `0`
+- Exit signal: `null`
+- Exact last emitted marker: `transition_to_post_recent_path_started`
+- Child became silent after a known successful phase: `false`
+- Exact in-lane markers reached:
+  - `recent_orders_transactions_upsert_succeeded`
+  - `recent_orders_cursor_persist_succeeded`
+  - `recent_orders_state_persist_succeeded`
+  - `recent_orders_phase_completed`
+  - `transition_to_post_recent_path_started`
+- Before / after tracked Shopify surface summary:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d`
+    - before `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+    - after `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+  - `shopify_serving_state`
+    - before `row_count=0`
+    - after `row_count=0`
+  - `shopify_reconciliation_runs`
+    - before `row_count=0`
+    - after `row_count=0`
+  - `shopify_sync_state`
+    - `commerce_orders_recent` advanced to `latestSyncStatus='succeeded'`, `triggerReason='runtime_validation'`, `recentTargets={ orders: true, returns: false }`
+    - `commerce_returns_recent` stayed on its previous successful row
+
+Lease-backed rerun D2, both recent targets, no overview materialization:
+
+- Start: `2026-04-09T18:27:57.508Z`
+- End: `2026-04-09T18:34:00.382Z`
+- Total wait: `363s`
+- Completion: `completed_within_extended_wait`
+- Exit code: `0`
+- Exit signal: `null`
+- Exact last emitted marker: `transition_to_post_recent_path_started`
+- Child became silent after a known successful phase: `false`
+- Exact in-lane markers reached:
+  - `recent_orders_transactions_upsert_succeeded`
+  - `recent_orders_cursor_persist_succeeded`
+  - `recent_orders_state_persist_succeeded`
+  - `recent_orders_phase_completed`
+  - `transition_to_post_recent_path_started`
+- Before / after tracked Shopify surface summary:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d`
+    - before `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+    - after `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+  - `shopify_serving_state`
+    - before `row_count=0`
+    - after `row_count=0`
+  - `shopify_reconciliation_runs`
+    - before `row_count=0`
+    - after `row_count=0`
+  - `shopify_sync_state`
+    - `commerce_orders_recent` advanced to `latestSyncStatus='succeeded'`, `triggerReason='runtime_validation'`, `recentTargets={ orders: true, returns: true }`
+    - `commerce_returns_recent` advanced to `latestSyncStatus='succeeded'`, `triggerReason='runtime_validation'`, `recentTargets={ orders: true, returns: true }`
+
+Lease-backed rerun D3, both recent targets, overview materialization enabled:
+
+- Start: `2026-04-09T18:34:07.971Z`
+- End: `2026-04-09T18:40:10.099Z`
+- Total wait: `362s`
+- Completion: `completed_within_extended_wait`
+- Exit code: `0`
+- Exit signal: `null`
+- Exact last emitted marker: `post_recent_overview_snapshot_succeeded`
+- Child became silent after a known successful phase: `false`
+- Exact post-recent markers reached:
+  - `transition_to_post_recent_path_started`
+  - `overview_materialization_started`
+  - `post_recent_serving_state_started`
+  - `post_recent_serving_state_succeeded`
+  - `post_recent_reconciliation_started`
+  - `post_recent_reconciliation_succeeded`
+  - `overview_materialization_succeeded`
+  - `post_recent_overview_snapshot_started`
+  - `overview_snapshot_warm_started`
+  - `overview_snapshot_warm_succeeded`
+  - `post_recent_overview_snapshot_succeeded`
+- Before / after tracked Shopify surface summary:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d`
+    - before `row_count=1`, `max_updated_at=2026-04-09 04:00:02.710425+00`
+    - after `row_count=1`, `max_updated_at=2026-04-09 18:40:03.293812+00`
+  - `shopify_serving_state`
+    - before `row_count=0`
+    - after `row_count=1`, `max_updated_at=2026-04-09 18:40:01.767053+00`
+  - `shopify_reconciliation_runs`
+    - before `row_count=0`
+    - after `row_count=2`, `max_recorded_at=2026-04-09 18:39:59.381+00`
+  - `shopify_sync_state`
+    - `commerce_orders_recent` advanced to `latestSyncStatus='succeeded'`, `triggerReason='runtime_validation'`, `recentTargets={ orders: true, returns: true }`
+    - `commerce_returns_recent` advanced to `latestSyncStatus='succeeded'`, `triggerReason='runtime_validation'`, `recentTargets={ orders: true, returns: true }`
+
+Phase 9D exact blocker conclusion:
+
+- Not a proven `transactions` sub-flow bug
+- Not a proven recent-orders completion / state-persist handoff bug
+- Not a proven child-process / pooled-connection completion-signaling bug
+- Not a proven later post-recent overview-persistence bug
+- The remaining runtime-truth gap was caused by the validation window being too short to observe the existing lane completing
+
+Phase 9 closeout conclusion:
+
+- Phase 9 is now fully closed.
+- Automated Shopify recent-window advancement is now proven on the intended in-scope surfaces when the existing call path enables overview materialization:
+  - `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent `7d` auto key
+  - `shopify_serving_state` exact recent canary row
+  - `shopify_reconciliation_runs` exact recent window rows
+- No small correctness bug was proven or fixed in the existing owner lane.
+- Ownership boundaries and product behavior stayed unchanged.

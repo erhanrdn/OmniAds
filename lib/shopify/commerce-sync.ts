@@ -815,7 +815,16 @@ export async function syncShopifyOrdersWindow(input: {
       pageCount,
       transactionsBatchCount: transactionsBatch.length,
     });
-    transactionsWritten += await upsertShopifyOrderTransactions(transactionsBatch);
+    transactionsWritten += await upsertShopifyOrderTransactions(transactionsBatch, {
+      runtimeValidation:
+        input.runtimeValidationRunId && input.runtimeValidationLog
+          ? {
+              runId: input.runtimeValidationRunId,
+              pageCount,
+              log: input.runtimeValidationLog,
+            }
+          : undefined,
+    });
     logRuntimeValidation("recent_orders_transactions_upsert_succeeded", {
       pageCount,
       transactionsWritten,

@@ -485,7 +485,34 @@ describe("syncShopifyCommerceReports", () => {
       "[shopify-sync] runtime_validation_phase",
       expect.objectContaining({
         businessId: "biz_1",
+        phase: "recent_orders_cursor_persist_succeeded",
+        summary: expect.objectContaining({
+          cursorValue: "2026-03-31T22:00:00Z",
+        }),
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "recent_orders_state_persist_succeeded",
+        summary: expect.objectContaining({
+          syncTarget: "commerce_orders_recent",
+        }),
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
         phase: "recent_orders_phase_completed",
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "[shopify-sync] runtime_validation_phase",
+      expect.objectContaining({
+        businessId: "biz_1",
+        phase: "transition_to_post_recent_path_started",
       }),
     );
     expect(infoSpy).toHaveBeenCalledWith(

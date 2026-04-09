@@ -140,7 +140,9 @@ async function materializeShopifyOverviewAfterSync(input: {
   providerAccountId: string;
   startDate: string;
   endDate: string;
+  runtimeValidationLog?: (phase: string, summary?: Record<string, unknown>) => void;
 }) {
+  const logRuntimeValidation = input.runtimeValidationLog ?? (() => {});
   const assessedAt = new Date().toISOString();
   const canaryKey = buildShopifyOverviewCanaryKey({
     startDate: input.startDate,
@@ -175,6 +177,11 @@ async function materializeShopifyOverviewAfterSync(input: {
     unexplainedAdjustmentRevenue: candidate.servingMetadata.unexplainedAdjustmentRevenue,
   } satisfies Record<string, unknown>;
 
+  logRuntimeValidation("post_recent_serving_state_started", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    canaryKey,
+  });
   await persistShopifyOverviewServingState({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -218,6 +225,18 @@ async function materializeShopifyOverviewAfterSync(input: {
     divergence: divergenceSnapshot,
   });
 
+  logRuntimeValidation("post_recent_serving_state_succeeded", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    canaryKey,
+    assessedAt,
+  });
+
+  logRuntimeValidation("post_recent_reconciliation_started", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    reconciliationKey: canaryKey,
+  });
   await recordShopifyOverviewReconciliationRun({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -239,6 +258,13 @@ async function materializeShopifyOverviewAfterSync(input: {
     ledgerAggregate: toSerializableRecord(candidate.ledger),
     liveAggregate: toSerializableRecord(candidate.live),
     recordedAt: assessedAt,
+  });
+
+  logRuntimeValidation("post_recent_reconciliation_succeeded", {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    reconciliationKey: canaryKey,
+    assessedAt,
   });
 
   return {
@@ -744,6 +770,18 @@ export async function syncShopifyCommerceReports(
         endDate: window.endDate,
         maxUpdatedAt: ordersResult.maxUpdatedAt ?? null,
       });
+      logValidationPhase("recent_orders_cursor_persist_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+        cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
+      });
+      logValidationPhase("recent_orders_state_persist_started", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "succeeded",
+      });
       await upsertShopifySyncState({
         businessId,
         providerAccountId: credentials.shopId,
@@ -765,6 +803,18 @@ export async function syncShopifyCommerceReports(
         startDate: window.startDate,
         endDate: window.endDate,
         maxUpdatedAt: ordersResult.maxUpdatedAt ?? null,
+      });
+      logValidationPhase("recent_orders_cursor_persist_succeeded", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        cursorTimestamp: ordersResult.maxUpdatedAt ?? `${window.endDate}T23:59:59.000Z`,
+        cursorValue: ordersResult.maxUpdatedAt ?? window.endDate,
+      });
+      logValidationPhase("recent_orders_state_persist_succeeded", {
+        startDate: window.startDate,
+        endDate: window.endDate,
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "succeeded",
       });
       logValidationPhase("recent_orders_phase_completed", {
         startDate: window.startDate,
@@ -814,6 +864,11 @@ export async function syncShopifyCommerceReports(
           skipped?: boolean;
           reason?: string;
         } = null;
+    logValidationPhase("transition_to_post_recent_path_started", {
+      startDate: window.startDate,
+      endDate: window.endDate,
+      shouldMaterializeOverviewState,
+    });
     if (shouldMaterializeOverviewState) {
       try {
         logValidationPhase("overview_materialization_started", {
@@ -825,6 +880,9 @@ export async function syncShopifyCommerceReports(
           providerAccountId: credentials.shopId,
           startDate: window.startDate,
           endDate: window.endDate,
+          runtimeValidationLog: (phase, summary) => {
+            logValidationPhase(phase, summary);
+          },
         });
         logValidationPhase("overview_materialization_succeeded", {
           startDate: window.startDate,
@@ -867,6 +925,10 @@ export async function syncShopifyCommerceReports(
 
     if (shouldMaterializeOverviewState) {
       try {
+        logValidationPhase("post_recent_overview_snapshot_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
         logValidationPhase("overview_snapshot_warm_started", {
           startDate: window.startDate,
           endDate: window.endDate,
@@ -877,6 +939,10 @@ export async function syncShopifyCommerceReports(
           endDate: window.endDate,
         });
         logValidationPhase("overview_snapshot_warm_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("post_recent_overview_snapshot_succeeded", {
           startDate: window.startDate,
           endDate: window.endDate,
         });

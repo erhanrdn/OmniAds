@@ -60,6 +60,21 @@ function parsePhaseMarkers(text: string) {
   return phases;
 }
 
+function isKnownSuccessfulPhase(phase: string | null) {
+  if (!phase) return false;
+  return (
+    phase.endsWith("_succeeded") ||
+    phase.endsWith("_completed")
+  );
+}
+
+function appendTail<T>(items: T[], item: T, maxSize = 200) {
+  items.push(item);
+  if (items.length > maxSize) {
+    items.splice(0, items.length - maxSize);
+  }
+}
+
 function buildRecentTargets(mode: RecentTargetsMode) {
   return {
     orders: mode === "orders" || mode === "both",
@@ -336,11 +351,62 @@ async function main() {
 
     let stdout = "";
     let stderr = "";
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+    let lastStdoutAt: string | null = null;
+    let lastStderrAt: string | null = null;
+    let lastStdoutLine: string | null = null;
+    let lastStderrLine: string | null = null;
+    let lastStdoutMarker: string | null = null;
+    let lastStderrMarker: string | null = null;
+    let lastStdoutMarkerAt: string | null = null;
+    let lastStderrMarkerAt: string | null = null;
+    const stdoutTail: Array<{ at: string; line: string }> = [];
+    const stderrTail: Array<{ at: string; line: string }> = [];
+
+    const consumeBufferedLines = (
+      channel: "stdout" | "stderr",
+      value: string,
+    ) => {
+      const at = new Date().toISOString();
+      const segments = value.split("\n");
+      const completeLines = segments.slice(0, -1);
+      const remainder = segments.at(-1) ?? "";
+      for (const rawLine of completeLines) {
+        const line = rawLine.replace(/\r$/, "");
+        if (!line) continue;
+        const match = /phase:\s'([^']+)'|phase:\s"([^"]+)"/.exec(line);
+        if (channel === "stdout") {
+          lastStdoutAt = at;
+          lastStdoutLine = line;
+          appendTail(stdoutTail, { at, line });
+          if (match) {
+            lastStdoutMarker = match[1] ?? match[2] ?? null;
+            lastStdoutMarkerAt = at;
+          }
+        } else {
+          lastStderrAt = at;
+          lastStderrLine = line;
+          appendTail(stderrTail, { at, line });
+          if (match) {
+            lastStderrMarker = match[1] ?? match[2] ?? null;
+            lastStderrMarkerAt = at;
+          }
+        }
+      }
+      return remainder;
+    };
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      stdoutBuffer += text;
+      stdoutBuffer = consumeBufferedLines("stdout", stdoutBuffer);
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      stderrBuffer += text;
+      stderrBuffer = consumeBufferedLines("stderr", stderrBuffer);
     });
 
     let exitCode: number | null = null;
@@ -402,6 +468,29 @@ async function main() {
 
     await exitPromise;
 
+    if (stdoutBuffer.trim()) {
+      const at = new Date().toISOString();
+      lastStdoutAt = at;
+      lastStdoutLine = stdoutBuffer.trimEnd();
+      appendTail(stdoutTail, { at, line: stdoutBuffer.trimEnd() });
+      const match = /phase:\s'([^']+)'|phase:\s"([^"]+)"/.exec(stdoutBuffer);
+      if (match) {
+        lastStdoutMarker = match[1] ?? match[2] ?? null;
+        lastStdoutMarkerAt = at;
+      }
+    }
+    if (stderrBuffer.trim()) {
+      const at = new Date().toISOString();
+      lastStderrAt = at;
+      lastStderrLine = stderrBuffer.trimEnd();
+      appendTail(stderrTail, { at, line: stderrBuffer.trimEnd() });
+      const match = /phase:\s'([^']+)'|phase:\s"([^"]+)"/.exec(stderrBuffer);
+      if (match) {
+        lastStderrMarker = match[1] ?? match[2] ?? null;
+        lastStderrMarkerAt = at;
+      }
+    }
+
     const [after, leaseHealthAfter] = await Promise.all([
       getTrackedSnapshot({
         businessId: args.businessId,
@@ -419,6 +508,17 @@ async function main() {
 
     const combinedOutput = `${stdout}\n${stderr}`;
     const phaseMarkers = parsePhaseMarkers(combinedOutput);
+    const endTime = new Date().toISOString();
+    const endTimeMs = Date.parse(endTime);
+    const lastOutputAt = lastStderrAt ?? lastStdoutAt;
+    const silenceAfterLastOutputSeconds =
+      lastOutputAt != null ? Math.max(0, Math.round((endTimeMs - Date.parse(lastOutputAt)) / 1000)) : null;
+    const childBecameSilentAfterKnownSuccessfulPhase =
+      termination !== "completed_within_base_wait" &&
+      termination !== "completed_within_extended_wait" &&
+      isKnownSuccessfulPhase(lastStdoutMarker) &&
+      lastStdoutMarkerAt != null &&
+      Math.max(0, endTimeMs - Date.parse(lastStdoutMarkerAt)) >= pollIntervalMs;
 
     console.log(
       JSON.stringify(
@@ -430,23 +530,34 @@ async function main() {
           runId,
           caseConfig: childConfig,
           startTime,
-          endTime: new Date().toISOString(),
+          endTime,
           totalWaitSeconds: Math.round(
-            (Date.now() - Date.parse(startTime)) / 1000,
+            (endTimeMs - Date.parse(startTime)) / 1000,
           ),
           termination,
           extensionStartedAt,
           exitCode,
           exitSignal,
           lastPhaseMarker: phaseMarkers.at(-1) ?? null,
+          lastStdoutMarker,
+          lastStdoutMarkerAt,
+          lastStderrMarker,
+          lastStderrMarkerAt,
+          lastStdoutLine,
+          lastStdoutAt,
+          lastStderrLine,
+          lastStderrAt,
+          lastOutputAt,
+          silenceAfterLastOutputSeconds,
+          childBecameSilentAfterKnownSuccessfulPhase,
           phaseMarkers,
           before,
           after,
           leaseHealthBefore,
           leaseHealthAfter,
           polls,
-          childStdout: stdout,
-          childStderr: stderr,
+          stdoutTail,
+          stderrTail,
         },
         null,
         2,

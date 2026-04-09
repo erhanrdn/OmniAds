@@ -413,59 +413,149 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
   return written;
 }
 
-export async function upsertShopifyOrderTransactions(rows: ShopifyOrderTransactionWarehouseRow[]) {
+export async function upsertShopifyOrderTransactions(
+  rows: ShopifyOrderTransactionWarehouseRow[],
+  input?: {
+    runtimeValidation?: {
+      runId: string;
+      pageCount?: number;
+      log?: (phase: string, summary?: Record<string, unknown>) => void;
+    };
+  }
+) {
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_transactions");
   const sql = getDb();
   let written = 0;
 
-  for (const row of rows) {
-    await sql`
-      INSERT INTO shopify_order_transactions (
-        business_id,
-        provider_account_id,
-        shop_id,
-        order_id,
-        transaction_id,
-        kind,
-        status,
-        gateway,
-        processed_at,
-        amount,
-        currency_code,
-        payload_json,
-        source_snapshot_id,
-        updated_at
-      )
-      VALUES (
-        ${row.businessId},
-        ${row.providerAccountId},
-        ${row.shopId},
-        ${row.orderId},
-        ${row.transactionId},
-        ${row.kind ?? null},
-        ${row.status ?? null},
-        ${row.gateway ?? null},
-        ${normalizeTimestamp(row.processedAt)},
-        ${toNumber(row.amount)},
-        ${row.currencyCode ?? null},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
-        ${row.sourceSnapshotId ?? null},
-        now()
-      )
-      ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
-      DO UPDATE SET
-        order_id = EXCLUDED.order_id,
-        kind = EXCLUDED.kind,
-        status = EXCLUDED.status,
-        gateway = EXCLUDED.gateway,
-        processed_at = EXCLUDED.processed_at,
-        amount = EXCLUDED.amount,
-        currency_code = EXCLUDED.currency_code,
-        payload_json = EXCLUDED.payload_json,
-        source_snapshot_id = EXCLUDED.source_snapshot_id,
-        updated_at = now()
-    `;
+  for (const [index, row] of rows.entries()) {
+    const summary = {
+      pageCount: input?.runtimeValidation?.pageCount ?? null,
+      rowIndex: index + 1,
+      totalBatchSize: rows.length,
+      transactionId: row.transactionId,
+      orderId: row.orderId,
+      kind: row.kind ?? null,
+      status: row.status ?? null,
+    } satisfies Record<string, unknown>;
+    input?.runtimeValidation?.log?.("recent_orders_transactions_row_upsert_started", summary);
+
+    const runtimeValidationComment = input?.runtimeValidation
+      ? `/* shopify_rtval_transactions run_id=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.runId,
+        )} page=${sanitizeRuntimeValidationSqlCommentValue(
+          input.runtimeValidation.pageCount ?? null,
+        )} row=${sanitizeRuntimeValidationSqlCommentValue(
+          index + 1,
+        )} total=${sanitizeRuntimeValidationSqlCommentValue(rows.length)} transaction_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.transactionId,
+        )} order_id=${sanitizeRuntimeValidationSqlCommentValue(
+          row.orderId,
+        )} kind=${sanitizeRuntimeValidationSqlCommentValue(
+          row.kind ?? null,
+        )} status=${sanitizeRuntimeValidationSqlCommentValue(row.status ?? null)} */`
+      : null;
+
+    if (runtimeValidationComment) {
+      await sql.query(
+        `${runtimeValidationComment}
+        INSERT INTO shopify_order_transactions (
+          business_id,
+          provider_account_id,
+          shop_id,
+          order_id,
+          transaction_id,
+          kind,
+          status,
+          gateway,
+          processed_at,
+          amount,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9,
+          $10, $11, $12::jsonb, $13, now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
+        DO UPDATE SET
+          order_id = EXCLUDED.order_id,
+          kind = EXCLUDED.kind,
+          status = EXCLUDED.status,
+          gateway = EXCLUDED.gateway,
+          processed_at = EXCLUDED.processed_at,
+          amount = EXCLUDED.amount,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()`,
+        [
+          row.businessId,
+          row.providerAccountId,
+          row.shopId,
+          row.orderId,
+          row.transactionId,
+          row.kind ?? null,
+          row.status ?? null,
+          row.gateway ?? null,
+          normalizeTimestamp(row.processedAt),
+          toNumber(row.amount),
+          row.currencyCode ?? null,
+          JSON.stringify(row.payloadJson ?? {}),
+          row.sourceSnapshotId ?? null,
+        ]
+      );
+    } else {
+      await sql`
+        INSERT INTO shopify_order_transactions (
+          business_id,
+          provider_account_id,
+          shop_id,
+          order_id,
+          transaction_id,
+          kind,
+          status,
+          gateway,
+          processed_at,
+          amount,
+          currency_code,
+          payload_json,
+          source_snapshot_id,
+          updated_at
+        )
+        VALUES (
+          ${row.businessId},
+          ${row.providerAccountId},
+          ${row.shopId},
+          ${row.orderId},
+          ${row.transactionId},
+          ${row.kind ?? null},
+          ${row.status ?? null},
+          ${row.gateway ?? null},
+          ${normalizeTimestamp(row.processedAt)},
+          ${toNumber(row.amount)},
+          ${row.currencyCode ?? null},
+          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
+          ${row.sourceSnapshotId ?? null},
+          now()
+        )
+        ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
+        DO UPDATE SET
+          order_id = EXCLUDED.order_id,
+          kind = EXCLUDED.kind,
+          status = EXCLUDED.status,
+          gateway = EXCLUDED.gateway,
+          processed_at = EXCLUDED.processed_at,
+          amount = EXCLUDED.amount,
+          currency_code = EXCLUDED.currency_code,
+          payload_json = EXCLUDED.payload_json,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `;
+    }
+    input?.runtimeValidation?.log?.("recent_orders_transactions_row_upsert_succeeded", summary);
     written += 1;
   }
 
