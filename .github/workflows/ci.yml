@@ -37,10 +37,49 @@ jobs:
       - name: Test
         run: npm run test
 
-  publish-images:
+  detect-runtime-changes:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      runtime_changed: ${{ steps.filter.outputs.runtime_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect runtime-affecting changes
+        id: filter
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
+            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
+            echo "No valid before SHA; defaulting to runtime_changed=true."
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
+          printf 'Changed files:\n%s\n' "${changed_files}"
+
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(app/|components/|hooks/|lib/|providers/|public/|scripts/|src/|store/|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$|middleware\.ts$|middleware\.test\.ts$)'; then
+            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Runtime-affecting change detected."
+            exit 0
+          fi
+
+          echo "runtime_changed=false" >> "$GITHUB_OUTPUT"
+          echo "No runtime-affecting changes detected; image publish will be skipped."
+
+  publish-images:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
     needs:
       - build-test
+      - detect-runtime-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -93,3 +132,37 @@ jobs:
             ${{ env.WORKER_IMAGE }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ env.BUILD_CACHE_SCOPE }}
           cache-to: type=gha,mode=max,scope=${{ env.BUILD_CACHE_SCOPE }}
+
+  dispatch-deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
+    needs:
+      - publish-images
+      - detect-runtime-changes
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch deploy workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/deploy-hetzner.yml/dispatches" \
+            -d @- <<EOF
+          {
+            "ref": "main",
+            "inputs": {
+              "sha": "${DEPLOY_SHA}",
+              "require_current_main_head": "true"
+            }
+          }
+          EOF
