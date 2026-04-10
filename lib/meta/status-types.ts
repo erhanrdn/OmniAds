@@ -60,7 +60,8 @@ export type MetaPageSurfaceKey =
   | "breakdowns.placement"
   | "adsets"
   | "recommendations"
-  | "operating_mode";
+  | "operating_mode"
+  | "decision_os";
 
 export interface MetaSurfaceReadiness {
   state: MetaPageReadinessState;
@@ -82,7 +83,7 @@ export interface MetaPageReadiness {
     MetaSurfaceReadiness
   >;
   optionalSurfaces: Record<
-    "adsets" | "recommendations" | "operating_mode",
+    "adsets" | "recommendations" | "operating_mode" | "decision_os",
     MetaSurfaceReadiness
   >;
 }

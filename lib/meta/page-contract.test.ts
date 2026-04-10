@@ -27,6 +27,7 @@ describe("meta page contract", () => {
       "adsets",
       "recommendations",
       "operating_mode",
+      "decision_os",
     ]);
     expect(META_PAGE_NON_BLOCKING_SURFACES).toEqual(META_PAGE_OPTIONAL_SURFACES);
   });
@@ -47,6 +48,7 @@ describe("meta page contract", () => {
       "breakdowns.placement",
       "operating_mode",
       "adsets",
+      "decision_os",
       "recommendations",
       "empty_state",
     ]);

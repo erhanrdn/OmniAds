@@ -489,7 +489,7 @@ export async function getMetaCurrentDayLiveAvailability(input: {
  */
 export async function getMetaLiveAdSets(input: {
   businessId: string;
-  campaignId: string;
+  campaignId?: string | null;
   startDate: string;
   endDate: string;
   includePrev?: boolean;

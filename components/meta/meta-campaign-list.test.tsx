@@ -89,4 +89,32 @@ describe("MetaCampaignList render contract", () => {
     expect(html).toContain("test");
     expect(html).toContain("watch");
   });
+
+  it("renders campaign role, primary action, and no-touch hints when Decision OS data exists", () => {
+    const html = renderToStaticMarkup(
+      <MetaCampaignList
+        campaigns={[campaign() as any]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        campaignRecStates={new Map()}
+        campaignDecisionMeta={
+          new Map([
+            [
+              "cmp_1",
+              {
+                role: "Prospecting Scale",
+                primaryAction: "scale_budget",
+                noTouch: true,
+                confidence: 0.84,
+              },
+            ],
+          ])
+        }
+      />
+    );
+
+    expect(html).toContain("Prospecting Scale");
+    expect(html).toContain("scale budget");
+    expect(html).toContain("no-touch");
+  });
 });

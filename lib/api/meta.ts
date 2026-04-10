@@ -3415,13 +3415,13 @@ export async function backfillMetaCampaignConfigSnapshots(input: {
 // ── getAdSets ─────────────────────────────────────────────────────────────────
 
 /**
- * Fetch ad sets belonging to a specific campaign.
- * Used by the accordion table's lazy child tree.
+ * Fetch ad sets for either a single campaign or the full account scope.
+ * Used by the accordion table's lazy child tree and Meta Decision OS.
  * Results are sorted by spend descending.
  */
 export async function getAdSets(
   credentials: MetaCredentials,
-  campaignId: string,
+  campaignId: string | null | undefined,
   since: string,
   until: string,
   businessId?: string,
@@ -3453,12 +3453,14 @@ export async function getAdSets(
         "fields",
         "adset_id,adset_name,campaign_id,spend,ctr,inline_link_click_ctr,cpm,impressions,clicks,actions,action_values,purchase_roas"
       );
-      insightUrl.searchParams.set(
-        "filtering",
-        JSON.stringify([
-          { field: "campaign.id", operator: "EQUAL", value: campaignId },
-        ])
-      );
+      if (campaignId) {
+        insightUrl.searchParams.set(
+          "filtering",
+          JSON.stringify([
+            { field: "campaign.id", operator: "EQUAL", value: campaignId },
+          ])
+        );
+      }
       insightUrl.searchParams.set(
         "time_range",
         JSON.stringify({ since: normalizedSince, until: normalizedUntil })
@@ -3501,14 +3503,14 @@ export async function getAdSets(
           payload: insightJson.data ?? [],
           status: insightRes.ok ? "fetched" : "failed",
           providerHttpStatus: insightRes.status,
-          requestContext: { campaignId, level: "adset" },
+          requestContext: { campaignId: campaignId ?? null, level: "adset" },
         });
         const allStatusRows = statusJson.paging?.next
           ? await fetchPagedCollection<RawAdSet>(statusUrl.toString())
           : (statusJson.data ?? []);
-        const statusRows = allStatusRows.filter(
-          (adset) => adset.campaign_id === campaignId
-        );
+        const statusRows = campaignId
+          ? allStatusRows.filter((adset) => adset.campaign_id === campaignId)
+          : allStatusRows;
         const statusMap = new Map<string, RawAdSet>(
           statusRows.map((a) => [a.id, a])
         );
@@ -3533,7 +3535,14 @@ export async function getAdSets(
               readLatestMetaConfigSnapshots({
                 businessId,
                 entityLevel: "campaign",
-                entityIds: [campaignId],
+                entityIds: Array.from(
+                  new Set(
+                    [
+                      ...statusRows.map((adset) => adset.campaign_id ?? ""),
+                      ...(insightJson.data ?? []).map((adset) => adset.campaign_id ?? ""),
+                    ].filter(Boolean),
+                  ),
+                ),
               }),
               includePrev
                 ? readPreviousDifferentMetaConfigDiffs({
@@ -3551,28 +3560,36 @@ export async function getAdSets(
                 ? readPreviousDifferentMetaConfigDiffs({
                     businessId,
                     entityLevel: "campaign",
-                    entityIds: [campaignId],
+                    entityIds: Array.from(
+                      new Set(
+                        [
+                          ...statusRows.map((adset) => adset.campaign_id ?? ""),
+                          ...(insightJson.data ?? []).map((adset) => adset.campaign_id ?? ""),
+                        ].filter(Boolean),
+                      ),
+                    ),
                   })
                 : Promise.resolve(new Map()),
             ])
           : [new Map(), new Map(), new Map(), new Map()];
 
         for (const insight of insightJson.data ?? []) {
-          if (insight.campaign_id !== campaignId) continue;
+          if (campaignId && insight.campaign_id !== campaignId) continue;
 
           const adsetId = insight.adset_id ?? "";
+          const resolvedCampaignId = insight.campaign_id ?? statusMap.get(adsetId)?.campaign_id ?? "";
           const meta = statusMap.get(adsetId);
           const latestSnapshot = latestSnapshots.get(adsetId);
-          const latestCampaignSnapshot = latestCampaignSnapshots.get(campaignId);
-          const campaignConfig = campaignConfigs.get(campaignId) ?? null;
+          const latestCampaignSnapshot = latestCampaignSnapshots.get(resolvedCampaignId);
+          const campaignConfig = campaignConfigs.get(resolvedCampaignId) ?? null;
           const previousDiff = previousDiffs.get(adsetId);
-          const previousCampaignDiff = previousCampaignDiffs.get(campaignId);
+          const previousCampaignDiff = previousCampaignDiffs.get(resolvedCampaignId);
           const usesCampaignBudgetFallback =
             meta?.daily_budget == null &&
             meta?.lifetime_budget == null &&
             (campaignConfig?.daily_budget != null || campaignConfig?.lifetime_budget != null);
           const { payload: config, usesCampaignBidFallback } = buildMetaAdSetConfigPayload({
-            campaignId,
+            campaignId: resolvedCampaignId,
             adset: meta,
             campaignConfig,
             latestSnapshot,
@@ -3582,7 +3599,7 @@ export async function getAdSets(
             id: adsetId,
             accountId,
             name: insight.adset_name ?? meta?.name ?? "Unknown Ad Set",
-            campaignId,
+            campaignId: resolvedCampaignId,
             status:
               meta?.effective_status ??
               meta?.status ??
@@ -3686,18 +3703,27 @@ export async function getAdSets(
         }
 
         if (businessId) {
+          const campaignEntityIds = campaignId
+            ? [campaignId]
+            : Array.from(
+                new Set(
+                  statusRows.map((row) => row.campaign_id ?? "").filter(Boolean)
+                )
+              );
           await Promise.all([
             appendMetaConfigSnapshots(
               statusRows.map((meta) => {
-                const campaignConfig =
-                  campaignConfigs.get(meta.campaign_id ?? campaignId) ?? null;
+                const resolvedCampaignId = meta.campaign_id ?? campaignId ?? null;
+                const campaignConfig = resolvedCampaignId
+                  ? campaignConfigs.get(resolvedCampaignId) ?? null
+                  : null;
                 return {
                   businessId,
                   accountId,
                   entityLevel: "adset" as const,
                   entityId: meta.id,
                   payload: buildConfigSnapshotPayload({
-                    campaignId: meta.campaign_id ?? campaignId,
+                    campaignId: resolvedCampaignId,
                     optimizationGoal: meta.optimization_goal ?? null,
                     bidStrategy:
                       meta.bid_strategy ?? campaignConfig?.bid_strategy ?? null,
@@ -3732,7 +3758,7 @@ export async function getAdSets(
               businessId,
               accountId,
               campaignConfigs,
-              entityIds: [campaignId],
+              entityIds: campaignEntityIds,
             }),
           ]);
         }

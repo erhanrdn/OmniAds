@@ -11,9 +11,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { usePreferencesStore } from "@/store/preferences-store";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
@@ -22,6 +20,11 @@ import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
 import { MetaBreakdownGrid, type BreakdownRow } from "@/components/meta/meta-breakdown-grid";
 import type { PlacementChartRow } from "@/components/meta/placement-breakdown-chart";
 import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
+import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
+import {
+  MetaCampaignDecisionPanel,
+  MetaDecisionOsOverview,
+} from "@/components/meta/meta-decision-os";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -106,6 +109,8 @@ function MetricTile({
 interface MetaCampaignDetailProps {
   campaign: MetaCampaignTableRow | null;
   recommendationsData: MetaRecommendationsResponse | undefined;
+  decisionOsData: MetaDecisionOsV1Response | null | undefined;
+  isDecisionOsLoading: boolean;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
   recommendationsError?: string | null;
@@ -266,6 +271,8 @@ function AdSetList({
 
 interface AccountOverviewProps {
   recommendationsData: MetaRecommendationsResponse | undefined;
+  decisionOsData: MetaDecisionOsV1Response | null | undefined;
+  isDecisionOsLoading: boolean;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
   recommendationsError?: string | null;
@@ -288,6 +295,10 @@ function AccountOverview(props: AccountOverviewProps) {
         businessId={props.businessId}
         startDate={props.since}
         endDate={props.until}
+      />
+      <MetaDecisionOsOverview
+        decisionOs={props.decisionOsData}
+        isLoading={props.isDecisionOsLoading}
       />
       <MetaAccountRecs
         recommendationsData={props.recommendationsData}
@@ -314,6 +325,8 @@ function AccountOverview(props: AccountOverviewProps) {
 export function MetaCampaignDetail({
   campaign,
   recommendationsData,
+  decisionOsData,
+  isDecisionOsLoading,
   isRecsLoading,
   lastAnalyzedAt,
   recommendationsError,
@@ -335,6 +348,8 @@ export function MetaCampaignDetail({
     return (
       <AccountOverview
         recommendationsData={recommendationsData}
+        decisionOsData={decisionOsData}
+        isDecisionOsLoading={isDecisionOsLoading}
         isRecsLoading={isRecsLoading}
         lastAnalyzedAt={lastAnalyzedAt}
         recommendationsError={recommendationsError}
@@ -358,6 +373,10 @@ export function MetaCampaignDetail({
   const rec = (recommendationsData?.recommendations ?? [])
     .filter((r) => r.campaignId === campaign.id)
     .sort((a, b) => ORDER[a.decisionState] - ORDER[b.decisionState])[0] ?? null;
+  const campaignDecision =
+    decisionOsData?.campaigns.find((decision) => decision.campaignId === campaign.id) ?? null;
+  const campaignAdSetDecisions =
+    decisionOsData?.adSets.filter((decision) => decision.campaignId === campaign.id) ?? [];
 
   const roas = campaign.roas;
 
@@ -429,6 +448,11 @@ export function MetaCampaignDetail({
           )}
         </div>
       )}
+
+      <MetaCampaignDecisionPanel
+        campaignDecision={campaignDecision}
+        adSetDecisions={campaignAdSetDecisions}
+      />
 
       {/* Metric grid — Spend / Revenue / ROAS / CPA / Budget */}
       <div className="grid grid-cols-5 gap-1.5">

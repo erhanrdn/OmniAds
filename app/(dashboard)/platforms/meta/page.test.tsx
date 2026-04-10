@@ -57,6 +57,7 @@ function baseStatus(overrides: Partial<MetaStatusResponse> = {}): MetaStatusResp
         adsets: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "conditional_drilldown", reason: null },
         recommendations: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: null },
         operating_mode: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: null },
+        decision_os: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: null },
       },
     },
     ...overrides,
@@ -349,6 +350,7 @@ describe("Meta page render contract", () => {
         data: { status: "ok", summary: {}, recommendations: [] },
         isFetching: false,
       }),
+      "meta-decision-os": baseQueryState({ data: null }),
       "meta-campaigns-compare": baseQueryState({ data: { rows: [] } }),
       "meta-warehouse-summary-compare": baseQueryState({ data: null }),
     };
@@ -479,6 +481,7 @@ describe("Meta page render contract", () => {
       "adsets",
       "recommendations",
       "operating_mode",
+      "decision_os",
     ]);
     const status = baseStatus({
       state: "partial",
@@ -504,6 +507,7 @@ describe("Meta page render contract", () => {
           adsets: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "conditional_drilldown", reason: "Ad sets open after campaign drilldown." },
           recommendations: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: "Recommendations are optional." },
           operating_mode: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: "Operating mode is optional." },
+          decision_os: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: "Decision OS is optional." },
         },
       },
     });

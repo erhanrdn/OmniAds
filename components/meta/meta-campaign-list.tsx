@@ -11,8 +11,8 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
-import { usePreferencesStore } from "@/store/preferences-store";
 import { useCurrencySymbol } from "@/hooks/use-currency";
+import type { MetaCampaignDecision } from "@/lib/meta/decision-os";
 
 function fmtSpend(n: number, sym: string): string {
   if (n >= 1_000_000) return `${sym}${(n / 1_000_000).toFixed(1)}M`;
@@ -67,6 +67,10 @@ interface MetaCampaignListProps {
   onSelect: (id: string | null) => void;
   /** Map of campaign ID → decision state for deterministic recommendations */
   campaignRecStates: Map<string, "act" | "test" | "watch">;
+  campaignDecisionMeta?: Map<
+    string,
+    Pick<MetaCampaignDecision, "role" | "primaryAction" | "noTouch" | "confidence">
+  >;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -84,6 +88,7 @@ export function MetaCampaignList({
   selectedId,
   onSelect,
   campaignRecStates,
+  campaignDecisionMeta = new Map(),
 }: MetaCampaignListProps) {
   const language = "en" as "en" | "tr";
   const sym = useCurrencySymbol();
@@ -151,6 +156,7 @@ export function MetaCampaignList({
         filteredCampaigns.map((c) => {
           const isSelected = c.id === selectedId;
           const recState = campaignRecStates.get(c.id);
+          const decisionMeta = campaignDecisionMeta.get(c.id);
 
           return (
             <button
@@ -205,6 +211,21 @@ export function MetaCampaignList({
                       </span>
                     )}
                     {laneDot(c.laneLabel ?? null)}
+                  </div>
+                )}
+                {decisionMeta && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-slate-700">
+                      {decisionMeta.role}
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {decisionMeta.primaryAction.replaceAll("_", " ")}
+                    </span>
+                    {decisionMeta.noTouch ? (
+                      <span className="rounded-full bg-blue-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-blue-700">
+                        no-touch
+                      </span>
+                    ) : null}
                   </div>
                 )}
               </div>

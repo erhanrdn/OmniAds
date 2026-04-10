@@ -33,6 +33,13 @@ vi.mock("@/components/meta/meta-operating-mode-card", () => ({
   MetaOperatingModeCard: () => React.createElement("div", null, "operating-mode-card"),
 }));
 
+vi.mock("@/components/meta/meta-decision-os", () => ({
+  MetaDecisionOsOverview: (props: { decisionOs: { summary?: { todayPlanHeadline?: string } } | null }) =>
+    React.createElement("div", null, props.decisionOs?.summary?.todayPlanHeadline ?? "decision-os-overview"),
+  MetaCampaignDecisionPanel: (props: { campaignDecision: { role: string } | null }) =>
+    React.createElement("div", null, props.campaignDecision ? `campaign-decision:${props.campaignDecision.role}` : "campaign-decision:none"),
+}));
+
 const { MetaCampaignDetail } = await import("@/components/meta/meta-campaign-detail");
 
 function selectedCampaign(overrides: Record<string, unknown> = {}) {
@@ -80,6 +87,89 @@ function recommendationsData(withCampaignRec = true) {
   };
 }
 
+function decisionOsData(withCampaignDecision = true) {
+  return withCampaignDecision
+    ? ({
+        contractVersion: "meta-decision-os.v1",
+        generatedAt: "2026-04-10T00:00:00.000Z",
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-05",
+        summary: {
+          todayPlanHeadline: "Today plan",
+          todayPlan: ["Protect winners"],
+          budgetShiftSummary: "One shift",
+          noTouchSummary: "One no-touch",
+          operatingMode: null,
+          confidence: 0.8,
+        },
+        campaigns: [
+          {
+            campaignId: "cmp_1",
+            campaignName: "Campaign One",
+            status: "ACTIVE",
+            role: "Prospecting Scale",
+            primaryAction: "scale_budget",
+            confidence: 0.84,
+            why: "Winning lane",
+            evidence: [],
+            guardrails: [],
+            noTouch: false,
+            whatWouldChangeThisDecision: [],
+            adSetDecisionIds: ["decision_1"],
+            laneLabel: "Scaling",
+          },
+        ],
+        adSets: [
+          {
+            decisionId: "decision_1",
+            adSetId: "adset_1",
+            adSetName: "Adset One",
+            campaignId: "cmp_1",
+            campaignName: "Campaign One",
+            actionType: "scale_budget",
+            actionSize: "medium",
+            priority: "high",
+            confidence: 0.82,
+            reasons: ["Winning ad set"],
+            guardrails: [],
+            relatedCreativeNeeds: [],
+            relatedGeoContext: [],
+            supportingMetrics: {
+              spend: 50,
+              revenue: 130,
+              roas: 2.6,
+              cpa: 10,
+              ctr: 1.2,
+              purchases: 8,
+              impressions: 1000,
+              clicks: 12,
+              bidStrategyLabel: "Cost Cap",
+              optimizationGoal: "PURCHASE",
+              dailyBudget: 500,
+              lifetimeBudget: null,
+            },
+            whatWouldChangeThisDecision: [],
+            noTouch: false,
+          },
+        ],
+        budgetShifts: [],
+        geoDecisions: [],
+        placementAnomalies: [],
+        noTouchList: [],
+        commercialTruthCoverage: {
+          mode: "configured_targets",
+          targetPackConfigured: true,
+          countryEconomicsConfigured: true,
+          promoCalendarConfigured: false,
+          operatingConstraintsConfigured: true,
+          missingInputs: [],
+          notes: [],
+        },
+      } as any)
+    : null;
+}
+
 describe("MetaCampaignDetail render contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,6 +206,8 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={null}
         recommendationsData={recommendationsData(false) as any}
+        decisionOsData={decisionOsData(false) as any}
+        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -133,6 +225,7 @@ describe("MetaCampaignDetail render contract", () => {
     );
 
     expect(html).toContain("operating-mode-card");
+    expect(html).toContain("decision-os-overview");
     expect(html).toContain("account-recommendations");
     expect(html).toContain("performance-breakdown");
   });
@@ -142,6 +235,8 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(true) as any}
+        decisionOsData={decisionOsData(true) as any}
+        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -163,6 +258,7 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("ACTIVE");
     expect(html).toContain("Raise budget");
     expect(html).toContain("Increase budget");
+    expect(html).toContain("campaign-decision:Prospecting Scale");
     expect(html).toContain("Budget");
     expect(html).toContain("Ad Sets");
     expect(html).toContain("Adset One");
@@ -179,6 +275,8 @@ describe("MetaCampaignDetail render contract", () => {
           previousBudgetCapturedAt: null,
         }) as any}
         recommendationsData={recommendationsData(false) as any}
+        decisionOsData={decisionOsData(true) as any}
+        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -204,6 +302,8 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(false) as any}
+        decisionOsData={decisionOsData(false) as any}
+        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -236,6 +336,8 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(false) as any}
+        decisionOsData={decisionOsData(true) as any}
+        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}
@@ -287,6 +389,8 @@ describe("MetaCampaignDetail render contract", () => {
       <MetaCampaignDetail
         campaign={selectedCampaign() as any}
         recommendationsData={recommendationsData(false) as any}
+        decisionOsData={decisionOsData(true) as any}
+        isDecisionOsLoading={false}
         isRecsLoading={false}
         lastAnalyzedAt={null}
         checkedRecIds={new Set()}

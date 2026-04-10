@@ -3,6 +3,10 @@ import { expect, test } from "@playwright/test";
 test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
 
+  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
+  await expect(page.getByTestId("meta-geo-board")).toBeVisible();
+  await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
   await expect(page.getByTestId("meta-recommendations-panel")).toBeVisible();
   await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Recommendations");
   await expect(page.getByTestId("meta-recommendations-run")).toContainText(/Run Recommendations|Refresh Recommendations/);
@@ -12,6 +16,8 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await campaignListItems.first().click();
 
   await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
+  await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
+  await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
   await expect(page.getByTestId("meta-adsets-section")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("meta-smoke.png"), fullPage: true });
 

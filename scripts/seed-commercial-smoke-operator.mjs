@@ -90,6 +90,14 @@ async function ensureCommercialTruthTables(sql) {
 }
 
 async function resetCommercialTruth(sql, userId) {
+  const now = new Date();
+  const promoStart = new Date(now);
+  promoStart.setUTCDate(promoStart.getUTCDate() - 7);
+  const promoEnd = new Date(now);
+  promoEnd.setUTCDate(promoEnd.getUTCDate() + 7);
+  const promoStartIso = promoStart.toISOString().slice(0, 10);
+  const promoEndIso = promoEnd.toISOString().slice(0, 10);
+
   await sql`DELETE FROM business_promo_calendar_events WHERE business_id = ${DEMO_BUSINESS_ID}`;
   await sql`DELETE FROM business_country_economics WHERE business_id = ${DEMO_BUSINESS_ID}`;
   await sql`DELETE FROM business_target_packs WHERE business_id = ${DEMO_BUSINESS_ID}`;
@@ -149,6 +157,80 @@ async function resetCommercialTruth(sql, userId) {
       'tier_1',
       'default',
       'Baseline smoke GEO row',
+      'smoke_seed_reset',
+      ${userId},
+      now()
+    )
+  `;
+
+  await sql`
+    INSERT INTO business_country_economics (
+      business_id,
+      country_code,
+      economics_multiplier,
+      margin_modifier,
+      serviceability,
+      priority_tier,
+      scale_override,
+      notes,
+      source_label,
+      updated_by_user_id,
+      updated_at
+    )
+    VALUES
+      (
+        ${DEMO_BUSINESS_ID},
+        'CA',
+        1.08,
+        0.04,
+        'full',
+        'tier_1',
+        'prefer_scale',
+        'Scale-preferred smoke GEO row',
+        'smoke_seed_reset',
+        ${userId},
+        now()
+      ),
+      (
+        ${DEMO_BUSINESS_ID},
+        'DE',
+        0.82,
+        -0.18,
+        'blocked',
+        'tier_3',
+        'deprioritize',
+        'Blocked smoke GEO row',
+        'smoke_seed_reset',
+        ${userId},
+        now()
+      )
+  `;
+
+  await sql`
+    INSERT INTO business_promo_calendar_events (
+      business_id,
+      event_id,
+      title,
+      promo_type,
+      severity,
+      start_date,
+      end_date,
+      affected_scope,
+      notes,
+      source_label,
+      updated_by_user_id,
+      updated_at
+    )
+    VALUES (
+      ${DEMO_BUSINESS_ID},
+      'smoke_promo_window',
+      'Smoke Promo Window',
+      'sale',
+      'high',
+      ${promoStartIso},
+      ${promoEndIso},
+      'meta',
+      'Seeded promo context for Decision OS smoke coverage',
       'smoke_seed_reset',
       ${userId},
       now()

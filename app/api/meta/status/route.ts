@@ -38,6 +38,7 @@ import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
+import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
 import {
   buildBlockingReason,
   buildProviderProgressEvidence,
@@ -887,6 +888,7 @@ export async function GET(request: NextRequest) {
       ? connected && accountIds.length > 0
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeAdsetCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+  const decisionOsEnabled = isMetaDecisionOsV1EnabledForBusiness(businessId);
   const pageOptionalSurfaces = {
     adsets: {
       state: !connected
@@ -944,6 +946,29 @@ export async function GET(request: NextRequest) {
             pageRequiredSurfaces.campaigns.state === "ready"
           ? "Deterministic operating mode is available as an optional commercial-truth overlay."
           : "Operating mode remains optional while the selected-range core surfaces are still preparing.",
+    },
+    decision_os: {
+      state: !connected
+        ? "not_connected"
+        : !decisionOsEnabled
+          ? "partial"
+          : pageRequiredSurfaces.summary.state === "ready" &&
+              pageRequiredSurfaces.campaigns.state === "ready"
+            ? "ready"
+            : overallSyncActive
+              ? "syncing"
+              : "partial",
+      blocking: false,
+      countsForPageCompleteness: false,
+      truthClass: "deterministic_decision_engine",
+      reason: !connected
+        ? "Meta integration is not connected."
+        : !decisionOsEnabled
+          ? "Meta Decision OS is feature-gated for this workspace."
+          : pageRequiredSurfaces.summary.state === "ready" &&
+              pageRequiredSurfaces.campaigns.state === "ready"
+            ? "Meta Decision OS is available as the structured operator decision center."
+            : "Meta Decision OS remains optional while the selected-range core surfaces are still preparing.",
     },
   } as const;
   const pageReadiness = rollupMetaPageReadiness({

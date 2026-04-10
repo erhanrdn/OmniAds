@@ -27,6 +27,15 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(operatingModeCard).toBeVisible();
   await expect(operatingModeCard).toContainText("Operating Mode");
   await expect(operatingModeCard).toContainText(/Current Mode|Recommended Mode/);
+  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
+  await expect(page.getByTestId("meta-geo-board")).toBeVisible();
+  await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
+  const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
+  await expect(campaignListItems.first()).toBeVisible();
+  await campaignListItems.first().click();
+  await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
+  await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("commercial-meta-mode.png"),
     fullPage: true,

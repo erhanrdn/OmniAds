@@ -145,3 +145,19 @@ export function assertMetaRecommendationsPageContract(payload: Record<string, un
     expect(Array.isArray(recommendation.evidence)).toBe(true);
   }
 }
+
+export function assertMetaDecisionOsPageContract(payload: Record<string, unknown>) {
+  expect(payload.contractVersion).toBe("meta-decision-os.v1");
+  expectStringOrNull(payload.generatedAt);
+  expectStringOrNull(payload.businessId);
+  expectStringOrNull(payload.startDate);
+  expectStringOrNull(payload.endDate);
+  expect(payload.summary).toBeTruthy();
+  expect(Array.isArray(payload.campaigns)).toBe(true);
+  expect(Array.isArray(payload.adSets)).toBe(true);
+  expect(Array.isArray(payload.budgetShifts)).toBe(true);
+  expect(Array.isArray(payload.geoDecisions)).toBe(true);
+  expect(Array.isArray(payload.placementAnomalies)).toBe(true);
+  expect(Array.isArray(payload.noTouchList)).toBe(true);
+  expect(payload.commercialTruthCoverage).toBeTruthy();
+}

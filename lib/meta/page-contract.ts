@@ -16,6 +16,7 @@ export const META_PAGE_OPTIONAL_SURFACES = [
   "adsets",
   "recommendations",
   "operating_mode",
+  "decision_os",
 ] as const satisfies readonly MetaPageSurfaceKey[];
 
 export const META_PAGE_NON_BLOCKING_SURFACES = [
@@ -38,6 +39,7 @@ export const META_PAGE_PAGE_SCOPED_SURFACES = [
   "breakdowns.placement",
   "operating_mode",
   "adsets",
+  "decision_os",
   "recommendations",
   "empty_state",
 ] as const;

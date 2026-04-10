@@ -15,6 +15,7 @@ This document describes the current user-visible Meta page at `app/(dashboard)/p
 Primary page path:
 
 - `app/(dashboard)/platforms/meta/page.tsx`
+- `components/meta/meta-decision-os.tsx`
 - `components/meta/meta-campaign-list.tsx`
 - `components/meta/meta-campaign-detail.tsx`
 - `components/meta/meta-account-recs.tsx`
@@ -27,6 +28,7 @@ Page routes currently used by the page:
 - `app/api/meta/campaigns/route.ts`
 - `app/api/meta/breakdowns/route.ts`
 - `app/api/meta/adsets/route.ts`
+- `app/api/meta/decision-os/route.ts`
 - `app/api/meta/recommendations/route.ts`
 - `app/api/business-operating-mode/route.ts`
 
@@ -35,6 +37,7 @@ Status, readiness, and messaging layers currently used by the page:
 - `lib/meta/status-types.ts`
 - `lib/meta/page-contract.ts`
 - `lib/meta/page-readiness.ts`
+- `lib/meta/decision-os.ts`
 - `lib/meta/ui-status.ts`
 - `lib/meta/ui.ts`
 - `lib/sync/sync-status-pill.ts`
@@ -56,6 +59,10 @@ Serving split currently used by the page:
 - Recommendations: `app/api/meta/recommendations/route.ts`
   - deterministic decision-engine surface
   - keeps snapshot-backed historical bid regime analysis via `lib/meta/config-snapshots.ts`
+- Meta Decision OS: `app/api/meta/decision-os/route.ts`
+  - deterministic, versioned, read-only operator decision surface
+  - built by `lib/meta/decision-os.ts`
+  - consumes campaigns, account-wide ad sets, breakdowns, and commercial truth
 
 ## Truth-class legend
 
@@ -92,6 +99,8 @@ Scope labels used in this document:
 | Breakdown location card | Page-scoped | Required | Yes |
 | Breakdown placement card | Page-scoped | Required | Yes |
 | Operating mode card | Page-scoped | Optional | No |
+| Decision OS overview | Page-scoped | Optional | No |
+| Campaign decision panel | Page-scoped | Optional | No |
 | Ad set drilldown | Page-scoped | Optional | No |
 | Recommendations panel / recommendation-aware campaign detail | Page-scoped | Optional | No |
 | Empty-state / preparing-state messaging | Page-scoped | Required page status surface | No |

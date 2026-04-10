@@ -77,6 +77,7 @@ import {
   formatMetaDate,
 } from "@/lib/meta/ui";
 import { getMetaPresetDates } from "@/lib/meta/date";
+import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 
 // ── Data fetchers ─────────────────────────────────────────────────────────────
 
@@ -130,6 +131,24 @@ async function fetchMetaRecommendations(
     throw new Error(payload?.message ?? `Request failed (${res.status})`);
   }
   return payload as MetaRecommendationsResponse;
+}
+
+async function fetchMetaDecisionOs(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<MetaDecisionOsV1Response | null> {
+  const params = new URLSearchParams({ businessId, startDate, endDate });
+  const res = await fetch(`/api/meta/decision-os?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(payload?.message ?? `Request failed (${res.status})`);
+  }
+  return payload as MetaDecisionOsV1Response;
 }
 
 async function fetchMetaSummary(
@@ -811,6 +830,13 @@ export default function MetaPage() {
     queryFn: () => fetchMetaRecommendations(businessId, startDate, endDate),
   });
 
+  const decisionOsQuery = useQuery({
+    queryKey: ["meta-decision-os", businessId, startDate, endDate],
+    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
+    staleTime: 60 * 1000,
+    queryFn: () => fetchMetaDecisionOs(businessId, startDate, endDate),
+  });
+
   useEffect(() => {
     if (!businessId || !metaConnected) return;
     const status = effectiveStatus;
@@ -915,19 +941,21 @@ export default function MetaPage() {
         campaignsQuery.refetch(),
         campaignPrevQuery.refetch(),
         breakdownsQuery.refetch(),
+        decisionOsQuery.refetch(),
         comparisonCampaignsQuery.refetch(),
         comparisonSummaryQuery.refetch(),
       ]);
 
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await sleep(2_000);
-        const [statusResult, summaryResult, campaignsResult, campaignPrevResult, breakdownsResult, compareCampaignsResult, compareSummaryResult] =
+        const [statusResult, summaryResult, campaignsResult, campaignPrevResult, breakdownsResult, decisionOsResult, compareCampaignsResult, compareSummaryResult] =
           await Promise.allSettled([
             statusQuery.refetch(),
             summaryQuery.refetch(),
             campaignsQuery.refetch(),
             campaignPrevQuery.refetch(),
             breakdownsQuery.refetch(),
+            decisionOsQuery.refetch(),
             comparisonCampaignsQuery.refetch(),
             comparisonSummaryQuery.refetch(),
           ]);
@@ -964,6 +992,7 @@ export default function MetaPage() {
         ) {
           void campaignPrevResult;
           void breakdownsResult;
+          void decisionOsResult;
           void compareCampaignsResult;
           void compareSummaryResult;
           break;
@@ -1426,6 +1455,17 @@ export default function MetaPage() {
 
             const selectedCampaign =
               campaignRowsForTable.find((c) => c.id === selectedCampaignId) ?? null;
+            const campaignDecisionMeta = new Map(
+              (decisionOsQuery.data?.campaigns ?? []).map((decision) => [
+                decision.campaignId,
+                {
+                  role: decision.role,
+                  primaryAction: decision.primaryAction,
+                  noTouch: decision.noTouch,
+                  confidence: decision.confidence,
+                },
+              ])
+            );
 
             const placementRows = (breakdownsQuery.data?.placement ?? []).map((row) => ({
               key: row.key,
@@ -1452,6 +1492,7 @@ export default function MetaPage() {
                         selectedId={selectedCampaignId}
                         onSelect={setSelectedCampaignId}
                         campaignRecStates={campaignRecStates}
+                        campaignDecisionMeta={campaignDecisionMeta}
                       />
                     </div>
                   </div>
@@ -1482,6 +1523,8 @@ export default function MetaPage() {
                   <MetaCampaignDetail
                     campaign={selectedCampaign}
                     recommendationsData={recommendationsQuery.data}
+                    decisionOsData={decisionOsQuery.data}
+                    isDecisionOsLoading={decisionOsQuery.isLoading}
                     isRecsLoading={recommendationsQuery.isFetching}
                     lastAnalyzedAt={lastAnalyzedAt}
                     recommendationsError={recommendationsError}

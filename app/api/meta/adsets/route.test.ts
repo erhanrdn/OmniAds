@@ -11,34 +11,13 @@ vi.mock("@/lib/business-mode.server", () => ({
   isDemoBusiness: vi.fn(),
 }));
 
-vi.mock("@/lib/integrations", () => ({
-  getIntegration: vi.fn(),
-}));
-
-vi.mock("@/lib/provider-account-assignments", () => ({
-  getProviderAccountAssignments: vi.fn(),
-}));
-
-vi.mock("@/lib/meta/readiness", () => ({
-  getMetaPartialReason: vi.fn(),
-  getMetaRangePreparationContext: vi.fn(),
-}));
-
-vi.mock("@/lib/meta/serving", () => ({
-  getMetaWarehouseAdSets: vi.fn(),
-}));
-
-vi.mock("@/lib/meta/live", () => ({
-  getMetaLiveAdSets: vi.fn(),
+vi.mock("@/lib/meta/adsets-source", () => ({
+  getMetaAdSetsForRange: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
-const integrations = await import("@/lib/integrations");
-const assignments = await import("@/lib/provider-account-assignments");
-const readiness = await import("@/lib/meta/readiness");
-const serving = await import("@/lib/meta/serving");
-const live = await import("@/lib/meta/live");
+const adsetsSource = await import("@/lib/meta/adsets-source");
 
 describe("GET /api/meta/adsets", () => {
   beforeEach(() => {
@@ -48,39 +27,51 @@ describe("GET /api/meta/adsets", () => {
       membership: {} as never,
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
-    vi.mocked(integrations.getIntegration).mockResolvedValue({
-      status: "connected",
-    } as never);
-    vi.mocked(assignments.getProviderAccountAssignments).mockResolvedValue({
-      account_ids: ["act_1"],
-    } as never);
   });
 
-  it("uses the warehouse path for non-today requests", async () => {
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      isSelectedCurrentDay: false,
-      currentDateInTimezone: "2026-04-05",
-      primaryAccountTimezone: "UTC",
-    });
-    vi.mocked(serving.getMetaWarehouseAdSets).mockResolvedValue([
+  it("returns ad set rows through the shared source helper", async () => {
+    vi.mocked(adsetsSource.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
       {
         id: "adset-1",
         name: "Adset 1",
         campaignId: "cmp-1",
         status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
         optimizationGoal: "PURCHASE",
+        bidStrategyType: null,
         bidStrategyLabel: "Cost Cap",
+        manualBidAmount: null,
+        previousManualBidAmount: null,
         bidValue: 1200,
         bidValueFormat: "currency",
         previousBidValue: 1000,
         previousBidValueFormat: "currency",
         previousBidValueCapturedAt: "2026-03-31T00:00:00.000Z",
+        previousDailyBudget: null,
+        previousLifetimeBudget: null,
+        previousBudgetCapturedAt: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
         spend: 120,
+        purchases: 8,
         revenue: 300,
+        roas: 2.5,
         cpa: 15,
+        cpm: 10,
+        impressions: 10000,
+        clicks: 140,
         ctr: 1.4,
-      },
-    ] as never);
+      } as never,
+      ],
+      isPartial: false,
+      notReadyReason: null,
+    });
 
     const response = await GET(
       new NextRequest(
@@ -92,39 +83,62 @@ describe("GET /api/meta/adsets", () => {
     expect(response.status).toBe(200);
     expect(payload.rows).toHaveLength(1);
     assertMetaAdSetRowPageContract(payload.rows[0]);
-    expect(serving.getMetaWarehouseAdSets).toHaveBeenCalledTimes(1);
-    expect(live.getMetaLiveAdSets).not.toHaveBeenCalled();
+    expect(adsetsSource.getMetaAdSetsForRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      campaignId: "cmp-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+      includePrev: false,
+    });
   });
 
-  it("uses the live path for current-day drilldown requests", async () => {
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      isSelectedCurrentDay: true,
-      currentDateInTimezone: "2026-04-05",
-      primaryAccountTimezone: "UTC",
-    });
-    vi.mocked(live.getMetaLiveAdSets).mockResolvedValue([
+  it("supports account-wide ad set reads when campaignId is omitted", async () => {
+    vi.mocked(adsetsSource.getMetaAdSetsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [
       {
         id: "adset-live-1",
         name: "Adset Live",
         campaignId: "cmp-1",
         status: "ACTIVE",
+        dailyBudget: null,
+        lifetimeBudget: null,
         optimizationGoal: "PURCHASE",
+        bidStrategyType: null,
         bidStrategyLabel: "Auto",
+        manualBidAmount: null,
+        previousManualBidAmount: null,
         bidValue: null,
         bidValueFormat: null,
         previousBidValue: null,
         previousBidValueFormat: null,
         previousBidValueCapturedAt: null,
+        previousDailyBudget: null,
+        previousLifetimeBudget: null,
+        previousBudgetCapturedAt: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
         spend: 22,
+        purchases: 2,
         revenue: 55,
+        roas: 2.5,
         cpa: 11,
+        cpm: 8,
+        impressions: 2000,
+        clicks: 22,
         ctr: 1.1,
-      },
-    ] as never);
+      } as never,
+      ],
+      isPartial: false,
+      notReadyReason: null,
+    });
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/adsets?businessId=biz&campaignId=cmp-1&startDate=2026-04-05&endDate=2026-04-05"
+        "http://localhost/api/meta/adsets?businessId=biz&startDate=2026-04-05&endDate=2026-04-05"
       )
     );
     const payload = await response.json();
@@ -132,48 +146,12 @@ describe("GET /api/meta/adsets", () => {
     expect(response.status).toBe(200);
     expect(payload.rows).toHaveLength(1);
     assertMetaAdSetRowPageContract(payload.rows[0]);
-    expect(live.getMetaLiveAdSets).toHaveBeenCalledTimes(1);
-    expect(serving.getMetaWarehouseAdSets).not.toHaveBeenCalled();
-  });
-
-  it("falls back to warehouse ad sets when the current-day live path returns no rows", async () => {
-    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
-      isSelectedCurrentDay: true,
-      currentDateInTimezone: "2026-04-05",
-      primaryAccountTimezone: "UTC",
+    expect(adsetsSource.getMetaAdSetsForRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      campaignId: null,
+      startDate: "2026-04-05",
+      endDate: "2026-04-05",
+      includePrev: false,
     });
-    vi.mocked(live.getMetaLiveAdSets).mockResolvedValue([] as never);
-    vi.mocked(serving.getMetaWarehouseAdSets).mockResolvedValue([
-      {
-        id: "adset-wh-1",
-        name: "Warehouse Adset",
-        campaignId: "cmp-1",
-        status: "ACTIVE",
-        optimizationGoal: "PURCHASE",
-        bidStrategyLabel: "Auto",
-        bidValue: null,
-        bidValueFormat: null,
-        previousBidValue: null,
-        previousBidValueFormat: null,
-        previousBidValueCapturedAt: null,
-        spend: 18,
-        revenue: 54,
-        cpa: 9,
-        ctr: 1.3,
-      },
-    ] as never);
-
-    const response = await GET(
-      new NextRequest(
-        "http://localhost/api/meta/adsets?businessId=biz&campaignId=cmp-1&startDate=2026-04-05&endDate=2026-04-05"
-      )
-    );
-    const payload = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(payload.rows).toHaveLength(1);
-    expect(payload.rows[0]?.id).toBe("adset-wh-1");
-    expect(live.getMetaLiveAdSets).toHaveBeenCalledTimes(1);
-    expect(serving.getMetaWarehouseAdSets).toHaveBeenCalledTimes(1);
   });
 });
