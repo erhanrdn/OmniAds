@@ -9,6 +9,7 @@ import {
 import {
   getAdvisorExecutionCalibration,
   logAdvisorExecutionEvent,
+  recordAdvisorOutcome,
   updateAdvisorCompletionState,
   updateAdvisorExecutionState,
   updateAdvisorMemoryAction,
@@ -19,11 +20,15 @@ import {
   rollbackAdvisorMutation,
 } from "@/lib/google-ads/advisor-mutate";
 import { getGoogleAdsWritebackCapabilityGate } from "@/lib/google-ads/decision-engine-config";
+import { appendGoogleAdsDecisionActionOutcomeLog } from "@/lib/google-ads/search-intelligence-storage";
 import type {
   GoogleActionCluster,
   GoogleActionClusterStep,
   GoogleDependencyReadiness,
   GoogleExecutionTrustBand,
+  GoogleOutcomeConfidence,
+  GoogleOutcomeVerdict,
+  GoogleOutcomeVerdictFailReason,
 } from "@/lib/google-ads/growth-advisor-types";
 
 type BatchActionType = "add_negative_keyword" | "pause_asset";
@@ -40,7 +45,8 @@ type RequestBody =
         | "rollback_batch_mutate"
         | "execute_cluster"
         | "rollback_cluster"
-        | "mark_completion";
+        | "mark_completion"
+        | "record_outcome";
       batchExecutionAction?: "apply_batch_mutate";
       mutateActionType?:
         | "add_negative_keyword"
@@ -83,6 +89,14 @@ type RequestBody =
       transactionId?: string | null;
       dismissReason?: string | null;
       suppressUntil?: string | null;
+      outcomeVerdict?: GoogleOutcomeVerdict | null;
+      outcomeMetric?: string | null;
+      outcomeDelta?: number | null;
+      outcomeConfidence?: GoogleOutcomeConfidence | null;
+      outcomeVerdictFailReason?: GoogleOutcomeVerdictFailReason | null;
+      outcomeCheckWindowDays?: number | null;
+      outcomeSummary?: string | null;
+      outcomeOccurredAt?: string | null;
     }
   | null;
 
@@ -960,7 +974,75 @@ export async function POST(request: NextRequest) {
         recommendationFingerprint: body.recommendationFingerprint,
         action: "applied",
       });
+      await appendGoogleAdsDecisionActionOutcomeLog({
+        businessId,
+        providerAccountId: topLevelAccountId === "all" ? null : topLevelAccountId,
+        recommendationFingerprint: body.recommendationFingerprint,
+        decisionFamily: null,
+        actionType: "plan",
+        outcomeStatus: "manual_completion_recorded",
+        summary:
+          body.completionMode === "partial"
+            ? "Operator recorded partial manual completion."
+            : "Operator recorded full manual completion.",
+        payloadJson: {
+          completionMode: body.completionMode ?? "unknown",
+          completedStepCount: body.completedStepCount ?? null,
+          totalStepCount: body.totalStepCount ?? null,
+          completedStepIds: body.completedStepIds ?? null,
+          skippedStepIds: body.skippedStepIds ?? null,
+          coreStepIds: body.coreStepIds ?? null,
+        },
+        occurredAt: new Date().toISOString(),
+      }).catch(() => null);
     }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body?.executionAction === "record_outcome") {
+    if (!body.recommendationFingerprint || !body.outcomeVerdict) {
+      return NextResponse.json(
+        { error: "recommendationFingerprint and outcomeVerdict are required" },
+        { status: 400 }
+      );
+    }
+    await recordAdvisorOutcome({
+      businessId,
+      accountId: topLevelAccountId,
+      recommendationFingerprint: body.recommendationFingerprint,
+      verdict: body.outcomeVerdict,
+      metric: body.outcomeMetric ?? null,
+      delta:
+        typeof body.outcomeDelta === "number" && Number.isFinite(body.outcomeDelta)
+          ? body.outcomeDelta
+          : null,
+      confidence: body.outcomeConfidence ?? null,
+      failReason: body.outcomeVerdictFailReason ?? null,
+      outcomeCheckWindowDays: body.outcomeCheckWindowDays ?? null,
+      occurredAt: body.outcomeOccurredAt ?? null,
+    });
+    await appendGoogleAdsDecisionActionOutcomeLog({
+      businessId,
+      providerAccountId: topLevelAccountId === "all" ? null : topLevelAccountId,
+      recommendationFingerprint: body.recommendationFingerprint,
+      decisionFamily: null,
+      actionType: "outcome",
+      outcomeStatus: body.outcomeVerdict,
+      summary:
+        body.outcomeSummary?.trim() ||
+        `Operator recorded a ${body.outcomeVerdict} manual outcome assessment.`,
+      payloadJson: {
+        metric: body.outcomeMetric ?? "manual_validation",
+        delta:
+          typeof body.outcomeDelta === "number" && Number.isFinite(body.outcomeDelta)
+            ? body.outcomeDelta
+            : null,
+        confidence: body.outcomeConfidence ?? null,
+        failReason: body.outcomeVerdictFailReason ?? null,
+        outcomeCheckWindowDays: body.outcomeCheckWindowDays ?? null,
+      },
+      occurredAt: body.outcomeOccurredAt ?? new Date().toISOString(),
+    }).catch(() => null);
     return NextResponse.json({ ok: true });
   }
 
@@ -979,6 +1061,32 @@ export async function POST(request: NextRequest) {
     dismissReason: body.dismissReason ?? null,
     suppressUntil: body.suppressUntil ?? null,
   });
+  if (body.action === "applied" || body.action === "dismissed" || body.action === "unsuppress") {
+    await appendGoogleAdsDecisionActionOutcomeLog({
+      businessId,
+      providerAccountId: topLevelAccountId === "all" ? null : topLevelAccountId,
+      recommendationFingerprint: body.recommendationFingerprint,
+      decisionFamily: null,
+      actionType: "plan",
+      outcomeStatus:
+        body.action === "dismissed"
+          ? "dismissed"
+          : body.action === "unsuppress"
+            ? "reopened"
+            : "applied",
+      summary:
+        body.action === "dismissed"
+          ? "Operator suppressed the recommendation from the queue."
+          : body.action === "unsuppress"
+            ? "Operator returned the recommendation to the active queue."
+            : "Operator marked the recommendation as manually applied.",
+      payloadJson: {
+        dismissReason: body.dismissReason ?? null,
+        suppressUntil: body.suppressUntil ?? null,
+      },
+      occurredAt: new Date().toISOString(),
+    }).catch(() => null);
+  }
 
   return NextResponse.json({ ok: true });
 }

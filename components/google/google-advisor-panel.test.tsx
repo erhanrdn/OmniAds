@@ -269,6 +269,22 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Write-back disabled");
   });
 
+  it("shows manual lifecycle controls when persistence context is available", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdvisorPanel, {
+        advisor: buildAdvisor([buildRecommendation("r1", "review")]),
+        businessId: "biz_1",
+        accountId: "all",
+      })
+    );
+
+    expect(html).toContain("Operator actions");
+    expect(html).toContain("Mark applied");
+    expect(html).toContain("Suppress 7d");
+    expect(html).toContain("Mark complete");
+    expect(html).toContain("Log outcome");
+  });
+
   it("renders suppressed recommendations with explicit suppression reasons and contextual selected-range language", () => {
     const html = renderToStaticMarkup(
       React.createElement(GoogleAdvisorPanel, {

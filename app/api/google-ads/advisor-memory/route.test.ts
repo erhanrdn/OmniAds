@@ -17,6 +17,7 @@ vi.mock("@/lib/google-ads/action-clusters", () => ({
 vi.mock("@/lib/google-ads/advisor-memory", () => ({
   getAdvisorExecutionCalibration: vi.fn(),
   logAdvisorExecutionEvent: vi.fn(),
+  recordAdvisorOutcome: vi.fn(),
   updateAdvisorCompletionState: vi.fn(),
   updateAdvisorExecutionState: vi.fn(),
   updateAdvisorMemoryAction: vi.fn(),
@@ -28,8 +29,13 @@ vi.mock("@/lib/google-ads/advisor-mutate", () => ({
   rollbackAdvisorMutation: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/search-intelligence-storage", () => ({
+  appendGoogleAdsDecisionActionOutcomeLog: vi.fn(async () => undefined),
+}));
+
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
+const advisorMemory = await import("@/lib/google-ads/advisor-memory");
 const advisorMutate = await import("@/lib/google-ads/advisor-mutate");
 const { POST } = await import("@/app/api/google-ads/advisor-memory/route");
 
@@ -71,5 +77,37 @@ describe("POST /api/google-ads/advisor-memory", () => {
     });
     expect(vi.mocked(advisorMutate.preflightAdvisorMutation)).not.toHaveBeenCalled();
     expect(vi.mocked(advisorMutate.executeAdvisorMutation)).not.toHaveBeenCalled();
+  });
+
+  it("records a manual outcome without requiring write-back capability", async () => {
+    const response = await POST(
+      new NextRequest("http://localhost/api/google-ads/advisor-memory", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: "biz",
+          accountId: "all",
+          recommendationFingerprint: "fp_2",
+          executionAction: "record_outcome",
+          outcomeVerdict: "improved",
+          outcomeMetric: "manual_validation",
+          outcomeDelta: -3,
+          outcomeConfidence: "medium",
+        }),
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({ ok: true });
+    expect(vi.mocked(advisorMemory.recordAdvisorOutcome)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        accountId: "all",
+        recommendationFingerprint: "fp_2",
+        verdict: "improved",
+        metric: "manual_validation",
+        delta: -3,
+      })
+    );
   });
 });

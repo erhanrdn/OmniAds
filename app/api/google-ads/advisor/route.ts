@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoGoogleAdsAdvisor } from "@/lib/demo-business";
+import { buildActionClusters } from "@/lib/google-ads/action-clusters";
+import { hydrateAdvisorRecommendationsFromMemory } from "@/lib/google-ads/advisor-memory";
 import { getOrCreateGoogleAdsAdvisorSnapshot } from "@/lib/google-ads/advisor-snapshots";
 import { isGoogleAdsDecisionEngineV2Enabled } from "@/lib/google-ads/decision-engine-config";
+import type { GoogleRecommendation } from "@/lib/google-ads/growth-advisor-types";
 import { parseGoogleAdsRequestParams } from "@/lib/google-ads-request-params";
 import {
   buildGoogleAdsSelectedRangeContext,
@@ -50,6 +53,35 @@ export async function GET(request: NextRequest) {
           forceRefresh: request.nextUrl.searchParams.get("refresh") === "1",
         })
       ).advisorPayload;
+
+  const hydratedRecommendations = await hydrateAdvisorRecommendationsFromMemory({
+    businessId,
+    accountId: accountId ?? "all",
+    recommendations: payload.recommendations as GoogleRecommendation[],
+  });
+  const recommendationsById = new Map(
+    hydratedRecommendations.map((recommendation) => [recommendation.id, recommendation] as const)
+  );
+  payload.recommendations = hydratedRecommendations;
+  payload.sections = payload.sections.map((section) => ({
+    ...section,
+    recommendations: section.recommendations.map(
+      (recommendation) => recommendationsById.get(recommendation.id) ?? recommendation
+    ),
+  }));
+  payload.clusters = buildActionClusters({
+    recommendations: hydratedRecommendations as GoogleRecommendation[],
+  });
+  payload.summary.watchouts = hydratedRecommendations
+    .filter(
+      (recommendation) =>
+        recommendation.doBucket === "do_later" ||
+        recommendation.decisionState === "watch" ||
+        recommendation.integrityState === "blocked" ||
+        recommendation.currentStatus === "escalated"
+    )
+    .slice(0, 3)
+    .map((recommendation) => recommendation.title);
 
   if (!debug && payload.metadata && customStart && customEnd) {
     const selectedCampaigns = await getGoogleAdsCampaignsReport({

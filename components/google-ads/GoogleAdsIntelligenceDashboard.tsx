@@ -443,6 +443,9 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       setLastAnalyzedLabel(payload.metadata?.asOfDate ?? new Date().toISOString().slice(0, 10));
     },
   });
+  const refreshAdvisorView = () => {
+    runAdvisorAnalysis({ refresh: false });
+  };
 
   const { data: assetGroupData, isLoading: isAssetGroupsLoading } = useQuery<AssetGroupsResponse>({
     queryKey: ["gads-asset-groups", businessId, startDate, endDate],
@@ -1345,6 +1348,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
             onFocusEntity={focusAdvisorEntity}
             businessId={businessId}
             accountId={advisorExecutionAccountId}
+            onRefreshAdvisor={refreshAdvisorView}
           />
         </section>
       ) : activePanel === "summary" ? (
@@ -1371,6 +1375,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               onFocusEntity={focusAdvisorEntity}
               businessId={businessId}
               accountId={advisorExecutionAccountId}
+              onRefreshAdvisor={refreshAdvisorView}
             />
           ) : (
             <EmptyState
@@ -1665,6 +1670,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               onFocusEntity={focusAdvisorEntity}
               businessId={businessId}
               accountId={advisorExecutionAccountId}
+              onRefreshAdvisor={refreshAdvisorView}
             />
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
@@ -1740,6 +1746,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               onFocusEntity={focusAdvisorEntity}
               businessId={businessId}
               accountId={advisorExecutionAccountId}
+              onRefreshAdvisor={refreshAdvisorView}
             />
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />
@@ -1820,6 +1827,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
               onFocusEntity={focusAdvisorEntity}
               businessId={businessId}
               accountId={advisorExecutionAccountId}
+              onRefreshAdvisor={refreshAdvisorView}
             />
           ) : (
             <EmptyState title={advisorIdleState.title} description={advisorIdleState.description} />

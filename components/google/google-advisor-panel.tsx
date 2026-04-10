@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildGoogleAdsOperatorActionCard } from "@/lib/google-ads/advisor-action-contract";
@@ -87,6 +87,40 @@ function blastRadiusTone(radius?: GoogleAdvisorRecommendation["decision"]["blast
 function confidencePct(confidence?: number | null) {
   if (typeof confidence !== "number") return null;
   return `${Math.round(confidence * 100)}%`;
+}
+
+function memoryStatusLabel(status?: GoogleAdvisorRecommendation["currentStatus"] | null) {
+  switch (status) {
+    case "new":
+      return "New";
+    case "persistent":
+      return "Persistent";
+    case "escalated":
+      return "Escalated";
+    case "downgraded":
+      return "Downgraded";
+    case "resolved":
+      return "Resolved";
+    case "suppressed":
+      return "Suppressed";
+    default:
+      return "Untracked";
+  }
+}
+
+function outcomeLabel(verdict?: GoogleAdvisorRecommendation["outcomeVerdict"] | null) {
+  switch (verdict) {
+    case "improved":
+      return "Improved";
+    case "neutral":
+      return "Neutral";
+    case "degraded":
+      return "Degraded";
+    case "unknown":
+      return "Unknown";
+    default:
+      return "Pending";
+  }
 }
 
 function deriveQueueLane(recommendation: GoogleAdvisorRecommendation): QueueLane {
@@ -216,10 +250,16 @@ function RecommendationCard({
   advisor,
   recommendation,
   onFocusEntity,
+  businessId,
+  accountId,
+  onRefreshAdvisor,
 }: {
   advisor: GoogleAdvisorResponse;
   recommendation: GoogleAdvisorRecommendation;
   onFocusEntity?: (recommendation: GoogleAdvisorRecommendation) => void;
+  businessId?: string;
+  accountId?: string | null;
+  onRefreshAdvisor?: () => void;
 }) {
   const lane = deriveQueueLane(recommendation);
   const labelMap = buildWindowLabelMap(advisor);
@@ -239,6 +279,58 @@ function RecommendationCard({
   );
   const effectTone = actionCard.expectedEffect.estimationMode === "blocked" ? "danger" : "default";
   const blockedTone = actionCard.blockedBecause.length > 0 ? "danger" : "default";
+  const activeAccountId = accountId ?? "all";
+  const canPersistOperatorState = Boolean(businessId);
+  const [actionPending, setActionPending] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [outcomeVerdict, setOutcomeVerdict] = useState<
+    Exclude<GoogleAdvisorRecommendation["outcomeVerdict"], null | undefined | "unknown">
+  >(
+    recommendation.outcomeVerdict === "neutral" || recommendation.outcomeVerdict === "degraded"
+      ? recommendation.outcomeVerdict
+      : "improved"
+  );
+  const [outcomeConfidence, setOutcomeConfidence] = useState<
+    Exclude<GoogleAdvisorRecommendation["outcomeConfidence"], null | undefined>
+  >(recommendation.outcomeConfidence ?? "medium");
+
+  async function postOperatorAction(
+    label: string,
+    body: Record<string, unknown>,
+    successMessage: string
+  ) {
+    if (!businessId) return;
+    setActionPending(label);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const response = await fetch("/api/google-ads/advisor-memory", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          businessId,
+          accountId: activeAccountId,
+          recommendationFingerprint: recommendation.recommendationFingerprint,
+          ...body,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof payload?.error === "string" ? payload.error : `${label} failed.`
+        );
+      }
+      setActionMessage(successMessage);
+      onRefreshAdvisor?.();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : `${label} failed.`);
+    } finally {
+      setActionPending(null);
+    }
+  }
 
   return (
     <article className="space-y-4 rounded-xl border bg-card p-4">
@@ -336,6 +428,46 @@ function RecommendationCard({
         </div>
       </div>
 
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SurfaceBlock title="Lifecycle">
+          <div className="space-y-1">
+            <div>Status: {memoryStatusLabel(recommendation.currentStatus)}</div>
+            <div>User action: {labelize(recommendation.userAction ?? "none")}</div>
+            <div>Seen count: {recommendation.seenCount ?? 0}</div>
+          </div>
+        </SurfaceBlock>
+        <SurfaceBlock title="Execution state">
+          <div className="space-y-1">
+            <div>{labelize(recommendation.executionStatus ?? "not_started")}</div>
+            <div className="text-xs text-muted-foreground">
+              {recommendation.rollbackAvailable
+                ? "Rollback preview is available."
+                : "No verified write-back rollback is available in V1."}
+            </div>
+          </div>
+        </SurfaceBlock>
+        <SurfaceBlock title="Outcome">
+          <div className="space-y-1">
+            <div>{outcomeLabel(recommendation.outcomeVerdict)}</div>
+            <div className="text-xs text-muted-foreground">
+              Validation window:{" "}
+              {typeof recommendation.outcomeCheckWindowDays === "number"
+                ? `${recommendation.outcomeCheckWindowDays}d`
+                : "Not set"}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Check due: {recommendation.outcomeCheckAt ?? "Not scheduled"}
+            </div>
+          </div>
+        </SurfaceBlock>
+        <SurfaceBlock title="Manual workflow">
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <div>Operator actions persist through advisor-memory.</div>
+            <div>Snapshot refresh keeps the structured recommendation but overlays live lifecycle state.</div>
+          </div>
+        </SurfaceBlock>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-2">
         <DetailList
           title="Evidence"
@@ -365,6 +497,146 @@ function RecommendationCard({
           tone={lane === "suppressed" ? "danger" : "muted"}
         />
       </div>
+
+      {canPersistOperatorState ? (
+        <div className="rounded-lg border bg-muted/10 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Operator actions</div>
+              <p className="mt-1 text-sm text-slate-800">
+                Manual-plan-first workflow. These controls record operator intent and validation only.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={actionPending !== null}
+                onClick={() =>
+                  postOperatorAction(
+                    "mark applied",
+                    { action: "applied" },
+                    "Marked as manually applied."
+                  )
+                }
+              >
+                {actionPending === "mark applied" ? "Saving..." : "Mark applied"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={actionPending !== null}
+                onClick={() =>
+                  postOperatorAction(
+                    recommendation.currentStatus === "suppressed" ? "unsuppress" : "suppress",
+                    recommendation.currentStatus === "suppressed"
+                      ? { action: "unsuppress" }
+                      : { action: "dismissed" },
+                    recommendation.currentStatus === "suppressed"
+                      ? "Returned to the active queue."
+                      : "Suppressed for operator follow-up."
+                  )
+                }
+              >
+                {actionPending === "suppress" || actionPending === "unsuppress"
+                  ? "Saving..."
+                  : recommendation.currentStatus === "suppressed"
+                    ? "Unsuppress"
+                    : "Suppress 7d"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={actionPending !== null}
+                onClick={() => {
+                  const completedStepIds =
+                    recommendation.coreStepIds && recommendation.coreStepIds.length > 0
+                      ? recommendation.coreStepIds
+                      : ["manual_apply"];
+                  void postOperatorAction(
+                    "mark completion",
+                    {
+                      executionAction: "mark_completion",
+                      completionMode: "full",
+                      completedStepCount: completedStepIds.length,
+                      totalStepCount: completedStepIds.length,
+                      completedStepIds,
+                      skippedStepIds: [],
+                      coreStepIds: completedStepIds,
+                    },
+                    "Manual completion recorded."
+                  );
+                }}
+              >
+                {actionPending === "mark completion" ? "Saving..." : "Mark complete"}
+              </Button>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="space-y-1">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Outcome</span>
+              <select
+                className="rounded-md border bg-background px-2 py-1 text-sm"
+                value={outcomeVerdict}
+                onChange={(event) =>
+                  setOutcomeVerdict(
+                    event.target.value as Exclude<
+                      GoogleAdvisorRecommendation["outcomeVerdict"],
+                      null | undefined | "unknown"
+                    >
+                  )
+                }
+              >
+                <option value="improved">Improved</option>
+                <option value="neutral">Neutral</option>
+                <option value="degraded">Degraded</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Confidence</span>
+              <select
+                className="rounded-md border bg-background px-2 py-1 text-sm"
+                value={outcomeConfidence}
+                onChange={(event) =>
+                  setOutcomeConfidence(
+                    event.target.value as Exclude<
+                      GoogleAdvisorRecommendation["outcomeConfidence"],
+                      null | undefined
+                    >
+                  )
+                }
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={actionPending !== null}
+              onClick={() =>
+                postOperatorAction(
+                  "record outcome",
+                  {
+                    executionAction: "record_outcome",
+                    outcomeVerdict: outcomeVerdict,
+                    outcomeMetric: "manual_validation",
+                    outcomeConfidence: outcomeConfidence,
+                    outcomeCheckWindowDays: recommendation.outcomeCheckWindowDays ?? 7,
+                    outcomeSummary: `Operator recorded a ${outcomeVerdict} manual validation outcome.`,
+                  },
+                  "Manual outcome recorded."
+                )
+              }
+            >
+              {actionPending === "record outcome" ? "Saving..." : "Log outcome"}
+            </Button>
+          </div>
+          {actionError ? <p className="mt-2 text-sm text-rose-700">{actionError}</p> : null}
+          {actionMessage ? <p className="mt-2 text-sm text-emerald-700">{actionMessage}</p> : null}
+        </div>
+      ) : null}
 
       <details className="rounded-lg border bg-muted/10 p-3">
         <summary className="cursor-pointer text-sm font-medium text-slate-800">
@@ -450,11 +722,17 @@ function QueueSection({
   lane,
   recommendations,
   onFocusEntity,
+  businessId,
+  accountId,
+  onRefreshAdvisor,
 }: {
   advisor: GoogleAdvisorResponse;
   lane: QueueLane;
   recommendations: GoogleAdvisorRecommendation[];
   onFocusEntity?: (recommendation: GoogleAdvisorRecommendation) => void;
+  businessId?: string;
+  accountId?: string | null;
+  onRefreshAdvisor?: () => void;
 }) {
   return (
     <section className="space-y-3 rounded-xl border bg-card p-4">
@@ -477,6 +755,9 @@ function QueueSection({
               advisor={advisor}
               recommendation={recommendation}
               onFocusEntity={onFocusEntity}
+              businessId={businessId}
+              accountId={accountId}
+              onRefreshAdvisor={onRefreshAdvisor}
             />
           ))}
         </div>
@@ -492,11 +773,15 @@ function QueueSection({
 export function GoogleAdvisorPanel({
   advisor,
   onFocusEntity,
+  businessId,
+  accountId,
+  onRefreshAdvisor,
 }: {
   advisor: GoogleAdvisorResponse;
   onFocusEntity?: (recommendation: GoogleAdvisorRecommendation) => void;
   businessId?: string;
   accountId?: string | null;
+  onRefreshAdvisor?: () => void;
 }) {
   const selectedRangeContext =
     advisor.metadata?.selectedRangeContext &&
@@ -631,10 +916,42 @@ export function GoogleAdvisorPanel({
           </div>
         ) : null}
         <div className="space-y-4">
-          <QueueSection advisor={advisor} lane="review" recommendations={queueByLane.review} onFocusEntity={onFocusEntity} />
-          <QueueSection advisor={advisor} lane="test" recommendations={queueByLane.test} onFocusEntity={onFocusEntity} />
-          <QueueSection advisor={advisor} lane="watch" recommendations={queueByLane.watch} onFocusEntity={onFocusEntity} />
-          <QueueSection advisor={advisor} lane="suppressed" recommendations={queueByLane.suppressed} onFocusEntity={onFocusEntity} />
+          <QueueSection
+            advisor={advisor}
+            lane="review"
+            recommendations={queueByLane.review}
+            onFocusEntity={onFocusEntity}
+            businessId={businessId}
+            accountId={accountId}
+            onRefreshAdvisor={onRefreshAdvisor}
+          />
+          <QueueSection
+            advisor={advisor}
+            lane="test"
+            recommendations={queueByLane.test}
+            onFocusEntity={onFocusEntity}
+            businessId={businessId}
+            accountId={accountId}
+            onRefreshAdvisor={onRefreshAdvisor}
+          />
+          <QueueSection
+            advisor={advisor}
+            lane="watch"
+            recommendations={queueByLane.watch}
+            onFocusEntity={onFocusEntity}
+            businessId={businessId}
+            accountId={accountId}
+            onRefreshAdvisor={onRefreshAdvisor}
+          />
+          <QueueSection
+            advisor={advisor}
+            lane="suppressed"
+            recommendations={queueByLane.suppressed}
+            onFocusEntity={onFocusEntity}
+            businessId={businessId}
+            accountId={accountId}
+            onRefreshAdvisor={onRefreshAdvisor}
+          />
         </div>
       </section>
     </div>
