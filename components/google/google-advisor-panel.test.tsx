@@ -397,6 +397,9 @@ describe("GoogleAdvisorPanel", () => {
         model: "gpt-5-nano",
         reason: "Structured AI assist applied to deterministic fallback recommendation fields.",
         filledFields: ["primaryAction", "exactChanges"],
+        promptVersion: "google_ads_ai_structured_assist_v1",
+        attemptedAt: "2026-04-10T00:00:00.000Z",
+        validationFailureCategory: null,
       },
     });
 

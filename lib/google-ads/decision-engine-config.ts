@@ -54,6 +54,19 @@ function readScopedAllowlist(
     .filter(Boolean);
 }
 
+export function getGoogleAdsAdvisorAiStructuredAssistConfig(env: NodeJS.ProcessEnv = process.env) {
+  const { advisorAiStructuredAssistEnabled } = getGoogleAdsDecisionEngineConfig(env);
+  const businessAllowlist = readScopedAllowlist(
+    env.GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST
+  );
+  return {
+    enabled: advisorAiStructuredAssistEnabled,
+    businessAllowlist,
+    mode: "snapshot_time" as const,
+    scope: "unmapped_only" as const,
+  };
+}
+
 function readIntegerFlag(raw: string | undefined, fallback: number) {
   if (!raw?.trim()) return fallback;
   const parsed = Number(raw ?? "");
@@ -112,6 +125,35 @@ function isScopedAllowed(allowlist: string[], value: string | null | undefined) 
   if (allowlist.length === 0) return true;
   if (!value) return false;
   return allowlist.includes(value);
+}
+
+export function getGoogleAdsAdvisorAiStructuredAssistBoundaryState(input: {
+  businessId?: string | null;
+  env?: NodeJS.ProcessEnv;
+}) {
+  const config = getGoogleAdsAdvisorAiStructuredAssistConfig(input.env);
+  const businessScoped = config.businessAllowlist.length > 0;
+  const businessAllowed = businessScoped
+    ? Boolean(input.businessId) && config.businessAllowlist.includes(String(input.businessId))
+    : false;
+  const blockedReasons: string[] = [];
+
+  if (!config.enabled) {
+    blockedReasons.push("AI structured assist flag is disabled.");
+  }
+  if (!businessScoped) {
+    blockedReasons.push("No business allowlist is configured for AI structured assist.");
+  } else if (!businessAllowed) {
+    blockedReasons.push("Business is not in the AI structured assist allowlist.");
+  }
+
+  return {
+    ...config,
+    businessScoped,
+    businessAllowed,
+    eligible: config.enabled && businessAllowed,
+    blockedReasons,
+  };
 }
 
 export function getGoogleAdsAutonomyBoundaryState(input: {

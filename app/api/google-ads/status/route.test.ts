@@ -106,6 +106,7 @@ vi.mock("@/lib/google-ads/decision-engine-config", () => ({
   getGoogleAdsDecisionEngineConfig: vi.fn(() => ({
     decisionEngineV2Enabled: true,
     writebackEnabled: false,
+    advisorAiStructuredAssistEnabled: false,
   })),
   getGoogleAdsAutomationConfig: vi.fn(() => ({
     decisionEngineV2Enabled: true,
@@ -142,6 +143,19 @@ vi.mock("@/lib/google-ads/decision-engine-config", () => ({
       "Autonomy kill switch is active.",
       "Manual approval is still required.",
       "No Google Ads action families are allowlisted for autonomous execution.",
+    ],
+  })),
+  getGoogleAdsAdvisorAiStructuredAssistBoundaryState: vi.fn(() => ({
+    enabled: false,
+    businessAllowlist: [],
+    mode: "snapshot_time",
+    scope: "unmapped_only",
+    businessScoped: false,
+    businessAllowed: false,
+    eligible: false,
+    blockedReasons: [
+      "AI structured assist flag is disabled.",
+      "No business allowlist is configured for AI structured assist.",
     ],
   })),
 }));
@@ -454,6 +468,18 @@ describe("GET /api/google-ads/status", () => {
             supportWindowEnd: "2026-04-10",
             note: "Persisted weekly top-query and daily cluster aggregates are loaded as supplemental support.",
           },
+          aiAssist: {
+            enabled: true,
+            mode: "snapshot_time",
+            scope: "unmapped_only",
+            appliedCount: 1,
+            rejectedCount: 0,
+            failedCount: 0,
+            skippedCount: 3,
+            eligibleCount: 1,
+            promptVersion: "google_ads_ai_structured_assist_v1",
+            businessScoped: true,
+          },
         },
       },
     } as never);
@@ -484,6 +510,15 @@ describe("GET /api/google-ads/status", () => {
       clusterDailyAvailable: true,
       queryWeeklyRows: 12,
       clusterDailyRows: 48,
+    });
+    expect(payload.advisor.aiAssist).toMatchObject({
+      gateEnabled: false,
+      businessScoped: false,
+      businessAllowed: false,
+      appliedCount: 1,
+      skippedCount: 3,
+      eligibleCount: 1,
+      promptVersion: "google_ads_ai_structured_assist_v1",
     });
     expect(payload.operations).toMatchObject({
       advisorActionContractVersion: "google_ads_advisor_action_v2",

@@ -1,9 +1,9 @@
 import { buildGoogleAdsOperatorActionCard } from "@/lib/google-ads/advisor-action-contract";
-import { isGoogleAdsAdvisorAiStructuredAssistEnabled } from "@/lib/google-ads/decision-engine-config";
+import { getGoogleAdsAdvisorAiStructuredAssistBoundaryState } from "@/lib/google-ads/decision-engine-config";
 import type {
   GoogleAdvisorActionCard,
   GoogleAdvisorActionListBlock,
-  GoogleAdvisorExpectedEffect,
+  GoogleAdvisorStructuredAssistFailureCategory,
   GoogleAdvisorMetadata,
   GoogleAdvisorResponse,
   GoogleRecommendation,
@@ -11,13 +11,13 @@ import type {
 } from "@/lib/google-ads/growth-advisor-types";
 import { getOpenAI } from "@/lib/openai";
 
-const GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL = "gpt-5-nano" as const;
+export const GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL = "gpt-5-nano" as const;
+export const GOOGLE_ADVISOR_STRUCTURED_ASSIST_PROMPT_VERSION =
+  "google_ads_ai_structured_assist_v1" as const;
+const GOOGLE_ADVISOR_STRUCTURED_ASSIST_TIMEOUT_MS = 8_000;
 const ELIGIBLE_RECOMMENDATION_TYPES = new Set<GoogleRecommendation["type"]>([
   "operating_model_gap",
-  "search_shopping_overlap",
   "brand_capture_control",
-  "brand_leakage",
-  "pmax_scaling_fit",
   "geo_device_adjustment",
   "diagnostic_guardrail",
 ]);
@@ -59,6 +59,17 @@ interface GoogleAdvisorStructuredAssistValidated {
   rollback: string[];
   blockedBecause: string[];
   coachNote: string | null;
+}
+
+interface StructuredAssistValidationFailure {
+  ok: false;
+  reason: string;
+  category: GoogleAdvisorStructuredAssistFailureCategory;
+}
+
+interface StructuredAssistValidationSuccess {
+  ok: true;
+  value: GoogleAdvisorStructuredAssistValidated;
 }
 
 function uniqueStrings(values: Array<string | null | undefined>) {
@@ -220,6 +231,7 @@ function buildSystemPrompt() {
     "If the provided data is insufficient, keep the structure conservative and do not fabricate exact items.",
     "Keep manual-plan wording. Do not imply autonomous execution or write-back.",
     "expectedEffect must restate the provided deterministic expectedEffect only. Do not change its estimationMode or estimateLabel.",
+    `Prompt version: ${GOOGLE_ADVISOR_STRUCTURED_ASSIST_PROMPT_VERSION}.`,
   ].join(" ");
 }
 
@@ -227,14 +239,21 @@ function buildStructuredAssistState(
   state: NonNullable<GoogleRecommendation["structuredAssist"]>["state"],
   reason: string,
   model: string | null,
-  filledFields: string[] = []
+  options?: {
+    filledFields?: string[];
+    validationFailureCategory?: GoogleAdvisorStructuredAssistFailureCategory | null;
+    attemptedAt?: string | null;
+  }
 ) {
   return {
     state,
     mode: "snapshot_time" as const,
     model,
     reason,
-    filledFields,
+    filledFields: options?.filledFields ?? [],
+    promptVersion: GOOGLE_ADVISOR_STRUCTURED_ASSIST_PROMPT_VERSION,
+    attemptedAt: options?.attemptedAt ?? null,
+    validationFailureCategory: options?.validationFailureCategory ?? null,
   } satisfies NonNullable<GoogleRecommendation["structuredAssist"]>;
 }
 
@@ -247,11 +266,22 @@ function parseDraft(content: string): GoogleAdvisorStructuredAssistDraft | null 
   }
 }
 
+function validationFailure(
+  category: GoogleAdvisorStructuredAssistFailureCategory,
+  reason: string
+): StructuredAssistValidationFailure {
+  return {
+    ok: false,
+    reason,
+    category,
+  };
+}
+
 function validateDraft(input: {
   draft: GoogleAdvisorStructuredAssistDraft;
   baselineCard: GoogleAdvisorActionCard;
   allowedExactItems: Set<string>;
-}) {
+}): StructuredAssistValidationFailure | StructuredAssistValidationSuccess {
   const { draft, baselineCard, allowedExactItems } = input;
   const primaryAction = typeof draft.primaryAction === "string" ? draft.primaryAction.trim() : "";
   const scopeLabel = typeof draft.scopeLabel === "string" ? draft.scopeLabel.trim() : "";
@@ -264,11 +294,11 @@ function validateDraft(input: {
   const blockedBecause = uniqueStrings(asStringArray(draft.blockedBecause));
 
   if (!primaryAction || !scopeLabel || !whyThisNow) {
-    return { ok: false as const, reason: "AI assist response omitted required operator fields." };
+    return validationFailure("schema", "AI assist response omitted required operator fields.");
   }
 
   if (containsRiskyForecastLanguage(primaryAction) || containsRiskyForecastLanguage(whyThisNow)) {
-    return { ok: false as const, reason: "AI assist introduced unsupported forecast or bidding language." };
+    return validationFailure("forecast_language", "AI assist introduced unsupported forecast or bidding language.");
   }
 
   const expectedEffect = isPlainObject(draft.expectedEffect) ? draft.expectedEffect : null;
@@ -278,10 +308,16 @@ function validateDraft(input: {
     const estimateLabel =
       typeof expectedEffect.estimateLabel === "string" ? expectedEffect.estimateLabel : null;
     if (estimationMode !== baselineCard.expectedEffect.estimationMode) {
-      return { ok: false as const, reason: "AI assist tried to change deterministic expected-effect estimation mode." };
+      return validationFailure(
+        "expected_effect",
+        "AI assist tried to change deterministic expected-effect estimation mode."
+      );
     }
     if ((estimateLabel ?? null) !== (baselineCard.expectedEffect.estimateLabel ?? null)) {
-      return { ok: false as const, reason: "AI assist tried to introduce a new expected-effect estimate label." };
+      return validationFailure(
+        "expected_effect",
+        "AI assist tried to introduce a new expected-effect estimate label."
+      );
     }
   }
 
@@ -289,21 +325,33 @@ function validateDraft(input: {
     baselineCard.evidence.some((point) => formatEvidencePoint(point) === entry)
   );
   if (evidence.length > 0 && validEvidence.length !== evidence.length) {
-    return { ok: false as const, reason: "AI assist referenced evidence that is not present in the deterministic recommendation." };
+    return validationFailure(
+      "evidence",
+      "AI assist referenced evidence that is not present in the deterministic recommendation."
+    );
   }
 
   const validValidation = validation.filter((entry) => baselineCard.validation.includes(entry));
   if (validation.length > 0 && validValidation.length !== validation.length) {
-    return { ok: false as const, reason: "AI assist introduced validation steps outside the deterministic allowlist." };
+    return validationFailure(
+      "validation",
+      "AI assist introduced validation steps outside the deterministic allowlist."
+    );
   }
 
   const validRollback = rollback.filter((entry) => baselineCard.rollback.includes(entry));
   if (rollback.length > 0 && validRollback.length !== rollback.length) {
-    return { ok: false as const, reason: "AI assist introduced rollback steps outside the deterministic allowlist." };
+    return validationFailure(
+      "rollback",
+      "AI assist introduced rollback steps outside the deterministic allowlist."
+    );
   }
 
   if (blockedBecause.length > 0) {
-    return { ok: false as const, reason: "AI assist tried to change blocker state for an eligible deterministic fallback." };
+    return validationFailure(
+      "blocker_state",
+      "AI assist tried to change blocker state for an eligible deterministic fallback."
+    );
   }
 
   const exactChanges = Array.isArray(draft.exactChanges) ? draft.exactChanges : [];
@@ -311,7 +359,7 @@ function validateDraft(input: {
 
   for (const block of exactChanges) {
     if (!isPlainObject(block)) {
-      return { ok: false as const, reason: "AI assist returned a malformed exact-change block." };
+      return validationFailure("schema", "AI assist returned a malformed exact-change block.");
     }
     const label = typeof block.label === "string" ? block.label.trim() : "";
     const items = uniqueStrings(asStringArray(block.items));
@@ -320,13 +368,22 @@ function validateDraft(input: {
     const tone = typeof block.tone === "string" ? block.tone : null;
 
     if (!label || !kind || !LIST_BLOCK_KINDS.has(kind as GoogleAdvisorActionListBlock["kind"])) {
-      return { ok: false as const, reason: "AI assist returned an exact-change block with an invalid label or kind." };
+      return validationFailure(
+        "schema",
+        "AI assist returned an exact-change block with an invalid label or kind."
+      );
     }
     if (!tone || !LIST_BLOCK_TONES.has(tone as GoogleAdvisorActionListBlock["tone"])) {
-      return { ok: false as const, reason: "AI assist returned an exact-change block with an invalid tone." };
+      return validationFailure(
+        "schema",
+        "AI assist returned an exact-change block with an invalid tone."
+      );
     }
     if (!items.every((item) => allowedExactItems.has(item))) {
-      return { ok: false as const, reason: "AI assist introduced exact items that are not present in the structured allowlist." };
+      return validationFailure(
+        "allowlist",
+        "AI assist introduced exact items that are not present in the structured allowlist."
+      );
     }
 
     validatedExactChanges.push({
@@ -339,11 +396,11 @@ function validateDraft(input: {
   }
 
   if (!validatedExactChanges.some((block) => block.items.length > 0)) {
-    return { ok: false as const, reason: "AI assist did not produce any validated exact-change items." };
+    return validationFailure("empty_output", "AI assist did not produce any validated exact-change items.");
   }
 
   return {
-    ok: true as const,
+    ok: true,
     value: {
       primaryAction,
       scopeLabel,
@@ -354,7 +411,7 @@ function validateDraft(input: {
       rollback: validRollback,
       blockedBecause: [],
       coachNote,
-    } satisfies GoogleAdvisorStructuredAssistValidated,
+    },
   };
 }
 
@@ -405,19 +462,30 @@ async function requestStructuredAssistDraft(input: {
   baselineCard: GoogleAdvisorActionCard;
 }) {
   const openai = getOpenAI();
-  const response = await openai.chat.completions.create({
-    model: GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
-    temperature: 0.1,
-    max_tokens: 900,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildSystemPrompt() },
-      {
-        role: "user",
-        content: JSON.stringify(buildUserPayload(input.recommendation, input.baselineCard)),
-      },
-    ],
-  });
+  const response = await Promise.race([
+    openai.chat.completions.create({
+      model: GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
+      temperature: 0.1,
+      max_tokens: 900,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        {
+          role: "user",
+          content: JSON.stringify(buildUserPayload(input.recommendation, input.baselineCard)),
+        },
+      ],
+    }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(
+            `AI structured assist request timed out after ${GOOGLE_ADVISOR_STRUCTURED_ASSIST_TIMEOUT_MS}ms.`
+          )
+        );
+      }, GOOGLE_ADVISOR_STRUCTURED_ASSIST_TIMEOUT_MS);
+    }),
+  ]);
 
   return response.choices[0]?.message?.content ?? "";
 }
@@ -425,16 +493,22 @@ async function requestStructuredAssistDraft(input: {
 export async function applyGoogleAdsStructuredAssist(input: {
   analysisMode: GoogleAdvisorMetadata["analysisMode"];
   advisorPayload: GoogleAdvisorResponse;
+  businessId?: string | null;
 }) {
-  const featureEnabled = isGoogleAdsAdvisorAiStructuredAssistEnabled();
+  const assistBoundary = getGoogleAdsAdvisorAiStructuredAssistBoundaryState({
+    businessId: input.businessId ?? null,
+  });
   const metadataAssist = {
-    enabled: featureEnabled,
+    enabled: assistBoundary.enabled,
     mode: "snapshot_time" as const,
     scope: "unmapped_only" as const,
     appliedCount: 0,
     rejectedCount: 0,
     failedCount: 0,
     skippedCount: 0,
+    eligibleCount: 0,
+    promptVersion: GOOGLE_ADVISOR_STRUCTURED_ASSIST_PROMPT_VERSION,
+    businessScoped: assistBoundary.businessScoped,
   };
 
   const recommendations = await Promise.all(
@@ -448,56 +522,98 @@ export async function applyGoogleAdsStructuredAssist(input: {
           structuredAssist: buildStructuredAssistState(
             "not_requested",
             "AI structured assist only runs during snapshot generation.",
-            null
+            null,
+            { validationFailureCategory: "not_snapshot" }
           ),
           operatorActionCard: baselineCard,
         };
       }
 
-      if (!featureEnabled) {
+      const eligibleForAssist = isEligibleForStructuredAssist(recommendation, baselineCard);
+      if (eligibleForAssist) {
+        metadataAssist.eligibleCount += 1;
+      }
+
+      if (!assistBoundary.enabled) {
         metadataAssist.skippedCount += 1;
         return {
           ...recommendation,
           structuredAssist: buildStructuredAssistState(
             "not_requested",
             "GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED is disabled.",
-            null
+            null,
+            { validationFailureCategory: "not_enabled" }
           ),
           operatorActionCard: baselineCard,
         };
       }
 
-      if (!isEligibleForStructuredAssist(recommendation, baselineCard)) {
+      if (!assistBoundary.businessAllowed) {
+        metadataAssist.skippedCount += 1;
+        return {
+          ...recommendation,
+          structuredAssist: buildStructuredAssistState(
+            "not_requested",
+            assistBoundary.businessScoped
+              ? "Business is not in the AI structured assist allowlist."
+              : "AI structured assist rollout has no business allowlist configured.",
+            null,
+            { validationFailureCategory: "not_allowlisted" }
+          ),
+          operatorActionCard: baselineCard,
+        };
+      }
+
+      if (!eligibleForAssist) {
         metadataAssist.skippedCount += 1;
         return {
           ...recommendation,
           structuredAssist: buildStructuredAssistState(
             "not_requested",
             "Recommendation already has a deterministic specialized card or is not in the AI assist allowlist.",
-            null
+            null,
+            { validationFailureCategory: "not_eligible" }
           ),
           operatorActionCard: baselineCard,
         };
       }
 
       if (!process.env.OPENAI_API_KEY) {
-        metadataAssist.skippedCount += 1;
+        metadataAssist.failedCount += 1;
         return {
           ...recommendation,
           structuredAssist: buildStructuredAssistState(
             "not_configured",
             "OPENAI_API_KEY is not configured.",
-            null
+            null,
+            { validationFailureCategory: "not_configured" }
           ),
           operatorActionCard: baselineCard,
         };
       }
 
+      const attemptedAt = new Date().toISOString();
       try {
         const content = await requestStructuredAssistDraft({
           recommendation,
           baselineCard,
         });
+        if (!content.trim()) {
+          metadataAssist.failedCount += 1;
+          return {
+            ...recommendation,
+            structuredAssist: buildStructuredAssistState(
+              "failed",
+              "AI structured assist returned an empty response.",
+              GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
+              {
+                attemptedAt,
+                validationFailureCategory: "empty_output",
+              }
+            ),
+            operatorActionCard: baselineCard,
+          };
+        }
         const draft = parseDraft(content);
         if (!draft) {
           metadataAssist.failedCount += 1;
@@ -506,7 +622,11 @@ export async function applyGoogleAdsStructuredAssist(input: {
             structuredAssist: buildStructuredAssistState(
               "failed",
               "AI structured assist returned malformed JSON.",
-              GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL
+              GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
+              {
+                attemptedAt,
+                validationFailureCategory: "schema",
+              }
             ),
             operatorActionCard: baselineCard,
           };
@@ -525,7 +645,11 @@ export async function applyGoogleAdsStructuredAssist(input: {
             structuredAssist: buildStructuredAssistState(
               "rejected",
               validation.reason,
-              GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL
+              GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
+              {
+                attemptedAt,
+                validationFailureCategory: validation.category,
+              }
             ),
             operatorActionCard: baselineCard,
           };
@@ -544,18 +668,27 @@ export async function applyGoogleAdsStructuredAssist(input: {
             "applied",
             "Structured AI assist applied to deterministic fallback recommendation fields.",
             GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
-            merged.filledFields
+            {
+              filledFields: merged.filledFields,
+              attemptedAt,
+            }
           ),
           operatorActionCard: merged.nextCard,
         };
       } catch (error) {
         metadataAssist.failedCount += 1;
+        const message = error instanceof Error ? error.message : "Unknown AI structured assist failure.";
+        const timeoutFailure = message.toLowerCase().includes("timed out");
         return {
           ...recommendation,
           structuredAssist: buildStructuredAssistState(
             "failed",
-            error instanceof Error ? error.message : "Unknown AI structured assist failure.",
-            GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL
+            message,
+            GOOGLE_ADVISOR_STRUCTURED_ASSIST_MODEL,
+            {
+              attemptedAt,
+              validationFailureCategory: timeoutFailure ? "timeout" : "transport",
+            }
           ),
           operatorActionCard: baselineCard,
         };

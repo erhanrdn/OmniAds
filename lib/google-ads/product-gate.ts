@@ -11,6 +11,7 @@ import {
 import { getLatestGoogleAdsAdvisorSnapshot, isGoogleAdsAdvisorSnapshotFresh } from "@/lib/google-ads/advisor-snapshots";
 import {
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAdvisorAiStructuredAssistBoundaryState,
   getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
@@ -132,6 +133,9 @@ export async function runGoogleAdsProductGate(
   const sections: GoogleAdsProductGateSection[] = [];
   const decisionConfig = getGoogleAdsDecisionEngineConfig();
   const automationConfig = getGoogleAdsAutomationConfig();
+  const advisorAiAssistBoundary = getGoogleAdsAdvisorAiStructuredAssistBoundaryState({
+    businessId: input.businessId,
+  });
   const autonomyBoundary = getGoogleAdsAutonomyBoundaryState({
     businessId: input.businessId,
     accountId: null,
@@ -160,6 +164,10 @@ export async function runGoogleAdsProductGate(
         `GOOGLE_ADS_DECISION_ENGINE_V2: ${decisionConfig.decisionEngineV2Enabled ? "enabled" : "disabled"}`,
         `GOOGLE_ADS_WRITEBACK_ENABLED: ${decisionConfig.writebackEnabled ? "enabled" : "disabled"}`,
         `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED: ${decisionConfig.advisorAiStructuredAssistEnabled ? "enabled" : "disabled"}`,
+        `AI assist business allowlist: ${advisorAiAssistBoundary.businessAllowlist.join(", ") || "none"}`,
+        `AI assist business scoped: ${advisorAiAssistBoundary.businessScoped ? "yes" : "no"}`,
+        `AI assist business allowed: ${advisorAiAssistBoundary.businessAllowed ? "yes" : "no"}`,
+        `AI assist blocked reasons: ${advisorAiAssistBoundary.blockedReasons.join(" | ") || "none"}`,
         `Write-back gate: ${writebackGate.reason}`,
         `Write-back pilot: ${automationConfig.writebackPilotEnabled ? "enabled" : "disabled"}`,
         `Semi-autonomous bundles: ${automationConfig.semiAutonomousBundlesEnabled ? "enabled" : "disabled"}`,
@@ -182,6 +190,10 @@ export async function runGoogleAdsProductGate(
         decisionEngineV2Enabled: decisionConfig.decisionEngineV2Enabled,
         writebackEnabled: decisionConfig.writebackEnabled,
         advisorAiStructuredAssistEnabled: decisionConfig.advisorAiStructuredAssistEnabled,
+        advisorAiAssistBusinessAllowlist: advisorAiAssistBoundary.businessAllowlist,
+        advisorAiAssistBusinessScoped: advisorAiAssistBoundary.businessScoped,
+        advisorAiAssistBusinessAllowed: advisorAiAssistBoundary.businessAllowed,
+        advisorAiAssistBlockedReasons: advisorAiAssistBoundary.blockedReasons,
         retentionExecutionEnabled: retentionRuntime.executionEnabled,
         writebackPilotEnabled: automationConfig.writebackPilotEnabled,
         semiAutonomousBundlesEnabled: automationConfig.semiAutonomousBundlesEnabled,
@@ -349,6 +361,7 @@ export async function runGoogleAdsProductGate(
       latestSnapshot?.advisorPayload?.metadata?.actionContract ?? null;
     const aggregateIntelligence =
       latestSnapshot?.advisorPayload?.metadata?.aggregateIntelligence ?? null;
+    const aiAssistMetadata = latestSnapshot?.advisorPayload?.metadata?.aiAssist ?? null;
     const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestSnapshot);
     const advisorLevel: GoogleAdsProductGateLevel =
       !latestSnapshot
@@ -384,12 +397,25 @@ export async function runGoogleAdsProductGate(
             aggregateIntelligence?.clusterDailyAvailable ? "available" : "not available"
           } (${aggregateIntelligence?.clusterDailyRows ?? 0} rows)`,
           `Aggregate intelligence note: ${aggregateIntelligence?.note ?? "No aggregate-intelligence metadata was attached to this snapshot."}`,
+          `AI assist gate enabled: ${advisorAiAssistBoundary.enabled ? "yes" : "no"}`,
+          `AI assist business scoped: ${advisorAiAssistBoundary.businessScoped ? "yes" : "no"}`,
+          `AI assist business allowed: ${advisorAiAssistBoundary.businessAllowed ? "yes" : "no"}`,
+          `AI assist eligible recommendations: ${aiAssistMetadata?.eligibleCount ?? 0}`,
+          `AI assist applied/rejected/failed/skipped: ${aiAssistMetadata?.appliedCount ?? 0}/${aiAssistMetadata?.rejectedCount ?? 0}/${aiAssistMetadata?.failedCount ?? 0}/${aiAssistMetadata?.skippedCount ?? 0}`,
+          `AI assist prompt version: ${aiAssistMetadata?.promptVersion ?? "unknown"}`,
         ],
         data: {
           snapshotAsOfDate: latestSnapshot?.asOfDate ?? null,
           snapshotFresh,
           actionContract,
           aggregateIntelligence,
+          advisorAiAssistBoundary: {
+            enabled: advisorAiAssistBoundary.enabled,
+            businessScoped: advisorAiAssistBoundary.businessScoped,
+            businessAllowed: advisorAiAssistBoundary.businessAllowed,
+            blockedReasons: advisorAiAssistBoundary.blockedReasons,
+          },
+          aiAssistMetadata,
         },
       })
     );

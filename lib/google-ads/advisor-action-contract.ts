@@ -99,6 +99,30 @@ function suppressionReasonLabel(value: string) {
   }
 }
 
+function familyLabel(value: NonNullable<GoogleRecommendation["affectedFamilies"]>[number]) {
+  switch (value) {
+    case "brand_search":
+      return "Dedicated Brand Search lane";
+    case "non_brand_search":
+      return "Non-brand Search lane";
+    case "shopping":
+      return "Shopping lane";
+    case "pmax_scaling":
+      return "PMax lane";
+    case "remarketing":
+      return "Remarketing lane";
+    case "supporting":
+      return "Supporting lane";
+    default:
+      return labelize(String(value));
+  }
+}
+
+function isBrandOwnerEntityLabel(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return normalized.includes("brand") && !normalized.includes("non-brand");
+}
+
 function estimateLabels(recommendation: GoogleRecommendation) {
   const labels: string[] = [];
   if (recommendation.potentialContribution.estimatedRevenueLiftRange) {
@@ -462,6 +486,174 @@ function buildKeywordBuildoutCard(
   };
 }
 
+function buildBrandLeakageCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource,
+  blockedBecause: string[]
+): GoogleAdvisorActionCardDraft {
+  const leakedQueries = nonEmpty(recommendation.negativeQueries);
+  const overlapEntities = nonEmpty(recommendation.overlapEntities);
+  const ownerLanes = uniqueStrings([
+    ...overlapEntities.filter((entry) => isBrandOwnerEntityLabel(entry)),
+    ...(recommendation.affectedFamilies ?? [])
+      .filter((family) => family === "brand_search")
+      .map((family) => familyLabel(family)),
+  ]);
+  const leakingEntities = uniqueStrings(
+    overlapEntities.filter((entry) => !ownerLanes.includes(entry))
+  );
+  const routingGuardrails = uniqueStrings([
+    ...(recommendation.negativeGuardrails ?? []).map((entry) => `Keep routing guardrail: ${entry}`),
+    ...(recommendation.prerequisites ?? []),
+  ]);
+  const estimationState = estimateLabels(recommendation).length > 0 ? "bounded" : "directional_only";
+  const ownerLaneLabel = ownerLanes[0] ?? "the dedicated brand lane";
+  const leakingLaneCount =
+    leakingEntities.length > 0
+      ? leakingEntities.length
+      : Math.max(
+          1,
+          (recommendation.affectedFamilies ?? []).filter((family) => family !== "brand_search").length
+        );
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction:
+      leakedQueries.length > 0
+        ? `Route ${pluralize(leakedQueries.length, "leaked brand query", "leaked brand queries")} back to ${ownerLaneLabel} and reduce leakage in ${pluralize(leakingLaneCount, "growth lane")}.`
+        : `Re-isolate branded demand in ${ownerLaneLabel} before treating growth lanes as scale-ready.`,
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock("Leaked brand queries", leakedQueries, "No leaked brand queries were attached.", {
+        kind: "change",
+        tone: "primary",
+      }),
+      buildListBlock(
+        "Leaking lanes / campaigns",
+        leakingEntities,
+        "No leaking lane list was attached. Use the evidence summary to review the growth lanes manually.",
+        { kind: "change" }
+      ),
+      buildListBlock("Brand owner lane", ownerLanes, "Dedicated Brand Search lane", {
+        kind: "preview",
+      }),
+      buildListBlock(
+        "Routing guardrails",
+        routingGuardrails,
+        "No routing guardrails were attached.",
+        { kind: "guardrail" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "brand_leakage_control",
+      leakedQueries,
+      leakingEntities,
+      ownerLanes,
+      routingGuardrails,
+      estimationState,
+    },
+    expectedEffect: buildExpectedEffect(
+      recommendation,
+      blockedBecause,
+      estimationState === "bounded" ? undefined : "directional_only"
+    ),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause,
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
+function buildSearchShoppingOverlapCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource,
+  blockedBecause: string[]
+): GoogleAdvisorActionCardDraft {
+  const overlappingQueries = nonEmpty(recommendation.negativeQueries);
+  const overlappingProductClusters = nonEmpty(recommendation.scaleSkuClusters);
+  const overlappingEntities = nonEmpty(recommendation.overlapEntities);
+  const ownerLaneCandidates = uniqueStrings(
+    (recommendation.affectedFamilies ?? [])
+      .filter((family) =>
+        family === "non_brand_search" || family === "shopping" || family === "pmax_scaling"
+      )
+      .map((family) => familyLabel(family))
+  );
+  const state = blockedBecause.length > 0 ? "blocked" : "directional_only";
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction:
+      state === "blocked"
+        ? "Do not scale the overlapping Search / Shopping demand yet. Resolve the blocker first."
+        : `Choose one owner lane for ${pluralize(
+            Math.max(overlappingQueries.length, 1),
+            "overlapping SKU-specific query",
+            "overlapping SKU-specific queries"
+          )} and reduce duplicate capture in the secondary lane.`,
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock(
+        "Overlapping queries",
+        overlappingQueries,
+        "No exact overlapping query list was attached.",
+        { kind: "change", tone: "primary" }
+      ),
+      buildListBlock(
+        "Overlapping SKU / product clusters",
+        overlappingProductClusters,
+        "No overlapping SKU / product cluster list was attached.",
+        { kind: "change" }
+      ),
+      buildListBlock(
+        "Overlapping lanes / campaigns",
+        overlappingEntities,
+        "No overlapping lane list was attached.",
+        { kind: "change" }
+      ),
+      buildListBlock(
+        "Primary owner lane",
+        [],
+        ownerLaneCandidates.length > 0
+          ? `Choose one owner lane manually from: ${ownerLaneCandidates.join(", ")}.`
+          : "Choose the primary owner lane manually before reducing the secondary lane.",
+        { kind: "preview" }
+      ),
+      buildListBlock(
+        "Secondary lane to reduce",
+        [],
+        "Reduce duplicate capture only after the primary owner lane is chosen.",
+        { kind: state === "blocked" ? "blocker" : "suppressed" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "search_shopping_overlap_resolution",
+      overlappingQueries,
+      overlappingProductClusters,
+      overlappingEntities,
+      ownerLaneCandidates,
+      primaryOwnerLane: null,
+      secondaryLaneToReduce: null,
+      state,
+    },
+    expectedEffect: buildExpectedEffect(
+      recommendation,
+      blockedBecause,
+      state === "blocked" ? "blocked" : "directional_only"
+    ),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause,
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
 function shoppingStructureLabel(launchMode: GoogleRecommendation["launchMode"]) {
   switch (launchMode) {
     case "hero_sku_shopping":
@@ -798,6 +990,127 @@ function buildBudgetReallocationCard(
   };
 }
 
+function buildPmaxScalingFitCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource,
+  blockedBecause: string[]
+): GoogleAdvisorActionCardDraft {
+  const weakAssetGroups = nonEmpty(recommendation.weakAssetGroups);
+  const scalePrerequisites = nonEmpty(recommendation.prerequisites);
+  const scaleGuardrails = nonEmpty(recommendation.playbookSteps);
+  const sharedBudgetPreview = recommendation.sharedBudgetAdjustmentPreview;
+  const directBudgetPreview = recommendation.budgetAdjustmentPreview;
+  const governedScope = sharedBudgetPreview?.governedCampaigns ?? [];
+  const budgetActionType = sharedBudgetPreview
+    ? ("shared_budget" as const)
+    : directBudgetPreview
+      ? ("campaign_budget" as const)
+      : null;
+  const previousBudget = sharedBudgetPreview?.previousAmount ?? directBudgetPreview?.previousAmount ?? null;
+  const proposedBudget = sharedBudgetPreview?.proposedAmount ?? directBudgetPreview?.proposedAmount ?? null;
+  const deltaPercent = sharedBudgetPreview?.deltaPercent ?? directBudgetPreview?.deltaPercent ?? null;
+  const state =
+    blockedBecause.length > 0
+      ? "hold"
+      : weakAssetGroups.length > 0
+        ? "repair_first"
+        : recommendation.decisionState === "act"
+          ? "scale_ready"
+          : "hold";
+
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction:
+      state === "scale_ready"
+        ? previousBudget !== null && proposedBudget !== null
+          ? `Scale PMax from ${formatCurrency(previousBudget)} to ${formatCurrency(proposedBudget)} only while governance remains clean.`
+          : "PMax looks scale-ready. Take the next budget step only while governance remains clean."
+        : state === "repair_first"
+          ? `Do not push more PMax budget yet. Repair ${pluralize(weakAssetGroups.length, "weak asset group")} first.`
+          : "Hold PMax at the current level until structure and governance are stable.",
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock(
+        "Scale posture",
+        [
+          state === "scale_ready"
+            ? "Scale-ready"
+            : state === "repair_first"
+              ? "Repair first"
+              : "Hold",
+        ],
+        "No scale posture was attached.",
+        { kind: state === "scale_ready" ? "preview" : state === "repair_first" ? "blocker" : "informational", tone: "primary" }
+      ),
+      buildListBlock(
+        "Weak asset groups",
+        weakAssetGroups,
+        "No weak asset groups are attached to this recommendation.",
+        { kind: weakAssetGroups.length > 0 ? "blocker" : "informational" }
+      ),
+      buildListBlock(
+        "Scale prerequisites",
+        scalePrerequisites,
+        "No scale prerequisites were attached.",
+        { kind: "guardrail" }
+      ),
+      buildListBlock(
+        "Scale guardrails",
+        scaleGuardrails,
+        "No explicit scale guardrails were attached.",
+        { kind: "guardrail" }
+      ),
+      buildListBlock(
+        "Budget preview",
+        previousBudget !== null && proposedBudget !== null
+          ? [
+              `${budgetActionType === "shared_budget" ? "Shared budget" : "Campaign budget"} ${formatCurrency(previousBudget)} -> ${formatCurrency(proposedBudget)} (${formatDeltaPercent(deltaPercent)})`,
+            ]
+          : [],
+        "No exact budget preview is attached. Treat the scale move as directional only.",
+        { kind: previousBudget !== null && proposedBudget !== null ? "preview" : "informational" }
+      ),
+      buildListBlock(
+        "Governed scope",
+        governedScope.map((entry) => entry.name),
+        "No governed campaign list is attached to the budget preview.",
+        { kind: "preview" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "pmax_scaling_fit",
+      state,
+      weakAssetGroups,
+      scalePrerequisites,
+      scaleGuardrails,
+      budgetActionType,
+      previousBudget,
+      proposedBudget,
+      deltaPercent,
+      governedScope,
+    },
+    expectedEffect: buildExpectedEffect(
+      recommendation,
+      blockedBecause,
+      previousBudget !== null && proposedBudget !== null && blockedBecause.length === 0
+        ? "directional_only"
+        : state === "repair_first"
+          ? "directional_only"
+          : blockedBecause.length > 0
+            ? "blocked"
+            : "not_confidently_estimable"
+    ),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause,
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
 function buildTargetStrategyCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
@@ -1074,6 +1387,14 @@ export function buildGoogleAdsOperatorActionCard(
     return asDeterministicActionCard(buildKeywordBuildoutCard(recommendation, source, blockedBecause));
   }
 
+  if (recommendation.type === "brand_leakage") {
+    return asDeterministicActionCard(buildBrandLeakageCard(recommendation, source, blockedBecause));
+  }
+
+  if (recommendation.type === "search_shopping_overlap") {
+    return asDeterministicActionCard(buildSearchShoppingOverlapCard(recommendation, source, blockedBecause));
+  }
+
   if (recommendation.type === "shopping_launch_or_split") {
     return asDeterministicActionCard(buildShoppingStructureCard(recommendation, source, blockedBecause));
   }
@@ -1095,6 +1416,10 @@ export function buildGoogleAdsOperatorActionCard(
     recommendation.reallocationBand
   ) {
     return asDeterministicActionCard(buildBudgetReallocationCard(recommendation, source, blockedBecause));
+  }
+
+  if (recommendation.type === "pmax_scaling_fit") {
+    return asDeterministicActionCard(buildPmaxScalingFitCard(recommendation, source, blockedBecause));
   }
 
   if (blockedBecause.length > 0) {

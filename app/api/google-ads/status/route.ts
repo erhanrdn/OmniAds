@@ -33,6 +33,7 @@ import {
 } from "@/lib/google-ads/advisor-snapshots";
 import {
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAdvisorAiStructuredAssistBoundaryState,
   getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
 } from "@/lib/google-ads/decision-engine-config";
@@ -1069,6 +1070,11 @@ export async function GET(request: NextRequest) {
     latestAdvisorSnapshot?.advisorPayload?.metadata?.actionContract ?? null;
   const latestAdvisorAggregateIntelligence =
     latestAdvisorSnapshot?.advisorPayload?.metadata?.aggregateIntelligence ?? null;
+  const latestAdvisorAiAssist =
+    latestAdvisorSnapshot?.advisorPayload?.metadata?.aiAssist ?? null;
+  const advisorAiAssistBoundary = getGoogleAdsAdvisorAiStructuredAssistBoundaryState({
+    businessId,
+  });
   const autonomyBoundary = getGoogleAdsAutonomyBoundaryState({
     businessId,
     accountId: null,
@@ -1845,6 +1851,18 @@ export async function GET(request: NextRequest) {
             note: latestAdvisorAggregateIntelligence.note ?? null,
           }
         : null,
+      aiAssist: {
+        gateEnabled: advisorAiAssistBoundary.enabled,
+        businessScoped: advisorAiAssistBoundary.businessScoped,
+        businessAllowed: advisorAiAssistBoundary.businessAllowed,
+        appliedCount: Number(latestAdvisorAiAssist?.appliedCount ?? 0),
+        rejectedCount: Number(latestAdvisorAiAssist?.rejectedCount ?? 0),
+        failedCount: Number(latestAdvisorAiAssist?.failedCount ?? 0),
+        skippedCount: Number(latestAdvisorAiAssist?.skippedCount ?? 0),
+        eligibleCount: Number(latestAdvisorAiAssist?.eligibleCount ?? 0),
+        promptVersion: latestAdvisorAiAssist?.promptVersion ?? null,
+        blockedReasons: advisorAiAssistBoundary.blockedReasons,
+      },
     },
     jobHealth: {
       runningJobs,

@@ -187,6 +187,7 @@ export async function generateGoogleAdsAdvisorSnapshot(input: {
   ) as DateRange;
   const payload = await applyGoogleAdsStructuredAssist({
     analysisMode: "snapshot",
+    businessId: input.businessId,
     advisorPayload: (await buildGoogleAdsDecisionSnapshotReport({
       businessId: input.businessId,
       accountId: input.accountId ?? null,

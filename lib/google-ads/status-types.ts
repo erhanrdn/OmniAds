@@ -233,6 +233,18 @@ export interface GoogleAdsStatusResponse {
       supportWindowEnd: string | null;
       note: string | null;
     } | null;
+    aiAssist?: {
+      gateEnabled: boolean;
+      businessScoped: boolean;
+      businessAllowed: boolean;
+      appliedCount: number;
+      rejectedCount: number;
+      failedCount: number;
+      skippedCount: number;
+      eligibleCount: number;
+      promptVersion: string | null;
+      blockedReasons: string[];
+    } | null;
   } | null;
   jobHealth?: {
     runningJobs: number;

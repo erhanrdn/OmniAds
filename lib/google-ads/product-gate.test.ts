@@ -9,6 +9,7 @@ const getLatestGoogleAdsSyncHealth = vi.fn();
 const getLatestGoogleAdsAdvisorSnapshot = vi.fn();
 const getGoogleAdsDecisionEngineConfig = vi.fn();
 const getGoogleAdsAutomationConfig = vi.fn();
+const getGoogleAdsAdvisorAiStructuredAssistBoundaryState = vi.fn();
 const getGoogleAdsAutonomyBoundaryState = vi.fn();
 const getGoogleAdsWritebackCapabilityGate = vi.fn();
 const getGoogleAdsRetentionRuntimeStatus = vi.fn();
@@ -37,6 +38,7 @@ vi.mock("@/lib/google-ads/advisor-snapshots", () => ({
 
 vi.mock("@/lib/google-ads/decision-engine-config", () => ({
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAdvisorAiStructuredAssistBoundaryState,
   getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
@@ -60,6 +62,7 @@ describe("runGoogleAdsProductGate", () => {
     getGoogleAdsDecisionEngineConfig.mockReturnValue({
       decisionEngineV2Enabled: true,
       writebackEnabled: false,
+      advisorAiStructuredAssistEnabled: false,
     });
     getGoogleAdsAutomationConfig.mockReturnValue({
       decisionEngineV2Enabled: true,
@@ -96,6 +99,19 @@ describe("runGoogleAdsProductGate", () => {
         "Autonomy kill switch is active.",
         "Manual approval is still required.",
         "No Google Ads action families are allowlisted for autonomous execution.",
+      ],
+    });
+    getGoogleAdsAdvisorAiStructuredAssistBoundaryState.mockReturnValue({
+      enabled: false,
+      businessAllowlist: [],
+      mode: "snapshot_time",
+      scope: "unmapped_only",
+      businessScoped: false,
+      businessAllowed: false,
+      eligible: false,
+      blockedReasons: [
+        "AI structured assist flag is disabled.",
+        "No business allowlist is configured for AI structured assist.",
       ],
     });
     getGoogleAdsWritebackCapabilityGate.mockReturnValue({
@@ -181,8 +197,30 @@ describe("runGoogleAdsProductGate", () => {
             supportWindowEnd: "2026-04-10",
             note: "Persisted weekly top-query and daily cluster aggregates are loaded as supplemental support.",
           },
+          aiAssist: {
+            enabled: true,
+            mode: "snapshot_time",
+            scope: "unmapped_only",
+            appliedCount: 1,
+            rejectedCount: 0,
+            failedCount: 0,
+            skippedCount: 2,
+            eligibleCount: 1,
+            promptVersion: "google_ads_ai_structured_assist_v1",
+            businessScoped: true,
+          },
         },
       },
+    });
+    getGoogleAdsAdvisorAiStructuredAssistBoundaryState.mockReturnValue({
+      enabled: true,
+      businessAllowlist: ["biz_1"],
+      mode: "snapshot_time",
+      scope: "unmapped_only",
+      businessScoped: true,
+      businessAllowed: true,
+      eligible: true,
+      blockedReasons: [],
     });
     getLatestGoogleAdsRetentionRun.mockResolvedValue({
       executionMode: "dry_run",
@@ -221,6 +259,9 @@ describe("runGoogleAdsProductGate", () => {
     expect(
       result.sections.find((entry) => entry.key === "advisor_readiness_contract")?.details
     ).toContain("Weekly query aggregate support: available (12 rows)");
+    expect(
+      result.sections.find((entry) => entry.key === "advisor_readiness_contract")?.details
+    ).toContain("AI assist applied/rejected/failed/skipped: 1/0/0/2");
     expect(result.sections.find((entry) => entry.key === "admin_visibility_contract")?.level).toBe(
       "PASS"
     );

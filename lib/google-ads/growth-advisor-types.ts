@@ -466,12 +466,45 @@ export interface GoogleAdvisorShoppingStructurePayload {
   estimationState: "deterministic" | "bounded" | "directional_only" | "not_confidently_estimable";
 }
 
+export interface GoogleAdvisorBrandLeakageControlPayload {
+  kind: "brand_leakage_control";
+  leakedQueries: string[];
+  leakingEntities: string[];
+  ownerLanes: string[];
+  routingGuardrails: string[];
+  estimationState: "bounded" | "directional_only" | "not_confidently_estimable";
+}
+
+export interface GoogleAdvisorSearchShoppingOverlapPayload {
+  kind: "search_shopping_overlap_resolution";
+  overlappingQueries: string[];
+  overlappingProductClusters: string[];
+  overlappingEntities: string[];
+  ownerLaneCandidates: string[];
+  primaryOwnerLane: string | null;
+  secondaryLaneToReduce: string | null;
+  state: "directional_only" | "blocked";
+}
+
 export interface GoogleAdvisorAssetGroupRestructurePayload {
   kind: "asset_group_restructure";
   splitAssetGroups: string[];
   keepSeparateAssetGroups: string[];
   replaceAssets: string[];
   replacementAngles: string[];
+}
+
+export interface GoogleAdvisorPmaxScalingFitPayload {
+  kind: "pmax_scaling_fit";
+  state: "scale_ready" | "repair_first" | "hold";
+  weakAssetGroups: string[];
+  scalePrerequisites: string[];
+  scaleGuardrails: string[];
+  budgetActionType: "campaign_budget" | "shared_budget" | null;
+  previousBudget: number | null;
+  proposedBudget: number | null;
+  deltaPercent: number | null;
+  governedScope: Array<{ id: string; name: string }>;
 }
 
 export interface GoogleAdvisorProductAllocationPayload {
@@ -526,7 +559,10 @@ export type GoogleAdvisorExactChangePayload =
   | GoogleAdvisorNegativeKeywordCleanupPayload
   | GoogleAdvisorKeywordBuildoutPayload
   | GoogleAdvisorShoppingStructurePayload
+  | GoogleAdvisorBrandLeakageControlPayload
+  | GoogleAdvisorSearchShoppingOverlapPayload
   | GoogleAdvisorAssetGroupRestructurePayload
+  | GoogleAdvisorPmaxScalingFitPayload
   | GoogleAdvisorProductAllocationPayload
   | GoogleAdvisorBudgetReallocationPayload
   | GoogleAdvisorTargetStrategyAdjustmentPayload
@@ -551,12 +587,33 @@ export interface GoogleAdvisorActionCard {
   coachNote?: string | null;
 }
 
+export type GoogleAdvisorStructuredAssistFailureCategory =
+  | "not_snapshot"
+  | "not_enabled"
+  | "not_allowlisted"
+  | "not_eligible"
+  | "not_configured"
+  | "schema"
+  | "forecast_language"
+  | "expected_effect"
+  | "evidence"
+  | "validation"
+  | "rollback"
+  | "blocker_state"
+  | "allowlist"
+  | "empty_output"
+  | "transport"
+  | "timeout";
+
 export interface GoogleAdvisorStructuredAssist {
   state: "not_requested" | "applied" | "rejected" | "failed" | "not_configured";
   mode: "snapshot_time";
   model: string | null;
   reason: string | null;
   filledFields: string[];
+  promptVersion: string | null;
+  attemptedAt: string | null;
+  validationFailureCategory: GoogleAdvisorStructuredAssistFailureCategory | null;
 }
 
 export interface GooglePotentialContribution {
@@ -1094,6 +1151,9 @@ export interface GoogleAdvisorMetadata {
     rejectedCount: number;
     failedCount: number;
     skippedCount: number;
+    eligibleCount: number;
+    promptVersion: string | null;
+    businessScoped: boolean;
   } | null;
   actionContract?: GoogleAdvisorActionContract;
 }

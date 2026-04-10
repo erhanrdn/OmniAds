@@ -274,6 +274,55 @@ describe("advisor action contract mapper", () => {
     expect(card.primaryAction).toContain("hero-SKU Shopping");
   });
 
+  it("maps brand leakage into a deterministic routing-control card", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "brand_leakage",
+        strategyLayer: "Search Governance",
+        affectedFamilies: ["brand_search", "non_brand_search", "pmax_scaling"],
+        negativeQueries: ["brand chairs", "brand sofa"],
+        overlapEntities: ["Brand Search", "PMax Prospecting", "Non-Brand Search"],
+        negativeGuardrails: ["brand", "sku"],
+        prerequisites: ["Keep dedicated brand ownership explicit before scaling discovery."],
+      }),
+      "native"
+    );
+
+    expect(card.exactChangePayload).toMatchObject({
+      kind: "brand_leakage_control",
+      leakedQueries: ["brand chairs", "brand sofa"],
+      leakingEntities: ["PMax Prospecting", "Non-Brand Search"],
+      ownerLanes: ["Brand Search", "Dedicated Brand Search lane"],
+      estimationState: "directional_only",
+    });
+    expect(card.primaryAction).toContain("Route 2 leaked brand queries");
+    expect(card.exactChanges[0]?.label).toBe("Leaked brand queries");
+  });
+
+  it("maps search and shopping overlap into a manual owner-selection card", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "search_shopping_overlap",
+        strategyLayer: "Shopping & Products",
+        affectedFamilies: ["non_brand_search", "shopping", "pmax_scaling"],
+        negativeQueries: ["carry on backpack", "weekender bag"],
+        scaleSkuClusters: ["Carry-On Cluster"],
+        overlapEntities: ["Shopping - Backpacks", "Search - Backpacks", "PMax Prospecting"],
+      }),
+      "native"
+    );
+
+    expect(card.exactChangePayload).toMatchObject({
+      kind: "search_shopping_overlap_resolution",
+      overlappingQueries: ["carry on backpack", "weekender bag"],
+      overlappingProductClusters: ["Carry-On Cluster"],
+      ownerLaneCandidates: ["Non-brand Search lane", "Shopping lane", "PMax lane"],
+      state: "directional_only",
+    });
+    expect(card.primaryAction).toContain("Choose one owner lane");
+    expect(card.exactChanges[3]?.label).toBe("Primary owner lane");
+  });
+
   it("maps asset group restructuring into split, keep-separate, and replacement lists", () => {
     const card = buildGoogleAdsOperatorActionCard(
       buildRecommendation({
@@ -338,6 +387,56 @@ describe("advisor action contract mapper", () => {
       ],
     });
     expect(card.expectedEffect.estimationMode).toBe("not_confidently_estimable");
+  });
+
+  it("maps pmax scaling fit into scale-ready or repair-first posture", () => {
+    const repairCard = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "pmax_scaling_fit",
+        strategyLayer: "PMax Scaling",
+        decisionState: "watch",
+        weakAssetGroups: ["Winter Themes"],
+        prerequisites: ["Search/query governance is already under control"],
+        playbookSteps: ["Clean the weakest asset groups first."],
+      }),
+      "native"
+    );
+
+    expect(repairCard.exactChangePayload).toMatchObject({
+      kind: "pmax_scaling_fit",
+      state: "repair_first",
+      weakAssetGroups: ["Winter Themes"],
+      scalePrerequisites: ["Search/query governance is already under control"],
+      scaleGuardrails: ["Clean the weakest asset groups first."],
+    });
+    expect(repairCard.primaryAction).toContain("Repair 1 weak asset group");
+
+    const scaleCard = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "pmax_scaling_fit",
+        strategyLayer: "PMax Scaling",
+        decisionState: "act",
+        weakAssetGroups: [],
+        budgetAdjustmentPreview: {
+          previousAmount: 100,
+          proposedAmount: 115,
+          deltaPercent: 15,
+        },
+        prerequisites: ["Product pressure is readable"],
+        playbookSteps: ["Watch whether PMax efficiency holds after the first scale step."],
+      }),
+      "native"
+    );
+
+    expect(scaleCard.exactChangePayload).toMatchObject({
+      kind: "pmax_scaling_fit",
+      state: "scale_ready",
+      budgetActionType: "campaign_budget",
+      previousBudget: 100,
+      proposedBudget: 115,
+      deltaPercent: 15,
+    });
+    expect(scaleCard.primaryAction).toContain("Scale PMax from $100.00 to $115.00");
   });
 
   it("maps target strategy previews when tROAS or tCPA values are safely previewable", () => {
@@ -482,6 +581,9 @@ describe("advisor action contract mapper", () => {
         model: "gpt-5-nano",
         reason: "Structured AI assist applied to deterministic fallback recommendation fields.",
         filledFields: ["primaryAction", "exactChanges"],
+        promptVersion: "google_ads_ai_structured_assist_v1",
+        attemptedAt: "2026-04-10T00:00:00.000Z",
+        validationFailureCategory: null,
       },
     });
 

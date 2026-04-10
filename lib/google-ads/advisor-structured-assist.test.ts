@@ -20,10 +20,10 @@ function buildRecommendation(
   return {
     id: "rec_1",
     level: "account",
-    type: "brand_leakage",
-    strategyLayer: "Search Governance",
+    type: "operating_model_gap",
+    strategyLayer: "Operating Model",
     decisionState: "act",
-    decisionFamily: "brand_governance",
+    decisionFamily: "structure_repair",
     doBucket: "do_now",
     priority: "high",
     confidence: "medium",
@@ -32,11 +32,11 @@ function buildRecommendation(
     supportStrength: "strong",
     actionability: "ready_now",
     reversibility: "high",
-    title: "Brand demand is leaking into growth lanes",
-    summary: "Brand-like demand is appearing outside the dedicated brand lane.",
-    why: "Mixed brand routing makes growth lanes look healthier than they really are.",
+    title: "Operating model is blurring lane ownership",
+    summary: "Lane ownership is soft enough that governance moves are still partly manual.",
+    why: "Soft lane ownership makes structural recommendations harder to convert into one exact deterministic move.",
     decision: {
-      decisionFamily: "brand_governance",
+      decisionFamily: "structure_governance",
       lane: "review",
       riskLevel: "medium",
       blastRadius: "campaign",
@@ -48,35 +48,35 @@ function buildRecommendation(
         baselineWindow: "baseline_84d",
         maturityCutoffDays: 84,
       },
-      whyNow: "Recurring branded leakage is visible across recent windows.",
+      whyNow: "Recurring governance drift is visible across recent windows.",
       whyNot: [],
       blockers: [],
       validationPlan: ["Check whether branded demand stops appearing in non-brand lanes after 7 days."],
       rollbackPlan: ["Reverse the manual routing change in Google Ads if branded demand drops from the intended lane."],
-      evidenceSummary: "Leakage evidence is visible.",
+      evidenceSummary: "Governance drift evidence is visible.",
       evidencePoints: [
         { label: "Leaked brand queries", value: "3" },
         { label: "Main leakage lane", value: "PMax Prospecting" },
       ],
     },
     decisionNarrative: {
-      whatHappened: "Brand demand is leaking.",
+      whatHappened: "Lane ownership is drifting.",
       whyItHappened: "Lane boundaries are soft.",
       whatToDo: "Review routing and exclusions.",
       risk: "Growth lanes can look artificially strong.",
       howToValidate: ["Check whether branded demand stops appearing in non-brand lanes after 7 days."],
       howToRollBack: "Reverse the manual routing change in Google Ads if branded demand drops from the intended lane.",
     },
-    whyNow: "Recurring branded leakage is visible across recent windows.",
-    reasonCodes: ["brand_leakage"],
+    whyNow: "Recurring governance drift is visible across recent windows.",
+    reasonCodes: ["operating_model_gap"],
     confidenceExplanation: "Multi-window support is present.",
     confidenceDegradationReasons: [],
     recommendedAction:
-      "Treat the overlap as a routing problem first and keep branded demand isolated before broader discovery is scaled.",
+      "Treat the governance issue as a routing problem first and keep exact ownership boundaries explicit before broader discovery is scaled.",
     potentialContribution: {
       label: "Control gain",
       impact: "medium",
-      summary: "Cleaning brand leakage improves the truthfulness of growth-lane performance.",
+      summary: "Tightening operating-model boundaries improves the truthfulness of growth-lane performance.",
     },
     impactBand: "medium",
     effortScore: "medium",
@@ -84,7 +84,7 @@ function buildRecommendation(
     validationChecklist: ["Check whether branded demand stops appearing in non-brand lanes after 7 days."],
     blockers: [],
     rankScore: 18,
-    rankExplanation: "Leakage is high priority.",
+    rankExplanation: "Governance drift is high priority.",
     impactScore: 10,
     recommendationFingerprint: "fp_1",
     evidence: [
@@ -208,6 +208,7 @@ describe("applyGoogleAdsStructuredAssist", () => {
 
   it("applies a validated AI structured assist to an eligible generic recommendation", async () => {
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     createCompletion.mockResolvedValue({
       choices: [
@@ -252,11 +253,15 @@ describe("applyGoogleAdsStructuredAssist", () => {
 
     const result = await applyGoogleAdsStructuredAssist({
       analysisMode: "snapshot",
+      businessId: "biz_1",
       advisorPayload: buildAdvisor([buildRecommendation()]),
     });
 
     expect(result.metadata?.aiAssist).toMatchObject({
       enabled: true,
+      eligibleCount: 1,
+      promptVersion: "google_ads_ai_structured_assist_v1",
+      businessScoped: true,
       appliedCount: 1,
       rejectedCount: 0,
       failedCount: 0,
@@ -265,6 +270,8 @@ describe("applyGoogleAdsStructuredAssist", () => {
       state: "applied",
       mode: "snapshot_time",
       model: "gpt-5-nano",
+      promptVersion: "google_ads_ai_structured_assist_v1",
+      validationFailureCategory: null,
     });
     expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("ai_structured_assist");
     expect(result.recommendations[0]?.operatorActionCard?.exactChanges[0]?.items).toContain("brand chairs");
@@ -272,10 +279,12 @@ describe("applyGoogleAdsStructuredAssist", () => {
 
   it("does not call AI for a deterministic specialized family", async () => {
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");
     vi.stubEnv("OPENAI_API_KEY", "test-key");
 
     const result = await applyGoogleAdsStructuredAssist({
       analysisMode: "snapshot",
+      businessId: "biz_1",
       advisorPayload: buildAdvisor([
         buildRecommendation({
           type: "query_governance",
@@ -287,11 +296,13 @@ describe("applyGoogleAdsStructuredAssist", () => {
 
     expect(createCompletion).not.toHaveBeenCalled();
     expect(result.recommendations[0]?.structuredAssist?.state).toBe("not_requested");
+    expect(result.recommendations[0]?.structuredAssist?.validationFailureCategory).toBe("not_eligible");
     expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("deterministic");
   });
 
   it("rejects AI output that introduces exact items outside the allowlist", async () => {
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     createCompletion.mockResolvedValue({
       choices: [
@@ -324,16 +335,19 @@ describe("applyGoogleAdsStructuredAssist", () => {
 
     const result = await applyGoogleAdsStructuredAssist({
       analysisMode: "snapshot",
+      businessId: "biz_1",
       advisorPayload: buildAdvisor([buildRecommendation()]),
     });
 
     expect(result.recommendations[0]?.structuredAssist?.state).toBe("rejected");
     expect(result.recommendations[0]?.structuredAssist?.reason).toContain("allowlist");
+    expect(result.recommendations[0]?.structuredAssist?.validationFailureCategory).toBe("allowlist");
     expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("deterministic");
   });
 
   it("rejects AI output that tries to introduce a new exact estimate label", async () => {
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     createCompletion.mockResolvedValue({
       choices: [
@@ -366,24 +380,54 @@ describe("applyGoogleAdsStructuredAssist", () => {
 
     const result = await applyGoogleAdsStructuredAssist({
       analysisMode: "snapshot",
+      businessId: "biz_1",
       advisorPayload: buildAdvisor([buildRecommendation()]),
     });
 
     expect(result.recommendations[0]?.structuredAssist?.state).toBe("rejected");
     expect(result.recommendations[0]?.structuredAssist?.reason).toContain("estimate label");
+    expect(result.recommendations[0]?.structuredAssist?.validationFailureCategory).toBe("expected_effect");
     expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("deterministic");
   });
 
   it("keeps deterministic fallback when OpenAI is not configured", async () => {
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");
 
     const result = await applyGoogleAdsStructuredAssist({
       analysisMode: "snapshot",
+      businessId: "biz_1",
       advisorPayload: buildAdvisor([buildRecommendation()]),
     });
 
     expect(createCompletion).not.toHaveBeenCalled();
     expect(result.recommendations[0]?.structuredAssist?.state).toBe("not_configured");
+    expect(result.recommendations[0]?.structuredAssist?.validationFailureCategory).toBe("not_configured");
+    expect(result.metadata?.aiAssist?.failedCount).toBe(1);
     expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("deterministic");
+  });
+
+  it("skips AI assist when the business is not allowlisted", async () => {
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_2");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const result = await applyGoogleAdsStructuredAssist({
+      analysisMode: "snapshot",
+      businessId: "biz_1",
+      advisorPayload: buildAdvisor([buildRecommendation()]),
+    });
+
+    expect(createCompletion).not.toHaveBeenCalled();
+    expect(result.recommendations[0]?.structuredAssist).toMatchObject({
+      state: "not_requested",
+      validationFailureCategory: "not_allowlisted",
+    });
+    expect(result.metadata?.aiAssist).toMatchObject({
+      eligibleCount: 1,
+      appliedCount: 0,
+      skippedCount: 1,
+      businessScoped: true,
+    });
   });
 });

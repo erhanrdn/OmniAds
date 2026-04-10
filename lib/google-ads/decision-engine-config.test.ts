@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildGoogleAdsExecutionSurface,
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAdvisorAiStructuredAssistBoundaryState,
+  getGoogleAdsAdvisorAiStructuredAssistConfig,
   getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
@@ -23,6 +25,37 @@ describe("Google Ads decision engine config", () => {
       writebackEnabled: false,
       advisorAiStructuredAssistEnabled: false,
     });
+  });
+
+  it("keeps AI structured assist behind a business allowlist", () => {
+    expect(getGoogleAdsAdvisorAiStructuredAssistConfig(env())).toMatchObject({
+      enabled: false,
+      businessAllowlist: [],
+      mode: "snapshot_time",
+      scope: "unmapped_only",
+    });
+
+    const blocked = getGoogleAdsAdvisorAiStructuredAssistBoundaryState({
+      businessId: "biz_1",
+      env: env({
+        GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED: "true",
+      }),
+    });
+    expect(blocked.enabled).toBe(true);
+    expect(blocked.businessScoped).toBe(false);
+    expect(blocked.businessAllowed).toBe(false);
+    expect(blocked.eligible).toBe(false);
+
+    const allowlisted = getGoogleAdsAdvisorAiStructuredAssistBoundaryState({
+      businessId: "biz_1",
+      env: env({
+        GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED: "true",
+        GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST: "biz_1,biz_2",
+      }),
+    });
+    expect(allowlisted.businessScoped).toBe(true);
+    expect(allowlisted.businessAllowed).toBe(true);
+    expect(allowlisted.eligible).toBe(true);
   });
 
   it("builds an explicit write-back capability gate from env flags", () => {
