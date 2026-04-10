@@ -4,6 +4,8 @@
 
 This is a V1 operator-first release candidate.
 
+Canonical product posture now lives in [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
+
 - It is not autonomous.
 - It is not a verified write-back release.
 - It is intended to help operators review, validate, and route decisions safely.
@@ -57,6 +59,7 @@ UI / operator surface:
 - cards show windows, confidence, risk, blast radius, blockers, validation, and rollback
 - UI uses manual-plan / operator-review wording
 - UI does not imply direct execution when write-back is disabled
+- Truth matrix, readiness checklist, and retention posture do not contradict each other
 
 Scenario checks:
 

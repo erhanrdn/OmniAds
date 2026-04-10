@@ -1,6 +1,10 @@
 # Google Ads Product Readiness Checklist
 
-Use this checklist as the canonical backend exit gate. Product-ready is declared only after a real business passes a `T0` and `T0 + 24h` validation window.
+Use this checklist together with [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
+
+The future canonical executable gate is `npm run google:ads:product-gate -- <businessId>`.
+
+Product-ready is declared only after a real business passes a `T0` and `T0 + 24h` validation window.
 
 ## Core Validation
 
