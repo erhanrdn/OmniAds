@@ -4,6 +4,7 @@ import type {
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorResponse,
 } from "@/lib/google-ads/growth-advisor-types";
+import { applyGoogleAdsStructuredAssist } from "@/lib/google-ads/advisor-structured-assist";
 import { normalizeGoogleAdsDecisionSnapshotPayload } from "@/lib/google-ads/decision-snapshot";
 import { buildGoogleAdsDecisionSnapshotReport } from "@/lib/google-ads/serving";
 import { GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS } from "@/lib/google-ads/advisor-readiness";
@@ -184,11 +185,14 @@ export async function generateGoogleAdsAdvisorSnapshot(input: {
   const advisorDateRange = String(
     GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS
   ) as DateRange;
-  const payload = (await buildGoogleAdsDecisionSnapshotReport({
-    businessId: input.businessId,
-    accountId: input.accountId ?? null,
-    dateRange: advisorDateRange,
-  })) as GoogleAdvisorResponse;
+  const payload = await applyGoogleAdsStructuredAssist({
+    analysisMode: "snapshot",
+    advisorPayload: (await buildGoogleAdsDecisionSnapshotReport({
+      businessId: input.businessId,
+      accountId: input.accountId ?? null,
+      dateRange: advisorDateRange,
+    })) as GoogleAdvisorResponse,
+  });
 
   return upsertGoogleAdsAdvisorSnapshot({
     businessId: input.businessId,

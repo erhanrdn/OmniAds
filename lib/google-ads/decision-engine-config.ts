@@ -4,6 +4,7 @@ function readBooleanFlag(
   name:
     | "GOOGLE_ADS_DECISION_ENGINE_V2"
     | "GOOGLE_ADS_WRITEBACK_ENABLED"
+    | "GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED"
     | "GOOGLE_ADS_WRITEBACK_PILOT_ENABLED"
     | "GOOGLE_ADS_SEMI_AUTONOMOUS_BUNDLES_ENABLED"
     | "GOOGLE_ADS_CONTROLLED_AUTONOMY_ENABLED"
@@ -22,9 +23,15 @@ function readBooleanFlag(
 export function getGoogleAdsDecisionEngineConfig(env: NodeJS.ProcessEnv = process.env) {
   const decisionEngineV2Enabled = readBooleanFlag("GOOGLE_ADS_DECISION_ENGINE_V2", true, env);
   const writebackEnabled = readBooleanFlag("GOOGLE_ADS_WRITEBACK_ENABLED", false, env);
+  const advisorAiStructuredAssistEnabled = readBooleanFlag(
+    "GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED",
+    false,
+    env
+  );
   return {
     decisionEngineV2Enabled,
     writebackEnabled,
+    advisorAiStructuredAssistEnabled,
   };
 }
 
@@ -193,4 +200,8 @@ export function buildGoogleAdsExecutionSurface(env: NodeJS.ProcessEnv = process.
 
 export function isGoogleAdsDecisionEngineV2Enabled(env: NodeJS.ProcessEnv = process.env) {
   return getGoogleAdsDecisionEngineConfig(env).decisionEngineV2Enabled;
+}
+
+export function isGoogleAdsAdvisorAiStructuredAssistEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return getGoogleAdsDecisionEngineConfig(env).advisorAiStructuredAssistEnabled;
 }

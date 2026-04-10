@@ -21,6 +21,7 @@ describe("Google Ads decision engine config", () => {
     expect(config).toEqual({
       decisionEngineV2Enabled: true,
       writebackEnabled: false,
+      advisorAiStructuredAssistEnabled: false,
     });
   });
 

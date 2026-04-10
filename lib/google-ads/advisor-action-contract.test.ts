@@ -460,4 +460,39 @@ describe("advisor action contract mapper", () => {
       "compatibility_derived"
     );
   });
+
+  it("preserves current native AI-assisted cards instead of rebuilding them", () => {
+    const recommendation = buildRecommendation({
+      type: "brand_leakage",
+      playbookSteps: ["Review brand routing in the leaking lane."],
+      operatorActionCard: {
+        ...buildGoogleAdsOperatorActionCard(
+          buildRecommendation({
+            type: "brand_leakage",
+            playbookSteps: ["Review brand routing in the leaking lane."],
+          }),
+          "native"
+        ),
+        assistMode: "ai_structured_assist",
+        primaryAction: "Tighten brand routing before scaling discovery again.",
+      },
+      structuredAssist: {
+        state: "applied",
+        mode: "snapshot_time",
+        model: "gpt-5-nano",
+        reason: "Structured AI assist applied to deterministic fallback recommendation fields.",
+        filledFields: ["primaryAction", "exactChanges"],
+      },
+    });
+
+    const payload = attachGoogleAdsAdvisorActionContract({
+      advisorPayload: buildAdvisorResponse(recommendation),
+      source: "native",
+    });
+
+    expect(payload.recommendations[0]?.operatorActionCard?.assistMode).toBe("ai_structured_assist");
+    expect(payload.recommendations[0]?.operatorActionCard?.primaryAction).toBe(
+      "Tighten brand routing before scaling discovery again."
+    );
+  });
 });

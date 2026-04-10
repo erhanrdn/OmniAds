@@ -10,6 +10,7 @@ import type {
 } from "@/lib/google-ads/growth-advisor-types";
 
 export const GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION = "google_ads_advisor_action_v2" as const;
+type GoogleAdvisorActionCardDraft = Omit<GoogleAdvisorActionCard, "assistMode">;
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -294,11 +295,30 @@ function buildListBlock(
   };
 }
 
+function asDeterministicActionCard(card: GoogleAdvisorActionCardDraft): GoogleAdvisorActionCard {
+  return {
+    ...card,
+    assistMode: "deterministic",
+  };
+}
+
+function shouldPreserveExistingActionCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource
+) {
+  return (
+    recommendation.operatorActionCard?.contractVersion === GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION &&
+    recommendation.operatorActionCard?.contractSource === source &&
+    (recommendation.operatorActionCard?.assistMode === "deterministic" ||
+      recommendation.operatorActionCard?.assistMode === "ai_structured_assist")
+  );
+}
+
 function buildQueryGovernanceCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const addNow = nonEmpty(recommendation.negativeQueries);
   const suppressed = nonEmpty(recommendation.suppressedQueries);
   const negativeGuardrails = nonEmpty(recommendation.negativeGuardrails);
@@ -366,7 +386,7 @@ function buildKeywordBuildoutCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const addAsExact = nonEmpty(recommendation.promoteToExact ?? recommendation.seedQueriesExact);
   const addAsPhrase = nonEmpty(recommendation.promoteToPhrase ?? recommendation.seedQueriesPhrase);
   const keepAsBroadTheme = nonEmpty(recommendation.broadDiscoveryThemes ?? recommendation.seedThemesBroad);
@@ -459,7 +479,7 @@ function buildShoppingStructureCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const isolateClusters = uniqueStrings([
     ...(recommendation.heroSkuClusters ?? []),
     ...(recommendation.startingSkuClusters ?? []),
@@ -563,7 +583,7 @@ function buildProductAllocationCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const isolateClusters = uniqueStrings([
     ...(recommendation.heroSkuClusters ?? []),
     ...(recommendation.hiddenWinnerSkuClusters ?? []),
@@ -622,7 +642,7 @@ function buildAssetStructureCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const splitAssetGroups = nonEmpty(recommendation.weakAssetGroups);
   const keepSeparateAssetGroups = nonEmpty(recommendation.keepSeparateAssetGroups);
   const replaceAssets = nonEmpty(recommendation.replaceAssets);
@@ -713,7 +733,7 @@ function buildBudgetReallocationCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const sourceCampaigns = (recommendation.reallocationPreview?.sourceCampaigns ?? []).map(toCampaignDelta);
   const destinationCampaigns = (recommendation.reallocationPreview?.destinationCampaigns ?? []).map(toCampaignDelta);
   const estimateMode = sourceCampaigns.length > 0 || destinationCampaigns.length > 0 ? "bounded_preview" : "heuristic_only";
@@ -782,7 +802,7 @@ function buildTargetStrategyCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const jointPreview = recommendation.jointAllocatorAdjustmentPreview;
   const targetPreview = recommendation.portfolioTargetAdjustmentPreview;
   const currentTargetType =
@@ -909,7 +929,7 @@ function buildBlockedCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
@@ -940,7 +960,7 @@ function buildGenericCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const exactSteps = nonEmpty([
     ...(recommendation.playbookSteps ?? []),
     ...(recommendation.orderedHandoffSteps ?? []),
@@ -976,7 +996,7 @@ function buildGenericCard(
 function buildInsufficientEvidenceCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource
-): GoogleAdvisorActionCard {
+): GoogleAdvisorActionCardDraft {
   const reasons = uniqueStrings([
     ...(recommendation.decision?.whyNot ?? []),
     ...(recommendation.confidenceDegradationReasons ?? []),
@@ -1039,11 +1059,11 @@ export function buildGoogleAdsOperatorActionCard(
   const blockedBecause = buildBlockedReasons(recommendation);
 
   if (recommendation.type === "query_governance") {
-    return buildQueryGovernanceCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildQueryGovernanceCard(recommendation, source, blockedBecause));
   }
 
   if (hasTargetStrategyMove(recommendation)) {
-    return buildTargetStrategyCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildTargetStrategyCard(recommendation, source, blockedBecause));
   }
 
   if (
@@ -1051,22 +1071,22 @@ export function buildGoogleAdsOperatorActionCard(
     recommendation.type === "non_brand_expansion" ||
     recommendation.type === "orphaned_non_brand_demand"
   ) {
-    return buildKeywordBuildoutCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildKeywordBuildoutCard(recommendation, source, blockedBecause));
   }
 
   if (recommendation.type === "shopping_launch_or_split") {
-    return buildShoppingStructureCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildShoppingStructureCard(recommendation, source, blockedBecause));
   }
 
   if (recommendation.type === "product_allocation") {
-    return buildProductAllocationCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildProductAllocationCard(recommendation, source, blockedBecause));
   }
 
   if (
     recommendation.type === "asset_group_structure" ||
     recommendation.type === "creative_asset_deployment"
   ) {
-    return buildAssetStructureCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildAssetStructureCard(recommendation, source, blockedBecause));
   }
 
   if (
@@ -1074,18 +1094,18 @@ export function buildGoogleAdsOperatorActionCard(
     recommendation.reallocationPreview ||
     recommendation.reallocationBand
   ) {
-    return buildBudgetReallocationCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildBudgetReallocationCard(recommendation, source, blockedBecause));
   }
 
   if (blockedBecause.length > 0) {
-    return buildBlockedCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildBlockedCard(recommendation, source, blockedBecause));
   }
 
   if (nonEmpty([...(recommendation.playbookSteps ?? []), ...(recommendation.orderedHandoffSteps ?? [])]).length > 0) {
-    return buildGenericCard(recommendation, source, blockedBecause);
+    return asDeterministicActionCard(buildGenericCard(recommendation, source, blockedBecause));
   }
 
-  return buildInsufficientEvidenceCard(recommendation, source);
+  return asDeterministicActionCard(buildInsufficientEvidenceCard(recommendation, source));
 }
 
 export function attachGoogleAdsAdvisorActionContract(input: {
@@ -1094,7 +1114,9 @@ export function attachGoogleAdsAdvisorActionContract(input: {
 }) {
   const recommendations = input.advisorPayload.recommendations.map((recommendation) => ({
     ...recommendation,
-    operatorActionCard: buildGoogleAdsOperatorActionCard(recommendation, input.source),
+    operatorActionCard: shouldPreserveExistingActionCard(recommendation, input.source)
+      ? recommendation.operatorActionCard
+      : buildGoogleAdsOperatorActionCard(recommendation, input.source),
   }));
   const recommendationsById = new Map(recommendations.map((recommendation) => [recommendation.id, recommendation]));
   return {

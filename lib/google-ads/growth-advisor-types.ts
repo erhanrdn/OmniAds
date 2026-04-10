@@ -536,6 +536,7 @@ export type GoogleAdvisorExactChangePayload =
 export interface GoogleAdvisorActionCard {
   contractVersion: GoogleAdvisorActionContractVersion;
   contractSource: GoogleAdvisorActionContractSource;
+  assistMode: "deterministic" | "ai_structured_assist";
   recommendationType: GoogleRecommendationType;
   primaryAction: string;
   scope: GoogleAdvisorActionScope;
@@ -548,6 +549,14 @@ export interface GoogleAdvisorActionCard {
   rollback: string[];
   blockedBecause: string[];
   coachNote?: string | null;
+}
+
+export interface GoogleAdvisorStructuredAssist {
+  state: "not_requested" | "applied" | "rejected" | "failed" | "not_configured";
+  mode: "snapshot_time";
+  model: string | null;
+  reason: string | null;
+  filledFields: string[];
 }
 
 export interface GooglePotentialContribution {
@@ -955,6 +964,7 @@ export interface GoogleRecommendation {
   diagnosticFlags?: string[];
   prerequisites?: string[];
   playbookSteps?: string[];
+  structuredAssist?: GoogleAdvisorStructuredAssist | null;
   operatorActionCard?: GoogleAdvisorActionCard | null;
 }
 
@@ -1076,6 +1086,15 @@ export interface GoogleAdvisorMetadata {
     metricKey?: "roas" | "cpa" | "revenue" | "conversions" | null;
   } | null;
   aggregateIntelligence?: GoogleAdvisorAggregateIntelligenceMetadata | null;
+  aiAssist?: {
+    enabled: boolean;
+    mode: "snapshot_time";
+    scope: "unmapped_only";
+    appliedCount: number;
+    rejectedCount: number;
+    failedCount: number;
+    skippedCount: number;
+  } | null;
   actionContract?: GoogleAdvisorActionContract;
 }
 
