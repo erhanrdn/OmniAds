@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
-import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
-import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
-import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
-import {
-  buildMetaDecisionOs,
-  type MetaDecisionOsV1Response,
-} from "@/lib/meta/decision-os";
+import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
+import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 
 function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -53,40 +47,10 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("startDate") ?? toISODate(daysAgo(29));
   const endDate =
     request.nextUrl.searchParams.get("endDate") ?? toISODate(new Date());
-  const [snapshot, campaigns, breakdowns, adSets] = await Promise.all([
-    getBusinessCommercialTruthSnapshot(businessId),
-    getMetaCampaignsForRange({
-      businessId,
-      startDate,
-      endDate,
-    }),
-    getMetaBreakdownsForRange({
-      businessId,
-      startDate,
-      endDate,
-    }),
-    getMetaAdSetsForRange({
-      businessId,
-      campaignId: null,
-      startDate,
-      endDate,
-    }),
-  ]);
-
-  const payload = buildMetaDecisionOs({
+  const payload = await getMetaDecisionOsForRange({
     businessId,
     startDate,
     endDate,
-    campaigns: campaigns.rows ?? [],
-    adSets: adSets.rows ?? [],
-    breakdowns:
-      breakdowns.location.length > 0 || breakdowns.placement.length > 0
-      ? {
-          location: breakdowns.location ?? [],
-          placement: breakdowns.placement ?? [],
-        }
-      : null,
-    commercialTruth: snapshot,
   });
 
   return NextResponse.json(payload satisfies MetaDecisionOsV1Response, {

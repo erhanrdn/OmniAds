@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
-import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
-import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
+import { isCommandCenterV1EnabledForBusiness } from "@/lib/command-center-config";
+import { getCommandCenterSnapshot } from "@/lib/command-center-service";
+import { getCommandCenterPermissions } from "@/lib/command-center-store";
 
 function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -33,11 +33,11 @@ export async function GET(request: NextRequest) {
   });
   if ("error" in access) return access.error;
 
-  if (!isCreativeDecisionOsV1EnabledForBusiness(businessId)) {
+  if (!isCommandCenterV1EnabledForBusiness(businessId)) {
     return NextResponse.json(
       {
-        error: "creative_decision_os_disabled",
-        message: "Creative Decision OS is feature-gated for this workspace.",
+        error: "command_center_disabled",
+        message: "Command Center is feature-gated for this workspace.",
       },
       { status: 404 },
     );
@@ -47,15 +47,23 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("startDate") ?? toISODate(daysAgo(29));
   const endDate =
     request.nextUrl.searchParams.get("endDate") ?? toISODate(new Date());
+  const viewKey = request.nextUrl.searchParams.get("viewKey");
+  const permissions = getCommandCenterPermissions({
+    businessId,
+    email: access.session.user.email,
+    role: access.membership.role,
+  });
 
-  const payload = await getCreativeDecisionOsForRange({
+  const payload = await getCommandCenterSnapshot({
     request,
     businessId,
     startDate,
     endDate,
+    activeViewKey: viewKey,
+    permissions,
   });
 
-  return NextResponse.json(payload satisfies CreativeDecisionOsV1Response, {
+  return NextResponse.json(payload, {
     headers: { "Cache-Control": "no-store" },
   });
 }

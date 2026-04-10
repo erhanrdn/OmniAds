@@ -37,6 +37,15 @@ export function usePersistentMetaDateRange(): [
   return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
 }
 
+export function usePersistentCommandCenterDateRange(): [
+  DateRangeValue,
+  (value: DateRangeValue) => void,
+] {
+  const stored = usePreferencesStore((s) => s.commandCenterDateRange);
+  const set = usePreferencesStore((s) => s.setCommandCenterDateRange);
+  return usePersistentPreferenceValue(stored, set, DEFAULT_DATE_RANGE);
+}
+
 /**
  * Persists the Motion (Creatives / Copies) date range value across navigations.
  */

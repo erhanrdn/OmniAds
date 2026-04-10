@@ -102,6 +102,7 @@ export const translations = {
       assets: "Assets",
       manage: "Manage",
       overview: "Overview",
+      commandCenter: "Command Center",
       meta: "Meta",
       googleAds: "Google Ads",
       tikTok: "TikTok",

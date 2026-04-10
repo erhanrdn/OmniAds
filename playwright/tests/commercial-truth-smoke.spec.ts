@@ -42,6 +42,38 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
     fullPage: true,
   });
 
+  await page.goto("/command-center");
+  await expect(page.getByTestId("command-center-page")).toBeVisible();
+  const queueActions = page.locator('[data-testid^="command-center-action-"]');
+  await expect(queueActions.first()).toBeVisible();
+  await queueActions.first().click();
+  const workflowDialog = page.getByRole("dialog");
+  await expect(workflowDialog.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
+  await workflowDialog.getByRole("button", { name: "Approve", exact: true }).click();
+  await workflowDialog.getByRole("button", { name: "Reopen", exact: true }).click();
+  await workflowDialog.getByRole("button", { name: "Complete manual", exact: true }).click();
+  await workflowDialog.getByRole("button", { name: "Reopen", exact: true }).click();
+  await workflowDialog.getByRole("button", { name: "Reject", exact: true }).click();
+  await workflowDialog.getByRole("button", { name: "Reopen", exact: true }).click();
+  await workflowDialog.locator('label:has-text("Assign to") select').selectOption({ index: 1 });
+  await workflowDialog.locator('label:has-text("Snooze until") input[type="datetime-local"]').fill("2026-04-12T09:00");
+  await workflowDialog.getByPlaceholder("Add operator context, blockers, or approval rationale").fill("Smoke note from operator.");
+  await workflowDialog.getByRole("button", { name: "Add note", exact: true }).click();
+  await workflowDialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByPlaceholder("Save current view").fill("Smoke saved view");
+  await page.getByRole("button", { name: "Save view" }).click();
+  await queueActions.first().click();
+  await page.getByTestId("command-center-handoffs").getByPlaceholder("Summary for the next shift").fill("Watch promo budget reallocations.");
+  await page.getByRole("button", { name: "Link selected action" }).click();
+  await page.getByTestId("command-center-handoffs").getByRole("button", { name: "Save handoff" }).click();
+  const handoffCard = page.locator('[data-testid^="command-center-handoff-"]').first();
+  await expect(handoffCard).toBeVisible();
+  await handoffCard.getByRole("button", { name: "Acknowledge" }).click();
+  await page.screenshot({
+    path: testInfo.outputPath("commercial-command-center.png"),
+    fullPage: true,
+  });
+
   await page.goto("/creatives");
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
@@ -62,6 +94,7 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await creativeRows.first().click();
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
   await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
   await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
   await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();

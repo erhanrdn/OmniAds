@@ -16,6 +16,7 @@ import {
   Plug,
   Users,
   Settings,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { PlanId } from "@/lib/pricing/plans";
@@ -34,6 +35,7 @@ export function getNavItems(language: AppLanguage): NavItem[] {
   const t = getTranslations(language).navigation;
   return [
     { label: t.overview, href: "/overview", icon: LayoutDashboard, group: "Main" },
+    { label: t.commandCenter, href: "/command-center", icon: Workflow, group: "Main", requiredPlan: "growth" },
     { label: t.meta, href: "/platforms/meta", icon: Facebook, group: "Platforms", requiredPlan: "growth" },
     { label: t.googleAds, href: "/google-ads", icon: Search, group: "Platforms", requiredPlan: "growth" },
     { label: t.tikTok, href: "/platforms/tiktok", icon: Music2, group: "Platforms", requiredPlan: "pro" },

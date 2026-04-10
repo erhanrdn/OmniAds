@@ -718,6 +718,80 @@ export async function runMigrations(options?: {
           error_message TEXT,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_action_state (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id         UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          action_fingerprint  TEXT NOT NULL,
+          source_system       TEXT NOT NULL CHECK (source_system IN ('meta', 'creative')),
+          source_type         TEXT NOT NULL,
+          action_title        TEXT NOT NULL,
+          recommended_action  TEXT NOT NULL,
+          workflow_status     TEXT NOT NULL DEFAULT 'pending'
+                                CHECK (workflow_status IN ('pending', 'approved', 'rejected', 'snoozed', 'completed_manual', 'executed', 'failed', 'canceled')),
+          assignee_user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+          snooze_until        TIMESTAMPTZ,
+          latest_note_excerpt TEXT,
+          note_count          INTEGER NOT NULL DEFAULT 0,
+          last_mutation_id    TEXT,
+          last_mutated_at     TIMESTAMPTZ,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, action_fingerprint)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_state_business_status
+          ON command_center_action_state (business_id, workflow_status, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_state_business_assignee
+          ON command_center_action_state (business_id, assignee_user_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_action_journal (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          action_fingerprint TEXT NOT NULL,
+          action_title       TEXT NOT NULL,
+          source_system      TEXT NOT NULL CHECK (source_system IN ('meta', 'creative')),
+          source_type        TEXT NOT NULL,
+          event_type         TEXT NOT NULL
+                              CHECK (event_type IN ('status_changed', 'assignee_changed', 'note_added', 'handoff_created', 'handoff_acknowledged')),
+          actor_user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          client_mutation_id TEXT NOT NULL,
+          message            TEXT NOT NULL,
+          note               TEXT,
+          metadata_json      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, client_mutation_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_journal_business_action
+          ON command_center_action_journal (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_journal_business_created
+          ON command_center_action_journal (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_saved_views (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id     UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          view_key        TEXT NOT NULL,
+          name            TEXT NOT NULL,
+          definition_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, view_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_saved_views_business
+          ON command_center_saved_views (business_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_handoffs (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          shift                      TEXT NOT NULL CHECK (shift IN ('morning', 'evening')),
+          summary                    TEXT NOT NULL,
+          blockers_json              JSONB NOT NULL DEFAULT '[]'::jsonb,
+          watchouts_json             JSONB NOT NULL DEFAULT '[]'::jsonb,
+          linked_action_fingerprints TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+          from_user_id               UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          to_user_id                 UUID REFERENCES users(id) ON DELETE SET NULL,
+          acknowledged_at            TIMESTAMPTZ,
+          acknowledged_by_user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_handoffs_business_shift
+          ON command_center_handoffs (business_id, shift, updated_at DESC)`.catch(() => {}),
       ]);
 
       // ── PHASE 4: Tables with deeper deps + all remaining indexes ──────────

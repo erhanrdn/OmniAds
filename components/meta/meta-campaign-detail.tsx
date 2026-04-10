@@ -20,11 +20,13 @@ import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
 import { MetaBreakdownGrid, type BreakdownRow } from "@/components/meta/meta-breakdown-grid";
 import type { PlacementChartRow } from "@/components/meta/placement-breakdown-chart";
 import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
+import type { CommandCenterAction, CommandCenterResponse } from "@/lib/command-center";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import {
   MetaCampaignDecisionPanel,
   MetaDecisionOsOverview,
 } from "@/components/meta/meta-decision-os";
+import { getCommandCenter } from "@/src/services";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -100,6 +102,55 @@ function MetricTile({
         {value}
       </p>
       {sub && <p className="mt-0.5 text-[9px] text-slate-400">{sub}</p>}
+    </div>
+  );
+}
+
+function MetaCommandCenterCard({
+  actions,
+  href,
+}: {
+  actions: CommandCenterAction[];
+  href: string;
+}) {
+  const pendingCount = actions.filter((action) => action.status === "pending").length;
+  const approvedCount = actions.filter((action) => action.status === "approved").length;
+  const snoozedCount = actions.filter((action) => action.status === "snoozed").length;
+
+  return (
+    <div
+      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      data-testid="meta-command-center-card"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            Command Center
+          </p>
+          <p className="mt-1 text-sm font-semibold text-slate-950">
+            {actions.length > 0
+              ? `${actions.length} workflow items linked to this surface`
+              : "Open the shared team workflow panel"}
+          </p>
+        </div>
+        <a
+          href={href}
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Open in Command Center
+        </a>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+          Pending {pendingCount}
+        </span>
+        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+          Approved {approvedCount}
+        </span>
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+          Snoozed {snoozedCount}
+        </span>
+      </div>
     </div>
   );
 }
@@ -286,11 +337,16 @@ interface AccountOverviewProps {
   since: string;
   until: string;
   language: "en" | "tr";
+  commandCenterActions: CommandCenterAction[];
 }
 
 function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
+      <MetaCommandCenterCard
+        actions={props.commandCenterActions}
+        href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
+      />
       <MetaOperatingModeCard
         businessId={props.businessId}
         startDate={props.since}
@@ -343,6 +399,16 @@ export function MetaCampaignDetail({
   language,
 }: MetaCampaignDetailProps) {
   const sym = useCurrencySymbol();
+  const commandCenterQuery = useQuery<CommandCenterResponse>({
+    queryKey: ["command-center-meta-overlay", businessId, since, until],
+    enabled: Boolean(businessId && since && until),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: () => getCommandCenter(businessId, since, until),
+  });
+  const metaCommandCenterActions = (commandCenterQuery.data?.actions ?? []).filter(
+    (action) => action.sourceSystem === "meta",
+  );
 
   if (!campaign) {
     return (
@@ -363,6 +429,7 @@ export function MetaCampaignDetail({
         since={since}
         until={until}
         language={language}
+        commandCenterActions={metaCommandCenterActions}
       />
     );
   }
@@ -377,6 +444,12 @@ export function MetaCampaignDetail({
     decisionOsData?.campaigns.find((decision) => decision.campaignId === campaign.id) ?? null;
   const campaignAdSetDecisions =
     decisionOsData?.adSets.filter((decision) => decision.campaignId === campaign.id) ?? [];
+  const campaignCommandCenterActions = metaCommandCenterActions.filter(
+    (action) =>
+      action.relatedEntities.some(
+        (entity) => entity.type === "campaign" && entity.id === campaign.id,
+      ),
+  );
 
   const roas = campaign.roas;
 
@@ -414,6 +487,11 @@ export function MetaCampaignDetail({
           </span>
         </div>
       </div>
+
+      <MetaCommandCenterCard
+        actions={campaignCommandCenterActions}
+        href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
+      />
 
       {/* Recommendation */}
       {rec && (

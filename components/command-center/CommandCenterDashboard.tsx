@@ -1,0 +1,1099 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, Clock3, NotebookPen, RefreshCw, ShieldAlert, Users } from "lucide-react";
+import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import {
+  DEFAULT_DATE_RANGE,
+  DateRangePicker,
+  getPresetDates,
+  type DateRangeValue,
+} from "@/components/date-range/DateRangePicker";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { usePersistentCommandCenterDateRange } from "@/hooks/use-persistent-date-range";
+import type {
+  CommandCenterAction,
+  CommandCenterActionStatus,
+  CommandCenterHandoff,
+  CommandCenterResponse,
+  CommandCenterSavedViewDefinition,
+} from "@/lib/command-center";
+import { cn } from "@/lib/utils";
+import {
+  addCommandCenterNote,
+  acknowledgeCommandCenterHandoff,
+  createCommandCenterHandoff,
+  createCommandCenterSavedView,
+  deleteCommandCenterSavedView,
+  getCommandCenter,
+  mutateCommandCenterAction,
+} from "@/src/services";
+import { useAppStore } from "@/store/app-store";
+
+const STATUS_OPTIONS = [
+  "all",
+  "pending",
+  "approved",
+  "rejected",
+  "snoozed",
+  "completed_manual",
+  "failed",
+  "canceled",
+] as const;
+
+type StatusFilter = (typeof STATUS_OPTIONS)[number];
+type SourceFilter = "all" | "meta" | "creative";
+
+function resolveStatusTone(status: CommandCenterActionStatus) {
+  if (status === "approved" || status === "completed_manual") {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  }
+  if (status === "rejected" || status === "failed" || status === "canceled") {
+    return "bg-rose-50 text-rose-700 border-rose-200";
+  }
+  if (status === "snoozed") {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+  return "bg-slate-50 text-slate-700 border-slate-200";
+}
+
+function formatActionLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function createClientMutationId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `client_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildSavedViewDefinition(input: {
+  currentViewDefinition: CommandCenterSavedViewDefinition | null;
+  sourceFilter: SourceFilter;
+  statusFilter: StatusFilter;
+  watchlistOnly: boolean;
+}): CommandCenterSavedViewDefinition {
+  const next: CommandCenterSavedViewDefinition = {
+    ...(input.currentViewDefinition ?? {}),
+  };
+  if (input.sourceFilter !== "all") {
+    next.sourceTypes =
+      input.sourceFilter === "meta"
+        ? [
+            "meta_adset_decision",
+            "meta_budget_shift",
+            "meta_geo_decision",
+            "meta_placement_anomaly",
+            "meta_no_touch_item",
+          ]
+        : ["creative_primary_decision"];
+  }
+  if (input.statusFilter !== "all") {
+    next.statuses = [input.statusFilter];
+  }
+  if (input.watchlistOnly) {
+    next.watchlistOnly = true;
+  }
+  return next;
+}
+
+function applyClientFilters(input: {
+  actions: CommandCenterAction[];
+  sourceFilter: SourceFilter;
+  statusFilter: StatusFilter;
+  watchlistOnly: boolean;
+}) {
+  return input.actions.filter((action) => {
+    if (input.sourceFilter !== "all" && action.sourceSystem !== input.sourceFilter) {
+      return false;
+    }
+    if (input.statusFilter !== "all" && action.status !== input.statusFilter) {
+      return false;
+    }
+    if (input.watchlistOnly && !action.watchlistOnly) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function SummaryCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {label}
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+        </div>
+        <div className="rounded-xl bg-slate-50 p-2 text-slate-600">{icon}</div>
+      </div>
+    </div>
+  );
+}
+
+function ActionCard({
+  action,
+  active,
+  onSelect,
+}: {
+  action: CommandCenterAction;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "w-full rounded-2xl border bg-white p-4 text-left shadow-sm transition-colors",
+        active ? "border-slate-900 shadow-md" : "border-slate-200 hover:border-slate-300",
+      )}
+      data-testid={`command-center-action-${action.actionFingerprint}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className={cn("capitalize", resolveStatusTone(action.status))}
+            >
+              {formatActionLabel(action.status)}
+            </Badge>
+            <Badge variant="outline">{action.sourceContext.sourceLabel}</Badge>
+            {action.watchlistOnly ? (
+              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                watchlist
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm font-semibold text-slate-950">{action.title}</p>
+          <p className="mt-1 text-xs text-slate-600">
+            {formatActionLabel(action.recommendedAction)} · {action.summary}
+          </p>
+        </div>
+        <div className="text-right text-xs text-slate-500">
+          <p>{Math.round(action.confidence * 100)}% confidence</p>
+          <p className="mt-1 capitalize">{action.priority} priority</p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        {action.assigneeName ? <span>Assignee: {action.assigneeName}</span> : null}
+        {action.snoozeUntil ? <span>Snooze until {action.snoozeUntil}</span> : null}
+        {action.noteCount > 0 ? <span>{action.noteCount} notes</span> : null}
+      </div>
+    </button>
+  );
+}
+
+function splitCommaList(value: string) {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function CommandCenterDashboard() {
+  const selectedBusinessId = useAppStore((state) => state.selectedBusinessId);
+  const [dateRange, setDateRange] = usePersistentCommandCenterDateRange();
+  const searchParams = useSearchParams();
+  const [activeViewKey, setActiveViewKey] = useState<string | null>(
+    searchParams.get("viewKey"),
+  );
+  const [selectedActionFingerprint, setSelectedActionFingerprint] = useState<string | null>(
+    searchParams.get("action"),
+  );
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [watchlistOnly, setWatchlistOnly] = useState(false);
+  const [viewName, setViewName] = useState("");
+  const [handoffShift, setHandoffShift] = useState<"morning" | "evening">("morning");
+  const [handoffSummary, setHandoffSummary] = useState("");
+  const [handoffBlockers, setHandoffBlockers] = useState("");
+  const [handoffWatchouts, setHandoffWatchouts] = useState("");
+  const [handoffToUserId, setHandoffToUserId] = useState<string>("");
+  const [linkedHandoffActions, setLinkedHandoffActions] = useState<string[]>([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
+
+  const effectiveDateRange = useMemo<DateRangeValue>(
+    () => dateRange ?? DEFAULT_DATE_RANGE,
+    [dateRange],
+  );
+
+  const resolvedWindow = useMemo(
+    () =>
+      getPresetDates(
+        effectiveDateRange.rangePreset,
+        effectiveDateRange.customStart,
+        effectiveDateRange.customEnd,
+      ),
+    [effectiveDateRange],
+  );
+  const startDate = resolvedWindow.start;
+  const endDate = resolvedWindow.end;
+
+  const query = useQuery({
+    queryKey: ["command-center", selectedBusinessId, startDate, endDate],
+    enabled: Boolean(selectedBusinessId && startDate && endDate),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: () => getCommandCenter(selectedBusinessId!, startDate, endDate),
+  });
+
+  const selectedView = useMemo(() => {
+    if (!query.data || !activeViewKey) return null;
+    return query.data.savedViews.find((view) => view.viewKey === activeViewKey) ?? null;
+  }, [activeViewKey, query.data]);
+
+  const baseActions = useMemo(() => {
+    if (!query.data) return [];
+    if (!selectedView) return query.data.actions;
+
+    const definition = selectedView.definition;
+    return query.data.actions.filter((action) => {
+      if (
+        definition.watchlistOnly != null &&
+        action.watchlistOnly !== definition.watchlistOnly
+      ) {
+        return false;
+      }
+      if (
+        definition.sourceTypes &&
+        definition.sourceTypes.length > 0 &&
+        !definition.sourceTypes.includes(action.sourceType)
+      ) {
+        return false;
+      }
+      if (
+        definition.statuses &&
+        definition.statuses.length > 0 &&
+        !definition.statuses.includes(action.status)
+      ) {
+        return false;
+      }
+      if (
+        definition.tags &&
+        definition.tags.length > 0 &&
+        !definition.tags.some((tag) => action.tags.includes(tag))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [query.data, selectedView]);
+
+  const filteredActions = useMemo(
+    () =>
+      applyClientFilters({
+        actions: baseActions,
+        sourceFilter,
+        statusFilter,
+        watchlistOnly,
+      }),
+    [baseActions, sourceFilter, statusFilter, watchlistOnly],
+  );
+
+  const selectedAction =
+    filteredActions.find(
+      (action) => action.actionFingerprint === selectedActionFingerprint,
+    ) ??
+    query.data?.actions.find(
+      (action) => action.actionFingerprint === selectedActionFingerprint,
+    ) ??
+    null;
+
+  const watchlistActions = useMemo(
+    () => query.data?.actions.filter((action) => action.watchlistOnly).slice(0, 6) ?? [],
+    [query.data],
+  );
+
+  const canEdit = query.data?.permissions.canEdit ?? false;
+
+  async function refresh() {
+    setPageError(null);
+    await query.refetch();
+  }
+
+  async function runMutation(input: {
+    mutation:
+      | "approve"
+      | "reject"
+      | "snooze"
+      | "assign"
+      | "reopen"
+      | "complete_manual";
+    assigneeUserId?: string | null;
+    snoozeUntil?: string | null;
+  }) {
+    if (!selectedAction || !selectedBusinessId) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await mutateCommandCenterAction({
+        businessId: selectedBusinessId,
+        startDate,
+        endDate,
+        actionFingerprint: selectedAction.actionFingerprint,
+        clientMutationId: createClientMutationId(),
+        mutation: input.mutation,
+        assigneeUserId: input.assigneeUserId,
+        snoozeUntil: input.snoozeUntil,
+      });
+      await query.refetch();
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Mutation failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitNote() {
+    if (!selectedAction || !selectedBusinessId || !noteDraft.trim()) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await addCommandCenterNote({
+        businessId: selectedBusinessId,
+        startDate,
+        endDate,
+        actionFingerprint: selectedAction.actionFingerprint,
+        clientMutationId: createClientMutationId(),
+        note: noteDraft.trim(),
+      });
+      setNoteDraft("");
+      await query.refetch();
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Note save failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function saveCurrentView() {
+    if (!selectedBusinessId || !viewName.trim()) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      const definition = buildSavedViewDefinition({
+        currentViewDefinition: selectedView?.definition ?? null,
+        sourceFilter,
+        statusFilter,
+        watchlistOnly,
+      });
+      await createCommandCenterSavedView({
+        businessId: selectedBusinessId,
+        name: viewName.trim(),
+        definition,
+      });
+      setViewName("");
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Could not save current view.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function removeView(viewKey: string) {
+    if (!selectedBusinessId) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await deleteCommandCenterSavedView({
+        businessId: selectedBusinessId,
+        viewKey,
+      });
+      if (activeViewKey === viewKey) {
+        setActiveViewKey(null);
+      }
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Could not delete view.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitHandoff() {
+    if (!selectedBusinessId || !handoffSummary.trim()) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await createCommandCenterHandoff({
+        businessId: selectedBusinessId,
+        shift: handoffShift,
+        summary: handoffSummary.trim(),
+        blockers: splitCommaList(handoffBlockers),
+        watchouts: splitCommaList(handoffWatchouts),
+        linkedActionFingerprints: linkedHandoffActions,
+        toUserId: handoffToUserId || null,
+      });
+      setHandoffSummary("");
+      setHandoffBlockers("");
+      setHandoffWatchouts("");
+      setLinkedHandoffActions([]);
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Could not create handoff.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function acknowledgeHandoff(handoff: CommandCenterHandoff) {
+    if (!selectedBusinessId) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await acknowledgeCommandCenterHandoff({
+        businessId: selectedBusinessId,
+        handoffId: handoff.id,
+      });
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Could not acknowledge handoff.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!selectedBusinessId) {
+    return <BusinessEmptyState />;
+  }
+
+  const payload = query.data as CommandCenterResponse | undefined;
+
+  return (
+    <div className="space-y-5" data-testid="command-center-page">
+      <div className="rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#f7fafc_60%,#eef5ff_100%)] p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Command Center
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold text-slate-950">
+              Team workflow across Meta and Creative
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-600">
+              Daily action queue, approval state, assignees, saved views, handoff notes,
+              and decision history live in one operator surface.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <DateRangePicker
+              value={effectiveDateRange}
+              onChange={setDateRange}
+              showComparisonTrigger={false}
+              rangePresets={["today", "7d", "14d", "30d", "90d", "custom"]}
+            />
+            <Button variant="outline" size="sm" onClick={refresh} disabled={query.isFetching}>
+              <RefreshCw className={cn("h-4 w-4", query.isFetching && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {payload ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              label="Total actions"
+              value={payload.summary.totalActions}
+              icon={<ArrowRight className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Pending"
+              value={payload.summary.pendingCount}
+              icon={<Clock3 className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Assigned"
+              value={payload.summary.assignedCount}
+              icon={<Users className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Watchlist"
+              value={payload.summary.watchlistCount}
+              icon={<ShieldAlert className="h-4 w-4" />}
+            />
+          </div>
+        ) : null}
+
+        {payload && !payload.permissions.canEdit ? (
+          <div
+            className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            data-testid="command-center-read-only-banner"
+          >
+            {payload.permissions.reason ??
+              "This workspace is read-only for your current role."}
+          </div>
+        ) : null}
+
+        {pageError ? (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {pageError}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">Saved views</Badge>
+          <Button
+            variant={activeViewKey === null ? "default" : "outline"}
+            size="sm"
+            onClick={() => setActiveViewKey(null)}
+          >
+            All actions
+          </Button>
+          {(payload?.savedViews ?? []).map((view) => (
+            <div key={view.viewKey} className="flex items-center gap-1">
+              <Button
+                variant={activeViewKey === view.viewKey ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveViewKey(activeViewKey === view.viewKey ? null : view.viewKey)}
+                data-testid={`command-center-view-${view.viewKey}`}
+              >
+                {view.name}
+              </Button>
+              {!view.isBuiltIn ? (
+                <button
+                  type="button"
+                  className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
+                  onClick={() => void removeView(view.viewKey)}
+                  aria-label={`Delete ${view.name}`}
+                >
+                  x
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_auto]">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">Source</Badge>
+            {(["all", "meta", "creative"] as SourceFilter[]).map((value) => (
+              <Button
+                key={value}
+                variant={sourceFilter === value ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSourceFilter(value)}
+              >
+                {value}
+              </Button>
+            ))}
+            <Badge variant="outline">Status</Badge>
+            {STATUS_OPTIONS.map((value) => (
+              <Button
+                key={value}
+                variant={statusFilter === value ? "default" : "outline"}
+                size="sm"
+                onClick={() => setStatusFilter(value)}
+              >
+                {formatActionLabel(value)}
+              </Button>
+            ))}
+            <Button
+              variant={watchlistOnly ? "default" : "outline"}
+              size="sm"
+              onClick={() => setWatchlistOnly((current) => !current)}
+            >
+              Watchlist only
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={viewName}
+              onChange={(event) => setViewName(event.target.value)}
+              placeholder="Save current view"
+              className="h-9 rounded-md border border-slate-200 px-3 text-sm"
+            />
+            <Button size="sm" onClick={() => void saveCurrentView()} disabled={!canEdit || !viewName.trim()}>
+              Save view
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1.45fr_0.95fr]">
+        <div className="space-y-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">Action queue</h2>
+                <p className="text-xs text-slate-500">
+                  {filteredActions.length} visible actions
+                </p>
+              </div>
+              <Badge variant="outline">deterministic queue only</Badge>
+            </div>
+
+            {query.isLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
+                ))}
+              </div>
+            ) : filteredActions.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+                No actions match this view.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredActions.map((action) => (
+                  <ActionCard
+                    key={action.actionFingerprint}
+                    action={action}
+                    active={action.actionFingerprint === selectedActionFingerprint}
+                    onSelect={() => setSelectedActionFingerprint(action.actionFingerprint)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="command-center-handoffs">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">Shift handoff</h2>
+                <p className="text-xs text-slate-500">
+                  Morning/evening notes for the next operator.
+                </p>
+              </div>
+              <Badge variant="outline">team-shared</Badge>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm text-slate-700">
+                <span className="text-xs font-medium text-slate-500">Shift</span>
+                <select
+                  value={handoffShift}
+                  onChange={(event) => setHandoffShift(event.target.value as "morning" | "evening")}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3"
+                >
+                  <option value="morning">Morning</option>
+                  <option value="evening">Evening</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-sm text-slate-700">
+                <span className="text-xs font-medium text-slate-500">To user</span>
+                <select
+                  value={handoffToUserId}
+                  onChange={(event) => setHandoffToUserId(event.target.value)}
+                  className="h-9 w-full rounded-md border border-slate-200 bg-white px-3"
+                >
+                  <option value="">Unassigned</option>
+                  {(payload?.assignableUsers ?? []).map((user) => (
+                    <option key={user.userId} value={user.userId}>
+                      {user.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              <textarea
+                value={handoffSummary}
+                onChange={(event) => setHandoffSummary(event.target.value)}
+                placeholder="Summary for the next shift"
+                className="min-h-[84px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  value={handoffBlockers}
+                  onChange={(event) => setHandoffBlockers(event.target.value)}
+                  placeholder="Blockers, comma-separated"
+                  className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+                />
+                <input
+                  value={handoffWatchouts}
+                  onChange={(event) => setHandoffWatchouts(event.target.value)}
+                  placeholder="Watchouts, comma-separated"
+                  className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (
+                      selectedAction &&
+                      !linkedHandoffActions.includes(selectedAction.actionFingerprint)
+                    ) {
+                      setLinkedHandoffActions((current) => [
+                        ...current,
+                        selectedAction.actionFingerprint,
+                      ]);
+                    }
+                  }}
+                  disabled={!selectedAction}
+                >
+                  Link selected action
+                </Button>
+                {linkedHandoffActions.map((fingerprint) => (
+                  <Badge key={fingerprint} variant="outline">
+                    {fingerprint.slice(0, 12)}
+                  </Badge>
+                ))}
+              </div>
+              <Button onClick={() => void submitHandoff()} disabled={!canEdit || pending || !handoffSummary.trim()}>
+                Save handoff
+              </Button>
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {(payload?.handoffs ?? []).map((handoff) => (
+                <div
+                  key={handoff.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                  data-testid={`command-center-handoff-${handoff.id}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {handoff.shift} shift
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">{handoff.summary}</p>
+                    </div>
+                    <div className="text-right text-[11px] text-slate-500">
+                      <p>From {handoff.fromUserName ?? "Unknown"}</p>
+                      {handoff.toUserName ? <p>To {handoff.toUserName}</p> : null}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                    {handoff.blockers.map((item) => (
+                      <Badge key={item} variant="outline">
+                        blocker: {item}
+                      </Badge>
+                    ))}
+                    {handoff.watchouts.map((item) => (
+                      <Badge key={item} variant="outline">
+                        watch: {item}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-[11px] text-slate-500">
+                      {handoff.acknowledgedAt
+                        ? `Acknowledged by ${handoff.acknowledgedByUserName ?? "operator"}`
+                        : "Awaiting acknowledgement"}
+                    </div>
+                    {!handoff.acknowledgedAt ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void acknowledgeHandoff(handoff)}
+                        disabled={!canEdit || pending}
+                      >
+                        Acknowledge
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="space-y-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="command-center-journal">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">Decision journal</h2>
+                <p className="text-xs text-slate-500">
+                  Immutable operator history across approvals, notes, and handoffs.
+                </p>
+              </div>
+              <NotebookPen className="h-4 w-4 text-slate-500" />
+            </div>
+
+            <div className="space-y-3">
+              {(payload?.journal ?? []).map((entry) => (
+                <div
+                  key={entry.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                  data-testid={`command-center-journal-${entry.id}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{entry.message}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {entry.actionTitle} · {entry.actorName ?? entry.actorEmail ?? "Operator"}
+                      </p>
+                    </div>
+                    <Badge variant="outline">{formatActionLabel(entry.eventType)}</Badge>
+                  </div>
+                  {entry.note ? (
+                    <p className="mt-2 text-xs leading-5 text-slate-600">{entry.note}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">No-touch watchlist</h2>
+                <p className="text-xs text-slate-500">
+                  Surfaces kept out of the primary queue.
+                </p>
+              </div>
+              <Badge variant="outline">{watchlistActions.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {watchlistActions.map((action) => (
+                <div key={action.actionFingerprint} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-medium text-slate-900">{action.title}</p>
+                  <p className="mt-1 text-xs text-slate-600">{action.summary}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <Sheet
+        modal={false}
+        open={Boolean(selectedAction)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedActionFingerprint(null);
+        }}
+      >
+        <SheetContent className="w-full sm:max-w-2xl" showOverlay={false}>
+          {selectedAction ? (
+            <>
+              <SheetHeader className="border-b border-slate-200">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn("capitalize", resolveStatusTone(selectedAction.status))}
+                  >
+                    {formatActionLabel(selectedAction.status)}
+                  </Badge>
+                  <Badge variant="outline">{selectedAction.sourceContext.sourceLabel}</Badge>
+                  {selectedAction.sourceContext.operatingMode ? (
+                    <Badge variant="outline">
+                      Operating Mode: {selectedAction.sourceContext.operatingMode}
+                    </Badge>
+                  ) : null}
+                </div>
+                <SheetTitle className="mt-2 text-xl">{selectedAction.title}</SheetTitle>
+                <SheetDescription className="text-sm">
+                  {formatActionLabel(selectedAction.recommendedAction)} · {selectedAction.summary}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="space-y-5 overflow-y-auto p-4">
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Recommendation
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-950">
+                        {formatActionLabel(selectedAction.recommendedAction)}
+                      </p>
+                    </div>
+                    <div className="text-right text-xs text-slate-500">
+                      <p>{Math.round(selectedAction.confidence * 100)}% confidence</p>
+                      <p className="capitalize">{selectedAction.priority} priority</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedAction.relatedEntities.map((entity) => (
+                      <Badge key={`${entity.type}:${entity.id}`} variant="outline">
+                        {entity.type}: {entity.label}
+                      </Badge>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Decision Signals
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                    {selectedAction.decisionSignals.map((signal) => (
+                      <li key={signal} className="rounded-xl bg-slate-50 px-3 py-2">
+                        {signal}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Evidence Snapshot
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedAction.evidence.map((item) => (
+                      <div
+                        key={`${item.label}:${item.value}`}
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                      >
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                          {item.label}
+                        </p>
+                        <p className="text-sm font-semibold text-slate-900">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Guardrails
+                  </p>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                    {selectedAction.guardrails.length > 0 ? (
+                      selectedAction.guardrails.map((guardrail) => (
+                        <li key={guardrail} className="rounded-xl bg-slate-50 px-3 py-2">
+                          {guardrail}
+                        </li>
+                      ))
+                    ) : (
+                      <li className="rounded-xl bg-slate-50 px-3 py-2 text-slate-500">
+                        No additional guardrails attached to this action.
+                      </li>
+                    )}
+                  </ul>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Workflow
+                    </p>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={selectedAction.sourceContext.sourceDeepLink}>
+                        Open source surface
+                      </Link>
+                    </Button>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1 text-sm text-slate-700">
+                      <span className="text-xs font-medium text-slate-500">Assign to</span>
+                      <select
+                        value={selectedAction.assigneeUserId ?? ""}
+                        onChange={(event) =>
+                          void runMutation({
+                            mutation: "assign",
+                            assigneeUserId: event.target.value || null,
+                          })
+                        }
+                        className="h-9 w-full rounded-md border border-slate-200 bg-white px-3"
+                        disabled={!canEdit || pending}
+                      >
+                        <option value="">Unassigned</option>
+                        {(payload?.assignableUsers ?? []).map((user) => (
+                          <option key={user.userId} value={user.userId}>
+                            {user.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-sm text-slate-700">
+                      <span className="text-xs font-medium text-slate-500">Snooze until</span>
+                      <div className="flex gap-2">
+                        <input
+                          type="datetime-local"
+                          className="h-9 flex-1 rounded-md border border-slate-200 px-3 text-sm"
+                          onChange={(event) => {
+                            const nextValue = event.target.value
+                              ? new Date(event.target.value).toISOString()
+                              : null;
+                            if (nextValue) {
+                              void runMutation({
+                                mutation: "snooze",
+                                snoozeUntil: nextValue,
+                              });
+                            }
+                          }}
+                          disabled={!canEdit || pending}
+                        />
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => void runMutation({ mutation: "approve" })} disabled={!canEdit || pending}>
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void runMutation({ mutation: "reject" })} disabled={!canEdit || pending}>
+                      Reject
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void runMutation({ mutation: "reopen" })} disabled={!canEdit || pending}>
+                      Reopen
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void runMutation({ mutation: "complete_manual" })} disabled={!canEdit || pending}>
+                      Complete manual
+                    </Button>
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Notes
+                  </p>
+                  <textarea
+                    value={noteDraft}
+                    onChange={(event) => setNoteDraft(event.target.value)}
+                    placeholder="Add operator context, blockers, or approval rationale"
+                    className="mt-3 min-h-[110px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-xs text-slate-500">
+                      {selectedAction.latestNoteExcerpt
+                        ? `Latest note: ${selectedAction.latestNoteExcerpt}`
+                        : "No notes yet."}
+                    </div>
+                    <Button size="sm" onClick={() => void submitNote()} disabled={!canEdit || pending || !noteDraft.trim()}>
+                      Add note
+                    </Button>
+                  </div>
+                </section>
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

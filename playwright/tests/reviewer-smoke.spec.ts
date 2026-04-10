@@ -22,6 +22,14 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("meta-adsets-section")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("meta-smoke.png"), fullPage: true });
 
+  await page.goto("/command-center");
+  await expect(page.getByTestId("command-center-page")).toBeVisible();
+  await expect(page.getByTestId("command-center-read-only-banner")).toBeVisible();
+  await expect(page.getByTestId("command-center-journal")).toBeVisible();
+  await expect(page.getByTestId("command-center-handoffs")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save view" })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
+
   await page.goto("/creatives");
 
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
@@ -45,6 +53,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page).toHaveURL(/creative=/);
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
   await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
   await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
   await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();

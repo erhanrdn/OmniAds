@@ -18,10 +18,12 @@ import {
 } from "@/components/creatives/creatives-top-section-support";
 import {
   getAiCreativeRuleCommentary,
+  getCommandCenter,
   type CreativeDecision,
   type CreativeDecisionOs,
   type CreativeHistoricalWindows,
 } from "@/src/services";
+import type { CommandCenterAction, CommandCenterResponse } from "@/lib/command-center";
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
@@ -299,9 +301,39 @@ export function CreativeDetailExperience({
     () => creativeDateRangeToStandard(dateRange),
     [dateRange],
   );
+  const commandCenterQuery = useQuery<CommandCenterResponse>({
+    queryKey: [
+      "command-center-creative-overlay",
+      businessId,
+      standardRange.customStart,
+      standardRange.customEnd,
+    ],
+    enabled: Boolean(open && businessId && standardRange.customStart && standardRange.customEnd),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      getCommandCenter(
+        businessId,
+        standardRange.customStart,
+        standardRange.customEnd,
+      ),
+  });
   const report = useMemo(
     () => decisionOsCreative?.report ?? null,
     [decisionOsCreative]
+  );
+  const commandCenterAction = useMemo<CommandCenterAction | null>(
+    () =>
+      row
+        ? commandCenterQuery.data?.actions.find(
+            (action) =>
+              action.sourceSystem === "creative" &&
+              action.relatedEntities.some(
+                (entity) => entity.type === "creative" && entity.id === row.id,
+              ),
+          ) ?? null
+        : null,
+    [commandCenterQuery.data, row],
   );
   const decision = useMemo(() => {
     if (!report) return null;
@@ -613,6 +645,43 @@ export function CreativeDetailExperience({
                     <CompactMetricCell label="Impressions" value={formatInteger(row.impressions)} />
                     <CompactMetricCell label="Link clicks" value={formatInteger(row.linkClicks)} />
                   </div>
+                </div>
+              </section>
+
+              <section
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+                data-testid="creative-detail-command-center"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Command Center
+                    </p>
+                    <h4 className="mt-0.5 text-sm font-semibold text-slate-900">
+                      Workflow state for this creative
+                    </h4>
+                  </div>
+                  <a
+                    href={`/command-center?startDate=${encodeURIComponent(standardRange.customStart)}&endDate=${encodeURIComponent(standardRange.customEnd)}${commandCenterAction ? `&action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
+                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Open in Command Center
+                  </a>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+                    Status {commandCenterAction ? commandCenterAction.status.replaceAll("_", " ") : "pending"}
+                  </span>
+                  {commandCenterAction?.assigneeName ? (
+                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700">
+                      Assignee {commandCenterAction.assigneeName}
+                    </span>
+                  ) : null}
+                  {commandCenterAction?.snoozeUntil ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                      Snoozed
+                    </span>
+                  ) : null}
                 </div>
               </section>
 
