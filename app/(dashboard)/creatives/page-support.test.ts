@@ -107,6 +107,12 @@ describe("mapApiRowToUiRow", () => {
   it("maps new taxonomy labels to the UI row", () => {
     const row = mapApiRowToUiRow(buildApiRow());
 
+    expect(row.copyText).toBe("Buy now");
+    expect(row.copyVariants).toEqual(["Buy now"]);
+    expect(row.headlineVariants).toEqual(["Headline"]);
+    expect(row.descriptionVariants).toEqual(["Description"]);
+    expect(row.objectStoryId).toBeNull();
+    expect(row.postId).toBeNull();
     expect(row.creativePrimaryType).toBe("catalog");
     expect(row.creativePrimaryLabel).toBe("Catalog");
     expect(row.creativeSecondaryType).toBe("video");

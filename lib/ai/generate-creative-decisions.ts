@@ -1,4 +1,8 @@
 import { getOpenAI } from "@/lib/openai";
+import {
+  buildCreativeDecisionOs,
+  mapCreativeDecisionOsToLegacyDecisions,
+} from "@/lib/creative-decision-os";
 
 const AI_MODEL = "gpt-5-nano";
 const CREATIVE_DECISION_BATCH_SIZE = 220;
@@ -41,6 +45,23 @@ export interface CreativeDecisionInputRow {
   video75Rate: number;
   clickToPurchaseRate: number;
   atcToPurchaseRate: number;
+  copyText?: string | null;
+  copyVariants?: string[];
+  headlineVariants?: string[];
+  descriptionVariants?: string[];
+  objectStoryId?: string | null;
+  effectiveObjectStoryId?: string | null;
+  postId?: string | null;
+  accountId?: string | null;
+  accountName?: string | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  adSetId?: string | null;
+  adSetName?: string | null;
+  taxonomyPrimaryLabel?: string | null;
+  taxonomySecondaryLabel?: string | null;
+  taxonomyVisualFormat?: string | null;
+  aiTags?: Partial<Record<string, string[]>>;
   historicalWindows?: CreativeDecisionHistoricalWindows | null;
 }
 
@@ -76,7 +97,7 @@ export interface GenerateCreativeDecisionsInput {
   currency: string;
   creatives: CreativeDecisionInputRow[];
 }
-export const CREATIVE_DECISION_ENGINE_VERSION = "2026-03-24-cq-seg-v2";
+export const CREATIVE_DECISION_ENGINE_VERSION = "2026-04-10-creative-decision-os-v1";
 
 export interface CreativeDecisionResult {
   creativeId: string;
@@ -747,231 +768,56 @@ export function buildHeuristicCreativeDecisions(
   rows: CreativeDecisionInputRow[]
 ): CreativeDecisionResult[] {
   if (rows.length === 0) return [];
-
   const safeRows = sanitizeInputRows(rows);
-  const coreRows = safeRows.map((row) => ({ row, core: buildWeightedCreativeSnapshot(row) }));
-  const roasValues = coreRows.map(({ core }) => core.roas).filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
-  const spendValues = coreRows.map(({ core }) => core.spend).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
-
-  const weightedRoas = (() => {
-    const totalSpend = coreRows.reduce((sum, { core }) => sum + core.spend, 0);
-    const totalRevenue = coreRows.reduce((sum, { core }) => sum + core.purchaseValue, 0);
-    return totalSpend > 0 ? totalRevenue / totalSpend : 0;
-  })();
-  const roasAvg =
-    weightedRoas > 0
-      ? weightedRoas
-      : roasValues.length > 0
-        ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length
-        : 0;
-  const spendP50 = percentile(spendValues, 0.5);
-  const spendP80 = percentile(spendValues, 0.8);
-
-  // Top-quartile baselines (same as detail page scoring)
-  const spendP75 = percentile(spendValues, 0.75);
-  const topQuartileSpends = spendValues.filter((v) => v >= spendP75);
-  const spendTopAvg = topQuartileSpends.length > 0 ? topQuartileSpends.reduce((a, b) => a + b, 0) / topQuartileSpends.length : (spendValues.length > 0 ? spendValues[spendValues.length - 1] : 1);
-
-  const purchaseValues = coreRows.map(({ core }) => core.purchases).filter((v) => Number.isFinite(v) && v > 0).sort((a, b) => a - b);
-  const purchasesP75 = percentile(purchaseValues, 0.75);
-  const topQuartilePurchases = purchaseValues.filter((v) => v >= purchasesP75);
-  const purchasesTopAvg = topQuartilePurchases.length > 0 ? topQuartilePurchases.reduce((a, b) => a + b, 0) / topQuartilePurchases.length : (purchaseValues.length > 0 ? purchaseValues[purchaseValues.length - 1] : 1);
-  const totalPurchases = coreRows.reduce((acc, { core }) => acc + core.purchases, 0);
-  const totalLinkClicks = coreRows.reduce((acc, { core }) => acc + core.linkClicks, 0);
-  const totalPurchaseValue = coreRows.reduce((acc, { core }) => acc + core.purchaseValue, 0);
-  const cvrAvg = totalLinkClicks > 0 ? (totalPurchases / totalLinkClicks) * 100 : 0;
-  const aovAvg = totalPurchases > 0 ? totalPurchaseValue / totalPurchases : 0;
-  const avgConversionQuality = cvrAvg * aovAvg;
-  const weightedCpa = totalPurchases > 0 ? coreRows.reduce((sum, { core }) => sum + core.spend, 0) / totalPurchases : 0;
-
-  const base = coreRows.map(({ row, core }) => {
-    // Reliability score (0-15), same formula as detail page
-    const spendReliability = spendTopAvg > 0 ? Math.min(1.0, core.spend / spendTopAvg) : 0.4;
-    const purchaseRatio = purchasesTopAvg > 0 ? core.purchases / purchasesTopAvg : 0;
-    const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
-    const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
-    const cvr = core.linkClicks > 0 ? (core.purchases / core.linkClicks) * 100 : 0;
-    const aov = core.purchases > 0 ? core.purchaseValue / core.purchases : 0;
-    const conversionQuality = cvr * aov;
-    const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
-    const strongConversionQuality = conversionQualityRatio >= 1.05;
-    const acceptableConversionQuality = conversionQualityRatio >= 0.9;
-    const historical = historicalSupportSummary(row, roasAvg, weightedCpa);
-    const selectedVsCoreDelta = historical.baselineRoas > 0 ? (row.roas - historical.baselineRoas) / historical.baselineRoas : 0;
-
-    let action: CreativeDecisionAction = "watch";
-
-    if (reliabilityScore < 7) {
-      action = "test_more";
-    } else if (reliabilityScore < 10) {
-      action = "watch";
-    } else if (roasAvg > 0 && core.roas >= roasAvg * 1.45 && core.spend >= Math.max(1, spendP50) && core.purchases >= 3 && strongConversionQuality) {
-      action = "scale_hard";
-    } else if (roasAvg > 0 && core.roas >= roasAvg * 1.2 && acceptableConversionQuality) {
-      action = "scale";
-    } else if (roasAvg > 0 && core.roas < roasAvg * 0.55 && core.spend >= Math.max(1, spendP80) && core.purchases === 0) {
-      action = "kill";
-    } else if (roasAvg > 0 && core.roas < roasAvg * 0.8) {
-      action = "pause";
-    }
-
-    if ((action === "scale_hard" || action === "scale") && historical.total > 0) {
-      if (historical.strongCount === 0 || historical.seasonalSpike) {
-        action = action === "scale_hard" ? "scale" : "watch";
-      } else if (action === "scale" && historical.strongCount >= 3 && selectedVsCoreDelta >= -0.15) {
-        action = "scale_hard";
-      }
-    }
-
-    if ((action === "pause" || action === "kill") && historical.total > 0) {
-      if (historical.fatigueSignal || historical.strongCount >= 2) {
-        action = "pause";
-      } else if (historical.weakCount === 0 && historical.strongCount >= 1) {
-        action = "watch";
-      }
-    }
-
-    if (
-      historical.strongCount >= 2 &&
-      row.spend >= Math.max(1, spendP50 * 0.8) &&
-      historical.baselineRoas > 0 &&
-      row.roas <= historical.baselineRoas * 0.25 &&
-      row.purchases === 0
-    ) {
-      action = "pause";
-    }
-
-    if (action === "test_more" && historical.strongCount >= 2) {
-      action = "watch";
-    }
-
-    const confidenceBase =
-      reliabilityScore < 7
-        ? 0.4
-        : core.spend >= spendP50
-          ? 0.72
-          : 0.58;
-
-    const confidence = clamp(
-      action === "watch" || action === "test_more" ? confidenceBase - 0.06 : confidenceBase,
-      0.3,
-      0.88
-    );
-    const adjustedConfidence = clamp(
-      confidence +
-        (historical.strongCount >= 3 ? 0.08 : 0) -
-        (historical.seasonalSpike ? 0.08 : 0) -
-        (historical.total === 0 ? 0.02 : 0),
-      0.3,
-      0.92
-    );
-
-    const actionBaseScore =
-      action === "scale_hard"
-        ? 90
-        : action === "scale"
-          ? 80
-          : action === "watch"
-            ? 60
-            : action === "test_more"
-              ? 52
-              : action === "pause"
-                ? 34
-                : 18;
-    const roasLift = roasAvg > 0 ? ((core.roas / roasAvg) - 1) * 18 : 0;
-    const reliabilityAdj = reliabilityScore < 7 ? -8 : core.purchases >= 3 ? 5 : core.purchases >= 1 ? 2 : -2;
-    const spendAdj = core.spend >= spendP50 ? 2 : -2;
-    const score = Math.round(clamp(actionBaseScore + roasLift + reliabilityAdj + spendAdj, 0, 100));
-
-    const scoringFactors = [
-      `Core ROAS ${core.roas.toFixed(2)} vs avg ${roasAvg.toFixed(2)}.`,
-      `Conversion quality ${conversionQuality.toFixed(2)} vs avg ${avgConversionQuality.toFixed(2)}.`,
-      `Core spend ${core.spend.toFixed(2)} vs median ${spendP50.toFixed(2)}.`,
-      historical.total > 0
-        ? `Historical support ${historical.strongCount}/${historical.total} strong windows; baseline ROAS ${historical.baselineRoas.toFixed(2)}.`
-        : "No historical validation windows available.",
-      `Selected-range overlay ${row.roas.toFixed(2)}x on ${row.purchases.toFixed(0)} purchases; confidence ${Math.round(adjustedConfidence * 100)}%.`,
-    ];
-
-    const reasons =
-      action === "scale_hard"
-        ? [
-            "Core weighted performance is top-tier for this account baseline.",
-            historical.strongCount >= 2
-              ? "Historical windows also support winner status, so this looks like a stable scale candidate."
-              : "Commercial impact is high enough to accelerate budget confidently.",
-          ]
-        : action === "scale"
-        ? [
-            "Core weighted ROAS is above account-relative baseline.",
-            historical.seasonalSpike
-              ? "Selected range is strong, but historical support is still limited, so scale should stay controlled."
-              : "Recent and historical windows support controlled scaling.",
-          ]
-        : action === "kill"
-          ? [
-              "This creative is consuming meaningful spend with strongly negative economics.",
-              historical.weakCount >= 2
-                ? "Historical windows also show persistent weakness."
-                : "Downside evidence is strong enough to stop this variant immediately.",
-            ]
-        : action === "pause"
-          ? [
-              historical.fatigueSignal
-                ? "Core verdict says this looks like decay relative to the creative's own history."
-                : "Core weighted ROAS is below account-relative baseline.",
-              historical.fatigueSignal
-                ? "This looks more like fatigue or decay than a fresh winner."
-                : "Spend indicates meaningful downside risk.",
-            ]
-          : action === "test_more"
-            ? [
-                "Current data is too limited for a confident scale or stop decision.",
-                "Run additional controlled tests to improve signal quality.",
-              ]
-          : [
-              "Signals are mixed vs account baseline.",
-              "Keep running and reassess with more data.",
-            ];
-
-    const nextStep =
-      action === "scale_hard"
-        ? "Scale aggressively in controlled steps and monitor efficiency daily."
-        : action === "scale"
-        ? historical.seasonalSpike
-          ? "Increase budget gradually and confirm the uplift holds across the next few windows before scaling harder."
-          : "Increase budget gradually and monitor CPA/ROAS for 3 days."
-        : action === "kill"
-          ? "Stop this creative now and reallocate budget to stronger variants."
-        : action === "pause"
-          ? historical.fatigueSignal
-            ? "Pause this fatigued variant and replace it with a refreshed take on the same winning angle."
-            : "Pause and replace with a new variant for this angle."
-          : action === "test_more"
-            ? "Keep low budget live and run focused tests to gather stronger data."
-          : "Keep active and re-evaluate after additional spend.";
-
-    const lifecycleState = deriveLifecycleState({
-      action,
-      confidence: adjustedConfidence,
-      historicalStrongCount: historical.strongCount,
-      fatigueSignal: historical.fatigueSignal,
-      selectedVsCoreDelta,
-    });
-
-    return {
+  const payload = buildCreativeDecisionOs({
+    businessId: "compatibility",
+    startDate: "1970-01-01",
+    endDate: "1970-01-01",
+    rows: safeRows.map((row) => ({
       creativeId: row.creativeId,
-      action,
-      lifecycleState,
-      score,
-      confidence: adjustedConfidence,
-      scoringFactors,
-      reasons,
-      nextStep,
-    };
+      name: row.name,
+      creativeFormat: row.creativeFormat ?? "image",
+      creativeAgeDays: row.creativeAgeDays,
+      spendVelocity: row.spendVelocity,
+      frequency: row.frequency,
+      spend: row.spend,
+      purchaseValue: row.purchaseValue,
+      roas: row.roas,
+      cpa: row.cpa,
+      ctr: row.ctr,
+      cpm: row.cpm,
+      cpc: row.cpc,
+      purchases: row.purchases,
+      impressions: row.impressions,
+      linkClicks: row.linkClicks,
+      hookRate: row.hookRate,
+      holdRate: row.holdRate,
+      video25Rate: row.video25Rate,
+      watchRate: row.watchRate,
+      video75Rate: row.video75Rate,
+      clickToPurchaseRate: row.clickToPurchaseRate,
+      atcToPurchaseRate: row.atcToPurchaseRate,
+      copyText: row.copyText ?? null,
+      copyVariants: row.copyVariants ?? [],
+      headlineVariants: row.headlineVariants ?? [],
+      descriptionVariants: row.descriptionVariants ?? [],
+      objectStoryId: row.objectStoryId ?? null,
+      effectiveObjectStoryId: row.effectiveObjectStoryId ?? null,
+      postId: row.postId ?? null,
+      accountId: row.accountId ?? null,
+      accountName: row.accountName ?? null,
+      campaignId: row.campaignId ?? null,
+      campaignName: row.campaignName ?? null,
+      adSetId: row.adSetId ?? null,
+      adSetName: row.adSetName ?? null,
+      taxonomyPrimaryLabel: row.taxonomyPrimaryLabel ?? null,
+      taxonomySecondaryLabel: row.taxonomySecondaryLabel ?? null,
+      taxonomyVisualFormat: row.taxonomyVisualFormat ?? null,
+      aiTags: row.aiTags ?? {},
+      historicalWindows: row.historicalWindows ?? null,
+    })),
   });
-
-  return applyDecisionGuardrails(safeRows, base);
+  return mapCreativeDecisionOsToLegacyDecisions(payload);
 }
 
 function applyDecisionGuardrails(

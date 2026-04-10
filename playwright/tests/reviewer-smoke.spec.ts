@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
+  await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
 
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
@@ -23,14 +24,30 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
 
   await page.goto("/creatives");
 
+  await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
+  await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+  await expect(page.getByTestId("creative-family-board")).toBeVisible();
+  await expect(page.getByTestId("creative-pattern-board")).toBeVisible();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
   await expect(page.getByTestId("creative-run-signals")).toContainText(/Run Signals|Refresh Signals/);
+
+  const totalBeforeFilter = await page.locator('[data-testid^="creative-row-"]').count();
+  await page.getByTestId("creative-queue-promotion").click();
+  const totalAfterQueueFilter = await page.locator('[data-testid^="creative-row-"]').count();
+  expect(totalAfterQueueFilter).toBeGreaterThan(0);
+  expect(totalAfterQueueFilter).toBeLessThanOrEqual(totalBeforeFilter);
+  await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');
   await expect(creativeRows.first()).toBeVisible();
   await creativeRows.first().click();
+  await expect(page).toHaveURL(/creative=/);
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
   const commentarySection = page.getByTestId("creative-detail-ai-commentary");
   await expect(commentarySection).toBeVisible();
   await commentarySection.getByRole("button", { name: /Generate AI interpretation|Refresh interpretation/ }).click();

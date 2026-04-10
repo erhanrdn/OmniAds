@@ -62,6 +62,10 @@ export interface MetaCreativeRow {
   objectStoryId?: string | null;
   effectiveObjectStoryId?: string | null;
   postId?: string | null;
+  copyText?: string | null;
+  copyVariants?: string[];
+  headlineVariants?: string[];
+  descriptionVariants?: string[];
   name: string;
   associatedAdsCount: number;
   accountId: string | null;

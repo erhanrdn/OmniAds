@@ -9,9 +9,10 @@ import {
   type AppLanguage,
 } from "@/lib/i18n";
 import { resolveRequestLanguage } from "@/lib/request-language";
-import type { AiCreativeDecision, CreativeRuleReportPayload } from "@/src/services";
+import type { AiCreativeDecision, AiCreativeRuleReportPayload as CreativeRuleReportPayload } from "@/src/services";
 
 const MODEL = "gpt-5-nano";
+const AI_COMMENTARY_TIMEOUT_MS = 12_000;
 
 interface RequestPayload {
   businessId?: string;
@@ -154,6 +155,25 @@ function getErrorDetail(error: unknown): string {
         ? candidate.error.type
         : null;
   return [statusPart, codePart, typePart].filter(Boolean).join("|") || "unknown_error";
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`AI commentary timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function isValidAction(action: unknown): action is AiCreativeDecision["action"] {
@@ -345,13 +365,16 @@ export async function POST(request: NextRequest) {
     const openai = getOpenAI();
     let content = "";
     try {
-      const response = await openai.chat.completions.create({
-        model: MODEL,
-        temperature: 0.2,
-        max_tokens: 700,
-        response_format: { type: "json_object" },
-        messages,
-      });
+      const response = await withTimeout(
+        openai.chat.completions.create({
+          model: MODEL,
+          temperature: 0.2,
+          max_tokens: 700,
+          response_format: { type: "json_object" },
+          messages,
+        }),
+        AI_COMMENTARY_TIMEOUT_MS,
+      );
       content = response.choices[0]?.message?.content ?? "";
     } catch (errorWithFormat) {
       if (!isUnsupportedParameterError(errorWithFormat)) {
@@ -359,22 +382,28 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const responseWithoutFormat = await openai.chat.completions.create({
-          model: MODEL,
-          temperature: 0.2,
-          max_tokens: 700,
-          messages,
-        });
+        const responseWithoutFormat = await withTimeout(
+          openai.chat.completions.create({
+            model: MODEL,
+            temperature: 0.2,
+            max_tokens: 700,
+            messages,
+          }),
+          AI_COMMENTARY_TIMEOUT_MS,
+        );
         content = responseWithoutFormat.choices[0]?.message?.content ?? "";
       } catch (errorWithoutFormat) {
         if (!isUnsupportedParameterError(errorWithoutFormat)) {
           throw errorWithoutFormat;
         }
 
-        const minimalResponse = await openai.chat.completions.create({
-          model: MODEL,
-          messages,
-        });
+        const minimalResponse = await withTimeout(
+          openai.chat.completions.create({
+            model: MODEL,
+            messages,
+          }),
+          AI_COMMENTARY_TIMEOUT_MS,
+        );
         content = minimalResponse.choices[0]?.message?.content ?? "";
       }
     }

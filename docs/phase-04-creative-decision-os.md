@@ -1,0 +1,140 @@
+# Phase 04 - Creative Decision OS V1
+
+## Goal
+
+Phase 04 turns `/creatives` into a concept-first operator decision center.
+
+The shipped surface must answer:
+
+- which creative is scale-ready
+- which creative should stay in test
+- which creative is fatigued versus blocked
+- which concept family is working
+- which Meta lane, ad set role, and GEO context a creative belongs in
+- what the deterministic engine decided versus what AI only commented on
+
+## Guardrails
+
+- The surface remains read-only. No write-back, queue persistence, or action execution is introduced in this phase.
+- `Recommendations`, `Decision Signals`, and `AI Commentary` wording remains unchanged.
+- The deterministic engine remains the source of truth for lifecycle, operator decisions, benchmarks, fatigue, and deployment guidance.
+- `AI Commentary` remains bounded interpretation. It may summarize deterministic evidence and uncertainty, but it may not invent actions, targets, or deployment changes.
+- `Operating Mode` remains the top commercial-truth guardrail for creative deployment aggressiveness.
+- Export/share truth remains unchanged.
+- `/copies` is untouched.
+
+## Exact code path
+
+- `app/api/creatives/decision-os/route.ts`
+- `lib/creative-decision-os.ts`
+- `lib/creative-decision-os-config.ts`
+- `lib/ai/generate-creative-decisions.ts`
+- `components/creatives/CreativeDecisionOsOverview.tsx`
+- `components/creatives/CreativesTableSection.tsx`
+- `components/creatives/CreativeDetailExperience.tsx`
+- `app/(dashboard)/creatives/page.tsx`
+
+## Contract summary
+
+Creative Decision OS ships as a versioned payload:
+
+- `contractVersion`
+- `generatedAt`
+- `businessId`
+- `startDate`
+- `endDate`
+- `summary`
+- `creatives`
+- `families`
+- `patterns`
+- `lifecycleBoard`
+- `operatorQueues`
+- `commercialTruthCoverage`
+
+The engine is deterministic and typed. It does not depend on AI generation.
+
+## Decision logic
+
+### Family grouping
+
+Family grouping precedence is fixed:
+
+1. story or post identity
+2. stable asset identity
+3. normalized copy signature plus AI-tag signature
+4. singleton fallback
+
+Each family carries `familySource` so the operator can see whether the grouping came from strong identity or heuristic fallback.
+
+### Contextual benchmarks
+
+Benchmark cohort precedence is fixed:
+
+1. `family`
+2. `family + format`
+3. `format + age`
+4. `format + spend maturity`
+5. `meta campaign family`
+6. `format`
+7. `account`
+
+If a cohort is too thin, the engine falls back to the next cohort and records the fallback chain plus missing context.
+
+### Lifecycle states
+
+Lifecycle outputs are:
+
+- `incubating`
+- `validating`
+- `scale_ready`
+- `stable_winner`
+- `fatigued_winner`
+- `blocked`
+- `retired`
+- `comeback_candidate`
+
+### Primary operator actions
+
+Primary deterministic actions are:
+
+- `promote_to_scaling`
+- `keep_in_test`
+- `hold_no_touch`
+- `refresh_replace`
+- `block_deploy`
+- `retest_comeback`
+
+These map back to the shipped `Decision Signals` action set so the Phase 03 baseline does not regress.
+
+### Fatigue engine
+
+Fatigue uses:
+
+- CTR decay
+- click-to-purchase decay
+- ROAS decay
+- winner-memory from historical windows
+- spend concentration inside the concept family
+- optional frequency pressure when available
+
+Missing frequency lowers confidence and surfaces `unknown`; it does not hard-fail the page.
+
+### Deployment matrix
+
+Deployment guidance stays aligned with Phase 03 Meta semantics:
+
+- `metaFamily`
+- target lane
+- target ad set role
+- preferred campaign and ad set targets when confidence is sufficient
+- GEO context
+- constraints
+- what would change this decision
+
+Deployment aggressiveness is softened by commercial truth and `Operating Mode`.
+
+## Fallback semantics
+
+- If `CREATIVE_DECISION_OS_V1` is disabled, or the workspace is not in `CREATIVE_DECISION_OS_CANARY_BUSINESSES`, the route returns disabled and the page falls back to the shipped Phase 03 creative baseline.
+- If commercial truth is missing, the engine lowers confidence and prefers safer `keep_in_test`, `hold_no_touch`, or `block_deploy` outcomes.
+- If creative history or taxonomy fields are thin, the page still returns a read-only deterministic payload with explicit missing-context markers.

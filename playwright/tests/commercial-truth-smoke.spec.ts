@@ -23,6 +23,7 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   });
 
   await page.goto("/platforms/meta");
+  await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
   const operatingModeCard = page.getByTestId("meta-operating-mode-card");
   await expect(operatingModeCard).toBeVisible();
   await expect(operatingModeCard).toContainText("Operating Mode");
@@ -42,13 +43,28 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   });
 
   await page.goto("/creatives");
+  await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
+  await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
+
+  const familyCards = page.locator('button[data-testid^="creative-family-"]');
+  await expect(familyCards.first()).toBeVisible();
+  const preFilterCount = await page.locator('[data-testid^="creative-row-"]').count();
+  await familyCards.first().click();
+  const postFilterCount = await page.locator('[data-testid^="creative-row-"]').count();
+  expect(postFilterCount).toBeGreaterThan(0);
+  expect(postFilterCount).toBeLessThanOrEqual(preFilterCount);
+  await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');
   await expect(creativeRows.first()).toBeVisible();
   await creativeRows.first().click();
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
   await expect(page.getByTestId("creative-detail-commercial-context")).toBeVisible();
   await expect(page.getByTestId("creative-detail-ai-commentary")).toBeVisible();
   await page.screenshot({

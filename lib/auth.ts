@@ -29,6 +29,10 @@ const AUTH_COOKIE_NAME = "omniads_session";
 const SESSION_TTL_DAYS = 14;
 const SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/i;
 
+function shouldUseSecureAuthCookie() {
+  return process.env.NODE_ENV === "production" && process.env.ALLOW_INSECURE_LOCAL_AUTH_COOKIE !== "1";
+}
+
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
@@ -38,7 +42,13 @@ function sessionExpiryDate() {
 }
 
 function buildSessionToken() {
-  return `${randomUUID().replace(/-/g, "")}${randomBytes(16).toString("hex")}`;
+  return createHash("sha256")
+    .update(randomUUID())
+    .update(randomBytes(32))
+    .update(String(Date.now()))
+    .update(String(process.pid))
+    .update(String(process.hrtime.bigint()))
+    .digest("hex");
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -153,7 +163,7 @@ export async function createSession(input: {
   const expiresAt = sessionExpiryDate();
 
   // Retry up to 3 times in case of an astronomically rare hash collision
-  const MAX_ATTEMPTS = 3;
+  const MAX_ATTEMPTS = 10;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const token = buildSessionToken();
     const tokenHash = hashToken(token);
@@ -199,7 +209,7 @@ export function attachSessionCookie(
   response.cookies.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAuthCookie(),
     path: "/",
     expires: expiresAt,
   });
@@ -224,7 +234,7 @@ export function clearSessionCookie(response: NextResponse) {
   response.cookies.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAuthCookie(),
     path: "/",
     expires: new Date(0),
   });

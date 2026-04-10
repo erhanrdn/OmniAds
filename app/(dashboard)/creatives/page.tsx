@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
+import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import {
   applyCreativeFilters,
@@ -32,6 +33,7 @@ import {
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
+import { getCreativeDecisionOs, type CreativeDecisionOs, type CreativeDecisionOperatorQueue } from "@/src/services";
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
@@ -153,6 +155,8 @@ export default function CreativesPage() {
   const [csvError, setCsvError] = useState<string | null>(null);
   const [historyPhaseStarted, setHistoryPhaseStarted] = useState(false);
   const [tableSortedRows, setTableSortedRows] = useState<MetaCreativeRow[]>([]);
+  const [decisionOsFamilyFilter, setDecisionOsFamilyFilter] = useState<string | null>(null);
+  const [decisionOsQueueFilter, setDecisionOsQueueFilter] = useState<CreativeDecisionOperatorQueue["key"] | null>(null);
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -291,7 +295,15 @@ export default function CreativesPage() {
         sort: "spend",
       }),
   });
+  const creativeDecisionOsQuery = useQuery({
+    queryKey: ["creative-decision-os", businessId, drStart, drEnd],
+    enabled: canLoadCreatives,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    queryFn: () => getCreativeDecisionOs(businessId, drStart, drEnd),
+  });
   const activeCreativesPayload = creativesMetadataQuery.data;
+  const creativeDecisionOs = creativeDecisionOsQuery.data ?? null;
 
   const allRows = useMemo(() => {
     const payloadRows = activeCreativesPayload?.rows ?? [];
@@ -355,10 +367,24 @@ export default function CreativesPage() {
     return rows;
   }, [activeCreativesPayload?.media_mode, activeCreativesPayload?.rows]);
 
+  const decisionOsFocusIds = useMemo(() => {
+    if (!creativeDecisionOs) return null;
+    if (decisionOsFamilyFilter) {
+      const family = creativeDecisionOs.families.find((item) => item.familyId === decisionOsFamilyFilter);
+      return family ? new Set(family.creativeIds) : null;
+    }
+    if (decisionOsQueueFilter) {
+      const queue = creativeDecisionOs.operatorQueues.find((item) => item.key === decisionOsQueueFilter);
+      return queue ? new Set(queue.creativeIds) : null;
+    }
+    return null;
+  }, [creativeDecisionOs, decisionOsFamilyFilter, decisionOsQueueFilter]);
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
-    return applyCreativeFilters(allRows, topFilters);
-  }, [allRows, platform, topFilters]);
+    const baseRows = applyCreativeFilters(allRows, topFilters);
+    if (!decisionOsFocusIds || decisionOsFocusIds.size === 0) return baseRows;
+    return baseRows.filter((row) => decisionOsFocusIds.has(row.id));
+  }, [allRows, decisionOsFocusIds, platform, topFilters]);
   const creativeHistoryById = useMemo(() => {
     const historyRows: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>> = {};
     creativeHistoryQueries.forEach((query, index) => {
@@ -485,12 +511,12 @@ export default function CreativesPage() {
   }, [filteredRows, topPanelRows]);
 
   const activeCreativeRow = useMemo(
-    () => filteredRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
-    [filteredRows, creativeDrawerState.activeRowId]
+    () => allRows.find((row) => row.id === creativeDrawerState.activeRowId) ?? null,
+    [allRows, creativeDrawerState.activeRowId]
   );
   const activeBreakdownCreativeRow = useMemo(
-    () => filteredRows.find((row) => row.id === breakdownDrawerState.activeRowId) ?? null,
-    [filteredRows, breakdownDrawerState.activeRowId]
+    () => allRows.find((row) => row.id === breakdownDrawerState.activeRowId) ?? null,
+    [allRows, breakdownDrawerState.activeRowId]
   );
   const adBreakdownRows = useMemo(() => {
     const creativeName = activeBreakdownCreativeRow?.name ?? null;
@@ -746,6 +772,21 @@ export default function CreativesPage() {
               previewStripSummary={previewStripSummary}
             />
 
+            <CreativeDecisionOsOverview
+              decisionOs={creativeDecisionOs}
+              isLoading={creativeDecisionOsQuery.isLoading}
+              activeFamilyId={decisionOsFamilyFilter}
+              activeQueueKey={decisionOsQueueFilter}
+              onSelectFamily={(familyId) => {
+                setDecisionOsQueueFilter(null);
+                setDecisionOsFamilyFilter(familyId);
+              }}
+              onSelectQueue={(queueKey) => {
+                setDecisionOsFamilyFilter(null);
+                setDecisionOsQueueFilter(queueKey);
+              }}
+            />
+
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
 
             {creativesMetadataQuery.isError && (
@@ -794,6 +835,7 @@ export default function CreativesPage() {
                     rows={deferredFilteredRows}
                     businessId={businessId}
                     creativeHistoryById={creativeHistoryById}
+                    decisionOs={creativeDecisionOs}
                     selectedMetricIds={topMetricIds}
                     onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
@@ -820,6 +862,7 @@ export default function CreativesPage() {
         row={activeCreativeRow}
         allRows={filteredRows}
         creativeHistoryById={creativeHistoryById}
+        decisionOs={creativeDecisionOs}
         open={creativeDrawerState.open}
         notes={activeCreativeRow ? notesByRowId[activeCreativeRow.id] ?? "" : ""}
         dateRange={dateRangeValue}

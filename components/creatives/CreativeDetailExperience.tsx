@@ -19,8 +19,8 @@ import {
 import {
   getAiCreativeRuleCommentary,
   type CreativeDecision,
+  type CreativeDecisionOs,
   type CreativeHistoricalWindows,
-  type CreativeRuleReportPayload,
 } from "@/src/services";
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
@@ -32,6 +32,7 @@ interface CreativeDetailExperienceProps {
   row: MetaCreativeRow | null;
   allRows: MetaCreativeRow[];
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
+  decisionOs?: CreativeDecisionOs | null;
   open: boolean;
   notes: string;
   dateRange: CreativeDateRangeValue;
@@ -204,6 +205,7 @@ export function CreativeDetailExperience({
   row,
   allRows,
   creativeHistoryById,
+  decisionOs,
   open,
   notes,
   dateRange,
@@ -289,17 +291,31 @@ export function CreativeDetailExperience({
         })
     : { primaryLabel: null, secondaryLabel: null };
 
-  const context = useMemo(() => (row ? buildCreativeDecisionContext(row, allRows) : null), [allRows, row]);
+  const decisionOsCreative = useMemo(
+    () => (row ? decisionOs?.creatives.find((creative) => creative.creativeId === row.id) ?? null : null),
+    [decisionOs, row]
+  );
   const standardRange = useMemo(
     () => creativeDateRangeToStandard(dateRange),
     [dateRange],
   );
   const report = useMemo(
-    () => (row && context ? buildCreativeRuleReport(row, context, creativeHistoryById?.get(row.id) ?? null) : null),
-    [context, creativeHistoryById, row]
+    () => decisionOsCreative?.report ?? null,
+    [decisionOsCreative]
   );
-  const decision = useMemo(() => (report ? buildDecisionFromRuleReport(report) : null), [report]);
-  const scoreBreakdown = useMemo(() => (row && context ? buildScoreBreakdown(row, context) : []), [context, row]);
+  const decision = useMemo(() => {
+    if (!report) return null;
+    return {
+      creativeId: report.creativeId,
+      action: report.action,
+      lifecycleState: report.lifecycleState,
+      score: report.score,
+      confidence: report.confidence,
+      scoringFactors: report.factors.map((factor) => `${factor.label}: ${factor.value}`),
+      reasons: report.factors.map((factor) => `${factor.label}: ${factor.reason}`).slice(0, 4),
+      nextStep: report.summary,
+    } satisfies CreativeDecision;
+  }, [report]);
   const decisionTheme = getDecisionTheme(decision?.action ?? "watch");
 
   const commentaryQuery = useQuery({
@@ -439,7 +455,7 @@ export function CreativeDetailExperience({
     };
   }, [canShowHtml, livePreviewSrcDoc]);
 
-  if (!open || !row || !report || !decision) return null;
+  if (!open || !row || !report || !decision || !decisionOsCreative) return null;
 
   return (
     <div className="fixed inset-0 z-[90]">
@@ -546,12 +562,21 @@ export function CreativeDetailExperience({
                   </div>
                   <DecisionBadge action={decision.action} />
                 </div>
-                <p className="mt-2 text-xs leading-5 text-slate-700">{decision.reasons[0] ?? report.summary}</p>
+                <p className="mt-2 text-xs leading-5 text-slate-700">{decisionOsCreative.summary}</p>
 
                 <div className="mt-2.5 grid grid-cols-2 gap-1.5 md:grid-cols-3">
                   <CompactMetricCell label="Decision score" value={`${decision.score}/100`} />
                   <CompactMetricCell label="Confidence" value={`${Math.round(decision.confidence * 100)}%`} />
                   <CompactMetricCell label="Lifecycle" value={lifecycleLabel(report.lifecycleState ?? decision.lifecycleState)} />
+                  <CompactMetricCell
+                    label="Primary decision"
+                    value={decisionOsCreative.primaryAction.replaceAll("_", " ")}
+                  />
+                  <CompactMetricCell label="Family" value={decisionOsCreative.familyLabel} />
+                  <CompactMetricCell
+                    label="Target lane"
+                    value={decisionOsCreative.deployment.targetLane ?? "None"}
+                  />
                 </div>
 
                 {report.timeframeContext ? (
@@ -678,24 +703,112 @@ export function CreativeDetailExperience({
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
-                <h4 className="text-sm font-semibold text-slate-900">Score breakdown</h4>
-                <p className="mt-1 text-xs text-slate-500">Shows where the {decision.score}/100 score comes from.</p>
-                <div className="mt-3 space-y-2.5">
-                  {scoreBreakdown.map((item) => {
-                    const width = item.maxPoints > 0 ? Math.max(6, Math.min(100, (item.points / item.maxPoints) * 100)) : 0;
-                    return (
-                      <div key={item.key} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-slate-800">{item.label}</p>
-                          <p className="text-xs font-semibold text-slate-900">{item.points}/{item.maxPoints}</p>
-                        </div>
-                        <div className="mt-2 h-1.5 rounded-full bg-slate-200">
-                          <div className="h-1.5 rounded-full bg-sky-500" style={{ width: `${width}%` }} />
-                        </div>
-                        <p className="mt-1.5 text-[11px] text-slate-600">{item.detail}</p>
-                      </div>
-                    );
-                  })}
+                <h4 className="text-sm font-semibold text-slate-900">Deterministic evidence</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  Deployment, benchmark, and fatigue evidence from the deterministic engine.
+                </p>
+
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  data-testid="creative-detail-deployment-matrix"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Deployment matrix
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Meta family" value={decisionOsCreative.deployment.metaFamilyLabel} />
+                    <CompactMetricCell label="Lane" value={decisionOsCreative.deployment.targetLane ?? "None"} />
+                    <CompactMetricCell
+                      label="Ad set role"
+                      value={decisionOsCreative.deployment.targetAdSetRole ?? "None"}
+                    />
+                    <CompactMetricCell label="GEO context" value={decisionOsCreative.deployment.geoContext} />
+                  </div>
+                  {decisionOsCreative.deployment.constraints.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.deployment.constraints.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  data-testid="creative-detail-benchmark-evidence"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Benchmark context
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Cohort: {decisionOsCreative.benchmark.selectedCohortLabel} ({decisionOsCreative.benchmark.sampleSize} peers)
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell
+                      label="ROAS"
+                      value={`${decisionOsCreative.benchmark.metrics.roas.current?.toFixed(2) ?? "n/a"}x / ${decisionOsCreative.benchmark.metrics.roas.status}`}
+                    />
+                    <CompactMetricCell
+                      label="CPA"
+                      value={`${decisionOsCreative.benchmark.metrics.cpa.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.cpa.status}`}
+                    />
+                    <CompactMetricCell
+                      label="CTR"
+                      value={`${decisionOsCreative.benchmark.metrics.ctr.current?.toFixed(2) ?? "n/a"}% / ${decisionOsCreative.benchmark.metrics.ctr.status}`}
+                    />
+                    <CompactMetricCell
+                      label={decisionOsCreative.benchmark.metrics.attention.label}
+                      value={`${decisionOsCreative.benchmark.metrics.attention.current?.toFixed(2) ?? "n/a"} / ${decisionOsCreative.benchmark.metrics.attention.status}`}
+                    />
+                  </div>
+                  {decisionOsCreative.benchmark.missingContext.length > 0 ? (
+                    <p className="mt-2 text-[11px] text-amber-700">
+                      Missing context: {decisionOsCreative.benchmark.missingContext.join(" · ")}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+                  data-testid="creative-detail-fatigue-evidence"
+                >
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Fatigue engine
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Status" value={decisionOsCreative.fatigue.status} />
+                    <CompactMetricCell
+                      label="Confidence"
+                      value={`${Math.round(decisionOsCreative.fatigue.confidence * 100)}%`}
+                    />
+                    <CompactMetricCell
+                      label="ROAS decay"
+                      value={
+                        decisionOsCreative.fatigue.roasDecay === null
+                          ? "Unknown"
+                          : `${Math.round(decisionOsCreative.fatigue.roasDecay * 100)}%`
+                      }
+                    />
+                    <CompactMetricCell
+                      label="CTR decay"
+                      value={
+                        decisionOsCreative.fatigue.ctrDecay === null
+                          ? "Unknown"
+                          : `${Math.round(decisionOsCreative.fatigue.ctrDecay * 100)}%`
+                      }
+                    />
+                  </div>
+                  {decisionOsCreative.fatigue.evidence.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.fatigue.evidence.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </section>
 
@@ -767,15 +880,6 @@ function DecisionBadge({ action }: { action: CreativeDecision["action"] }) {
   return <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide", classes[action])}>{labels[action]}</span>;
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white/85 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
 function CompactMetricCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white/85 px-2 py-1.5">
@@ -800,475 +904,6 @@ function getDecisionTheme(action: CreativeDecision["action"]) {
   if (action === "pause") return { panelClass: "border-orange-200 bg-[linear-gradient(180deg,rgba(255,247,237,0.96)_0%,rgba(255,255,255,0.98)_100%)]" };
   if (action === "test_more") return { panelClass: "border-sky-200 bg-[linear-gradient(180deg,rgba(240,249,255,0.96)_0%,rgba(255,255,255,0.98)_100%)]" };
   return { panelClass: "border-amber-200 bg-[linear-gradient(180deg,rgba(255,251,235,0.95)_0%,rgba(255,255,255,0.98)_100%)]" };
-}
-
-interface CreativeDecisionContext {
-  roasAvg: number;
-  cpaAvg: number;
-  ctrAvg: number;
-  cvrAvg: number;
-  aovAvg: number;
-  lpvToClickAvg: number;
-  spendAvg: number;
-  spendTopAvg: number;
-  clickTopAvg: number;
-  addToCartTopAvg: number;
-  initiateCheckoutTopAvg: number;
-  purchasesAvg: number;
-  purchasesTopAvg: number;
-  spendMedian: number;
-  spendP20: number;
-  spendP50: number;
-  spendP80: number;
-  hookAvg: number;
-}
-
-interface ScoreBreakdownItem {
-  key: "efficiency" | "engagement" | "conversion" | "reliability" | "funnel";
-  label: string;
-  points: number;
-  maxPoints: number;
-  detail: string;
-}
-
-function buildCreativeDecisionContext(row: MetaCreativeRow, allRows: MetaCreativeRow[]): CreativeDecisionContext {
-  const sourceRows = allRows.length > 0 ? allRows : [row];
-  const avg = (values: number[]) => {
-    const valid = values.filter((value) => Number.isFinite(value));
-    return valid.length > 0 ? valid.reduce((sum, value) => sum + value, 0) / valid.length : 0;
-  };
-  const totals = sourceRows.reduce(
-    (acc, item) => {
-      const spend = Number.isFinite(item.spend) ? item.spend : 0;
-      const purchaseValue = Number.isFinite(item.purchaseValue) ? item.purchaseValue : 0;
-      const purchases = Number.isFinite(item.purchases) ? item.purchases : 0;
-      const impressions = Number.isFinite(item.impressions) ? item.impressions : 0;
-      const linkClicks = Number.isFinite(item.linkClicks) ? item.linkClicks : 0;
-      const landingPageViews = Number.isFinite(item.landingPageViews) ? item.landingPageViews : 0;
-      const addToCart = Number.isFinite(item.addToCart) ? item.addToCart : 0;
-      const initiateCheckout = Number.isFinite(item.initiateCheckout) ? item.initiateCheckout : 0;
-
-      if (spend > 0) {
-        acc.spend += spend;
-        acc.purchaseValue += purchaseValue;
-      }
-      if (purchases > 0) {
-        acc.purchases += purchases;
-      }
-      if (impressions > 0) {
-        acc.impressions += impressions;
-      }
-      if (linkClicks > 0) {
-        acc.linkClicks += linkClicks;
-      }
-      if (landingPageViews > 0) {
-        acc.landingPageViews += landingPageViews;
-      }
-      if (addToCart > 0) {
-        acc.addToCart += addToCart;
-      }
-      if (initiateCheckout > 0) {
-        acc.initiateCheckout += initiateCheckout;
-      }
-
-      return acc;
-    },
-    { spend: 0, purchaseValue: 0, purchases: 0, impressions: 0, linkClicks: 0, landingPageViews: 0, addToCart: 0, initiateCheckout: 0 }
-  );
-
-  const roasAvg = totals.spend > 0 ? totals.purchaseValue / totals.spend : avg(sourceRows.map((item) => item.roas));
-  const cpaAvg = totals.purchases > 0 ? totals.spend / totals.purchases : avg(sourceRows.map((item) => item.cpa));
-  const ctrAvg = totals.impressions > 0 ? (totals.linkClicks / totals.impressions) * 100 : avg(sourceRows.map((item) => item.ctrAll));
-  const cvrAvg = totals.linkClicks > 0 ? (totals.purchases / totals.linkClicks) * 100 : avg(sourceRows.map((item) => (item.linkClicks > 0 ? (item.purchases / item.linkClicks) * 100 : 0)));
-  const aovAvg = totals.purchases > 0 ? totals.purchaseValue / totals.purchases : avg(sourceRows.map((item) => (item.purchases > 0 ? item.purchaseValue / item.purchases : 0)));
-  const lpvToClickAvg = totals.linkClicks > 0 ? (totals.landingPageViews / totals.linkClicks) * 100 : avg(sourceRows.map((item) => (item.linkClicks > 0 ? (item.landingPageViews / item.linkClicks) * 100 : 0)));
-
-  const count = sourceRows.length || 1;
-  const spendValues = sourceRows.map((item) => (Number.isFinite(item.spend) ? item.spend : 0)).sort((a, b) => a - b);
-  const topQuartileStart = Math.ceil(spendValues.length * 0.75);
-  const topQuartileSpends = spendValues.slice(topQuartileStart);
-  const spendTopAvg = topQuartileSpends.length > 0 ? topQuartileSpends.reduce((s, v) => s + v, 0) / topQuartileSpends.length : totals.spend / count;
-
-  const clickValues = sourceRows.map((item) => (Number.isFinite(item.linkClicks) ? item.linkClicks : 0)).sort((a, b) => a - b);
-  const topQuartileClicksStart = Math.ceil(clickValues.length * 0.75);
-  const topQuartileClicks = clickValues.slice(topQuartileClicksStart);
-  const clickTopAvg = topQuartileClicks.length > 0 ? topQuartileClicks.reduce((s, v) => s + v, 0) / topQuartileClicks.length : totals.linkClicks / count;
-
-  const addToCartValues = sourceRows.map((item) => (Number.isFinite(item.addToCart) ? item.addToCart : 0)).sort((a, b) => a - b);
-  const topQuartileAddToCartStart = Math.ceil(addToCartValues.length * 0.75);
-  const topQuartileAddToCart = addToCartValues.slice(topQuartileAddToCartStart);
-  const addToCartTopAvg = topQuartileAddToCart.length > 0 ? topQuartileAddToCart.reduce((s, v) => s + v, 0) / topQuartileAddToCart.length : totals.addToCart / count;
-
-  const initiateCheckoutValues = sourceRows.map((item) => (Number.isFinite(item.initiateCheckout) ? item.initiateCheckout : 0)).sort((a, b) => a - b);
-  const topQuartileInitiateCheckoutStart = Math.ceil(initiateCheckoutValues.length * 0.75);
-  const topQuartileInitiateCheckout = initiateCheckoutValues.slice(topQuartileInitiateCheckoutStart);
-  const initiateCheckoutTopAvg = topQuartileInitiateCheckout.length > 0 ? topQuartileInitiateCheckout.reduce((s, v) => s + v, 0) / topQuartileInitiateCheckout.length : totals.initiateCheckout / count;
-
-  const purchasesValues = sourceRows.map((item) => (Number.isFinite(item.purchases) ? item.purchases : 0)).sort((a, b) => a - b);
-  const topQuartilePurchasesStart = Math.ceil(purchasesValues.length * 0.75);
-  const topQuartilePurchases = purchasesValues.slice(topQuartilePurchasesStart);
-  const purchasesTopAvg = topQuartilePurchases.length > 0 ? topQuartilePurchases.reduce((s, v) => s + v, 0) / topQuartilePurchases.length : totals.purchases / count;
-
-  return {
-    roasAvg,
-    cpaAvg,
-    ctrAvg,
-    cvrAvg,
-    aovAvg,
-    lpvToClickAvg,
-    spendAvg: totals.spend / count,
-    spendTopAvg,
-    clickTopAvg,
-    addToCartTopAvg,
-    initiateCheckoutTopAvg,
-    purchasesAvg: totals.purchases / count,
-    purchasesTopAvg,
-    spendMedian: percentile(sourceRows.map((item) => item.spend), 0.5),
-    spendP20: percentile(sourceRows.map((item) => item.spend), 0.2),
-    spendP50: percentile(sourceRows.map((item) => item.spend), 0.5),
-    spendP80: percentile(sourceRows.map((item) => item.spend), 0.8),
-    hookAvg: avg(sourceRows.map((item) => item.thumbstop)),
-  };
-}
-
-function percentile(values: number[], ratio: number): number {
-  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
-  if (sorted.length === 0) return 0;
-  const index = (sorted.length - 1) * ratio;
-  const lower = Math.floor(index);
-  const upper = Math.ceil(index);
-  if (lower === upper) return sorted[lower];
-  const weight = index - lower;
-  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
-}
-
-function summarizeHistoricalWindows(history: CreativeHistoricalWindows | null | undefined) {
-  type HistoryWindow = NonNullable<CreativeHistoricalWindows["last3"]>;
-  const windows = [
-    history?.last3,
-    history?.last7,
-    history?.last14,
-    history?.last30,
-    history?.last90,
-    history?.allHistory,
-  ].filter((window): window is HistoryWindow => Boolean(window));
-
-  if (windows.length === 0) {
-    return {
-      total: 0,
-      strongCount: 0,
-      weakCount: 0,
-      baselineRoas: 0,
-      selectedVsBaselineDelta: 0,
-      fatigueSignal: false,
-      spikeSignal: false,
-    };
-  }
-
-  const baselineRoas = windows.reduce((sum, window) => sum + window.roas, 0) / windows.length;
-  const strongCount = windows.filter((window) => window.roas >= baselineRoas * 0.95 && window.purchases >= 2).length;
-  const weakCount = windows.filter((window) => window.roas > 0 && window.roas <= baselineRoas * 0.75).length;
-  return {
-    total: windows.length,
-    strongCount,
-    weakCount,
-    baselineRoas,
-    selectedVsBaselineDelta: baselineRoas > 0 ? (windows[0]?.roas ?? 0 - baselineRoas) / baselineRoas : 0,
-    fatigueSignal: baselineRoas > 0 && strongCount >= 2,
-    spikeSignal: baselineRoas > 0 && weakCount === 0,
-  };
-}
-
-function buildWeightedCreativeReference(row: MetaCreativeRow, history: CreativeHistoricalWindows | null) {
-  const windows = [
-    { weight: 0.18, value: { roas: row.roas, cpa: row.cpa, spend: row.spend, purchases: row.purchases, ctr: row.ctrAll } },
-    history?.last3 ? { weight: 0.24, value: { roas: history.last3.roas, cpa: history.last3.cpa, spend: history.last3.spend, purchases: history.last3.purchases, ctr: history.last3.ctr } } : null,
-    history?.last7 ? { weight: 0.22, value: { roas: history.last7.roas, cpa: history.last7.cpa, spend: history.last7.spend, purchases: history.last7.purchases, ctr: history.last7.ctr } } : null,
-    history?.last14 ? { weight: 0.18, value: { roas: history.last14.roas, cpa: history.last14.cpa, spend: history.last14.spend, purchases: history.last14.purchases, ctr: history.last14.ctr } } : null,
-    history?.last30 ? { weight: 0.1, value: { roas: history.last30.roas, cpa: history.last30.cpa, spend: history.last30.spend, purchases: history.last30.purchases, ctr: history.last30.ctr } } : null,
-    history?.last90 ? { weight: 0.05, value: { roas: history.last90.roas, cpa: history.last90.cpa, spend: history.last90.spend, purchases: history.last90.purchases, ctr: history.last90.ctr } } : null,
-    history?.allHistory ? { weight: 0.03, value: { roas: history.allHistory.roas, cpa: history.allHistory.cpa, spend: history.allHistory.spend, purchases: history.allHistory.purchases, ctr: history.allHistory.ctr } } : null,
-  ].filter(Boolean) as Array<{ weight: number; value: { roas: number; cpa: number; spend: number; purchases: number; ctr: number } }>;
-
-  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
-  if (totalWeight <= 0) {
-    return { roas: row.roas, cpa: row.cpa, spend: row.spend, purchases: row.purchases, ctr: row.ctrAll };
-  }
-
-  const weighted = <K extends keyof (typeof windows)[number]["value"]>(key: K) =>
-    windows.reduce((sum, item) => sum + item.value[key] * item.weight, 0) / totalWeight;
-
-  return {
-    roas: weighted("roas"),
-    cpa: weighted("cpa"),
-    spend: weighted("spend"),
-    purchases: weighted("purchases"),
-    ctr: weighted("ctr"),
-  };
-}
-
-function buildCreativeRuleReport(
-  row: MetaCreativeRow,
-  context: CreativeDecisionContext,
-  history: CreativeHistoricalWindows | null
-): CreativeRuleReportPayload {
-  const lowReliability = row.spend < Math.max(1, context.spendP20) || row.purchases < 2;
-  const safeLinkClicks = Number.isFinite(row.linkClicks) ? row.linkClicks : 0;
-  const safeLandingPageViews = Number.isFinite(row.landingPageViews) ? row.landingPageViews : 0;
-  const safeAddToCart = Number.isFinite(row.addToCart) ? row.addToCart : 0;
-  const safeInitiateCheckout = Number.isFinite(row.initiateCheckout) ? row.initiateCheckout : 0;
-
-  const core = buildWeightedCreativeReference(row, history);
-  const roasRatio = context.roasAvg > 0 ? core.roas / context.roasAvg : 1;
-  const cpaRatio = context.cpaAvg > 0 ? core.cpa / context.cpaAvg : 1;
-  const ctrRatio = context.ctrAvg > 0 ? core.ctr / context.ctrAvg : 1;
-  const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
-  const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
-  const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
-  const cvr = safeLinkClicks > 0 ? (row.purchases / safeLinkClicks) * 100 : 0;
-  const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-  const conversionQuality = cvr * aov;
-  const avgConversionQuality = context.cvrAvg * context.aovAvg;
-  const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
-  const lpvToClick = safeLinkClicks > 0 ? (safeLandingPageViews / safeLinkClicks) * 100 : 0;
-  const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
-  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? safeAddToCart / context.addToCartTopAvg : 0;
-  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? safeInitiateCheckout / context.initiateCheckoutTopAvg : 0;
-  const lpvToClickScore = Math.max(0, Math.min(5, 2.5 + (lpvToClickRatio - 1) * 2.5));
-  const addToCartVolumeScore = Math.max(0, Math.min(5, addToCartVolumeRatio * 5));
-  const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
-  const funnelScore = Math.max(0, Math.min(15, lpvToClickScore + addToCartVolumeScore + initiateCheckoutVolumeScore));
-
-  const thumbstopRatio = context.hookAvg > 0 ? row.thumbstop / context.hookAvg : 1;
-  const ctrSignal = Math.max(-1, Math.min(1, (ctrRatio - 1) / (ctrRatio + 1)));
-  const thumbstopSignal = Math.max(-1, Math.min(1, (thumbstopRatio - 1) / (thumbstopRatio + 1)));
-
-  const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
-  const engagementScore = ((ctrSignal + 1) / 2) * 7.5 + ((thumbstopSignal + 1) / 2) * 7.5;
-  const conversionScore = Math.max(0, Math.min(15, conversionQualityRatio * 15));
-  const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
-  const score = Math.round(Math.max(0, Math.min(100, efficiencyScore + engagementScore + conversionScore + reliabilityScore + funnelScore)));
-  const strongConversionQuality = conversionQualityRatio >= 1.05;
-  const acceptableConversionQuality = conversionQualityRatio >= 0.9;
-  const historical = summarizeHistoricalWindows(history);
-
-  let action: CreativeDecision["action"] = "watch";
-  if (reliabilityScore < 7) action = "test_more";
-  else if (reliabilityScore < 10) action = "watch";
-  else if (context.roasAvg > 0 && core.roas >= context.roasAvg * 1.45 && core.spend >= Math.max(1, context.spendP50) && core.purchases >= 3 && strongConversionQuality) action = "scale_hard";
-  else if (context.roasAvg > 0 && core.roas >= context.roasAvg * 1.2 && acceptableConversionQuality) action = "scale";
-  else if (context.roasAvg > 0 && core.roas < context.roasAvg * 0.55 && core.spend >= Math.max(1, context.spendP80) && core.purchases === 0) action = "kill";
-  else if (context.roasAvg > 0 && core.roas < context.roasAvg * 0.8) action = "pause";
-
-  if ((action === "scale_hard" || action === "scale") && historical.total > 0 && historical.strongCount === 0) {
-    action = action === "scale_hard" ? "scale" : "watch";
-  }
-  if ((action === "pause" || action === "kill") && historical.strongCount >= 2) {
-    action = "pause";
-  }
-  if (action === "test_more" && historical.strongCount >= 2) {
-    action = "watch";
-  }
-
-  const confidenceBase = lowReliability ? 0.4 : row.spend >= context.spendP50 ? 0.72 : 0.58;
-  const confidence = Math.max(
-    0.3,
-    Math.min(
-      0.9,
-      (action === "watch" || action === "test_more" ? confidenceBase - 0.06 : confidenceBase) +
-        (historical.strongCount >= 3 ? 0.06 : 0)
-      )
-  );
-
-  const lifecycleState: NonNullable<CreativeRuleReportPayload["lifecycleState"]> =
-    action === "scale_hard"
-      ? historical.strongCount >= 2
-        ? "stable_winner"
-        : "emerging_winner"
-      : action === "scale"
-        ? historical.strongCount >= 3 || confidence >= 0.74
-          ? "stable_winner"
-          : "emerging_winner"
-        : action === "test_more"
-          ? "test_only"
-          : action === "kill"
-            ? "blocked"
-            : action === "pause"
-              ? historical.fatigueSignal || historical.strongCount >= 2
-                ? "fatigued_winner"
-                : "blocked"
-              : historical.fatigueSignal || (historical.strongCount >= 2 && row.roas < core.roas * 0.85)
-                ? "fatigued_winner"
-                : "volatile";
-
-  const factors: CreativeRuleReportPayload["factors"] = [
-    { label: "Efficiency", impact: roasRatio >= 1.15 ? "positive" : roasRatio <= 0.85 ? "negative" : "neutral", value: `Core ${core.roas.toFixed(2)}x vs avg ${context.roasAvg.toFixed(2)}x`, reason: roasRatio >= 1.15 ? "Core weighted ROAS is meaningfully above account baseline." : roasRatio <= 0.85 ? "Core weighted ROAS is below account baseline." : "Core weighted ROAS is near account baseline." },
-    { label: "Cost control", impact: cpaRatio <= 0.9 ? "positive" : cpaRatio >= 1.15 ? "negative" : "neutral", value: `Core ${core.cpa.toFixed(2)} vs ${context.cpaAvg.toFixed(2)} avg`, reason: cpaRatio <= 0.9 ? "Core weighted CPA is healthier than baseline." : cpaRatio >= 1.15 ? "Core weighted CPA is materially higher than baseline." : "Core weighted CPA is close to baseline." },
-    { label: "Signal depth", impact: lowReliability ? "negative" : row.purchases >= 3 ? "positive" : "neutral", value: `${row.purchases.toLocaleString()} purchases, ${row.spend.toFixed(2)} spend`, reason: lowReliability ? "Data volume is still limited for a high-conviction decision." : "Spend and conversion depth are sufficient for decisioning." },
-    { label: "Engagement", impact: ctrRatio >= 1.1 ? "positive" : ctrRatio <= 0.85 ? "negative" : "neutral", value: `CTR ${row.ctrAll.toFixed(2)}% vs ${context.ctrAvg.toFixed(2)}% avg`, reason: ctrRatio >= 1.1 ? "Click intent is stronger than account average." : ctrRatio <= 0.85 ? "Click intent is weaker than account average." : "Click intent is near account average." },
-    ...(historical.total > 0
-      ? [(() => {
-          const impact: "positive" | "negative" | "neutral" =
-            historical.strongCount >= 2 ? "positive" : historical.weakCount >= 2 ? "negative" : "neutral";
-          return {
-          label: "Historical validation",
-          impact,
-          value: `${historical.strongCount}/${historical.total} strong windows · baseline ${historical.baselineRoas.toFixed(2)}x`,
-          reason:
-            historical.strongCount >= 2
-              ? "This creative has supportive performance outside the selected range too."
-              : historical.weakCount >= 2
-                ? "Weakness is not limited to the selected range."
-                : "Historical windows are mixed, so the selected range should not be over-interpreted.",
-          };
-        })()]
-      : []),
-  ];
-
-  const summary = action === "scale_hard"
-    ? "Analysis shows strong economics with enough signal depth for aggressive scaling."
-    : action === "scale"
-      ? "Analysis shows above-baseline economics that justify controlled budget expansion."
-      : action === "pause"
-        ? "Analysis flags downside risk relative to account baseline at meaningful spend."
-        : action === "kill"
-          ? "Analysis flags severe underperformance with strong stop evidence."
-          : action === "test_more"
-            ? "Analysis marks this as low-confidence due to insufficient signal depth."
-            : "Analysis shows mixed signals and recommends monitoring before major action.";
-
-  return {
-    creativeId: row.id,
-    creativeName: row.name,
-    action,
-    lifecycleState,
-    score,
-    confidence,
-    coreVerdict:
-      action === "scale_hard"
-        ? "Weighted core windows mark this as a strong winner with enough depth to scale aggressively."
-        : action === "scale"
-          ? "Weighted core windows support controlled scaling."
-          : action === "pause"
-            ? historical.fatigueSignal
-              ? "Weighted core windows read this as a fatigued former winner."
-              : "Weighted core windows show downside meaningful enough to pause."
-            : action === "kill"
-              ? "Weighted core windows show persistent downside with little rescue signal."
-              : action === "test_more"
-                ? "Weighted core windows do not have enough evidence yet for a strong verdict."
-                : "Weighted core windows keep this in the monitor bucket for now.",
-    summary,
-    accountContext: {
-      roasAvg: Number(context.roasAvg.toFixed(4)),
-      cpaAvg: Number(context.cpaAvg.toFixed(4)),
-      ctrAvg: Number(context.ctrAvg.toFixed(4)),
-      spendMedian: Number(context.spendMedian.toFixed(4)),
-      spendP20: Number(context.spendP20.toFixed(4)),
-      spendP80: Number(context.spendP80.toFixed(4)),
-    },
-    timeframeContext: {
-      coreVerdict: `Core weighted performance is ${core.roas.toFixed(2)}x ROAS on ${core.purchases.toFixed(1)} purchases-equivalent, versus ${context.roasAvg.toFixed(2)}x account baseline.`,
-      selectedRangeOverlay: `Selected range shows ${row.roas.toFixed(2)}x ROAS on ${row.purchases} purchases, while core weighted ROAS is ${core.roas.toFixed(2)}x.`,
-      historicalSupport:
-        historical.total > 0
-          ? `${historical.strongCount}/${historical.total} historical windows support the current direction.`
-          : "Historical validation is not available for this creative yet.",
-      note:
-        historical.total > 0 && action === "pause" && historical.strongCount >= 2
-          ? "This looks closer to fatigue/decay than to a never-worked creative."
-          : historical.total > 0 && (action === "scale" || action === "scale_hard") && historical.strongCount === 0
-            ? "Selected range is strong, but historical confirmation is still weak."
-            : null,
-    },
-    factors,
-  };
-}
-
-function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionContext): ScoreBreakdownItem[] {
-  const roasRatio = context.roasAvg > 0 ? row.roas / context.roasAvg : 1;
-  const cpaRatio = context.cpaAvg > 0 ? row.cpa / context.cpaAvg : 1;
-  const ctrRatio = context.ctrAvg > 0 ? row.ctrAll / context.ctrAvg : 1;
-  const safeLinkClicks = Number.isFinite(row.linkClicks) ? row.linkClicks : 0;
-  const safeLandingPageViews = Number.isFinite(row.landingPageViews) ? row.landingPageViews : 0;
-  const safeAddToCart = Number.isFinite(row.addToCart) ? row.addToCart : 0;
-  const safeInitiateCheckout = Number.isFinite(row.initiateCheckout) ? row.initiateCheckout : 0;
-  const spendReliability = context.spendTopAvg > 0 ? Math.min(1.0, row.spend / context.spendTopAvg) : 0.4;
-  const purchaseRatio = context.purchasesTopAvg > 0 ? row.purchases / context.purchasesTopAvg : 0;
-  const purchaseBonus = purchaseRatio >= 1 ? 3 : purchaseRatio >= 0.5 ? 1.5 : 0;
-  const cvr = safeLinkClicks > 0 ? (row.purchases / safeLinkClicks) * 100 : 0;
-  const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-  const conversionQuality = cvr * aov;
-  const avgConversionQuality = context.cvrAvg * context.aovAvg;
-  const conversionQualityRatio = avgConversionQuality > 0 ? conversionQuality / avgConversionQuality : 0;
-  const lpvToClick = safeLinkClicks > 0 ? (safeLandingPageViews / safeLinkClicks) * 100 : 0;
-  const lpvToClickRatio = context.lpvToClickAvg > 0 ? lpvToClick / context.lpvToClickAvg : 1;
-  const addToCartVolumeRatio = context.addToCartTopAvg > 0 ? safeAddToCart / context.addToCartTopAvg : 0;
-  const initiateCheckoutVolumeRatio = context.initiateCheckoutTopAvg > 0 ? safeInitiateCheckout / context.initiateCheckoutTopAvg : 0;
-  const lpvToClickScore = Math.max(0, Math.min(5, 2.5 + (lpvToClickRatio - 1) * 2.5));
-  const addToCartVolumeScore = Math.max(0, Math.min(5, addToCartVolumeRatio * 5));
-  const initiateCheckoutVolumeScore = Math.max(0, Math.min(5, initiateCheckoutVolumeRatio * 5));
-  const funnelScore = Math.max(0, Math.min(15, lpvToClickScore + addToCartVolumeScore + initiateCheckoutVolumeScore));
-
-  const thumbstopRatio = context.hookAvg > 0 ? row.thumbstop / context.hookAvg : 1;
-  const ctrSignal = Math.max(-1, Math.min(1, (ctrRatio - 1) / (ctrRatio + 1)));
-  const thumbstopSignal = Math.max(-1, Math.min(1, (thumbstopRatio - 1) / (thumbstopRatio + 1)));
-
-  const efficiencyScore = Math.max(0, Math.min(40, 25 + (roasRatio - 1) * 28 - Math.max(0, cpaRatio - 1) * 8));
-  const engagementScore = ((ctrSignal + 1) / 2) * 7.5 + ((thumbstopSignal + 1) / 2) * 7.5;
-  const conversionScore = Math.max(0, Math.min(15, conversionQualityRatio * 15));
-  const reliabilityScore = Math.max(0, Math.min(15, 5 + spendReliability * 7 + purchaseBonus));
-
-  return [
-    {
-      key: "efficiency",
-      label: "Efficiency",
-      points: Math.round(efficiencyScore),
-      maxPoints: 40,
-      detail: `ROAS ${row.roas.toFixed(2)}x vs avg ${context.roasAvg.toFixed(2)}x, CPA ${row.cpa.toFixed(2)} vs avg ${context.cpaAvg.toFixed(2)}.`,
-    },
-    {
-      key: "engagement",
-      label: "Engagement",
-      points: Math.round(engagementScore),
-      maxPoints: 15,
-      detail: `CTR ${row.ctrAll.toFixed(2)}% vs avg ${context.ctrAvg.toFixed(2)}%, Thumbstop ${row.thumbstop.toFixed(2)}% vs avg ${context.hookAvg.toFixed(2)}%.`,
-    },
-    {
-      key: "conversion",
-      label: "Conversion quality",
-      points: Math.round(conversionScore),
-      maxPoints: 15,
-      detail: `CVR ${cvr.toFixed(2)}% vs avg ${context.cvrAvg.toFixed(2)}%, AOV ${aov.toFixed(2)} vs avg ${context.aovAvg.toFixed(2)}.`,
-    },
-    {
-      key: "reliability",
-      label: "Reliability",
-      points: Math.round(reliabilityScore),
-      maxPoints: 15,
-      detail: `Spend ${row.spend.toFixed(2)} vs top-25% avg ${context.spendTopAvg.toFixed(2)} · Orders ${row.purchases} vs top-25% avg ${context.purchasesTopAvg.toFixed(1)}.`,
-    },
-    {
-      key: "funnel",
-      label: "Funnel depth",
-      points: Math.round(funnelScore),
-      maxPoints: 15,
-      detail: `LPV/Click ${lpvToClick.toFixed(2)}% vs avg ${context.lpvToClickAvg.toFixed(2)}%, ATC ${formatInteger(safeAddToCart)} vs top-25% avg ${context.addToCartTopAvg.toFixed(1)}, IC ${formatInteger(safeInitiateCheckout)} vs top-25% avg ${context.initiateCheckoutTopAvg.toFixed(1)}.`,
-    },
-  ];
-}
-
-function buildDecisionFromRuleReport(report: CreativeRuleReportPayload): CreativeDecision {
-  return {
-    creativeId: report.creativeId,
-    action: report.action,
-    lifecycleState: report.lifecycleState,
-    score: report.score,
-    confidence: report.confidence,
-    scoringFactors: report.factors.map((factor) => `${factor.label}: ${factor.value}`),
-    reasons: report.factors.map((factor) => `${factor.label}: ${factor.reason}`).slice(0, 3),
-    nextStep: report.summary,
-  };
 }
 
 function resolveDetailImageUrl(row: MetaCreativeRow): string | null {

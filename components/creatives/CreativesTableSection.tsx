@@ -45,14 +45,23 @@ import {
 import { cn } from "@/lib/utils";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
-import { getCreativeDecisions, type CreativeDecision, type CreativeDecisionInputRow } from "@/src/services";
+import {
+  getCreativeDecisions,
+  type CreativeDecision,
+  type CreativeDecisionInputRow,
+  type CreativeDecisionOs,
+  type CreativeDecisionOsRow,
+} from "@/src/services";
 import { createPortal } from "react-dom";
-import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
+import {
+  buildHeuristicCreativeDecisions,
+  CREATIVE_DECISION_ENGINE_VERSION,
+} from "@/lib/ai/generate-creative-decisions";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
 
 type AiSignalAction = CreativeDecision["action"];
-const AI_DECISION_ENGINE_VERSION = "2026-03-24-cq-seg-v2";
+const AI_DECISION_ENGINE_VERSION = CREATIVE_DECISION_ENGINE_VERSION;
 
 const AI_SIGNAL_SEGMENTS: Array<{
   key: AiSignalAction;
@@ -201,6 +210,7 @@ interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
   businessId?: string;
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
+  decisionOs?: CreativeDecisionOs | null;
   defaultCurrency: string | null;
   initialPresetName?: string;
   selectedMetricIds: string[];
@@ -271,6 +281,7 @@ interface HeatEvaluation {
 
 interface CreativeTableRowProps {
   row: MetaCreativeRow;
+  decisionOsRow?: CreativeDecisionOsRow | null;
   isSelected: boolean;
   highlighted: boolean;
   defaultCurrency: string | null;
@@ -640,6 +651,7 @@ export function CreativesTableSection({
   rows,
   businessId,
   creativeHistoryById,
+  decisionOs,
   defaultCurrency,
   initialPresetName = "Facebook Ecommerce",
   selectedMetricIds,
@@ -687,6 +699,10 @@ export function CreativesTableSection({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [aiDecisionFilter, setAiDecisionFilter] = useState<AiSignalAction | null>(null);
+  const decisionOsById = useMemo(
+    () => new Map((decisionOs?.creatives ?? []).map((item) => [item.creativeId, item])),
+    [decisionOs]
+  );
   const [aiSignalsHost, setAiSignalsHost] = useState<HTMLElement | null>(null);
 
   useDropdownBehavior({
@@ -809,6 +825,23 @@ export function CreativesTableSection({
           video75Rate: row.video75,
           clickToPurchaseRate: row.clickToPurchase,
           atcToPurchaseRate: row.atcToPurchaseRatio,
+          copyText: row.copyText ?? null,
+          copyVariants: row.copyVariants ?? [],
+          headlineVariants: row.headlineVariants ?? [],
+          descriptionVariants: row.descriptionVariants ?? [],
+          objectStoryId: row.objectStoryId ?? null,
+          effectiveObjectStoryId: row.effectiveObjectStoryId ?? null,
+          postId: row.postId ?? null,
+          accountId: row.accountId ?? null,
+          accountName: row.accountName ?? null,
+          campaignId: row.campaignId ?? null,
+          campaignName: row.campaignName ?? null,
+          adSetId: row.adSetId ?? null,
+          adSetName: row.adSetName ?? null,
+          taxonomyPrimaryLabel: row.creativePrimaryLabel ?? null,
+          taxonomySecondaryLabel: row.creativeSecondaryLabel ?? null,
+          taxonomyVisualFormat: row.creativeVisualFormat ?? null,
+          aiTags: row.aiTags ?? {},
           historicalWindows: creativeHistoryById?.get(row.id) ?? null,
         };
       }),
@@ -1489,7 +1522,11 @@ export function CreativesTableSection({
         <div className="flex flex-wrap items-center gap-2">
           <div
             className="inline-flex items-center gap-2 rounded-full border border-dashed bg-emerald-50/40 px-3 py-1 text-[11px] text-muted-foreground"
-            title="Heatmap colors compare each creative against the account average for that metric. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than average is better."
+            title={
+              decisionOs
+                ? "Heatmap colors compare each creative against the best available contextual cohort. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than cohort baseline is better."
+                : "Heatmap colors compare each creative against the account average for that metric. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than average is better."
+            }
           >
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -1812,6 +1849,7 @@ export function CreativesTableSection({
               <CreativeTableRow
                 key={row.id}
                 row={row}
+                decisionOsRow={decisionOsById.get(row.id) ?? null}
                 isSelected={selectedRowIdSet.has(row.id)}
                 highlighted={highlightedRowId === row.id}
                 defaultCurrency={defaultCurrency}
@@ -1959,6 +1997,7 @@ export function CreativesTableSection({
 
 const CreativeTableRow = memo(function CreativeTableRow({
   row,
+  decisionOsRow,
   isSelected,
   highlighted,
   defaultCurrency,
@@ -2009,6 +2048,19 @@ const CreativeTableRow = memo(function CreativeTableRow({
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
+            {decisionOsRow ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                  {decisionOsRow.lifecycleState.replaceAll("_", " ")}
+                </span>
+                <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                  {decisionOsRow.familyLabel}
+                </span>
+                <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                  {decisionOsRow.deployment.targetLane ?? "No lane"}
+                </span>
+              </div>
+            ) : null}
             <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
               <button

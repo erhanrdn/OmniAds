@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
-import { isDemoBusinessId, getDemoAiCreativeDecisions } from "@/lib/demo-business";
+import { isDemoBusinessId } from "@/lib/demo-business";
 import {
   buildHeuristicCreativeDecisions,
   CREATIVE_DECISION_ENGINE_VERSION,
@@ -105,6 +105,44 @@ function normalizeRows(rows: unknown): CreativeDecisionInputRow[] {
         video75Rate: toFinite(source.video75Rate),
         clickToPurchaseRate: toFinite(source.clickToPurchaseRate),
         atcToPurchaseRate: toFinite(source.atcToPurchaseRate),
+        copyText: typeof source.copyText === "string" ? source.copyText : null,
+        copyVariants: Array.isArray(source.copyVariants)
+          ? source.copyVariants.filter((value): value is string => typeof value === "string")
+          : [],
+        headlineVariants: Array.isArray(source.headlineVariants)
+          ? source.headlineVariants.filter((value): value is string => typeof value === "string")
+          : [],
+        descriptionVariants: Array.isArray(source.descriptionVariants)
+          ? source.descriptionVariants.filter((value): value is string => typeof value === "string")
+          : [],
+        objectStoryId: typeof source.objectStoryId === "string" ? source.objectStoryId : null,
+        effectiveObjectStoryId:
+          typeof source.effectiveObjectStoryId === "string"
+            ? source.effectiveObjectStoryId
+            : null,
+        postId: typeof source.postId === "string" ? source.postId : null,
+        accountId: typeof source.accountId === "string" ? source.accountId : null,
+        accountName: typeof source.accountName === "string" ? source.accountName : null,
+        campaignId: typeof source.campaignId === "string" ? source.campaignId : null,
+        campaignName: typeof source.campaignName === "string" ? source.campaignName : null,
+        adSetId: typeof source.adSetId === "string" ? source.adSetId : null,
+        adSetName: typeof source.adSetName === "string" ? source.adSetName : null,
+        taxonomyPrimaryLabel:
+          typeof source.taxonomyPrimaryLabel === "string"
+            ? source.taxonomyPrimaryLabel
+            : null,
+        taxonomySecondaryLabel:
+          typeof source.taxonomySecondaryLabel === "string"
+            ? source.taxonomySecondaryLabel
+            : null,
+        taxonomyVisualFormat:
+          typeof source.taxonomyVisualFormat === "string"
+            ? source.taxonomyVisualFormat
+            : null,
+        aiTags:
+          source.aiTags && typeof source.aiTags === "object"
+            ? (source.aiTags as Record<string, string[]>)
+            : undefined,
         historicalWindows,
       };
     });
@@ -245,7 +283,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       source: "deterministic",
-      decisions: getDemoAiCreativeDecisions(creativeList.map((c) => ({ creativeId: c.creativeId }))),
+      decisions: buildHeuristicCreativeDecisions(creativeList),
       warning: null,
       lastSyncedAt: new Date().toISOString(),
     });

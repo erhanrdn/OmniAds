@@ -1,4 +1,10 @@
 import type { AiDailyInsightSnapshot } from "@/src/types";
+import type {
+  CreativeDecisionOperatorQueue as CreativeDecisionOperatorQueueContract,
+  CreativeDecisionOsCreative,
+  CreativeDecisionOsV1Response,
+  CreativeRuleReportPayload,
+} from "@/lib/creative-decision-os";
 import {
   buildApiUrl,
   getApiErrorMessage,
@@ -82,6 +88,23 @@ export interface CreativeDecisionInputRow {
   video75Rate: number;
   clickToPurchaseRate: number;
   atcToPurchaseRate: number;
+  copyText?: string | null;
+  copyVariants?: string[];
+  headlineVariants?: string[];
+  descriptionVariants?: string[];
+  objectStoryId?: string | null;
+  effectiveObjectStoryId?: string | null;
+  postId?: string | null;
+  accountId?: string | null;
+  accountName?: string | null;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  adSetId?: string | null;
+  adSetName?: string | null;
+  taxonomyPrimaryLabel?: string | null;
+  taxonomySecondaryLabel?: string | null;
+  taxonomyVisualFormat?: string | null;
+  aiTags?: Partial<Record<string, string[]>>;
   historicalWindows?: CreativeHistoricalWindows | null;
 }
 
@@ -143,39 +166,10 @@ export type AiCreativeHistoricalWindow = CreativeHistoricalWindow;
 export type AiCreativeHistoricalWindows = CreativeHistoricalWindows;
 export type AiCreativeDecision = CreativeDecision;
 export type AiCreativeDecisionResponse = CreativeDecisionResponse;
-
-export interface CreativeRuleReportFactor {
-  label: string;
-  impact: "positive" | "negative" | "neutral";
-  value: string;
-  reason: string;
-}
-
-export interface CreativeRuleReportPayload {
-  creativeId: string;
-  creativeName: string;
-  action: CreativeDecision["action"];
-  lifecycleState?: NonNullable<CreativeDecision["lifecycleState"]>;
-  score: number;
-  confidence: number;
-  summary: string;
-  coreVerdict?: string;
-  accountContext: {
-    roasAvg: number;
-    cpaAvg: number;
-    ctrAvg: number;
-    spendMedian: number;
-    spendP20: number;
-    spendP80: number;
-  };
-  timeframeContext?: {
-    coreVerdict: string;
-    selectedRangeOverlay: string;
-    historicalSupport: string;
-    note?: string | null;
-  };
-  factors: CreativeRuleReportFactor[];
-}
+export type CreativeDecisionOs = CreativeDecisionOsV1Response;
+export type CreativeDecisionOsRow = CreativeDecisionOsCreative;
+export type CreativeDecisionOperatorQueue = CreativeDecisionOperatorQueueContract;
+export type AiCreativeRuleReportPayload = CreativeRuleReportPayload;
 
 export interface AiCreativeRuleCommentary {
   headline: string;
@@ -247,6 +241,44 @@ export async function getCreativeDecisions(
 }
 
 export const getAiCreativeDecisions = getCreativeDecisions;
+
+export async function getCreativeDecisionOs(
+  businessId: string,
+  startDate: string,
+  endDate: string
+): Promise<CreativeDecisionOsV1Response> {
+  const url = getClientApiUrl("/api/creatives/decision-os");
+  url.searchParams.set("businessId", businessId);
+  url.searchParams.set("startDate", startDate);
+  url.searchParams.set("endDate", endDate);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "message" in payload
+        ? String((payload as { message?: string }).message ?? "Could not load Creative Decision OS.")
+        : `Creative Decision OS request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    (payload as { contractVersion?: unknown }).contractVersion !== "creative-decision-os.v1" ||
+    !Array.isArray((payload as { creatives?: unknown }).creatives)
+  ) {
+    throw new Error("Creative Decision OS API returned an invalid payload.");
+  }
+
+  return payload as CreativeDecisionOsV1Response;
+}
 
 export async function getAiCreativeRuleCommentary(
   businessId: string,

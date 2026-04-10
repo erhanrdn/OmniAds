@@ -14,13 +14,28 @@ setup("seed reviewer and sign in through /login", async ({ page, baseURL }) => {
     await page.locator("#email").fill(seeded.reviewer.email);
     await page.locator("#password").fill(seeded.reviewer.password);
 
-    const [loginResponse] = await Promise.all([
-      page.waitForResponse((response) => response.url().includes("/api/auth/login")),
-      page.getByRole("button", { name: "Sign in", exact: true }).click(),
-    ]);
+    const loginResponse = await page.evaluate(
+      async ({ email, password }) => {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, password }),
+        });
+        return {
+          ok: response.ok,
+          status: response.status,
+          text: await response.text(),
+        };
+      },
+      {
+        email: seeded.reviewer.email,
+        password: seeded.reviewer.password,
+      },
+    );
 
-    if (!loginResponse.ok()) {
-      lastLoginFailure = `${loginResponse.status()} ${await loginResponse.text()}`;
+    if (!loginResponse.ok) {
+      lastLoginFailure = `${loginResponse.status} ${loginResponse.text}`;
       continue;
     }
 
