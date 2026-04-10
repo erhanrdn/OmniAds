@@ -1,6 +1,7 @@
 # Google Ads Product Readiness Checklist
 
 Use this checklist together with [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
+Use the step-by-step rollout order in [`docs/google-ads-rollout-runbook.md`](/Users/harmelek/Adsecute/docs/google-ads-rollout-runbook.md).
 
 The canonical executable gate is `npm run google:ads:product-gate -- <businessId>`.
 
@@ -39,12 +40,16 @@ Product-ready is declared only after a real business passes a `T0` and `T0 + 24h
 ## Advisor Validation
 
 1. Run `npm run google:ads:advisor-readiness -- <businessId> <startDate> <endDate>`
-2. Confirm:
+2. Refresh the native snapshot with `npm run google:ads:advisor-refresh -- <businessId> --json`
+3. Confirm:
    - advisor is `ready=false` when `campaign_daily`, `search_term_daily`, or `product_daily` is incomplete
    - advisor is `ready=true` only when all required surfaces are complete
    - legacy snapshots remain labeled `compatibility_derived` until refreshed
    - AI structured assist stays absent unless both the global flag and the per-business allowlist are active
-3. In the UI:
+4. Confirm from the refresh output:
+   - `actionContractVersion=google_ads_advisor_action_v2`
+   - `actionContractSource=native`
+5. In the UI:
    - advisor button is disabled while readiness is false
    - advisor button is enabled when readiness becomes true
    - changing the date range marks the existing analysis as stale

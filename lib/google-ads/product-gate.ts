@@ -430,6 +430,7 @@ export async function runGoogleAdsProductGate(
     "google:ads:repair-scope",
     "google:ads:state-check",
     "google:ads:advisor-readiness",
+    "google:ads:advisor-refresh",
   ];
   const missingScripts = requiredScripts.filter((script) => !packageScripts[script]);
   sections.push(
@@ -439,7 +440,7 @@ export async function runGoogleAdsProductGate(
       level: missingScripts.length === 0 ? "PASS" : "FAIL",
       summary:
         missingScripts.length === 0
-          ? "Cleanup, replay, reschedule, refresh-state, and readiness tooling are present."
+          ? "Cleanup, replay, reschedule, refresh-state, readiness, and advisor-refresh tooling are present."
           : "Some required recovery scripts are missing from package.json.",
       details:
         missingScripts.length === 0

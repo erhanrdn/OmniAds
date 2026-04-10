@@ -5,6 +5,7 @@
 This is a V1 operator-first release candidate.
 
 Canonical product posture now lives in [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
+Operational rollout procedure now lives in [`docs/google-ads-rollout-runbook.md`](/Users/harmelek/Adsecute/docs/google-ads-rollout-runbook.md).
 
 - It is not autonomous.
 - It is not a verified write-back release.
@@ -36,9 +37,11 @@ Recommended order:
 2. `npm run build`
 3. Deploy additive schema and code
 4. Verify `/api/google-ads/status`
-5. Verify `/api/google-ads/advisor`
-6. Open the Google Ads page and confirm the operator queue renders
-7. Run targeted smoke checks below
+5. Refresh and verify the native advisor snapshot with `npm run google:ads:advisor-refresh -- <businessId> --json`
+6. Verify `/api/google-ads/advisor`
+7. Open the Google Ads page and confirm the operator queue renders
+8. Run targeted smoke checks below
+9. Record the outcome in the current rollout record
 
 ## Smoke checks
 
