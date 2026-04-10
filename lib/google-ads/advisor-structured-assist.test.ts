@@ -300,6 +300,32 @@ describe("applyGoogleAdsStructuredAssist", () => {
     expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("deterministic");
   });
 
+  it("does not call AI for newly promoted deterministic brand-control recommendations", async () => {
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
+    vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const result = await applyGoogleAdsStructuredAssist({
+      analysisMode: "snapshot",
+      businessId: "biz_1",
+      advisorPayload: buildAdvisor([
+        buildRecommendation({
+          type: "brand_capture_control",
+          affectedFamilies: ["brand_search", "non_brand_search", "pmax_scaling"],
+          negativeQueries: undefined,
+          negativeGuardrails: undefined,
+          overlapEntities: undefined,
+        }),
+      ]),
+    });
+
+    expect(createCompletion).not.toHaveBeenCalled();
+    expect(result.recommendations[0]?.structuredAssist?.state).toBe("not_requested");
+    expect(result.recommendations[0]?.structuredAssist?.validationFailureCategory).toBe("not_eligible");
+    expect(result.recommendations[0]?.operatorActionCard?.assistMode).toBe("deterministic");
+    expect(result.recommendations[0]?.operatorActionCard?.exactChangePayload.kind).toBe("brand_capture_control");
+  });
+
   it("rejects AI output that introduces exact items outside the allowlist", async () => {
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED", "true");
     vi.stubEnv("GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST", "biz_1");

@@ -2899,10 +2899,29 @@ export function buildGoogleGrowthAdvisor(
     .sort((a, b) => Number(a.roas ?? 0) - Number(b.roas ?? 0))[0];
   const desktop = input.selectedDevices.find((row) => String(row.device).toLowerCase().includes("desktop"));
   const mobile = input.selectedDevices.find((row) => String(row.device).toLowerCase().includes("mobile"));
-  if (
-    (bestGeo && worstGeo && bestGeo.geoName !== worstGeo.geoName && Number(bestGeo.roas ?? 0) >= Math.max(Number(worstGeo.roas ?? 0) * 1.75, 2)) ||
-    (desktop && mobile && Number(desktop.roas ?? 0) >= Math.max(Number(mobile.roas ?? 0) * 1.4, 2))
-  ) {
+  const geoComparisonReady =
+    Boolean(bestGeo && worstGeo && bestGeo.geoName !== worstGeo.geoName) &&
+    Number(bestGeo?.roas ?? 0) >= Math.max(Number(worstGeo?.roas ?? 0) * 1.75, 2);
+  const deviceComparisonReady =
+    Boolean(desktop && mobile) &&
+    Number(desktop?.roas ?? 0) >= Math.max(Number(mobile?.roas ?? 0) * 1.4, 2);
+  const protectTargets = Array.from(
+    new Set(
+      [
+        geoComparisonReady && bestGeo ? `${bestGeo.geoName} (${round(bestGeo.roas ?? 0)}x ROAS)` : null,
+        deviceComparisonReady && desktop ? `${desktop.device} (${round(desktop.roas ?? 0)}x ROAS)` : null,
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
+  const reduceTargets = Array.from(
+    new Set(
+      [
+        geoComparisonReady && worstGeo ? `${worstGeo.geoName} (${round(worstGeo.roas ?? 0)}x ROAS)` : null,
+        deviceComparisonReady && mobile ? `${mobile.device} (${round(mobile.roas ?? 0)}x ROAS)` : null,
+      ].filter((value): value is string => Boolean(value))
+    )
+  );
+  if (geoComparisonReady || deviceComparisonReady) {
     recommendationPool.push({
       id: "google-geo-device-adjustment",
       level: "account",
@@ -2940,6 +2959,14 @@ export function buildGoogleGrowthAdvisor(
         "Historical support is intentionally treated as supportive only; structural demand capture decisions outrank this layer."
       ),
       affectedFamilies: ["non_brand_search", "pmax_scaling", "shopping"],
+      geoDeviceAdjustmentAxis:
+        geoComparisonReady && deviceComparisonReady
+          ? "geo_and_device"
+          : geoComparisonReady
+            ? "geo"
+            : "device",
+      protectTargets,
+      reduceTargets,
       prerequisites: ["Core demand-capture issues should already be addressed first"],
       playbookSteps: [
         "Treat geo/device moves as secondary overlays, not the main growth answer.",

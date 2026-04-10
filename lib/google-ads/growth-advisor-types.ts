@@ -486,6 +486,30 @@ export interface GoogleAdvisorSearchShoppingOverlapPayload {
   state: "directional_only" | "blocked";
 }
 
+export interface GoogleAdvisorBrandCaptureControlPayload {
+  kind: "brand_capture_control";
+  ownerLanes: string[];
+  growthEvaluationLanes: string[];
+  operatingGuardrails: string[];
+}
+
+export interface GoogleAdvisorGeoDeviceAdjustmentPayload {
+  kind: "geo_device_adjustment";
+  adjustmentAxis: "geo" | "device" | "geo_and_device";
+  protectTargets: string[];
+  reduceTargets: string[];
+  secondaryPriorityReason: string | null;
+  state: "directional_only" | "blocked";
+}
+
+export interface GoogleAdvisorDiagnosticGuardrailPayload {
+  kind: "diagnostic_guardrail";
+  state: "confidence_capped";
+  diagnosticFlags: string[];
+  cautiousMoves: string[];
+  followUpChecks: string[];
+}
+
 export interface GoogleAdvisorAssetGroupRestructurePayload {
   kind: "asset_group_restructure";
   splitAssetGroups: string[];
@@ -561,6 +585,9 @@ export type GoogleAdvisorExactChangePayload =
   | GoogleAdvisorShoppingStructurePayload
   | GoogleAdvisorBrandLeakageControlPayload
   | GoogleAdvisorSearchShoppingOverlapPayload
+  | GoogleAdvisorBrandCaptureControlPayload
+  | GoogleAdvisorGeoDeviceAdjustmentPayload
+  | GoogleAdvisorDiagnosticGuardrailPayload
   | GoogleAdvisorAssetGroupRestructurePayload
   | GoogleAdvisorPmaxScalingFitPayload
   | GoogleAdvisorProductAllocationPayload
@@ -1018,6 +1045,9 @@ export interface GoogleRecommendation {
   weakAssetGroups?: string[];
   keepSeparateAssetGroups?: string[];
   reallocationBand?: string;
+  geoDeviceAdjustmentAxis?: "geo" | "device" | "geo_and_device";
+  protectTargets?: string[];
+  reduceTargets?: string[];
   diagnosticFlags?: string[];
   prerequisites?: string[];
   playbookSteps?: string[];

@@ -299,6 +299,41 @@ describe("advisor action contract mapper", () => {
     expect(card.exactChanges[0]?.label).toBe("Leaked brand queries");
   });
 
+  it("maps brand capture control into lane-isolation and evaluation guardrails", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "brand_capture_control",
+        strategyLayer: "Operating Model",
+        affectedFamilies: ["brand_search", "non_brand_search", "pmax_scaling"],
+        prerequisites: ["Brand should stay isolated from true growth evaluation."],
+        playbookSteps: [
+          "Keep Brand Search separate from non-brand and PMax evaluation.",
+          "Do not let branded demand justify broader scale decisions by itself.",
+        ],
+        potentialContribution: {
+          label: "Control gain",
+          impact: "medium",
+          summary: "Separating brand performance gives cleaner growth decisions.",
+          estimatedEfficiencyLiftRange: "$30-$60",
+        },
+      }),
+      "native"
+    );
+
+    expect(card.exactChangePayload).toMatchObject({
+      kind: "brand_capture_control",
+      ownerLanes: ["Dedicated Brand Search lane"],
+      growthEvaluationLanes: ["Non-brand Search lane", "PMax lane"],
+      operatingGuardrails: [
+        "Brand should stay isolated from true growth evaluation.",
+        "Keep Brand Search separate from non-brand and PMax evaluation.",
+        "Do not let branded demand justify broader scale decisions by itself.",
+      ],
+    });
+    expect(card.primaryAction).toContain("Dedicated Brand Search lane");
+    expect(card.exactChanges[0]?.label).toBe("Brand owner lane");
+  });
+
   it("maps search and shopping overlap into a manual owner-selection card", () => {
     const card = buildGoogleAdsOperatorActionCard(
       buildRecommendation({
@@ -323,6 +358,34 @@ describe("advisor action contract mapper", () => {
     expect(card.exactChanges[3]?.label).toBe("Primary owner lane");
   });
 
+  it("maps geo/device skew into explicit protect and reduce targets", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "geo_device_adjustment",
+        strategyLayer: "Budget Moves",
+        geoDeviceAdjustmentAxis: "geo_and_device",
+        protectTargets: ["Istanbul (4x ROAS)", "Desktop (3x ROAS)"],
+        reduceTargets: ["Ankara (1x ROAS)", "Mobile (1x ROAS)"],
+        prerequisites: ["Core demand-capture issues should already be addressed first"],
+        playbookSteps: [
+          "Treat geo/device moves as secondary overlays, not the main growth answer.",
+          "Protect the strong pockets and cap the weak ones only after the major fixes are underway.",
+        ],
+      }),
+      "native"
+    );
+
+    expect(card.exactChangePayload).toMatchObject({
+      kind: "geo_device_adjustment",
+      adjustmentAxis: "geo_and_device",
+      protectTargets: ["Istanbul (4x ROAS)", "Desktop (3x ROAS)"],
+      reduceTargets: ["Ankara (1x ROAS)", "Mobile (1x ROAS)"],
+      state: "directional_only",
+    });
+    expect(card.primaryAction).toContain("geo/device overlay");
+    expect(card.exactChanges[0]?.label).toBe("Protect these geos / devices");
+  });
+
   it("maps asset group restructuring into split, keep-separate, and replacement lists", () => {
     const card = buildGoogleAdsOperatorActionCard(
       buildRecommendation({
@@ -344,6 +407,31 @@ describe("advisor action contract mapper", () => {
       replacementAngles: ["Durability proof"],
     });
     expect(card.primaryAction).toContain("1 asset group to split");
+  });
+
+  it("maps diagnostic guardrails into explicit confidence blockers and follow-up checks", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "diagnostic_guardrail",
+        strategyLayer: "Diagnostics",
+        diagnosticFlags: ["Sparse conversion volume", "Thin search-term visibility"],
+        prerequisites: ["Use diagnostics to temper confidence, not to stop all action"],
+        playbookSteps: [
+          "Prioritize broad structural fixes over micro-optimizations while data is thin.",
+          "Re-evaluate once query, product, or conversion visibility improves.",
+        ],
+      }),
+      "native"
+    );
+
+    expect(card.exactChangePayload).toMatchObject({
+      kind: "diagnostic_guardrail",
+      state: "confidence_capped",
+      diagnosticFlags: ["Sparse conversion volume", "Thin search-term visibility"],
+      cautiousMoves: ["Use diagnostics to temper confidence, not to stop all action"],
+    });
+    expect(card.primaryAction).toContain("confidence-capped");
+    expect(card.exactChanges[0]?.label).toBe("Confidence blockers");
   });
 
   it("maps budget reallocation previews into source and destination deltas", () => {
@@ -522,8 +610,8 @@ describe("advisor action contract mapper", () => {
   it("falls back to explicit insufficient evidence when no deterministic change payload exists", () => {
     const card = buildGoogleAdsOperatorActionCard(
       buildRecommendation({
-        type: "diagnostic_guardrail",
-        strategyLayer: "Diagnostics",
+        type: "operating_model_gap",
+        strategyLayer: "Operating Model",
         playbookSteps: [],
         orderedHandoffSteps: [],
         confidenceDegradationReasons: ["support window is too thin"],

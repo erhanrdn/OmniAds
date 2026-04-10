@@ -575,6 +575,77 @@ function buildBrandLeakageCard(
   };
 }
 
+function buildBrandCaptureControlCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource,
+  blockedBecause: string[]
+): GoogleAdvisorActionCardDraft {
+  const ownerLanes = uniqueStrings(
+    (recommendation.affectedFamilies ?? [])
+      .filter((family) => family === "brand_search")
+      .map((family) => familyLabel(family))
+  );
+  const growthEvaluationLanes = uniqueStrings(
+    (recommendation.affectedFamilies ?? [])
+      .filter((family) => family !== "brand_search")
+      .map((family) => familyLabel(family))
+  );
+  const operatingGuardrails = uniqueStrings([
+    ...(recommendation.prerequisites ?? []),
+    ...(recommendation.playbookSteps ?? []),
+  ]);
+  const actionSummary =
+    summarizeActionCounts([
+      { count: ownerLanes.length, singularLabel: "brand owner lane", pluralLabel: "brand owner lanes" },
+      {
+        count: growthEvaluationLanes.length,
+        singularLabel: "growth lane to judge separately",
+        pluralLabel: "growth lanes to judge separately",
+      },
+    ]) ?? "explicit brand isolation and lane-by-lane evaluation";
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction:
+      ownerLanes.length > 0
+        ? `Keep ${ownerLanes[0]} isolated and judge growth lanes separately with ${actionSummary}.`
+        : `Keep branded demand isolated before using it to justify broader growth scale with ${actionSummary}.`,
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock("Brand owner lane", ownerLanes, "Dedicated Brand Search lane", {
+        kind: "change",
+        tone: "primary",
+      }),
+      buildListBlock(
+        "Growth lanes to evaluate separately",
+        growthEvaluationLanes,
+        "No explicit growth-lane list was attached.",
+        { kind: "change" }
+      ),
+      buildListBlock(
+        "Evaluation guardrails",
+        operatingGuardrails,
+        "No explicit brand-governance guardrails were attached.",
+        { kind: "guardrail" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "brand_capture_control",
+      ownerLanes,
+      growthEvaluationLanes,
+      operatingGuardrails,
+    },
+    expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause,
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
 function buildSearchShoppingOverlapCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource,
@@ -653,6 +724,132 @@ function buildSearchShoppingOverlapCard(
       blockedBecause,
       state === "blocked" ? "blocked" : "directional_only"
     ),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause,
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
+function buildGeoDeviceAdjustmentCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource,
+  blockedBecause: string[]
+): GoogleAdvisorActionCardDraft {
+  const protectTargets = nonEmpty(recommendation.protectTargets);
+  const reduceTargets = nonEmpty(recommendation.reduceTargets);
+  const adjustmentAxis = recommendation.geoDeviceAdjustmentAxis ?? "geo_and_device";
+  const secondaryPriorityReason = uniqueStrings(recommendation.prerequisites ?? []).at(0) ?? null;
+  const actionSummary =
+    summarizeActionCounts([
+      { count: protectTargets.length, singularLabel: "strong pocket to protect", pluralLabel: "strong pockets to protect" },
+      { count: reduceTargets.length, singularLabel: "weak pocket to cap", pluralLabel: "weak pockets to cap" },
+    ]) ?? "secondary geo/device overlays";
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction:
+      blockedBecause.length > 0
+        ? "Do not make the geo/device adjustment yet. Resolve the blocker first."
+        : adjustmentAxis === "device"
+          ? `Treat device skew as a secondary overlay and apply ${actionSummary}.`
+          : adjustmentAxis === "geo"
+            ? `Protect the stronger geo pocket and reduce pressure on the weaker geo with ${actionSummary}.`
+            : `Apply a small geo/device overlay with ${actionSummary} after the structural demand fixes are underway.`,
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock(
+        "Protect these geos / devices",
+        protectTargets,
+        "No strong geo/device pocket was attached.",
+        { kind: "change", tone: "primary" }
+      ),
+      buildListBlock(
+        "Reduce pressure on these geos / devices",
+        reduceTargets,
+        "No weak geo/device pocket was attached.",
+        { kind: blockedBecause.length > 0 ? "blocker" : "change" }
+      ),
+      buildListBlock(
+        "Secondary-priority guardrails",
+        uniqueStrings([secondaryPriorityReason, ...(recommendation.playbookSteps ?? [])]),
+        "No guardrails were attached.",
+        { kind: "guardrail" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "geo_device_adjustment",
+      adjustmentAxis,
+      protectTargets,
+      reduceTargets,
+      secondaryPriorityReason,
+      state: blockedBecause.length > 0 ? "blocked" : "directional_only",
+    },
+    expectedEffect: buildExpectedEffect(
+      recommendation,
+      blockedBecause,
+      blockedBecause.length > 0 ? "blocked" : "directional_only"
+    ),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause,
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
+function buildDiagnosticGuardrailCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource,
+  blockedBecause: string[]
+): GoogleAdvisorActionCardDraft {
+  const diagnosticFlags = nonEmpty(recommendation.diagnosticFlags);
+  const cautiousMoves = uniqueStrings(recommendation.prerequisites ?? []);
+  const followUpChecks = uniqueStrings([
+    ...(recommendation.playbookSteps ?? []),
+    ...buildValidation(recommendation),
+  ]);
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction:
+      diagnosticFlags.length > 0
+        ? `Treat this snapshot as confidence-capped. ${pluralize(diagnosticFlags.length, "visibility gap")} is limiting fine-grained moves.`
+        : "Treat this snapshot as confidence-capped until visibility improves.",
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock(
+        "Confidence blockers",
+        diagnosticFlags,
+        "No explicit diagnostic blocker was attached.",
+        { kind: "blocker", tone: "muted" }
+      ),
+      buildListBlock(
+        "Constrain action with these guardrails",
+        cautiousMoves,
+        "No extra guardrails were attached.",
+        { kind: "guardrail" }
+      ),
+      buildListBlock(
+        "Re-check after these follow-up steps",
+        followUpChecks,
+        "No follow-up checklist was attached.",
+        { kind: "informational" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "diagnostic_guardrail",
+      state: "confidence_capped",
+      diagnosticFlags,
+      cautiousMoves,
+      followUpChecks,
+    },
+    expectedEffect: buildExpectedEffect(recommendation, blockedBecause, "not_confidently_estimable"),
     whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
     evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
     validation: buildValidation(recommendation),
@@ -1407,6 +1604,10 @@ export function buildGoogleAdsOperatorActionCard(
     return asDeterministicActionCard(buildBrandLeakageCard(recommendation, source, blockedBecause));
   }
 
+  if (recommendation.type === "brand_capture_control") {
+    return asDeterministicActionCard(buildBrandCaptureControlCard(recommendation, source, blockedBecause));
+  }
+
   if (recommendation.type === "search_shopping_overlap") {
     return asDeterministicActionCard(buildSearchShoppingOverlapCard(recommendation, source, blockedBecause));
   }
@@ -1436,6 +1637,14 @@ export function buildGoogleAdsOperatorActionCard(
 
   if (recommendation.type === "pmax_scaling_fit") {
     return asDeterministicActionCard(buildPmaxScalingFitCard(recommendation, source, blockedBecause));
+  }
+
+  if (recommendation.type === "geo_device_adjustment") {
+    return asDeterministicActionCard(buildGeoDeviceAdjustmentCard(recommendation, source, blockedBecause));
+  }
+
+  if (recommendation.type === "diagnostic_guardrail") {
+    return asDeterministicActionCard(buildDiagnosticGuardrailCard(recommendation, source, blockedBecause));
   }
 
   if (blockedBecause.length > 0) {

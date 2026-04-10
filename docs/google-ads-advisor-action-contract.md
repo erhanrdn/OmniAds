@@ -204,6 +204,20 @@ Structured AI assist rules:
 - It may run only when `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED=true`.
 - It may run only for businesses explicitly included in `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST`.
 - It may enrich only eligible fallback recommendations.
+- Current deterministic coverage already includes the live operator families for:
+  - brand capture control
+  - brand leakage
+  - search / shopping overlap
+  - query governance
+  - keyword buildout
+  - shopping structure
+  - product allocation
+  - asset structure
+  - PMax scaling fit
+  - budget reallocation
+  - geo / device adjustment
+  - diagnostic guardrails
+- Current AI structured assist scope is intentionally residual and primarily reserved for generic `operating_model_gap`-style fallback cards.
 - It may not invent queries, SKUs, assets, campaigns, targets, or uplift numbers.
 - It must validate exact items against the structured allowlist already present in the recommendation payload.
 - Validation failure must keep the deterministic fallback card.

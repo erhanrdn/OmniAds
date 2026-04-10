@@ -17,9 +17,6 @@ export const GOOGLE_ADVISOR_STRUCTURED_ASSIST_PROMPT_VERSION =
 const GOOGLE_ADVISOR_STRUCTURED_ASSIST_TIMEOUT_MS = 8_000;
 const ELIGIBLE_RECOMMENDATION_TYPES = new Set<GoogleRecommendation["type"]>([
   "operating_model_gap",
-  "brand_capture_control",
-  "geo_device_adjustment",
-  "diagnostic_guardrail",
 ]);
 const LIST_BLOCK_KINDS = new Set<GoogleAdvisorActionListBlock["kind"]>([
   "change",

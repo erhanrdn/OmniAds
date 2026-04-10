@@ -40,6 +40,7 @@ Future-path flags expected to stay disabled by default:
 - `GET /api/google-ads/advisor` serves snapshot-backed decision payloads by default and supports `refresh=1`.
 - The advisor payload exposes deterministic recommendation fields plus `metadata.actionContract` and `recommendation.operatorActionCard`.
 - Snapshot generation can optionally apply a schema-validated AI structured assist to eligible fallback recommendations, but the deterministic operator card contract remains the source of truth.
+- The live recommendation families for brand capture control, brand leakage, search / shopping overlap, geo / device adjustment, and diagnostic guardrails now render as deterministic operator cards instead of relying on AI fallback.
 - AI structured assist rollout is now explicitly scoped by `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST`, and both `/api/google-ads/status` and `google:ads:product-gate` expose that posture.
 - The current Google Ads advisor UI is action-first at the card level and clearly labels legacy snapshot compatibility.
 - The advisor now consumes persisted weekly top-query and daily cluster aggregates as supplemental support when those tables are available, and it exposes that posture in snapshot metadata.
@@ -77,6 +78,7 @@ Future-path flags expected to stay disabled by default:
 
 - Manual lifecycle persistence is now rendered end-to-end in the advisor UI, but outcome quality still depends on operator-entered validation and not automated attribution.
 - AI structured assist now records prompt version, eligibility counts, business-scoped rollout posture, and validation failure categories, but it remains a bounded snapshot-time assist and not a live request-time planner.
+- Residual AI scope is now narrow by design; current runtime primarily reserves it for generic `operating_model_gap`-style fallback cards rather than core live recommendation families.
 - Search intelligence aggregates are now consumed as supplemental support for recurring query and cluster evidence, but they do not yet replace the core recent-surface readiness contract or every recommendation heuristic.
 - Decision action/outcome logs exist as a table, and operator workflow now appends plan/outcome rows, but the UI does not yet provide richer longitudinal outcome analytics.
 - `/api/google-ads/status` now exposes advisor action-contract posture, aggregate-intelligence posture, retention runtime state, and automation boundary state, but the operator page does not yet surface every backend control-plane detail.
