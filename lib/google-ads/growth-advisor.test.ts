@@ -9,8 +9,8 @@ import type {
   ProductPerformanceRow,
   SearchTermPerformanceRow,
 } from "@/lib/google-ads/intelligence-model";
+import type { GoogleAdvisorAggregateIntelligence } from "@/lib/google-ads/growth-advisor-types";
 import {
-  type GoogleAdvisorAggregateIntelligence,
   annotateAdvisorMemory,
   getAdvisorExecutionCalibration,
   updateAdvisorCompletionState,

@@ -195,7 +195,6 @@ function buildAdvisor(recommendations: GoogleRecommendation[]): GoogleAdvisorRes
       selectedRangeContext: null,
       aggregateIntelligence: null,
       aiAssist: null,
-      actionContract: null,
     },
   };
 }

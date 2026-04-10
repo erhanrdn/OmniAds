@@ -510,16 +510,7 @@ describe("Google Ads decision snapshot metadata", () => {
           {
             id: "section_1",
             title: "Search Governance",
-            recommendations: [
-              {
-                id: "rec_ai",
-                title: "Brand leakage",
-                recommendationFingerprint: "fp_ai",
-                decisionState: "act",
-                doBucket: "do_now",
-                integrityState: "ready",
-              },
-            ],
+            recommendations: [],
           },
         ],
         clusters: [],

@@ -46,7 +46,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Detect runtime-affecting changes
         id: filter
@@ -60,6 +60,12 @@ jobs:
           if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
             echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
             echo "No valid before SHA; defaulting to runtime_changed=true."
+            exit 0
+          fi
+
+          if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
+            echo "Before SHA ${BEFORE_SHA} is not available locally; defaulting to runtime_changed=true."
             exit 0
           fi
 
