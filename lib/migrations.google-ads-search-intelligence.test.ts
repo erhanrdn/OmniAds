@@ -41,6 +41,7 @@ describe("Google Ads search intelligence migrations", () => {
     expect(joined).toContain("CREATE TABLE IF NOT EXISTS google_ads_top_query_weekly");
     expect(joined).toContain("CREATE TABLE IF NOT EXISTS google_ads_search_cluster_daily");
     expect(joined).toContain("CREATE TABLE IF NOT EXISTS google_ads_decision_action_outcome_logs");
+    expect(joined).toContain("CREATE TABLE IF NOT EXISTS google_ads_retention_runs");
     expect(joined).not.toContain("DROP TABLE google_ads_search_term_daily");
   });
 });

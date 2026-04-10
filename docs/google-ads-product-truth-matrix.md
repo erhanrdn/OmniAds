@@ -41,6 +41,7 @@ Future-path flags expected to stay disabled by default:
 - Recommendation memory exists and persists recommendation lifecycle, execution state, rollback availability, and outcome fields in `google_ads_advisor_memory`.
 - Admin sync health surfaces queue depth, dead-letter pressure, maintenance pressure, checkpoint lag, integrity blockers, and Google Ads recovery actions.
 - Recovery tooling exists for cleanup, dead-letter replay, reschedule, refresh state, targeted repair, repair cycle, integrity-window repair, and quarantine release.
+- `npm run google:ads:product-gate -- <businessId>` now exists as the canonical executable checkpoint for feature posture, warehouse/sync health, advisor contract truth, recovery tooling, admin visibility, exit criteria, and deferred items.
 - Search intelligence aggregate storage exists for:
   - `google_ads_search_query_hot_daily`
   - `google_ads_top_query_weekly`
@@ -51,20 +52,26 @@ Future-path flags expected to stay disabled by default:
 
 - Write-back endpoints, preflight checks, rollback scaffolding, grouped cluster execution, and shared-budget/portfolio-target mutate previews exist in code.
 - Write-back is still explicitly disabled by default and not verified for production-safe use.
-- Retention policy constants and dry-run logic exist, but destructive retention execution is gated off by default.
+- Retention execution now exists in code, runs under a lease, records `google_ads_retention_runs`, and is scheduled from the durable worker loop, but destructive deletion remains explicitly gated off by default.
 - Snapshot compatibility normalization exists for legacy advisor payloads, but legacy payloads remain compatibility-derived until refreshed.
+- Future automation foundations now exist as explicit config posture only:
+  - write-back pilot flag
+  - semi-autonomous bundle flag
+  - controlled-autonomy flag
+  - autonomy kill switch
+  - action allowlist
+  - manual approval requirement
 
 ## Partial Or Incomplete
 
-- Manual lifecycle persistence exists in backend memory, but the operator-facing closed loop is not yet fully rendered end-to-end in the UI.
+- Manual lifecycle persistence is now rendered end-to-end in the advisor UI, but outcome quality still depends on operator-entered validation and not automated attribution.
 - Search intelligence aggregates are stored, but the main advisor/serving path does not yet fully consume weekly query and cluster aggregates.
-- Decision action/outcome logs exist as a table, but the current runtime only partially uses them for operator-visible lifecycle reporting.
-- Product readiness validation is split across multiple scripts and docs instead of one canonical product gate command.
-- Retention policy is documented, but runtime enforcement, run observability, and gate integration are still incomplete at this baseline.
+- Decision action/outcome logs exist as a table, and operator workflow now appends plan/outcome rows, but the UI does not yet provide richer longitudinal outcome analytics.
+- `/api/google-ads/status` now exposes advisor action-contract posture and retention runtime state, but the operator page does not yet surface every backend control-plane detail.
+- Search-intelligence aggregate consumption is still partial until serving/advisor logic uses the stored weekly and cluster inputs directly.
 
 ## Docs-Only Or Not Operationalized Yet
 
-- `docs/google-ads-warehouse-retention.md` describes approved storage tiers, but not all of that policy is enforced by runtime code yet.
 - Long-term automation architecture is described in docs and code comments, but not release-verified.
 - Verified write-back, semi-autonomous mode, and controlled autonomy remain architecture paths, not live product claims.
 
@@ -148,15 +155,15 @@ Approved policy today:
 Runtime reality at this baseline:
 
 - policy constants exist
-- dry-run reporting exists
-- destructive execution is not yet operationalized
-- no dedicated Google Ads retention run ledger exists yet
-- product gate does not yet score retention execution truth
+- dry-run and execute paths both exist in code
+- destructive execution remains disabled by default behind `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
+- runs are recorded in `google_ads_retention_runs`
+- the durable worker schedules retention on a lease-protected cadence
+- `/api/google-ads/status` and `google:ads:product-gate` report retention runtime posture
 
 ## Product Blockers At Baseline
 
 - `DATABASE_URL` is not configured in the current execution environment, so live DB-backed verification is not available from this session.
 - Google Ads credentials and developer token are not configured in the current execution environment, so live mutate verification is not available from this session.
 - Write-back therefore remains blocked from verified promotion even though mutate code paths exist.
-- Retention remains only partially operationalized until runtime execution, observability, and gate wiring land.
 - Search intelligence aggregate consumption is incomplete until serving/advisor logic uses the stored weekly and cluster inputs directly.

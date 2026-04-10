@@ -2,16 +2,17 @@
 
 Use this checklist together with [`docs/google-ads-product-truth-matrix.md`](/Users/harmelek/Adsecute/docs/google-ads-product-truth-matrix.md).
 
-The future canonical executable gate is `npm run google:ads:product-gate -- <businessId>`.
+The canonical executable gate is `npm run google:ads:product-gate -- <businessId>`.
 
 Product-ready is declared only after a real business passes a `T0` and `T0 + 24h` validation window.
 
 ## Core Validation
 
-1. Run `npm run build`
-2. Run `npm run google:ads:health -- <businessId>`
-3. Run `npm run google:ads:state-check -- <businessId>`
-4. Confirm:
+1. Run `npm run google:ads:product-gate -- <businessId>`
+2. Run `npm run build`
+3. Run `npm run google:ads:health -- <businessId>`
+4. Run `npm run google:ads:state-check -- <businessId>`
+5. Confirm:
    - `campaign_daily` completed days increased since the previous check
    - `google_ads_sync_state` exists for `account_daily` and `campaign_daily`
    - `google_ads_sync_partitions` shows queue drain, not only queue growth
@@ -82,10 +83,12 @@ Product-ready is declared only after a real business passes a `T0` and `T0 + 24h
 
 The Google Ads stack is considered product-ready only when all of the following are true:
 
+- `npm run google:ads:product-gate -- <businessId>` does not report `FAIL`
 - `campaign_daily` historical coverage increases continuously without user presence
 - extended advisor surfaces generate state rows
 - both `search_term_daily` and `product_daily` increase during the same 24 hour validation window
 - `/api/google-ads/status` is fully state-driven
+- `/api/google-ads/status` reports advisor action-contract truth and retention runtime posture honestly
 - advisor runs only on manual trigger
 - request-time sync no longer creates queue storms
 - admin sync health reflects Google Ads queue/state truth

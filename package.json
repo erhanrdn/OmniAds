@@ -33,6 +33,7 @@
     "google:ads:lease-eligibility": "node --import tsx scripts/google-ads-lease-eligibility-diagnostic.ts",
     "google:ads:state-check": "node --import tsx scripts/google-ads-state-consistency.ts",
     "google:ads:advisor-readiness": "node --import tsx scripts/google-ads-advisor-readiness.ts",
+    "google:ads:product-gate": "node --import tsx scripts/google-ads-product-gate.ts",
     "google:ads:cleanup": "node --import tsx scripts/google-ads-cleanup.ts",
     "google:ads:replay-dead-letter": "node --import tsx scripts/google-ads-replay-dead-letter.ts",
     "google:ads:repair-scope": "node --import tsx scripts/google-ads-repair-scope.ts",

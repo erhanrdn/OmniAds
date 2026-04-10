@@ -6,6 +6,7 @@ const heartbeatSyncWorker = vi.fn();
 const renewSyncRunnerLease = vi.fn();
 const releaseSyncRunnerLease = vi.fn();
 const pruneSyncLifecycleData = vi.fn();
+const executeGoogleAdsRetentionPolicy = vi.fn();
 
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses,
@@ -22,6 +23,10 @@ vi.mock("@/lib/sync/retention", () => ({
   pruneSyncLifecycleData,
 }));
 
+vi.mock("@/lib/google-ads/warehouse-retention", () => ({
+  executeGoogleAdsRetentionPolicy,
+}));
+
 describe("worker runtime heartbeat repair metadata", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -30,6 +35,10 @@ describe("worker runtime heartbeat repair metadata", () => {
     renewSyncRunnerLease.mockResolvedValue(true);
     releaseSyncRunnerLease.mockResolvedValue(undefined);
     pruneSyncLifecycleData.mockResolvedValue({ pruned: 0 });
+    executeGoogleAdsRetentionPolicy.mockResolvedValue({
+      mode: "dry_run",
+      skippedDueToActiveLease: false,
+    });
     process.env.WORKER_POLL_INTERVAL_MS = "1";
     process.env.WORKER_MAX_BUSINESSES_PER_TICK = "1";
     process.env.WORKER_PARTITION_TICK_LIMIT = "1";
@@ -121,5 +130,8 @@ describe("worker runtime heartbeat repair metadata", () => {
         );
       })
     ).toBe(true);
+    expect(executeGoogleAdsRetentionPolicy).toHaveBeenCalledWith({
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
   });
 });

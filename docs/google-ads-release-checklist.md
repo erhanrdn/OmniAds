@@ -32,18 +32,20 @@ Rationale:
 
 Recommended order:
 
-1. `npm run build`
-2. Deploy additive schema and code
-3. Verify `/api/google-ads/status`
-4. Verify `/api/google-ads/advisor`
-5. Open the Google Ads page and confirm the operator queue renders
-6. Run targeted smoke checks below
+1. `npm run google:ads:product-gate -- <businessId>`
+2. `npm run build`
+3. Deploy additive schema and code
+4. Verify `/api/google-ads/status`
+5. Verify `/api/google-ads/advisor`
+6. Open the Google Ads page and confirm the operator queue renders
+7. Run targeted smoke checks below
 
 ## Smoke checks
 
 API / backend:
 
 - `/api/google-ads/status` reports decision-snapshot-compatible language
+- `/api/google-ads/status` reports advisor `actionContract` truth and retention runtime posture
 - `/api/google-ads/advisor` returns Decision Snapshot V2 metadata
 - selected-range context is present only as contextual metadata
 - query-governance recommendations suppress unsafe brand/SKU/product cases
@@ -60,6 +62,7 @@ UI / operator surface:
 - UI uses manual-plan / operator-review wording
 - UI does not imply direct execution when write-back is disabled
 - Truth matrix, readiness checklist, and retention posture do not contradict each other
+- `npm run google:ads:product-gate -- <businessId>` reports honest PASS/WARN/FAIL/NOT VERIFIED sections
 
 Scenario checks:
 

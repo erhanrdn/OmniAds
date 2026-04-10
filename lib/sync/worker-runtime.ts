@@ -8,6 +8,7 @@ import {
   renewSyncRunnerLease,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
+import { executeGoogleAdsRetentionPolicy } from "@/lib/google-ads/warehouse-retention";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
 
 function envNumber(name: string, fallback: number) {
@@ -193,6 +194,14 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const partitionTickLimit = envNumber("WORKER_PARTITION_TICK_LIMIT", 1);
   const pruneIntervalMs = envNumber("WORKER_PRUNE_INTERVAL_MS", 6 * 60 * 60_000);
   const pruneRetryIntervalMs = envNumber("WORKER_PRUNE_RETRY_INTERVAL_MS", 15 * 60_000);
+  const googleAdsRetentionIntervalMs = envNumber(
+    "GOOGLE_ADS_RETENTION_INTERVAL_MS",
+    6 * 60 * 60_000
+  );
+  const googleAdsRetentionRetryIntervalMs = envNumber(
+    "GOOGLE_ADS_RETENTION_RETRY_INTERVAL_MS",
+    15 * 60_000
+  );
   const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getCurrentRuntimeBuildId();
@@ -201,6 +210,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
   let nextPruneAt = 0;
+  let nextGoogleAdsRetentionAt = 0;
 
   async function heartbeat(input: {
     providerScope: string;
@@ -254,6 +264,25 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         .catch((error) => {
           nextPruneAt = Date.now() + pruneRetryIntervalMs;
           console.error("[durable-worker] lifecycle_prune_failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
+    if (Date.now() >= nextGoogleAdsRetentionAt) {
+      await executeGoogleAdsRetentionPolicy({
+        asOfDate: new Date().toISOString().slice(0, 10),
+      })
+        .then((result) => {
+          nextGoogleAdsRetentionAt =
+            Date.now() +
+            (result.skippedDueToActiveLease
+              ? googleAdsRetentionRetryIntervalMs
+              : googleAdsRetentionIntervalMs);
+          console.log("[durable-worker] google_ads_retention", result);
+        })
+        .catch((error) => {
+          nextGoogleAdsRetentionAt = Date.now() + googleAdsRetentionRetryIntervalMs;
+          console.error("[durable-worker] google_ads_retention_failed", {
             message: error instanceof Error ? error.message : String(error),
           });
         });

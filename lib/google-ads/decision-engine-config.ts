@@ -1,7 +1,14 @@
 import type { GoogleAdvisorExecutionSurface } from "@/lib/google-ads/growth-advisor-types";
 
 function readBooleanFlag(
-  name: "GOOGLE_ADS_DECISION_ENGINE_V2" | "GOOGLE_ADS_WRITEBACK_ENABLED",
+  name:
+    | "GOOGLE_ADS_DECISION_ENGINE_V2"
+    | "GOOGLE_ADS_WRITEBACK_ENABLED"
+    | "GOOGLE_ADS_WRITEBACK_PILOT_ENABLED"
+    | "GOOGLE_ADS_SEMI_AUTONOMOUS_BUNDLES_ENABLED"
+    | "GOOGLE_ADS_CONTROLLED_AUTONOMY_ENABLED"
+    | "GOOGLE_ADS_AUTONOMY_KILL_SWITCH"
+    | "GOOGLE_ADS_MANUAL_APPROVAL_REQUIRED",
   fallback: boolean,
   env: NodeJS.ProcessEnv = process.env
 ) {
@@ -17,6 +24,51 @@ export function getGoogleAdsDecisionEngineConfig(env: NodeJS.ProcessEnv = proces
   return {
     decisionEngineV2Enabled,
     writebackEnabled,
+  };
+}
+
+function readAllowlist(env: NodeJS.ProcessEnv = process.env) {
+  const raw = env.GOOGLE_ADS_AUTONOMY_ALLOWLIST?.trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function getGoogleAdsAutomationConfig(env: NodeJS.ProcessEnv = process.env) {
+  const base = getGoogleAdsDecisionEngineConfig(env);
+  const writebackPilotEnabled = readBooleanFlag("GOOGLE_ADS_WRITEBACK_PILOT_ENABLED", false, env);
+  const semiAutonomousBundlesEnabled = readBooleanFlag(
+    "GOOGLE_ADS_SEMI_AUTONOMOUS_BUNDLES_ENABLED",
+    false,
+    env
+  );
+  const controlledAutonomyEnabled = readBooleanFlag(
+    "GOOGLE_ADS_CONTROLLED_AUTONOMY_ENABLED",
+    false,
+    env
+  );
+  const autonomyKillSwitchActive = readBooleanFlag(
+    "GOOGLE_ADS_AUTONOMY_KILL_SWITCH",
+    true,
+    env
+  );
+  const manualApprovalRequired = readBooleanFlag(
+    "GOOGLE_ADS_MANUAL_APPROVAL_REQUIRED",
+    true,
+    env
+  );
+  const actionAllowlist = readAllowlist(env);
+
+  return {
+    ...base,
+    writebackPilotEnabled,
+    semiAutonomousBundlesEnabled,
+    controlledAutonomyEnabled,
+    autonomyKillSwitchActive,
+    manualApprovalRequired,
+    actionAllowlist,
   };
 }
 

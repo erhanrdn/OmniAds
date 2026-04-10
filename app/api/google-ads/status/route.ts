@@ -31,7 +31,14 @@ import {
   getLatestGoogleAdsAdvisorSnapshot,
   isGoogleAdsAdvisorSnapshotFresh,
 } from "@/lib/google-ads/advisor-snapshots";
-import { getGoogleAdsDecisionEngineConfig } from "@/lib/google-ads/decision-engine-config";
+import {
+  getGoogleAdsAutomationConfig,
+  getGoogleAdsDecisionEngineConfig,
+} from "@/lib/google-ads/decision-engine-config";
+import {
+  getGoogleAdsRetentionRuntimeStatus,
+  getLatestGoogleAdsRetentionRun,
+} from "@/lib/google-ads/warehouse-retention";
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
 import {
   GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
@@ -403,6 +410,7 @@ function buildGoogleAdsStatusDomains(input: {
 
 export async function GET(request: NextRequest) {
   const decisionEngineConfig = getGoogleAdsDecisionEngineConfig();
+  const automationConfig = getGoogleAdsAutomationConfig();
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
   const selectedStartDate = url.searchParams.get("startDate");
@@ -1056,6 +1064,13 @@ export async function GET(request: NextRequest) {
   ).length;
   const snapshotAvailable = Boolean(latestAdvisorSnapshot);
   const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestAdvisorSnapshot);
+  const latestAdvisorActionContract =
+    latestAdvisorSnapshot?.advisorPayload?.metadata?.actionContract ?? null;
+  const retentionRuntime = getGoogleAdsRetentionRuntimeStatus();
+  const latestRetentionRun =
+    retentionRuntime.runtimeAvailable
+      ? await getLatestGoogleAdsRetentionRun().catch(() => null)
+      : null;
   const advisorRelevantDeadLetterPartitions =
     advisorQueueHealth?.advisorRelevantDeadLetterPartitions ?? 0;
   const advisorRelevantFailedPartitions =
@@ -1801,6 +1816,12 @@ export async function GET(request: NextRequest) {
       supportWindows: null,
       decisionEngineV2Enabled: decisionEngineConfig.decisionEngineV2Enabled,
       writebackEnabled: decisionEngineConfig.writebackEnabled,
+      actionContract: latestAdvisorActionContract
+        ? {
+            version: latestAdvisorActionContract.version ?? null,
+            source: latestAdvisorActionContract.source ?? null,
+          }
+        : null,
     },
     jobHealth: {
       runningJobs,
@@ -1849,6 +1870,21 @@ export async function GET(request: NextRequest) {
       advisorSnapshotAsOfDate: latestAdvisorSnapshot?.asOfDate ?? null,
       advisorSnapshotFresh: snapshotFresh,
       advisorSnapshotBlockedReason,
+      advisorActionContractVersion: latestAdvisorActionContract?.version ?? null,
+      advisorActionContractSource: latestAdvisorActionContract?.source ?? null,
+      retentionRuntimeAvailable: retentionRuntime.runtimeAvailable,
+      retentionExecutionEnabled: retentionRuntime.executionEnabled,
+      retentionMode: retentionRuntime.mode,
+      retentionGateReason: retentionRuntime.gateReason,
+      lastRetentionRunAt: latestRetentionRun?.finishedAt ?? null,
+      lastRetentionRunMode: latestRetentionRun?.executionMode ?? null,
+      lastRetentionRunDeletedRows: latestRetentionRun?.totalDeletedRows ?? null,
+      writebackPilotEnabled: automationConfig.writebackPilotEnabled,
+      semiAutonomousBundlesEnabled: automationConfig.semiAutonomousBundlesEnabled,
+      controlledAutonomyEnabled: automationConfig.controlledAutonomyEnabled,
+      autonomyKillSwitchActive: automationConfig.autonomyKillSwitchActive,
+      manualApprovalRequired: automationConfig.manualApprovalRequired,
+      autonomyAllowlist: automationConfig.actionAllowlist,
       blockingReasons: googleBlockingReasons,
       repairableActions: googleRepairableActions,
       requiredCoverage: googleRequiredCoverage,

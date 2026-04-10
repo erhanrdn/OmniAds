@@ -102,6 +102,33 @@ vi.mock("@/lib/google-ads/advisor-progress", () => ({
   })),
 }));
 
+vi.mock("@/lib/google-ads/decision-engine-config", () => ({
+  getGoogleAdsDecisionEngineConfig: vi.fn(() => ({
+    decisionEngineV2Enabled: true,
+    writebackEnabled: false,
+  })),
+  getGoogleAdsAutomationConfig: vi.fn(() => ({
+    decisionEngineV2Enabled: true,
+    writebackEnabled: false,
+    writebackPilotEnabled: false,
+    semiAutonomousBundlesEnabled: false,
+    controlledAutonomyEnabled: false,
+    autonomyKillSwitchActive: true,
+    manualApprovalRequired: true,
+    actionAllowlist: [],
+  })),
+}));
+
+vi.mock("@/lib/google-ads/warehouse-retention", () => ({
+  getGoogleAdsRetentionRuntimeStatus: vi.fn(() => ({
+    runtimeAvailable: false,
+    executionEnabled: false,
+    mode: "dry_run",
+    gateReason: "Retention execution is disabled.",
+  })),
+  getLatestGoogleAdsRetentionRun: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
@@ -134,6 +161,7 @@ const snapshots = await import("@/lib/provider-account-snapshots");
 const assignments = await import("@/lib/provider-account-assignments");
 const warehouse = await import("@/lib/google-ads/warehouse");
 const advisorSnapshots = await import("@/lib/google-ads/advisor-snapshots");
+const warehouseRetention = await import("@/lib/google-ads/warehouse-retention");
 const migrations = await import("@/lib/migrations");
 const statusMachine = await import("@/lib/google-ads/status-machine");
 
@@ -207,6 +235,7 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsSyncState).mockResolvedValue([]);
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
+    vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue(null);
 
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -354,8 +383,76 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.operations).toMatchObject({
       advisorReadinessModel: "recent_90d_required_support",
       advisorReadinessWindowDays: 90,
+      retentionRuntimeAvailable: false,
+      retentionExecutionEnabled: false,
+      retentionMode: "dry_run",
     });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
+  });
+
+  it("surfaces advisor action-contract posture and retention runtime truth when available", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue({
+      asOfDate: "2026-04-10",
+      generatedAt: new Date().toISOString(),
+      advisorPayload: {
+        metadata: {
+          actionContract: {
+            version: "google_ads_advisor_action_v1",
+            source: "native",
+          },
+        },
+      },
+    } as never);
+    vi.mocked(warehouseRetention.getGoogleAdsRetentionRuntimeStatus).mockReturnValue({
+      runtimeAvailable: true,
+      executionEnabled: false,
+      mode: "dry_run",
+      gateReason: "Retention execution is disabled.",
+    });
+    vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue({
+      executionMode: "dry_run",
+      finishedAt: "2026-04-10T00:00:00.000Z",
+      totalDeletedRows: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.advisor.actionContract).toMatchObject({
+      version: "google_ads_advisor_action_v1",
+      source: "native",
+    });
+    expect(payload.operations).toMatchObject({
+      advisorActionContractVersion: "google_ads_advisor_action_v1",
+      advisorActionContractSource: "native",
+      retentionRuntimeAvailable: true,
+      retentionExecutionEnabled: false,
+      retentionMode: "dry_run",
+      lastRetentionRunAt: "2026-04-10T00:00:00.000Z",
+      lastRetentionRunMode: "dry_run",
+      lastRetentionRunDeletedRows: 0,
+    });
   });
 
   it("reports warehouse readiness even when Google is disconnected", async () => {

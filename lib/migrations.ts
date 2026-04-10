@@ -1746,6 +1746,22 @@ export async function runMigrations(options?: {
           ON google_ads_decision_action_outcome_logs (business_id, occurred_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_decision_action_outcome_logs_recommendation
           ON google_ads_decision_action_outcome_logs (recommendation_fingerprint, occurred_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_retention_runs (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          execution_mode             TEXT NOT NULL
+                                     CHECK (execution_mode IN ('dry_run', 'execute')),
+          execution_enabled          BOOLEAN NOT NULL DEFAULT FALSE,
+          skipped_due_to_active_lease BOOLEAN NOT NULL DEFAULT FALSE,
+          total_deleted_rows         INTEGER NOT NULL DEFAULT 0,
+          summary_json               JSONB NOT NULL DEFAULT '{}'::jsonb,
+          error_message              TEXT,
+          started_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at                TIMESTAMPTZ,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_retention_runs_finished
+          ON google_ads_retention_runs (finished_at DESC NULLS LAST, created_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_raw_snapshots (
           id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id          TEXT NOT NULL,

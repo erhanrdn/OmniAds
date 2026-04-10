@@ -220,6 +220,10 @@ export interface GoogleAdsStatusResponse {
     }> | null;
     decisionEngineV2Enabled?: boolean;
     writebackEnabled?: boolean;
+    actionContract?: {
+      version: string | null;
+      source: "native" | "compatibility_derived" | null;
+    } | null;
   } | null;
   jobHealth?: {
     runningJobs: number;
@@ -274,6 +278,21 @@ export interface GoogleAdsStatusResponse {
     advisorSnapshotAsOfDate?: string | null;
     advisorSnapshotFresh?: boolean;
     advisorSnapshotBlockedReason?: string | null;
+    advisorActionContractVersion?: string | null;
+    advisorActionContractSource?: "native" | "compatibility_derived" | null;
+    retentionRuntimeAvailable?: boolean;
+    retentionExecutionEnabled?: boolean;
+    retentionMode?: "dry_run" | "execute";
+    retentionGateReason?: string | null;
+    lastRetentionRunAt?: string | null;
+    lastRetentionRunMode?: "dry_run" | "execute" | null;
+    lastRetentionRunDeletedRows?: number | null;
+    writebackPilotEnabled?: boolean;
+    semiAutonomousBundlesEnabled?: boolean;
+    controlledAutonomyEnabled?: boolean;
+    autonomyKillSwitchActive?: boolean;
+    manualApprovalRequired?: boolean;
+    autonomyAllowlist?: string[];
     staleRunPressure?: number;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;

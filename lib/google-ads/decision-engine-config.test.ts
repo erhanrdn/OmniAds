@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildGoogleAdsExecutionSurface,
+  getGoogleAdsAutomationConfig,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
 } from "@/lib/google-ads/decision-engine-config";
@@ -69,6 +70,37 @@ describe("Google Ads decision engine config", () => {
       writebackEnabled: true,
       mutateVerified: false,
       rollbackVerified: false,
+    });
+  });
+
+  it("keeps automation foundations disabled by default behind an active kill switch", () => {
+    expect(getGoogleAdsAutomationConfig(env())).toMatchObject({
+      writebackPilotEnabled: false,
+      semiAutonomousBundlesEnabled: false,
+      controlledAutonomyEnabled: false,
+      autonomyKillSwitchActive: true,
+      manualApprovalRequired: true,
+      actionAllowlist: [],
+    });
+
+    expect(
+      getGoogleAdsAutomationConfig(
+        env({
+          GOOGLE_ADS_WRITEBACK_PILOT_ENABLED: "true",
+          GOOGLE_ADS_SEMI_AUTONOMOUS_BUNDLES_ENABLED: "true",
+          GOOGLE_ADS_CONTROLLED_AUTONOMY_ENABLED: "true",
+          GOOGLE_ADS_AUTONOMY_KILL_SWITCH: "false",
+          GOOGLE_ADS_MANUAL_APPROVAL_REQUIRED: "true",
+          GOOGLE_ADS_AUTONOMY_ALLOWLIST: "add_negative_keyword,pause_asset",
+        })
+      )
+    ).toMatchObject({
+      writebackPilotEnabled: true,
+      semiAutonomousBundlesEnabled: true,
+      controlledAutonomyEnabled: true,
+      autonomyKillSwitchActive: false,
+      manualApprovalRequired: true,
+      actionAllowlist: ["add_negative_keyword", "pause_asset"],
     });
   });
 });
