@@ -379,7 +379,7 @@ export interface GoogleAdvisorAggregateIntelligence {
   metadata: GoogleAdvisorAggregateIntelligenceMetadata;
 }
 
-export type GoogleAdvisorActionContractVersion = "google_ads_advisor_action_v1";
+export type GoogleAdvisorActionContractVersion = "google_ads_advisor_action_v2";
 export type GoogleAdvisorActionContractSource = "native" | "compatibility_derived";
 
 export interface GoogleAdvisorActionContract {
@@ -399,6 +399,14 @@ export interface GoogleAdvisorActionListBlock {
   label: string;
   items: string[];
   emptyLabel?: string;
+  kind:
+    | "change"
+    | "suppressed"
+    | "guardrail"
+    | "preview"
+    | "blocker"
+    | "informational";
+  tone: "default" | "primary" | "danger" | "muted";
 }
 
 export interface GoogleAdvisorExpectedEffect {
@@ -451,6 +459,11 @@ export interface GoogleAdvisorShoppingStructurePayload {
   isolateClusters: string[];
   heroClusters: string[];
   startingClusters: string[];
+  scaleClusters: string[];
+  reduceClusters: string[];
+  hiddenWinnerClusters: string[];
+  shoppingRationale: string | null;
+  estimationState: "deterministic" | "bounded" | "directional_only" | "not_confidently_estimable";
 }
 
 export interface GoogleAdvisorAssetGroupRestructurePayload {
@@ -481,6 +494,7 @@ export interface GoogleAdvisorBudgetReallocationPayload {
 export interface GoogleAdvisorTargetStrategyAdjustmentPayload {
   kind: "target_strategy_adjustment";
   state: "preview_available" | "directional_only" | "blocked";
+  previewState: "preview_available" | "directional_only" | "blocked";
   previewMode: "portfolio_target" | "joint_allocator" | "directional_only";
   currentTargetType: "tROAS" | "tCPA" | null;
   currentTargetValue: number | null;
@@ -492,12 +506,14 @@ export interface GoogleAdvisorTargetStrategyAdjustmentPayload {
   budgetProposedAmount?: number | null;
   budgetDeltaPercent?: number | null;
   boundedDelta: boolean;
+  validationWindowDays: number | null;
   safeBecause: string[];
   blockedBecause: string[];
 }
 
 export interface GoogleAdvisorBlockedActionPayload {
   kind: "blocked_or_insufficient_evidence";
+  state: "blocked" | "insufficient_evidence";
   reasons: string[];
 }
 

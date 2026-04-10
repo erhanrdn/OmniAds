@@ -1,44 +1,86 @@
 # Google Ads Advisor Action Contract
 
-## Goal
+## Purpose
 
-The Google Ads advisor is operator-first and manual-plan-first.
+This contract defines the operator-grade recommendation card for the Google Ads advisor.
 
-The first thing on every recommendation card must be the exact recommended move.
+It is for a skilled Google Ads manager who needs to know, immediately:
 
-Narrative explanation is secondary.
+- what to change
+- where to change it
+- what exact items are involved
+- why now
+- what effect is expected
+- how to validate
+- how to roll back
+- why a move is blocked when it is blocked
 
-AI commentary is optional tertiary context and never the source of truth.
+Shipping posture remains:
 
-Write-back remains disabled.
+- operator-first
+- manual-plan-first
+- write-back disabled by default
 
-## Canonical payload surface
+AI commentary is optional and secondary. Structured product fields are the source of truth.
 
-The canonical structured surface lives on each recommendation:
+## Canonical Surface
+
+The recommendation-level contract lives on:
 
 - `recommendation.operatorActionCard`
 
-The response-level contract state lives in metadata:
+The response-level provenance lives on:
 
 - `metadata.actionContract.version`
 - `metadata.actionContract.source`
 - `metadata.actionContract.note`
-- `metadata.aggregateIntelligence`
 
 Current version:
 
-- `google_ads_advisor_action_v1`
+- `google_ads_advisor_action_v2`
 
-Current sources:
+Valid sources:
 
 - `native`
 - `compatibility_derived`
 
-`native` means the payload was generated with the action contract attached during report generation.
+Meaning:
 
-`compatibility_derived` means the payload came from a legacy snapshot and the action card was rebuilt deterministically from older recommendation fields. The UI must say this explicitly and should prompt the operator to refresh the decision snapshot.
+- `native`: the snapshot was generated with the current operator contract attached.
+- `compatibility_derived`: the snapshot came from an older payload and the current card was rebuilt from older structured fields. The UI must say this directly.
 
-## Primary operator card shape
+## Required Top-Of-Card Render Order
+
+Every recommendation card must render, in this order:
+
+1. `Primary action`
+2. `Scope`
+3. `Exact changes`
+4. `Expected effect`
+5. `Why this now`
+6. `Evidence`
+7. `Validation`
+8. `Rollback`
+9. `Blocked because`
+
+Secondary metadata may remain visible near the top:
+
+- confidence
+- risk
+- blast radius
+- lifecycle state
+
+But those fields must not appear before the action contract itself.
+
+Narrative fields such as:
+
+- `whatHappened`
+- `whyItHappened`
+- `whatToDo`
+
+must stay below the action contract and must be collapsed or visually demoted when `operatorActionCard` exists.
+
+## Required Fields
 
 Required fields on `operatorActionCard`:
 
@@ -56,69 +98,80 @@ Required fields on `operatorActionCard`:
 - `rollback`
 - `blockedBecause`
 
-Optional field:
+Optional:
 
 - `coachNote`
 
-Required top-of-card render order:
+## Field Semantics
 
-- Primary action
-- Scope
-- Exact changes
-- Expected effect
-- Why this now
-- Evidence
-- Validation
-- Rollback
-- Blocked because
+### `primaryAction`
 
-Narrative fields such as `whatHappened`, `whyItHappened`, and `whatToDo` must be collapsed or visually demoted whenever `operatorActionCard` exists.
-
-## Field rules
-
-`primaryAction`
-
-- One sentence.
-- Must be directive and operator-facing.
+- One short directive sentence.
+- Must lead with the exact move when available.
 - Must not imply autonomous execution.
+- Bad: `Search governance is underperforming.`
+- Good: `Add 2 exact negative keywords now.`
 
-`scope`
+### `scope`
 
-- Must name the governed entity or decision surface.
-- If the scope is portfolio or shared-budget governed, show that directly.
-- If the scope is not fully known, say so directly.
+- Must name the governed surface directly.
+- If portfolio or shared-budget scope is in play, show it explicitly.
+- If the governed scope is incomplete, say so directly.
 
-`exactChanges`
+### `exactChanges`
 
-- Must be list-shaped and copyable.
-- Must show exact queries, SKUs, asset groups, assets, campaigns, budgets, or target values when they are available.
-- Must not replace explicit unknowns with prose guesses.
+- Must be list-shaped, copyable, and scannable.
+- Must show exact items when they exist:
+  - queries
+  - asset groups
+  - assets
+  - SKUs or SKU clusters
+  - campaigns
+  - budget deltas
+  - target values
+- Must not substitute soft prose for missing structure.
 
-`expectedEffect`
+Each exact-change block also carries deterministic presentation semantics:
 
-- Must state the effect summary.
-- Must state one of:
-  - bounded range
-  - heuristic only
-  - directional only
-  - not confidently estimable
-  - blocked
-- Exact revenue or efficiency numbers may only be shown when they already exist in deterministic product logic.
+- `kind`: `change`, `suppressed`, `guardrail`, `preview`, `blocker`, or `informational`
+- `tone`: `primary`, `default`, `danger`, or `muted`
 
-`blockedBecause`
+The UI must use those semantics instead of inferring tone from block labels.
 
-- Must show direct blockers.
-- Must not wrap blockers in soft narrative.
+### `expectedEffect`
 
-`coachNote`
+`expectedEffect.estimationMode` must be one of:
 
-- Optional.
-- May summarize the structured move.
-- Must not invent new exact queries, SKUs, budgets, target values, or uplift numbers.
+- `bounded_range`
+- `heuristic_only`
+- `directional_only`
+- `not_confidently_estimable`
+- `blocked`
 
-## Deterministic product logic vs optional AI commentary
+Rules:
 
-Deterministic product logic:
+- Use `bounded_range` only when bounded ranges already exist in deterministic product logic.
+- Use `heuristic_only` when direction is supported but exact campaign-level preview is not safely available.
+- Use `directional_only` when the move is structured and operator-usable but business impact cannot be bounded.
+- Use `not_confidently_estimable` when the system cannot honestly size the effect.
+- Use `blocked` when the recommendation is not actionable yet because of an explicit blocker.
+
+### `blockedBecause`
+
+- Must contain direct blocker language.
+- Must not bury blockers in narrative copy.
+- Empty means there is no active blocker recorded.
+
+### `coachNote`
+
+- Optional summary only.
+- May restate structured facts.
+- Must not introduce new exact queries, assets, SKUs, targets, or uplift numbers.
+- The operator must be able to ignore it completely and still execute the recommendation correctly.
+
+## Deterministic Product Logic vs AI Commentary
+
+Deterministic source of truth:
 
 - `operatorActionCard`
 - `exactChangePayload`
@@ -127,43 +180,31 @@ Deterministic product logic:
 - `blockedBecause`
 - `validation`
 - `rollback`
-- all mutate preview fields already produced by product logic
-- persisted weekly top-query and daily cluster aggregate support, when attached through `metadata.aggregateIntelligence` and the recommendation evidence stack
+- safe mutate preview fields already generated by product logic
+- aggregate support metadata already persisted and attached by product logic
 
-Optional AI commentary:
+Optional AI-only layer:
 
-- `coachNote`
 - `recommendation.aiCommentary`
+- `operatorActionCard.coachNote`
 
-AI commentary may summarize or rephrase.
+AI commentary may summarize. It may not replace the structured contract.
 
-AI commentary may not become the source of truth when it conflicts with the structured action card.
+## Snapshot Compatibility Rules
 
-## Estimation rules
+Snapshot truth is part of the product.
 
-Allowed as bounded:
+Rules:
 
-- `potentialContribution.estimatedRevenueLiftRange`
-- `potentialContribution.estimatedWasteRecoveryRange`
-- `potentialContribution.estimatedEfficiencyLiftRange`
-- exact previewed budget deltas
-- exact previewed tROAS or tCPA deltas
+- Older snapshots must not silently present themselves as native current-contract payloads.
+- Reading an older snapshot may rebuild a current action card, but it must be labeled `compatibility_derived`.
+- `refresh=1` must generate the current native contract.
+- The UI must show a compatibility notice when rendering `compatibility_derived`.
+- Compatibility mode is honest rendering, not a claim that the stored snapshot was originally generated with the current contract.
 
-Must remain unknown or blocked:
+## Recommendation Payload Rules
 
-- campaign-level source or destination when no safe preview exists
-- proposed target value when the portfolio or joint allocator preview is blocked
-- business impact sizing when code or data does not bound it
-
-Aggregate-support rule:
-
-- Persisted weekly top-query and daily cluster aggregates may strengthen recurring-support evidence.
-- They may not be turned into fake forecast precision.
-- If aggregate support is unavailable, the advisor must say so honestly and fall back to the core window set.
-
-## Exact change payloads by recommendation family
-
-### 1. Query governance
+### Query Governance
 
 Payload kind:
 
@@ -180,11 +221,12 @@ Required fields:
 
 Render requirements:
 
-- separate `Add exact negatives now`
-- separate `Suppressed from negative action`
-- separate suppression reasons
+- `Add exact negatives now`
+- `Suppressed from negative action`
+- `Suppression reasons`
+- `Negative guardrails`
 
-### 2. Keyword buildout
+### Keyword Buildout
 
 Payload kind:
 
@@ -203,12 +245,12 @@ Required fields:
 
 Render requirements:
 
-- separate `Add as exact`
-- separate `Add as phrase`
-- separate `Keep as broad discovery theme`
-- separate `Do not promote yet`
+- `Add as exact`
+- `Add as phrase`
+- `Keep as broad discovery theme`
+- `Do not promote yet`
 
-### 3. Shopping launch or split
+### Shopping Structure
 
 Payload kind:
 
@@ -221,13 +263,20 @@ Required fields:
 - `isolateClusters`
 - `heroClusters`
 - `startingClusters`
+- `scaleClusters`
+- `reduceClusters`
+- `hiddenWinnerClusters`
+- `shoppingRationale`
+- `estimationState`
 
 Render requirements:
 
-- show the recommended shopping structure directly
-- show the clusters to isolate directly
+- show the recommended structure directly
+- show isolate / scale / reduce / hidden-winner clusters separately
+- show `shoppingRationale` directly when present
+- if business impact is not bounded, mark it `directional_only` or `not_confidently_estimable`
 
-### 4. Asset group restructuring
+### Asset Group Restructure
 
 Payload kind:
 
@@ -242,12 +291,12 @@ Required fields:
 
 Render requirements:
 
-- separate `Asset groups to split`
-- separate `Asset groups to keep separate`
-- separate `Assets to replace`
-- separate `New angle directions`
+- `Asset groups to split`
+- `Asset groups to keep separate`
+- `Assets to replace`
+- `New angle directions`
 
-### 5. Product allocation
+### Product Allocation
 
 Payload kind:
 
@@ -262,12 +311,9 @@ Required fields:
 
 Render requirements:
 
-- separate isolate
-- separate scale
-- separate reduce
-- separate hidden winners
+- isolate / scale / reduce / hidden winners must be separate lists
 
-### 6. Budget reallocation
+### Budget Reallocation
 
 Payload kind:
 
@@ -283,12 +329,11 @@ Required fields:
 
 Render requirements:
 
-- show source lane or campaign directly
-- show destination lane or campaign directly
-- show exact budget deltas when previewed
-- otherwise say that the move is heuristic only
+- show source campaign deltas directly when previewed
+- show destination campaign deltas directly when previewed
+- show whether the move is `bounded_preview` or `heuristic_only`
 
-### 7. Target strategy adjustment
+### Target Strategy Adjustment
 
 Payload kind:
 
@@ -297,6 +342,7 @@ Payload kind:
 Required fields:
 
 - `state`
+- `previewState`
 - `previewMode`
 - `currentTargetType`
 - `currentTargetValue`
@@ -304,10 +350,11 @@ Required fields:
 - `deltaPercent`
 - `governedScope`
 - `boundedDelta`
+- `validationWindowDays`
 - `safeBecause`
 - `blockedBecause`
 
-Optional fields when joint allocator preview exists:
+Optional preview fields:
 
 - `budgetActionType`
 - `budgetPreviousAmount`
@@ -316,13 +363,18 @@ Optional fields when joint allocator preview exists:
 
 Render requirements:
 
-- show current target
-- show proposed target when safely previewed
-- show governed scope
-- show why safe or why blocked
-- if preview is unavailable, say `directional only` or `blocked`
+- `Current target`
+- `Proposed target`
+- `Budget move` when jointly previewed
+- `Governed scope`
+- `Why safe`
 
-### 8. Blocked or insufficient evidence
+Truth rule:
+
+- only use this contract when current code actually identifies a target-strategy move
+- do not classify something as target strategy guidance merely because portfolio metadata exists
+
+### Blocked / Insufficient Evidence
 
 Payload kind:
 
@@ -330,172 +382,140 @@ Payload kind:
 
 Required fields:
 
+- `state`
 - `reasons`
+
+`state` must be:
+
+- `blocked`
+- `insufficient_evidence`
 
 Render requirements:
 
-- do not fabricate exact change lists
-- lead with the blocker
-
-## Snapshot compatibility and versioning
-
-Transition rules:
-
-- old snapshots may be returned before refresh
-- old snapshots must not silently masquerade as native action-contract snapshots
-- `metadata.actionContract.source = compatibility_derived` marks that state
-- `refresh=1` must regenerate and return `source = native`
-
-UI rules:
-
-- if `source = compatibility_derived`, show a compatibility note
-- still render the action-first card deterministically
-- keep the old narrative collapsed under secondary details
+- if `blocked`, say the blocker directly
+- if `insufficient_evidence`, say that no deterministic exact change is specified yet
 
 ## Examples
 
-### A. Exact negative keyword cleanup
+### A. Exact Negative Keyword Cleanup
 
-```json
-{
-  "primaryAction": "Add 2 exact negative keywords now.",
-  "exactChangePayload": {
-    "kind": "negative_keyword_cleanup",
-    "matchType": "exact",
-    "addNow": ["refund policy", "free replacement part"],
-    "suppressed": ["brand refund policy"],
-    "suppressionReasonLabels": ["Branded query"],
-    "negativeGuardrails": ["brand", "sku"]
-  }
-}
-```
+`Primary action`
 
-### B. Keyword buildout
+- `Add 2 exact negative keywords now.`
 
-```json
-{
-  "primaryAction": "Promote proven search terms into exact and phrase control.",
-  "exactChangePayload": {
-    "kind": "keyword_buildout",
-    "addAsExact": ["carry on backpack"],
-    "addAsPhrase": ["weekender bag"],
-    "keepAsBroadTheme": ["travel backpack"],
-    "doNotPromoteYet": [],
-    "negativeGuardrails": ["cheap"]
-  }
-}
-```
+`Exact changes`
 
-### C. Shopping launch or split
+- `Add exact negatives now`: `refund policy`, `customer service phone number`
+- `Suppressed from negative action`: `brand backpack returns`
+- `Suppression reasons`: `Branded query`
+- `Negative guardrails`: `brand`, `sku`
 
-```json
-{
-  "primaryAction": "Launch a hero-SKU Shopping control campaign.",
-  "exactChangePayload": {
-    "kind": "shopping_structure",
-    "launchMode": "hero_sku_shopping",
-    "recommendedStructure": "Launch a hero-SKU Shopping control campaign.",
-    "isolateClusters": ["Hero Backpack", "Carry-On Pack"]
-  }
-}
-```
+`Expected effect`
 
-### D. Asset group restructuring
+- `bounded_range`
+- `Waste recovery: $20-$40`
 
-```json
-{
-  "primaryAction": "Split weak asset groups and keep low-signal groups separate.",
-  "exactChangePayload": {
-    "kind": "asset_group_restructure",
-    "splitAssetGroups": ["Winter Themes"],
-    "keepSeparateAssetGroups": ["Sale Themes"],
-    "replaceAssets": ["Image Asset 1"],
-    "replacementAngles": ["Durability proof"]
-  }
-}
-```
+### B. Keyword Buildout
 
-### E. Product allocation
+`Primary action`
 
-```json
-{
-  "primaryAction": "Separate winners, hidden winners, and laggards before moving more product budget.",
-  "exactChangePayload": {
-    "kind": "product_allocation",
-    "isolateClusters": ["Hero Backpack", "Hidden Winner Sling"],
-    "scaleClusters": ["Hero Backpack"],
-    "reduceClusters": ["Clearance Tote"],
-    "hiddenWinnerClusters": ["Hidden Winner Sling"]
-  }
-}
-```
+- `Promote proven search terms with 1 exact addition, 1 phrase addition, and 1 broad discovery theme.`
 
-### F. Budget reallocation
+`Exact changes`
 
-```json
-{
-  "primaryAction": "Move budget from the lower-priority source campaign into the destination campaign shown below.",
-  "exactChangePayload": {
-    "kind": "budget_reallocation",
-    "budgetBand": "10-15%",
-    "estimateMode": "bounded_preview",
-    "sourceCampaigns": [
-      {
-        "id": "c1",
-        "name": "Brand Search",
-        "previousAmount": 100,
-        "proposedAmount": 90
-      }
-    ],
-    "destinationCampaigns": [
-      {
-        "id": "c2",
-        "name": "Non-Brand Search",
-        "previousAmount": 50,
-        "proposedAmount": 60
-      }
-    ]
-  }
-}
-```
+- `Add as exact`: `carry on backpack`
+- `Add as phrase`: `weekender bag`
+- `Keep as broad discovery theme`: `travel backpack demand`
+- `Do not promote yet`: `cheap backpack`
 
-### G. Target strategy adjustment with safe preview
+### C. Shopping Structure Recommendation
 
-```json
-{
-  "primaryAction": "Review the tROAS preview before making the manual target change.",
-  "exactChangePayload": {
-    "kind": "target_strategy_adjustment",
-    "state": "preview_available",
-    "previewMode": "portfolio_target",
-    "currentTargetType": "tROAS",
-    "currentTargetValue": 300,
-    "proposedTargetValue": 270,
-    "deltaPercent": -10,
-    "boundedDelta": true,
-    "governedScope": [
-      { "id": "c1", "name": "PMax Scale" },
-      { "id": "c2", "name": "PMax Prospecting" }
-    ]
-  }
-}
-```
+`Primary action`
 
-### H. Blocked or insufficient evidence
+- `Launch a hero-SKU Shopping control campaign. Focus on 2 clusters to isolate and 1 cluster to scale.`
 
-```json
-{
-  "primaryAction": "Do not change the tCPA target yet. Resolve the blocker first.",
-  "exactChangePayload": {
-    "kind": "target_strategy_adjustment",
-    "state": "blocked",
-    "previewMode": "directional_only",
-    "currentTargetType": "tCPA",
-    "currentTargetValue": 45,
-    "proposedTargetValue": null,
-    "blockedBecause": [
-      "portfolio_target_blocked: the target surface is not yet eligible for a safe native preview."
-    ]
-  }
-}
-```
+`Exact changes`
+
+- `Recommended shopping structure`: `Launch a hero-SKU Shopping control campaign.`
+- `Products / clusters to isolate`: `UrbanTrail Carry-On Backpack`, `Waterproof Hiking Pack`
+- `Products / clusters to scale`: `Waterproof Hiking Pack`
+- `Hidden winner clusters`: `Compact Travel Pack`
+- `Shopping rationale`: `Search demand is concentrating around a small winner set.`
+
+`Expected effect`
+
+- `directional_only`
+
+### D. Asset Group Split / Keep-Separate / Asset Replacement
+
+`Primary action`
+
+- `Split weak asset groups and keep low-signal groups separate with 1 asset group to split, 1 asset group to keep separate, and 2 assets to replace.`
+
+`Exact changes`
+
+- `Asset groups to split`: `Winter Themes`
+- `Asset groups to keep separate`: `Sale Themes`
+- `Assets to replace`: `Static studio shot`, `Bad headline 1`
+- `New angle directions`: `Durability proof`, `Carry-on compliance`
+
+### E. Budget Reallocation
+
+`Primary action`
+
+- `Move budget from the lower-priority source campaign into the destination campaign shown below.`
+
+`Exact changes`
+
+- `Source lane / campaign`: `Brand Search: $100.00 -> $90.00 (-10%, -$10.00)`
+- `Destination lane / campaign`: `Non-Brand Search: $50.00 -> $60.00 (+20%, +$10.00)`
+- `Budget move`: `10-15% directional budget band`, `Preview is bounded by the exact campaign budget amounts shown here.`
+
+### F. Target Strategy Adjustment
+
+`Primary action`
+
+- `Change tROAS from 300 to 270 across 2 governed campaigns.`
+
+`Exact changes`
+
+- `Current target`: `tROAS 300`
+- `Proposed target`: `tROAS 270 (-10%)`
+- `Governed scope`: `PMax Scale`, `PMax Prospecting`
+- `Why safe`: `Preview stays within bounded delta guardrails.`
+
+### G. Blocked Recommendation
+
+`Primary action`
+
+- `Do not apply this move yet. Resolve the blocker first.`
+
+`Blocked because`
+
+- `portfolio_target_blocked: the target surface is not yet eligible for a safe native preview.`
+
+`Expected effect`
+
+- `blocked`
+
+### H. Insufficient-Evidence Recommendation
+
+`Primary action`
+
+- `Hold this as a watch item. No deterministic change is specified yet.`
+
+`Exact changes`
+
+- `Insufficient evidence`: `This snapshot does not include deterministic exact-change fields for this recommendation.`
+
+`Expected effect`
+
+- `not_confidently_estimable`
+
+## Non-Negotiable Rules
+
+- Do not put essay-style explanation above the action contract.
+- Do not imply autonomous execution.
+- Do not fabricate exact uplift numbers.
+- Do not silently upgrade older snapshots into native current-contract truth.
+- Do not let AI commentary replace structured operator fields.

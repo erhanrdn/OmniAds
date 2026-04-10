@@ -9,7 +9,7 @@ import type {
   GoogleRecommendation,
 } from "@/lib/google-ads/growth-advisor-types";
 
-export const GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION = "google_ads_advisor_action_v1" as const;
+export const GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION = "google_ads_advisor_action_v2" as const;
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -35,6 +35,18 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+function summarizeActionCounts(parts: Array<{ count: number; label: string }>) {
+  const active = parts.filter((part) => part.count > 0);
+  if (active.length === 0) return null;
+  if (active.length === 1) return `${active[0]?.count} ${active[0]?.label}`;
+  if (active.length === 2) {
+    return `${active[0]?.count} ${active[0]?.label} and ${active[1]?.count} ${active[1]?.label}`;
+  }
+  const leading = active.slice(0, -1).map((part) => `${part.count} ${part.label}`);
+  const trailing = active.at(-1);
+  return `${leading.join(", ")}, and ${trailing?.count} ${trailing?.label}`;
+}
+
 function formatCurrency(value: number | null | undefined) {
   if (!Number.isFinite(Number(value))) return "Unknown";
   return currencyFormatter.format(Number(value));
@@ -54,6 +66,15 @@ function formatDeltaAmount(value: number | null | undefined) {
 
 function nonEmpty(items?: string[] | null) {
   return uniqueStrings(items ?? []);
+}
+
+function formatTargetValue(targetType: "tROAS" | "tCPA" | null, value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "unknown";
+  }
+  const numeric = Number(value);
+  if (targetType === "tCPA") return formatCurrency(numeric);
+  return `${Number.isInteger(numeric) ? numeric : Number(numeric.toFixed(2))}`;
 }
 
 function suppressionReasonLabel(value: string) {
@@ -124,6 +145,15 @@ function buildExpectedEffect(
       estimationMode: "directional_only",
       estimateLabel: null,
       note: "Exact change preview is available or direction is clear, but business impact is not confidently estimable.",
+    };
+  }
+
+  if (estimationModeOverride === "heuristic_only") {
+    return {
+      summary: recommendation.potentialContribution.summary,
+      estimationMode: "heuristic_only",
+      estimateLabel: null,
+      note: "The move direction is supported, but the exact business impact remains heuristic only.",
     };
   }
 
@@ -231,8 +261,37 @@ function buildContract(source: GoogleAdvisorActionContractSource): GoogleAdvisor
   };
 }
 
-function buildListBlock(label: string, items: string[], emptyLabel?: string): GoogleAdvisorActionListBlock {
-  return { label, items, emptyLabel };
+function defaultToneForKind(kind: GoogleAdvisorActionListBlock["kind"]): GoogleAdvisorActionListBlock["tone"] {
+  switch (kind) {
+    case "blocker":
+    case "suppressed":
+      return "danger";
+    case "guardrail":
+      return "muted";
+    case "preview":
+      return "primary";
+    default:
+      return "default";
+  }
+}
+
+function buildListBlock(
+  label: string,
+  items: string[],
+  emptyLabel?: string,
+  options?: {
+    kind?: GoogleAdvisorActionListBlock["kind"];
+    tone?: GoogleAdvisorActionListBlock["tone"];
+  }
+): GoogleAdvisorActionListBlock {
+  const kind = options?.kind ?? "change";
+  return {
+    label,
+    items,
+    emptyLabel,
+    kind,
+    tone: options?.tone ?? defaultToneForKind(kind),
+  };
 }
 
 function buildQueryGovernanceCard(
@@ -242,6 +301,7 @@ function buildQueryGovernanceCard(
 ): GoogleAdvisorActionCard {
   const addNow = nonEmpty(recommendation.negativeQueries);
   const suppressed = nonEmpty(recommendation.suppressedQueries);
+  const negativeGuardrails = nonEmpty(recommendation.negativeGuardrails);
   const suppressionReasonLabels = uniqueStrings([
     ...(recommendation.suppressionReasons ?? []).map(suppressionReasonLabel),
     ...((recommendation.negativeKeywordPolicy?.suppressionReasons ?? []).map(suppressionReasonLabel)),
@@ -253,24 +313,34 @@ function buildQueryGovernanceCard(
     primaryAction:
       addNow.length > 0
         ? `Add ${pluralize(addNow.length, "exact negative keyword")} now.`
-        : "Do not add negative keywords from this set yet.",
+        : suppressed.length > 0
+          ? `Do not add negatives yet. ${pluralize(suppressed.length, "query")} is suppressed from action.`
+          : "No exact negative action is ready in this snapshot.",
     scope: buildScope(recommendation),
     exactChanges: [
-      buildListBlock("Add exact negatives now", addNow, "No exact negatives are eligible in this snapshot."),
+      buildListBlock(
+        "Add exact negatives now",
+        addNow,
+        "No exact negatives are eligible in this snapshot.",
+        { kind: "change", tone: "primary" }
+      ),
       buildListBlock(
         "Suppressed from negative action",
         suppressed,
-        "No suppressed queries were surfaced for this recommendation."
+        "No suppressed queries were surfaced for this recommendation.",
+        { kind: "suppressed" }
       ),
       buildListBlock(
         "Suppression reasons",
         suppressionReasonLabels,
-        "No suppression reasons were recorded."
+        "No suppression reasons were recorded.",
+        { kind: "suppressed" }
       ),
       buildListBlock(
         "Negative guardrails",
-        nonEmpty(recommendation.negativeGuardrails),
-        "No extra guardrails were attached."
+        negativeGuardrails,
+        "No extra guardrails were attached.",
+        { kind: "guardrail" }
       ),
     ],
     exactChangePayload: {
@@ -279,7 +349,7 @@ function buildQueryGovernanceCard(
       addNow,
       suppressed,
       suppressionReasonLabels,
-      negativeGuardrails: nonEmpty(recommendation.negativeGuardrails),
+      negativeGuardrails,
       policy: recommendation.negativeKeywordPolicy ?? null,
     },
     expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
@@ -303,37 +373,52 @@ function buildKeywordBuildoutCard(
   const seedExact = nonEmpty(recommendation.seedQueriesExact);
   const seedPhrase = nonEmpty(recommendation.seedQueriesPhrase);
   const seedBroadThemes = nonEmpty(recommendation.seedThemesBroad);
+  const negativeGuardrails = nonEmpty(recommendation.negativeGuardrails);
   const doNotPromoteYet = uniqueStrings(
     [...seedExact, ...seedPhrase].filter(
       (query) => !addAsExact.includes(query) && !addAsPhrase.includes(query)
     )
   );
+  const actionSummary =
+    summarizeActionCounts([
+      { count: addAsExact.length, label: "exact addition" },
+      { count: addAsPhrase.length, label: "phrase addition" },
+      { count: keepAsBroadTheme.length, label: "broad discovery theme" },
+    ]) ?? "No structured keyword promotion move is ready yet";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
     recommendationType: recommendation.type,
     primaryAction:
       recommendation.type === "non_brand_expansion"
-        ? "Launch the non-brand buildout with exact first, phrase second, and broad only as controlled discovery."
-        : "Promote proven search terms into exact and phrase control.",
+        ? `Launch the non-brand buildout with ${actionSummary}.`
+        : `Promote proven search terms with ${actionSummary}.`,
     scope: buildScope(recommendation),
     exactChanges: [
-      buildListBlock("Add as exact", addAsExact, "No exact additions were attached."),
-      buildListBlock("Add as phrase", addAsPhrase, "No phrase additions were attached."),
+      buildListBlock("Add as exact", addAsExact, "No exact additions were attached.", {
+        kind: "change",
+        tone: "primary",
+      }),
+      buildListBlock("Add as phrase", addAsPhrase, "No phrase additions were attached.", {
+        kind: "change",
+      }),
       buildListBlock(
         "Keep as broad discovery theme",
         keepAsBroadTheme,
-        "No broad discovery themes were attached."
+        "No broad discovery themes were attached.",
+        { kind: "preview" }
       ),
       buildListBlock(
         "Do not promote yet",
         doNotPromoteYet,
-        "No explicit holdback query list was attached to this recommendation."
+        "No explicit holdback query list was attached to this recommendation.",
+        { kind: "suppressed" }
       ),
       buildListBlock(
         "Negative guardrails",
-        nonEmpty(recommendation.negativeGuardrails),
-        "No shared negative guardrails were attached."
+        negativeGuardrails,
+        "No shared negative guardrails were attached.",
+        { kind: "guardrail" }
       ),
     ],
     exactChangePayload: {
@@ -345,7 +430,7 @@ function buildKeywordBuildoutCard(
       seedExact,
       seedPhrase,
       seedBroadThemes,
-      negativeGuardrails: nonEmpty(recommendation.negativeGuardrails),
+      negativeGuardrails,
     },
     expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
     whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
@@ -379,28 +464,72 @@ function buildShoppingStructureCard(
     ...(recommendation.heroSkuClusters ?? []),
     ...(recommendation.startingSkuClusters ?? []),
   ]);
+  const scaleClusters = nonEmpty(recommendation.scaleSkuClusters);
+  const reduceClusters = nonEmpty(recommendation.reduceSkuClusters);
+  const hiddenWinnerClusters = nonEmpty(recommendation.hiddenWinnerSkuClusters);
+  const heroClusters = nonEmpty(recommendation.heroSkuClusters);
+  const startingClusters = nonEmpty(recommendation.startingSkuClusters);
+  const estimationState =
+    recommendation.potentialContribution.estimatedRevenueLiftRange ||
+    recommendation.potentialContribution.estimatedEfficiencyLiftRange ||
+    recommendation.potentialContribution.estimatedWasteRecoveryRange
+      ? "bounded"
+      : isolateClusters.length > 0 || recommendation.launchMode
+        ? "deterministic"
+        : recommendation.shoppingRationale
+          ? "directional_only"
+          : "not_confidently_estimable";
+  const actionSummary =
+    summarizeActionCounts([
+      { count: isolateClusters.length, label: "cluster to isolate" },
+      { count: scaleClusters.length, label: "cluster to scale" },
+      { count: reduceClusters.length, label: "cluster to reduce" },
+    ]) ?? "no explicit cluster move";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
     recommendationType: recommendation.type,
-    primaryAction: shoppingStructureLabel(recommendation.launchMode),
+    primaryAction: `${shoppingStructureLabel(recommendation.launchMode)} Focus on ${actionSummary}.`,
     scope: buildScope(recommendation),
     exactChanges: [
       buildListBlock(
         "Recommended shopping structure",
         [shoppingStructureLabel(recommendation.launchMode)],
-        "No shopping structure was attached."
+        "No shopping structure was attached.",
+        { kind: "preview", tone: "primary" }
       ),
-      buildListBlock("Products / clusters to isolate", isolateClusters, "No isolate list was attached."),
+      buildListBlock("Products / clusters to isolate", isolateClusters, "No isolate list was attached.", {
+        kind: "change",
+      }),
       buildListBlock(
         "Hero SKU clusters",
-        nonEmpty(recommendation.heroSkuClusters),
-        "No hero SKU clusters were attached."
+        heroClusters,
+        "No hero SKU clusters were attached.",
+        { kind: "change" }
       ),
       buildListBlock(
         "Starting SKU clusters",
-        nonEmpty(recommendation.startingSkuClusters),
-        "No starting SKU clusters were attached."
+        startingClusters,
+        "No starting SKU clusters were attached.",
+        { kind: "change" }
+      ),
+      buildListBlock("Products / clusters to scale", scaleClusters, "No scale list was attached.", {
+        kind: "change",
+      }),
+      buildListBlock("Products / clusters to reduce", reduceClusters, "No reduce list was attached.", {
+        kind: "suppressed",
+      }),
+      buildListBlock(
+        "Hidden winner clusters",
+        hiddenWinnerClusters,
+        "No hidden-winner list was attached.",
+        { kind: "preview" }
+      ),
+      buildListBlock(
+        "Shopping rationale",
+        recommendation.shoppingRationale ? [recommendation.shoppingRationale] : [],
+        "No explicit shopping rationale was attached.",
+        { kind: "informational" }
       ),
     ],
     exactChangePayload: {
@@ -408,10 +537,19 @@ function buildShoppingStructureCard(
       launchMode: recommendation.launchMode ?? null,
       recommendedStructure: shoppingStructureLabel(recommendation.launchMode),
       isolateClusters,
-      heroClusters: nonEmpty(recommendation.heroSkuClusters),
-      startingClusters: nonEmpty(recommendation.startingSkuClusters),
+      heroClusters,
+      startingClusters,
+      scaleClusters,
+      reduceClusters,
+      hiddenWinnerClusters,
+      shoppingRationale: recommendation.shoppingRationale ?? null,
+      estimationState,
     },
-    expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
+    expectedEffect: buildExpectedEffect(
+      recommendation,
+      blockedBecause,
+      estimationState === "bounded" ? undefined : "directional_only"
+    ),
     whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
     evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
     validation: buildValidation(recommendation),
@@ -430,30 +568,47 @@ function buildProductAllocationCard(
     ...(recommendation.heroSkuClusters ?? []),
     ...(recommendation.hiddenWinnerSkuClusters ?? []),
   ]);
+  const scaleClusters = nonEmpty(recommendation.scaleSkuClusters);
+  const reduceClusters = nonEmpty(recommendation.reduceSkuClusters);
+  const hiddenWinnerClusters = nonEmpty(recommendation.hiddenWinnerSkuClusters);
+  const actionSummary =
+    summarizeActionCounts([
+      { count: isolateClusters.length, label: "cluster to isolate" },
+      { count: scaleClusters.length, label: "cluster to scale" },
+      { count: reduceClusters.length, label: "cluster to reduce" },
+    ]) ?? "no explicit product allocation move";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
     recommendationType: recommendation.type,
-    primaryAction: "Separate winners, hidden winners, and laggards before moving more product budget.",
+    primaryAction: `Separate winners, hidden winners, and laggards with ${actionSummary}.`,
     scope: buildScope(recommendation),
     exactChanges: [
-      buildListBlock("Products / clusters to isolate", isolateClusters, "No isolate list was attached."),
-      buildListBlock("Products / clusters to scale", nonEmpty(recommendation.scaleSkuClusters), "No scale list was attached."),
-      buildListBlock("Products / clusters to reduce", nonEmpty(recommendation.reduceSkuClusters), "No reduce list was attached."),
+      buildListBlock("Products / clusters to isolate", isolateClusters, "No isolate list was attached.", {
+        kind: "change",
+        tone: "primary",
+      }),
+      buildListBlock("Products / clusters to scale", scaleClusters, "No scale list was attached.", {
+        kind: "change",
+      }),
+      buildListBlock("Products / clusters to reduce", reduceClusters, "No reduce list was attached.", {
+        kind: "suppressed",
+      }),
       buildListBlock(
         "Hidden winner clusters",
-        nonEmpty(recommendation.hiddenWinnerSkuClusters),
-        "No hidden-winner list was attached."
+        hiddenWinnerClusters,
+        "No hidden-winner list was attached.",
+        { kind: "preview" }
       ),
     ],
     exactChangePayload: {
       kind: "product_allocation",
       isolateClusters,
-      scaleClusters: nonEmpty(recommendation.scaleSkuClusters),
-      reduceClusters: nonEmpty(recommendation.reduceSkuClusters),
-      hiddenWinnerClusters: nonEmpty(recommendation.hiddenWinnerSkuClusters),
+      scaleClusters,
+      reduceClusters,
+      hiddenWinnerClusters,
     },
-    expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
+    expectedEffect: buildExpectedEffect(recommendation, blockedBecause, "directional_only"),
     whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
     evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
     validation: buildValidation(recommendation),
@@ -468,41 +623,56 @@ function buildAssetStructureCard(
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
 ): GoogleAdvisorActionCard {
+  const splitAssetGroups = nonEmpty(recommendation.weakAssetGroups);
+  const keepSeparateAssetGroups = nonEmpty(recommendation.keepSeparateAssetGroups);
+  const replaceAssets = nonEmpty(recommendation.replaceAssets);
+  const replacementAngles = nonEmpty(recommendation.replacementAngles);
+  const actionSummary =
+    summarizeActionCounts([
+      { count: splitAssetGroups.length, label: "asset group to split" },
+      { count: keepSeparateAssetGroups.length, label: "asset group to keep separate" },
+      { count: replaceAssets.length, label: "asset to replace" },
+    ]) ?? "no explicit asset restructure move";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
     recommendationType: recommendation.type,
     primaryAction:
       recommendation.type === "creative_asset_deployment"
-        ? "Replace weak assets and keep testing separate from scaling inventory."
-        : "Split weak asset groups and keep low-signal groups separate.",
+        ? `Replace weak assets and keep test inventory separate with ${actionSummary}.`
+        : `Split weak asset groups and keep low-signal groups separate with ${actionSummary}.`,
     scope: buildScope(recommendation),
     exactChanges: [
       buildListBlock(
         "Asset groups to split",
-        nonEmpty(recommendation.weakAssetGroups),
-        "No split list was attached."
+        splitAssetGroups,
+        "No split list was attached.",
+        { kind: "change", tone: "primary" }
       ),
       buildListBlock(
         "Asset groups to keep separate",
-        nonEmpty(recommendation.keepSeparateAssetGroups),
-        "No keep-separate list was attached."
+        keepSeparateAssetGroups,
+        "No keep-separate list was attached.",
+        { kind: "change" }
       ),
-      buildListBlock("Assets to replace", nonEmpty(recommendation.replaceAssets), "No replacement asset list was attached."),
+      buildListBlock("Assets to replace", replaceAssets, "No replacement asset list was attached.", {
+        kind: "change",
+      }),
       buildListBlock(
         "New angle directions",
-        nonEmpty(recommendation.replacementAngles),
-        "No replacement-angle directions were attached."
+        replacementAngles,
+        "No replacement-angle directions were attached.",
+        { kind: "preview" }
       ),
     ],
     exactChangePayload: {
       kind: "asset_group_restructure",
-      splitAssetGroups: nonEmpty(recommendation.weakAssetGroups),
-      keepSeparateAssetGroups: nonEmpty(recommendation.keepSeparateAssetGroups),
-      replaceAssets: nonEmpty(recommendation.replaceAssets),
-      replacementAngles: nonEmpty(recommendation.replacementAngles),
+      splitAssetGroups,
+      keepSeparateAssetGroups,
+      replaceAssets,
+      replacementAngles,
     },
-    expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
+    expectedEffect: buildExpectedEffect(recommendation, blockedBecause, "directional_only"),
     whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
     evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
     validation: buildValidation(recommendation),
@@ -562,12 +732,14 @@ function buildBudgetReallocationCard(
       buildListBlock(
         "Source lane / campaign",
         sourceCampaigns.map(describeCampaignDelta),
-        "Campaign-level source preview is not safely available."
+        "Campaign-level source preview is not safely available.",
+        { kind: "change", tone: "primary" }
       ),
       buildListBlock(
         "Destination lane / campaign",
         destinationCampaigns.map(describeCampaignDelta),
-        "Campaign-level destination preview is not safely available."
+        "Campaign-level destination preview is not safely available.",
+        { kind: "change" }
       ),
       buildListBlock(
         "Budget move",
@@ -577,7 +749,8 @@ function buildBudgetReallocationCard(
             ? "Preview is bounded by the exact campaign budget amounts shown here."
             : "Preview is heuristic only. No exact campaign budget move is safely previewable.",
         ]),
-        "No budget movement details were attached."
+        "No budget movement details were attached.",
+        { kind: estimateMode === "bounded_preview" ? "preview" : "informational" }
       ),
     ],
     exactChangePayload: {
@@ -591,7 +764,11 @@ function buildBudgetReallocationCard(
           ? recommendation.reallocationPreview.netDelta
           : null,
     },
-    expectedEffect: buildExpectedEffect(recommendation, blockedBecause),
+    expectedEffect: buildExpectedEffect(
+      recommendation,
+      blockedBecause,
+      estimateMode === "bounded_preview" ? undefined : "heuristic_only"
+    ),
     whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
     evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
     validation: buildValidation(recommendation),
@@ -631,8 +808,8 @@ function buildTargetStrategyCard(
   const safeBecause = uniqueStrings([
     jointPreview?.boundedDelta || targetPreview?.boundedDelta ? "Preview stays within bounded delta guardrails." : null,
     governedScope.length > 0 ? `Governed scope is explicit: ${pluralize(governedScope.length, "campaign")}.` : null,
-    recommendation.jointExecutionSequence?.length
-      ? `Execution order is explicit: ${(jointPreview?.executionOrder ?? []).join(" -> ")}.`
+    recommendation.jointExecutionSequence?.length && (jointPreview?.executionOrder?.length ?? 0) > 0
+      ? `Execution order is explicit: ${jointPreview?.executionOrder.join(" -> ")}.`
       : null,
   ]);
   const state =
@@ -652,8 +829,8 @@ function buildTargetStrategyCard(
     recommendationType: recommendation.type,
     primaryAction:
       state === "preview_available"
-        ? previewMode === "joint_allocator"
-          ? `Review the joint allocator preview before making the manual ${currentTargetType ?? "target"} change.`
+        ? proposedTargetValue !== null && currentTargetType
+          ? `Change ${currentTargetType} from ${formatTargetValue(currentTargetType, currentTargetValue)} to ${formatTargetValue(currentTargetType, proposedTargetValue)} across ${pluralize(governedScope.length || 1, "governed campaign")}.`
           : `Review the ${currentTargetType ?? "target"} preview before making the manual target change.`
         : state === "blocked"
           ? `Do not change the ${currentTargetType ?? "portfolio"} target yet. Resolve the blocker first.`
@@ -662,15 +839,17 @@ function buildTargetStrategyCard(
     exactChanges: [
       buildListBlock(
         "Current target",
-        currentTargetType ? [`${currentTargetType} ${currentTargetValue ?? "unknown"}`] : [],
-        "Current target is not known."
+        currentTargetType ? [`${currentTargetType} ${formatTargetValue(currentTargetType, currentTargetValue)}`] : [],
+        "Current target is not known.",
+        { kind: "preview", tone: "primary" }
       ),
       buildListBlock(
         "Proposed target",
         proposedTargetValue !== null && currentTargetType
-          ? [`${currentTargetType} ${proposedTargetValue} (${formatDeltaPercent(deltaPercent)})`]
+          ? [`${currentTargetType} ${formatTargetValue(currentTargetType, proposedTargetValue)} (${formatDeltaPercent(deltaPercent)})`]
           : [],
-        "Exact preview is unavailable. Treat this recommendation as directional only."
+        "Exact preview is unavailable. Treat this recommendation as directional only.",
+        { kind: state === "blocked" ? "blocker" : "preview" }
       ),
       buildListBlock(
         "Budget move",
@@ -679,18 +858,23 @@ function buildTargetStrategyCard(
               `${jointPreview.budgetActionType === "adjust_shared_budget" ? "Shared budget" : "Campaign budget"} ${formatCurrency(jointPreview.budgetPreviousAmount)} -> ${formatCurrency(jointPreview.budgetProposedAmount)} (${formatDeltaPercent(jointPreview.budgetDeltaPercent)})`,
             ]
           : [],
-        "No paired budget change is attached."
+        "No paired budget change is attached.",
+        { kind: jointPreview ? "preview" : "informational" }
       ),
       buildListBlock(
         "Governed scope",
         governedScope.map((entry) => entry.name),
-        "Governed scope is not fully known."
+        "Governed scope is not fully known.",
+        { kind: "change" }
       ),
-      buildListBlock("Why safe", safeBecause, "No explicit preview safety note is available."),
+      buildListBlock("Why safe", safeBecause, "No explicit preview safety note is available.", {
+        kind: "preview",
+      }),
     ],
     exactChangePayload: {
       kind: "target_strategy_adjustment",
       state,
+      previewState: state,
       previewMode,
       currentTargetType,
       currentTargetValue,
@@ -702,6 +886,8 @@ function buildTargetStrategyCard(
       budgetProposedAmount: jointPreview?.budgetProposedAmount ?? null,
       budgetDeltaPercent: jointPreview?.budgetDeltaPercent ?? null,
       boundedDelta: jointPreview?.boundedDelta ?? targetPreview?.boundedDelta ?? false,
+      validationWindowDays:
+        jointPreview?.attributionWindowDays ?? targetPreview?.attributionWindowDays ?? null,
       safeBecause,
       blockedBecause,
     },
@@ -728,13 +914,16 @@ function buildBlockedCard(
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
     recommendationType: recommendation.type,
-    primaryAction: recommendation.recommendedAction,
+    primaryAction: "Do not apply this move yet. Resolve the blocker first.",
     scope: buildScope(recommendation),
     exactChanges: [
-      buildListBlock("Blocked because", blockedBecause, "No explicit blocker was attached."),
+      buildListBlock("Blocked because", blockedBecause, "No explicit blocker was attached.", {
+        kind: "blocker",
+      }),
     ],
     exactChangePayload: {
       kind: "blocked_or_insufficient_evidence",
+      state: "blocked",
       reasons: blockedBecause,
     },
     expectedEffect: buildExpectedEffect(recommendation, blockedBecause, "blocked"),
@@ -752,6 +941,10 @@ function buildGenericCard(
   source: GoogleAdvisorActionContractSource,
   blockedBecause: string[]
 ): GoogleAdvisorActionCard {
+  const exactSteps = nonEmpty([
+    ...(recommendation.playbookSteps ?? []),
+    ...(recommendation.orderedHandoffSteps ?? []),
+  ]);
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
     contractSource: source,
@@ -761,8 +954,9 @@ function buildGenericCard(
     exactChanges: [
       buildListBlock(
         "Exact changes",
-        nonEmpty(recommendation.playbookSteps),
-        "No deterministic exact-change list was attached."
+        exactSteps,
+        "No deterministic exact-change list was attached.",
+        { kind: "change", tone: "primary" }
       ),
     ],
     exactChangePayload: {
@@ -779,6 +973,65 @@ function buildGenericCard(
   };
 }
 
+function buildInsufficientEvidenceCard(
+  recommendation: GoogleRecommendation,
+  source: GoogleAdvisorActionContractSource
+): GoogleAdvisorActionCard {
+  const reasons = uniqueStrings([
+    ...(recommendation.decision?.whyNot ?? []),
+    ...(recommendation.confidenceDegradationReasons ?? []),
+    ...(recommendation.prerequisites ?? []),
+    "This snapshot does not include deterministic exact-change fields for this recommendation.",
+  ]);
+  return {
+    contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+    contractSource: source,
+    recommendationType: recommendation.type,
+    primaryAction: "Hold this as a watch item. No deterministic change is specified yet.",
+    scope: buildScope(recommendation),
+    exactChanges: [
+      buildListBlock(
+        "Insufficient evidence",
+        reasons,
+        "No deterministic exact-change fields are attached to this recommendation.",
+        { kind: "blocker", tone: "muted" }
+      ),
+    ],
+    exactChangePayload: {
+      kind: "blocked_or_insufficient_evidence",
+      state: "insufficient_evidence",
+      reasons,
+    },
+    expectedEffect: buildExpectedEffect(recommendation, [], "not_confidently_estimable"),
+    whyThisNow: recommendation.decision?.whyNow ?? recommendation.whyNow ?? recommendation.why,
+    evidence: recommendation.decision?.evidencePoints ?? recommendation.evidence,
+    validation: buildValidation(recommendation),
+    rollback: buildRollback(recommendation),
+    blockedBecause: [],
+    coachNote: recommendation.aiCommentary?.narrative ?? null,
+  };
+}
+
+function hasTargetStrategyMove(recommendation: GoogleRecommendation) {
+  const targetTypePresent =
+    recommendation.portfolioTargetType === "tROAS" || recommendation.portfolioTargetType === "tCPA";
+  const targetBlockedReasonPresent =
+    (targetTypePresent && String(recommendation.mutateEligibilityReason ?? "").includes("portfolio_target")) ||
+    Boolean(recommendation.jointAllocatorBlockedReason);
+  return (
+    recommendation.mutateActionType === "adjust_portfolio_target" ||
+    recommendation.sequentialExecutionCandidate?.mutateActionType === "adjust_portfolio_target" ||
+    Boolean(recommendation.portfolioTargetAdjustmentPreview) ||
+    Boolean(recommendation.jointAllocatorAdjustmentPreview) ||
+    targetBlockedReasonPresent ||
+    Boolean(
+      recommendation.jointExecutionSequence?.some(
+        (step) => step.mutateActionType === "adjust_portfolio_target"
+      )
+    )
+  );
+}
+
 export function buildGoogleAdsOperatorActionCard(
   recommendation: GoogleRecommendation,
   source: GoogleAdvisorActionContractSource
@@ -789,12 +1042,7 @@ export function buildGoogleAdsOperatorActionCard(
     return buildQueryGovernanceCard(recommendation, source, blockedBecause);
   }
 
-  if (
-    recommendation.portfolioTargetAdjustmentPreview ||
-    recommendation.jointAllocatorAdjustmentPreview ||
-    recommendation.portfolioTargetType === "tROAS" ||
-    recommendation.portfolioTargetType === "tCPA"
-  ) {
+  if (hasTargetStrategyMove(recommendation)) {
     return buildTargetStrategyCard(recommendation, source, blockedBecause);
   }
 
@@ -833,7 +1081,11 @@ export function buildGoogleAdsOperatorActionCard(
     return buildBlockedCard(recommendation, source, blockedBecause);
   }
 
-  return buildGenericCard(recommendation, source, blockedBecause);
+  if (nonEmpty([...(recommendation.playbookSteps ?? []), ...(recommendation.orderedHandoffSteps ?? [])]).length > 0) {
+    return buildGenericCard(recommendation, source, blockedBecause);
+  }
+
+  return buildInsufficientEvidenceCard(recommendation, source);
 }
 
 export function attachGoogleAdsAdvisorActionContract(input: {

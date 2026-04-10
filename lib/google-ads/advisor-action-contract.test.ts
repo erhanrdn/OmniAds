@@ -217,6 +217,12 @@ describe("advisor action contract mapper", () => {
       suppressed: ["brand chairs"],
       suppressionReasonLabels: ["Branded query", "Ambiguous intent"],
     });
+    expect(card.primaryAction).toBe("Add 1 exact negative keyword now.");
+    expect(card.exactChanges[0]).toMatchObject({
+      label: "Add exact negatives now",
+      kind: "change",
+      tone: "primary",
+    });
   });
 
   it("maps keyword buildout into exact, phrase, and broad discovery groups", () => {
@@ -238,6 +244,11 @@ describe("advisor action contract mapper", () => {
       keepAsBroadTheme: ["travel backpack"],
       negativeGuardrails: ["cheap"],
     });
+    expect(card.primaryAction).toContain("1 exact addition");
+    expect(card.exactChanges[2]).toMatchObject({
+      label: "Keep as broad discovery theme",
+      kind: "preview",
+    });
   });
 
   it("maps shopping launch recommendations into a structure payload", () => {
@@ -257,7 +268,10 @@ describe("advisor action contract mapper", () => {
       launchMode: "hero_sku_shopping",
       heroClusters: ["Hero Backpack"],
       startingClusters: ["Hero Backpack", "Carry-On Pack"],
+      isolateClusters: ["Hero Backpack", "Carry-On Pack"],
+      estimationState: "deterministic",
     });
+    expect(card.primaryAction).toContain("hero-SKU Shopping");
   });
 
   it("maps asset group restructuring into split, keep-separate, and replacement lists", () => {
@@ -280,6 +294,7 @@ describe("advisor action contract mapper", () => {
       replaceAssets: ["Image Asset 1"],
       replacementAngles: ["Durability proof"],
     });
+    expect(card.primaryAction).toContain("1 asset group to split");
   });
 
   it("maps budget reallocation previews into source and destination deltas", () => {
@@ -322,6 +337,7 @@ describe("advisor action contract mapper", () => {
         },
       ],
     });
+    expect(card.expectedEffect.estimationMode).toBe("not_confidently_estimable");
   });
 
   it("maps target strategy previews when tROAS or tCPA values are safely previewable", () => {
@@ -352,13 +368,16 @@ describe("advisor action contract mapper", () => {
     expect(card.exactChangePayload).toMatchObject({
       kind: "target_strategy_adjustment",
       state: "preview_available",
+      previewState: "preview_available",
       previewMode: "portfolio_target",
       currentTargetType: "tROAS",
       currentTargetValue: 300,
       proposedTargetValue: 270,
       deltaPercent: -10,
       boundedDelta: true,
+      validationWindowDays: 21,
     });
+    expect(card.primaryAction).toContain("Change tROAS from 300 to 270");
   });
 
   it("marks target strategy recommendations as blocked when preview is not safely available", () => {
@@ -377,12 +396,51 @@ describe("advisor action contract mapper", () => {
     expect(card.exactChangePayload).toMatchObject({
       kind: "target_strategy_adjustment",
       state: "blocked",
+      previewState: "blocked",
       previewMode: "directional_only",
       currentTargetType: "tCPA",
       currentTargetValue: 45,
       proposedTargetValue: null,
     });
     expect(card.blockedBecause[0]).toContain("portfolio_target_blocked");
+  });
+
+  it("keeps non-target recommendations out of the target strategy contract when only portfolio metadata exists", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "budget_reallocation",
+        strategyLayer: "Budget Moves",
+        portfolioTargetType: "tROAS",
+        portfolioTargetValue: 250,
+        reallocationBand: "10-15%",
+      }),
+      "native"
+    );
+
+    expect(card.exactChangePayload.kind).toBe("budget_reallocation");
+  });
+
+  it("falls back to explicit insufficient evidence when no deterministic change payload exists", () => {
+    const card = buildGoogleAdsOperatorActionCard(
+      buildRecommendation({
+        type: "diagnostic_guardrail",
+        strategyLayer: "Diagnostics",
+        playbookSteps: [],
+        orderedHandoffSteps: [],
+        confidenceDegradationReasons: ["support window is too thin"],
+      }),
+      "native"
+    );
+
+    expect(card.primaryAction).toBe("Hold this as a watch item. No deterministic change is specified yet.");
+    expect(card.exactChangePayload).toMatchObject({
+      kind: "blocked_or_insufficient_evidence",
+      state: "insufficient_evidence",
+    });
+    expect(card.exactChanges[0]).toMatchObject({
+      label: "Insufficient evidence",
+      tone: "muted",
+    });
   });
 
   it("marks attached cards as compatibility-derived when normalizing legacy payloads", () => {
@@ -395,6 +453,7 @@ describe("advisor action contract mapper", () => {
       source: "compatibility_derived",
     });
 
+    expect(payload.metadata?.actionContract?.version).toBe("google_ads_advisor_action_v2");
     expect(payload.metadata?.actionContract?.source).toBe("compatibility_derived");
     expect(payload.recommendations[0]?.operatorActionCard?.contractSource).toBe("compatibility_derived");
     expect(payload.sections[0]?.recommendations[0]?.operatorActionCard?.contractSource).toBe(
