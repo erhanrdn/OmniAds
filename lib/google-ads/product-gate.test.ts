@@ -169,7 +169,7 @@ describe("runGoogleAdsProductGate", () => {
       advisorPayload: {
         metadata: {
           actionContract: {
-            version: "google_ads_advisor_action_v1",
+            version: "google_ads_advisor_action_v2",
             source: "native",
           },
           aggregateIntelligence: {

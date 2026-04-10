@@ -9,7 +9,7 @@ import { buildGoogleAdsDecisionSnapshotReport } from "@/lib/google-ads/serving";
 import { GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS } from "@/lib/google-ads/advisor-readiness";
 import type { DateRange } from "@/lib/google-ads/reporting-core";
 
-const GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION = "v3";
+const GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION = "v4";
 const GOOGLE_ADVISOR_SNAPSHOT_STALE_MS = 36 * 60 * 60 * 1000;
 
 export interface GoogleAdsAdvisorSnapshotRecord {

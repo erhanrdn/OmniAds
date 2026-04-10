@@ -169,7 +169,7 @@ Runtime reality at this baseline:
 
 ## Product Blockers At Baseline
 
-- Database-backed verification is available in the local runtime through the repo environment, and the product gate can inspect real DB state from this checkout.
+- Direct shell env in this session does not expose `DATABASE_URL` by default, but script-backed commands load repo env and can inspect real DB state from this checkout when `.env.local` is configured.
 - Google Ads credentials and developer token are still not verified from this execution context, so live mutate verification is not available from this session.
 - Write-back therefore remains blocked from verified promotion even though mutate code paths exist.
 - Search intelligence aggregate consumption is still partial beyond the current supplemental advisor support path.

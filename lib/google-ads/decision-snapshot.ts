@@ -1,5 +1,8 @@
 import { buildGoogleAdsExecutionSurface } from "@/lib/google-ads/decision-engine-config";
-import { attachGoogleAdsAdvisorActionContract } from "@/lib/google-ads/advisor-action-contract";
+import {
+  attachGoogleAdsAdvisorActionContract,
+  GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
+} from "@/lib/google-ads/advisor-action-contract";
 import { buildGoogleAdsDecisionSnapshotWindowSet } from "@/lib/google-ads/decision-window-policy";
 import type {
   GoogleAdvisorHistoricalSupport,
@@ -120,6 +123,7 @@ export function normalizeGoogleAdsDecisionSnapshotPayload(input: {
   actionContractSource?: GoogleAdvisorActionContractSource;
 }): GoogleAdvisorResponse {
   const existingMetadata = input.advisorPayload.metadata;
+  const existingActionContract = existingMetadata?.actionContract ?? null;
   const normalizedMetadata = buildGoogleAdsDecisionSnapshotMetadata({
     analysisMode: existingMetadata?.analysisMode ?? input.analysisMode,
     asOfDate: existingMetadata?.asOfDate ?? input.asOfDate,
@@ -151,8 +155,15 @@ export function normalizeGoogleAdsDecisionSnapshotPayload(input: {
     metadata: normalizedMetadata,
   };
 
+  const resolvedSource =
+    input.actionContractSource ??
+    (existingActionContract?.version === GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION &&
+    existingActionContract?.source === "native"
+      ? "native"
+      : "compatibility_derived");
+
   return attachGoogleAdsAdvisorActionContract({
     advisorPayload: payload,
-    source: input.actionContractSource ?? existingMetadata?.actionContract?.source ?? "compatibility_derived",
+    source: resolvedSource,
   });
 }

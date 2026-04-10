@@ -72,6 +72,16 @@ Deletion is batched by `id` and keyed by the retention cutoff column for that ta
 
 ## Current Session Constraint
 
-The current environment does not expose `DATABASE_URL`, so live retention execution cannot be verified from this session.
+The direct shell environment in this session does not expose `DATABASE_URL` by default.
 
-Any runtime implementation shipped from this task must therefore report `NOT VERIFIED` until a DB-backed run proves otherwise.
+Script-backed commands such as `npm run google:ads:product-gate -- <businessId>` load repo env through Next's env loader and can verify DB-backed runtime state when `.env.local` provides the connection string.
+
+Live retention execution is still not verified from this task because:
+
+- destructive execution remains disabled by default
+- no execute-mode retention run was intentionally performed here
+
+The honest current posture is:
+
+- DB-backed retention state can be inspected
+- execute-mode deletion is still gated and not verified

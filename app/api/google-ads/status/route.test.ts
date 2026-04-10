@@ -442,7 +442,7 @@ describe("GET /api/google-ads/status", () => {
       advisorPayload: {
         metadata: {
           actionContract: {
-            version: "google_ads_advisor_action_v1",
+            version: "google_ads_advisor_action_v2",
             source: "native",
           },
           aggregateIntelligence: {
@@ -476,7 +476,7 @@ describe("GET /api/google-ads/status", () => {
 
     expect(response.status).toBe(200);
     expect(payload.advisor.actionContract).toMatchObject({
-      version: "google_ads_advisor_action_v1",
+      version: "google_ads_advisor_action_v2",
       source: "native",
     });
     expect(payload.advisor.aggregateIntelligence).toMatchObject({
@@ -486,7 +486,7 @@ describe("GET /api/google-ads/status", () => {
       clusterDailyRows: 48,
     });
     expect(payload.operations).toMatchObject({
-      advisorActionContractVersion: "google_ads_advisor_action_v1",
+      advisorActionContractVersion: "google_ads_advisor_action_v2",
       advisorActionContractSource: "native",
       advisorAggregateTopQueryWeeklyAvailable: true,
       advisorAggregateClusterDailyAvailable: true,
