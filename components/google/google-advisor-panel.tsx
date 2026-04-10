@@ -228,7 +228,7 @@ function DetailList({
   title: string;
   items?: string[];
   emptyLabel: string;
-  tone?: "default" | "danger" | "muted";
+  tone?: "default" | "primary" | "danger" | "muted";
 }) {
   const values = (items ?? []).filter(Boolean);
   return (
@@ -237,12 +237,25 @@ function DetailList({
         "rounded-lg border p-3",
         tone === "danger"
           ? "border-rose-200 bg-rose-50/50"
+          : tone === "primary"
+            ? "border-emerald-200 bg-emerald-50/60"
           : tone === "muted"
             ? "border-dashed bg-muted/10"
             : "bg-muted/15"
       )}
     >
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{title}</div>
+      <div
+        className={cn(
+          "text-[10px] uppercase tracking-wide",
+          tone === "danger"
+            ? "text-rose-700"
+            : tone === "primary"
+              ? "text-emerald-700"
+              : "text-muted-foreground"
+        )}
+      >
+        {title}
+      </div>
       {values.length > 0 ? (
         <ul className="mt-2 space-y-1 text-sm text-slate-800">
           {values.map((item, index) => (
@@ -311,7 +324,6 @@ function RecommendationCard({
   const lane = deriveQueueLane(recommendation);
   const labelMap = buildWindowLabelMap(advisor);
   const windowsUsed = recommendation.decision?.windowsUsed;
-  const whyNot = recommendation.decision?.whyNot ?? recommendation.blockers ?? [];
   const validationPlan = recommendation.decision?.validationPlan ?? recommendation.validationChecklist ?? [];
   const rollbackPlan = recommendation.decision?.rollbackPlan ?? [];
   const evidencePoints = recommendation.decision?.evidencePoints ?? recommendation.evidence ?? [];
@@ -325,7 +337,6 @@ function RecommendationCard({
     (block) => block.items.length > 0 || Boolean(block.emptyLabel)
   );
   const effectTone = actionCard.expectedEffect.estimationMode === "blocked" ? "danger" : "default";
-  const blockedTone = actionCard.blockedBecause.length > 0 ? "danger" : "default";
   const activeAccountId = accountId ?? "all";
   const canPersistOperatorState = Boolean(businessId);
   const [actionPending, setActionPending] = useState<string | null>(null);
@@ -382,22 +393,14 @@ function RecommendationCard({
   return (
     <article className="space-y-4 rounded-xl border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap gap-2">
-            <Badge className={cn("border", laneTone(lane))} variant="outline">
-              {laneLabel(lane)}
-            </Badge>
-            <Badge variant="outline">{familyLabel(recommendation.decisionFamily)}</Badge>
-            <Badge variant="outline">{labelize(recommendation.strategyLayer)}</Badge>
-            {executionSurface?.writebackEnabled ? null : <Badge variant="outline">Manual plan only</Badge>}
-            {compatibilityDerived ? <Badge variant="outline">Legacy snapshot compatibility</Badge> : null}
-          </div>
-          <h3 className="text-base font-semibold leading-tight">{recommendation.title}</h3>
-          <p className="text-xs text-muted-foreground">
-            {recommendation.level === "account"
-              ? "Account-level decision"
-              : recommendation.entityName ?? labelize(recommendation.level)}
-          </p>
+        <div className="flex flex-wrap gap-2">
+          <Badge className={cn("border", laneTone(lane))} variant="outline">
+            {laneLabel(lane)}
+          </Badge>
+          <Badge variant="outline">{familyLabel(recommendation.decisionFamily)}</Badge>
+          <Badge variant="outline">{labelize(recommendation.strategyLayer)}</Badge>
+          {executionSurface?.writebackEnabled ? null : <Badge variant="outline">Manual plan only</Badge>}
+          {compatibilityDerived ? <Badge variant="outline">Legacy snapshot compatibility</Badge> : null}
         </div>
         <div className="grid gap-1 text-right text-xs">
           <div>
@@ -421,14 +424,35 @@ function RecommendationCard({
         </div>
       </div>
 
-      <SurfaceBlock
-        title="Primary action"
-        tone={actionCard.blockedBecause.length > 0 ? "danger" : "primary"}
+      <div
+        className={cn(
+          "rounded-xl border p-4",
+          actionCard.blockedBecause.length > 0
+            ? "border-rose-200 bg-rose-50/40"
+            : "border-emerald-200 bg-emerald-50/40"
+        )}
       >
-        <p className="font-medium text-slate-900">{actionCard.primaryAction}</p>
-      </SurfaceBlock>
+        <div
+          className={cn(
+            "text-[10px] uppercase tracking-wide",
+            actionCard.blockedBecause.length > 0 ? "text-rose-700" : "text-emerald-700"
+          )}
+        >
+          Primary action
+        </div>
+        <h3 className="mt-2 text-lg font-semibold leading-tight text-slate-900">
+          {actionCard.primaryAction}
+        </h3>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Recommendation label: {recommendation.title}
+          {" · "}
+          {recommendation.level === "account"
+            ? "Account-level decision"
+            : recommendation.entityName ?? labelize(recommendation.level)}
+        </p>
+      </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <SurfaceBlock title="Scope">
           <p>{actionCard.scope.label}</p>
         </SurfaceBlock>
@@ -442,17 +466,6 @@ function RecommendationCard({
         <SurfaceBlock title="Why this now">
           <p>{actionCard.whyThisNow}</p>
         </SurfaceBlock>
-        <SurfaceBlock title="Blocked because" tone={blockedTone}>
-          {actionCard.blockedBecause.length > 0 ? (
-            <ul className="space-y-1">
-              {actionCard.blockedBecause.map((item, index) => (
-                <li key={`blocked-${index}`}>{item}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>No active blocker is attached.</p>
-          )}
-        </SurfaceBlock>
       </div>
 
       <div className="space-y-3">
@@ -464,15 +477,36 @@ function RecommendationCard({
               title={block.label}
               items={block.items}
               emptyLabel={block.emptyLabel ?? "No items attached."}
-              tone={
-                block.label.toLowerCase().includes("blocked") ||
-                block.label.toLowerCase().includes("suppressed")
-                  ? "danger"
-                  : "default"
-              }
+              tone={block.tone}
             />
           ))}
         </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <DetailList
+          title="Evidence"
+          items={evidencePoints.map((item) => `${item.label}: ${item.value}`)}
+          emptyLabel="No structured evidence is attached."
+        />
+        <DetailList
+          title="Validation"
+          items={actionCard.validation.length > 0 ? actionCard.validation : validationPlan}
+          emptyLabel="No explicit validation plan is available."
+        />
+        <DetailList
+          title="Rollback"
+          items={actionCard.rollback.length > 0 ? actionCard.rollback : rollbackPlan}
+          emptyLabel="No verified write-back rollback exists in V1. Reverse manually in Google Ads if needed."
+        />
+        {actionCard.blockedBecause.length > 0 ? (
+          <DetailList
+            title="Blocked because"
+            items={actionCard.blockedBecause}
+            emptyLabel="No explicit blocker is attached."
+            tone="danger"
+          />
+        ) : null}
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -513,36 +547,6 @@ function RecommendationCard({
             <div>Snapshot refresh keeps the structured recommendation but overlays live lifecycle state.</div>
           </div>
         </SurfaceBlock>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <DetailList
-          title="Evidence"
-          items={evidencePoints.map((item) => `${item.label}: ${item.value}`)}
-          emptyLabel="No structured evidence is attached."
-        />
-        <DetailList
-          title="Validation"
-          items={actionCard.validation.length > 0 ? actionCard.validation : validationPlan}
-          emptyLabel="No explicit validation plan is available."
-        />
-        <DetailList
-          title="Rollback"
-          items={actionCard.rollback.length > 0 ? actionCard.rollback : rollbackPlan}
-          emptyLabel="No verified write-back rollback exists in V1. Reverse manually in Google Ads if needed."
-        />
-        <DetailList
-          title="Why not / blockers"
-          items={whyNot}
-          emptyLabel="No blockers recorded for this decision."
-          tone={lane === "suppressed" ? "danger" : "default"}
-        />
-        <DetailList
-          title="Suppression reasons"
-          items={recommendation.suppressionReasons?.map(labelize)}
-          emptyLabel="No suppression reasons recorded."
-          tone={lane === "suppressed" ? "danger" : "muted"}
-        />
       </div>
 
       {canPersistOperatorState ? (

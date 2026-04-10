@@ -230,7 +230,7 @@ function buildAdvisor(recommendations: GoogleRecommendation[] = []): GoogleAdvis
         note: "Persisted weekly top-query and daily cluster aggregates are loaded as supplemental support.",
       },
       actionContract: {
-        version: "google_ads_advisor_action_v1",
+        version: "google_ads_advisor_action_v2",
         source: "native",
         note: "Structured operator cards are the source of truth for this snapshot.",
       },
@@ -273,11 +273,15 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Exact changes");
     expect(html).toContain("Expected effect");
     expect(html).toContain("Why this now");
+    expect(html).toContain("Evidence");
     expect(html).toContain("Validation");
     expect(html).toContain("Rollback");
     expect(html).toContain("Manual plan only");
     expect(html).toContain("Write-back disabled");
     expect(html).toContain("Aggregate support");
+    expect(html.indexOf("Primary action")).toBeLessThan(html.indexOf("Recommendation label: review recommendation"));
+    expect(html.indexOf("Exact changes")).toBeLessThan(html.indexOf("Lifecycle"));
+    expect(html.indexOf("Exact changes")).toBeLessThan(html.indexOf("Narrative context and legacy details"));
   });
 
   it("renders bundled action packs as manual approval-only clusters", () => {
@@ -388,7 +392,7 @@ describe("GoogleAdvisorPanel", () => {
 
     expect(html).toContain("Suppression reasons");
     expect(html).toContain("Blocked because");
-    expect(html).toContain("branded query");
+    expect(html).toContain("Branded query");
     expect(html).toContain("grandmix chairs");
     expect(html).toContain("selected range is context only");
     expect(html).not.toContain("canonical 90-day");
