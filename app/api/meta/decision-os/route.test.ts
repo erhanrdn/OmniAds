@@ -14,6 +14,14 @@ vi.mock("@/lib/meta/adsets-source", () => ({
   getMetaAdSetsForRange: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/campaigns-source", () => ({
+  getMetaCampaignsForRange: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/breakdowns-source", () => ({
+  getMetaBreakdownsForRange: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/decision-os-config", () => ({
   isMetaDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
@@ -26,6 +34,8 @@ vi.mock("@/lib/meta/decision-os", () => ({
 const access = await import("@/lib/access");
 const businessCommercial = await import("@/lib/business-commercial");
 const adsetsSource = await import("@/lib/meta/adsets-source");
+const campaignsSource = await import("@/lib/meta/campaigns-source");
+const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const decisionOsConfig = await import("@/lib/meta/decision-os-config");
 const decisionOs = await import("@/lib/meta/decision-os");
 const { GET } = await import("@/app/api/meta/decision-os/route");
@@ -55,6 +65,23 @@ describe("GET /api/meta/decision-os", () => {
     vi.mocked(adsetsSource.getMetaAdSetsForRange).mockResolvedValue({
       status: "ok",
       rows: [{ id: "adset-1", name: "Adset One", campaignId: "cmp-1", status: "ACTIVE", spend: 250, revenue: 800, purchases: 10, cpa: 25, ctr: 1.4, impressions: 10000, clicks: 140, dailyBudget: 500, lifetimeBudget: null, optimizationGoal: "PURCHASE", bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, isBudgetMixed: false, isConfigMixed: false } as never],
+      isPartial: false,
+      notReadyReason: null,
+    });
+    vi.mocked(campaignsSource.getMetaCampaignsForRange).mockResolvedValue({
+      status: "ok",
+      rows: [{ id: "cmp-1", name: "Campaign One", status: "ACTIVE", spend: 500, revenue: 1500, purchases: 20, roas: 3, cpa: 25 } as never],
+      isPartial: false,
+      notReadyReason: null,
+    });
+    vi.mocked(breakdownsSource.getMetaBreakdownsForRange).mockResolvedValue({
+      status: "ok",
+      age: [],
+      location: [{ key: "US", label: "US", spend: 500, revenue: 1500, purchases: 20, clicks: 100, impressions: 10000 }],
+      placement: [{ key: "feed", label: "Feed", spend: 300, revenue: 600, purchases: 0, clicks: 0, impressions: 0 }],
+      budget: { campaign: [], adset: [] },
+      audience: { available: false },
+      products: { available: false },
       isPartial: false,
       notReadyReason: null,
     });
@@ -89,36 +116,6 @@ describe("GET /api/meta/decision-os", () => {
       },
     } as never);
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL) => {
-        const url = String(input);
-        if (url.includes("/api/meta/campaigns")) {
-          return new Response(
-            JSON.stringify({
-              status: "ok",
-              rows: [{ id: "cmp-1", name: "Campaign One", status: "ACTIVE", spend: 500, revenue: 1500, purchases: 20, roas: 3, cpa: 25 }],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (url.includes("/api/meta/breakdowns")) {
-          return new Response(
-            JSON.stringify({
-              status: "ok",
-              age: [],
-              location: [{ key: "US", label: "US", spend: 500, revenue: 1500, purchases: 20, clicks: 100, impressions: 10000 }],
-              placement: [{ key: "feed", label: "Feed", spend: 300, revenue: 600 }],
-              budget: { campaign: [], adset: [] },
-              audience: { available: false },
-              products: { available: false },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        throw new Error(`Unexpected fetch URL: ${url}`);
-      }),
-    );
   });
 
   it("builds the decision payload from campaigns, ad sets, breakdowns, and commercial truth", async () => {

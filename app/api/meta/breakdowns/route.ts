@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { isDemoBusiness } from "@/lib/business-mode.server";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
-import { getDemoMetaBreakdowns } from "@/lib/demo-business";
-import { getIntegration } from "@/lib/integrations";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
-import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
-import { getMetaWarehouseBreakdowns } from "@/lib/meta/serving";
-import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
+import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
 
@@ -72,29 +64,6 @@ export interface MetaBreakdownsResponse {
   notReadyReason?: string | null;
 }
 
-function getHistoricalVerificationReason(input: {
-  verificationState?: string | null;
-  fallbackReason: string;
-}) {
-  if (input.verificationState === "failed") {
-    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
-  }
-  if (input.verificationState === "repair_required") {
-    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
-  }
-  return input.fallbackReason;
-}
-
-function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
-function nDaysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
-
 function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
   if (!Array.isArray(arr)) return 0;
   const found = arr.find((a) => a.action_type === type);
@@ -103,21 +72,6 @@ function parseAction(arr: MetaActionValue[] | undefined, type: string): number {
 
 function parseNum(input: string | undefined): number {
   return input ? parseFloat(input) || 0 : 0;
-}
-
-async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
-  try {
-    const readiness = await getDbSchemaReadiness({
-      tables: ["provider_account_assignments"],
-    });
-    if (!readiness.ready) {
-      return [];
-    }
-    const row = await getProviderAccountAssignments(businessId, "meta");
-    return row?.account_ids ?? [];
-  } catch {
-    return [];
-  }
 }
 
 function breakdownParam(type: BreakdownType): { level: "ad" | "adset" | "campaign"; breakdowns?: string } {
@@ -233,8 +187,8 @@ function aggregateRows(rows: BreakdownInsightRow[], type: BreakdownType): Aggreg
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const businessId = searchParams.get("businessId");
-  const startDate = searchParams.get("startDate") ?? toISODate(nDaysAgo(29));
-  const endDate = searchParams.get("endDate") ?? toISODate(new Date());
+  const startDate = searchParams.get("startDate");
+  const endDate = searchParams.get("endDate");
 
   const access = await requireBusinessAccess({
     request,
@@ -242,161 +196,10 @@ export async function GET(request: NextRequest) {
     minRole: "guest",
   });
   if ("error" in access) return access.error;
-
-  if (await isDemoBusiness(businessId!)) {
-    return NextResponse.json({
-      ...getDemoMetaBreakdowns(),
-      isPartial: false,
-      notReadyReason: null,
-    } satisfies MetaBreakdownsResponse);
-  }
-
-  const integration = await getIntegration(businessId!, "meta").catch(() => null);
-  if (!integration || integration.status !== "connected") {
-    return NextResponse.json({
-      status: "no_connection",
-      age: [],
-      location: [],
-      placement: [],
-      budget: { campaign: [], adset: [] },
-      audience: { available: false, reason: "Audience type classification unavailable." },
-      products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-      isPartial: false,
-      notReadyReason: "Meta integration is not connected.",
-    } satisfies MetaBreakdownsResponse);
-  }
-  if (!integration.access_token) {
-    return NextResponse.json({
-      status: "no_access_token",
-      age: [],
-      location: [],
-      placement: [],
-      budget: { campaign: [], adset: [] },
-      audience: { available: false, reason: "Audience type classification unavailable." },
-      products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-      isPartial: false,
-      notReadyReason: "Meta access token is missing for this workspace.",
-    } satisfies MetaBreakdownsResponse);
-  }
-
-  const assignedAccountIds = await fetchAssignedAccountIds(businessId!);
-  if (assignedAccountIds.length === 0) {
-    return NextResponse.json({
-      status: "no_accounts_assigned",
-      age: [],
-      location: [],
-      placement: [],
-      budget: { campaign: [], adset: [] },
-      audience: { available: false, reason: "Audience type classification unavailable." },
-      products: { available: false, reason: "Catalog product breakdown unavailable for current setup." },
-      isPartial: false,
-      notReadyReason: "No Meta ad account is assigned to this workspace.",
-    } satisfies MetaBreakdownsResponse);
-  }
-
-  const rangeContext = await getMetaRangePreparationContext({
+  const payload = await getMetaBreakdownsForRange({
     businessId: businessId!,
     startDate,
     endDate,
   });
-  const breakdownGuardrail = getMetaBreakdownGuardrail({
-    startDate,
-    endDate,
-    referenceToday: rangeContext.currentDateInTimezone,
-  });
-  const historicalTruth =
-    !rangeContext.isSelectedCurrentDay
-      ? await getMetaSelectedRangeTruthReadiness({
-          businessId: businessId!,
-          startDate,
-          endDate,
-        }).catch(() => null)
-      : null;
-
-  try {
-    const warehouse = await getMetaWarehouseBreakdowns({
-      businessId: businessId!,
-      startDate,
-      endDate,
-      providerAccountIds: assignedAccountIds,
-    });
-    const hasWarehouseRows =
-      warehouse.age.length > 0 ||
-      warehouse.location.length > 0 ||
-      warehouse.placement.length > 0 ||
-      warehouse.budget.campaign.length > 0 ||
-      warehouse.budget.adset.length > 0;
-    if (hasWarehouseRows) {
-      return NextResponse.json({
-        status: "ok",
-        age: warehouse.age,
-        location: warehouse.location,
-        placement: warehouse.placement,
-        budget: warehouse.budget,
-        audience: {
-          available: false,
-          reason:
-            "Audience Performance unavailable: no reliable audience-type dimension from current Meta account setup.",
-        },
-        products: {
-          available: false,
-          reason:
-            "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
-        },
-        isPartial: historicalTruth ? !historicalTruth.truthReady : false,
-        notReadyReason:
-          historicalTruth && !historicalTruth.truthReady
-            ? getHistoricalVerificationReason({
-                verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
-                fallbackReason: "Breakdown warehouse data is still being prepared for the requested range.",
-              })
-            : null,
-      } satisfies MetaBreakdownsResponse);
-    }
-  } catch (error) {
-    console.warn("[meta-breakdowns] warehouse_read_failed", {
-      businessId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-  return NextResponse.json({
-    status: "ok",
-    age: [],
-    location: [],
-    placement: [],
-    budget: {
-      campaign: [],
-      adset: [],
-    },
-    audience: {
-      available: false,
-      reason:
-        "Audience Performance unavailable: no reliable audience-type dimension from current Meta account setup.",
-    },
-    products: {
-      available: false,
-      reason:
-        "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
-    },
-    isPartial: historicalTruth ? !historicalTruth.truthReady : true,
-    notReadyReason: breakdownGuardrail.message ??
-      (historicalTruth
-        ? historicalTruth.truthReady
-          ? null
-          : getHistoricalVerificationReason({
-              verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
-              fallbackReason: getMetaPartialReason({
-                isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-                currentDateInTimezone: rangeContext.currentDateInTimezone,
-                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-                defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
-              }),
-            })
-        : getMetaPartialReason({
-            isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,
-            currentDateInTimezone: rangeContext.currentDateInTimezone,
-            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-            defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
-          })),
-  } satisfies MetaBreakdownsResponse);
+  return NextResponse.json(payload satisfies MetaBreakdownsResponse);
 }

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
-import type { MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
 import { requireBusinessAccess } from "@/lib/access";
 import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
+import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
+import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import {
   buildMetaDecisionOs,
   type MetaDecisionOsV1Response,
@@ -18,30 +18,6 @@ function daysAgo(days: number) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() - days);
   return date;
-}
-
-async function fetchInternalJson<T>(
-  request: NextRequest,
-  path: string,
-  params: URLSearchParams,
-): Promise<T | null> {
-  const url = new URL(path, request.nextUrl.origin);
-  url.search = params.toString();
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        cookie: request.headers.get("cookie") ?? "",
-      },
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      return null;
-    }
-    return (await response.json().catch(() => null)) as T | null;
-  } catch {
-    return null;
-  }
 }
 
 export async function GET(request: NextRequest) {
@@ -77,16 +53,18 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("startDate") ?? toISODate(daysAgo(29));
   const endDate =
     request.nextUrl.searchParams.get("endDate") ?? toISODate(new Date());
-  const params = new URLSearchParams({
-    businessId,
-    startDate,
-    endDate,
-  });
-
   const [snapshot, campaigns, breakdowns, adSets] = await Promise.all([
     getBusinessCommercialTruthSnapshot(businessId),
-    fetchInternalJson<MetaCampaignsResponse>(request, "/api/meta/campaigns", params),
-    fetchInternalJson<MetaBreakdownsResponse>(request, "/api/meta/breakdowns", params),
+    getMetaCampaignsForRange({
+      businessId,
+      startDate,
+      endDate,
+    }),
+    getMetaBreakdownsForRange({
+      businessId,
+      startDate,
+      endDate,
+    }),
     getMetaAdSetsForRange({
       businessId,
       campaignId: null,
@@ -99,9 +77,10 @@ export async function GET(request: NextRequest) {
     businessId,
     startDate,
     endDate,
-    campaigns: campaigns?.rows ?? [],
+    campaigns: campaigns.rows ?? [],
     adSets: adSets.rows ?? [],
-    breakdowns: breakdowns
+    breakdowns:
+      breakdowns.location.length > 0 || breakdowns.placement.length > 0
       ? {
           location: breakdowns.location ?? [],
           placement: breakdowns.placement ?? [],
