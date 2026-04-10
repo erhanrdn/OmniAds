@@ -680,6 +680,17 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         ${input.updatedByUserId},
         now()
       )
+      ON CONFLICT (business_id, country_code)
+      DO UPDATE SET
+        economics_multiplier = EXCLUDED.economics_multiplier,
+        margin_modifier = EXCLUDED.margin_modifier,
+        serviceability = EXCLUDED.serviceability,
+        priority_tier = EXCLUDED.priority_tier,
+        scale_override = EXCLUDED.scale_override,
+        notes = EXCLUDED.notes,
+        source_label = EXCLUDED.source_label,
+        updated_by_user_id = EXCLUDED.updated_by_user_id,
+        updated_at = now()
     `;
   }
 
@@ -714,6 +725,18 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
         ${input.updatedByUserId},
         now()
       )
+      ON CONFLICT (business_id, event_id)
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        promo_type = EXCLUDED.promo_type,
+        severity = EXCLUDED.severity,
+        start_date = EXCLUDED.start_date,
+        end_date = EXCLUDED.end_date,
+        affected_scope = EXCLUDED.affected_scope,
+        notes = EXCLUDED.notes,
+        source_label = EXCLUDED.source_label,
+        updated_by_user_id = EXCLUDED.updated_by_user_id,
+        updated_at = now()
     `;
   }
 
