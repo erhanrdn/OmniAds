@@ -2381,8 +2381,8 @@ export function buildMetaRecommendations(input: {
         title: language === "tr" ? "Purchase odakli Meta icgorusu yok" : "No purchase-focused Meta insight",
         summary:
           language === "tr"
-            ? "AI Insights su anda purchase/value kampanyalariyla sinirli. Bu workspace'in mevcut veri setinde uygun bir purchase kampanyasi yok."
-            : "AI Insights are currently limited to purchase/value campaigns. This workspace does not have an eligible purchase campaign in the current dataset.",
+            ? "Öneriler şu anda purchase/value kampanyalariyla sinirli. Bu workspace'in mevcut veri setinde uygun bir purchase kampanyasi yok."
+            : "Recommendations are currently limited to purchase/value campaigns. This workspace does not have an eligible purchase campaign in the current dataset.",
         primaryLens: "structure",
         confidence: "low",
         recommendationCount: 0,

@@ -58,15 +58,18 @@ export interface SharedCreative {
   roas: number;
   cpa: number;
   ctrAll: number;
+  linkCtr?: number;
   purchases: number;
 
   /** optional metrics */
   cpcLink?: number;
   cpm?: number;
   impressions?: number;
+  clicks?: number;
   linkClicks?: number;
   addToCart?: number;
   thumbstop?: number;
+  clickToAddToCart?: number;
   clickToPurchase?: number;
   video25?: number;
   video50?: number;

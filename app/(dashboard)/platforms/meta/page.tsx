@@ -844,7 +844,7 @@ export default function MetaPage() {
     summaryQuery,
   ]);
 
-  // Scroll the left panel item into view when a campaign is selected via AI recommendation
+  // Scroll the left panel item into view when a campaign is selected from recommendations.
   useEffect(() => {
     if (!selectedCampaignId) return;
     const el = document.getElementById(`meta-list-item-${selectedCampaignId}`);
@@ -862,7 +862,7 @@ export default function MetaPage() {
       setRecommendationsError(
         result.error instanceof Error
           ? result.error.message
-          : "AI analysis could not be completed."
+          : "Recommendations could not be completed."
       );
       return;
     }

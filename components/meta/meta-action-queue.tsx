@@ -232,7 +232,7 @@ export function MetaActionQueue({
       >
         {showFullAnalysis
           ? "Hide Full Analysis ▲"
-          : "Show Full AI Analysis ▼"}
+          : "Show Full Recommendation Analysis ▼"}
       </button>
     </div>
   );

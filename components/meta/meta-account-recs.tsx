@@ -3,8 +3,8 @@
 /**
  * components/meta/meta-account-recs.tsx
  *
- * Account-level AI recommendations.
- * - Before analysis: "Run AI Analysis" button
+ * Account-level recommendations.
+ * - Before analysis: "Run Recommendations" button
  * - After analysis: compact grid cards, click to expand full detail
  */
 
@@ -196,12 +196,24 @@ export function MetaAccountRecs({
   const canReanalyze = lastAnalyzedAt === null || allChecked;
 
   return (
-    <div className="space-y-4">
-      {/* Run / Re-analyze button */}
+    <div className="space-y-4" data-testid="meta-recommendations-panel">
+      <div className="space-y-1">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          {language === "tr" ? "Öneriler" : "Recommendations"}
+        </p>
+        <p className="text-xs text-slate-500">
+          {language === "tr"
+            ? "Seçili aralıktaki Meta performansına göre öneriler."
+            : "Recommendations based on selected-range Meta performance."}
+        </p>
+      </div>
+
+      {/* Run / refresh button */}
       <div className="flex items-center gap-3">
         <button
           onClick={onAnalyze}
           disabled={isRecsLoading || (lastAnalyzedAt !== null && !canReanalyze)}
+          data-testid="meta-recommendations-run"
           className={cn(
             "flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-semibold transition-colors",
             isRecsLoading
@@ -214,21 +226,21 @@ export function MetaAccountRecs({
           {isRecsLoading ? (
             <>
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-              {language === "tr" ? "Analiz ediliyor..." : "Analyzing..."}
+              {language === "tr" ? "Çalıştırılıyor..." : "Running..."}
             </>
           ) : lastAnalyzedAt === null ? (
-            language === "tr" ? "AI Analizi Başlat" : "Run AI Analysis"
+            language === "tr" ? "Önerileri Çalıştır" : "Run Recommendations"
           ) : canReanalyze ? (
-            language === "tr" ? "Yeniden Analiz Et" : "Re-analyze"
+            language === "tr" ? "Önerileri Yenile" : "Refresh Recommendations"
           ) : (
             language === "tr"
-              ? `Tüm önerileri işaretle (${checkedRecIds.size}/${accountRecs.length})`
-              : `Check all to re-analyze (${checkedRecIds.size}/${accountRecs.length})`
+              ? `Yeniden çalıştırmak için tüm önerileri işaretle (${checkedRecIds.size}/${accountRecs.length})`
+              : `Check all to refresh (${checkedRecIds.size}/${accountRecs.length})`
           )}
         </button>
         {lastAnalyzedAt && (
           <p className="text-[10px] text-slate-400">
-            {language === "tr" ? "Son analiz:" : "Last sync:"}{" "}
+            {language === "tr" ? "Son çalıştırma:" : "Last run:"}{" "}
             {formatRelativeAge(lastAnalyzedAt.toISOString())}
           </p>
         )}

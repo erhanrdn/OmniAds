@@ -1,6 +1,12 @@
 "use client";
 
 import { formatMoney } from "@/components/creatives/money";
+import {
+  calculateCreativeClickToAddToCartRate,
+  calculateCreativeClickToPurchaseRate,
+  calculateCreativeCpcAll,
+  calculateCreativeLinkCtr,
+} from "@/components/creatives/creative-truth";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 
@@ -48,21 +54,21 @@ export const BREAKDOWN_METRICS: BreakdownMetricDef[] = [
   { key: "impressions", label: "Impressions", shortLabel: "Impr.", category: "performance", format: "compact", direction: "neutral", getValue: (r) => r.impressions },
   { key: "purchases", label: "Purchases", shortLabel: "Purch.", category: "conversion", format: "number", direction: "high", getValue: (r) => r.purchases },
   { key: "aov", label: "Average order value", shortLabel: "AOV", category: "conversion", format: "currency", direction: "high", getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
-  { key: "clickToAtc", label: "Click to add-to-cart ratio", shortLabel: "Click→ATC", category: "conversion", format: "percent", direction: "high", getValue: (r) => r.clickToPurchase },
+  { key: "clickToAtc", label: "Click to add-to-cart ratio", shortLabel: "Click→ATC", category: "conversion", format: "percent", direction: "high", getValue: (r) => calculateCreativeClickToAddToCartRate(r) },
   { key: "atcToPurchase", label: "Add-to-cart to purchase ratio", shortLabel: "ATC→Purch", category: "conversion", format: "percent", direction: "high", getValue: (r) => r.atcToPurchaseRatio },
-  { key: "clickToPurchase", label: "Click to purchase ratio", shortLabel: "Click→Purch", category: "conversion", format: "percent", direction: "high", getValue: (r) => r.clickToPurchase },
+  { key: "clickToPurchase", label: "Click to purchase ratio", shortLabel: "Click→Purch", category: "conversion", format: "percent", direction: "high", getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
   { key: "cpcLink", label: "Cost per link click", shortLabel: "CPC Link", category: "clicks", format: "currency", direction: "low", getValue: (r) => r.cpcLink },
-  { key: "cpcAll", label: "Cost per click (all)", shortLabel: "CPC All", category: "clicks", format: "currency", direction: "low", getValue: (r) => r.cpcLink },
+  { key: "cpcAll", label: "Cost per click (all)", shortLabel: "CPC All", category: "clicks", format: "currency", direction: "low", getValue: (r) => calculateCreativeCpcAll(r) },
   { key: "ctrAll", label: "Click through rate (all)", shortLabel: "CTR", category: "clicks", format: "percent", direction: "high", getValue: (r) => r.ctrAll },
-  { key: "ctrOutbound", label: "Click through rate (outbound)", shortLabel: "CTR Out", category: "clicks", format: "percent", direction: "high", getValue: (r) => r.ctrAll },
+  { key: "ctrOutbound", label: "Link CTR (compat)", shortLabel: "Link CTR", category: "clicks", format: "percent", direction: "high", getValue: (r) => calculateCreativeLinkCtr(r) },
   { key: "linkClicks", label: "Link clicks", shortLabel: "Clicks", category: "clicks", format: "compact", direction: "high", getValue: (r) => r.linkClicks },
   { key: "thumbstop", label: "Thumbstop ratio", shortLabel: "Thumbstop", category: "video", format: "percent", direction: "high", getValue: (r) => r.thumbstop },
-  { key: "firstFrame", label: "First frame retention", shortLabel: "1st Frame", category: "video", format: "percent", direction: "high", getValue: (r) => r.thumbstop },
+  { key: "firstFrame", label: "First-impression proxy (thumbstop)", shortLabel: "1st Proxy", category: "video", format: "percent", direction: "high", getValue: (r) => r.thumbstop },
   { key: "video25", label: "25% video plays (rate)", shortLabel: "25%", category: "video", format: "percent", direction: "high", getValue: (r) => r.video25 },
   { key: "video50", label: "50% video plays (rate)", shortLabel: "50%", category: "video", format: "percent", direction: "high", getValue: (r) => r.video50 },
   { key: "video75", label: "75% video plays (rate)", shortLabel: "75%", category: "video", format: "percent", direction: "high", getValue: (r) => r.video75 },
   { key: "video100", label: "100% video plays (rate)", shortLabel: "100%", category: "video", format: "percent", direction: "high", getValue: (r) => r.video100 },
-  { key: "holdRate", label: "Hold rate", shortLabel: "Hold", category: "video", format: "percent", direction: "high", getValue: (r) => r.video100 },
+  { key: "holdRate", label: "Completion proxy (100% plays)", shortLabel: "Comp. Proxy", category: "video", format: "percent", direction: "high", getValue: (r) => r.video100 },
 ];
 
 export const METRIC_MAP = new Map(BREAKDOWN_METRICS.map((metric) => [metric.key, metric]));

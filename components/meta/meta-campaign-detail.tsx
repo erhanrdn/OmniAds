@@ -6,8 +6,8 @@
  * Right panel in the master-detail layout.
  *
  * Two states:
- *  - No campaign selected: shows account-level AI overview + placement breakdown
- *  - Campaign selected: AI recommendation (if any) + metric grid + ad-set list
+ *  - No campaign selected: shows account-level recommendations + placement breakdown
+ *  - Campaign selected: recommendation (if any) + metric grid + ad-set list
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -279,7 +279,7 @@ interface AccountOverviewProps {
 
 function AccountOverview(props: AccountOverviewProps) {
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4 p-6" data-testid="meta-account-overview">
       <MetaAccountRecs
         recommendationsData={props.recommendationsData}
         isRecsLoading={props.isRecsLoading}
@@ -351,7 +351,7 @@ export function MetaCampaignDetail({
 
 
   return (
-    <div className="space-y-5 p-6">
+    <div className="space-y-5 p-6" data-testid="meta-campaign-detail">
       {/* Back breadcrumb */}
       <button
         onClick={onClearSelection}
@@ -384,9 +384,12 @@ export function MetaCampaignDetail({
         </div>
       </div>
 
-      {/* AI Recommendation */}
+      {/* Recommendation */}
       {rec && (
-        <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm">
+        <div
+          className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm"
+          data-testid="meta-campaign-recommendation"
+        >
           <div className="flex items-center gap-2.5">
             <DecisionBadge state={rec.decisionState} />
             <p className="text-[11px] text-slate-500">{rec.title}</p>
@@ -437,7 +440,7 @@ export function MetaCampaignDetail({
       </div>
 
       {/* Ad sets */}
-      <div className="space-y-2">
+      <div className="space-y-2" data-testid="meta-adsets-section">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           {language === "tr" ? "Ad Set'ler" : "Ad Sets"}
         </p>

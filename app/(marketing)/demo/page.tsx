@@ -17,7 +17,7 @@ import { getLanguageFromCookieValue, LANGUAGE_COOKIE_NAME } from "@/lib/i18n";
 export const metadata: Metadata = {
   title: "Demo | Adsecute",
   description:
-    "Explore the Adsecute demo workspace. See real-looking dashboards, intelligence modules, and AI recommendations — no account required.",
+    "Explore the Adsecute demo workspace. See real-looking dashboards, intelligence modules, recommendations, and AI commentary — no account required.",
 };
 
 const DEMO_MODULES = [
@@ -25,13 +25,13 @@ const DEMO_MODULES = [
     icon: BarChart3,
     name: "Overview dashboard",
     description:
-      "Cross-platform KPIs — revenue, ROAS, spend, and purchases — with AI-generated insights surfaced daily.",
+      "Cross-platform KPIs — revenue, ROAS, spend, and purchases — with daily insight cards surfaced across the workspace.",
   },
   {
     icon: Layers,
     name: "Creative intelligence",
     description:
-      "Ranked creatives by ROAS, CTR, and hook rate. Side-by-side comparisons with AI performance tags.",
+      "Ranked creatives by ROAS, CTR, and hook rate. Side-by-side comparisons with deterministic taxonomy tags and AI commentary.",
   },
   {
     icon: Brain,
@@ -88,8 +88,8 @@ async function DemoPageContent({
             </h1>
             <p className="text-lg text-muted-foreground leading-relaxed mb-8">
               {language === "tr"
-                ? "Adsecute demo workspace'i, outdoor sirt cantalari ve seyahat ekipmanlari satan bir Shopify markasi olan UrbanTrail'in gerçekci ecommerce verileriyle dolu. Her modul, her icgoru ve her AI önerisi hazir durumda."
-                : "The Adsecute demo workspace is loaded with realistic ecommerce data from UrbanTrail — a Shopify brand selling outdoor backpacks and travel gear. Every module, every insight, every AI recommendation is populated and ready to explore."}
+                ? "Adsecute demo workspace'i, outdoor sirt cantalari ve seyahat ekipmanlari satan bir Shopify markasi olan UrbanTrail'in gerçekci ecommerce verileriyle dolu. Her modul, her icgoru, her öneri ve AI yorum yüzeyi hazir durumda."
+                : "The Adsecute demo workspace is loaded with realistic ecommerce data from UrbanTrail — a Shopify brand selling outdoor backpacks and travel gear. Every module, every insight, every recommendation, and every AI commentary surface is populated and ready to explore."}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <a
@@ -128,14 +128,14 @@ async function DemoPageContent({
               </p>
               <p className="text-base text-muted-foreground leading-relaxed mb-6">
                 The demo is designed to show Adsecute at its most useful — with enough data to
-                surface real AI insights, real opportunity flags, and real cross-platform comparisons.
+                surface real decision signals, AI commentary, opportunity flags, and cross-platform comparisons.
               </p>
               <ul className="flex flex-col gap-3">
                 {[
                   "Active Meta and Google Ads campaigns",
                   "Shopify revenue and purchase data connected",
                   "Google Analytics 4 audience and funnel data",
-                  "AI recommendations populated with real signal",
+                  "Recommendations populated with real signal",
                   "GEO intelligence with regional breakdowns",
                   "Creative and copy performance ranked",
                 ].map((item) => (
@@ -184,7 +184,7 @@ async function DemoPageContent({
                 <div className="flex items-start gap-2">
                   <Zap className="h-4 w-4 text-indigo-500 mt-0.5 shrink-0" />
                   <div>
-                    <p className="text-xs font-semibold text-indigo-800">AI insight</p>
+                    <p className="text-xs font-semibold text-indigo-800">Recommendation</p>
                     <p className="text-xs text-indigo-700 mt-0.5 leading-relaxed">
                       Top creative has 5.1x ROAS on $3,200 spend. Recommend 40% budget increase
                       to scale before audience saturation.
@@ -258,7 +258,7 @@ async function DemoPageContent({
               {
                 step: "3",
                 title: "Explore freely",
-                desc: "Browse every module. All data is pre-loaded and all AI insights are populated.",
+                desc: "Browse every module. All data is pre-loaded and the recommendation/commentary surfaces are populated.",
               },
             ].map((step) => (
               <div key={step.step} className="text-center">

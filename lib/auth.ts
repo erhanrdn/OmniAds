@@ -37,6 +37,10 @@ function sessionExpiryDate() {
   return new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
+function buildSessionToken() {
+  return `${randomUUID().replace(/-/g, "")}${randomBytes(16).toString("hex")}`;
+}
+
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
@@ -151,7 +155,7 @@ export async function createSession(input: {
   // Retry up to 3 times in case of an astronomically rare hash collision
   const MAX_ATTEMPTS = 3;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const token = randomBytes(32).toString("hex");
+    const token = buildSessionToken();
     const tokenHash = hashToken(token);
 
     try {

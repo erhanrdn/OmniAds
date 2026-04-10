@@ -1,11 +1,20 @@
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import {
+  calculateCreativeAverageOrderValue,
+  calculateCreativeClickToAddToCartRate,
+  calculateCreativeClickToPurchaseRate,
+  calculateCreativeCpcAll,
+  calculateCreativeLinkCtr,
+  calculateCreativePurchaseValueShare,
+  hasCreativeVideoEvidence,
+} from "@/components/creatives/creative-truth";
 import type { ShareMetricKey, SharedCreative } from "@/components/creatives/shareCreativeTypes";
 import {
   getLegacyCreativeTypeLabel,
 } from "@/lib/meta/creative-taxonomy";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
-import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services";
+import type { CreativeHistoricalWindow, CreativeHistoricalWindows } from "@/src/services";
 
 export interface MetaCreativesResponse {
   status?: string;
@@ -87,43 +96,36 @@ export function toCsv(rows: MetaCreativeRow[]): string {
     "Cost per purchase",
     "Cost per link click",
     "CPM",
-    "CPC (all)",
+    "Cost per click (all)",
     "Average order value",
+    "Clicks (all)",
+    "Link clicks",
+    "Click through rate (all)",
+    "Click through rate (link clicks)",
     "Click to add-to-cart ratio",
     "Add-to-cart to purchase ratio",
-    "Purchases",
-    "First frame retention",
-    "Thumbstop ratio",
-    "Click through rate (outbound)",
     "Click to purchase ratio",
-    "Click through rate (all)",
+    "Purchases",
+    "Impressions",
+    "Thumbstop ratio",
     "25% video plays (rate)",
     "50% video plays (rate)",
     "75% video plays (rate)",
     "100% video plays (rate)",
-    "Hold rate",
-    "Hook score",
-    "Watch score",
-    "Click score",
-    "Convert score",
     "% purchase value",
   ];
 
   const totalPurchaseValue = rows.reduce((sum, row) => sum + row.purchaseValue, 0);
   const escape = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
-  const isVideo = (row: MetaCreativeRow) =>
-    row.creativeVisualFormat === "video" ||
-    row.format === "video" ||
-    row.thumbstop > 0 ||
-    row.video25 > 0 ||
-    row.video50 > 0 ||
-    row.video75 > 0 ||
-    row.video100 > 0;
 
   const body = rows.map((row) => {
-    const videoApplicable = isVideo(row);
-    const aov = row.purchases > 0 ? row.purchaseValue / row.purchases : 0;
-    const purchaseValueShare = totalPurchaseValue > 0 ? (row.purchaseValue / totalPurchaseValue) * 100 : 0;
+    const videoApplicable = hasCreativeVideoEvidence(row);
+    const aov = calculateCreativeAverageOrderValue(row);
+    const cpcAll = calculateCreativeCpcAll(row);
+    const linkCtr = calculateCreativeLinkCtr(row);
+    const clickToAddToCart = calculateCreativeClickToAddToCartRate(row);
+    const clickToPurchase = calculateCreativeClickToPurchaseRate(row);
+    const purchaseValueShare = calculateCreativePurchaseValueShare(row, totalPurchaseValue);
     const values = [
       row.name,
       row.launchDate,
@@ -134,25 +136,22 @@ export function toCsv(rows: MetaCreativeRow[]): string {
       row.cpa.toFixed(2),
       row.cpcLink.toFixed(2),
       row.cpm.toFixed(2),
-      row.cpcLink.toFixed(2),
+      cpcAll.toFixed(2),
       aov.toFixed(2),
-      row.clickToPurchase.toFixed(2),
+      row.clicks,
+      row.linkClicks,
+      row.ctrAll.toFixed(2),
+      linkCtr.toFixed(2),
+      clickToAddToCart.toFixed(2),
       row.atcToPurchaseRatio.toFixed(2),
+      clickToPurchase.toFixed(2),
       row.purchases,
+      row.impressions,
       videoApplicable ? row.thumbstop.toFixed(2) : "",
-      videoApplicable ? row.thumbstop.toFixed(2) : "",
-      row.ctrAll.toFixed(2),
-      row.clickToPurchase.toFixed(2),
-      row.ctrAll.toFixed(2),
       videoApplicable ? row.video25.toFixed(2) : "",
       videoApplicable ? row.video50.toFixed(2) : "",
       videoApplicable ? row.video75.toFixed(2) : "",
       videoApplicable ? row.video100.toFixed(2) : "",
-      videoApplicable ? row.video100.toFixed(2) : "",
-      row.thumbstop.toFixed(0),
-      videoApplicable ? row.video50.toFixed(0) : "",
-      (row.ctrAll * 10).toFixed(0),
-      (row.roas * 10).toFixed(0),
       purchaseValueShare.toFixed(2),
     ];
     return values.map(escape).join(",");
@@ -182,11 +181,14 @@ export function toSharedCreative(row: MetaCreativeRow): SharedCreative {
     cpcLink: row.cpcLink,
     cpm: row.cpm,
     ctrAll: row.ctrAll,
+    linkCtr: row.linkCtr,
     purchases: row.purchases,
     impressions: row.impressions,
+    clicks: row.clicks,
     linkClicks: row.linkClicks,
     addToCart: row.addToCart,
     thumbstop: row.thumbstop,
+    clickToAddToCart: row.clickToAddToCart,
     clickToPurchase: row.clickToPurchase,
     video25: row.video25,
     video50: row.video50,
@@ -305,7 +307,7 @@ export async function fetchMetaCreativeDetailPreview(params: {
   return payload as MetaCreativeDetailResponse;
 }
 
-function toHistoricalWindow(row: MetaCreativeRow): AiCreativeHistoricalWindow {
+function toHistoricalWindow(row: MetaCreativeRow): CreativeHistoricalWindow {
   return {
     spend: row.spend,
     purchaseValue: row.purchaseValue,
@@ -326,7 +328,7 @@ function toHistoricalWindow(row: MetaCreativeRow): AiCreativeHistoricalWindow {
 }
 
 export function buildCreativeHistoryById(input: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>>) {
-  const map = new Map<string, AiCreativeHistoricalWindows>();
+  const map = new Map<string, CreativeHistoricalWindows>();
   const windowKeys = Object.keys(input) as CreativeHistoryWindowKey[];
 
   for (const windowKey of windowKeys) {
@@ -347,6 +349,14 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
   const legacyCreativeTypeLabel =
     row.creative_type_label ?? getLegacyCreativeTypeLabel(legacyCreativeType);
   const safeNumber = (value: number | null | undefined) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  const purchases = safeNumber(row.purchases);
+  const impressions = safeNumber(row.impressions);
+  const clicks = safeNumber(row.clicks);
+  const linkClicks = safeNumber(row.link_clicks);
+  const addToCart = safeNumber(row.add_to_cart);
+  const clickToAddToCart = safeNumber(row.click_to_atc);
+  const clickToPurchase = linkClicks > 0 ? (purchases / linkClicks) * 100 : 0;
+  const linkCtr = impressions > 0 ? (linkClicks / impressions) * 100 : 0;
 
   return {
     id: row.id,
@@ -394,16 +404,19 @@ export function mapApiRowToUiRow(row: MetaCreativeApiRow): MetaCreativeRow {
     cpcLink: safeNumber(row.cpc_link),
     cpm: safeNumber(row.cpm),
     ctrAll: safeNumber(row.ctr_all),
-    purchases: safeNumber(row.purchases),
-    impressions: safeNumber(row.impressions),
-    linkClicks: safeNumber(row.link_clicks),
+    linkCtr,
+    purchases,
+    impressions,
+    clicks,
+    linkClicks,
     landingPageViews: safeNumber(row.landing_page_views),
-    addToCart: safeNumber(row.add_to_cart),
+    addToCart,
     initiateCheckout: safeNumber(row.initiate_checkout),
     leads: safeNumber(row.leads),
     messages: safeNumber(row.messages),
     thumbstop: safeNumber(row.thumbstop),
-    clickToPurchase: safeNumber(row.click_to_atc),
+    clickToAddToCart,
+    clickToPurchase,
     seeMoreRate: 0,
     video25: safeNumber(row.video25),
     video50: safeNumber(row.video50),

@@ -40,7 +40,7 @@ export const DEFAULT_CREATIVE_DATE_RANGE: CreativeDateRangeValue = {
 export const DEFAULT_TOP_METRIC_IDS = [
   "spend",
   "roas",
-  "hookScore",
+  "thumbstopRatio",
   "purchaseValueShare",
   "purchases",
 ];
@@ -48,7 +48,7 @@ export const DEFAULT_TOP_METRIC_IDS = [
 export const DEFAULT_COPY_TOP_METRIC_IDS = [
   "spend",
   "roas",
-  "ctrAll",
+  "linkCtr",
   "clickToPurchaseRatio",
   "seeMoreRate",
 ];

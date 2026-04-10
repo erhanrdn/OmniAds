@@ -64,7 +64,7 @@ describe("meta page contract", () => {
       "historical_warehouse",
       "current_day_live",
       "conditional_drilldown",
-      "ai_exception",
+      "deterministic_decision_engine",
     ]);
   });
 });

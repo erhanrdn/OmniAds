@@ -1,5 +1,17 @@
 
 import { formatMoney } from "@/components/creatives/money";
+import {
+  calculateCreativeAverageOrderValue,
+  calculateCreativeClickToAddToCartRate,
+  calculateCreativeClickToPurchaseRate,
+  calculateCreativeCpcAll,
+  calculateCreativeLinkCtr,
+  calculateCreativePurchaseValueShare,
+  calculateCreativePurchasesPer1000Impressions,
+  calculateCreativeRevenuePer1000Impressions,
+  calculateCreativeSpendShare,
+  hasCreativeVideoEvidence,
+} from "@/components/creatives/creative-truth";
 import type { SharedCreative } from "@/components/creatives/shareCreativeTypes";
 
 export type ShareTableColumnAlign = "left" | "right" | "center";
@@ -188,36 +200,36 @@ export const SHARE_TABLE_COLUMNS: ShareTableColumnDefinition[] = [
   { key: "cpa", label: "Cost per purchase", minWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpa },
   { key: "cpcLink", label: "Cost per link click", minWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink ?? 0 },
   { key: "cpm", label: "Cost per mille", minWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpm ?? 0 },
-  { key: "cpcAll", label: "Cost per click (all)", minWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink ?? 0 },
-  { key: "averageOrderValue", label: "Average order value", minWidth: 132, align: "right", format: fmtCurrency, getValue: (r) => safeDivide(r.purchaseValue, r.purchases) },
-  { key: "clickToAtcRatio", label: "Click to add-to-cart ratio", minWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase ?? 0 },
+  { key: "cpcAll", label: "Cost per click (all)", minWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeCpcAll(r) },
+  { key: "averageOrderValue", label: "Average order value", minWidth: 132, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
+  { key: "clickToAtcRatio", label: "Click to add-to-cart ratio", minWidth: 170, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToAddToCartRate(r) },
   { key: "atcToPurchaseRatio", label: "Add-to-cart to purchase ratio", minWidth: 180, align: "right", format: fmtPercent, getValue: (r) => r.atcToPurchaseRatio ?? 0 },
   { key: "purchases", label: "Purchases", minWidth: 84, align: "right", format: fmtInteger, getValue: (r) => r.purchases },
-  { key: "firstFrameRetention", label: "First frame retention", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop ?? 0 },
+  { key: "firstFrameRetention", label: "First-impression proxy (thumbstop)", minWidth: 205, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop ?? 0 },
   { key: "thumbstopRatio", label: "Thumbstop ratio", minWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop ?? 0 },
-  { key: "ctrOutbound", label: "Click through rate (outbound)", minWidth: 185, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
-  { key: "clickToPurchaseRatio", label: "Click to purchase ratio", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase ?? 0 },
+  { key: "ctrOutbound", label: "Link CTR (compat)", minWidth: 140, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
+  { key: "clickToPurchaseRatio", label: "Click to purchase ratio", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
   { key: "ctrAll", label: "Click through rate (all)", minWidth: 150, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
   { key: "video25Rate", label: "25% video plays (rate)", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video25 ?? 0 },
   { key: "video50Rate", label: "50% video plays (rate)", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 ?? 0 },
   { key: "video75Rate", label: "75% video plays (rate)", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 ?? 0 },
   { key: "video100Rate", label: "100% video plays (rate)", minWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 ?? 0 },
-  { key: "holdRate", label: "Hold rate", minWidth: 120, align: "right", format: fmtPercent, getValue: (r) => r.video100 ?? 0 },
-  { key: "hookScore", label: "Hook score", minWidth: 120, align: "right", format: fmtInteger, getValue: (r) => r.thumbstop ?? 0 },
-  { key: "purchaseValueShare", label: "% purchase value", minWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => safeDivide(r.purchaseValue * 100, c.totalPurchaseValue) },
-  { key: "watchScore", label: "Watch score", minWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.video50 ?? 0 },
-  { key: "clickScore", label: "Click score", minWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.ctrAll * 10 },
-  { key: "convertScore", label: "Convert score", minWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.roas * 10 },
-  { key: "averageOrderValueWebsite", label: "Average order value (website)", minWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => safeDivide(r.purchaseValue, r.purchases) },
-  { key: "averageOrderValueShop", label: "Average order value (Shop)", minWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => safeDivide(r.purchaseValue, r.purchases) },
+  { key: "holdRate", label: "Completion proxy (100% plays)", minWidth: 190, align: "right", format: fmtPercent, getValue: (r) => r.video100 ?? 0 },
+  { key: "hookScore", label: "Hook proxy (thumbstop)", minWidth: 160, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop ?? 0 },
+  { key: "purchaseValueShare", label: "% purchase value", minWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => calculateCreativePurchaseValueShare(r, c.totalPurchaseValue) },
+  { key: "watchScore", label: "Watch proxy (50% plays)", minWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 ?? 0 },
+  { key: "clickScore", label: "Click proxy (CTR all x10)", minWidth: 165, align: "right", format: fmtDecimal, getValue: (r) => r.ctrAll * 10 },
+  { key: "convertScore", label: "Conversion proxy (ROAS x10)", minWidth: 185, align: "right", format: fmtDecimal, getValue: (r) => r.roas * 10 },
+  { key: "averageOrderValueWebsite", label: "Average order value (website)", minWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
+  { key: "averageOrderValueShop", label: "Average order value (Shop)", minWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
   { key: "impressions", label: "Impressions", minWidth: 140, align: "right", format: fmtInteger, getValue: (r) => r.impressions ?? 0 },
-  { key: "spendShare", label: "% spend", minWidth: 120, align: "right", format: fmtPercent, getValue: (r, c) => safeDivide(r.spend * 100, c.totalSpend) },
-  { key: "linkCtr", label: "Click through rate (link clicks)", minWidth: 195, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
+  { key: "spendShare", label: "% spend", minWidth: 120, align: "right", format: fmtPercent, getValue: (r, c) => calculateCreativeSpendShare(r, c.totalSpend) },
+  { key: "linkCtr", label: "Link CTR", minWidth: 110, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
   { key: "websitePurchaseRoas", label: "Website purchase ROAS", minWidth: 165, align: "right", format: fmtDecimal, getValue: (r) => r.roas },
-  { key: "clickToWebsitePurchaseRatio", label: "Click to website purchase ratio", minWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase ?? 0 },
-  { key: "purchasesPer1000Imp", label: "Purchases per 1,000 impressions", minWidth: 230, align: "right", format: fmtDecimal, getValue: (r) => (r.impressions && r.impressions > 0 ? (r.purchases / r.impressions) * 1000 : 0) },
-  { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", minWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => (r.impressions && r.impressions > 0 ? (r.purchaseValue / r.impressions) * 1000 : 0) },
-  { key: "clicksAll", label: "Clicks (all)", minWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks ?? 0 },
+  { key: "clickToWebsitePurchaseRatio", label: "Click to website purchase ratio", minWidth: 210, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
+  { key: "purchasesPer1000Imp", label: "Purchases per 1,000 impressions", minWidth: 230, align: "right", format: fmtDecimal, getValue: (r) => calculateCreativePurchasesPer1000Impressions(r) },
+  { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", minWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeRevenuePer1000Impressions(r) },
+  { key: "clicksAll", label: "Clicks (all)", minWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.clicks ?? 0 },
   { key: "linkClicks", label: "Link clicks", minWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks ?? 0 },
 ];
 
@@ -249,14 +261,14 @@ function percentile(sorted: number[], ratio: number): number {
 }
 
 function hasVideoEvidence(row: SharedCreative): boolean {
-  return (
-    row.format === "video" ||
-    (row.thumbstop ?? 0) > 0 ||
-    (row.video25 ?? 0) > 0 ||
-    (row.video50 ?? 0) > 0 ||
-    (row.video75 ?? 0) > 0 ||
-    (row.video100 ?? 0) > 0
-  );
+  return hasCreativeVideoEvidence({
+    format: row.format,
+    thumbstop: row.thumbstop ?? 0,
+    video25: row.video25 ?? 0,
+    video50: row.video50 ?? 0,
+    video75: row.video75 ?? 0,
+    video100: row.video100 ?? 0,
+  });
 }
 
 export function isShareMetricApplicable(key: ShareTableColumnKey, row: SharedCreative): boolean {

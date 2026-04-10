@@ -65,7 +65,7 @@ interface MetaCampaignListProps {
   campaigns: MetaCampaignTableRow[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  /** Map of campaign ID → decision state for campaigns with AI recommendations */
+  /** Map of campaign ID → decision state for deterministic recommendations */
   campaignRecStates: Map<string, "act" | "test" | "watch">;
 }
 
@@ -156,6 +156,8 @@ export function MetaCampaignList({
             <button
               key={c.id}
               type="button"
+              id={`meta-list-item-${c.id}`}
+              data-testid={`meta-list-item-${c.id}`}
               onClick={() => onSelect(c.id === selectedId ? null : c.id)}
               className={cn(
                 "group flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors",

@@ -238,7 +238,7 @@ export const translations = {
       refreshInterpretation: "Refresh interpretation",
     },
     meta: {
-      title: "AI Insights",
+      title: "Recommendations",
       loading: "Building multi-window recommendations...",
       loadError: "Could not build recommendations right now.",
       noStrongSignal: "Multi-window engine does not see a strong intervention signal yet.",

@@ -25,7 +25,7 @@ import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 export const metadata: Metadata = {
   title: "Adsecute | AI Advertising Intelligence for Shopify Brands",
   description:
-    "Adsecute helps Shopify brands analyze creatives, copies, campaigns, search terms, and AI-driven insights from one platform.",
+    "Adsecute helps Shopify brands analyze creatives, copies, campaigns, search terms, recommendations, and AI commentary from one platform.",
 };
 
 async function maybeRedirectAuthenticatedUser() {
@@ -145,7 +145,7 @@ const PRICING_PLANS = [
     highlights: [
       "3 ad accounts",
       "90-day history",
-      "Full AI recommendations",
+      "Full recommendations",
       "Google Ads intelligence",
       "Export reports",
     ],
@@ -306,7 +306,8 @@ export default async function HomePage() {
                 </h1>
                 <p className="text-lg text-muted-foreground leading-relaxed mb-8">
                   Adsecute helps Shopify brands analyze creatives, copies, campaigns, search terms,
-                  and GEO signals from one platform — with AI that surfaces what to do next.
+                  and GEO signals from one platform — with recommendations and AI commentary that
+                  surface what to do next.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Link
@@ -484,22 +485,22 @@ export default async function HomePage() {
           </div>
         </section>
 
-        {/* AI intelligence section */}
+        {/* Decision intelligence section */}
         <section className="py-20 lg:py-28">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="lg:grid lg:grid-cols-2 lg:gap-16 items-center">
               <div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700 mb-6">
                   <Zap className="h-3.5 w-3.5" />
-                  AI intelligence layer
+                  Decision intelligence layer
                 </div>
                 <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground mb-5">
                   Decision intelligence, not just reporting.
                 </h2>
                 <p className="text-base text-muted-foreground leading-relaxed mb-8">
-                  Adsecute doesn't just show you numbers — it tells you what they mean. The AI
-                  layer analyzes patterns across your campaigns, creatives, and geographic data to
-                  surface actionable recommendations.
+                  Adsecute doesn't just show you numbers — it tells you what they mean.
+                  Deterministic recommendation systems and optional AI commentary interpret patterns
+                  across campaigns, creatives, and geographic data so the next step is explicit.
                 </p>
                 <ul className="flex flex-col gap-4">
                   {[
@@ -532,7 +533,7 @@ export default async function HomePage() {
               </div>
 
               <div className="mt-12 lg:mt-0 rounded-xl border border-border bg-card p-6 shadow-sm">
-                <p className="text-sm font-medium text-foreground mb-4">AI recommendations</p>
+                <p className="text-sm font-medium text-foreground mb-4">Recommendations</p>
                 {[
                   {
                     priority: "High",

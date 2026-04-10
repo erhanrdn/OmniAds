@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
+import { mapApiRowToUiRow, toCsv, toSharedCreative } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
@@ -195,5 +195,75 @@ describe("mapApiRowToUiRow", () => {
     expect(row.format).toBe("video");
     expect(row.creativeType).toBe("video");
     expect(row.creativeTypeLabel).toBe("Video");
+  });
+
+  it("keeps click truth distinct across clicks, link CTR, add-to-cart, and purchase conversion", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        clicks: 75,
+        link_clicks: 50,
+        impressions: 1000,
+        add_to_cart: 15,
+        purchases: 10,
+        click_to_atc: 30,
+      })
+    );
+
+    expect(row.clicks).toBe(75);
+    expect(row.linkClicks).toBe(50);
+    expect(row.linkCtr).toBe(5);
+    expect(row.clickToAddToCart).toBe(30);
+    expect(row.clickToPurchase).toBe(20);
+  });
+
+  it("keeps shared creative payload parity with the UI row truth fields", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        clicks: 120,
+        link_clicks: 80,
+        impressions: 2000,
+        add_to_cart: 24,
+        purchases: 12,
+        click_to_atc: 30,
+      })
+    );
+
+    const shared = toSharedCreative(row);
+
+    expect(shared.clicks).toBe(120);
+    expect(shared.linkClicks).toBe(80);
+    expect(shared.linkCtr).toBe(4);
+    expect(shared.clickToAddToCart).toBe(30);
+    expect(shared.clickToPurchase).toBe(15);
+  });
+
+  it("exports truthful CSV headers and values without misleading duplicate columns", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        spend: 100,
+        clicks: 75,
+        link_clicks: 50,
+        impressions: 1000,
+        add_to_cart: 15,
+        purchases: 10,
+        click_to_atc: 30,
+      })
+    );
+
+    const [headerLine, valueLine] = toCsv([row]).split("\n");
+    const headers = headerLine.split(",").map((item) => item.slice(1, -1));
+    const values = valueLine.split(",").map((item) => item.slice(1, -1));
+
+    expect(headers).not.toContain("Click through rate (outbound)");
+    expect(headers).not.toContain("First frame retention");
+    expect(headers).not.toContain("Hold rate");
+    expect(headers).not.toContain("Hook score");
+
+    expect(values[headers.indexOf("Cost per click (all)")]).toBe("1.33");
+    expect(values[headers.indexOf("Clicks (all)")]).toBe("75");
+    expect(values[headers.indexOf("Link clicks")]).toBe("50");
+    expect(values[headers.indexOf("Click through rate (link clicks)")]).toBe("5.00");
+    expect(values[headers.indexOf("Click to add-to-cart ratio")]).toBe("30.00");
+    expect(values[headers.indexOf("Click to purchase ratio")]).toBe("20.00");
   });
 });

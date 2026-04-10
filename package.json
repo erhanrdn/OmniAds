@@ -5,6 +5,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 playwright test",
+    "test:smoke:live": "PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=https://adsecute.com playwright test",
     "dev": "next dev --webpack --hostname 0.0.0.0 --port 3000",
     "dev:turbo": "next dev --turbopack --hostname 0.0.0.0 --port 3000",
     "build": "next build --webpack",
@@ -43,6 +46,7 @@
     "google:ads:run-once": "node --import tsx scripts/google-ads-run-once.ts",
     "google:ads:requeue-stale-core-frontier": "node --import tsx scripts/google-ads-requeue-stale-core-frontier.ts",
     "google:ads:progress-diff": "node --import tsx scripts/google-ads-progress-diff.ts",
+    "playwright:install": "playwright install chromium",
     "benchmark:overview": "node --import tsx scripts/overview-benchmark.ts",
     "overview:summary:materialize": "node --import tsx scripts/materialize-overview-summary-range.ts",
     "reporting:cache:warm": "node --import tsx scripts/warm-user-facing-report-cache.ts",
@@ -65,6 +69,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",

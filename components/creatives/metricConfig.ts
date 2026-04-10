@@ -105,8 +105,10 @@ export interface MetaCreativeRow {
   cpcLink: number;
   cpm: number;
   ctrAll: number;
+  linkCtr: number;
   purchases: number;
   impressions: number;
+  clicks: number;
   linkClicks: number;
   landingPageViews: number;
   addToCart: number;
@@ -114,6 +116,7 @@ export interface MetaCreativeRow {
   leads: number;
   messages: number;
   thumbstop: number;
+  clickToAddToCart: number;
   clickToPurchase: number;
   seeMoreRate: number;
   video25: number;

@@ -918,12 +918,12 @@ export async function GET(request: NextRequest) {
             : "partial",
       blocking: false,
       countsForPageCompleteness: false,
-      truthClass: "ai_exception",
+      truthClass: "deterministic_decision_engine",
       reason: !connected
         ? "Meta integration is not connected."
         : pageRequiredSurfaces.summary.state === "ready" &&
             pageRequiredSurfaces.campaigns.state === "ready"
-          ? "Recommendations are available when the selected range core surfaces are ready."
+          ? "Deterministic recommendations are available when the selected-range core surfaces are ready."
           : "Recommendations remain optional while selected-range core surfaces are still preparing.",
     },
   } as const;

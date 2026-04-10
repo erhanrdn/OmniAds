@@ -3,16 +3,13 @@ import { neon } from "@neondatabase/serverless";
 import {
   ALLOWED_DEMO_USERS,
   DEMO_BUSINESS_ID,
-  DEMO_OWNER_ID,
   ensureCoreTables,
   ensureDemoBusiness,
   getEnv,
 } from "./seed-shared.mjs";
-const REVIEWER_EMAIL = (process.env.SHOPIFY_REVIEWER_EMAIL ?? "shopify-review@adsecute.com")
-  .trim()
-  .toLowerCase();
-const REVIEWER_NAME = process.env.SHOPIFY_REVIEWER_NAME ?? "Shopify App Reviewer";
-const REVIEWER_PASSWORD = process.env.SHOPIFY_REVIEWER_PASSWORD ?? "AdsecuteReview!2026";
+import { resolveReviewerSeedConfig } from "./seed-reviewer-account-support.mjs";
+
+const REVIEWER = resolveReviewerSeedConfig(process.env);
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 async function main() {
@@ -32,10 +29,10 @@ async function main() {
   `;
   await ensureDemoBusiness(sql);
 
-  const passwordHash = await bcrypt.hash(REVIEWER_PASSWORD, 12);
+  const passwordHash = await bcrypt.hash(REVIEWER.password, 12);
   const reviewerRows = await sql`
     INSERT INTO users (name, email, password_hash)
-    VALUES (${REVIEWER_NAME}, ${REVIEWER_EMAIL}, ${passwordHash})
+    VALUES (${REVIEWER.name}, ${REVIEWER.email}, ${passwordHash})
     ON CONFLICT (email)
     DO UPDATE SET
       name = EXCLUDED.name,
@@ -87,8 +84,9 @@ async function main() {
       {
         ok: true,
         reviewer: {
-          email: REVIEWER_EMAIL,
-          password: REVIEWER_PASSWORD,
+          email: REVIEWER.email,
+          password: REVIEWER.password,
+          passwordSource: REVIEWER.passwordSource,
           role: "collaborator",
           emailVerified: true,
         },

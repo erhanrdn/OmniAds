@@ -22,7 +22,7 @@ interface RequestPayload {
 
 interface CachedCreativeDecisionRow {
   decisions: unknown;
-  source: "ai" | "fallback";
+  source: "deterministic" | "fallback";
   warning: string | null;
   updated_at: string;
 }
@@ -195,7 +195,7 @@ async function saveCreativeDecisions(params: {
   currency: string;
   creativeCount: number;
   decisions: CreativeDecisionResult[];
-  source: "ai" | "fallback";
+  source: "deterministic" | "fallback";
   warning?: string | null;
 }): Promise<void> {
   const sql = getDb();
@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
     const creativeList = normalizeRows(payload?.creatives);
     return NextResponse.json({
       ok: true,
-      source: "ai",
+      source: "deterministic",
       decisions: getDemoAiCreativeDecisions(creativeList.map((c) => ({ creativeId: c.creativeId }))),
       warning: null,
       lastSyncedAt: new Date().toISOString(),
@@ -294,13 +294,13 @@ export async function POST(request: NextRequest) {
     currency,
     creativeCount: creatives.length,
     decisions,
-    source: "ai",
+    source: "deterministic",
     warning: null,
   });
 
   return NextResponse.json({
     ok: true,
-    source: "ai",
+    source: "deterministic",
     warning: null,
     lastSyncedAt: new Date().toISOString(),
     decisions,

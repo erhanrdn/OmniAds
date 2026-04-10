@@ -11,7 +11,7 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 
-// Intentional exception: AI recommendations keep snapshot-backed historical
+// Intentional exception: recommendations keep snapshot-backed historical
 // config regime analysis across multi-window history. This is not a normal
 // campaign/adset historical UI serving path.
 

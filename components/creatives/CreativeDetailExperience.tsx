@@ -18,8 +18,8 @@ import {
 } from "@/components/creatives/creatives-top-section-support";
 import {
   getAiCreativeRuleCommentary,
-  type AiCreativeDecision,
-  type AiCreativeHistoricalWindows,
+  type CreativeDecision,
+  type CreativeHistoricalWindows,
   type CreativeRuleReportPayload,
 } from "@/src/services";
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
@@ -30,7 +30,7 @@ interface CreativeDetailExperienceProps {
   businessId: string;
   row: MetaCreativeRow | null;
   allRows: MetaCreativeRow[];
-  creativeHistoryById?: Map<string, AiCreativeHistoricalWindows>;
+  creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   open: boolean;
   notes: string;
   dateRange: CreativeDateRangeValue;
@@ -530,7 +530,10 @@ export function CreativeDetailExperience({
 
           <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_20%,#ffffff_100%)] p-4 md:p-5">
             <div className="space-y-4">
-              <section className={cn("rounded-2xl border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}>
+              <section
+                className={cn("rounded-2xl border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}
+                data-testid="creative-detail-deterministic-decision"
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Decision + key metrics</p>
@@ -583,7 +586,10 @@ export function CreativeDetailExperience({
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+              <section
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"
+                data-testid="creative-detail-ai-commentary"
+              >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-sky-600" />
@@ -646,7 +652,18 @@ export function CreativeDetailExperience({
                       {creativeTranslations.refreshInterpretation}
                     </button>
                   </div>
-                ) : null}
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-rose-700">{creativeTranslations.unavailable}</p>
+                    <button
+                      type="button"
+                      onClick={() => commentaryQuery.refetch()}
+                      className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      {getTranslations(language).common.retry}
+                    </button>
+                  </div>
+                )}
               </section>
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
@@ -701,7 +718,7 @@ function ListBlock({ title, items, ordered = false }: { title: string; items: st
   );
 }
 
-function decisionHeadline(action: AiCreativeDecision["action"]): string {
+function decisionHeadline(action: CreativeDecision["action"]): string {
   if (action === "scale_hard") return "High-conviction scale candidate";
   if (action === "scale") return "Ready for controlled scale";
   if (action === "kill") return "Immediate stop recommended";
@@ -710,7 +727,7 @@ function decisionHeadline(action: AiCreativeDecision["action"]): string {
   return "Monitor before committing more budget";
 }
 
-function lifecycleLabel(state: NonNullable<AiCreativeDecision["lifecycleState"]> | undefined) {
+function lifecycleLabel(state: NonNullable<CreativeDecision["lifecycleState"]> | undefined) {
   if (state === "stable_winner") return "Stable winner";
   if (state === "emerging_winner") return "Emerging winner";
   if (state === "fatigued_winner") return "Fatigued winner";
@@ -719,8 +736,8 @@ function lifecycleLabel(state: NonNullable<AiCreativeDecision["lifecycleState"]>
   return "Volatile";
 }
 
-function DecisionBadge({ action }: { action: AiCreativeDecision["action"] }) {
-  const labels: Record<AiCreativeDecision["action"], string> = {
+function DecisionBadge({ action }: { action: CreativeDecision["action"] }) {
+  const labels: Record<CreativeDecision["action"], string> = {
     scale_hard: "Scale hard",
     scale: "Scale",
     watch: "Watch",
@@ -728,7 +745,7 @@ function DecisionBadge({ action }: { action: AiCreativeDecision["action"] }) {
     pause: "Pause",
     kill: "Kill",
   };
-  const classes: Record<AiCreativeDecision["action"], string> = {
+  const classes: Record<CreativeDecision["action"], string> = {
     scale_hard: "bg-emerald-700 text-white",
     scale: "bg-emerald-500 text-white",
     watch: "bg-amber-500 text-white",
@@ -765,7 +782,7 @@ function formatInteger(value: number): string {
   return Math.round(Number.isFinite(value) ? value : 0).toLocaleString();
 }
 
-function getDecisionTheme(action: AiCreativeDecision["action"]) {
+function getDecisionTheme(action: CreativeDecision["action"]) {
   if (action === "scale_hard") return { panelClass: "border-emerald-300 bg-[linear-gradient(180deg,rgba(209,250,229,0.96)_0%,rgba(255,255,255,0.98)_100%)]" };
   if (action === "scale") return { panelClass: "border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.95)_0%,rgba(255,255,255,0.98)_100%)]" };
   if (action === "kill") return { panelClass: "border-red-300 bg-[linear-gradient(180deg,rgba(254,226,226,0.96)_0%,rgba(255,255,255,0.98)_100%)]" };
@@ -914,8 +931,8 @@ function percentile(values: number[], ratio: number): number {
   return sorted[lower] * (1 - weight) + sorted[upper] * weight;
 }
 
-function summarizeHistoricalWindows(history: AiCreativeHistoricalWindows | null | undefined) {
-  type HistoryWindow = NonNullable<AiCreativeHistoricalWindows["last3"]>;
+function summarizeHistoricalWindows(history: CreativeHistoricalWindows | null | undefined) {
+  type HistoryWindow = NonNullable<CreativeHistoricalWindows["last3"]>;
   const windows = [
     history?.last3,
     history?.last7,
@@ -951,7 +968,7 @@ function summarizeHistoricalWindows(history: AiCreativeHistoricalWindows | null 
   };
 }
 
-function buildWeightedCreativeReference(row: MetaCreativeRow, history: AiCreativeHistoricalWindows | null) {
+function buildWeightedCreativeReference(row: MetaCreativeRow, history: CreativeHistoricalWindows | null) {
   const windows = [
     { weight: 0.18, value: { roas: row.roas, cpa: row.cpa, spend: row.spend, purchases: row.purchases, ctr: row.ctrAll } },
     history?.last3 ? { weight: 0.24, value: { roas: history.last3.roas, cpa: history.last3.cpa, spend: history.last3.spend, purchases: history.last3.purchases, ctr: history.last3.ctr } } : null,
@@ -982,7 +999,7 @@ function buildWeightedCreativeReference(row: MetaCreativeRow, history: AiCreativ
 function buildCreativeRuleReport(
   row: MetaCreativeRow,
   context: CreativeDecisionContext,
-  history: AiCreativeHistoricalWindows | null
+  history: CreativeHistoricalWindows | null
 ): CreativeRuleReportPayload {
   const lowReliability = row.spend < Math.max(1, context.spendP20) || row.purchases < 2;
   const safeLinkClicks = Number.isFinite(row.linkClicks) ? row.linkClicks : 0;
@@ -1024,7 +1041,7 @@ function buildCreativeRuleReport(
   const acceptableConversionQuality = conversionQualityRatio >= 0.9;
   const historical = summarizeHistoricalWindows(history);
 
-  let action: AiCreativeDecision["action"] = "watch";
+  let action: CreativeDecision["action"] = "watch";
   if (reliabilityScore < 7) action = "test_more";
   else if (reliabilityScore < 10) action = "watch";
   else if (context.roasAvg > 0 && core.roas >= context.roasAvg * 1.45 && core.spend >= Math.max(1, context.spendP50) && core.purchases >= 3 && strongConversionQuality) action = "scale_hard";
@@ -1230,7 +1247,7 @@ function buildScoreBreakdown(row: MetaCreativeRow, context: CreativeDecisionCont
   ];
 }
 
-function buildDecisionFromRuleReport(report: CreativeRuleReportPayload): AiCreativeDecision {
+function buildDecisionFromRuleReport(report: CreativeRuleReportPayload): CreativeDecision {
   return {
     creativeId: report.creativeId,
     action: report.action,

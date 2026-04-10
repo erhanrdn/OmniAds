@@ -50,7 +50,7 @@ export type MetaPageSurfaceTruthClass =
   | "historical_warehouse"
   | "current_day_live"
   | "conditional_drilldown"
-  | "ai_exception";
+  | "deterministic_decision_engine";
 
 export type MetaPageSurfaceKey =
   | "summary"

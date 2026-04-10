@@ -20,6 +20,18 @@ import {
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
+import {
+  calculateCreativeAverageOrderValue,
+  calculateCreativeClickToAddToCartRate,
+  calculateCreativeClickToPurchaseRate,
+  calculateCreativeCpcAll,
+  calculateCreativeLinkCtr,
+  calculateCreativePurchaseValueShare,
+  calculateCreativePurchasesPer1000Impressions,
+  calculateCreativeRevenuePer1000Impressions,
+  calculateCreativeSpendShare,
+  hasCreativeVideoEvidence,
+} from "@/components/creatives/creative-truth";
 import { resolveCreativeCurrency } from "@/components/creatives/money";
 import {
   buildDistribution,
@@ -33,13 +45,13 @@ import {
 import { cn } from "@/lib/utils";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
-import { getAiCreativeDecisions, type AiCreativeDecision, type AiCreativeDecisionInputRow } from "@/src/services";
+import { getCreativeDecisions, type CreativeDecision, type CreativeDecisionInputRow } from "@/src/services";
 import { createPortal } from "react-dom";
 import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
-import type { AiCreativeHistoricalWindows } from "@/src/services";
+import type { CreativeHistoricalWindows } from "@/src/services";
 
-type AiSignalAction = AiCreativeDecision["action"];
+type AiSignalAction = CreativeDecision["action"];
 const AI_DECISION_ENGINE_VERSION = "2026-03-24-cq-seg-v2";
 
 const AI_SIGNAL_SEGMENTS: Array<{
@@ -188,8 +200,9 @@ interface TablePreset {
 interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
   businessId?: string;
-  creativeHistoryById?: Map<string, AiCreativeHistoricalWindows>;
+  creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   defaultCurrency: string | null;
+  initialPresetName?: string;
   selectedMetricIds: string[];
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRowIds: string[];
@@ -353,9 +366,8 @@ const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
   "clickToAtcRatio",
   "atcToPurchaseRatio",
   "purchases",
-  "firstFrameRetention",
   "thumbstopRatio",
-  "ctrOutbound",
+  "linkCtr",
   "clickToPurchaseRatio",
   "seeMoreRate",
   "ctrAll",
@@ -363,8 +375,24 @@ const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
   "video50Rate",
   "video75Rate",
   "video100Rate",
-  "holdRate",
-  "hookScore",
+  "clicksAll",
+  "linkClicks",
+  "purchaseValueShare",
+];
+
+const META_COPY_PERFORMANCE_COLUMNS: TableColumnKey[] = [
+  "spend",
+  "purchaseValue",
+  "roas",
+  "cpa",
+  "cpcLink",
+  "purchases",
+  "linkCtr",
+  "clickToAtcRatio",
+  "atcToPurchaseRatio",
+  "clickToPurchaseRatio",
+  "seeMoreRate",
+  "linkClicks",
   "purchaseValueShare",
 ];
 
@@ -389,10 +417,8 @@ const PRESETS: TablePreset[] = [
       "video50Rate",
       "video75Rate",
       "video100Rate",
-      "holdRate",
       "thumbstopRatio",
-      "firstFrameRetention",
-      "hookScore",
+      "watchScore",
     ],
     selectedAiTagColumns: [],
     resultsPerPage: 20,
@@ -401,6 +427,17 @@ const PRESETS: TablePreset[] = [
     showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: true,
+  },
+  {
+    presetName: "Meta Copy Performance",
+    selectedColumns: META_COPY_PERFORMANCE_COLUMNS,
+    selectedAiTagColumns: [],
+    resultsPerPage: 20,
+    colorFormatting: "heatmap",
+    showTags: true,
+    showActiveStatus: false,
+    showLaunchDate: true,
+    showAdLength: false,
   },
   {
     presetName: "Creative teams",
@@ -444,37 +481,37 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "cpa", label: "Cost per purchase", description: "Spend per purchase.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpa },
   { key: "cpcLink", label: "Cost per link click", description: "Spend per link click.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink },
   { key: "cpm", label: "Cost per mille", description: "Spend per 1000 impressions.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpm },
-  { key: "cpcAll", label: "Cost per click (all)", description: "Estimated cost per all clicks.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.cpcLink },
-  { key: "averageOrderValue", label: "Average order value", description: "Purchase value / purchases.", direction: "high", minWidth: 122, preferredWidth: 132, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
-  { key: "clickToAtcRatio", label: "Click to add-to-cart ratio", description: "Estimated click-to-ATC rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase },
+  { key: "cpcAll", label: "Cost per click (all)", description: "Spend per all clicks.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeCpcAll(r) },
+  { key: "averageOrderValue", label: "Average order value", description: "Purchase value / purchases.", direction: "high", minWidth: 122, preferredWidth: 132, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
+  { key: "clickToAtcRatio", label: "Click to add-to-cart ratio", description: "Link clicks that reached add to cart.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToAddToCartRate(r) },
   { key: "atcToPurchaseRatio", label: "Add-to-cart to purchase ratio", description: "ATC to purchase conversion.", direction: "high", minWidth: 155, preferredWidth: 180, align: "right", format: fmtPercent, getValue: (r) => r.atcToPurchaseRatio },
   { key: "purchases", label: "Purchases", description: "Purchase count.", direction: "high", minWidth: 76, preferredWidth: 84, align: "right", format: fmtInteger, getValue: (r) => r.purchases },
-  { key: "firstFrameRetention", label: "First frame retention", description: "Estimated first frame retention.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
+  { key: "firstFrameRetention", label: "First-impression proxy (thumbstop)", description: "Compatibility proxy that reuses thumbstop ratio.", direction: "high", minWidth: 195, preferredWidth: 215, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
   { key: "thumbstopRatio", label: "Thumbstop ratio", description: "Thumbstop performance ratio.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
-  { key: "ctrOutbound", label: "Click through rate (outbound)", description: "Outbound CTR.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
-  { key: "clickToPurchaseRatio", label: "Click to purchase ratio", description: "Click to purchase conversion.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase },
+  { key: "ctrOutbound", label: "Link CTR (compat)", description: "Compatibility column that uses link clicks / impressions.", direction: "high", minWidth: 140, preferredWidth: 160, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
+  { key: "clickToPurchaseRatio", label: "Click to purchase ratio", description: "Link clicks that became purchases.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
   { key: "seeMoreRate", label: "See more rate", description: "Estimated see-more expansion rate.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtPercent, getValue: (r) => r.seeMoreRate },
   { key: "ctrAll", label: "Click through rate (all)", description: "All-click CTR.", direction: "high", minWidth: 135, preferredWidth: 150, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
   { key: "video25Rate", label: "25% video plays (rate)", description: "25% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video25 },
   { key: "video50Rate", label: "50% video plays (rate)", description: "50% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
   { key: "video75Rate", label: "75% video plays (rate)", description: "75% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 },
   { key: "video100Rate", label: "100% video plays (rate)", description: "100% play rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
-  { key: "holdRate", label: "Hold rate", description: "Estimated hold rate.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
-  { key: "hookScore", label: "Hook score", description: "Creative hook score.", direction: "high", minWidth: 100, preferredWidth: 120, align: "right", format: fmtInteger, getValue: (r) => r.thumbstop },
-  { key: "purchaseValueShare", label: "% purchase value", description: "Share of purchase value.", direction: "high", minWidth: 130, preferredWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => (c.totalPurchaseValue > 0 ? (r.purchaseValue / c.totalPurchaseValue) * 100 : 0) },
-  { key: "watchScore", label: "Watch score", description: "Creative watch score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.video50 },
-  { key: "clickScore", label: "Click score", description: "Creative click score.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtInteger, getValue: (r) => r.ctrAll * 10 },
-  { key: "convertScore", label: "Convert score", description: "Creative convert score.", direction: "high", minWidth: 115, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.roas * 10 },
-  { key: "averageOrderValueWebsite", label: "Average order value (website)", description: "Website AOV.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
-  { key: "averageOrderValueShop", label: "Average order value (Shop)", description: "Shop AOV.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => (r.purchases > 0 ? r.purchaseValue / r.purchases : 0) },
+  { key: "holdRate", label: "Completion proxy (100% plays)", description: "Compatibility proxy that reuses 100% video plays.", direction: "high", minWidth: 190, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
+  { key: "hookScore", label: "Hook proxy (thumbstop)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 160, preferredWidth: 180, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
+  { key: "purchaseValueShare", label: "% purchase value", description: "Share of purchase value.", direction: "high", minWidth: 130, preferredWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => calculateCreativePurchaseValueShare(r, c.totalPurchaseValue) },
+  { key: "watchScore", label: "Watch proxy (50% plays)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
+  { key: "clickScore", label: "Click proxy (CTR all x10)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.ctrAll * 10 },
+  { key: "convertScore", label: "Conversion proxy (ROAS x10)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 190, preferredWidth: 210, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas * 10 },
+  { key: "averageOrderValueWebsite", label: "Average order value (website)", description: "Website AOV.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
+  { key: "averageOrderValueShop", label: "Average order value (Shop)", description: "Shop AOV.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
   { key: "impressions", label: "Impressions", description: "Impression count.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtInteger, getValue: (r) => r.impressions },
-  { key: "spendShare", label: "% spend", description: "Share of spend.", direction: "neutral", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r, c) => (c.totalSpend > 0 ? (r.spend / c.totalSpend) * 100 : 0) },
-  { key: "linkCtr", label: "Click through rate (link clicks)", description: "Link CTR.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtPercent, getValue: (r) => r.ctrAll },
+  { key: "spendShare", label: "% spend", description: "Share of spend.", direction: "neutral", minWidth: 100, preferredWidth: 120, align: "right", format: fmtPercent, getValue: (r, c) => calculateCreativeSpendShare(r, c.totalSpend) },
+  { key: "linkCtr", label: "Link CTR", description: "Link clicks / impressions.", direction: "high", minWidth: 110, preferredWidth: 125, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeLinkCtr(r) },
   { key: "websitePurchaseRoas", label: "Website purchase ROAS", description: "Website purchase ROAS.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
-  { key: "clickToWebsitePurchaseRatio", label: "Click to website purchase ratio", description: "Click-to-website purchase conversion.", direction: "high", minWidth: 185, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.clickToPurchase },
-  { key: "purchasesPer1000Imp", label: "Purchases per 1,000 impressions", description: "Purchases normalized by 1,000 impressions.", direction: "high", minWidth: 200, preferredWidth: 230, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.impressions > 0 ? (r.purchases / r.impressions) * 1000 : 0 },
-  { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", description: "Revenue normalized by 1,000 impressions.", direction: "high", minWidth: 190, preferredWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => r.impressions > 0 ? (r.purchaseValue / r.impressions) * 1000 : 0 },
-  { key: "clicksAll", label: "Clicks (all)", description: "All clicks.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
+  { key: "clickToWebsitePurchaseRatio", label: "Click to website purchase ratio", description: "Click-to-website purchase conversion.", direction: "high", minWidth: 185, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => calculateCreativeClickToPurchaseRate(r) },
+  { key: "purchasesPer1000Imp", label: "Purchases per 1,000 impressions", description: "Purchases normalized by 1,000 impressions.", direction: "high", minWidth: 200, preferredWidth: 230, align: "right", format: (n) => n.toFixed(2), getValue: (r) => calculateCreativePurchasesPer1000Impressions(r) },
+  { key: "revenuePer1000Imp", label: "Revenue per 1,000 impressions", description: "Revenue normalized by 1,000 impressions.", direction: "high", minWidth: 190, preferredWidth: 220, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeRevenuePer1000Impressions(r) },
+  { key: "clicksAll", label: "Clicks (all)", description: "All clicks.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.clicks },
   { key: "linkClicks", label: "Link clicks", description: "Link click count.", direction: "high", minWidth: 110, preferredWidth: 130, align: "right", format: fmtInteger, getValue: (r) => r.linkClicks },
   { key: "leads", label: "Leads", description: "Lead count.", direction: "high", minWidth: 76, preferredWidth: 84, align: "right", format: fmtInteger, getValue: (r) => r.leads },
   { key: "cpl", label: "Cost per lead", description: "Spend per lead.", direction: "low", minWidth: 106, preferredWidth: 112, align: "right", format: fmtCurrency, getValue: (r) => r.leads > 0 ? r.spend / r.leads : 0 },
@@ -604,6 +641,7 @@ export function CreativesTableSection({
   businessId,
   creativeHistoryById,
   defaultCurrency,
+  initialPresetName = "Facebook Ecommerce",
   selectedMetricIds,
   onSelectedMetricIdsChange,
   selectedRowIds,
@@ -616,7 +654,7 @@ export function CreativesTableSection({
   onSortedRowsChange,
 }: CreativesTableSectionProps) {
   const queryClient = useQueryClient();
-  const defaultPreset = PRESETS.find((p) => p.presetName === "Facebook Ecommerce") ?? PRESETS[0];
+  const defaultPreset = PRESETS.find((p) => p.presetName === initialPresetName) ?? PRESETS[0];
   const [tablePreset, setTablePreset] = useState<TablePreset>(defaultPreset);
   const [presetSearch, setPresetSearch] = useState("");
   const [showPresetMenu, setShowPresetMenu] = useState(false);
@@ -742,7 +780,7 @@ export function CreativesTableSection({
     onSortedRowsChange?.(sortedRows);
   }, [onSortedRowsChange, sortedRows]);
 
-  const aiDecisionInputRows = useMemo<AiCreativeDecisionInputRow[]>(
+  const aiDecisionInputRows = useMemo<CreativeDecisionInputRow[]>(
     () =>
       rows.map((row) => {
         const creativeAgeDays = calculateCreativeAgeDays(row.launchDate);
@@ -794,7 +832,7 @@ export function CreativesTableSection({
     [aiDecisionInputRows]
   );
 
-  // AI query is never auto-fired — only triggered manually via the Analyze button
+  // Decision signals are never auto-fired and only run on explicit operator action.
   const aiDecisionQuery = useQuery({
     queryKey: ["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature],
     enabled: false,
@@ -802,7 +840,7 @@ export function CreativesTableSection({
     refetchOnWindowFocus: false,
     retry: 1,
     queryFn: () =>
-      getAiCreativeDecisions(
+      getCreativeDecisions(
         businessId as string,
         defaultCurrency ?? "USD",
         aiDecisionInputRows,
@@ -810,11 +848,11 @@ export function CreativesTableSection({
       ),
   });
 
-  // forceRefresh=false → DB cache-first (no AI call if same data exists)
-  // forceRefresh=true  → always call AI (used for Re-analyze)
+  // forceRefresh=false → DB cache-first for deterministic results
+  // forceRefresh=true  → recompute deterministic results immediately
   const analyzeMutation = useMutation({
     mutationFn: (forceRefresh: boolean) =>
-      getAiCreativeDecisions(
+      getCreativeDecisions(
         businessId as string,
         defaultCurrency ?? "USD",
         aiDecisionInputRows,
@@ -880,13 +918,16 @@ export function CreativesTableSection({
   };
 
   const aiSignalsControls = aiDecisions.size > 0 ? (
-    <div className="inline-flex items-center gap-1.5">
-      <span className="text-[11px] font-medium text-muted-foreground">AI Signals:</span>
+    <div className="inline-flex items-center gap-1.5" data-testid="creative-decision-signals">
+      <span className="text-[11px] font-medium text-muted-foreground">Decision Signals:</span>
       {aiDecisionQuery.isFetching && (
-        <span className="text-[10px] text-muted-foreground/80">Analyzing...</span>
+        <span className="text-[10px] text-muted-foreground/80">Running...</span>
       )}
-      {aiDecisionQuery.data?.source === "fallback" && (
-        <span className="text-[10px] text-amber-600">Fallback mode</span>
+      {aiDecisionQuery.data?.source === "cache" && !aiDecisionQuery.isFetching && (
+        <span className="text-[10px] text-muted-foreground/80">Cached</span>
+      )}
+      {aiDecisionQuery.data?.source === "deterministic" && !aiDecisionQuery.isFetching && (
+        <span className="text-[10px] text-emerald-700">Fresh</span>
       )}
       {AI_SIGNAL_SEGMENTS.map(({ key, label, inactiveCls, activeCls, dotCls }) => {
         const count = aiDecisionCounts[key];
@@ -925,14 +966,15 @@ export function CreativesTableSection({
         type="button"
         onClick={() => analyzeMutation.mutate(Boolean(aiDecisionQuery.data))}
         disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
+        data-testid="creative-run-signals"
         className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-        title={analyzeScopeCount > 0 ? `Analyze ${analyzeScopeCount} filtered creatives` : "No creatives to analyze"}
+        title={analyzeScopeCount > 0 ? `Run decision signals for ${analyzeScopeCount} filtered creatives` : "No creatives available for decision signals"}
       >
         {analyzeMutation.isPending
-          ? `Analyzing ${analyzeScopeCount}...`
+          ? `Running ${analyzeScopeCount}...`
           : aiDecisionQuery.data
-            ? `Re-analyze (${analyzeScopeCount})`
-            : `Analyze (${analyzeScopeCount})`}
+            ? `Refresh Signals (${analyzeScopeCount})`
+            : `Run Signals (${analyzeScopeCount})`}
       </button>
       {aiDecisionFilter && (
         <button
@@ -943,7 +985,7 @@ export function CreativesTableSection({
             setPage(1);
           }}
           className="ml-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-          aria-label="Clear AI filter"
+          aria-label="Clear decision filter"
         >
           ✕
         </button>
@@ -1463,7 +1505,7 @@ export function CreativesTableSection({
             </span>
           </div>
 
-          {/* AI Signals fallback if toolbar slot is unavailable */}
+          {/* Decision Signals fallback if the toolbar slot is unavailable */}
           {!aiSignalsHost && aiSignalsControls}
         </div>
       </div>
@@ -1940,6 +1982,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
   return (
     <tr
       id={`creative-row-${row.id}`}
+      data-testid={`creative-row-${row.id}`}
       onClick={() => onOpenRow(row.id)}
       className={cn("group cursor-pointer", highlighted && "bg-emerald-500/10")}
     >
@@ -2364,15 +2407,7 @@ function getMetricConfig(key: TableColumnKey): TableMetricConfig {
 }
 
 function hasVideoEvidence(row: MetaCreativeRow): boolean {
-  return (
-    row.creativeVisualFormat === "video" ||
-    row.format === "video" ||
-    row.thumbstop > 0 ||
-    row.video25 > 0 ||
-    row.video50 > 0 ||
-    row.video75 > 0 ||
-    row.video100 > 0
-  );
+  return hasCreativeVideoEvidence(row);
 }
 
 function isMetricApplicable(key: TableColumnKey, row: MetaCreativeRow): boolean {

@@ -44,5 +44,5 @@ export const META_PAGE_TRUTH_CLASSES = [
   "historical_warehouse",
   "current_day_live",
   "conditional_drilldown",
-  "ai_exception",
+  "deterministic_decision_engine",
 ] as const;

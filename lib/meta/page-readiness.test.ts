@@ -54,7 +54,7 @@ function buildReadiness(
       recommendations: buildSurface("syncing", {
         blocking: false,
         countsForPageCompleteness: false,
-        truthClass: "ai_exception",
+        truthClass: "deterministic_decision_engine",
       }),
     },
   });
@@ -104,7 +104,7 @@ describe("meta page readiness", () => {
         recommendations: buildSurface("partial", {
           blocking: false,
           countsForPageCompleteness: false,
-          truthClass: "ai_exception",
+          truthClass: "deterministic_decision_engine",
         }),
       },
     });
@@ -143,7 +143,7 @@ describe("meta page readiness", () => {
         recommendations: buildSurface("syncing", {
           blocking: false,
           countsForPageCompleteness: false,
-          truthClass: "ai_exception",
+          truthClass: "deterministic_decision_engine",
         }),
       },
     });
@@ -174,7 +174,7 @@ describe("meta page readiness", () => {
         recommendations: buildSurface("not_connected", {
           blocking: false,
           countsForPageCompleteness: false,
-          truthClass: "ai_exception",
+          truthClass: "deterministic_decision_engine",
         }),
       },
     });
@@ -259,7 +259,7 @@ describe("meta page readiness", () => {
         recommendations: buildSurface("partial", {
           blocking: false,
           countsForPageCompleteness: false,
-          truthClass: "ai_exception",
+          truthClass: "deterministic_decision_engine",
         }),
       },
     });
@@ -294,7 +294,7 @@ describe("meta page readiness", () => {
         recommendations: buildSurface("ready", {
           blocking: false,
           countsForPageCompleteness: false,
-          truthClass: "ai_exception",
+          truthClass: "deterministic_decision_engine",
         }),
       },
     });

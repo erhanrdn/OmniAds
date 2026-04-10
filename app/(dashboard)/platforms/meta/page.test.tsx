@@ -55,7 +55,7 @@ function baseStatus(overrides: Partial<MetaStatusResponse> = {}): MetaStatusResp
       },
       optionalSurfaces: {
         adsets: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "conditional_drilldown", reason: null },
-        recommendations: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "ai_exception", reason: null },
+        recommendations: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: null },
       },
     },
     ...overrides,
@@ -497,7 +497,7 @@ describe("Meta page render contract", () => {
         },
         optionalSurfaces: {
           adsets: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "conditional_drilldown", reason: "Ad sets open after campaign drilldown." },
-          recommendations: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "ai_exception", reason: "Recommendations are optional." },
+          recommendations: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: "Recommendations are optional." },
         },
       },
     });

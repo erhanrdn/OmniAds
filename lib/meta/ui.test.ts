@@ -67,7 +67,7 @@ function buildStatus(overrides: Partial<MetaStatusResponse> = {}): MetaStatusRes
           state: "partial",
           blocking: false,
           countsForPageCompleteness: false,
-          truthClass: "ai_exception",
+          truthClass: "deterministic_decision_engine",
           reason: "Recommendations remain optional while selected-range core surfaces are still preparing.",
         },
       },

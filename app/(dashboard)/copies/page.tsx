@@ -133,8 +133,13 @@ function resolveCopyDisplayText(row: MetaCopyApiRow): string {
 
 function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
   const linkClicks = row.link_clicks ?? 0;
+  const clicks = linkClicks;
   const purchases = row.purchases ?? 0;
   const addToCart = row.add_to_cart ?? 0;
+  const impressions = row.impressions ?? 0;
+  const clickToAddToCart = row.click_to_atc_ratio ?? (linkClicks > 0 ? (addToCart / linkClicks) * 100 : 0);
+  const clickToPurchase = row.click_to_purchase ?? (linkClicks > 0 ? (purchases / linkClicks) * 100 : 0);
+  const linkCtr = impressions > 0 ? (linkClicks / impressions) * 100 : 0;
   const fallbackFormat = row.is_catalog ? "catalog" : row.preview?.render_mode === "video" ? "video" : "image";
   const fallbackCreativeType = row.is_catalog ? "feed_catalog" : row.preview?.render_mode === "video" ? "video" : "feed";
   const creativeTaxonomy = coerceCreativeTaxonomyFromLegacy({
@@ -190,8 +195,10 @@ function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     cpcLink: row.cpc_link,
     cpm: row.cpm,
     ctrAll: row.ctr_all,
+    linkCtr,
     purchases,
-    impressions: row.impressions ?? 0,
+    impressions,
+    clicks,
     linkClicks,
     landingPageViews: 0,
     addToCart,
@@ -199,7 +206,8 @@ function mapApiRowToCopyRow(row: MetaCopyApiRow): CopyMotionRow {
     leads: 0,
     messages: 0,
     thumbstop: row.thumbstop ?? 0,
-    clickToPurchase: row.click_to_purchase ?? (linkClicks > 0 ? (purchases / linkClicks) * 100 : 0),
+    clickToAddToCart,
+    clickToPurchase,
     seeMoreRate: row.see_more_rate ?? clamp(row.ctr_all * 1.5, 0, 100),
     video25: 0,
     video50: 0,
@@ -387,6 +395,7 @@ export default function CopiesPage() {
         <CreativesTableSection
           rows={filteredRows}
           businessId={businessId}
+          initialPresetName="Meta Copy Performance"
           selectedMetricIds={topMetricIds}
           onSelectedMetricIdsChange={setTopMetricIds}
           selectedRowIds={selectionState.selectedRowIds}
