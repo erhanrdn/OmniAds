@@ -194,16 +194,34 @@ Optional AI-only layer:
 
 - `recommendation.aiCommentary`
 - `operatorActionCard.coachNote`
+- `metadata.aiAssist`
 
 AI commentary may summarize. It may not replace the structured contract.
 
 Structured AI assist rules:
 
 - It may run only at snapshot generation time.
+- It may run only when `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED=true`.
+- It may run only for businesses explicitly included in `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST`.
 - It may enrich only eligible fallback recommendations.
 - It may not invent queries, SKUs, assets, campaigns, targets, or uplift numbers.
 - It must validate exact items against the structured allowlist already present in the recommendation payload.
 - Validation failure must keep the deterministic fallback card.
+
+AI assist observability fields:
+
+- `metadata.aiAssist.enabled`
+- `metadata.aiAssist.scope`
+- `metadata.aiAssist.appliedCount`
+- `metadata.aiAssist.rejectedCount`
+- `metadata.aiAssist.failedCount`
+- `metadata.aiAssist.skippedCount`
+- `metadata.aiAssist.eligibleCount`
+- `metadata.aiAssist.promptVersion`
+- `metadata.aiAssist.businessScoped`
+- `recommendation.structuredAssist.promptVersion`
+- `recommendation.structuredAssist.attemptedAt`
+- `recommendation.structuredAssist.validationFailureCategory`
 
 ## Snapshot Compatibility Rules
 

@@ -36,16 +36,20 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function summarizeActionCounts(parts: Array<{ count: number; label: string }>) {
+function summarizeActionCounts(
+  parts: Array<{ count: number; singularLabel: string; pluralLabel?: string }>
+) {
+  const describe = (part: { count: number; singularLabel: string; pluralLabel?: string }) =>
+    `${part.count} ${part.count === 1 ? part.singularLabel : part.pluralLabel ?? `${part.singularLabel}s`}`;
   const active = parts.filter((part) => part.count > 0);
   if (active.length === 0) return null;
-  if (active.length === 1) return `${active[0]?.count} ${active[0]?.label}`;
+  if (active.length === 1) return describe(active[0]!);
   if (active.length === 2) {
-    return `${active[0]?.count} ${active[0]?.label} and ${active[1]?.count} ${active[1]?.label}`;
+    return `${describe(active[0]!)} and ${describe(active[1]!)}`;
   }
-  const leading = active.slice(0, -1).map((part) => `${part.count} ${part.label}`);
+  const leading = active.slice(0, -1).map((part) => describe(part));
   const trailing = active.at(-1);
-  return `${leading.join(", ")}, and ${trailing?.count} ${trailing?.label}`;
+  return `${leading.join(", ")}, and ${trailing ? describe(trailing) : ""}`;
 }
 
 function formatCurrency(value: number | null | undefined) {
@@ -425,9 +429,13 @@ function buildKeywordBuildoutCard(
   );
   const actionSummary =
     summarizeActionCounts([
-      { count: addAsExact.length, label: "exact addition" },
-      { count: addAsPhrase.length, label: "phrase addition" },
-      { count: keepAsBroadTheme.length, label: "broad discovery theme" },
+      { count: addAsExact.length, singularLabel: "exact addition", pluralLabel: "exact additions" },
+      { count: addAsPhrase.length, singularLabel: "phrase addition", pluralLabel: "phrase additions" },
+      {
+        count: keepAsBroadTheme.length,
+        singularLabel: "broad discovery theme",
+        pluralLabel: "broad discovery themes",
+      },
     ]) ?? "No structured keyword promotion move is ready yet";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
@@ -693,9 +701,9 @@ function buildShoppingStructureCard(
           : "not_confidently_estimable";
   const actionSummary =
     summarizeActionCounts([
-      { count: isolateClusters.length, label: "cluster to isolate" },
-      { count: scaleClusters.length, label: "cluster to scale" },
-      { count: reduceClusters.length, label: "cluster to reduce" },
+      { count: isolateClusters.length, singularLabel: "cluster to isolate", pluralLabel: "clusters to isolate" },
+      { count: scaleClusters.length, singularLabel: "cluster to scale", pluralLabel: "clusters to scale" },
+      { count: reduceClusters.length, singularLabel: "cluster to reduce", pluralLabel: "clusters to reduce" },
     ]) ?? "no explicit cluster move";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
@@ -785,9 +793,9 @@ function buildProductAllocationCard(
   const hiddenWinnerClusters = nonEmpty(recommendation.hiddenWinnerSkuClusters);
   const actionSummary =
     summarizeActionCounts([
-      { count: isolateClusters.length, label: "cluster to isolate" },
-      { count: scaleClusters.length, label: "cluster to scale" },
-      { count: reduceClusters.length, label: "cluster to reduce" },
+      { count: isolateClusters.length, singularLabel: "cluster to isolate", pluralLabel: "clusters to isolate" },
+      { count: scaleClusters.length, singularLabel: "cluster to scale", pluralLabel: "clusters to scale" },
+      { count: reduceClusters.length, singularLabel: "cluster to reduce", pluralLabel: "clusters to reduce" },
     ]) ?? "no explicit product allocation move";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,
@@ -841,9 +849,17 @@ function buildAssetStructureCard(
   const replacementAngles = nonEmpty(recommendation.replacementAngles);
   const actionSummary =
     summarizeActionCounts([
-      { count: splitAssetGroups.length, label: "asset group to split" },
-      { count: keepSeparateAssetGroups.length, label: "asset group to keep separate" },
-      { count: replaceAssets.length, label: "asset to replace" },
+      {
+        count: splitAssetGroups.length,
+        singularLabel: "asset group to split",
+        pluralLabel: "asset groups to split",
+      },
+      {
+        count: keepSeparateAssetGroups.length,
+        singularLabel: "asset group to keep separate",
+        pluralLabel: "asset groups to keep separate",
+      },
+      { count: replaceAssets.length, singularLabel: "asset to replace", pluralLabel: "assets to replace" },
     ]) ?? "no explicit asset restructure move";
   return {
     contractVersion: GOOGLE_ADVISOR_ACTION_CONTRACT_VERSION,

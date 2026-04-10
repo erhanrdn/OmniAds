@@ -281,7 +281,6 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Write-back disabled");
     expect(html).toContain("Aggregate support");
     expect(html.indexOf("Primary action")).toBeLessThan(html.indexOf("Recommendation label: review recommendation"));
-    expect(html.indexOf("Exact changes")).toBeLessThan(html.indexOf("Lifecycle"));
     expect(html.indexOf("Exact changes")).toBeLessThan(html.indexOf("Narrative context and legacy details"));
   });
 
@@ -366,6 +365,8 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Cooldown:");
     expect(html).toContain("Add exact negatives");
     expect(html).toContain("Promote exact buildout terms");
+    expect(html).toContain("Exact member changes");
+    expect(html).toContain("Cluster outcome");
   });
 
   it("shows manual lifecycle controls when persistence context is available", () => {
@@ -382,6 +383,42 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Suppress 7d");
     expect(html).toContain("Mark complete");
     expect(html).toContain("Log outcome");
+  });
+
+  it("surfaces validation-due and recent outcome workflow queues without implying automation", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdvisorPanel, {
+        advisor: buildAdvisor([
+          buildRecommendation("r-due", "review", {
+            currentStatus: "persistent",
+            userAction: "applied",
+            executionStatus: "applied",
+            appliedAt: "2026-04-01T00:00:00.000Z",
+            outcomeCheckAt: "2026-04-05T00:00:00.000Z",
+            outcomeCheckWindowDays: 7,
+            outcomeVerdict: "unknown",
+          }),
+          buildRecommendation("r-outcome", "review", {
+            currentStatus: "resolved",
+            userAction: "applied",
+            executionStatus: "applied",
+            appliedAt: "2026-04-01T00:00:00.000Z",
+            outcomeCheckAt: "2026-04-06T00:00:00.000Z",
+            outcomeCheckWindowDays: 7,
+            outcomeVerdict: "improved",
+            outcomeMetric: "manual_validation",
+            outcomeDelta: 12,
+          }),
+        ]),
+      })
+    );
+
+    expect(html).toContain("Lifecycle, validation, and outcomes");
+    expect(html).toContain("Recommendations waiting for operator outcome checks");
+    expect(html).toContain("Most recent logged operator validations");
+    expect(html).toContain("Due 2026-04-05T00:00:00Z");
+    expect(html).toContain("Improved");
+    expect(html).toContain("Logged outcomes are operator-entered validations");
   });
 
   it("shows AI structured assist provenance without displacing the action-first contract", () => {

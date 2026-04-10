@@ -219,6 +219,48 @@ function fallbackNarrative(recommendation: GoogleAdvisorRecommendation) {
   };
 }
 
+function isValidationDue(recommendation: GoogleAdvisorRecommendation) {
+  if (!recommendation.outcomeCheckAt) return false;
+  if (recommendation.currentStatus === "suppressed" || recommendation.currentStatus === "resolved") {
+    return false;
+  }
+  if (recommendation.outcomeVerdict && recommendation.outcomeVerdict !== "unknown") return false;
+  const dueAtMs = new Date(recommendation.outcomeCheckAt).getTime();
+  return Number.isFinite(dueAtMs) && dueAtMs <= Date.now();
+}
+
+function recommendationActionCard(
+  advisor: GoogleAdvisorResponse,
+  recommendation: GoogleAdvisorRecommendation
+) {
+  const source =
+    advisor.metadata?.actionContract?.source === "native" ? "native" : "compatibility_derived";
+  return recommendation.operatorActionCard ?? buildGoogleAdsOperatorActionCard(recommendation, source);
+}
+
+function buildWorkflowCounts(recommendations: GoogleAdvisorRecommendation[]) {
+  return {
+    newCount: recommendations.filter((entry) => entry.currentStatus === "new").length,
+    persistentCount: recommendations.filter((entry) => entry.currentStatus === "persistent").length,
+    escalatedCount: recommendations.filter((entry) => entry.currentStatus === "escalated").length,
+    resolvedCount: recommendations.filter((entry) => entry.currentStatus === "resolved").length,
+    suppressedCount: recommendations.filter((entry) => entry.currentStatus === "suppressed").length,
+    appliedCount: recommendations.filter(
+      (entry) => entry.executionStatus === "applied" || entry.executionStatus === "partially_applied"
+    ).length,
+  };
+}
+
+function formatOutcomeSummary(recommendation: GoogleAdvisorRecommendation) {
+  const parts = [
+    outcomeLabel(recommendation.outcomeVerdict),
+    recommendation.outcomeMetric ? `metric: ${recommendation.outcomeMetric}` : null,
+    typeof recommendation.outcomeDelta === "number" ? `delta: ${recommendation.outcomeDelta}` : null,
+    recommendation.outcomeCheckAt ? `checked: ${formatCompactDateTime(recommendation.outcomeCheckAt)}` : null,
+  ].filter((value): value is string => Boolean(value));
+  return parts.join(" · ");
+}
+
 function DetailList({
   title,
   items,
@@ -303,6 +345,145 @@ function SurfaceBlock({
       </div>
       <div className="mt-2 text-sm text-slate-800">{children}</div>
     </div>
+  );
+}
+
+function WorkflowSection({
+  advisor,
+}: {
+  advisor: GoogleAdvisorResponse;
+}) {
+  const recommendations = advisor.recommendations;
+  const workflowCounts = buildWorkflowCounts(recommendations);
+  const validationDue = recommendations
+    .filter((recommendation) => isValidationDue(recommendation))
+    .sort((left, right) => (left.outcomeCheckAt ?? "").localeCompare(right.outcomeCheckAt ?? ""));
+  const recentOutcomes = recommendations
+    .filter(
+      (recommendation) =>
+        recommendation.outcomeVerdict &&
+        recommendation.outcomeVerdict !== "unknown" &&
+        recommendation.currentStatus !== "suppressed"
+    )
+    .sort((left, right) =>
+      (right.outcomeCheckAt ?? right.appliedAt ?? "").localeCompare(left.outcomeCheckAt ?? left.appliedAt ?? "")
+    )
+    .slice(0, 5);
+
+  return (
+    <section className="space-y-4 rounded-xl border bg-card p-4">
+      <div className="space-y-1">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Manual Workflow</p>
+        <h2 className="text-lg font-semibold">Lifecycle, validation, and outcomes</h2>
+        <p className="text-sm text-muted-foreground">
+          Manual-plan-first remains the source of truth. These views track what the operator applied,
+          what needs validation next, and which outcomes have already been logged.
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <SurfaceBlock title="Lifecycle counts">
+          <div className="space-y-1">
+            <div>New: {workflowCounts.newCount}</div>
+            <div>Persistent: {workflowCounts.persistentCount}</div>
+            <div>Escalated: {workflowCounts.escalatedCount}</div>
+            <div>Suppressed: {workflowCounts.suppressedCount}</div>
+            <div>Resolved: {workflowCounts.resolvedCount}</div>
+          </div>
+        </SurfaceBlock>
+        <SurfaceBlock title="Manual apply state">
+          <div className="space-y-1">
+            <div>Applied or partially applied: {workflowCounts.appliedCount}</div>
+            <div>Validation due now: {validationDue.length}</div>
+            <div className="text-xs text-muted-foreground">
+              Due items stay manual. This queue does not imply autonomous re-checks or write-back.
+            </div>
+          </div>
+        </SurfaceBlock>
+        <SurfaceBlock title="Recent outcomes">
+          <div className="space-y-1">
+            <div>Improved: {recentOutcomes.filter((entry) => entry.outcomeVerdict === "improved").length}</div>
+            <div>Neutral: {recentOutcomes.filter((entry) => entry.outcomeVerdict === "neutral").length}</div>
+            <div>Degraded: {recentOutcomes.filter((entry) => entry.outcomeVerdict === "degraded").length}</div>
+            <div className="text-xs text-muted-foreground">
+              Logged outcomes are operator-entered validations, not automated causal proof.
+            </div>
+          </div>
+        </SurfaceBlock>
+        <SurfaceBlock title="Workflow posture">
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <div>Recommendation memory survives snapshot refresh.</div>
+            <div>Validation windows stay attached to the applied recommendation.</div>
+            <div>Rollback guidance remains manual until verified write-back exists.</div>
+          </div>
+        </SurfaceBlock>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Validation due</p>
+            <h3 className="text-base font-semibold">Recommendations waiting for operator outcome checks</h3>
+          </div>
+          {validationDue.length > 0 ? (
+            <div className="space-y-3">
+              {validationDue.map((recommendation) => {
+                const actionCard = recommendationActionCard(advisor, recommendation);
+                return (
+                  <div key={`validation-due-${recommendation.id}`} className="rounded-lg border bg-background/80 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">{recommendation.title}</div>
+                        <p className="mt-1 text-sm text-slate-800">{actionCard.primaryAction}</p>
+                      </div>
+                      <Badge variant="outline">Due {formatCompactDateTime(recommendation.outcomeCheckAt)}</Badge>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Validation window:{" "}
+                      {typeof recommendation.outcomeCheckWindowDays === "number"
+                        ? `${recommendation.outcomeCheckWindowDays}d`
+                        : "Not set"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed bg-background/60 p-4 text-sm text-muted-foreground">
+              No recommendation is currently due for manual outcome validation.
+            </div>
+          )}
+        </div>
+        <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+          <div className="space-y-1">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Recent outcomes</p>
+            <h3 className="text-base font-semibold">Most recent logged operator validations</h3>
+          </div>
+          {recentOutcomes.length > 0 ? (
+            <div className="space-y-3">
+              {recentOutcomes.map((recommendation) => (
+                <div key={`recent-outcome-${recommendation.id}`} className="rounded-lg border bg-background/80 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-medium text-slate-900">{recommendation.title}</div>
+                      <p className="mt-1 text-sm text-slate-800">
+                        {recommendationActionCard(advisor, recommendation).primaryAction}
+                      </p>
+                    </div>
+                    <Badge variant="outline">{outcomeLabel(recommendation.outcomeVerdict)}</Badge>
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {formatOutcomeSummary(recommendation)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed bg-background/60 p-4 text-sm text-muted-foreground">
+              No operator outcomes have been logged yet for this snapshot.
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -831,8 +1012,10 @@ function QueueSection({
 
 function ActionPackSection({
   advisor,
+  recommendationsById,
 }: {
   advisor: GoogleAdvisorResponse;
+  recommendationsById: Map<string, GoogleAdvisorRecommendation>;
 }) {
   return (
     <section className="space-y-4 rounded-xl border bg-card p-4">
@@ -873,11 +1056,58 @@ function ActionPackSection({
                   emptyLabel="No step sequence was attached."
                 />
                 <DetailList
+                  title="Exact member changes"
+                  items={cluster.memberRecommendationIds
+                    .map((recommendationId) => recommendationsById.get(recommendationId))
+                    .filter((recommendation): recommendation is GoogleAdvisorRecommendation => Boolean(recommendation))
+                    .map((recommendation) => recommendationActionCard(advisor, recommendation).primaryAction)}
+                  emptyLabel="No linked recommendation changes were attached."
+                  tone="primary"
+                />
+                <DetailList
+                  title="Dependencies and unlocks"
+                  items={[
+                    ...cluster.dependsOnClusterIds.map((clusterId) => `Depends on cluster ${clusterId}`),
+                    ...cluster.unlocksClusterIds.map((clusterId) => `Unlocks cluster ${clusterId}`),
+                    ...cluster.conflictsWithClusterIds.map((clusterId) => `Conflicts with cluster ${clusterId}`),
+                  ]}
+                  emptyLabel="No cluster dependency or unlock relationships are attached."
+                />
+                <DetailList
                   title="Validation"
                   items={cluster.validationPlan}
                   emptyLabel="No explicit validation plan is attached."
                 />
               </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <SurfaceBlock title="Execution state">
+                  <div className="space-y-1">
+                    <div>{labelize(cluster.executionSummary.clusterExecutionStatus)}</div>
+                    <div>Current step: {cluster.executionSummary.currentStepId ?? "None"}</div>
+                    <div>Waiting on: {cluster.executionSummary.waitingChildStepId ?? "None"}</div>
+                    <div>Next eligible: {cluster.executionSummary.nextEligibleAt ? formatCompactDateTime(cluster.executionSummary.nextEligibleAt) : "Now"}</div>
+                  </div>
+                </SurfaceBlock>
+                <SurfaceBlock title="Cluster outcome">
+                  <div className="space-y-1">
+                    <div>{labelize(cluster.outcomeState.verdict)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Reason: {cluster.outcomeState.reason ?? cluster.clusterMoveValidityReason}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Last validation: {cluster.outcomeState.lastValidationCheckAt ? formatCompactDateTime(cluster.outcomeState.lastValidationCheckAt) : "Not checked"}
+                    </div>
+                  </div>
+                </SurfaceBlock>
+              </div>
+              {cluster.executionSummary.manualRecoveryInstructions?.length ? (
+                <DetailList
+                  title="Manual recovery"
+                  items={cluster.executionSummary.manualRecoveryInstructions}
+                  emptyLabel="No manual recovery instructions are attached."
+                  tone="muted"
+                />
+              ) : null}
               <div className="rounded-lg border bg-muted/15 p-3 text-sm text-slate-800">
                 Prepare this pack for manual approval only. Write-back remains disabled by default, and any future automation still depends on allowlists, kill switch posture, and explicit verification.
               </div>
@@ -921,9 +1151,13 @@ export function GoogleAdvisorPanel({
   };
   const compatibilityDerived = (advisor.metadata?.actionContract?.source ?? "compatibility_derived") === "compatibility_derived";
   const aggregateIntelligence = advisor.metadata?.aggregateIntelligence ?? null;
+  const recommendationsById = new Map(
+    advisor.recommendations.map((recommendation) => [recommendation.id, recommendation] as const)
+  );
   for (const recommendation of advisor.recommendations) {
     queueByLane[deriveQueueLane(recommendation)].push(recommendation);
   }
+  const validationDueCount = advisor.recommendations.filter((recommendation) => isValidationDue(recommendation)).length;
 
   return (
     <div className="space-y-4">
@@ -958,7 +1192,7 @@ export function GoogleAdvisorPanel({
             <div className="rounded-lg border bg-muted/15 p-3">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Queue load</div>
               <div className="mt-1 text-sm">
-                {advisor.recommendations.length} decisions · {queueByLane.review.length} review
+                {advisor.recommendations.length} decisions · {queueByLane.review.length} review · {validationDueCount} validation due
               </div>
             </div>
           </div>
@@ -1035,7 +1269,9 @@ export function GoogleAdvisorPanel({
         </div>
       </section>
 
-      <ActionPackSection advisor={advisor} />
+      <WorkflowSection advisor={advisor} />
+
+      <ActionPackSection advisor={advisor} recommendationsById={recommendationsById} />
 
       <section className="space-y-4 rounded-xl border bg-card p-4">
         <div className="space-y-1">

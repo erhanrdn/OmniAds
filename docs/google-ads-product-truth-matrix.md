@@ -29,6 +29,7 @@ Required default posture:
 Future-path flags expected to stay disabled by default:
 
 - advisor AI structured assist gate
+- advisor AI structured assist business allowlist rollout
 - write-back pilot gates
 - semi-autonomous action-pack gates
 - controlled-autonomy gates
@@ -39,9 +40,11 @@ Future-path flags expected to stay disabled by default:
 - `GET /api/google-ads/advisor` serves snapshot-backed decision payloads by default and supports `refresh=1`.
 - The advisor payload exposes deterministic recommendation fields plus `metadata.actionContract` and `recommendation.operatorActionCard`.
 - Snapshot generation can optionally apply a schema-validated AI structured assist to eligible fallback recommendations, but the deterministic operator card contract remains the source of truth.
+- AI structured assist rollout is now explicitly scoped by `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_BUSINESS_ALLOWLIST`, and both `/api/google-ads/status` and `google:ads:product-gate` expose that posture.
 - The current Google Ads advisor UI is action-first at the card level and clearly labels legacy snapshot compatibility.
 - The advisor now consumes persisted weekly top-query and daily cluster aggregates as supplemental support when those tables are available, and it exposes that posture in snapshot metadata.
 - Recommendation memory exists and persists recommendation lifecycle, execution state, rollback availability, and outcome fields in `google_ads_advisor_memory`.
+- The advisor UI now surfaces validation-due recommendations and recent operator-entered outcomes as a separate manual workflow view.
 - The advisor UI now renders manual action packs from bundled action clusters and labels them as human-approval-only plans.
 - Admin sync health surfaces queue depth, dead-letter pressure, maintenance pressure, checkpoint lag, integrity blockers, and Google Ads recovery actions.
 - Recovery tooling exists for cleanup, dead-letter replay, reschedule, refresh state, targeted repair, repair cycle, integrity-window repair, and quarantine release.
@@ -73,6 +76,7 @@ Future-path flags expected to stay disabled by default:
 ## Partial Or Incomplete
 
 - Manual lifecycle persistence is now rendered end-to-end in the advisor UI, but outcome quality still depends on operator-entered validation and not automated attribution.
+- AI structured assist now records prompt version, eligibility counts, business-scoped rollout posture, and validation failure categories, but it remains a bounded snapshot-time assist and not a live request-time planner.
 - Search intelligence aggregates are now consumed as supplemental support for recurring query and cluster evidence, but they do not yet replace the core recent-surface readiness contract or every recommendation heuristic.
 - Decision action/outcome logs exist as a table, and operator workflow now appends plan/outcome rows, but the UI does not yet provide richer longitudinal outcome analytics.
 - `/api/google-ads/status` now exposes advisor action-contract posture, aggregate-intelligence posture, retention runtime state, and automation boundary state, but the operator page does not yet surface every backend control-plane detail.

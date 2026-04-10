@@ -45,7 +45,7 @@ Recommended order:
 API / backend:
 
 - `/api/google-ads/status` reports decision-snapshot-compatible language
-- `/api/google-ads/status` reports advisor `actionContract` truth, including native vs compatibility-derived posture, and retention runtime posture
+- `/api/google-ads/status` reports advisor `actionContract` truth, AI assist rollout posture, including native vs compatibility-derived posture, and retention runtime posture
 - `/api/google-ads/advisor` returns Decision Snapshot V2 metadata with `google_ads_advisor_action_v2` on refreshed native snapshots
 - selected-range context is present only as contextual metadata
 - query-governance recommendations suppress unsafe brand/SKU/product cases
@@ -60,6 +60,7 @@ UI / operator surface:
 - suppressed recommendations remain visible and explainable
 - cards show windows, confidence, risk, blast radius, blockers, validation, and rollback
 - cards lead with the action-first v2 contract: primary action, scope, exact changes, expected effect, why this now, evidence, validation, rollback, and blocked because when applicable
+- validation-due recommendations and recent operator outcomes render as manual workflow views, not autonomous queues
 - UI uses manual-plan / operator-review wording
 - UI does not imply direct execution when write-back is disabled
 - Truth matrix, readiness checklist, and retention posture do not contradict each other

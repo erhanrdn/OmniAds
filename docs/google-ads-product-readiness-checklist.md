@@ -43,11 +43,13 @@ Product-ready is declared only after a real business passes a `T0` and `T0 + 24h
    - advisor is `ready=false` when `campaign_daily`, `search_term_daily`, or `product_daily` is incomplete
    - advisor is `ready=true` only when all required surfaces are complete
    - legacy snapshots remain labeled `compatibility_derived` until refreshed
+   - AI structured assist stays absent unless both the global flag and the per-business allowlist are active
 3. In the UI:
    - advisor button is disabled while readiness is false
    - advisor button is enabled when readiness becomes true
    - changing the date range marks the existing analysis as stale
    - refreshed snapshots render the native `google_ads_advisor_action_v2` contract
+   - manual workflow shows validation-due items and recent operator outcomes without implying automation
 
 ## Recovery Validation
 
