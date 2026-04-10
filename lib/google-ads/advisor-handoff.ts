@@ -2765,10 +2765,20 @@ export function decorateAdvisorRecommendationsForExecution(input: {
               batchRollbackAvailable: true,
               reallocationPreview: {
                 sourceCampaigns: [
-                  { id: source.campaignId, previousAmount: sourceCurrent, proposedAmount: sourceProposed },
+                  {
+                    id: source.campaignId,
+                    name: String(source.campaignName ?? source.campaignId),
+                    previousAmount: sourceCurrent,
+                    proposedAmount: sourceProposed,
+                  },
                 ],
                 destinationCampaigns: [
-                  { id: destination.campaignId, previousAmount: destinationCurrent, proposedAmount: destinationProposed },
+                  {
+                    id: destination.campaignId,
+                    name: String(destination.campaignName ?? destination.campaignId),
+                    previousAmount: destinationCurrent,
+                    proposedAmount: destinationProposed,
+                  },
                 ],
                 netDelta: 0,
               },

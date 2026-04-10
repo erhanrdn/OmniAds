@@ -136,6 +136,11 @@ describe("GET /api/google-ads/advisor", () => {
             roas: 3.2,
           },
           selectedRangeContext: null,
+          actionContract: {
+            version: "google_ads_advisor_action_v1",
+            source: "native",
+            note: "Structured operator cards are the source of truth for this snapshot.",
+          },
         },
       },
     } as never);
@@ -164,6 +169,10 @@ describe("GET /api/google-ads/advisor", () => {
       lagAdjustedEndDate: {
         available: false,
         value: null,
+      },
+      actionContract: {
+        version: "google_ads_advisor_action_v1",
+        source: "native",
       },
     });
     expect(payload.metadata.selectedRangeContext.summary).toContain("contextual");

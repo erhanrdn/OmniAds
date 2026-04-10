@@ -7,6 +7,13 @@ export type GoogleAdvisorAnalysisWindowKey =
   | "query_governance_56d"
   | "baseline_84d";
 
+export type GoogleRecommendationLevel =
+  | "account"
+  | "campaign"
+  | "query_cluster"
+  | "product_cluster"
+  | "asset_group";
+
 export type GoogleCampaignFamily =
   | "brand_search"
   | "non_brand_search"
@@ -330,6 +337,161 @@ export interface GoogleAdvisorExecutionSurface {
   summary: string;
 }
 
+export type GoogleAdvisorActionContractVersion = "google_ads_advisor_action_v1";
+export type GoogleAdvisorActionContractSource = "native" | "compatibility_derived";
+
+export interface GoogleAdvisorActionContract {
+  version: GoogleAdvisorActionContractVersion;
+  source: GoogleAdvisorActionContractSource;
+  note: string | null;
+}
+
+export interface GoogleAdvisorActionScope {
+  level: GoogleRecommendationLevel;
+  label: string;
+  entityName?: string | null;
+  governedEntityCount?: number | null;
+}
+
+export interface GoogleAdvisorActionListBlock {
+  label: string;
+  items: string[];
+  emptyLabel?: string;
+}
+
+export interface GoogleAdvisorExpectedEffect {
+  summary: string;
+  estimationMode:
+    | "bounded_range"
+    | "heuristic_only"
+    | "not_confidently_estimable"
+    | "directional_only"
+    | "blocked";
+  estimateLabel?: string | null;
+  note: string;
+}
+
+export interface GoogleAdvisorActionCampaignDelta {
+  id: string;
+  name?: string | null;
+  previousAmount: number;
+  proposedAmount: number;
+  deltaAmount: number;
+  deltaPercent: number;
+}
+
+export interface GoogleAdvisorNegativeKeywordCleanupPayload {
+  kind: "negative_keyword_cleanup";
+  matchType: GoogleNegativeKeywordMatchType;
+  addNow: string[];
+  suppressed: string[];
+  suppressionReasonLabels: string[];
+  negativeGuardrails: string[];
+  policy: GoogleNegativeKeywordPolicySummary | null;
+}
+
+export interface GoogleAdvisorKeywordBuildoutPayload {
+  kind: "keyword_buildout";
+  addAsExact: string[];
+  addAsPhrase: string[];
+  keepAsBroadTheme: string[];
+  doNotPromoteYet: string[];
+  seedExact: string[];
+  seedPhrase: string[];
+  seedBroadThemes: string[];
+  negativeGuardrails: string[];
+}
+
+export interface GoogleAdvisorShoppingStructurePayload {
+  kind: "shopping_structure";
+  launchMode: "new_control_shopping" | "category_split" | "hero_sku_shopping" | null;
+  recommendedStructure: string;
+  isolateClusters: string[];
+  heroClusters: string[];
+  startingClusters: string[];
+}
+
+export interface GoogleAdvisorAssetGroupRestructurePayload {
+  kind: "asset_group_restructure";
+  splitAssetGroups: string[];
+  keepSeparateAssetGroups: string[];
+  replaceAssets: string[];
+  replacementAngles: string[];
+}
+
+export interface GoogleAdvisorProductAllocationPayload {
+  kind: "product_allocation";
+  isolateClusters: string[];
+  scaleClusters: string[];
+  reduceClusters: string[];
+  hiddenWinnerClusters: string[];
+}
+
+export interface GoogleAdvisorBudgetReallocationPayload {
+  kind: "budget_reallocation";
+  sourceCampaigns: GoogleAdvisorActionCampaignDelta[];
+  destinationCampaigns: GoogleAdvisorActionCampaignDelta[];
+  budgetBand: string | null;
+  estimateMode: "bounded_preview" | "heuristic_only";
+  netDelta: number | null;
+}
+
+export interface GoogleAdvisorTargetStrategyAdjustmentPayload {
+  kind: "target_strategy_adjustment";
+  state: "preview_available" | "directional_only" | "blocked";
+  previewMode: "portfolio_target" | "joint_allocator" | "directional_only";
+  currentTargetType: "tROAS" | "tCPA" | null;
+  currentTargetValue: number | null;
+  proposedTargetValue: number | null;
+  deltaPercent: number | null;
+  governedScope: Array<{ id: string; name: string }>;
+  budgetActionType?: "adjust_campaign_budget" | "adjust_shared_budget" | null;
+  budgetPreviousAmount?: number | null;
+  budgetProposedAmount?: number | null;
+  budgetDeltaPercent?: number | null;
+  boundedDelta: boolean;
+  safeBecause: string[];
+  blockedBecause: string[];
+}
+
+export interface GoogleAdvisorBlockedActionPayload {
+  kind: "blocked_or_insufficient_evidence";
+  reasons: string[];
+}
+
+export interface GoogleAdvisorGenericActionPayload {
+  kind: "generic_manual_action";
+  recommendedAction: string;
+}
+
+export type GoogleAdvisorExactChangePayload =
+  | GoogleAdvisorNegativeKeywordCleanupPayload
+  | GoogleAdvisorKeywordBuildoutPayload
+  | GoogleAdvisorShoppingStructurePayload
+  | GoogleAdvisorAssetGroupRestructurePayload
+  | GoogleAdvisorProductAllocationPayload
+  | GoogleAdvisorBudgetReallocationPayload
+  | GoogleAdvisorTargetStrategyAdjustmentPayload
+  | GoogleAdvisorBlockedActionPayload
+  | GoogleAdvisorGenericActionPayload;
+
+export interface GoogleAdvisorActionCard {
+  contractVersion: GoogleAdvisorActionContractVersion;
+  contractSource: GoogleAdvisorActionContractSource;
+  recommendationType: GoogleRecommendationType;
+  primaryAction: string;
+  scope: GoogleAdvisorActionScope;
+  exactChanges: GoogleAdvisorActionListBlock[];
+  exactChangePayload: GoogleAdvisorExactChangePayload;
+  expectedEffect: GoogleAdvisorExpectedEffect;
+  whyThisNow: string;
+  evidence: GoogleRecommendationEvidence[];
+  validation: string[];
+  rollback: string[];
+  blockedBecause: string[];
+  coachNote?: string | null;
+}
+
 export interface GooglePotentialContribution {
   label: string;
   impact: GoogleContributionImpact;
@@ -484,7 +646,7 @@ export interface GoogleActionCluster {
 
 export interface GoogleRecommendation {
   id: string;
-  level: "account" | "campaign" | "query_cluster" | "product_cluster" | "asset_group";
+  level: GoogleRecommendationLevel;
   entityId?: string;
   entityName?: string;
   type: GoogleRecommendationType;
@@ -686,8 +848,8 @@ export interface GoogleRecommendation {
   sharedStateMutateBlockedReason?: string | null;
   sharedStateContaminationFlag?: boolean | null;
   reallocationPreview?: {
-    sourceCampaigns: Array<{ id: string; previousAmount: number; proposedAmount: number }>;
-    destinationCampaigns: Array<{ id: string; previousAmount: number; proposedAmount: number }>;
+    sourceCampaigns: Array<{ id: string; name?: string | null; previousAmount: number; proposedAmount: number }>;
+    destinationCampaigns: Array<{ id: string; name?: string | null; previousAmount: number; proposedAmount: number }>;
     netDelta: number;
   } | null;
   baselineSnapshot?: Record<string, unknown> | null;
@@ -735,6 +897,7 @@ export interface GoogleRecommendation {
   diagnosticFlags?: string[];
   prerequisites?: string[];
   playbookSteps?: string[];
+  operatorActionCard?: GoogleAdvisorActionCard | null;
 }
 
 export interface GoogleRecommendationSection {
@@ -854,6 +1017,7 @@ export interface GoogleAdvisorMetadata {
     deltaPercent?: number | null;
     metricKey?: "roas" | "cpa" | "revenue" | "conversions" | null;
   } | null;
+  actionContract?: GoogleAdvisorActionContract;
 }
 
 export interface GoogleAdvisorResponse {

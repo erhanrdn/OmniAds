@@ -220,6 +220,11 @@ function buildAdvisor(recommendations: GoogleRecommendation[] = []): GoogleAdvis
         deltaPercent: 0,
         metricKey: "roas",
       },
+      actionContract: {
+        version: "google_ads_advisor_action_v1",
+        source: "native",
+        note: "Structured operator cards are the source of truth for this snapshot.",
+      },
     },
   };
 }
@@ -253,13 +258,13 @@ describe("GoogleAdvisorPanel", () => {
       })
     );
 
-    expect(html).toContain("What happened");
-    expect(html).toContain("Why it happened");
-    expect(html).toContain("What to do");
-    expect(html).toContain("Why now");
-    expect(html).toContain("Windows used");
-    expect(html).toContain("Validation plan");
-    expect(html).toContain("Rollback plan");
+    expect(html).toContain("Primary action");
+    expect(html).toContain("Scope");
+    expect(html).toContain("Exact changes");
+    expect(html).toContain("Expected effect");
+    expect(html).toContain("Why this now");
+    expect(html).toContain("Validation");
+    expect(html).toContain("Rollback");
     expect(html).toContain("Manual plan only");
     expect(html).toContain("Write-back disabled");
   });
@@ -272,6 +277,7 @@ describe("GoogleAdvisorPanel", () => {
     );
 
     expect(html).toContain("Suppression reasons");
+    expect(html).toContain("Blocked because");
     expect(html).toContain("branded query");
     expect(html).toContain("grandmix chairs");
     expect(html).toContain("selected range is context only");
@@ -310,5 +316,21 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("review action");
     expect(html).toContain("Review next sync window.");
     expect(html).toContain("Reverse manually if needed.");
+  });
+
+  it("shows a compatibility notice when the snapshot predates the native action contract", () => {
+    const legacyAdvisor = buildAdvisor([buildRecommendation("legacy", "review")]);
+    if (legacyAdvisor.metadata) {
+      delete legacyAdvisor.metadata.actionContract;
+    }
+
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdvisorPanel, {
+        advisor: legacyAdvisor,
+      })
+    );
+
+    expect(html).toContain("legacy snapshot compatibility mode");
+    expect(html).toContain("derived from older recommendation fields");
   });
 });

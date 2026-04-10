@@ -1,7 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { buildGoogleAdsOperatorActionCard } from "@/lib/google-ads/advisor-action-contract";
 import { cn } from "@/lib/utils";
 import type {
   GoogleAdvisorResponse,
@@ -173,6 +175,43 @@ function DetailList({
   );
 }
 
+function SurfaceBlock({
+  title,
+  children,
+  tone = "default",
+}: {
+  title: string;
+  children: ReactNode;
+  tone?: "default" | "primary" | "danger";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3",
+        tone === "primary"
+          ? "border-emerald-200 bg-emerald-50/60"
+          : tone === "danger"
+            ? "border-rose-200 bg-rose-50/50"
+            : "bg-muted/15"
+      )}
+    >
+      <div
+        className={cn(
+          "text-[10px] uppercase tracking-wide",
+          tone === "primary"
+            ? "text-emerald-700"
+            : tone === "danger"
+              ? "text-rose-700"
+              : "text-muted-foreground"
+        )}
+      >
+        {title}
+      </div>
+      <div className="mt-2 text-sm text-slate-800">{children}</div>
+    </div>
+  );
+}
+
 function RecommendationCard({
   advisor,
   recommendation,
@@ -191,6 +230,15 @@ function RecommendationCard({
   const evidencePoints = recommendation.decision?.evidencePoints ?? recommendation.evidence ?? [];
   const executionSurface = advisor.metadata?.executionSurface;
   const narrative = fallbackNarrative(recommendation);
+  const actionContractSource = advisor.metadata?.actionContract?.source ?? "compatibility_derived";
+  const actionCard =
+    recommendation.operatorActionCard ?? buildGoogleAdsOperatorActionCard(recommendation, actionContractSource);
+  const compatibilityDerived = actionCard.contractSource === "compatibility_derived";
+  const exactChanges = actionCard.exactChanges.filter(
+    (block) => block.items.length > 0 || Boolean(block.emptyLabel)
+  );
+  const effectTone = actionCard.expectedEffect.estimationMode === "blocked" ? "danger" : "default";
+  const blockedTone = actionCard.blockedBecause.length > 0 ? "danger" : "default";
 
   return (
     <article className="space-y-4 rounded-xl border bg-card p-4">
@@ -203,6 +251,7 @@ function RecommendationCard({
             <Badge variant="outline">{familyLabel(recommendation.decisionFamily)}</Badge>
             <Badge variant="outline">{labelize(recommendation.strategyLayer)}</Badge>
             {executionSurface?.writebackEnabled ? null : <Badge variant="outline">Manual plan only</Badge>}
+            {compatibilityDerived ? <Badge variant="outline">Legacy snapshot compatibility</Badge> : null}
           </div>
           <h3 className="text-base font-semibold leading-tight">{recommendation.title}</h3>
           <p className="text-xs text-muted-foreground">
@@ -233,85 +282,81 @@ function RecommendationCard({
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">What happened</div>
-          <p className="mt-2 text-sm text-slate-800">{narrative.whatHappened}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Why it happened</div>
-          <p className="mt-2 text-sm text-slate-800">{narrative.whyItHappened}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">What to do</div>
-          <p className="mt-2 text-sm text-slate-800">{narrative.whatToDo}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Why now</div>
-          <p className="mt-2 text-sm text-slate-800">
-            {recommendation.decision?.whyNow ?? recommendation.whyNow ?? "No additional why-now note is available."}
-          </p>
-        </div>
-      </div>
+      <SurfaceBlock
+        title="Primary action"
+        tone={actionCard.blockedBecause.length > 0 ? "danger" : "primary"}
+      >
+        <p className="font-medium text-slate-900">{actionCard.primaryAction}</p>
+      </SurfaceBlock>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Windows used</div>
-          <div className="mt-2 space-y-1 text-sm text-slate-800">
-            <div>Health: {renderWindowLabel(windowsUsed?.healthWindow, labelMap) ?? "Unavailable"}</div>
-            <div>Primary: {renderWindowLabel(windowsUsed?.primaryWindow, labelMap) ?? "Unavailable"}</div>
-            <div>Query: {renderWindowLabel(windowsUsed?.queryWindow, labelMap) ?? "Not used"}</div>
-            <div>Baseline: {renderWindowLabel(windowsUsed?.baselineWindow, labelMap) ?? "Unavailable"}</div>
-            <div className="text-xs text-muted-foreground">
-              Maturity cutoff: {typeof windowsUsed?.maturityCutoffDays === "number" ? `${windowsUsed.maturityCutoffDays}d` : "Unavailable"}
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Risk</div>
-          <p className="mt-2 text-sm text-slate-800">{narrative.risk}</p>
-        </div>
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Evidence summary</div>
-          <p className="mt-2 text-sm text-slate-800">
-            {recommendation.decision?.evidenceSummary ?? recommendation.summary}
+        <SurfaceBlock title="Scope">
+          <p>{actionCard.scope.label}</p>
+        </SurfaceBlock>
+        <SurfaceBlock title="Expected effect" tone={effectTone}>
+          <p>{actionCard.expectedEffect.summary}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {actionCard.expectedEffect.estimateLabel ?? "Not confidently estimable"}
           </p>
-        </div>
-        <div className="rounded-lg border bg-muted/15 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Operator mode</div>
-          <p className="mt-2 text-sm text-slate-800">
-            {executionSurface?.summary ?? "Operator-first manual plan surface."}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{actionCard.expectedEffect.note}</p>
+        </SurfaceBlock>
+        <SurfaceBlock title="Why this now">
+          <p>{actionCard.whyThisNow}</p>
+        </SurfaceBlock>
+        <SurfaceBlock title="Blocked because" tone={blockedTone}>
+          {actionCard.blockedBecause.length > 0 ? (
+            <ul className="space-y-1">
+              {actionCard.blockedBecause.map((item, index) => (
+                <li key={`blocked-${index}`}>{item}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No active blocker is attached.</p>
+          )}
+        </SurfaceBlock>
+      </div>
+
+      <div className="space-y-3">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Exact changes</div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {exactChanges.map((block) => (
+            <DetailList
+              key={block.label}
+              title={block.label}
+              items={block.items}
+              emptyLabel={block.emptyLabel ?? "No items attached."}
+              tone={
+                block.label.toLowerCase().includes("blocked") ||
+                block.label.toLowerCase().includes("suppressed")
+                  ? "danger"
+                  : "default"
+              }
+            />
+          ))}
         </div>
       </div>
 
-      {evidencePoints.length > 0 ? (
-        <div className="grid gap-2 md:grid-cols-3">
-          {evidencePoints.map((item) => (
-            <div key={item.label} className="rounded-lg border bg-muted/15 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{item.label}</div>
-              <div className="mt-1 text-sm font-medium">{item.value}</div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       <div className="grid gap-3 md:grid-cols-2">
+        <DetailList
+          title="Evidence"
+          items={evidencePoints.map((item) => `${item.label}: ${item.value}`)}
+          emptyLabel="No structured evidence is attached."
+        />
+        <DetailList
+          title="Validation"
+          items={actionCard.validation.length > 0 ? actionCard.validation : validationPlan}
+          emptyLabel="No explicit validation plan is available."
+        />
+        <DetailList
+          title="Rollback"
+          items={actionCard.rollback.length > 0 ? actionCard.rollback : rollbackPlan}
+          emptyLabel="No verified write-back rollback exists in V1. Reverse manually in Google Ads if needed."
+        />
         <DetailList
           title="Why not / blockers"
           items={whyNot}
           emptyLabel="No blockers recorded for this decision."
           tone={lane === "suppressed" ? "danger" : "default"}
-        />
-        <DetailList
-          title="Validation plan"
-          items={validationPlan.length > 0 ? validationPlan : narrative.howToValidate}
-          emptyLabel="No explicit validation plan is available."
-        />
-        <DetailList
-          title="Rollback plan"
-          items={rollbackPlan.length > 0 ? rollbackPlan : [narrative.howToRollBack]}
-          emptyLabel="No verified write-back rollback exists in V1. Reverse manually in Google Ads if needed."
         />
         <DetailList
           title="Suppression reasons"
@@ -321,21 +366,62 @@ function RecommendationCard({
         />
       </div>
 
-      {(recommendation.negativeQueries?.length ?? 0) > 0 || (recommendation.suppressedQueries?.length ?? 0) > 0 ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          <DetailList
-            title="Eligible exact-negative queries"
-            items={recommendation.negativeQueries}
-            emptyLabel="No exact-negative queries are eligible."
-          />
-          <DetailList
-            title="Suppressed queries"
-            items={recommendation.suppressedQueries}
-            emptyLabel="No suppressed queries are attached to this decision."
-            tone="danger"
-          />
+      <details className="rounded-lg border bg-muted/10 p-3">
+        <summary className="cursor-pointer text-sm font-medium text-slate-800">
+          Narrative context and legacy details
+        </summary>
+        <div className="mt-3 space-y-3">
+          {compatibilityDerived ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-slate-800">
+              This snapshot was normalized from legacy fields. Refresh Decision Snapshot to replace the
+              compatibility-derived card with a native action-contract payload.
+            </div>
+          ) : null}
+          <div className="grid gap-3 md:grid-cols-2">
+            <SurfaceBlock title="What happened">
+              <p>{narrative.whatHappened}</p>
+            </SurfaceBlock>
+            <SurfaceBlock title="Why it happened">
+              <p>{narrative.whyItHappened}</p>
+            </SurfaceBlock>
+            <SurfaceBlock title="What to do">
+              <p>{narrative.whatToDo}</p>
+            </SurfaceBlock>
+            <SurfaceBlock title="Risk">
+              <p>{narrative.risk}</p>
+            </SurfaceBlock>
+          </div>
+
+          {actionCard.coachNote ? (
+            <SurfaceBlock title="AI note">
+              <p>{actionCard.coachNote}</p>
+            </SurfaceBlock>
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <SurfaceBlock title="Windows used">
+              <div className="space-y-1">
+                <div>Health: {renderWindowLabel(windowsUsed?.healthWindow, labelMap) ?? "Unavailable"}</div>
+                <div>Primary: {renderWindowLabel(windowsUsed?.primaryWindow, labelMap) ?? "Unavailable"}</div>
+                <div>Query: {renderWindowLabel(windowsUsed?.queryWindow, labelMap) ?? "Not used"}</div>
+                <div>Baseline: {renderWindowLabel(windowsUsed?.baselineWindow, labelMap) ?? "Unavailable"}</div>
+                <div className="text-xs text-muted-foreground">
+                  Maturity cutoff: {typeof windowsUsed?.maturityCutoffDays === "number" ? `${windowsUsed.maturityCutoffDays}d` : "Unavailable"}
+                </div>
+              </div>
+            </SurfaceBlock>
+            <SurfaceBlock title="Evidence summary">
+              <p>{recommendation.decision?.evidenceSummary ?? recommendation.summary}</p>
+            </SurfaceBlock>
+            <SurfaceBlock title="Operator mode">
+              <p>{executionSurface?.summary ?? "Operator-first manual plan surface."}</p>
+            </SurfaceBlock>
+            <SurfaceBlock title="Write-back">
+              <p>{executionSurface?.writebackEnabled ? "Enabled" : "Disabled. Manual plan only."}</p>
+            </SurfaceBlock>
+          </div>
         </div>
-      ) : null}
+      </details>
 
       {recommendation.deepLinkUrl || (onFocusEntity && recommendation.entityId) ? (
         <div className="flex flex-wrap justify-end gap-2">
@@ -425,6 +511,7 @@ export function GoogleAdvisorPanel({
     watch: [],
     suppressed: [],
   };
+  const compatibilityDerived = (advisor.metadata?.actionContract?.source ?? "compatibility_derived") === "compatibility_derived";
   for (const recommendation of advisor.recommendations) {
     queueByLane[deriveQueueLane(recommendation)].push(recommendation);
   }
@@ -537,6 +624,12 @@ export function GoogleAdvisorPanel({
             Recommendations are grouped by operator lane, not by the selected date range.
           </p>
         </div>
+        {compatibilityDerived ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-slate-800">
+            This payload is in legacy snapshot compatibility mode. The action-first cards are derived from
+            older recommendation fields, so refresh the decision snapshot to load the native action contract.
+          </div>
+        ) : null}
         <div className="space-y-4">
           <QueueSection advisor={advisor} lane="review" recommendations={queueByLane.review} onFocusEntity={onFocusEntity} />
           <QueueSection advisor={advisor} lane="test" recommendations={queueByLane.test} onFocusEntity={onFocusEntity} />

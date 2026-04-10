@@ -1,8 +1,10 @@
 import { buildGoogleAdsExecutionSurface } from "@/lib/google-ads/decision-engine-config";
+import { attachGoogleAdsAdvisorActionContract } from "@/lib/google-ads/advisor-action-contract";
 import { buildGoogleAdsDecisionSnapshotWindowSet } from "@/lib/google-ads/decision-window-policy";
 import type {
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorMetadata,
+  GoogleAdvisorActionContractSource,
   GoogleAdvisorResponse,
 } from "@/lib/google-ads/growth-advisor-types";
 
@@ -113,6 +115,7 @@ export function normalizeGoogleAdsDecisionSnapshotPayload(input: {
   asOfDate: string;
   selectedWindowKey: GoogleAdvisorMetadata["selectedWindowKey"];
   historicalSupport?: GoogleAdvisorHistoricalSupport | null;
+  actionContractSource?: GoogleAdvisorActionContractSource;
 }): GoogleAdvisorResponse {
   const existingMetadata = input.advisorPayload.metadata;
   const normalizedMetadata = buildGoogleAdsDecisionSnapshotMetadata({
@@ -140,8 +143,13 @@ export function normalizeGoogleAdsDecisionSnapshotPayload(input: {
     lagAdjustedEndDate: existingMetadata?.lagAdjustedEndDate?.value ?? null,
   });
 
-  return {
+  const payload = {
     ...input.advisorPayload,
     metadata: normalizedMetadata,
   };
+
+  return attachGoogleAdsAdvisorActionContract({
+    advisorPayload: payload,
+    source: input.actionContractSource ?? existingMetadata?.actionContract?.source ?? "compatibility_derived",
+  });
 }

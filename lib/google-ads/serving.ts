@@ -2244,5 +2244,6 @@ export async function getGoogleAdsAdvisorReport(
     asOfDate,
     selectedWindowKey: "custom",
     historicalSupport: null,
+    actionContractSource: "native",
   });
 }
