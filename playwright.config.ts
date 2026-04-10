@@ -23,15 +23,29 @@ export default defineConfig({
   projects: [
     {
       name: "setup",
-      testMatch: /auth\.setup\.ts/,
+      testMatch: /(^|\/)auth\.setup\.ts$/,
+    },
+    {
+      name: "commercial-setup",
+      testMatch: /(^|\/)commercial-auth\.setup\.ts$/,
     },
     {
       name: "smoke-chromium",
+      testMatch: /reviewer-smoke\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: "playwright/.auth/reviewer.json",
       },
       dependencies: ["setup"],
+    },
+    {
+      name: "commercial-smoke-chromium",
+      testMatch: /commercial-truth-smoke\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "playwright/.auth/commercial-operator.json",
+      },
+      dependencies: ["commercial-setup"],
     },
   ],
   webServer: useWebServer

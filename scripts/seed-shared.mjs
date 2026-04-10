@@ -6,6 +6,7 @@ export const DEMO_OWNER_ID = "22222222-2222-4222-8222-222222222222";
 export const ALLOWED_DEMO_USERS = [
   "demo-owner@adsecute.local",
   "shopify-review@adsecute.com",
+  "commercial-smoke@adsecute.com",
   "emrahbilaloglu@gmail.com",
 ];
 
@@ -132,7 +133,11 @@ export async function ensureDemoBusiness(sql) {
 
   for (const row of allowedRows) {
     const email = String(row.email).toLowerCase();
-    const role = email === "shopify-review@adsecute.com" ? "collaborator" : "admin";
+    const role =
+      email === "shopify-review@adsecute.com" ||
+      email === "commercial-smoke@adsecute.com"
+        ? "collaborator"
+        : "admin";
     await sql`
       INSERT INTO memberships (user_id, business_id, role, status)
       VALUES (${row.id}, ${DEMO_BUSINESS_ID}, ${role}, 'active')

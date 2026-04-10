@@ -28,6 +28,7 @@ Page routes currently used by the page:
 - `app/api/meta/breakdowns/route.ts`
 - `app/api/meta/adsets/route.ts`
 - `app/api/meta/recommendations/route.ts`
+- `app/api/business-operating-mode/route.ts`
 
 Status, readiness, and messaging layers currently used by the page:
 
@@ -90,6 +91,7 @@ Scope labels used in this document:
 | Breakdown age card | Page-scoped | Required | Yes |
 | Breakdown location card | Page-scoped | Required | Yes |
 | Breakdown placement card | Page-scoped | Required | Yes |
+| Operating mode card | Page-scoped | Optional | No |
 | Ad set drilldown | Page-scoped | Optional | No |
 | Recommendations panel / recommendation-aware campaign detail | Page-scoped | Optional | No |
 | Empty-state / preparing-state messaging | Page-scoped | Required page status surface | No |
@@ -133,6 +135,7 @@ Only currently rendered fields are listed below. Backend route fields that are n
 | Breakdown location card | country rows (label, ROAS, spend share bar, spend) | Yes | page-scoped | Required | Yes | `/api/meta/breakdowns` selected current range branch | `/api/meta/breakdowns` warehouse breakdown rows | `/api/meta/breakdowns` | `getMetaWarehouseBreakdowns` in current route implementation | breakdown rows returned by route | Yes | Shows loading skeleton first, then "No location data." when empty | No | Required page breakdown surface |
 | Breakdown age card | age rows (label, ROAS badge, spend) | Yes | page-scoped | Required | Yes | `/api/meta/breakdowns` selected current range branch | `/api/meta/breakdowns` warehouse breakdown rows | `/api/meta/breakdowns` | `getMetaWarehouseBreakdowns` in current route implementation | breakdown rows returned by route | Yes | Shows loading skeleton first, then "No age breakdown data." when empty | No | Shown inside the collapsible account overview grid |
 | Breakdown placement card | placement chart rows | Yes | page-scoped | Required | Yes | `/api/meta/breakdowns` selected current range branch | `/api/meta/breakdowns` warehouse breakdown rows | `/api/meta/breakdowns` | `getMetaWarehouseBreakdowns` in current route implementation | breakdown rows returned by route | Yes | Shows loading skeleton first; chart handles empty rows | No | Shown inside the collapsible account overview grid |
+| Operating mode card | current mode / recommended mode / why / guardrails / commercial drivers / platform inputs / missing inputs | Yes | page-scoped | Optional | No | `/api/business-operating-mode` | Same | `/api/business-operating-mode` | `buildAccountOperatingMode` | deterministic commercial-truth overlay from Meta selected-range truth + business commercial settings | Yes | Quiet fallback card shown if the route is unavailable | No | Deterministic decision-engine surface |
 | Recommendations panel | account-level recommendations run / refresh button | Yes | page-scoped | Optional | No | `/api/meta/recommendations` | Same | `/api/meta/recommendations` | `buildMetaRecommendations` | deterministic recommendation model | No | Button label changes with local loading and checked state | No | Deterministic decision-engine surface |
 | Recommendations panel | last analyzed relative time | Yes | page-scoped | Optional | No | client-local `lastAnalyzedAt` set after manual analyze | Same | N/A | `MetaAccountRecs` | client local page state only | Yes | Hidden until analysis has been run in the current page session | No | Current code does not persist this across reloads |
 | Recommendations panel | account-level recommendation cards | Yes | page-scoped | Optional | No | `/api/meta/recommendations` | Same | `/api/meta/recommendations` | `buildMetaRecommendations` | deterministic recommendation model | Yes | Empty copy shown when analysis exists but no account-level signals were returned | No | Deterministic decision-engine surface |

@@ -56,6 +56,11 @@ function buildReadiness(
         countsForPageCompleteness: false,
         truthClass: "deterministic_decision_engine",
       }),
+      operating_mode: buildSurface("syncing", {
+        blocking: false,
+        countsForPageCompleteness: false,
+        truthClass: "deterministic_decision_engine",
+      }),
     },
   });
 }
@@ -106,6 +111,11 @@ describe("meta page readiness", () => {
           countsForPageCompleteness: false,
           truthClass: "deterministic_decision_engine",
         }),
+        operating_mode: buildSurface("partial", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "deterministic_decision_engine",
+        }),
       },
     });
 
@@ -145,6 +155,11 @@ describe("meta page readiness", () => {
           countsForPageCompleteness: false,
           truthClass: "deterministic_decision_engine",
         }),
+        operating_mode: buildSurface("syncing", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "deterministic_decision_engine",
+        }),
       },
     });
 
@@ -172,6 +187,11 @@ describe("meta page readiness", () => {
           truthClass: "conditional_drilldown",
         }),
         recommendations: buildSurface("not_connected", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "deterministic_decision_engine",
+        }),
+        operating_mode: buildSurface("not_connected", {
           blocking: false,
           countsForPageCompleteness: false,
           truthClass: "deterministic_decision_engine",
@@ -225,6 +245,7 @@ describe("meta page readiness", () => {
 
     expect(readiness.optionalSurfaces.adsets.countsForPageCompleteness).toBe(false);
     expect(readiness.optionalSurfaces.recommendations.countsForPageCompleteness).toBe(false);
+    expect(readiness.optionalSurfaces.operating_mode.countsForPageCompleteness).toBe(false);
     expect(getMetaRequiredPageSurfaceKeys()).toEqual([
       "summary",
       "campaigns",
@@ -261,6 +282,11 @@ describe("meta page readiness", () => {
           countsForPageCompleteness: false,
           truthClass: "deterministic_decision_engine",
         }),
+        operating_mode: buildSurface("partial", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "deterministic_decision_engine",
+        }),
       },
     });
 
@@ -292,6 +318,11 @@ describe("meta page readiness", () => {
           truthClass: "conditional_drilldown",
         }),
         recommendations: buildSurface("ready", {
+          blocking: false,
+          countsForPageCompleteness: false,
+          truthClass: "deterministic_decision_engine",
+        }),
+        operating_mode: buildSurface("ready", {
           blocking: false,
           countsForPageCompleteness: false,
           truthClass: "deterministic_decision_engine",

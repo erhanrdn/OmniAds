@@ -26,6 +26,7 @@ describe("meta page contract", () => {
     expect(META_PAGE_OPTIONAL_SURFACES).toEqual([
       "adsets",
       "recommendations",
+      "operating_mode",
     ]);
     expect(META_PAGE_NON_BLOCKING_SURFACES).toEqual(META_PAGE_OPTIONAL_SURFACES);
   });
@@ -44,6 +45,7 @@ describe("meta page contract", () => {
       "breakdowns.age",
       "breakdowns.location",
       "breakdowns.placement",
+      "operating_mode",
       "adsets",
       "recommendations",
       "empty_state",

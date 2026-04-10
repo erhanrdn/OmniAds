@@ -29,6 +29,10 @@ vi.mock("@/components/meta/meta-breakdown-grid", () => ({
   MetaBreakdownGrid: () => React.createElement("div", null, "performance-breakdown"),
 }));
 
+vi.mock("@/components/meta/meta-operating-mode-card", () => ({
+  MetaOperatingModeCard: () => React.createElement("div", null, "operating-mode-card"),
+}));
+
 const { MetaCampaignDetail } = await import("@/components/meta/meta-campaign-detail");
 
 function selectedCampaign(overrides: Record<string, unknown> = {}) {
@@ -128,6 +132,7 @@ describe("MetaCampaignDetail render contract", () => {
       />
     );
 
+    expect(html).toContain("operating-mode-card");
     expect(html).toContain("account-recommendations");
     expect(html).toContain("performance-breakdown");
   });

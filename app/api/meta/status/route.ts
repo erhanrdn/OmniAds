@@ -926,6 +926,25 @@ export async function GET(request: NextRequest) {
           ? "Deterministic recommendations are available when the selected-range core surfaces are ready."
           : "Recommendations remain optional while selected-range core surfaces are still preparing.",
     },
+    operating_mode: {
+      state: !connected
+        ? "not_connected"
+        : pageRequiredSurfaces.summary.state === "ready" &&
+            pageRequiredSurfaces.campaigns.state === "ready"
+          ? "ready"
+          : overallSyncActive
+            ? "syncing"
+            : "partial",
+      blocking: false,
+      countsForPageCompleteness: false,
+      truthClass: "deterministic_decision_engine",
+      reason: !connected
+        ? "Meta integration is not connected."
+        : pageRequiredSurfaces.summary.state === "ready" &&
+            pageRequiredSurfaces.campaigns.state === "ready"
+          ? "Deterministic operating mode is available as an optional commercial-truth overlay."
+          : "Operating mode remains optional while the selected-range core surfaces are still preparing.",
+    },
   } as const;
   const pageReadiness = rollupMetaPageReadiness({
     connected,

@@ -17,6 +17,7 @@
     "sync:prune": "node --import tsx scripts/sync-prune.ts",
     "seed:demo-business": "node scripts/seed-demo-business.mjs",
     "seed:reviewer-account": "node scripts/seed-reviewer-account.mjs",
+    "seed:commercial-smoke-operator": "node scripts/seed-commercial-smoke-operator.mjs",
     "integrations:encrypt-backfill": "node --import tsx scripts/backfill-integration-secrets.ts",
     "meta:reset": "node --import tsx scripts/reset-meta-stack.ts",
     "meta:smoke": "node --import tsx scripts/meta-warehouse-smoke.ts",

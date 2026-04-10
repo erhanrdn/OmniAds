@@ -72,7 +72,11 @@ async function main() {
 
   for (const row of allowedRows) {
     const email = String(row.email).toLowerCase();
-    const role = email === "shopify-review@adsecute.com" ? "collaborator" : "admin";
+    const role =
+      email === "shopify-review@adsecute.com" ||
+      email === "commercial-smoke@adsecute.com"
+        ? "collaborator"
+        : "admin";
     await sql`
       INSERT INTO memberships (user_id, business_id, role, status)
       VALUES (${row.id}, ${DEMO_BUSINESS_ID}, ${role}, 'active')

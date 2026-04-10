@@ -56,6 +56,7 @@ function baseStatus(overrides: Partial<MetaStatusResponse> = {}): MetaStatusResp
       optionalSurfaces: {
         adsets: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "conditional_drilldown", reason: null },
         recommendations: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: null },
+        operating_mode: { state: "ready", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: null },
       },
     },
     ...overrides,
@@ -474,7 +475,11 @@ describe("Meta page render contract", () => {
   });
 
   it("renders usable sections when the page is partial and optional surfaces stay optional", () => {
-    expect(META_PAGE_OPTIONAL_SURFACES).toEqual(["adsets", "recommendations"]);
+    expect(META_PAGE_OPTIONAL_SURFACES).toEqual([
+      "adsets",
+      "recommendations",
+      "operating_mode",
+    ]);
     const status = baseStatus({
       state: "partial",
       pageReadiness: {
@@ -498,6 +503,7 @@ describe("Meta page render contract", () => {
         optionalSurfaces: {
           adsets: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "conditional_drilldown", reason: "Ad sets open after campaign drilldown." },
           recommendations: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: "Recommendations are optional." },
+          operating_mode: { state: "partial", blocking: false, countsForPageCompleteness: false, truthClass: "deterministic_decision_engine", reason: "Operating mode is optional." },
         },
       },
     });

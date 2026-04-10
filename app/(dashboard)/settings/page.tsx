@@ -34,6 +34,7 @@ import {
   type WorkspaceRole,
 } from "@/app/(dashboard)/settings/settings-support";
 import { getTranslations } from "@/lib/i18n";
+import { CommercialTruthSettingsSection } from "@/components/settings/commercial-truth-settings";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -742,6 +743,8 @@ export default function SettingsPage() {
           </Button>
         </SettingsActionRow>
       </SettingsSection>
+
+      <CommercialTruthSettingsSection businessId={selectedBusinessId} />
 
       <SettingsSection
         title="Account Settings"

@@ -25,6 +25,7 @@ import {
 import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
+import { CreativeCommercialContextCard } from "@/components/creatives/creative-commercial-context-card";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -289,6 +290,10 @@ export function CreativeDetailExperience({
     : { primaryLabel: null, secondaryLabel: null };
 
   const context = useMemo(() => (row ? buildCreativeDecisionContext(row, allRows) : null), [allRows, row]);
+  const standardRange = useMemo(
+    () => creativeDateRangeToStandard(dateRange),
+    [dateRange],
+  );
   const report = useMemo(
     () => (row && context ? buildCreativeRuleReport(row, context, creativeHistoryById?.get(row.id) ?? null) : null),
     [context, creativeHistoryById, row]
@@ -585,6 +590,12 @@ export function CreativeDetailExperience({
                   </div>
                 </div>
               </section>
+
+              <CreativeCommercialContextCard
+                businessId={businessId}
+                startDate={standardRange.customStart}
+                endDate={standardRange.customEnd}
+              />
 
               <section
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]"

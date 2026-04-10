@@ -21,6 +21,7 @@ import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
 import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
 import { MetaBreakdownGrid, type BreakdownRow } from "@/components/meta/meta-breakdown-grid";
 import type { PlacementChartRow } from "@/components/meta/placement-breakdown-chart";
+import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -274,12 +275,20 @@ interface AccountOverviewProps {
   ageRows: BreakdownRow[];
   placementRows: PlacementChartRow[];
   isBreakdownLoading: boolean;
+  businessId: string;
+  since: string;
+  until: string;
   language: "en" | "tr";
 }
 
 function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
+      <MetaOperatingModeCard
+        businessId={props.businessId}
+        startDate={props.since}
+        endDate={props.until}
+      />
       <MetaAccountRecs
         recommendationsData={props.recommendationsData}
         isRecsLoading={props.isRecsLoading}
@@ -335,6 +344,9 @@ export function MetaCampaignDetail({
         ageRows={ageRows}
         placementRows={placementRows}
         isBreakdownLoading={isBreakdownLoading}
+        businessId={businessId}
+        since={since}
+        until={until}
         language={language}
       />
     );

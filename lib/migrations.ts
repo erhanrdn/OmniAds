@@ -567,6 +567,84 @@ export async function runMigrations(options?: {
           updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id)
         )`,
+        sql`CREATE TABLE IF NOT EXISTS business_target_packs (
+          id                             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                    UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          target_cpa                     DOUBLE PRECISION,
+          target_roas                    DOUBLE PRECISION,
+          break_even_cpa                 DOUBLE PRECISION,
+          break_even_roas                DOUBLE PRECISION,
+          contribution_margin_assumption DOUBLE PRECISION,
+          aov_assumption                 DOUBLE PRECISION,
+          new_customer_weight            DOUBLE PRECISION,
+          default_risk_posture           TEXT NOT NULL DEFAULT 'balanced'
+                                          CHECK (default_risk_posture IN ('conservative', 'balanced', 'aggressive')),
+          source_label                   TEXT,
+          updated_by_user_id             UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS business_country_economics (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id          UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          country_code         TEXT NOT NULL,
+          economics_multiplier DOUBLE PRECISION,
+          margin_modifier      DOUBLE PRECISION,
+          serviceability       TEXT NOT NULL DEFAULT 'full'
+                                CHECK (serviceability IN ('full', 'limited', 'blocked')),
+          priority_tier        TEXT NOT NULL DEFAULT 'tier_2'
+                                CHECK (priority_tier IN ('tier_1', 'tier_2', 'tier_3')),
+          scale_override       TEXT NOT NULL DEFAULT 'default'
+                                CHECK (scale_override IN ('default', 'prefer_scale', 'hold', 'deprioritize')),
+          notes                TEXT,
+          source_label         TEXT,
+          updated_by_user_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, country_code)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS business_promo_calendar_events (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          event_id           TEXT NOT NULL,
+          title              TEXT NOT NULL,
+          promo_type         TEXT NOT NULL DEFAULT 'sale'
+                              CHECK (promo_type IN ('sale', 'launch', 'clearance', 'seasonal', 'other')),
+          severity           TEXT NOT NULL DEFAULT 'medium'
+                              CHECK (severity IN ('low', 'medium', 'high')),
+          start_date         DATE NOT NULL,
+          end_date           DATE NOT NULL,
+          affected_scope     TEXT,
+          notes              TEXT,
+          source_label       TEXT,
+          updated_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, event_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS business_operating_constraints (
+          id                                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                          UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          site_issue_status                    TEXT NOT NULL DEFAULT 'none'
+                                                CHECK (site_issue_status IN ('none', 'watch', 'critical')),
+          checkout_issue_status                TEXT NOT NULL DEFAULT 'none'
+                                                CHECK (checkout_issue_status IN ('none', 'watch', 'critical')),
+          conversion_tracking_issue_status     TEXT NOT NULL DEFAULT 'none'
+                                                CHECK (conversion_tracking_issue_status IN ('none', 'watch', 'critical')),
+          feed_issue_status                    TEXT NOT NULL DEFAULT 'none'
+                                                CHECK (feed_issue_status IN ('none', 'watch', 'critical')),
+          stock_pressure_status                TEXT NOT NULL DEFAULT 'healthy'
+                                                CHECK (stock_pressure_status IN ('healthy', 'watch', 'blocked')),
+          landing_page_concern                 TEXT,
+          merchandising_concern                TEXT,
+          manual_do_not_scale_reason           TEXT,
+          source_label                         TEXT,
+          updated_by_user_id                   UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at                           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id)
+        )`,
         sql`CREATE TABLE IF NOT EXISTS admin_audit_logs (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -678,6 +756,11 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_invites_business_id ON invites (business_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_invites_email ON invites (email)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_business_cost_models_business_id ON business_cost_models (business_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_target_packs_business_id ON business_target_packs (business_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_country_economics_business_country ON business_country_economics (business_id, country_code)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_event ON business_promo_calendar_events (business_id, event_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_dates ON business_promo_calendar_events (business_id, start_date, end_date)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_operating_constraints_business_id ON business_operating_constraints (business_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_admin ON admin_audit_logs (admin_id, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created ON admin_audit_logs (created_at DESC)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes (lower(code))`.catch(() => {}),
