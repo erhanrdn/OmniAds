@@ -159,6 +159,7 @@ export async function runGoogleAdsProductGate(
       details: [
         `GOOGLE_ADS_DECISION_ENGINE_V2: ${decisionConfig.decisionEngineV2Enabled ? "enabled" : "disabled"}`,
         `GOOGLE_ADS_WRITEBACK_ENABLED: ${decisionConfig.writebackEnabled ? "enabled" : "disabled"}`,
+        `GOOGLE_ADS_ADVISOR_AI_STRUCTURED_ASSIST_ENABLED: ${decisionConfig.advisorAiStructuredAssistEnabled ? "enabled" : "disabled"}`,
         `Write-back gate: ${writebackGate.reason}`,
         `Write-back pilot: ${automationConfig.writebackPilotEnabled ? "enabled" : "disabled"}`,
         `Semi-autonomous bundles: ${automationConfig.semiAutonomousBundlesEnabled ? "enabled" : "disabled"}`,
@@ -180,6 +181,7 @@ export async function runGoogleAdsProductGate(
       data: {
         decisionEngineV2Enabled: decisionConfig.decisionEngineV2Enabled,
         writebackEnabled: decisionConfig.writebackEnabled,
+        advisorAiStructuredAssistEnabled: decisionConfig.advisorAiStructuredAssistEnabled,
         retentionExecutionEnabled: retentionRuntime.executionEnabled,
         writebackPilotEnabled: automationConfig.writebackPilotEnabled,
         semiAutonomousBundlesEnabled: automationConfig.semiAutonomousBundlesEnabled,

@@ -2,6 +2,7 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { GoogleAdvisorPanel } from "@/components/google/google-advisor-panel";
+import { buildGoogleAdsOperatorActionCard } from "@/lib/google-ads/advisor-action-contract";
 import type {
   GoogleAdvisorResponse,
   GoogleRecommendation,
@@ -381,6 +382,35 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Suppress 7d");
     expect(html).toContain("Mark complete");
     expect(html).toContain("Log outcome");
+  });
+
+  it("shows AI structured assist provenance without displacing the action-first contract", () => {
+    const assistedRecommendation = buildRecommendation("r-ai", "review", {
+      operatorActionCard: {
+        ...buildGoogleAdsOperatorActionCard(buildRecommendation("r-ai-card", "review"), "native"),
+        assistMode: "ai_structured_assist",
+        primaryAction: "Tighten brand routing before scaling discovery again.",
+      },
+      structuredAssist: {
+        state: "applied",
+        mode: "snapshot_time",
+        model: "gpt-5-nano",
+        reason: "Structured AI assist applied to deterministic fallback recommendation fields.",
+        filledFields: ["primaryAction", "exactChanges"],
+      },
+    });
+
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdvisorPanel, {
+        advisor: buildAdvisor([assistedRecommendation]),
+      })
+    );
+
+    expect(html).toContain("AI-structured assist");
+    expect(html).toContain("This structured card was synthesized from existing recommendation evidence at snapshot time.");
+    expect(html.indexOf("Primary action")).toBeLessThan(
+      html.indexOf("This structured card was synthesized from existing recommendation evidence at snapshot time.")
+    );
   });
 
   it("renders suppressed recommendations with explicit suppression reasons and contextual selected-range language", () => {

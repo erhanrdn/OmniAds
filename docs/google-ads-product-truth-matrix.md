@@ -28,6 +28,7 @@ Required default posture:
 
 Future-path flags expected to stay disabled by default:
 
+- advisor AI structured assist gate
 - write-back pilot gates
 - semi-autonomous action-pack gates
 - controlled-autonomy gates
@@ -37,6 +38,7 @@ Future-path flags expected to stay disabled by default:
 - `GET /api/google-ads/status` is materially state-driven and reflects required warehouse coverage, queue health, worker state, recovery posture, and advisor readiness.
 - `GET /api/google-ads/advisor` serves snapshot-backed decision payloads by default and supports `refresh=1`.
 - The advisor payload exposes deterministic recommendation fields plus `metadata.actionContract` and `recommendation.operatorActionCard`.
+- Snapshot generation can optionally apply a schema-validated AI structured assist to eligible fallback recommendations, but the deterministic operator card contract remains the source of truth.
 - The current Google Ads advisor UI is action-first at the card level and clearly labels legacy snapshot compatibility.
 - The advisor now consumes persisted weekly top-query and daily cluster aggregates as supplemental support when those tables are available, and it exposes that posture in snapshot metadata.
 - Recommendation memory exists and persists recommendation lifecycle, execution state, rollback availability, and outcome fields in `google_ads_advisor_memory`.

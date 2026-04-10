@@ -333,6 +333,7 @@ function RecommendationCard({
   const actionCard =
     recommendation.operatorActionCard ?? buildGoogleAdsOperatorActionCard(recommendation, actionContractSource);
   const compatibilityDerived = actionCard.contractSource === "compatibility_derived";
+  const aiStructuredAssist = actionCard.assistMode === "ai_structured_assist";
   const exactChanges = actionCard.exactChanges.filter(
     (block) => block.items.length > 0 || Boolean(block.emptyLabel)
   );
@@ -400,6 +401,7 @@ function RecommendationCard({
           <Badge variant="outline">{familyLabel(recommendation.decisionFamily)}</Badge>
           <Badge variant="outline">{labelize(recommendation.strategyLayer)}</Badge>
           {executionSurface?.writebackEnabled ? null : <Badge variant="outline">Manual plan only</Badge>}
+          {aiStructuredAssist ? <Badge variant="outline">AI-structured assist</Badge> : null}
           {compatibilityDerived ? <Badge variant="outline">Legacy snapshot compatibility</Badge> : null}
         </div>
         <div className="grid gap-1 text-right text-xs">
@@ -450,6 +452,12 @@ function RecommendationCard({
             ? "Account-level decision"
             : recommendation.entityName ?? labelize(recommendation.level)}
         </p>
+        {aiStructuredAssist ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            This structured card was synthesized from existing recommendation evidence at snapshot time. Apply the exact
+            items manually in Google Ads.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
