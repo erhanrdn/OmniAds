@@ -10,6 +10,7 @@ import type {
   SearchTermPerformanceRow,
 } from "@/lib/google-ads/intelligence-model";
 import {
+  type GoogleAdvisorAggregateIntelligence,
   annotateAdvisorMemory,
   getAdvisorExecutionCalibration,
   updateAdvisorCompletionState,
@@ -201,6 +202,25 @@ function device(overrides: Partial<DevicePerformanceRow> = {}): DevicePerformanc
     ctr: 10,
     cpa: 10,
     roas: 4,
+    ...overrides,
+  };
+}
+
+function aggregateIntelligence(
+  overrides: Partial<GoogleAdvisorAggregateIntelligence> = {}
+): GoogleAdvisorAggregateIntelligence {
+  return {
+    queryWeeklySupport: [],
+    clusterDailySupport: [],
+    metadata: {
+      topQueryWeeklyAvailable: false,
+      clusterDailyAvailable: false,
+      queryWeeklyRows: 0,
+      clusterDailyRows: 0,
+      supportWindowStart: "2026-01-15",
+      supportWindowEnd: "2026-04-08",
+      note: "No persisted aggregate query or cluster support was available for this advisor run.",
+    },
     ...overrides,
   };
 }
@@ -610,6 +630,142 @@ describe("buildGoogleGrowthAdvisor", () => {
     expect(recommendation?.promoteToExact).toContain("carry on backpack");
     expect(recommendation?.promoteToExact).not.toContain("weekender bag");
     expect(recommendation?.promoteToPhrase).toContain("weekender bag");
+  });
+
+  it("uses persisted weekly query support to keep keyword buildout action-first when window support is thin", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [
+        campaign({ campaignId: "c-brand", campaignName: "Brand Search", channel: "SEARCH", spend: 80, revenue: 480, conversions: 12, roas: 6 }),
+        campaign({ campaignId: "c-pmax", campaignName: "Travel Gear Performance Max", channel: "PERFORMANCE_MAX", spend: 300, revenue: 900, conversions: 18, roas: 3 }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          searchTerm: "carry on backpack",
+          clusterId: "carry-on-travel",
+          intentClass: "category_high_intent",
+          conversions: 2,
+          revenue: 260,
+          roas: 3.2,
+        }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "last3", label: "last 3d", campaigns: [campaign({ campaignName: "Brand Search" }), campaign({ campaignName: "Travel Gear Performance Max", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ searchTerm: "carry on backpack", conversions: 1, revenue: 120, roas: 3, intentClass: "category_high_intent", clusterId: "carry-on-travel" })], products: [product()] },
+      ],
+      aggregateIntelligence: aggregateIntelligence({
+        queryWeeklySupport: [
+          {
+            normalizedQuery: "carry on backpack",
+            displayQuery: "carry on backpack",
+            weeksPresent: 4,
+            totalSpend: 280,
+            totalRevenue: 900,
+            totalConversions: 8,
+            totalClicks: 120,
+            lastWeekEnd: "2026-04-06",
+          },
+        ],
+        clusterDailySupport: [
+          {
+            clusterKey: "carry-on-travel",
+            clusterLabel: "carry-on travel",
+            themeKey: "category_high_intent",
+            dominantIntentClass: "category_high_intent",
+            dominantOwnershipClass: "non_brand",
+            daysPresent: 12,
+            totalUniqueQueries: 18,
+            totalSpend: 360,
+            totalRevenue: 1040,
+            totalConversions: 10,
+            totalClicks: 140,
+            lastSeenDate: "2026-04-08",
+          },
+        ],
+        metadata: {
+          topQueryWeeklyAvailable: true,
+          clusterDailyAvailable: true,
+          queryWeeklyRows: 1,
+          clusterDailyRows: 1,
+          supportWindowStart: "2026-01-15",
+          supportWindowEnd: "2026-04-08",
+          note: "Persisted weekly top-query and daily cluster aggregates are loaded as supplemental support.",
+        },
+      }),
+    });
+
+    const recommendation = advisor.recommendations.find((entry) => entry.type === "keyword_buildout");
+    expect(recommendation).toBeTruthy();
+    expect(recommendation?.promoteToExact).toContain("carry on backpack");
+    expect(recommendation?.supportStrength).toBe("strong");
+    expect(advisor.metadata?.aggregateIntelligence).toMatchObject({
+      topQueryWeeklyAvailable: true,
+      clusterDailyAvailable: true,
+    });
+  });
+
+  it("uses persisted cluster support to keep broad discovery themes scannable", () => {
+    const advisor = buildGoogleGrowthAdvisor({
+      selectedLabel: "selected 14d",
+      selectedCampaigns: [
+        campaign({ campaignId: "c-brand", campaignName: "Brand Search", channel: "SEARCH", spend: 80, revenue: 480, conversions: 12, roas: 6 }),
+        campaign({ campaignId: "c-pmax", campaignName: "Travel Gear Performance Max", channel: "PERFORMANCE_MAX", spend: 300, revenue: 900, conversions: 18, roas: 3 }),
+      ],
+      selectedSearchTerms: [
+        searchTerm({
+          searchTerm: "travel backpack",
+          clusterId: "travel-backpack-theme",
+          intentClass: "category_mid_intent",
+          conversions: 1,
+          clicks: 26,
+          revenue: 140,
+          roas: 3.4,
+        }),
+      ],
+      selectedProducts: [product()],
+      selectedAssets: [asset()],
+      selectedAssetGroups: [assetGroup()],
+      selectedGeos: [geo()],
+      selectedDevices: [device()],
+      windows: [
+        { key: "last7", label: "last 7d", campaigns: [campaign({ campaignName: "Brand Search" }), campaign({ campaignName: "Travel Gear Performance Max", channel: "PERFORMANCE_MAX" })], searchTerms: [searchTerm({ searchTerm: "travel backpack", clusterId: "travel-backpack-theme", intentClass: "category_mid_intent", conversions: 1, clicks: 26, revenue: 140, roas: 3.4 })], products: [product()] },
+      ],
+      aggregateIntelligence: aggregateIntelligence({
+        clusterDailySupport: [
+          {
+            clusterKey: "travel-backpack-theme",
+            clusterLabel: "Travel backpack demand",
+            themeKey: "category_mid_intent",
+            dominantIntentClass: "category_mid_intent",
+            dominantOwnershipClass: "non_brand",
+            daysPresent: 14,
+            totalUniqueQueries: 22,
+            totalSpend: 420,
+            totalRevenue: 980,
+            totalConversions: 9,
+            totalClicks: 170,
+            lastSeenDate: "2026-04-08",
+          },
+        ],
+        metadata: {
+          topQueryWeeklyAvailable: false,
+          clusterDailyAvailable: true,
+          queryWeeklyRows: 0,
+          clusterDailyRows: 1,
+          supportWindowStart: "2026-01-15",
+          supportWindowEnd: "2026-04-08",
+          note: "Persisted daily cluster aggregates are loaded as supplemental support.",
+        },
+      }),
+    });
+
+    const recommendation = advisor.recommendations.find((entry) => entry.type === "keyword_buildout");
+    expect(recommendation).toBeTruthy();
+    expect(recommendation?.broadDiscoveryThemes).toContain("Travel backpack demand");
   });
 
   it("adds diagnostic flags when visibility is too thin", () => {

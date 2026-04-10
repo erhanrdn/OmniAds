@@ -9,6 +9,8 @@ import type {
 } from "@/lib/google-ads/intelligence-model";
 import type { BusinessCostModel } from "@/lib/business-cost-model";
 import type {
+  GoogleAdvisorAggregateIntelligence,
+  GoogleAdvisorAggregateClusterSupport,
   GoogleAdvisorResponse,
   GoogleAdvisorHistoricalSupport,
   GoogleActionability,
@@ -95,6 +97,7 @@ interface BuildGoogleGrowthAdvisorInput {
   selectedGeos: GeoPerformanceRow[];
   selectedDevices: DevicePerformanceRow[];
   windows: WindowInput[];
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
 }
 
 interface MetricAggregate {
@@ -162,6 +165,7 @@ interface IntegrityContext {
   selectedSearchTerms: SearchTermPerformanceRow[];
   selectedProducts: ProductPerformanceRow[];
   windows: WindowInput[];
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
 }
 
 const WINDOW_WEIGHTS: Array<{ key: WindowInput["key"]; weight: number }> = [
@@ -544,6 +548,159 @@ function buildQueryWindowSupportMap(
   return supportMap;
 }
 
+function bucketWeeklySupportScore(weeksPresent: number) {
+  if (weeksPresent >= 8) return 6;
+  if (weeksPresent >= 6) return 5;
+  if (weeksPresent >= 4) return 4;
+  if (weeksPresent >= 3) return 3;
+  if (weeksPresent >= 2) return 2;
+  if (weeksPresent >= 1) return 1;
+  return 0;
+}
+
+function buildAggregateQuerySupportMap(
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null
+) {
+  const supportMap = new Map<string, number>();
+  for (const row of aggregateIntelligence?.queryWeeklySupport ?? []) {
+    const key = normalizeSearchTerm(row.displayQuery || row.normalizedQuery);
+    if (!key) continue;
+    supportMap.set(key, Math.max(supportMap.get(key) ?? 0, bucketWeeklySupportScore(row.weeksPresent)));
+  }
+  return supportMap;
+}
+
+function mergeSupportMaps(primary: Map<string, number>, secondary: Map<string, number>) {
+  const merged = new Map(primary);
+  for (const [key, value] of secondary.entries()) {
+    merged.set(key, Math.max(merged.get(key) ?? 0, value));
+  }
+  return merged;
+}
+
+function normalizeClusterSupportKey(value: string | null | undefined) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function buildAggregateClusterIndex(
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null
+) {
+  const byClusterKey = new Map<string, GoogleAdvisorAggregateClusterSupport>();
+  const byClusterLabel = new Map<string, GoogleAdvisorAggregateClusterSupport>();
+  const byThemeKey = new Map<string, GoogleAdvisorAggregateClusterSupport>();
+
+  for (const row of aggregateIntelligence?.clusterDailySupport ?? []) {
+    const clusterKey = normalizeClusterSupportKey(row.clusterKey);
+    const clusterLabel = normalizeClusterSupportKey(row.clusterLabel);
+    const themeKey = normalizeClusterSupportKey(row.themeKey);
+    if (clusterKey) byClusterKey.set(clusterKey, row);
+    if (clusterLabel) byClusterLabel.set(clusterLabel, row);
+    if (themeKey) {
+      const existing = byThemeKey.get(themeKey);
+      if (!existing || row.daysPresent > existing.daysPresent || row.totalSpend > existing.totalSpend) {
+        byThemeKey.set(themeKey, row);
+      }
+    }
+  }
+
+  return {
+    byClusterKey,
+    byClusterLabel,
+    byThemeKey,
+  };
+}
+
+function getAggregateClusterSupportForRow(
+  row: SearchTermPerformanceRow,
+  clusterIndex: ReturnType<typeof buildAggregateClusterIndex>
+) {
+  const keys = [
+    normalizeClusterSupportKey(row.clusterId),
+    normalizeClusterSupportKey(row.searchTerm),
+    normalizeClusterSupportKey(row.intentClass),
+  ].filter(Boolean);
+
+  for (const key of keys) {
+    const match =
+      clusterIndex.byClusterKey.get(key) ??
+      clusterIndex.byClusterLabel.get(key) ??
+      clusterIndex.byThemeKey.get(key);
+    if (match) return match;
+  }
+  return null;
+}
+
+function hasAggregateClusterSupport(
+  row: SearchTermPerformanceRow,
+  aggregateIntelligence: GoogleAdvisorAggregateIntelligence | null | undefined,
+  minDaysPresent: number
+) {
+  const support = getAggregateClusterSupportForRow(
+    row,
+    buildAggregateClusterIndex(aggregateIntelligence)
+  );
+  return Boolean(support && support.daysPresent >= minDaysPresent);
+}
+
+function topSupportedClustersFromRows(input: {
+  rows: SearchTermPerformanceRow[];
+  limit: number;
+  predicate: (row: SearchTermPerformanceRow) => boolean;
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
+}) {
+  const clusterIndex = buildAggregateClusterIndex(input.aggregateIntelligence);
+  const grouped = new Map<
+    string,
+    {
+      label: string;
+      daysPresent: number;
+      spend: number;
+      conversions: number;
+      uniqueQueries: Set<string>;
+    }
+  >();
+
+  for (const row of input.rows.filter(input.predicate)) {
+    const aggregateSupport = getAggregateClusterSupportForRow(row, clusterIndex);
+    const key =
+      normalizeClusterSupportKey(aggregateSupport?.clusterKey) ||
+      normalizeClusterSupportKey(row.clusterId) ||
+      normalizeClusterSupportKey(row.searchTerm);
+    if (!key) continue;
+    const existing = grouped.get(key);
+    const label = aggregateSupport?.clusterLabel || String(row.clusterId ?? row.searchTerm).trim();
+    if (!existing) {
+      grouped.set(key, {
+        label,
+        daysPresent: aggregateSupport?.daysPresent ?? 0,
+        spend: aggregateSupport?.totalSpend ?? Number(row.spend ?? 0),
+        conversions: aggregateSupport?.totalConversions ?? Number(row.conversions ?? 0),
+        uniqueQueries: new Set([normalizeSearchTerm(row.searchTerm)]),
+      });
+      continue;
+    }
+
+    existing.daysPresent = Math.max(existing.daysPresent, aggregateSupport?.daysPresent ?? 0);
+    existing.spend = Math.max(existing.spend, aggregateSupport?.totalSpend ?? 0) + Number(row.spend ?? 0);
+    existing.conversions =
+      Math.max(existing.conversions, aggregateSupport?.totalConversions ?? 0) + Number(row.conversions ?? 0);
+    existing.uniqueQueries.add(normalizeSearchTerm(row.searchTerm));
+  }
+
+  return Array.from(grouped.values())
+    .sort(
+      (left, right) =>
+        right.daysPresent - left.daysPresent ||
+        right.spend - left.spend ||
+        right.conversions - left.conversions ||
+        right.uniqueQueries.size - left.uniqueQueries.size
+    )
+    .slice(0, input.limit)
+    .map((entry) => entry.label);
+}
+
 function uniqueTokensFromQueries(queries: string[], limit: number) {
   return Array.from(
     new Set(
@@ -559,7 +716,8 @@ function uniqueTokensFromQueries(queries: string[], limit: number) {
 
 function buildReplacementAngles(
   searchTerms: SearchTermPerformanceRow[],
-  products: ProductPerformanceRow[]
+  products: ProductPerformanceRow[],
+  aggregateThemeHints: string[] = []
 ) {
   const themes = topClusters(
     searchTerms,
@@ -571,10 +729,13 @@ function buildReplacementAngles(
     .slice(0, 2)
     .map((row) => row.productTitle);
 
-  return [
-    ...themes.map((theme) => `Lead with "${theme}" intent in the first line`),
-    ...productAngles.map((title) => `Use ${title} as the anchor proof point`),
-  ].slice(0, 4);
+  return Array.from(
+    new Set([
+      ...aggregateThemeHints.map((theme) => `Lead with "${theme}" intent in the first line`),
+      ...themes.map((theme) => `Lead with "${theme}" intent in the first line`),
+      ...productAngles.map((title) => `Use ${title} as the anchor proof point`),
+    ])
+  ).slice(0, 4);
 }
 
 function buildCampaignRoleRows(
@@ -714,27 +875,39 @@ function overlapTrendLabel(
 
 function supportCountForRecommendation(
   recommendation: AdvisorBaseRecommendation,
-  windows: WindowInput[]
+  windows: WindowInput[],
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null
 ) {
+  const aggregateQuerySupport = buildAggregateQuerySupportMap(aggregateIntelligence);
   if (recommendation.type === "query_governance" || recommendation.type === "brand_capture_control") {
     const targetQueries = new Set(
       [...(recommendation.negativeQueries ?? []), ...(recommendation.negativeGuardrails ?? [])].map(normalizeSearchTerm)
     );
-    return windows.filter((window) =>
+    const windowSupport = windows.filter((window) =>
       window.searchTerms.some((row) => {
         const normalized = normalizeSearchTerm(row.searchTerm);
         return targetQueries.has(normalized) || targetQueries.has((row.ownershipClass ?? "").replace(/_/g, " "));
       })
     ).length;
+    const aggregateSupport = Array.from(targetQueries).reduce(
+      (maxSupport, query) => Math.max(maxSupport, aggregateQuerySupport.get(query) ?? 0),
+      0
+    );
+    return Math.max(windowSupport, aggregateSupport);
   }
 
   if (recommendation.type === "keyword_buildout") {
     const targetQueries = new Set(
       [...(recommendation.promoteToExact ?? []), ...(recommendation.promoteToPhrase ?? [])].map(normalizeSearchTerm)
     );
-    return windows.filter((window) =>
+    const windowSupport = windows.filter((window) =>
       window.searchTerms.some((row) => targetQueries.has(normalizeSearchTerm(row.searchTerm)))
     ).length;
+    const aggregateSupport = Array.from(targetQueries).reduce(
+      (maxSupport, query) => Math.max(maxSupport, aggregateQuerySupport.get(query) ?? 0),
+      0
+    );
+    return Math.max(windowSupport, aggregateSupport);
   }
 
   if (recommendation.type === "product_allocation" || recommendation.type === "shopping_launch_or_split") {
@@ -753,26 +926,36 @@ function supportCountForRecommendation(
 
   if (recommendation.type === "brand_leakage") {
     const targetQueries = new Set((recommendation.negativeQueries ?? []).map(normalizeSearchTerm));
-    return windows.filter((window) =>
+    const windowSupport = windows.filter((window) =>
       window.searchTerms.some(
         (row) =>
           row.ownershipClass === "brand" &&
           targetQueries.has(normalizeSearchTerm(row.searchTerm))
       )
     ).length;
+    const aggregateSupport = Array.from(targetQueries).reduce(
+      (maxSupport, query) => Math.max(maxSupport, aggregateQuerySupport.get(query) ?? 0),
+      0
+    );
+    return Math.max(windowSupport, aggregateSupport);
   }
 
   if (recommendation.type === "orphaned_non_brand_demand") {
     const targetQueries = new Set(
       [...(recommendation.promoteToExact ?? []), ...(recommendation.promoteToPhrase ?? [])].map(normalizeSearchTerm)
     );
-    return windows.filter((window) =>
+    const windowSupport = windows.filter((window) =>
       window.searchTerms.some(
         (row) =>
           (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") &&
           targetQueries.has(normalizeSearchTerm(row.searchTerm))
       )
     ).length;
+    const aggregateSupport = Array.from(targetQueries).reduce(
+      (maxSupport, query) => Math.max(maxSupport, aggregateQuerySupport.get(query) ?? 0),
+      0
+    );
+    return Math.max(windowSupport, aggregateSupport);
   }
 
   if (recommendation.affectedFamilies?.length) {
@@ -788,9 +971,10 @@ function supportCountForRecommendation(
 
 function toSupportStrength(
   recommendation: AdvisorBaseRecommendation,
-  windows: WindowInput[]
+  windows: WindowInput[],
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null
 ): GoogleSupportStrength {
-  const supportCount = supportCountForRecommendation(recommendation, windows);
+  const supportCount = supportCountForRecommendation(recommendation, windows, aggregateIntelligence);
   if (supportCount >= 4) return "strong";
   if (supportCount >= 2) return "moderate";
   return "weak";
@@ -1045,6 +1229,7 @@ function enrichRecommendation(input: {
   selectedProducts: ProductPerformanceRow[];
   selectedLabel: string;
   windows: WindowInput[];
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
 }): GoogleRecommendation {
   const dataTrust = toDataTrust(input);
   const confidenceDegradationReasons = toConfidenceDegradationReasons(input);
@@ -1066,7 +1251,11 @@ function enrichRecommendation(input: {
     }),
     dataTrust,
     integrityState: "ready",
-    supportStrength: toSupportStrength(input.recommendation, input.windows),
+    supportStrength: toSupportStrength(
+      input.recommendation,
+      input.windows,
+      input.aggregateIntelligence
+    ),
     actionability: toActionability(blockers),
     reversibility: toReversibility(input.recommendation),
     decisionNarrative: {
@@ -1098,7 +1287,11 @@ function enrichRecommendation(input: {
         }),
         dataTrust,
         integrityState: "ready",
-        supportStrength: toSupportStrength(input.recommendation, input.windows),
+        supportStrength: toSupportStrength(
+          input.recommendation,
+          input.windows,
+          input.aggregateIntelligence
+        ),
         actionability: toActionability(blockers),
         reversibility: toReversibility(input.recommendation),
         whyNow: toWhyNow(input.recommendation),
@@ -1251,7 +1444,11 @@ function applyDecisionIntegrity(input: {
       recommendation.doBucket = "do_next";
     }
 
-    const supportCount = supportCountForRecommendation(recommendation, input.context.windows);
+    const supportCount = supportCountForRecommendation(
+      recommendation,
+      input.context.windows,
+      input.context.aggregateIntelligence
+    );
     if (supportCount <= 1) {
       degradation.push("Cross-window support is weak or isolated.");
       recommendation.integrityState = recommendation.integrityState === "ready" ? "downgraded" : recommendation.integrityState;
@@ -1543,18 +1740,25 @@ export function buildGoogleGrowthAdvisor(
     isHighIntentQuery(row) ||
     row.intentClass === "category_mid_intent" ||
     row.intentClass === "price_sensitive";
-  const recurringNonBrandSupport = buildQueryWindowSupportMap(
-    windows,
-    (row) =>
-      row.ownershipClass !== "brand" &&
-      !isCleanupIntent(row) &&
-      (Number(row.conversions ?? 0) >= 1 || Number(row.revenue ?? 0) >= 100)
+  const aggregateQuerySupport = buildAggregateQuerySupportMap(input.aggregateIntelligence);
+  const recurringNonBrandSupport = mergeSupportMaps(
+    buildQueryWindowSupportMap(
+      windows,
+      (row) =>
+        row.ownershipClass !== "brand" &&
+        !isCleanupIntent(row) &&
+        (Number(row.conversions ?? 0) >= 1 || Number(row.revenue ?? 0) >= 100)
+    ),
+    aggregateQuerySupport
   );
-  const recurringWasteSupport = buildQueryWindowSupportMap(
-    windows,
-    (row) =>
-      (Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") &&
-      Number(row.spend ?? 0) >= 20
+  const recurringWasteSupport = mergeSupportMaps(
+    buildQueryWindowSupportMap(
+      windows,
+      (row) =>
+        (Boolean(row.negativeKeywordFlag || row.wasteFlag) || row.ownershipClass === "weak_commercial") &&
+        Number(row.spend ?? 0) >= 20
+    ),
+    aggregateQuerySupport
   );
 
   const nonBrandSeedRows = selectedSearchTerms
@@ -1715,9 +1919,17 @@ export function buildGoogleGrowthAdvisor(
       });
       const seedQueriesExact = exactSeedRows.slice(0, 5).map((row) => row.searchTerm);
       const seedQueriesPhrase = phraseSeedRows.slice(0, 5).map((row) => row.searchTerm);
-      const seedThemesBroad = topClusters(nonBrandSeedRows, 4, (row) => {
-        const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
-        return Number(row.clicks ?? 0) >= 15 && support >= 2;
+      const seedThemesBroad = topSupportedClustersFromRows({
+        rows: nonBrandSeedRows,
+        limit: 4,
+        predicate: (row) => {
+          const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
+          return (
+            Number(row.clicks ?? 0) >= 15 &&
+            (support >= 2 || hasAggregateClusterSupport(row, input.aggregateIntelligence, 7))
+          );
+        },
+        aggregateIntelligence: input.aggregateIntelligence,
       });
       const negativeQueries = topSearchTerms(
         input.selectedSearchTerms,
@@ -2141,7 +2353,15 @@ export function buildGoogleGrowthAdvisor(
     const suppressedQueries = suppressedWasteAssessments
       .slice(0, 6)
       .map((entry) => entry.row.searchTerm);
-    const negativeClusters = topClusters(eligibleWasteQueries, 4, () => true);
+    const aggregateSupportedWasteQueries = eligibleWasteQueries.filter(
+      (row) => (aggregateQuerySupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0) >= 2
+    ).length;
+    const negativeClusters = topSupportedClustersFromRows({
+      rows: eligibleWasteQueries,
+      limit: 4,
+      predicate: () => true,
+      aggregateIntelligence: input.aggregateIntelligence,
+    });
     const negativeKeywordPolicy = buildNegativeKeywordPolicySummary({
       eligibleQueryCount: eligibleWasteQueries.length,
       suppressedQueryCount: suppressedWasteAssessments.length,
@@ -2197,6 +2417,7 @@ export function buildGoogleGrowthAdvisor(
             ).length
           )
         ),
+        metricEvidence("Weekly-supported eligible queries", String(aggregateSupportedWasteQueries)),
         metricEvidence(
           "Eligible waste spend",
           `$${round(eligibleWasteQueries.reduce((sum, row) => sum + Number(row.spend ?? 0), 0)).toLocaleString()}`
@@ -2249,13 +2470,24 @@ export function buildGoogleGrowthAdvisor(
     .map((row) => row.searchTerm)
     .filter((query) => !exactCandidates.includes(query))
     .slice(0, 5);
-  const broadThemes = topClusters(nonBrandSeedRows, 4, (row) => {
-    const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
-    return Number(row.clicks ?? 0) >= 15 && support >= 2;
+  const broadThemes = topSupportedClustersFromRows({
+    rows: nonBrandSeedRows,
+    limit: 4,
+    predicate: (row) => {
+      const support = recurringNonBrandSupport.get(normalizeSearchTerm(row.searchTerm)) ?? 0;
+      return (
+        Number(row.clicks ?? 0) >= 15 &&
+        (support >= 2 || hasAggregateClusterSupport(row, input.aggregateIntelligence, 7))
+      );
+    },
+    aggregateIntelligence: input.aggregateIntelligence,
   });
   if (exactCandidates.length > 0 || phraseCandidates.length > 0 || broadThemes.length > 0) {
     const recurringExactCount = exactCandidates.filter(
       (query) => (recurringNonBrandSupport.get(normalizeSearchTerm(query)) ?? 0) >= 2
+    ).length;
+    const aggregateExactCount = exactCandidates.filter(
+      (query) => (aggregateQuerySupport.get(normalizeSearchTerm(query)) ?? 0) >= 2
     ).length;
     recommendationPool.push({
       id: "google-keyword-buildout",
@@ -2282,6 +2514,7 @@ export function buildGoogleGrowthAdvisor(
       evidence: [
         metricEvidence("Promote to exact", String(exactCandidates.length)),
         metricEvidence("Recurring exact support", String(recurringExactCount)),
+        metricEvidence("Weekly-supported exact terms", String(aggregateExactCount)),
         metricEvidence("Promote to phrase", String(phraseCandidates.length)),
         metricEvidence(
           "High-intent candidates",
@@ -2588,7 +2821,16 @@ export function buildGoogleGrowthAdvisor(
       scaleReadyAssets,
       testOnlyAssets,
       replaceAssets,
-      replacementAngles: buildReplacementAngles(input.selectedSearchTerms, input.selectedProducts),
+      replacementAngles: buildReplacementAngles(
+        input.selectedSearchTerms,
+        input.selectedProducts,
+        topSupportedClustersFromRows({
+          rows: input.selectedSearchTerms,
+          limit: 2,
+          predicate: (row) => Number(row.revenue ?? 0) > 0 && Number(row.conversions ?? 0) >= 1,
+          aggregateIntelligence: input.aggregateIntelligence,
+        })
+      ),
       prerequisites: [
         "Do not let scaling lanes keep discovering with weak assets still in rotation",
       ],
@@ -2770,6 +3012,7 @@ export function buildGoogleGrowthAdvisor(
         selectedProducts: input.selectedProducts,
         selectedLabel: input.selectedLabel,
         windows,
+        aggregateIntelligence: input.aggregateIntelligence,
       })
     );
   const commerceAssessments = buildProductCommerceAssessments({
@@ -2787,6 +3030,7 @@ export function buildGoogleGrowthAdvisor(
       selectedSearchTerms,
       selectedProducts: input.selectedProducts,
       windows,
+      aggregateIntelligence: input.aggregateIntelligence,
     },
   });
 
@@ -2888,6 +3132,7 @@ export function buildGoogleGrowthAdvisor(
         selectedRangeContext: null,
       }),
       executionSurface: buildGoogleAdsExecutionSurface(),
+      aggregateIntelligence: input.aggregateIntelligence?.metadata ?? null,
     },
   };
 }

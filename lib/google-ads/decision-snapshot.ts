@@ -71,6 +71,7 @@ export function buildGoogleAdsDecisionSnapshotMetadata(input: {
   decisionSummaryTotals?: DecisionSummaryTotals | null;
   selectedRangeTotals?: SelectedRangeTotals | null;
   selectedRangeContext?: SelectedRangeContext | null;
+  aggregateIntelligence?: GoogleAdvisorMetadata["aggregateIntelligence"];
   lagAdjustedEndDate?: string | null;
 }): GoogleAdvisorMetadata {
   const windowSet = buildGoogleAdsDecisionSnapshotWindowSet(input.asOfDate);
@@ -106,6 +107,7 @@ export function buildGoogleAdsDecisionSnapshotMetadata(input: {
         }
       : null,
     selectedRangeContext: input.selectedRangeContext ?? null,
+    aggregateIntelligence: input.aggregateIntelligence ?? null,
   };
 }
 
@@ -140,6 +142,7 @@ export function normalizeGoogleAdsDecisionSnapshotPayload(input: {
         : null),
     selectedRangeTotals: existingMetadata?.selectedRangeTotals ?? null,
     selectedRangeContext: existingMetadata?.selectedRangeContext ?? null,
+    aggregateIntelligence: existingMetadata?.aggregateIntelligence ?? null,
     lagAdjustedEndDate: existingMetadata?.lagAdjustedEndDate?.value ?? null,
   });
 

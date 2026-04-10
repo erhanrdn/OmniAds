@@ -33,6 +33,7 @@ import {
 } from "@/lib/google-ads/advisor-snapshots";
 import {
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
 } from "@/lib/google-ads/decision-engine-config";
 import {
@@ -1066,6 +1067,12 @@ export async function GET(request: NextRequest) {
   const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestAdvisorSnapshot);
   const latestAdvisorActionContract =
     latestAdvisorSnapshot?.advisorPayload?.metadata?.actionContract ?? null;
+  const latestAdvisorAggregateIntelligence =
+    latestAdvisorSnapshot?.advisorPayload?.metadata?.aggregateIntelligence ?? null;
+  const autonomyBoundary = getGoogleAdsAutonomyBoundaryState({
+    businessId,
+    accountId: null,
+  });
   const retentionRuntime = getGoogleAdsRetentionRuntimeStatus();
   const latestRetentionRun =
     retentionRuntime.runtimeAvailable
@@ -1822,6 +1829,22 @@ export async function GET(request: NextRequest) {
             source: latestAdvisorActionContract.source ?? null,
           }
         : null,
+      aggregateIntelligence: latestAdvisorAggregateIntelligence
+        ? {
+            topQueryWeeklyAvailable: Boolean(
+              latestAdvisorAggregateIntelligence.topQueryWeeklyAvailable
+            ),
+            clusterDailyAvailable: Boolean(
+              latestAdvisorAggregateIntelligence.clusterDailyAvailable
+            ),
+            queryWeeklyRows: Number(latestAdvisorAggregateIntelligence.queryWeeklyRows ?? 0),
+            clusterDailyRows: Number(latestAdvisorAggregateIntelligence.clusterDailyRows ?? 0),
+            supportWindowStart:
+              latestAdvisorAggregateIntelligence.supportWindowStart ?? null,
+            supportWindowEnd: latestAdvisorAggregateIntelligence.supportWindowEnd ?? null,
+            note: latestAdvisorAggregateIntelligence.note ?? null,
+          }
+        : null,
     },
     jobHealth: {
       runningJobs,
@@ -1872,6 +1895,14 @@ export async function GET(request: NextRequest) {
       advisorSnapshotBlockedReason,
       advisorActionContractVersion: latestAdvisorActionContract?.version ?? null,
       advisorActionContractSource: latestAdvisorActionContract?.source ?? null,
+      advisorAggregateTopQueryWeeklyAvailable:
+        latestAdvisorAggregateIntelligence?.topQueryWeeklyAvailable ?? false,
+      advisorAggregateClusterDailyAvailable:
+        latestAdvisorAggregateIntelligence?.clusterDailyAvailable ?? false,
+      advisorAggregateQueryWeeklyRows:
+        latestAdvisorAggregateIntelligence?.queryWeeklyRows ?? null,
+      advisorAggregateClusterDailyRows:
+        latestAdvisorAggregateIntelligence?.clusterDailyRows ?? null,
       retentionRuntimeAvailable: retentionRuntime.runtimeAvailable,
       retentionExecutionEnabled: retentionRuntime.executionEnabled,
       retentionMode: retentionRuntime.mode,
@@ -1884,7 +1915,16 @@ export async function GET(request: NextRequest) {
       controlledAutonomyEnabled: automationConfig.controlledAutonomyEnabled,
       autonomyKillSwitchActive: automationConfig.autonomyKillSwitchActive,
       manualApprovalRequired: automationConfig.manualApprovalRequired,
+      operatorOverrideEnabled: automationConfig.operatorOverrideEnabled,
       autonomyAllowlist: automationConfig.actionAllowlist,
+      autonomyBusinessAllowlist: automationConfig.businessAllowlist,
+      autonomyAccountAllowlist: automationConfig.accountAllowlist,
+      autonomyBusinessAllowed: autonomyBoundary.businessAllowed,
+      autonomyAccountAllowed: autonomyBoundary.accountAllowed,
+      semiAutonomousEligible: autonomyBoundary.semiAutonomousEligible,
+      controlledAutonomyEligible: autonomyBoundary.controlledAutonomyEligible,
+      autonomyBlockedReasons: autonomyBoundary.blockedReasons,
+      bundleCooldownHours: automationConfig.bundleCooldownHours,
       blockingReasons: googleBlockingReasons,
       repairableActions: googleRepairableActions,
       requiredCoverage: googleRequiredCoverage,

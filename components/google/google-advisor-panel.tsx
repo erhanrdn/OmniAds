@@ -89,6 +89,13 @@ function confidencePct(confidence?: number | null) {
   return `${Math.round(confidence * 100)}%`;
 }
 
+function formatCompactDateTime(value?: string | null) {
+  if (!value) return "None";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toISOString().replace(".000Z", "Z");
+}
+
 function memoryStatusLabel(status?: GoogleAdvisorRecommendation["currentStatus"] | null) {
   switch (status) {
     case "new":
@@ -121,6 +128,46 @@ function outcomeLabel(verdict?: GoogleAdvisorRecommendation["outcomeVerdict"] | 
     default:
       return "Pending";
   }
+}
+
+function clusterBucketLabel(bucket: GoogleAdvisorResponse["clusters"][number]["clusterBucket"]) {
+  switch (bucket) {
+    case "now":
+      return "Ready now";
+    case "next":
+      return "Needs staging";
+    case "blocked":
+      return "Blocked";
+  }
+}
+
+function clusterStatusLabel(status: GoogleAdvisorResponse["clusters"][number]["clusterStatus"]) {
+  return labelize(status);
+}
+
+function clusterReadinessLabel(
+  readiness: GoogleAdvisorResponse["clusters"][number]["clusterReadiness"]
+) {
+  return labelize(readiness);
+}
+
+function clusterTone(bucket: GoogleAdvisorResponse["clusters"][number]["clusterBucket"]) {
+  switch (bucket) {
+    case "now":
+      return "border-emerald-200 bg-emerald-50/40 text-emerald-800";
+    case "next":
+      return "border-amber-200 bg-amber-50/40 text-amber-800";
+    case "blocked":
+      return "border-rose-200 bg-rose-50/40 text-rose-800";
+  }
+}
+
+function clusterHoldLabel(cluster: GoogleAdvisorResponse["clusters"][number]) {
+  const holdValues = cluster.steps
+    .flatMap((step) => [step.stabilizationHoldUntil ?? null])
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => left.localeCompare(right));
+  return holdValues[0] ? formatCompactDateTime(holdValues[0]) : "No active hold";
 }
 
 function deriveQueueLane(recommendation: GoogleAdvisorRecommendation): QueueLane {
@@ -770,6 +817,70 @@ function QueueSection({
   );
 }
 
+function ActionPackSection({
+  advisor,
+}: {
+  advisor: GoogleAdvisorResponse;
+}) {
+  return (
+    <section className="space-y-4 rounded-xl border bg-card p-4">
+      <div className="space-y-1">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Manual Action Packs</p>
+        <h2 className="text-lg font-semibold">Bundled operator moves</h2>
+        <p className="text-sm text-muted-foreground">
+          These packs group related steps for human approval. They do not imply autonomous execution.
+        </p>
+      </div>
+      {advisor.clusters.length > 0 ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          {advisor.clusters.map((cluster) => (
+            <article key={cluster.clusterId} className="space-y-3 rounded-xl border bg-muted/10 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className={cn("border", clusterTone(cluster.clusterBucket))} variant="outline">
+                      {clusterBucketLabel(cluster.clusterBucket)}
+                    </Badge>
+                    <Badge variant="outline">{clusterReadinessLabel(cluster.clusterReadiness)}</Badge>
+                    <Badge variant="outline">{clusterStatusLabel(cluster.clusterStatus)}</Badge>
+                  </div>
+                  <h3 className="text-base font-semibold leading-tight">{cluster.clusterObjective}</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {cluster.steps.length} steps · {cluster.memberRecommendationIds.length} linked recommendations
+                  </p>
+                </div>
+                <div className="text-right text-xs text-muted-foreground">
+                  <div>Approval: required</div>
+                  <div>Cooldown: {clusterHoldLabel(cluster)}</div>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <DetailList
+                  title="Step order"
+                  items={cluster.steps.map((step) => step.title)}
+                  emptyLabel="No step sequence was attached."
+                />
+                <DetailList
+                  title="Validation"
+                  items={cluster.validationPlan}
+                  emptyLabel="No explicit validation plan is attached."
+                />
+              </div>
+              <div className="rounded-lg border bg-muted/15 p-3 text-sm text-slate-800">
+                Prepare this pack for manual approval only. Write-back remains disabled by default, and any future automation still depends on allowlists, kill switch posture, and explicit verification.
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed bg-muted/10 p-4 text-sm text-muted-foreground">
+          No bundled action packs are attached to this snapshot.
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function GoogleAdvisorPanel({
   advisor,
   onFocusEntity,
@@ -797,6 +908,7 @@ export function GoogleAdvisorPanel({
     suppressed: [],
   };
   const compatibilityDerived = (advisor.metadata?.actionContract?.source ?? "compatibility_derived") === "compatibility_derived";
+  const aggregateIntelligence = advisor.metadata?.aggregateIntelligence ?? null;
   for (const recommendation of advisor.recommendations) {
     queueByLane[deriveQueueLane(recommendation)].push(recommendation);
   }
@@ -897,9 +1009,21 @@ export function GoogleAdvisorPanel({
                 {advisor.metadata?.executionSurface?.summary ?? "Adsecute V1 remains operator-first."}
               </p>
             </div>
+            <div className="rounded-lg border bg-muted/15 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Aggregate support</div>
+              <p className="mt-1 text-sm text-slate-800">
+                {aggregateIntelligence?.note ?? "No aggregate-intelligence note is attached to this snapshot."}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Weekly query rows: {aggregateIntelligence?.queryWeeklyRows ?? 0} · Daily cluster rows:{" "}
+                {aggregateIntelligence?.clusterDailyRows ?? 0}
+              </p>
+            </div>
           </div>
         </div>
       </section>
+
+      <ActionPackSection advisor={advisor} />
 
       <section className="space-y-4 rounded-xl border bg-card p-4">
         <div className="space-y-1">

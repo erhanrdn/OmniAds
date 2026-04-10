@@ -65,6 +65,11 @@ export interface GoogleAdsTopQueryWeeklyRow {
   clicks: number;
 }
 
+export interface GoogleAdsTopQueryWeeklySupportReadRow extends GoogleAdsTopQueryWeeklyRow {
+  normalizedQuery: string | null;
+  displayQuery: string | null;
+}
+
 export interface GoogleAdsSearchClusterDailyRow {
   businessId: string;
   providerAccountId: string;
@@ -81,6 +86,8 @@ export interface GoogleAdsSearchClusterDailyRow {
   impressions: number;
   clicks: number;
 }
+
+export interface GoogleAdsSearchClusterDailySupportReadRow extends GoogleAdsSearchClusterDailyRow {}
 
 export interface GoogleAdsDecisionActionOutcomeLogRow {
   businessId: string;
@@ -116,6 +123,39 @@ type GoogleAdsSearchQueryHotDailyPersistedRow = {
   impressions: number | string;
   clicks: number | string;
   source_snapshot_id: string | null;
+};
+
+type GoogleAdsTopQueryWeeklyPersistedRow = {
+  business_id: string;
+  provider_account_id: string;
+  week_start: string;
+  week_end: string;
+  query_hash: string;
+  query_count_days: number | string;
+  spend: number | string;
+  revenue: number | string;
+  conversions: number | string;
+  impressions: number | string;
+  clicks: number | string;
+  normalized_query: string | null;
+  display_query: string | null;
+};
+
+type GoogleAdsSearchClusterDailyPersistedRow = {
+  business_id: string;
+  provider_account_id: string;
+  date: string;
+  cluster_key: string;
+  cluster_label: string;
+  theme_key: string | null;
+  dominant_intent_class: string | null;
+  dominant_ownership_class: string | null;
+  unique_query_count: number | string;
+  spend: number | string;
+  revenue: number | string;
+  conversions: number | string;
+  impressions: number | string;
+  clicks: number | string;
 };
 
 function normalizeIsoDate(value: string) {
@@ -341,6 +381,49 @@ function mapPersistedHotDailyRow(
     impressions: toNumber(row.impressions),
     clicks: toNumber(row.clicks),
     sourceSnapshotId: row.source_snapshot_id ? String(row.source_snapshot_id) : null,
+  };
+}
+
+function mapPersistedTopQueryWeeklyRow(
+  row: GoogleAdsTopQueryWeeklyPersistedRow
+): GoogleAdsTopQueryWeeklySupportReadRow {
+  return {
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    weekStart: normalizeIsoDate(String(row.week_start)),
+    weekEnd: normalizeIsoDate(String(row.week_end)),
+    queryHash: String(row.query_hash),
+    queryCountDays: toNumber(row.query_count_days),
+    spend: toNumber(row.spend),
+    revenue: toNumber(row.revenue),
+    conversions: toNumber(row.conversions),
+    impressions: toNumber(row.impressions),
+    clicks: toNumber(row.clicks),
+    normalizedQuery: row.normalized_query ? String(row.normalized_query) : null,
+    displayQuery: row.display_query ? String(row.display_query) : null,
+  };
+}
+
+function mapPersistedSearchClusterDailyRow(
+  row: GoogleAdsSearchClusterDailyPersistedRow
+): GoogleAdsSearchClusterDailySupportReadRow {
+  return {
+    businessId: String(row.business_id),
+    providerAccountId: String(row.provider_account_id),
+    date: normalizeIsoDate(String(row.date)),
+    clusterKey: String(row.cluster_key),
+    clusterLabel: String(row.cluster_label),
+    themeKey: row.theme_key ? String(row.theme_key) : null,
+    dominantIntentClass: row.dominant_intent_class ? String(row.dominant_intent_class) : null,
+    dominantOwnershipClass: row.dominant_ownership_class
+      ? String(row.dominant_ownership_class)
+      : null,
+    uniqueQueryCount: toNumber(row.unique_query_count),
+    spend: toNumber(row.spend),
+    revenue: toNumber(row.revenue),
+    conversions: toNumber(row.conversions),
+    impressions: toNumber(row.impressions),
+    clicks: toNumber(row.clicks),
   };
 }
 
@@ -687,15 +770,22 @@ export async function readGoogleAdsTopQueryWeeklyRows(input: {
 }) {
   await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
-  return sql`
-    SELECT *
+  const rows = (await sql`
+    SELECT
+      weekly.*,
+      dictionary.normalized_query,
+      dictionary.display_query
     FROM google_ads_top_query_weekly
-    WHERE business_id = ${input.businessId}
-      AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
-      AND week_start >= ${input.startWeek}
-      AND week_start <= ${input.endWeek}
+    AS weekly
+    LEFT JOIN google_ads_query_dictionary AS dictionary
+      ON dictionary.query_hash = weekly.query_hash
+    WHERE weekly.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR weekly.provider_account_id = ${input.providerAccountId ?? null})
+      AND weekly.week_start >= ${input.startWeek}
+      AND weekly.week_start <= ${input.endWeek}
     ORDER BY week_start DESC, spend DESC
-  `;
+  `) as GoogleAdsTopQueryWeeklyPersistedRow[];
+  return rows.map(mapPersistedTopQueryWeeklyRow);
 }
 
 export async function readGoogleAdsSearchClusterDailyRows(input: {
@@ -706,7 +796,7 @@ export async function readGoogleAdsSearchClusterDailyRows(input: {
 }) {
   await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
-  return sql`
+  const rows = (await sql`
     SELECT *
     FROM google_ads_search_cluster_daily
     WHERE business_id = ${input.businessId}
@@ -714,7 +804,8 @@ export async function readGoogleAdsSearchClusterDailyRows(input: {
       AND date >= ${input.startDate}
       AND date <= ${input.endDate}
     ORDER BY date DESC, spend DESC
-  `;
+  `) as GoogleAdsSearchClusterDailyPersistedRow[];
+  return rows.map(mapPersistedSearchClusterDailyRow);
 }
 
 export async function readGoogleAdsDecisionActionOutcomeLogs(input: {

@@ -17,9 +17,11 @@ import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
 import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
 import { buildActionClusters } from "@/lib/google-ads/action-clusters";
 import { annotateAdvisorMemory, getAdvisorExecutionCalibration } from "@/lib/google-ads/advisor-memory";
+import { loadGoogleAdsAdvisorAggregateIntelligence } from "@/lib/google-ads/advisor-aggregate-intelligence";
 import { buildGoogleAdsOpportunityEngine, type GoogleAdsOpportunity } from "@/lib/google-ads/opportunity-engine";
 import { buildCrossEntityIntelligence } from "@/lib/google-ads/cross-entity-intelligence";
 import type {
+  GoogleAdvisorAggregateIntelligence,
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorMetadata,
   GoogleAdvisorResponse,
@@ -1920,6 +1922,30 @@ async function finalizeGoogleAdsAdvisorReport(input: {
         : null;
 
   const costModel = await getBusinessCostModel(input.params.businessId);
+  const aggregateSupportWindowSet = buildGoogleAdsDecisionSnapshotWindowSet(input.asOfDate);
+  const aggregateSupportStart = aggregateSupportWindowSet.baselineWindow.startDate;
+  const aggregateIntelligence: GoogleAdvisorAggregateIntelligence | null =
+    await loadGoogleAdsAdvisorAggregateIntelligence({
+      businessId: input.params.businessId,
+      providerAccountId: resolvedAccountId,
+      supportWindowStart: aggregateSupportStart,
+      supportWindowEnd: input.asOfDate,
+    }).catch((error) => ({
+      queryWeeklySupport: [],
+      clusterDailySupport: [],
+      metadata: {
+        topQueryWeeklyAvailable: false,
+        clusterDailyAvailable: false,
+        queryWeeklyRows: 0,
+        clusterDailyRows: 0,
+        supportWindowStart: aggregateSupportStart,
+        supportWindowEnd: input.asOfDate,
+        note:
+          error instanceof Error
+            ? `Persisted aggregate intelligence was unavailable for this advisor run: ${error.message}`
+            : "Persisted aggregate intelligence was unavailable for this advisor run.",
+      },
+    }));
 
   const advisor = buildGoogleGrowthAdvisor({
     selectedLabel: input.selectedLabel,
@@ -1962,6 +1988,7 @@ async function finalizeGoogleAdsAdvisorReport(input: {
     selectedGeos: input.selectedGeos.rows as never[],
     selectedDevices: input.selectedDevices.rows as never[],
     windows: input.windows as never[],
+    aggregateIntelligence,
   });
 
   const executionCalibration = await getAdvisorExecutionCalibration({
@@ -2033,6 +2060,7 @@ async function finalizeGoogleAdsAdvisorReport(input: {
       decisionSummaryTotals: advisor.metadata?.decisionSummaryTotals ?? null,
       selectedRangeTotals: advisor.metadata?.selectedRangeTotals ?? null,
       selectedRangeContext: advisor.metadata?.selectedRangeContext ?? null,
+      aggregateIntelligence: advisor.metadata?.aggregateIntelligence ?? aggregateIntelligence?.metadata ?? null,
     }),
   };
 }

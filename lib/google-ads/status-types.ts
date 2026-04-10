@@ -224,6 +224,15 @@ export interface GoogleAdsStatusResponse {
       version: string | null;
       source: "native" | "compatibility_derived" | null;
     } | null;
+    aggregateIntelligence?: {
+      topQueryWeeklyAvailable: boolean;
+      clusterDailyAvailable: boolean;
+      queryWeeklyRows: number;
+      clusterDailyRows: number;
+      supportWindowStart: string | null;
+      supportWindowEnd: string | null;
+      note: string | null;
+    } | null;
   } | null;
   jobHealth?: {
     runningJobs: number;
@@ -280,6 +289,10 @@ export interface GoogleAdsStatusResponse {
     advisorSnapshotBlockedReason?: string | null;
     advisorActionContractVersion?: string | null;
     advisorActionContractSource?: "native" | "compatibility_derived" | null;
+    advisorAggregateTopQueryWeeklyAvailable?: boolean;
+    advisorAggregateClusterDailyAvailable?: boolean;
+    advisorAggregateQueryWeeklyRows?: number | null;
+    advisorAggregateClusterDailyRows?: number | null;
     retentionRuntimeAvailable?: boolean;
     retentionExecutionEnabled?: boolean;
     retentionMode?: "dry_run" | "execute";
@@ -292,7 +305,16 @@ export interface GoogleAdsStatusResponse {
     controlledAutonomyEnabled?: boolean;
     autonomyKillSwitchActive?: boolean;
     manualApprovalRequired?: boolean;
+    operatorOverrideEnabled?: boolean;
     autonomyAllowlist?: string[];
+    autonomyBusinessAllowlist?: string[];
+    autonomyAccountAllowlist?: string[];
+    autonomyBusinessAllowed?: boolean;
+    autonomyAccountAllowed?: boolean;
+    semiAutonomousEligible?: boolean;
+    controlledAutonomyEligible?: boolean;
+    autonomyBlockedReasons?: string[];
+    bundleCooldownHours?: number | null;
     staleRunPressure?: number;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;

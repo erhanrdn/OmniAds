@@ -11,6 +11,7 @@ import {
 import { getLatestGoogleAdsAdvisorSnapshot, isGoogleAdsAdvisorSnapshotFresh } from "@/lib/google-ads/advisor-snapshots";
 import {
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
 } from "@/lib/google-ads/decision-engine-config";
@@ -131,6 +132,10 @@ export async function runGoogleAdsProductGate(
   const sections: GoogleAdsProductGateSection[] = [];
   const decisionConfig = getGoogleAdsDecisionEngineConfig();
   const automationConfig = getGoogleAdsAutomationConfig();
+  const autonomyBoundary = getGoogleAdsAutonomyBoundaryState({
+    businessId: input.businessId,
+    accountId: null,
+  });
   const writebackGate = getGoogleAdsWritebackCapabilityGate();
   const retentionRuntime = getGoogleAdsRetentionRuntimeStatus();
   const runtimeAvailable = hasDatabaseUrl();
@@ -160,7 +165,16 @@ export async function runGoogleAdsProductGate(
         `Controlled autonomy: ${automationConfig.controlledAutonomyEnabled ? "enabled" : "disabled"}`,
         `Autonomy kill switch: ${automationConfig.autonomyKillSwitchActive ? "active" : "inactive"}`,
         `Manual approval required: ${automationConfig.manualApprovalRequired ? "yes" : "no"}`,
+        `Operator override enabled: ${automationConfig.operatorOverrideEnabled ? "yes" : "no"}`,
         `Autonomy allowlist: ${automationConfig.actionAllowlist.join(", ") || "none"}`,
+        `Business allowlist: ${automationConfig.businessAllowlist.join(", ") || "none"}`,
+        `Account allowlist: ${automationConfig.accountAllowlist.join(", ") || "none"}`,
+        `Business allowed: ${autonomyBoundary.businessAllowed ? "yes" : "no"}`,
+        `Account allowed: ${autonomyBoundary.accountAllowed ? "yes" : "no"}`,
+        `Semi-autonomous eligible: ${autonomyBoundary.semiAutonomousEligible ? "yes" : "no"}`,
+        `Controlled autonomy eligible: ${autonomyBoundary.controlledAutonomyEligible ? "yes" : "no"}`,
+        `Bundle cooldown hours: ${automationConfig.bundleCooldownHours}`,
+        `Autonomy blocked reasons: ${autonomyBoundary.blockedReasons.join(" | ") || "none"}`,
         `Retention gate: ${retentionRuntime.gateReason}`,
       ],
       data: {
@@ -172,7 +186,16 @@ export async function runGoogleAdsProductGate(
         controlledAutonomyEnabled: automationConfig.controlledAutonomyEnabled,
         autonomyKillSwitchActive: automationConfig.autonomyKillSwitchActive,
         manualApprovalRequired: automationConfig.manualApprovalRequired,
+        operatorOverrideEnabled: automationConfig.operatorOverrideEnabled,
         autonomyAllowlist: automationConfig.actionAllowlist,
+        businessAllowlist: automationConfig.businessAllowlist,
+        accountAllowlist: automationConfig.accountAllowlist,
+        businessAllowed: autonomyBoundary.businessAllowed,
+        accountAllowed: autonomyBoundary.accountAllowed,
+        semiAutonomousEligible: autonomyBoundary.semiAutonomousEligible,
+        controlledAutonomyEligible: autonomyBoundary.controlledAutonomyEligible,
+        autonomyBlockedReasons: autonomyBoundary.blockedReasons,
+        bundleCooldownHours: automationConfig.bundleCooldownHours,
       },
     })
   );
@@ -322,6 +345,8 @@ export async function runGoogleAdsProductGate(
 
     const actionContract =
       latestSnapshot?.advisorPayload?.metadata?.actionContract ?? null;
+    const aggregateIntelligence =
+      latestSnapshot?.advisorPayload?.metadata?.aggregateIntelligence ?? null;
     const snapshotFresh = isGoogleAdsAdvisorSnapshotFresh(latestSnapshot);
     const advisorLevel: GoogleAdsProductGateLevel =
       !latestSnapshot
@@ -350,11 +375,19 @@ export async function runGoogleAdsProductGate(
           `Snapshot fresh: ${snapshotFresh ? "yes" : "no"}`,
           `Action contract version: ${actionContract?.version ?? "unknown"}`,
           `Action contract source: ${actionContract?.source ?? "unknown"}`,
+          `Weekly query aggregate support: ${
+            aggregateIntelligence?.topQueryWeeklyAvailable ? "available" : "not available"
+          } (${aggregateIntelligence?.queryWeeklyRows ?? 0} rows)`,
+          `Daily cluster aggregate support: ${
+            aggregateIntelligence?.clusterDailyAvailable ? "available" : "not available"
+          } (${aggregateIntelligence?.clusterDailyRows ?? 0} rows)`,
+          `Aggregate intelligence note: ${aggregateIntelligence?.note ?? "No aggregate-intelligence metadata was attached to this snapshot."}`,
         ],
         data: {
           snapshotAsOfDate: latestSnapshot?.asOfDate ?? null,
           snapshotFresh,
           actionContract,
+          aggregateIntelligence,
         },
       })
     );
@@ -444,9 +477,10 @@ export async function runGoogleAdsProductGate(
     decisionConfig.writebackEnabled
       ? "Write-back is enabled by flag, but mutate/rollback are not marked verified."
       : "Write-back remains disabled by default.",
+    `Write-back gate reason: ${writebackGate.reason}`,
     automationConfig.writebackPilotEnabled
       ? "A narrow write-back pilot flag is enabled; keep blast radius constrained and operator-reviewed."
-      : "No verified write-back pilot is enabled.",
+      : "No verified write-back pilot is enabled because live preflight, rollback, and post-apply verification are not proven in this repo runtime.",
     automationConfig.semiAutonomousBundlesEnabled
       ? "Semi-autonomous bundles are enabled; manual approval must still remain explicit."
       : "Semi-autonomous bundles remain disabled by default.",
@@ -455,6 +489,7 @@ export async function runGoogleAdsProductGate(
         ? "Controlled autonomy is flagged on, but the kill switch remains active."
         : "Controlled autonomy is enabled; verify allowlists and kill switch posture before use."
       : "Controlled autonomy remains disabled by default.",
+    `Autonomy boundary blockers: ${autonomyBoundary.blockedReasons.join(" | ") || "none"}`,
     latestRetentionRun
       ? `Latest retention run mode: ${latestRetentionRun.executionMode} at ${latestRetentionRun.finishedAt ?? "unknown"}`
       : runtimeAvailable

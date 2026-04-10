@@ -337,6 +337,48 @@ export interface GoogleAdvisorExecutionSurface {
   summary: string;
 }
 
+export interface GoogleAdvisorAggregateWeeklyQuerySupport {
+  normalizedQuery: string;
+  displayQuery: string;
+  weeksPresent: number;
+  totalSpend: number;
+  totalRevenue: number;
+  totalConversions: number;
+  totalClicks: number;
+  lastWeekEnd: string;
+}
+
+export interface GoogleAdvisorAggregateClusterSupport {
+  clusterKey: string;
+  clusterLabel: string;
+  themeKey: string | null;
+  dominantIntentClass: string | null;
+  dominantOwnershipClass: string | null;
+  daysPresent: number;
+  totalUniqueQueries: number;
+  totalSpend: number;
+  totalRevenue: number;
+  totalConversions: number;
+  totalClicks: number;
+  lastSeenDate: string;
+}
+
+export interface GoogleAdvisorAggregateIntelligenceMetadata {
+  topQueryWeeklyAvailable: boolean;
+  clusterDailyAvailable: boolean;
+  queryWeeklyRows: number;
+  clusterDailyRows: number;
+  supportWindowStart: string;
+  supportWindowEnd: string;
+  note: string;
+}
+
+export interface GoogleAdvisorAggregateIntelligence {
+  queryWeeklySupport: GoogleAdvisorAggregateWeeklyQuerySupport[];
+  clusterDailySupport: GoogleAdvisorAggregateClusterSupport[];
+  metadata: GoogleAdvisorAggregateIntelligenceMetadata;
+}
+
 export type GoogleAdvisorActionContractVersion = "google_ads_advisor_action_v1";
 export type GoogleAdvisorActionContractSource = "native" | "compatibility_derived";
 
@@ -1017,6 +1059,7 @@ export interface GoogleAdvisorMetadata {
     deltaPercent?: number | null;
     metricKey?: "roas" | "cpa" | "revenue" | "conversions" | null;
   } | null;
+  aggregateIntelligence?: GoogleAdvisorAggregateIntelligenceMetadata | null;
   actionContract?: GoogleAdvisorActionContract;
 }
 

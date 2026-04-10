@@ -38,7 +38,9 @@ Future-path flags expected to stay disabled by default:
 - `GET /api/google-ads/advisor` serves snapshot-backed decision payloads by default and supports `refresh=1`.
 - The advisor payload exposes deterministic recommendation fields plus `metadata.actionContract` and `recommendation.operatorActionCard`.
 - The current Google Ads advisor UI is action-first at the card level and clearly labels legacy snapshot compatibility.
+- The advisor now consumes persisted weekly top-query and daily cluster aggregates as supplemental support when those tables are available, and it exposes that posture in snapshot metadata.
 - Recommendation memory exists and persists recommendation lifecycle, execution state, rollback availability, and outcome fields in `google_ads_advisor_memory`.
+- The advisor UI now renders manual action packs from bundled action clusters and labels them as human-approval-only plans.
 - Admin sync health surfaces queue depth, dead-letter pressure, maintenance pressure, checkpoint lag, integrity blockers, and Google Ads recovery actions.
 - Recovery tooling exists for cleanup, dead-letter replay, reschedule, refresh state, targeted repair, repair cycle, integrity-window repair, and quarantine release.
 - `npm run google:ads:product-gate -- <businessId>` now exists as the canonical executable checkpoint for feature posture, warehouse/sync health, advisor contract truth, recovery tooling, admin visibility, exit criteria, and deferred items.
@@ -60,15 +62,19 @@ Future-path flags expected to stay disabled by default:
   - controlled-autonomy flag
   - autonomy kill switch
   - action allowlist
+  - business allowlist
+  - account allowlist
+  - operator override flag
+  - bundle cooldown hours
   - manual approval requirement
 
 ## Partial Or Incomplete
 
 - Manual lifecycle persistence is now rendered end-to-end in the advisor UI, but outcome quality still depends on operator-entered validation and not automated attribution.
-- Search intelligence aggregates are stored, but the main advisor/serving path does not yet fully consume weekly query and cluster aggregates.
+- Search intelligence aggregates are now consumed as supplemental support for recurring query and cluster evidence, but they do not yet replace the core recent-surface readiness contract or every recommendation heuristic.
 - Decision action/outcome logs exist as a table, and operator workflow now appends plan/outcome rows, but the UI does not yet provide richer longitudinal outcome analytics.
-- `/api/google-ads/status` now exposes advisor action-contract posture and retention runtime state, but the operator page does not yet surface every backend control-plane detail.
-- Search-intelligence aggregate consumption is still partial until serving/advisor logic uses the stored weekly and cluster inputs directly.
+- `/api/google-ads/status` now exposes advisor action-contract posture, aggregate-intelligence posture, retention runtime state, and automation boundary state, but the operator page does not yet surface every backend control-plane detail.
+- Manual action packs are visible to operators, but they remain planning bundles only. There is still no verified scheduled or autonomous execution path.
 
 ## Docs-Only Or Not Operationalized Yet
 
@@ -163,7 +169,7 @@ Runtime reality at this baseline:
 
 ## Product Blockers At Baseline
 
-- `DATABASE_URL` is not configured in the current execution environment, so live DB-backed verification is not available from this session.
-- Google Ads credentials and developer token are not configured in the current execution environment, so live mutate verification is not available from this session.
+- Database-backed verification is available in the local runtime through the repo environment, and the product gate can inspect real DB state from this checkout.
+- Google Ads credentials and developer token are still not verified from this execution context, so live mutate verification is not available from this session.
 - Write-back therefore remains blocked from verified promotion even though mutate code paths exist.
-- Search intelligence aggregate consumption is incomplete until serving/advisor logic uses the stored weekly and cluster inputs directly.
+- Search intelligence aggregate consumption is still partial beyond the current supplemental advisor support path.

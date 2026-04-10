@@ -23,6 +23,7 @@ The response-level contract state lives in metadata:
 - `metadata.actionContract.version`
 - `metadata.actionContract.source`
 - `metadata.actionContract.note`
+- `metadata.aggregateIntelligence`
 
 Current version:
 
@@ -127,6 +128,7 @@ Deterministic product logic:
 - `validation`
 - `rollback`
 - all mutate preview fields already produced by product logic
+- persisted weekly top-query and daily cluster aggregate support, when attached through `metadata.aggregateIntelligence` and the recommendation evidence stack
 
 Optional AI commentary:
 
@@ -152,6 +154,12 @@ Must remain unknown or blocked:
 - campaign-level source or destination when no safe preview exists
 - proposed target value when the portfolio or joint allocator preview is blocked
 - business impact sizing when code or data does not bound it
+
+Aggregate-support rule:
+
+- Persisted weekly top-query and daily cluster aggregates may strengthen recurring-support evidence.
+- They may not be turned into fake forecast precision.
+- If aggregate support is unavailable, the advisor must say so honestly and fall back to the core window set.
 
 ## Exact change payloads by recommendation family
 

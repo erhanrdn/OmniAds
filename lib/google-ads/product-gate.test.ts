@@ -9,6 +9,7 @@ const getLatestGoogleAdsSyncHealth = vi.fn();
 const getLatestGoogleAdsAdvisorSnapshot = vi.fn();
 const getGoogleAdsDecisionEngineConfig = vi.fn();
 const getGoogleAdsAutomationConfig = vi.fn();
+const getGoogleAdsAutonomyBoundaryState = vi.fn();
 const getGoogleAdsWritebackCapabilityGate = vi.fn();
 const getGoogleAdsRetentionRuntimeStatus = vi.fn();
 const getLatestGoogleAdsRetentionRun = vi.fn();
@@ -36,6 +37,7 @@ vi.mock("@/lib/google-ads/advisor-snapshots", () => ({
 
 vi.mock("@/lib/google-ads/decision-engine-config", () => ({
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
 }));
@@ -67,7 +69,34 @@ describe("runGoogleAdsProductGate", () => {
       controlledAutonomyEnabled: false,
       autonomyKillSwitchActive: true,
       manualApprovalRequired: true,
+      operatorOverrideEnabled: true,
       actionAllowlist: [],
+      businessAllowlist: [],
+      accountAllowlist: [],
+      bundleCooldownHours: 24,
+    });
+    getGoogleAdsAutonomyBoundaryState.mockReturnValue({
+      decisionEngineV2Enabled: true,
+      writebackEnabled: false,
+      writebackPilotEnabled: false,
+      semiAutonomousBundlesEnabled: false,
+      controlledAutonomyEnabled: false,
+      autonomyKillSwitchActive: true,
+      manualApprovalRequired: true,
+      operatorOverrideEnabled: true,
+      actionAllowlist: [],
+      businessAllowlist: [],
+      accountAllowlist: [],
+      bundleCooldownHours: 24,
+      businessAllowed: true,
+      accountAllowed: true,
+      semiAutonomousEligible: false,
+      controlledAutonomyEligible: false,
+      blockedReasons: [
+        "Autonomy kill switch is active.",
+        "Manual approval is still required.",
+        "No Google Ads action families are allowlisted for autonomous execution.",
+      ],
     });
     getGoogleAdsWritebackCapabilityGate.mockReturnValue({
       enabled: false,
@@ -143,6 +172,15 @@ describe("runGoogleAdsProductGate", () => {
             version: "google_ads_advisor_action_v1",
             source: "native",
           },
+          aggregateIntelligence: {
+            topQueryWeeklyAvailable: true,
+            clusterDailyAvailable: true,
+            queryWeeklyRows: 12,
+            clusterDailyRows: 44,
+            supportWindowStart: "2026-01-15",
+            supportWindowEnd: "2026-04-10",
+            note: "Persisted weekly top-query and daily cluster aggregates are loaded as supplemental support.",
+          },
         },
       },
     });
@@ -180,6 +218,9 @@ describe("runGoogleAdsProductGate", () => {
     expect(result.sections.find((entry) => entry.key === "advisor_readiness_contract")?.level).toBe(
       "PASS"
     );
+    expect(
+      result.sections.find((entry) => entry.key === "advisor_readiness_contract")?.details
+    ).toContain("Weekly query aggregate support: available (12 rows)");
     expect(result.sections.find((entry) => entry.key === "admin_visibility_contract")?.level).toBe(
       "PASS"
     );

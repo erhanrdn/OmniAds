@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGoogleAdsExecutionSurface,
   getGoogleAdsAutomationConfig,
+  getGoogleAdsAutonomyBoundaryState,
   getGoogleAdsDecisionEngineConfig,
   getGoogleAdsWritebackCapabilityGate,
 } from "@/lib/google-ads/decision-engine-config";
@@ -80,7 +81,11 @@ describe("Google Ads decision engine config", () => {
       controlledAutonomyEnabled: false,
       autonomyKillSwitchActive: true,
       manualApprovalRequired: true,
+      operatorOverrideEnabled: true,
       actionAllowlist: [],
+      businessAllowlist: [],
+      accountAllowlist: [],
+      bundleCooldownHours: 24,
     });
 
     expect(
@@ -100,7 +105,53 @@ describe("Google Ads decision engine config", () => {
       controlledAutonomyEnabled: true,
       autonomyKillSwitchActive: false,
       manualApprovalRequired: true,
+      operatorOverrideEnabled: true,
       actionAllowlist: ["add_negative_keyword", "pause_asset"],
+      businessAllowlist: [],
+      accountAllowlist: [],
+      bundleCooldownHours: 24,
     });
+  });
+
+  it("keeps controlled autonomy blocked until scoped allowlists and manual approval posture are satisfied", () => {
+    const blocked = getGoogleAdsAutonomyBoundaryState({
+      businessId: "biz_1",
+      accountId: "acc_1",
+      env: env({
+        GOOGLE_ADS_SEMI_AUTONOMOUS_BUNDLES_ENABLED: "true",
+        GOOGLE_ADS_CONTROLLED_AUTONOMY_ENABLED: "true",
+        GOOGLE_ADS_AUTONOMY_KILL_SWITCH: "false",
+        GOOGLE_ADS_MANUAL_APPROVAL_REQUIRED: "true",
+        GOOGLE_ADS_AUTONOMY_ALLOWLIST: "add_negative_keyword",
+        GOOGLE_ADS_AUTONOMY_BUSINESS_ALLOWLIST: "biz_1",
+        GOOGLE_ADS_AUTONOMY_ACCOUNT_ALLOWLIST: "acc_2",
+        GOOGLE_ADS_BUNDLE_COOLDOWN_HOURS: "48",
+      }),
+    });
+
+    expect(blocked.businessAllowed).toBe(true);
+    expect(blocked.accountAllowed).toBe(false);
+    expect(blocked.semiAutonomousEligible).toBe(false);
+    expect(blocked.controlledAutonomyEligible).toBe(false);
+    expect(blocked.bundleCooldownHours).toBe(48);
+    expect(blocked.blockedReasons).toContain("Account is not in the autonomy allowlist.");
+
+    const eligible = getGoogleAdsAutonomyBoundaryState({
+      businessId: "biz_1",
+      accountId: "acc_1",
+      env: env({
+        GOOGLE_ADS_SEMI_AUTONOMOUS_BUNDLES_ENABLED: "true",
+        GOOGLE_ADS_CONTROLLED_AUTONOMY_ENABLED: "true",
+        GOOGLE_ADS_AUTONOMY_KILL_SWITCH: "false",
+        GOOGLE_ADS_MANUAL_APPROVAL_REQUIRED: "false",
+        GOOGLE_ADS_AUTONOMY_ALLOWLIST: "add_negative_keyword",
+        GOOGLE_ADS_AUTONOMY_BUSINESS_ALLOWLIST: "biz_1",
+        GOOGLE_ADS_AUTONOMY_ACCOUNT_ALLOWLIST: "acc_1",
+      }),
+    });
+
+    expect(eligible.semiAutonomousEligible).toBe(true);
+    expect(eligible.controlledAutonomyEligible).toBe(true);
+    expect(eligible.blockedReasons).toEqual([]);
   });
 });

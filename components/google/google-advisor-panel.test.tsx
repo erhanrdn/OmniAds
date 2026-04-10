@@ -220,6 +220,15 @@ function buildAdvisor(recommendations: GoogleRecommendation[] = []): GoogleAdvis
         deltaPercent: 0,
         metricKey: "roas",
       },
+      aggregateIntelligence: {
+        topQueryWeeklyAvailable: true,
+        clusterDailyAvailable: true,
+        queryWeeklyRows: 12,
+        clusterDailyRows: 48,
+        supportWindowStart: "2026-01-15",
+        supportWindowEnd: "2026-04-08",
+        note: "Persisted weekly top-query and daily cluster aggregates are loaded as supplemental support.",
+      },
       actionContract: {
         version: "google_ads_advisor_action_v1",
         source: "native",
@@ -244,6 +253,7 @@ describe("GoogleAdvisorPanel", () => {
 
     expect(html).toContain("Account Pulse");
     expect(html).toContain("Decision Snapshot");
+    expect(html).toContain("Manual Action Packs");
     expect(html).toContain("Opportunity Queue");
     expect(html).toContain("Review");
     expect(html).toContain("Test");
@@ -267,6 +277,90 @@ describe("GoogleAdvisorPanel", () => {
     expect(html).toContain("Rollback");
     expect(html).toContain("Manual plan only");
     expect(html).toContain("Write-back disabled");
+    expect(html).toContain("Aggregate support");
+  });
+
+  it("renders bundled action packs as manual approval-only clusters", () => {
+    const advisor = buildAdvisor([buildRecommendation("r1", "review")]);
+    advisor.clusters = [
+      {
+        clusterId: "cluster_1",
+        clusterType: "cleanup_then_scale",
+        clusterObjective: "Clear waste before scaling non-brand demand",
+        clusterBucket: "next",
+        memberRecommendationIds: ["r1"],
+        memberRecommendationFingerprints: ["fp_r1"],
+        clusterReadiness: "staging",
+        clusterTrustBand: "medium",
+        clusterRankScore: 72,
+        clusterRankReason: "Waste cleanup unlocks a later growth move.",
+        clusterStatus: "ready",
+        clusterMoveValidity: "valid",
+        clusterMoveValidityReason: "No conflicting steps are attached.",
+        clusterMoveConfidence: "medium",
+        dependsOnClusterIds: [],
+        unlocksClusterIds: [],
+        conflictsWithClusterIds: [],
+        executionSummary: {
+          clusterExecutionId: null,
+          clusterExecutionStatus: "not_started",
+          childExecutionOrder: ["step_1", "step_2"],
+          childTransactionIds: [],
+          completedChildStepIds: [],
+          failedChildStepIds: [],
+          currentStepId: null,
+          stopReason: null,
+        },
+        validationPlan: ["Check waste leakage after 7 days."],
+        outcomeState: {
+          verdict: "unvalidated",
+          confidence: null,
+          failReason: null,
+          lastValidationCheckAt: null,
+          reason: null,
+        },
+        steps: [
+          {
+            stepId: "step_1",
+            title: "Add exact negatives",
+            stepType: "handoff",
+            required: true,
+            stepCriticality: "critical",
+            stepFailureBoundary: "invalidate_move",
+            stepValidationRole: "unlock_gate",
+            executionMode: "handoff",
+            recommendationIds: ["r1"],
+            recommendationFingerprints: ["fp_r1"],
+            stabilizationHoldUntil: "2026-04-15T00:00:00.000Z",
+          },
+          {
+            stepId: "step_2",
+            title: "Promote exact buildout terms",
+            stepType: "handoff",
+            required: true,
+            stepCriticality: "supporting",
+            stepFailureBoundary: "degrade_move",
+            stepValidationRole: "supporting_signal",
+            executionMode: "handoff",
+            recommendationIds: ["r1"],
+            recommendationFingerprints: ["fp_r1"],
+          },
+        ],
+      } as unknown as GoogleAdvisorResponse["clusters"][number],
+    ];
+
+    const html = renderToStaticMarkup(
+      React.createElement(GoogleAdvisorPanel, {
+        advisor,
+      })
+    );
+
+    expect(html).toContain("Bundled operator moves");
+    expect(html).toContain("Clear waste before scaling non-brand demand");
+    expect(html).toContain("Approval: required");
+    expect(html).toContain("Cooldown:");
+    expect(html).toContain("Add exact negatives");
+    expect(html).toContain("Promote exact buildout terms");
   });
 
   it("shows manual lifecycle controls when persistence context is available", () => {
