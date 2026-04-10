@@ -58,7 +58,7 @@ describe("buildHeuristicCreativeDecisions", () => {
     expect(decision?.action).not.toBe("scale_hard");
   });
 
-  it("downgrades kill to pause when historical windows show the creative used to work", () => {
+  it("keeps comeback-style failures in test_more when historical windows show the creative used to work", () => {
     const rows = [
       creative({
         creativeId: "fatigue",
@@ -79,10 +79,10 @@ describe("buildHeuristicCreativeDecisions", () => {
     ];
 
     const decision = buildHeuristicCreativeDecisions(rows).find((item) => item.creativeId === "fatigue");
-    expect(decision?.action).toBe("pause");
+    expect(decision?.action).toBe("test_more");
   });
 
-  it("upgrades test more to watch when selected data is light but historical support is strong", () => {
+  it("keeps light selected-range rows in test_more when historical support is strong", () => {
     const rows = [
       creative({
         creativeId: "light",
@@ -100,6 +100,6 @@ describe("buildHeuristicCreativeDecisions", () => {
     ];
 
     const decision = buildHeuristicCreativeDecisions(rows).find((item) => item.creativeId === "light");
-    expect(decision?.action).toBe("watch");
+    expect(decision?.action).toBe("test_more");
   });
 });
