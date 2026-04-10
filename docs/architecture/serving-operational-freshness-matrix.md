@@ -2,12 +2,12 @@
 
 Purpose: record which in-scope user-facing serving/projection/cache surfaces are proactively refreshed by existing non-`GET` owners, and which remaining freshness boundaries are intentionally operator-driven.
 
-Phase 10 outcome on branch `arch/wire-serving-owner-triggers`:
+Current repo state:
 
 - No new scheduler, public route, or lane redesign was introduced.
-- No additional safe automation candidate was found beyond the existing GA4, Search Console, and Shopify sync owners already wired in earlier phases.
+- No additional safe automation candidate exists beyond the current GA4, Search Console, and Shopify sync owners already wired in the repo.
 - The remaining operator-dependent boundaries are intentional and stay explicit manual/CLI because the repo does not already contain an exact bounded non-`GET` lane that safely owns them.
-- Phase 11 adds a read-only operator status CLI: `node --import tsx scripts/report-serving-freshness-status.ts <businessId> [...]`.
+- Operators can inspect the current state read-only with `node --import tsx scripts/report-serving-freshness-status.ts <businessId> [...]`.
 
 ## Matrix
 
@@ -20,11 +20,11 @@ Phase 10 outcome on branch `arch/wire-serving-owner-triggers`:
 | `provider_reporting_snapshots.ga4_detailed_demographics` with `dimension=country` | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `lib/sync/ga4-sync.ts` from the existing sync cron lane | Automated | Default bounded windows `30d`, `7d`; `dimension=country` only | Shared GA4 auto-warm boundaries intentionally automate only the user-facing default demographics dimension. | `npm run reporting:cache:warm -- --business-id <business_id> --report-type ga4_detailed_demographics --start-date <yyyy-mm-dd> --end-date <yyyy-mm-dd> --dimension country` for non-default windows |
 | Non-default GA4 windows across `ga4_analytics_overview`, `ecommerce_fallback`, and the GA4 detail snapshots | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `npm run reporting:cache:warm` | Manual / CLI | Targeted, backfill, custom windows | Expanding the sync owner to arbitrary or wider windows would turn a bounded default warmer into speculative unbounded work. No exact existing scheduler/admin lane in the repo owns those custom windows today. | `npm run reporting:cache:warm -- --business-id <business_id> --report-type <ga4_type> --start-date <yyyy-mm-dd> --end-date <yyyy-mm-dd>` |
 | `ga4_detailed_demographics` with `dimension!=country` | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `npm run reporting:cache:warm` | Manual / CLI | Alternate dimensions, targeted analysis | Shared GA4 auto-warm boundaries intentionally exclude non-`country` dimensions to avoid speculative fan-out across dimensions that are not part of the bounded automated set. | `npm run reporting:cache:warm -- --business-id <business_id> --report-type ga4_detailed_demographics --start-date <yyyy-mm-dd> --end-date <yyyy-mm-dd> --dimension <dimension>` |
-| `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent automated window | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `lib/sync/shopify-sync.ts` from the existing sync cron lane and existing admin/internal sync entrypoints when `materializeOverviewState` stays enabled | Automated | Existing bounded recent sync window, currently `7d` | Phase 9 runtime validation proved that the existing Shopify sync owner advances the recent snapshot when the call path already enables overview materialization. | `npm run reporting:cache:warm -- --business-id <business_id> --report-type overview_shopify_orders_aggregate_v6 --start-date <yyyy-mm-dd> --end-date <yyyy-mm-dd>` for non-recent windows |
+| `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` recent automated window | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `lib/sync/shopify-sync.ts` from the existing sync cron lane and existing admin/internal sync entrypoints when `materializeOverviewState` stays enabled | Automated | Existing bounded recent sync window, currently `7d` | Runtime validation proved that the existing Shopify sync owner advances the recent snapshot when the call path already enables overview materialization. | `npm run reporting:cache:warm -- --business-id <business_id> --report-type overview_shopify_orders_aggregate_v6 --start-date <yyyy-mm-dd> --end-date <yyyy-mm-dd>` for non-recent windows |
 | `provider_reporting_snapshots.overview_shopify_orders_aggregate_v6` outside the recent automated window | `lib/reporting-cache-writer.ts` via `lib/user-facing-report-cache-owners.ts` | `npm run reporting:cache:warm` | Manual / CLI | Targeted, backfill, custom windows | The existing Shopify sync owner only owns the recent bounded sync window. Broader date windows remain explicit operator selection; there is no exact existing bounded cron/worker/admin lane for arbitrary snapshot windows. | `npm run reporting:cache:warm -- --business-id <business_id> --report-type overview_shopify_orders_aggregate_v6 --start-date <yyyy-mm-dd> --end-date <yyyy-mm-dd>` |
 | `seo_results_cache.overview` and `seo_results_cache.findings` | `lib/seo/results-cache-writer.ts` | `lib/sync/search-console-sync.ts` from the existing sync cron lane | Automated | Default bounded windows `30d`, `7d` | Existing Search Console sync owner already covers the current user-facing SEO cache shapes. | None needed for current in-scope product surfaces |
-| `shopify_serving_state` | `lib/shopify/overview-materializer.ts` | `lib/sync/shopify-sync.ts` from the existing sync cron lane; webhook path only marks pending repair | Automated | Existing bounded recent sync windows | Phase 9 runtime validation proved owner-only advancement for the recent serving canary rows. Webhook writes stay limited to pending-repair marks and do not replace the sync owner. | Existing admin Shopify health actions can rerun the same owner lane when operator intervention is needed |
-| `shopify_reconciliation_runs` | `lib/shopify/overview-materializer.ts` | `lib/sync/shopify-sync.ts` from the existing sync cron lane | Automated | Existing bounded recent sync windows | Phase 9 runtime validation proved owner-only advancement for reconciliation evidence on the recent window. | Existing admin Shopify health actions can rerun the same owner lane when operator intervention is needed |
+| `shopify_serving_state` | `lib/shopify/overview-materializer.ts` | `lib/sync/shopify-sync.ts` from the existing sync cron lane; webhook path only marks pending repair | Automated | Existing bounded recent sync windows | Runtime validation proved owner-only advancement for the recent serving canary rows. Webhook writes stay limited to pending-repair marks and do not replace the sync owner. | Existing admin Shopify health actions can rerun the same owner lane when operator intervention is needed |
+| `shopify_reconciliation_runs` | `lib/shopify/overview-materializer.ts` | `lib/sync/shopify-sync.ts` from the existing sync cron lane | Automated | Existing bounded recent sync windows | Runtime validation proved owner-only advancement for reconciliation evidence on the recent window. | Existing admin Shopify health actions can rerun the same owner lane when operator intervention is needed |
 
 ## Exact Remaining Manual In-Scope Boundaries
 
@@ -35,7 +35,7 @@ Phase 10 outcome on branch `arch/wire-serving-owner-triggers`:
 
 ## Classification Summary
 
-- Automate now via an existing lane: none newly added in Phase 10.
+- Automate now via an existing lane: none beyond the current GA4, Search Console, and Shopify owner lanes.
 - Keep intentionally manual / CLI: all four boundaries above.
 - Out of scope: none of the currently in-scope user-facing serving/projection/cache surfaces required an additional classification beyond automated or intentional manual.
 

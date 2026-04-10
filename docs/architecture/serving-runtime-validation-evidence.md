@@ -2,9 +2,14 @@
 
 Date: 2026-04-09
 
-Status: pass; Phase 9 runtime truth closed
+Status: pass; runtime validation closed
 
-This artifact records real runtime evidence for the in-scope serving/projection/cache surfaces on branch `arch/wire-serving-owner-triggers`.
+This artifact records the real runtime evidence for the in-scope serving/projection/cache surfaces that supports the current repo state.
+
+Historical note:
+
+- The phase-labeled subsections below preserve the original validation chronology, including intermediate blocked reruns that were resolved later in the same document.
+- The final runtime-validation conclusion for the current repo state is the closeout section near the end of this artifact: Phase 9 closed and the constrained Shopify recent-window owner lane was proven.
 
 ## Environment
 

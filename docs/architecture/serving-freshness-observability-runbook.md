@@ -16,7 +16,9 @@ Behavior:
 - Reuses the existing shared freshness boundaries from `lib/sync/report-warmer-boundaries.ts`.
 - Does not run migrations.
 - Does not write any state.
-- Stays CLI-only in this phase; no new public or admin route was added.
+- Stays CLI-only in the current repo state; no new public or admin route was added.
+
+This command is the read-only observability/status surface. It is not a manual owner, cache warmer, repair trigger, or release verification command.
 
 Optional exact-selection flags:
 
@@ -72,7 +74,7 @@ Operator action:
 
 Meaning:
 
-- The surface is intentionally operator-owned in this phase.
+- The surface is intentionally operator-owned in the current policy.
 - If an exact manual selection was not supplied, this classification means the boundary exists and remains intentional.
 - If an exact manual selection was supplied and a matching durable row exists, the boundary is still manual but currently materialized.
 

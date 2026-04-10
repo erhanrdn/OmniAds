@@ -1,6 +1,6 @@
 # DB Dependency Map
 
-Scope: current repository state on `arch/db-baseline-map`.
+Scope: current repository state on `main`, including the implemented request-path hardening, explicit serving-write ownership, runtime validation evidence, and release closeout docs.
 
 Legend:
 - `Request path` means the table is touched by UI-triggered API requests, including protected `GET` routes.
@@ -144,7 +144,7 @@ Legend:
 
 ## Notes
 
-- Request-time read/access surfaces in this phase depend on `lib/db-schema-readiness.ts` instead of `runMigrations()`. Missing tables now degrade to empty/null/status responses without mutating schema state.
+- Current request-time read/access surfaces depend on `lib/db-schema-readiness.ts` instead of `runMigrations()`. Missing tables now degrade to empty/null/status responses without mutating schema state.
 - Mutation, admin, and webhook routes are also expected to use readiness gating only; HTTP handlers must defer all schema bootstrap to `npm run db:migrate` / `scripts/run-migrations.ts`.
 - Passive `GET` routes no longer persist to `platform_overview_*`, `provider_reporting_snapshots`, `seo_results_cache`, `shopify_serving_state`, or `shopify_reconciliation_runs`; those writes must happen in sync, worker, admin, or explicit generation lanes.
 - Shared read helpers (`lib/overview-summary-store.ts`, `lib/reporting-cache.ts`, `lib/route-report-cache.ts`, `lib/seo/results-cache.ts`, `lib/shopify/read-adapter.ts`, `lib/shopify/overview.ts`) are intentionally write-free for these surfaces; ownership is recorded in `docs/architecture/serving-write-ownership-map.md`.

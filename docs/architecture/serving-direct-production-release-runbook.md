@@ -2,7 +2,7 @@
 
 Purpose: define the exact repo-supported direct production release, rollback, and verification flow for the current serving/projection/cache ownership model.
 
-Status: Phase 12 direct release hardening ready
+Status: active repo-supported direct release, rollback, and verification procedure
 
 ## Deploy Assets Used
 
@@ -25,7 +25,7 @@ This runbook uses only deploy machinery already present in the repo:
 - `deploy/nginx/adsecute.conf`
   - public reverse-proxy shape for the Hetzner host
 - `scripts/verify-serving-direct-release.ts`
-  - read-only preflight and post-deploy verification CLI added in this phase
+  - read-only preflight and post-deploy verification CLI used by the current operator workflow
 
 ## Exact Repo-Supported Deploy Prerequisite
 
@@ -131,7 +131,7 @@ node --import tsx scripts/verify-serving-direct-release.ts <businessId> \
   --mode=post_deploy \
   --base-url=https://adsecute.com \
   --expected-build-id=<release_sha> \
-  --session-cookie-file=/path/to/omniads_session.txt \
+  [--session-cookie-file=/path/to/omniads_session.txt] \
   [--start-date=YYYY-MM-DD] \
   [--end-date=YYYY-MM-DD] \
   [--overview-provider=google|meta] \
@@ -171,7 +171,7 @@ It reports:
 Post-deploy blockers:
 
 - `/api/build-info` unavailable or returning the wrong `buildId`
-- any non-2xx response from the verified GET route set
+- any non-2xx response from the verified GET route set when authenticated HTTP smoke is enabled
 - any `automated_missing` freshness entry
 
 Post-deploy acceptable findings:
@@ -198,10 +198,10 @@ node --import tsx scripts/verify-serving-direct-release.ts <businessId> \
   --mode=post_deploy \
   --base-url=https://adsecute.com \
   --expected-build-id=<known_good_sha> \
-  --session-cookie-file=/path/to/omniads_session.txt
+  [--session-cookie-file=/path/to/omniads_session.txt]
 ```
 
-The current repo-supported rollback mechanism is application-image rollback only. This phase does not add schema rollback machinery, and it does not require it for the documented serving/projection/cache hardening work.
+The current repo-supported rollback mechanism is application-image rollback only. This runbook does not add schema rollback machinery, and it does not require it for the documented serving/projection/cache hardening work.
 
 ## Manual Boundaries After Release
 

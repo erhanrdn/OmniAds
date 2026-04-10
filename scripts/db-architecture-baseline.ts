@@ -110,6 +110,14 @@ function main() {
     "## User-facing durable reporting caches",
     "## Shopify overview serving state",
   ]);
+  ensureFileContains("docs/architecture/db-serving-hardening-final-state.md", [
+    "## Before vs after",
+    "## Final guarantees now in place",
+    "## Explicit owner model",
+    "## Automated vs manual freshness",
+    "## Runtime validation and release status",
+    "## Remaining non-blocking debt",
+  ]);
   ensureFileContains("docs/architecture/live-db-baseline-checks.sql", [
     "Projection vs warehouse parity checks",
     "Provider sanity aggregates",

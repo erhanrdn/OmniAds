@@ -1,6 +1,18 @@
 # DB Target Architecture
 
-Goal: move from request-time mixed reads/writes to a layered, explicit read model without changing contracts until the dedicated cutover phase.
+Goal: define the final request-path, serving-write, and operator-lane policy for the current repository state, while keeping the remaining architecture cleanup priorities explicit.
+
+## Current implemented state
+
+The current repo state already enforces these hardening outcomes:
+
+- HTTP-triggered migrations are retired. `/api/migrate` is disabled and points operators to `npm run db:migrate`.
+- Request/read paths use `lib/db-schema-readiness.ts` for read-only readiness checks instead of `runMigrations()`.
+- Passive `GET`/read routes are side-effect free.
+- User-facing serving/projection/cache writes belong only to explicit non-`GET` owner lanes.
+- Automated vs manual freshness boundaries are explicit and operator-visible.
+- Runtime validation evidence exists for passive `GET` non-mutation and explicit owner advancement.
+- Direct production release guidance, verification, rollback, and release execution evidence exist in the repo.
 
 ## Request-path rule
 
@@ -56,7 +68,7 @@ Expected behaviors:
 - `control` tables should not be the primary UI contract; routes should read from compact serving summaries derived from control state.
 - `serving` tables should be populated by sync completion hooks, workers, or explicit admin actions, not by passive `GET` traffic.
 - User-facing serving/projection/cache persistence must happen only in explicit materializer/writer lanes, never in shared read helpers.
-- Explicit writer modules in the current phase are `lib/overview-summary-materializer.ts`, `lib/reporting-cache-writer.ts`, `lib/seo/results-cache-writer.ts`, and `lib/shopify/overview-materializer.ts`.
+- Current explicit writer modules are `lib/overview-summary-materializer.ts`, `lib/reporting-cache-writer.ts`, `lib/seo/results-cache-writer.ts`, and `lib/shopify/overview-materializer.ts`.
 
 ## direct-live lane exceptions
 
@@ -82,52 +94,41 @@ The target architecture still allows narrow live exceptions, but they must be ex
 
 ## Safe implementation order
 
-1. Freeze contracts and observability.
-   - Keep current route response shapes unchanged.
-   - Maintain the docs, route contract tests, and side-effect scan added in this phase.
+1. Keep request-path guarantees locked.
+   - Preserve existing route response contracts.
+   - Keep the side-effect scan, architecture baseline, and route contract tests green.
 
-2. Remove request-path migrations.
-   - `runMigrations()` must leave auth, overview, status, report/share, SEO, Shopify OAuth read helpers, and provider read helpers.
-   - No HTTP route may execute migrations; request handlers can only use readiness gates and explicit fail-fast behavior.
+2. Keep schema bootstrap request-external only.
+   - No HTTP route may execute migrations.
    - Request-time callers may only use `db-schema-readiness` and safe degrade paths.
-   - Explicit request-external bootstrap entrypoints are `npm run db:migrate` and `node --import tsx scripts/run-migrations.ts`.
-   - HTTP-triggered migration entrypoints are retired technical debt and must not be reintroduced.
+   - Explicit operator bootstrap entrypoints remain `npm run db:migrate` and `node --import tsx scripts/run-migrations.ts`.
+   - `/api/migrate` stays disabled and must not be repurposed as a bootstrap lane.
 
-3. Remove GET-path writes.
-   - Move Shopify serving-state persistence, reconciliation-run inserts, overview projection hydration, report-cache writes, and refresh triggers to background or sync-completion hooks.
+3. Keep passive `GET` routes write-free.
    - `GET` routes may only read durable projections, compute ephemeral fallbacks, or return existing degraded contracts.
+   - Shopify serving-state persistence, reconciliation inserts, overview projection hydration, report-cache writes, and refresh triggers must remain off-path.
 
-4. Make serving/cache write ownership explicit.
-   - Shared read modules stay read-only; user-facing serving/projection/cache persistence moves to named materializer/writer modules.
-   - Non-`GET` owners should be existing sync, webhook, admin, worker, or explicit manual-refresh lanes.
-   - If no safe automated owner exists, add an explicit script/CLI owner with a documented command instead of reintroducing write-on-read.
+4. Keep serving/cache ownership explicit.
+   - Shared read modules stay read-only.
+   - User-facing serving/projection/cache persistence stays in named materializer/writer modules and explicit non-`GET` owner lanes.
+   - If no safe automated owner exists, keep the boundary intentional and operator-owned; do not reintroduce write-on-read.
 
-5. Isolate live lanes.
-   - Split Meta live, Google live overlay, Shopify live fallback, and GA4 fallback behind narrow adapters with explicit precedence rules.
+## Remaining follow-up priorities
 
-6. Introduce stable repository boundaries.
-   - Separate `core`, `control`, `warehouse`, and `serving` repositories so API routes and UI services consume small, typed contracts.
+1. Isolate live lanes further.
+   - Split Meta live, Google live overlay, Shopify live fallback, and GA4 fallback behind narrower adapters with explicit precedence rules.
 
-7. Publish serving read models for status and overview.
-   - Provider status should come from serving summaries, not direct queue/checkpoint joins.
-   - Overview projection materialization should run after sync completion, not during reads.
+2. Introduce more stable repository boundaries.
+   - Separate `core`, `control`, `warehouse`, and `serving` repositories so API routes and UI services consume smaller typed contracts.
 
-8. Break large modules after the seams are stable.
-   - Split `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` along layer boundaries.
+3. Publish serving read models for status and overview.
+   - Provider status should eventually come from serving summaries rather than direct queue/checkpoint joins.
+   - Overview projection materialization should continue to run after sync completion, not during reads.
 
-## Phase plan
+4. Break large mixed-concern modules after the seams are stable.
+   - `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` remain the highest-value cleanup targets.
 
-| Phase | Goal | Safe changes allowed | Exit criteria |
-| --- | --- | --- | --- |
-| `Phase 0` | Audit + baseline | Docs, tests, scripts, read-only SQL only | Current contract and risk map are frozen |
-| `Phase 1` | Migration isolation | Startup/bootstrap changes, readiness gates, no route contract changes | No request-path read/access `runMigrations()`; explicit request-external migration entrypoint documented |
-| `Phase 2` | Read-path write removal | Move cache/projection/serving-state writes off-path | No `GET`-path DB writes, durable cache writes, projection hydrations, or refresh triggers |
-| `Phase 3` | Explicit serving write ownership | Extract materializer/writer modules and wire non-`GET` owners without contract changes | User-facing serving/projection/cache writes come only from explicit owner modules, and every in-scope surface has a documented non-`GET` trigger |
-| `Phase 4` | Lane separation | Refactor live/warehouse/projection adapters behind same contracts | Historical reads are warehouse-or-serving only |
-| `Phase 5` | Serving-model stabilization | New materializers and provider-status projections | Status/overview routes no longer query raw control tables directly |
-| `Phase 6` | Cutover and cleanup | Repository split, dead-code removal, schema cleanup planning | Stable serving contracts and controlled cutover plan |
-
-## Non-goals for this phase
+## Non-goals of the current policy
 
 - No endpoint response-shape changes.
 - No table rename/drop.

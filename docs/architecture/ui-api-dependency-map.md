@@ -54,5 +54,5 @@ Scope: overview/dashboard-adjacent UI plus Meta, Google Ads, Shopify-connected r
 1. `GET /api/overview-summary` is the widest request-time fan-out in the repo. It combines overview aggregation, Shopify serving-state resolution, GA4 analytics, integration status, and cost-model reads.
 2. `lib/google-ads/serving.ts` mixes historical warehouse reads, current-day live overlay, and projection fallback from `platform_overview_*`.
 3. `lib/meta/canonical-overview.ts` mixes warehouse historical reads with a direct-live current-day exception.
-4. `lib/shopify/read-adapter.ts` is the serving trust switchboard. It reads live, warehouse, and ledger aggregates in one request path and persists serving decisions.
+4. `lib/shopify/read-adapter.ts` is the serving trust switchboard. It reads live, warehouse, and ledger aggregates in one request path and consumes the latest persisted serving decision read-only.
 5. `provider_account_assignments` is the join point that turns a workspace-scoped UI request into provider-account-scoped warehouse reads across Meta and Google Ads.

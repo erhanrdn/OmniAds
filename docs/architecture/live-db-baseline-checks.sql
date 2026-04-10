@@ -1,6 +1,6 @@
 -- live-db-baseline-checks.sql
 -- Read-only baseline verification pack for production/staging DBs.
--- Safe usage: run each query independently and capture output before any refactor phase.
+-- Safe usage: run each query independently and capture output before structural DB or serving-layer changes.
 
 -- -----------------------------------------------------------------------------
 -- 1) Table-level approximate row count and family summary

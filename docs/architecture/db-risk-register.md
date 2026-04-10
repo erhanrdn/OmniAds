@@ -1,16 +1,18 @@
 # DB Risk Register
 
-Scope: baseline audit plus request-path migration isolation and GET/read-path side-effect cleanup status. This document reflects the Phase 2 guardrail pass; runtime contracts remain unchanged.
+Scope: current repo state after request-path migration retirement, passive `GET` side-effect removal, explicit serving-write ownership, runtime validation closeout, and direct-release documentation.
 
 Priority scale:
 - `P0`: remove from request path before any DB cutover/refactor.
-- `P1`: isolate during next refactor phase.
+- `P1`: isolate during later architecture cleanup without changing current contracts.
 - `P2`: clean up after runtime behavior is stabilized behind guardrails.
 
 Status scale:
 - `Resolved`: no longer reachable from request/access read paths or passive `GET` traffic; route/helper now uses read-only readiness or stale/empty degrade.
 - `Partially resolved`: removed from `GET`/read graphs, but the mutating helper still exists for explicit non-`GET`, worker, sync, or admin lanes.
 - `Open`: still present and must move to explicit request-external bootstrap, worker/materializer ownership, or later mutation-lane cleanup.
+
+Accepted intentional manual boundaries are tracked in `docs/architecture/serving-operational-freshness-matrix.md`; they are not counted here as open architecture defects unless they create an accidental ownership gap.
 
 ## request path içinde migration
 
@@ -112,15 +114,26 @@ Status scale:
 | `lib/shopify/read-adapter.ts` | `getShopifyOverviewReadCandidate()` | Serving choice depends on live/warehouse/ledger divergence, override state, and pending-repair flags in multiple tables. | Move trust-state decisioning into one persisted serving projection updated off-path. | P1 |
 | `lib/overview-summary-store.ts` | `evaluateOverviewSummaryProjectionValidity()` | Projection validity is encoded with magic version/value checks in code, not in a dedicated projection contract. | Introduce explicit projection schema/version contract and materializer ownership. | P1 |
 
-## Top 10 current risks
+## Top remaining architecture risks
 
 1. `lib/google-ads/serving.ts` still mixes live, warehouse, and projection lanes in one module.
 2. `lib/google-ads/warehouse.ts` is still an oversized mixed-responsibility file with sync, control, and read concerns co-located.
 3. `lib/meta/serving.ts` remains a large mixed-concern module even after repair-on-read removal.
 4. Status routes are coupled directly to sync-control schema, making later table moves high risk.
 5. `lib/overview-summary-materializer.ts` still relies on callers deriving affected ranges ad hoc after warehouse writes.
-6. The remaining operator-dependent freshness boundaries are intentional and now have a read-only status CLI, but exact overview summary range hydration, non-default GA4 windows, non-`country` demographics dimensions, and non-recent Shopify overview snapshots still rely on explicit operator-triggered owners.
-7. `lib/shopify/read-adapter.ts` still encodes serving trust decisions across many tables, even though persistence now lives in an explicit materializer.
-8. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
-9. `lib/migrations.ts` remains a large runtime migration bundle, and broader non-`GET` mutation/admin/webhook cleanup is still ahead.
-10. Status routes are still coupled directly to control-plane tables instead of dedicated serving summaries.
+6. `lib/shopify/read-adapter.ts` still encodes serving trust decisions across many tables, even though persistence now lives in an explicit materializer.
+7. OAuth/install callback `GET` handlers remain intentional mutation lanes and are excluded from passive-read guardrails.
+8. `lib/migrations.ts` remains a large runtime migration bundle, and broader non-`GET` mutation/admin/webhook cleanup is still ahead.
+9. Status routes are still coupled directly to control-plane tables instead of dedicated serving summaries.
+10. The current architecture still depends on direct warehouse/control readers in several request-time orchestration paths instead of small serving/read-model repositories.
+
+## Accepted intentional manual boundaries
+
+These remain operator-owned by design and are not treated as open defects in this register:
+
+1. `platform_overview_summary_ranges` exact selected historical ranges
+2. Non-default GA4 windows
+3. Non-`country` `ga4_detailed_demographics` dimensions
+4. `overview_shopify_orders_aggregate_v6` windows outside the automated recent window
+
+See `docs/architecture/serving-operational-freshness-matrix.md` for the exact owner commands and rationale.

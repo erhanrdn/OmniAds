@@ -1,10 +1,10 @@
 # Serving Product-Ready Signoff
 
-Purpose: record the final product-ready signoff decision for the serving/projection/cache hardening work on branch `arch/wire-serving-owner-triggers`.
+Purpose: record the final product-ready signoff decision for the serving/projection/cache hardening work, and preserve the exact pre-release approval basis that the current production release followed.
 
 Date: 2026-04-10
 
-Status: approved for direct production release when the repo-supported deploy prerequisite is satisfied
+Status: approved; the repo-supported deploy prerequisite was later satisfied and the resulting release execution is recorded in `docs/architecture/serving-release-execution-evidence.md`
 
 ## Scope Of This Signoff
 
@@ -31,7 +31,7 @@ Conclusion:
   - read-only observability and direct-release verification CLIs now exist in the repo
   - the repo already contains concrete direct deploy and rollback machinery through the existing Hetzner workflow and exact-SHA image deploy flow
 
-This conclusion is conditioned on the deploy prerequisite below.
+This conclusion was conditioned on the deploy prerequisite below. The later release execution evidence shows that the prerequisite was satisfied and the release completed successfully.
 
 ## Exact Repo-Supported Deploy Prerequisite
 
@@ -152,7 +152,7 @@ node --import tsx scripts/verify-serving-direct-release.ts <businessId> \
   --mode=post_deploy \
   --base-url=https://adsecute.com \
   --expected-build-id=<release_sha> \
-  --session-cookie-file=/path/to/omniads_session.txt \
+  [--session-cookie-file=/path/to/omniads_session.txt] \
   [--start-date=YYYY-MM-DD] \
   [--end-date=YYYY-MM-DD] \
   [--overview-provider=google|meta] \
@@ -169,7 +169,7 @@ Expected post-deploy blockers:
 
 - `/api/build-info` unavailable
 - `/api/build-info` returning the wrong build id
-- non-2xx response on the verified authenticated route set
+- non-2xx response on the verified authenticated route set when HTTP smoke is enabled
 - any `automated_missing` status row
 
 Expected acceptable post-deploy results:
@@ -195,7 +195,7 @@ node --import tsx scripts/verify-serving-direct-release.ts <businessId> \
   --mode=post_deploy \
   --base-url=https://adsecute.com \
   --expected-build-id=<known_good_sha> \
-  --session-cookie-file=/path/to/omniads_session.txt
+  [--session-cookie-file=/path/to/omniads_session.txt]
 ```
 
 ## Go / No-Go Checklist
