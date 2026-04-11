@@ -566,8 +566,17 @@ export function aggregateCommandCenterActions(input: {
           recommendedAction: decision.actionType,
           confidence: clampConfidence(decision.confidence),
           priority: priorityFromMetaAdSet(decision),
-          summary: decision.reasons[0] ?? `${decision.actionType} for ${decision.adSetName}`,
-          decisionSignals: decision.reasons,
+          summary:
+            decision.reasons[0] ??
+            `${decision.policy.strategyClass.replaceAll("_", " ")} for ${decision.adSetName}`,
+          decisionSignals: joinSignals([
+            ...decision.reasons,
+            `Strategy ${decision.policy.strategyClass.replaceAll("_", " ")}`,
+            `Primary driver ${decision.policy.primaryDriver.replaceAll("_", " ")}`,
+            ...decision.policy.secondaryDrivers.map((driver) =>
+              `Secondary driver ${driver.replaceAll("_", " ")}`,
+            ),
+          ]),
           evidence: evidenceFromMetrics(decision.supportingMetrics),
           guardrails: decision.guardrails,
           relatedEntities: [

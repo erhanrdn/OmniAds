@@ -197,6 +197,7 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Decisions use live windows");
   await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Selected period affects analysis only");
   await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
+  await expect(page.getByTestId("meta-winner-scale-candidates")).toBeVisible();
   await expect(page.getByTestId("meta-geo-board")).toBeVisible();
   await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
   let metaBaseline: Awaited<ReturnType<typeof captureMetaDecisionSignature>> | null = null;

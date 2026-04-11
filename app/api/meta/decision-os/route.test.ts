@@ -185,6 +185,11 @@ describe("GET /api/meta/decision-os", () => {
         todayPlan: ["Do the next thing"],
         budgetShiftSummary: "1 shift",
         noTouchSummary: "1 no-touch",
+        winnerScaleSummary: {
+          candidateCount: 0,
+          protectedCount: 0,
+          headline: "No clean winner scale candidate is ready yet.",
+        },
         operatingMode: null,
         confidence: 0.8,
       },
@@ -194,6 +199,7 @@ describe("GET /api/meta/decision-os", () => {
       geoDecisions: [],
       placementAnomalies: [],
       noTouchList: [],
+      winnerScaleCandidates: [],
       commercialTruthCoverage: {
         mode: "conservative_fallback",
         targetPackConfigured: false,

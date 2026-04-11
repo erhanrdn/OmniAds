@@ -28,6 +28,11 @@ function payload() {
       todayPlan: ["Protect winners", "Cut weak GEOs"],
       budgetShiftSummary: "One shift",
       noTouchSummary: "One no-touch",
+      winnerScaleSummary: {
+        candidateCount: 1,
+        protectedCount: 1,
+        headline: "1 active winner scale candidate is ready for controlled growth.",
+      },
       operatingMode: { currentMode: "Exploit", recommendedMode: "Exploit", confidence: 0.82 },
       confidence: 0.82,
       surfaceSummary: {
@@ -70,6 +75,14 @@ function payload() {
         whatWouldChangeThisDecision: [],
         adSetDecisionIds: ["decision_1"],
         laneLabel: "Scaling",
+        policy: {
+          strategyClass: "scale_budget",
+          objectiveFamily: "sales",
+          bidRegime: "cost_cap",
+          primaryDriver: "roas_outperforming",
+          secondaryDrivers: ["signal_density"],
+          winnerState: "scale_candidate",
+        },
         trust: {
           surfaceLane: "action_core",
           truthState: "live_confident",
@@ -109,11 +122,19 @@ function payload() {
         },
         whatWouldChangeThisDecision: [],
         noTouch: false,
+        policy: {
+          strategyClass: "scale_budget",
+          objectiveFamily: "sales",
+          bidRegime: "cost_cap",
+          primaryDriver: "roas_outperforming",
+          secondaryDrivers: ["signal_density"],
+          winnerState: "scale_candidate",
+        },
         trust: {
           surfaceLane: "action_core",
-          truthState: "degraded_missing_truth",
-          operatorDisposition: "review_reduce",
-          reasons: ["Commercial truth is incomplete."],
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Winning ad set"],
         },
       },
     ],
@@ -264,6 +285,39 @@ function payload() {
         guardrails: [],
       },
     ],
+    winnerScaleCandidates: [
+      {
+        candidateId: "cmp_1:adset_1",
+        campaignId: "cmp_1",
+        campaignName: "Campaign One",
+        adSetId: "adset_1",
+        adSetName: "Scale Winner",
+        confidence: 0.87,
+        why: "This ad set is beating target with strong clean signal and still has room for controlled scale.",
+        suggestedMoveBand: "10-15% of current budget load",
+        evidence: [],
+        guardrails: ["Scale in steps."],
+        supportingMetrics: {
+          spend: 900,
+          revenue: 3600,
+          roas: 4,
+          cpa: 30,
+          ctr: 1.4,
+          purchases: 30,
+          dailyBudget: 600,
+          bidStrategyLabel: "Cost Cap",
+          optimizationGoal: "PURCHASE",
+        },
+        policy: {
+          strategyClass: "scale_budget",
+          objectiveFamily: "sales",
+          bidRegime: "cost_cap",
+          primaryDriver: "roas_outperforming",
+          secondaryDrivers: ["signal_density"],
+          winnerState: "scale_candidate",
+        },
+      },
+    ],
     commercialTruthCoverage: {
       mode: "configured_targets",
       targetPackConfigured: true,
@@ -285,6 +339,8 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Today plan");
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Budget Shift Board");
+    expect(html).toContain("Winner Scale Candidates");
+    expect(html).toContain("winner scale candidate");
     expect(html).toContain("Top Ad Set Actions");
     expect(html).toContain("GEO OS");
     expect(html).toContain("Action Core GEOs");
@@ -306,5 +362,6 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Campaign Role");
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("Scale Winner");
+    expect(html).toContain("strategy scale budget");
   });
 });

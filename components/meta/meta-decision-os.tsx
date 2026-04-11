@@ -5,12 +5,18 @@ import { cn } from "@/lib/utils";
 import type {
   MetaAdSetDecision,
   MetaCampaignDecision,
+  MetaDecisionPolicy,
   MetaDecisionOsV1Response,
   MetaGeoDecision,
   MetaPlacementAnomaly,
+  MetaWinnerScaleCandidate,
 } from "@/lib/meta/decision-os";
 
 function formatActionLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+function formatPolicyLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
@@ -53,6 +59,29 @@ function laneTone(lane: MetaAdSetDecision["trust"]["surfaceLane"]) {
   if (lane === "action_core") return "bg-emerald-500/10 text-emerald-700";
   if (lane === "watchlist") return "bg-blue-500/10 text-blue-700";
   return "bg-slate-500/10 text-slate-700";
+}
+
+function PolicyChips({
+  policy,
+}: {
+  policy: MetaDecisionPolicy;
+}) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wide">
+      <span className="rounded-full bg-violet-500/10 px-2 py-1 text-violet-700">
+        strategy {formatPolicyLabel(policy.strategyClass)}
+      </span>
+      <span className="rounded-full bg-slate-500/10 px-2 py-1 text-slate-700">
+        objective {formatPolicyLabel(policy.objectiveFamily)}
+      </span>
+      <span className="rounded-full bg-slate-500/10 px-2 py-1 text-slate-700">
+        bid {formatPolicyLabel(policy.bidRegime)}
+      </span>
+      <span className="rounded-full bg-amber-500/10 px-2 py-1 text-amber-700">
+        driver {formatPolicyLabel(policy.primaryDriver)}
+      </span>
+    </div>
+  );
 }
 
 function EvidenceChips({
@@ -137,6 +166,7 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{decision.reasons[0]}</p>
+      <PolicyChips policy={decision.policy} />
       <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
         <span>ROAS {decision.supportingMetrics.roas.toFixed(2)}x</span>
         <span>Spend ${decision.supportingMetrics.spend.toFixed(0)}</span>
@@ -154,6 +184,42 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
       </div>
       {decision.guardrails.length > 0 ? (
         <p className="mt-2 text-[11px] text-slate-500">{decision.guardrails[0]}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function WinnerScaleCandidateRow({
+  candidate,
+}: {
+  candidate: MetaWinnerScaleCandidate;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-900">{candidate.adSetName}</p>
+          <p className="mt-0.5 text-xs text-slate-500">{candidate.campaignName}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Move band
+          </p>
+          <p className="text-sm font-semibold text-slate-900">{candidate.suggestedMoveBand}</p>
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-600">{candidate.why}</p>
+      <PolicyChips policy={candidate.policy} />
+      <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
+        <span>ROAS {candidate.supportingMetrics.roas.toFixed(2)}x</span>
+        <span>Spend ${candidate.supportingMetrics.spend.toFixed(0)}</span>
+        <span>Purchases {candidate.supportingMetrics.purchases}</span>
+        <span className={confidenceTone(candidate.confidence)}>
+          Confidence {(candidate.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+      {candidate.guardrails.length > 0 ? (
+        <p className="mt-2 text-[11px] text-slate-500">{candidate.guardrails[0]}</p>
       ) : null}
     </div>
   );
@@ -320,6 +386,14 @@ export function MetaDecisionOsOverview({
   const actionCoreGeos = decisionOs.geoDecisions.filter(
     (decision) => decision.trust.surfaceLane === "action_core",
   );
+  const winnerScaleSummary = decisionOs.summary.winnerScaleSummary ?? {
+    candidateCount: decisionOs.winnerScaleCandidates.length,
+    protectedCount: decisionOs.noTouchList.length,
+    headline:
+      decisionOs.winnerScaleCandidates.length > 0
+        ? `${decisionOs.winnerScaleCandidates.length} active winner scale candidate${decisionOs.winnerScaleCandidates.length > 1 ? "s are" : " is"} ready for controlled growth.`
+        : "No clean winner scale candidate is ready yet.",
+  };
   const geoSummary = decisionOs.summary.geoSummary ?? {
     actionCoreCount: actionCoreGeos.length,
     watchlistCount: decisionOs.geoDecisions.filter(
@@ -393,6 +467,9 @@ export function MetaDecisionOsOverview({
           <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
             Degraded {decisionOs.summary.surfaceSummary.degradedCount}
           </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
+            Winner candidates {winnerScaleSummary.candidateCount}
+          </div>
           {decisionOs.summary.todayPlan.slice(0, 6).map((item) => (
             <div
               key={item}
@@ -438,6 +515,28 @@ export function MetaDecisionOsOverview({
             ))}
           </div>
         )}
+      </DecisionListCard>
+
+      <DecisionListCard
+        title="Winner Scale Candidates"
+        testId="meta-winner-scale-candidates"
+        empty="No clean winner scale candidate is ready."
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500">{winnerScaleSummary.headline}</p>
+          {decisionOs.winnerScaleCandidates.length === 0 ? (
+            <p className="text-xs text-slate-500">No clean winner scale candidate is ready.</p>
+          ) : (
+            <div className="space-y-3">
+              {decisionOs.winnerScaleCandidates.slice(0, 5).map((candidate) => (
+                <WinnerScaleCandidateRow
+                  key={candidate.candidateId}
+                  candidate={candidate}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </DecisionListCard>
 
       <DecisionListCard
@@ -614,6 +713,7 @@ export function MetaCampaignDecisionPanel({
         <div className="mt-3 text-[11px] text-slate-500">
           Confidence {(campaignDecision.confidence * 100).toFixed(0)}%
         </div>
+        <PolicyChips policy={campaignDecision.policy} />
         <EvidenceChips evidence={campaignDecision.evidence} />
         {campaignDecision.guardrails.length > 0 ? (
           <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">

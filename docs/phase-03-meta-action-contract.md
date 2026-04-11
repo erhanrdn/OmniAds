@@ -20,11 +20,59 @@ interface MetaDecisionOsV1Response {
   geoDecisions: MetaGeoDecision[];
   placementAnomalies: MetaPlacementAnomaly[];
   noTouchList: MetaNoTouchItem[];
+  winnerScaleCandidates: MetaWinnerScaleCandidate[];
   commercialTruthCoverage: MetaCommercialTruthCoverage;
 }
 ```
 
 `contractVersion` remains `meta-decision-os.v1`. GEO V2 is additive only.
+Meta Strategy Engine V2 is also additive only.
+
+## Additive policy metadata
+
+```ts
+interface MetaDecisionPolicy {
+  strategyClass:
+    | MetaAdSetActionType
+    | "review_hold"
+    | "review_cost_cap"
+    | "creative_refresh_required"
+    | "stable_no_touch";
+  objectiveFamily:
+    | "sales"
+    | "catalog"
+    | "leads"
+    | "traffic"
+    | "awareness"
+    | "engagement"
+    | "unknown";
+  bidRegime: "open" | "cost_cap" | "bid_cap" | "roas_floor" | "unknown";
+  primaryDriver:
+    | "constraint_pressure"
+    | "roas_outperforming"
+    | "cpa_efficiency"
+    | "break_even_loss"
+    | "signal_density"
+    | "recent_change_cooldown"
+    | "mixed_config"
+    | "creative_fatigue"
+    | "winner_stability"
+    | "bid_regime_pressure"
+    | "geo_validation"
+    | "objective_upgrade"
+    | "degraded_truth_cap"
+    | "thin_signal";
+  secondaryDrivers: string[];
+  winnerState:
+    | "scale_candidate"
+    | "stable_no_touch"
+    | "guarded"
+    | "creative_refresh_required"
+    | "recovering"
+    | "not_a_winner"
+    | "degraded";
+}
+```
 
 ## Campaign decision
 
@@ -51,6 +99,7 @@ interface MetaCampaignDecision {
   whatWouldChangeThisDecision: string[];
   adSetDecisionIds: string[];
   laneLabel: "Scaling" | "Validation" | "Test" | null;
+  policy: MetaDecisionPolicy;
 }
 ```
 
@@ -99,6 +148,39 @@ interface MetaAdSetDecision {
   };
   whatWouldChangeThisDecision: string[];
   noTouch: boolean;
+  policy: MetaDecisionPolicy;
+}
+```
+
+`strategyClass` is the Meta Strategy Engine V2 semantic layer.
+`actionType` remains the operationally stable action family used by existing queue and execution compatibility code.
+
+## Winner scale candidates
+
+```ts
+interface MetaWinnerScaleCandidate {
+  candidateId: string;
+  campaignId: string;
+  campaignName: string;
+  adSetId: string;
+  adSetName: string;
+  confidence: number;
+  why: string;
+  suggestedMoveBand: string;
+  evidence: MetaDecisionEvidence[];
+  guardrails: string[];
+  supportingMetrics: {
+    spend: number;
+    revenue: number;
+    roas: number;
+    cpa: number | null;
+    ctr: number | null;
+    purchases: number;
+    dailyBudget: number | null;
+    bidStrategyLabel: string | null;
+    optimizationGoal: string | null;
+  };
+  policy: MetaDecisionPolicy;
 }
 ```
 
@@ -138,6 +220,12 @@ interface MetaAdSetDecision {
 - `sourceFreshness`
 - `countryEconomics`
 
+It also includes additive `winnerScaleSummary` fields:
+
+- `candidateCount`
+- `protectedCount`
+- `headline`
+
 ## GEO queue semantics
 
 - `queueEligible=true` means the GEO row is material, non-archive, and still in the deterministic action core.
@@ -150,3 +238,4 @@ interface MetaAdSetDecision {
 - No write-back
 - No AI-generated decision objects
 - No manual placement control surface
+- No execution subset expansion beyond existing Phase 06 supported actions

@@ -74,6 +74,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       "Current runtime posture is derived from the existing Meta Decision OS config helpers.",
       "Allowlist posture remains visible without exposing business IDs.",
       "GEO V2 uses dedicated country-only serving so GEO rows can stay live even when broader breakdown surfaces are partial.",
+      "Meta Strategy Engine V2 adds additive policy metadata and a read-only winner scale candidate board without changing the execution subset.",
     ],
   },
   {

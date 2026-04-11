@@ -246,6 +246,7 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.commercialTruthCoverage.mode).toBe("conservative_fallback");
     expect(result.adSets[0]?.actionType).toBe("hold");
+    expect(result.adSets[0]?.policy.strategyClass).toBe("review_hold");
     expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
     expect(result.summary.surfaceSummary.degradedCount).toBeGreaterThan(0);
   });
@@ -276,6 +277,7 @@ describe("buildMetaDecisionOs", () => {
     });
 
     expect(result.adSets[0]?.actionType).not.toBe("pause");
+    expect(result.adSets[0]?.policy.secondaryDrivers).toContain("degraded_truth_cap");
     expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
     expect(result.adSets[0]?.trust.operatorDisposition).not.toBe("standard");
   });
@@ -301,7 +303,7 @@ describe("buildMetaDecisionOs", () => {
       conversionTrackingIssueStatus: "none",
       feedIssueStatus: "none",
       stockPressureStatus: "healthy",
-      landingPageConcern: "Refresh landing page tomorrow, so keep the winner stable until then.",
+      landingPageConcern: null,
       merchandisingConcern: null,
       manualDoNotScaleReason: null,
       sourceLabel: "manual",
@@ -322,7 +324,222 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.campaigns[0]?.primaryAction).toBe("hold");
     expect(result.campaigns[0]?.noTouch).toBe(true);
+    expect(result.adSets[0]?.policy.strategyClass).toBe("stable_no_touch");
     expect(result.noTouchList[0]?.entityType).toBe("campaign");
+  });
+
+  it("maps constrained bid pressure to review_cost_cap without turning the lane into no-touch", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          spend: 420,
+          purchases: 11,
+          revenue: 882,
+          roas: 2.1,
+          cpa: 45,
+          ctr: 1.25,
+          impressions: 28000,
+          clicks: 340,
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.adSets[0]).toMatchObject({
+      actionType: "tighten_bid",
+      noTouch: false,
+      policy: {
+        strategyClass: "review_cost_cap",
+        objectiveFamily: "sales",
+        bidRegime: "cost_cap",
+        primaryDriver: "bid_regime_pressure",
+      },
+    });
+  });
+
+  it("maps creative refresh required to hold and keeps it off the no-touch list", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          spend: 410,
+          purchases: 10,
+          revenue: 902,
+          roas: 2.2,
+          cpa: 41,
+          ctr: 0.92,
+          inlineLinkClickCtr: 0.92,
+          impressions: 26000,
+          clicks: 240,
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.adSets[0]).toMatchObject({
+      actionType: "hold",
+      noTouch: false,
+      policy: {
+        strategyClass: "creative_refresh_required",
+        primaryDriver: "creative_fatigue",
+        winnerState: "creative_refresh_required",
+      },
+    });
+    expect(result.adSets[0]?.relatedCreativeNeeds[0]).toContain("Creative supply");
+    expect(result.noTouchList).toHaveLength(0);
+  });
+
+  it("only emits pause for clear high-signal losers without recent ambiguity", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const cleanPause = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          spend: 680,
+          purchases: 14,
+          revenue: 306,
+          roas: 0.45,
+          cpa: 72,
+          ctr: 0.74,
+          impressions: 52000,
+          clicks: 380,
+          previousBudgetCapturedAt: "2026-04-01T00:00:00.000Z",
+          previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    const recentLoser = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          spend: 680,
+          purchases: 14,
+          revenue: 306,
+          roas: 0.45,
+          cpa: 72,
+          ctr: 0.74,
+          impressions: 52000,
+          clicks: 380,
+          previousBudgetCapturedAt: "2026-04-09T00:00:00.000Z",
+          previousBidValueCapturedAt: "2026-04-09T00:00:00.000Z",
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(cleanPause.adSets[0]?.actionType).toBe("pause");
+    expect(cleanPause.adSets[0]?.policy.strategyClass).toBe("pause");
+    expect(recentLoser.adSets[0]?.actionType).not.toBe("pause");
+    expect(recentLoser.adSets[0]?.policy.primaryDriver).toBe("recent_change_cooldown");
+  });
+
+  it("builds winner scale candidates and routes budget shifts from active losers into those winners only", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [
+        campaign({
+          id: "cmp_winner",
+          name: "Prospecting Scale Winner",
+          spend: 1400,
+          revenue: 4900,
+          purchases: 44,
+          roas: 3.5,
+          cpa: 31.8,
+        }),
+        campaign({
+          id: "cmp_loser",
+          name: "Prospecting Validation Loser",
+          spend: 1250,
+          revenue: 520,
+          purchases: 16,
+          roas: 0.42,
+          cpa: 78,
+        }),
+      ],
+      adSets: [
+        adSet({
+          id: "adset_winner",
+          campaignId: "cmp_winner",
+          name: "Winner Lane",
+          spend: 920,
+          purchases: 30,
+          revenue: 3864,
+          roas: 4.2,
+          cpa: 30.67,
+          ctr: 1.46,
+          impressions: 64000,
+          clicks: 980,
+        }),
+        adSet({
+          id: "adset_loser",
+          campaignId: "cmp_loser",
+          name: "Loser Lane",
+          spend: 690,
+          purchases: 14,
+          revenue: 310,
+          roas: 0.45,
+          cpa: 73,
+          ctr: 0.78,
+          impressions: 54000,
+          clicks: 390,
+          previousBudgetCapturedAt: "2026-04-01T00:00:00.000Z",
+          previousBidValueCapturedAt: "2026-04-01T00:00:00.000Z",
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.winnerScaleCandidates).toHaveLength(1);
+    expect(result.winnerScaleCandidates[0]).toMatchObject({
+      campaignId: "cmp_winner",
+      adSetId: "adset_winner",
+      policy: {
+        strategyClass: "scale_budget",
+        winnerState: "scale_candidate",
+      },
+    });
+    expect(result.summary.winnerScaleSummary).toMatchObject({
+      candidateCount: 1,
+      headline: expect.stringContaining("winner scale candidate"),
+    });
+    expect(result.budgetShifts[0]).toMatchObject({
+      fromCampaignId: "cmp_loser",
+      toCampaignId: "cmp_winner",
+    });
   });
 
   it("turns blocked geos into cut decisions and flags placement anomalies", () => {

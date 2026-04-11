@@ -18,11 +18,14 @@
   - confirm `Operating Mode`
   - confirm `Today's Plan`
   - confirm `Budget Shift Board`
+  - confirm `Winner Scale Candidates`
   - confirm `GEO OS`
   - confirm `Action Core GEOs` and `Watchlist / Pooled Validation` both render honestly
+  - confirm strategy / objective / bid / driver chips render on winner and action cards
   - confirm GEO source freshness / partial-state wording is visible when applicable
   - confirm `No-Touch List`
   - select a campaign and confirm `Campaign Role` + `Ad Set Actions`
+  - confirm campaign detail shows policy chips without relabeling AI or recommendation surfaces
 - Commercial operator flow:
   - login with smoke operator
   - edit commercial settings
@@ -46,11 +49,14 @@
 - `npm run test:smoke:live`
 - Request live JSON from `/api/meta/decision-os`
 - Confirm route returns `meta-decision-os.v1`
+- Confirm additive `policy` metadata exists on campaign and ad set decision rows
+- Confirm additive `winnerScaleCandidates` and `summary.winnerScaleSummary` are present
 - Confirm `summary.geoSummary` is present and honest
 - Confirm GEO rows are still served when country-only warehouse data exists but broader breakdown surfaces are partial
 - Confirm `decision_os` optional surface is `ready` or an honest gated/partial state in `/api/meta/status`
 - Request live JSON from `/api/command-center`
 - Confirm watchlist / pooled GEO rows do not enter the default action queue
+- Confirm existing execution support matrix is unchanged for Meta ad set actions
 
 ## Rollback
 

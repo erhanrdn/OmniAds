@@ -66,6 +66,60 @@ export type MetaDecisionPriority = "critical" | "high" | "medium" | "low";
 export type MetaRiskLevel = "low" | "medium" | "high";
 export type MetaCommercialFallbackMode = "configured_targets" | "conservative_fallback";
 export type MetaPlacementAction = "keep_advantage_plus" | "exception_review";
+export const META_OBJECTIVE_FAMILIES = [
+  "sales",
+  "catalog",
+  "leads",
+  "traffic",
+  "awareness",
+  "engagement",
+  "unknown",
+] as const;
+export type MetaObjectiveFamily = (typeof META_OBJECTIVE_FAMILIES)[number];
+
+export const META_BID_REGIMES = [
+  "open",
+  "cost_cap",
+  "bid_cap",
+  "roas_floor",
+  "unknown",
+] as const;
+export type MetaBidRegime = (typeof META_BID_REGIMES)[number];
+
+export const META_POLICY_DRIVERS = [
+  "constraint_pressure",
+  "roas_outperforming",
+  "cpa_efficiency",
+  "break_even_loss",
+  "signal_density",
+  "recent_change_cooldown",
+  "mixed_config",
+  "creative_fatigue",
+  "winner_stability",
+  "bid_regime_pressure",
+  "geo_validation",
+  "objective_upgrade",
+  "degraded_truth_cap",
+  "thin_signal",
+] as const;
+export type MetaPolicyDriver = (typeof META_POLICY_DRIVERS)[number];
+
+export const META_WINNER_STATES = [
+  "scale_candidate",
+  "stable_no_touch",
+  "guarded",
+  "creative_refresh_required",
+  "recovering",
+  "not_a_winner",
+  "degraded",
+] as const;
+export type MetaWinnerState = (typeof META_WINNER_STATES)[number];
+export type MetaStrategyClass =
+  | MetaAdSetActionType
+  | "review_hold"
+  | "review_cost_cap"
+  | "creative_refresh_required"
+  | "stable_no_touch";
 
 export interface MetaDecisionEvidence {
   label: string;
@@ -123,6 +177,15 @@ export interface MetaGeoCommercialContext {
   countryEconomicsSourceLabel: string | null;
 }
 
+export interface MetaDecisionPolicy {
+  strategyClass: MetaStrategyClass;
+  objectiveFamily: MetaObjectiveFamily;
+  bidRegime: MetaBidRegime;
+  primaryDriver: MetaPolicyDriver;
+  secondaryDrivers: MetaPolicyDriver[];
+  winnerState: MetaWinnerState;
+}
+
 export interface MetaCampaignDecision {
   campaignId: string;
   campaignName: string;
@@ -137,6 +200,7 @@ export interface MetaCampaignDecision {
   whatWouldChangeThisDecision: string[];
   adSetDecisionIds: string[];
   laneLabel: "Scaling" | "Validation" | "Test" | null;
+  policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
 }
 
@@ -170,6 +234,7 @@ export interface MetaAdSetDecision {
   };
   whatWouldChangeThisDecision: string[];
   noTouch: boolean;
+  policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
 }
 
@@ -240,11 +305,41 @@ export interface MetaCommercialTruthCoverage {
   notes: string[];
 }
 
+export interface MetaWinnerScaleCandidate {
+  candidateId: string;
+  campaignId: string;
+  campaignName: string;
+  adSetId: string;
+  adSetName: string;
+  confidence: number;
+  why: string;
+  suggestedMoveBand: string;
+  evidence: MetaDecisionEvidence[];
+  guardrails: string[];
+  supportingMetrics: {
+    spend: number;
+    revenue: number;
+    roas: number;
+    cpa: number | null;
+    ctr: number | null;
+    purchases: number;
+    dailyBudget: number | null;
+    bidStrategyLabel: string | null;
+    optimizationGoal: string | null;
+  };
+  policy: MetaDecisionPolicy;
+}
+
 export interface MetaDecisionOsSummary {
   todayPlanHeadline: string;
   todayPlan: string[];
   budgetShiftSummary: string;
   noTouchSummary: string;
+  winnerScaleSummary: {
+    candidateCount: number;
+    protectedCount: number;
+    headline: string;
+  };
   operatingMode: {
     currentMode: string;
     recommendedMode: string;
@@ -288,6 +383,7 @@ export interface MetaDecisionOsV1Response {
   geoDecisions: MetaGeoDecision[];
   placementAnomalies: MetaPlacementAnomaly[];
   noTouchList: MetaNoTouchItem[];
+  winnerScaleCandidates: MetaWinnerScaleCandidate[];
   commercialTruthCoverage: MetaCommercialTruthCoverage;
 }
 
@@ -373,6 +469,145 @@ function formatPercent(value: number | null | undefined) {
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function uniqueValues<T>(values: T[]) {
+  return Array.from(new Set(values));
+}
+
+function classifyObjectiveFamily(input: {
+  campaign: MetaCampaignRow | null;
+  adSet: MetaAdSetData | null;
+  campaignRole?: MetaCampaignRole | null;
+}): MetaObjectiveFamily {
+  if (input.campaignRole === "Catalog / DPA") return "catalog";
+  const source = normalizeText(
+    [
+      input.campaign?.objective,
+      input.campaign?.optimizationGoal,
+      input.adSet?.optimizationGoal,
+      input.adSet?.name,
+      input.campaign?.name,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (
+    source.includes("catalog") ||
+    source.includes("dpa") ||
+    source.includes("product set") ||
+    source.includes("shopping")
+  ) {
+    return "catalog";
+  }
+  if (
+    source.includes("purchase") ||
+    source.includes("sales") ||
+    source.includes("roas") ||
+    source.includes("checkout") ||
+    source.includes("value")
+  ) {
+    return "sales";
+  }
+  if (source.includes("lead") || source.includes("registration")) return "leads";
+  if (
+    source.includes("traffic") ||
+    source.includes("landing page") ||
+    source.includes("click") ||
+    source.includes("link")
+  ) {
+    return "traffic";
+  }
+  if (
+    source.includes("awareness") ||
+    source.includes("reach") ||
+    source.includes("brand")
+  ) {
+    return "awareness";
+  }
+  if (
+    source.includes("engagement") ||
+    source.includes("message") ||
+    source.includes("messaging") ||
+    source.includes("video")
+  ) {
+    return "engagement";
+  }
+  return "unknown";
+}
+
+function classifyBidRegime(input: {
+  campaign: MetaCampaignRow | null;
+  adSet: MetaAdSetData | null;
+}): MetaBidRegime {
+  const source = normalizeText(
+    [
+      input.adSet?.bidStrategyType,
+      input.adSet?.bidStrategyLabel,
+      input.campaign?.bidStrategyType,
+      input.campaign?.bidStrategyLabel,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  if (source.includes("cost cap")) return "cost_cap";
+  if (source.includes("bid cap")) return "bid_cap";
+  if (source.includes("roas")) return "roas_floor";
+  if (
+    input.adSet?.manualBidAmount != null ||
+    input.campaign?.manualBidAmount != null
+  ) {
+    return "bid_cap";
+  }
+  if (source.includes("lowest cost") || source.includes("highest volume")) {
+    return "open";
+  }
+  return source.length > 0 ? "unknown" : "open";
+}
+
+function buildSuggestedMoveBand(actionSize: MetaActionSize) {
+  if (actionSize === "large") return "15-25% of current budget load";
+  if (actionSize === "medium") return "10-15% of current budget load";
+  if (actionSize === "small") return "5-10% of current budget load";
+  return "Hold current budget until more clean headroom appears";
+}
+
+function mapStrategyClassToActionType(
+  strategyClass: MetaStrategyClass,
+): MetaAdSetActionType {
+  if (
+    strategyClass === "review_hold" ||
+    strategyClass === "creative_refresh_required" ||
+    strategyClass === "stable_no_touch"
+  ) {
+    return "hold";
+  }
+  if (strategyClass === "review_cost_cap") return "tighten_bid";
+  return strategyClass;
+}
+
+function determinePriorityFromAction(
+  actionType: MetaAdSetActionType,
+  strategyClass: MetaStrategyClass,
+  confidence: number,
+): MetaDecisionPriority {
+  if (actionType === "pause") return "critical";
+  if (
+    actionType === "reduce_budget" ||
+    actionType === "recover" ||
+    actionType === "rebuild"
+  ) {
+    return "high";
+  }
+  if (
+    actionType === "scale_budget" ||
+    strategyClass === "review_cost_cap" ||
+    strategyClass === "creative_refresh_required"
+  ) {
+    return confidence >= 0.78 ? "high" : "medium";
+  }
+  if (actionType === "monitor_only") return "low";
+  return "medium";
 }
 
 function matchesAnyKeyword(source: string, keywords: string[]) {
@@ -912,10 +1147,14 @@ function buildPlacementAnomalies(input: {
 
 function buildRelatedCreativeNeeds(input: {
   actionType: MetaAdSetActionType;
+  strategyClass: MetaStrategyClass;
   ctr: number | null;
   roas: number;
 }) {
   const needs: string[] = [];
+  if (input.strategyClass === "creative_refresh_required") {
+    needs.push("Creative supply looks like the current bottleneck, so refresh hooks before pushing budget or cap changes.");
+  }
   if (input.actionType === "rebuild" || input.actionType === "recover") {
     needs.push("Refresh the active creative mix before expecting the same structure to recover.");
   }
@@ -940,7 +1179,9 @@ function buildAdSetDecision(input: {
 }): MetaAdSetDecision {
   const roas = input.adSet.spend > 0 ? input.adSet.revenue / input.adSet.spend : 0;
   const cpa = input.adSet.cpa ?? (input.adSet.purchases > 0 ? input.adSet.spend / input.adSet.purchases : null);
+  const ctr = input.adSet.inlineLinkClickCtr ?? input.adSet.ctr ?? null;
   const hasStrongSignal = input.adSet.spend >= 250 && input.adSet.purchases >= 8;
+  const hasHighSignal = input.adSet.spend >= 500 && input.adSet.purchases >= 12;
   const hasVeryStrongSignal = input.adSet.spend >= 500 && input.adSet.purchases >= 18;
   const lowSignal = !hasStrongSignal;
   const recentChange =
@@ -958,6 +1199,9 @@ function buildAdSetDecision(input: {
   const breakEvenMiss =
     (roas > 0 && roas < input.thresholds.breakEvenRoas) ||
     (cpa != null && cpa > input.thresholds.breakEvenCpa);
+  const clearBreakEvenLoss =
+    (roas > 0 && roas < input.thresholds.breakEvenRoas * 0.8) ||
+    (cpa != null && cpa > input.thresholds.breakEvenCpa * 1.15);
   const nearTarget =
     (roas > 0 && roas >= input.thresholds.targetRoas * 0.9 && roas < input.thresholds.targetRoas) ||
     (cpa != null && cpa <= input.thresholds.targetCpa * 1.1 && cpa > input.thresholds.targetCpa);
@@ -967,169 +1211,303 @@ function buildAdSetDecision(input: {
   const retargetingRole =
     input.campaignRole === "Retargeting" || input.campaignRole === "Existing Customer / LTV";
   const geoRole = input.campaignRole === "Geo Expansion";
-  const stableWinner =
-    targetMet && hasVeryStrongSignal && !recentChange && !mixedConfig;
+  const objectiveFamily = classifyObjectiveFamily({
+    campaign: input.campaign,
+    adSet: input.adSet,
+    campaignRole: input.campaignRole,
+  });
+  const bidRegime = classifyBidRegime({
+    campaign: input.campaign,
+    adSet: input.adSet,
+  });
+  const constrainedBidRegime =
+    bidRegime === "cost_cap" || bidRegime === "bid_cap" || bidRegime === "roas_floor";
+  const activeStatus = normalizeText(input.adSet.status) === "active";
+  const lowerFunnelObjective =
+    objectiveFamily === "sales" ||
+    objectiveFamily === "catalog" ||
+    objectiveFamily === "leads" ||
+    retargetingRole;
   const promoSafeWinner =
     normalizeText(input.campaign?.name).includes("promo") &&
     targetMet &&
     hasStrongSignal &&
     !recentChange &&
     !mixedConfig;
+  const creativeFatigueCandidate =
+    activeStatus &&
+    !recentChange &&
+    !mixedConfig &&
+    !manualDoNotScale &&
+    !stockBlocked &&
+    !lowSignal &&
+    ctr != null &&
+    ctr < 1.05 &&
+    roas >= input.thresholds.breakEvenRoas &&
+    roas < input.thresholds.targetRoas;
+  const trulyStableWinner =
+    activeStatus &&
+    targetMet &&
+    hasVeryStrongSignal &&
+    !recentChange &&
+    !mixedConfig &&
+    !manualDoNotScale &&
+    !stockBlocked &&
+    !landingConcern;
+  const scaleCandidate =
+    trulyStableWinner &&
+    !retargetingRole &&
+    !promoSafeWinner &&
+    !creativeFatigueCandidate &&
+    objectiveFamily !== "awareness" &&
+    objectiveFamily !== "traffic" &&
+    (!constrainedBidRegime ||
+      roas >= input.thresholds.targetRoas * 1.15 ||
+      (cpa != null && cpa <= input.thresholds.targetCpa * 0.9));
+  const stableProtectedWinner = trulyStableWinner && !scaleCandidate;
+  const clearPauseLoss =
+    activeStatus &&
+    lowerFunnelObjective &&
+    hasHighSignal &&
+    clearBreakEvenLoss &&
+    !recentChange &&
+    !mixedConfig &&
+    !manualDoNotScale &&
+    !stockBlocked &&
+    !landingConcern &&
+    input.geoCoverageMode !== "conservative_fallback";
+  const bidRegimePressure =
+    constrainedBidRegime &&
+    activeStatus &&
+    hasStrongSignal &&
+    !recentChange &&
+    !mixedConfig &&
+    !targetMet &&
+    !breakEvenMiss;
+  const objectiveUpgradeReady =
+    normalizeText(input.adSet.optimizationGoal).includes("add to cart") &&
+    hasStrongSignal &&
+    roas >= input.thresholds.targetRoas;
+  const narrowReachWinner =
+    targetMet &&
+    input.adSet.impressions < 20_000 &&
+    input.adSet.clicks < 250 &&
+    !recentChange &&
+    !mixedConfig;
   const actionReasons: string[] = [];
   const guardrails: string[] = [];
-  let actionType: MetaAdSetActionType = "monitor_only";
+  const secondaryDriverPool: MetaPolicyDriver[] = [];
+  if (lowSignal) secondaryDriverPool.push("thin_signal");
+  if (hasStrongSignal) secondaryDriverPool.push("signal_density");
+  if (recentChange) secondaryDriverPool.push("recent_change_cooldown");
+  if (mixedConfig) secondaryDriverPool.push("mixed_config");
+  if (manualDoNotScale || stockBlocked || landingConcern) {
+    secondaryDriverPool.push("constraint_pressure");
+  }
+  if (constrainedBidRegime) secondaryDriverPool.push("bid_regime_pressure");
+
+  let strategyClass: MetaStrategyClass = "monitor_only";
   let actionSize: MetaActionSize = "none";
-  let priority: MetaDecisionPriority = "low";
   let confidence = 0.74;
+  let primaryDriver: MetaPolicyDriver = lowSignal ? "thin_signal" : "signal_density";
+  let winnerState: MetaWinnerState = "not_a_winner";
   let fallbackDisposition: DecisionOperatorDisposition | null = null;
 
   if (stockBlocked || manualDoNotScale) {
-    actionType = "hold";
-    actionSize = "none";
-    priority = "high";
+    strategyClass = "review_hold";
     confidence = 0.9;
+    primaryDriver = "constraint_pressure";
+    winnerState = "guarded";
     actionReasons.push(
       stockBlocked
         ? "Operating constraints say stock pressure is blocked."
         : "Commercial constraints include an explicit do-not-scale instruction.",
     );
     guardrails.push("Do not widen spend until the operator-level constraint is cleared.");
-  } else if (breakEvenMiss && hasStrongSignal && input.adSet.status.toLowerCase() === "active") {
-    actionType = "pause";
+  } else if (clearPauseLoss) {
+    strategyClass = "pause";
     actionSize = "large";
-    priority = "critical";
-    confidence = 0.9;
-    actionReasons.push("Efficiency is below break-even with enough spend to justify a hard stop.");
+    confidence = 0.91;
+    primaryDriver = "break_even_loss";
+    winnerState = "guarded";
+    actionReasons.push("Efficiency is clearly below break-even with enough clean signal to justify a hard stop.");
     guardrails.push("Pause the loser before scaling any adjacent lanes.");
   } else if (mixedConfig && hasStrongSignal) {
-    actionType = "rebuild";
+    strategyClass = "rebuild";
     actionSize = "medium";
-    priority = "high";
     confidence = 0.86;
+    primaryDriver = "mixed_config";
+    winnerState = "guarded";
     actionReasons.push("Mixed budget or optimization config makes this ad set hard to trust operationally.");
     guardrails.push("Rebuild into a cleaner structure instead of stacking more edits onto mixed config.");
-  } else if (retargetingRole && targetMet && input.adSet.status.toLowerCase() !== "active") {
-    actionType = "recover";
+  } else if (retargetingRole && targetMet && !activeStatus && !recentChange && !mixedConfig) {
+    strategyClass = "recover";
     actionSize = "medium";
-    priority = "high";
     confidence = 0.84;
+    primaryDriver = "signal_density";
+    winnerState = "recovering";
     actionReasons.push("This retargeting lane is efficient enough to recover even though delivery is muted.");
     guardrails.push("Recover in controlled steps and keep audience intent clean.");
-  } else if ((stableWinner && retargetingRole) || promoSafeWinner) {
-    actionType = "hold";
-    actionSize = "none";
-    priority = "medium";
-    confidence = 0.84;
+  } else if (creativeFatigueCandidate) {
+    strategyClass = "creative_refresh_required";
+    confidence = 0.78;
+    primaryDriver = "creative_fatigue";
+    winnerState = "creative_refresh_required";
+    actionReasons.push("Signal is established, but soft click-through quality says the current creative is the bottleneck.");
+    guardrails.push("Refresh creative supply before changing budget, bid, and structure together.");
+  } else if (scaleCandidate) {
+    strategyClass = "scale_budget";
+    actionSize = roas >= input.thresholds.targetRoas * 1.2 ? "large" : "medium";
+    confidence = input.geoCoverageMode === "configured_targets" ? 0.88 : 0.78;
+    primaryDriver =
+      roas >= input.thresholds.targetRoas ? "roas_outperforming" : "cpa_efficiency";
+    winnerState = "scale_candidate";
+    actionReasons.push("This ad set is beating target with strong clean signal and still has room for controlled scale.");
+    guardrails.push("Scale in steps rather than by a single large jump.");
+  } else if (stableProtectedWinner) {
+    strategyClass = "stable_no_touch";
+    confidence = retargetingRole || promoSafeWinner ? 0.86 : 0.83;
+    primaryDriver = "winner_stability";
+    winnerState = "stable_no_touch";
     actionReasons.push(
-      retargetingRole
-        ? "This is a stable retargeting winner, so the safer move is to protect it instead of layering more change onto it."
-        : "This promo-safe winner should be protected while the promo window stays live.",
+      retargetingRole || promoSafeWinner
+        ? "This is a stable active winner, so the cleaner move today is to protect it instead of adding more change."
+        : "This winner is active and stable, but the current signal does not justify a broader push today.",
     );
     guardrails.push("Keep this winner stable and avoid mixing testing changes into it.");
-  } else if (targetMet && hasVeryStrongSignal && !recentChange && !mixedConfig) {
-    actionType = "scale_budget";
-    actionSize = roas >= input.thresholds.targetRoas * 1.2 ? "large" : "medium";
-    priority = "high";
-    confidence = input.geoCoverageMode === "configured_targets" ? 0.88 : 0.78;
-    actionReasons.push("This ad set is winning against target with enough conversion depth to scale.");
-    guardrails.push("Scale in steps rather than by a single large jump.");
-  } else if (breakEvenMiss && hasStrongSignal) {
-    actionType = "reduce_budget";
-    actionSize = "medium";
-    priority = "high";
-    confidence = 0.8;
-    actionReasons.push("Performance is not strong enough to keep the current budget load.");
-    guardrails.push("Reduce load before testing broader fixes.");
-  } else if (recentChange || nearTarget || landingConcern) {
-    actionType = "hold";
-    actionSize = "none";
-    priority = nearTarget ? "medium" : "high";
+  } else if (recentChange || landingConcern) {
+    strategyClass = "review_hold";
     confidence = recentChange ? 0.72 : 0.7;
+    primaryDriver = recentChange
+      ? "recent_change_cooldown"
+      : "constraint_pressure";
+    winnerState = targetMet ? "guarded" : "not_a_winner";
     actionReasons.push(
       recentChange
         ? "A recent config change is still settling."
-        : landingConcern
-          ? "Landing-page concern lowers confidence in any aggressive move."
-          : "Signal is near target but not strong enough for a decisive move.",
+        : "Landing-page concern lowers confidence in any aggressive move.",
     );
     guardrails.push("Hold until the current signal resolves more clearly.");
+  } else if (breakEvenMiss && hasStrongSignal) {
+    strategyClass = "reduce_budget";
+    actionSize = "medium";
+    confidence = 0.8;
+    primaryDriver = "break_even_loss";
+    winnerState = "guarded";
+    actionReasons.push("Performance is below break-even enough to cut load, but not clean enough for a hard pause.");
+    guardrails.push("Reduce load before testing broader fixes.");
   } else if (geoRole && targetMet && lowSignal) {
-    actionType = "duplicate_to_new_geo_cluster";
+    strategyClass = "duplicate_to_new_geo_cluster";
     actionSize = "small";
-    priority = "medium";
     confidence = 0.7;
+    primaryDriver = "geo_validation";
+    winnerState = "guarded";
     actionReasons.push("Geo expansion is promising, but the next move should stay controlled through a new cluster.");
     guardrails.push("Keep this as a validation move, not a broad budget release.");
   } else if (geoRole && breakEvenMiss && lowSignal) {
-    actionType = "merge_into_pooled_geo";
+    strategyClass = "merge_into_pooled_geo";
     actionSize = "small";
-    priority = "medium";
     confidence = 0.68;
+    primaryDriver = "geo_validation";
+    winnerState = "guarded";
     actionReasons.push("Thin-signal geo expansion should be pooled instead of isolated.");
     guardrails.push("Do not keep a dedicated geo path alive without enough signal.");
-  } else if (
-    normalizeText(input.adSet.optimizationGoal).includes("add to cart") &&
-    hasStrongSignal &&
-    roas >= input.thresholds.targetRoas
-  ) {
-    actionType = "switch_optimization";
+  } else if (objectiveUpgradeReady) {
+    strategyClass = "switch_optimization";
     actionSize = "small";
-    priority = "medium";
     confidence = 0.74;
+    primaryDriver = "objective_upgrade";
+    winnerState = "guarded";
     actionReasons.push("The lane is healthy enough that a cleaner purchase optimization path is justified.");
     guardrails.push("Only switch optimization once the current stable baseline is documented.");
-  } else if (
-    (normalizeText(input.adSet.bidStrategyLabel).includes("cap") ||
-      normalizeText(input.adSet.bidStrategyType).includes("cap")) &&
-    hasStrongSignal &&
-    !targetMet &&
-    !breakEvenMiss
-  ) {
-    actionType = "tighten_bid";
+  } else if (bidRegimePressure) {
+    strategyClass = "review_cost_cap";
     actionSize = "small";
-    priority = "medium";
-    confidence = 0.66;
-    actionReasons.push("Bid control exists, so tightening the bid is safer than a structural rewrite.");
+    confidence = 0.69;
+    primaryDriver = "bid_regime_pressure";
+    winnerState = "guarded";
+    actionReasons.push("Bid control is the main lever here, so review the cap before making broader structural changes.");
     guardrails.push("Change the bid guardrail before changing multiple levers at once.");
-  } else if (targetMet && input.adSet.impressions < 20_000 && input.adSet.clicks < 250) {
-    actionType = "broaden";
+  } else if (nearTarget) {
+    strategyClass = "review_hold";
+    confidence = 0.7;
+    primaryDriver = "signal_density";
+    winnerState = targetMet ? "guarded" : "not_a_winner";
+    actionReasons.push("Signal is near target but not strong enough for a decisive move.");
+    guardrails.push("Hold until the current signal resolves more clearly.");
+  } else if (
+    (objectiveFamily === "awareness" || objectiveFamily === "traffic") &&
+    narrowReachWinner
+  ) {
+    strategyClass = "broaden";
     actionSize = "small";
-    priority = "medium";
     confidence = 0.64;
+    primaryDriver = "signal_density";
+    winnerState = "guarded";
     actionReasons.push("Efficiency is strong, but reach is still narrow enough to justify a controlled broadening move.");
     guardrails.push("Broaden only after checking that current winners are not simply budget-limited.");
   } else if (lowSignal) {
-    actionType = "monitor_only";
-    actionSize = "none";
-    priority = "low";
+    strategyClass = "monitor_only";
     confidence = 0.58;
+    primaryDriver = "thin_signal";
     actionReasons.push("This ad set does not have enough clean signal for a bigger action.");
     guardrails.push("Low-signal lanes should stay observable, not over-operated.");
+  } else if (narrowReachWinner) {
+    strategyClass = "broaden";
+    actionSize = "small";
+    confidence = 0.66;
+    primaryDriver = "signal_density";
+    winnerState = "guarded";
+    actionReasons.push("Efficiency is strong, but reach is still narrow enough that a controlled broadening move is cleaner than a budget jump.");
+    guardrails.push("Broaden only after checking that the current winning path is not just budget-limited.");
+  } else {
+    strategyClass = "review_hold";
+    confidence = 0.63;
+    primaryDriver = "signal_density";
+    actionReasons.push("Signal is real, but the next move still needs operator review before changing spend or structure.");
+    guardrails.push("Hold this lane until the next clean efficiency or constraint signal appears.");
   }
 
   if (input.geoCoverageMode === "conservative_fallback") {
-    if (actionType === "pause") {
-      actionType = hasStrongSignal ? "reduce_budget" : "hold";
+    if (strategyClass === "pause") {
+      strategyClass = hasStrongSignal ? "reduce_budget" : "review_hold";
       actionSize = hasStrongSignal ? "medium" : "none";
-      priority = "high";
       confidence = Math.min(confidence, hasStrongSignal ? 0.72 : 0.66);
       fallbackDisposition = hasStrongSignal ? "review_reduce" : "review_hold";
+      winnerState = "degraded";
+      secondaryDriverPool.push("break_even_loss");
+      primaryDriver = "degraded_truth_cap";
       actionReasons.unshift(
         "Commercial targets are missing, so a hard pause is downgraded to a review-safe action.",
       );
-    } else if (actionType === "scale_budget" || actionType === "broaden") {
-      actionType = "hold";
+    } else if (
+      strategyClass === "scale_budget" ||
+      strategyClass === "broaden" ||
+      strategyClass === "review_cost_cap" ||
+      strategyClass === "recover"
+    ) {
+      strategyClass = "review_hold";
       actionSize = "none";
-      priority = "medium";
       confidence = Math.min(confidence, 0.68);
       fallbackDisposition = "degraded_no_scale";
+      winnerState = "degraded";
+      secondaryDriverPool.push(primaryDriver);
+      primaryDriver = "degraded_truth_cap";
       actionReasons.unshift("Commercial targets are missing, so aggressive actions are downgraded to a safer hold.");
-    } else if (actionType === "reduce_budget") {
+    } else if (strategyClass === "reduce_budget") {
       fallbackDisposition = "review_reduce";
-    } else if (actionType === "hold") {
+      secondaryDriverPool.push("degraded_truth_cap");
+    } else if (
+      strategyClass === "review_hold" ||
+      strategyClass === "creative_refresh_required" ||
+      strategyClass === "stable_no_touch"
+    ) {
       fallbackDisposition = "review_hold";
-    } else if (actionType === "monitor_only") {
+      if (winnerState !== "not_a_winner") winnerState = "degraded";
+      secondaryDriverPool.push("degraded_truth_cap");
+    } else if (strategyClass === "monitor_only") {
       fallbackDisposition = "monitor_low_truth";
+      secondaryDriverPool.push("degraded_truth_cap");
     }
   }
   if (mixedConfig) confidence -= 0.08;
@@ -1137,22 +1515,31 @@ function buildAdSetDecision(input: {
   if (lowSignal) confidence -= 0.09;
   if (input.geoCoverageMode === "conservative_fallback") confidence -= 0.05;
 
+  const actionType = mapStrategyClassToActionType(strategyClass);
   const noTouch =
-    actionType === "hold" &&
+    strategyClass === "stable_no_touch" &&
+    activeStatus &&
     targetMet &&
     hasVeryStrongSignal &&
     !recentChange &&
     !mixedConfig &&
     !manualDoNotScale &&
-    !stockBlocked;
+    !stockBlocked &&
+    !landingConcern &&
+    input.geoCoverageMode !== "conservative_fallback";
 
-  if (noTouch) {
+  if (noTouch && !actionReasons[0]?.includes("stable active winner")) {
     actionReasons.unshift("This is a stable winner, so the safer move is to preserve it.");
     guardrails.push("Do not mix tests or structure changes into this winner path.");
   }
 
   const archiveContext = isArchiveMetaAdSet(input.adSet);
-  const watchlistAction = noTouch || actionType === "hold" || actionType === "monitor_only";
+  const watchlistAction =
+    noTouch ||
+    strategyClass === "review_hold" ||
+    strategyClass === "creative_refresh_required" ||
+    actionType === "hold" ||
+    actionType === "monitor_only";
   const trust = archiveContext
     ? buildDecisionTrust({
         surfaceLane: "archive_context",
@@ -1190,12 +1577,24 @@ function buildAdSetDecision(input: {
               operatorDisposition: actionType === "monitor_only" ? "monitor_low_truth" : "review_hold",
               reasons: [actionReasons[0]],
             })
-          : buildDecisionTrust({
-              surfaceLane: "action_core",
-              truthState: "live_confident",
-              operatorDisposition: "standard",
-              reasons: [actionReasons[0]],
-            });
+        : buildDecisionTrust({
+            surfaceLane: "action_core",
+            truthState: "live_confident",
+            operatorDisposition: "standard",
+            reasons: [actionReasons[0]],
+          });
+  const policy: MetaDecisionPolicy = {
+    strategyClass,
+    objectiveFamily,
+    bidRegime,
+    primaryDriver,
+    secondaryDrivers: uniqueValues(
+      secondaryDriverPool.filter((driver) => driver !== primaryDriver),
+    ),
+    winnerState:
+      fallbackDisposition && winnerState !== "not_a_winner" ? "degraded" : winnerState,
+  };
+  const priority = determinePriorityFromAction(actionType, strategyClass, confidence);
 
   return {
     decisionId: `${input.adSet.id}:${actionType}`,
@@ -1211,7 +1610,8 @@ function buildAdSetDecision(input: {
     guardrails,
     relatedCreativeNeeds: buildRelatedCreativeNeeds({
       actionType,
-      ctr: input.adSet.inlineLinkClickCtr ?? input.adSet.ctr,
+      strategyClass,
+      ctr,
       roas,
     }),
     relatedGeoContext:
@@ -1223,7 +1623,7 @@ function buildAdSetDecision(input: {
       revenue: round(input.adSet.revenue),
       roas: round(roas),
       cpa: cpa != null ? round(cpa) : null,
-      ctr: input.adSet.inlineLinkClickCtr ?? input.adSet.ctr ?? null,
+      ctr,
       purchases: input.adSet.purchases,
       impressions: input.adSet.impressions,
       clicks: input.adSet.clicks,
@@ -1238,6 +1638,7 @@ function buildAdSetDecision(input: {
         : "A stronger target hit, cleaner config, or more conversion depth would change this action.",
     ],
     noTouch,
+    policy,
     trust,
   };
 }
@@ -1257,6 +1658,19 @@ function buildCampaignDecision(input: {
     )[0] ?? null;
   const noTouch = input.adSetDecisions.some((decision) => decision.noTouch);
   const roas = input.campaign.spend > 0 ? input.campaign.revenue / input.campaign.spend : 0;
+  const objectiveFamily = classifyObjectiveFamily({
+    campaign: input.campaign,
+    adSet: null,
+    campaignRole: input.roleDecision.role,
+  });
+  const dominantPolicy = topAdSetDecision?.policy ?? {
+    strategyClass: noTouch ? "stable_no_touch" : "review_hold",
+    objectiveFamily,
+    bidRegime: "unknown" as const,
+    primaryDriver: noTouch ? "winner_stability" : "signal_density",
+    secondaryDrivers: [],
+    winnerState: noTouch ? "stable_no_touch" : "not_a_winner",
+  };
   const primaryAction = noTouch
     ? "hold"
     : topAdSetDecision?.actionType ??
@@ -1285,7 +1699,7 @@ function buildCampaignDecision(input: {
   ];
   const why = noTouch
     ? "This campaign contains a stable winner that should be protected before making broader changes."
-    : input.roleDecision.why;
+    : topAdSetDecision?.reasons[0] ?? input.roleDecision.why;
   const degradedFromAdSets = input.adSetDecisions.some(
     (decision) => decision.trust.truthState === "degraded_missing_truth",
   );
@@ -1371,13 +1785,88 @@ function buildCampaignDecision(input: {
     ],
     adSetDecisionIds: input.adSetDecisions.map((decision) => decision.decisionId),
     laneLabel: input.laneLabel,
+    policy: {
+      ...dominantPolicy,
+      objectiveFamily,
+      primaryDriver:
+        noTouch && dominantPolicy.primaryDriver !== "winner_stability"
+          ? "winner_stability"
+          : dominantPolicy.primaryDriver,
+      winnerState:
+        noTouch && dominantPolicy.winnerState !== "stable_no_touch"
+          ? "stable_no_touch"
+          : dominantPolicy.winnerState,
+    },
     trust,
   };
+}
+
+function buildWinnerScaleCandidates(input: {
+  adSetDecisions: MetaAdSetDecision[];
+}) {
+  return input.adSetDecisions
+    .filter(
+      (decision) =>
+        decision.actionType === "scale_budget" &&
+        decision.trust.surfaceLane === "action_core" &&
+        decision.trust.truthState === "live_confident" &&
+        decision.policy.winnerState === "scale_candidate" &&
+        !decision.noTouch,
+    )
+    .sort(
+      (left, right) =>
+        right.confidence - left.confidence ||
+        right.supportingMetrics.roas - left.supportingMetrics.roas,
+    )
+    .slice(0, 8)
+    .map((decision) => ({
+      candidateId: `${decision.campaignId}:${decision.adSetId}`,
+      campaignId: decision.campaignId,
+      campaignName: decision.campaignName,
+      adSetId: decision.adSetId,
+      adSetName: decision.adSetName,
+      confidence: decision.confidence,
+      why:
+        decision.reasons[0] ??
+        "This ad set is beating target cleanly enough to stay on the winner scale board.",
+      suggestedMoveBand: buildSuggestedMoveBand(decision.actionSize),
+      evidence: [
+        {
+          label: "ROAS",
+          value: formatRatio(decision.supportingMetrics.roas),
+          impact: "positive" as const,
+        },
+        {
+          label: "Spend",
+          value: formatCurrency(decision.supportingMetrics.spend),
+          impact: "neutral" as const,
+        },
+        {
+          label: "Purchases",
+          value: String(decision.supportingMetrics.purchases),
+          impact: "positive" as const,
+        },
+      ],
+      guardrails: decision.guardrails,
+      supportingMetrics: {
+        spend: decision.supportingMetrics.spend,
+        revenue: decision.supportingMetrics.revenue,
+        roas: decision.supportingMetrics.roas,
+        cpa: decision.supportingMetrics.cpa,
+        ctr: decision.supportingMetrics.ctr,
+        purchases: decision.supportingMetrics.purchases,
+        dailyBudget: decision.supportingMetrics.dailyBudget,
+        bidStrategyLabel: decision.supportingMetrics.bidStrategyLabel,
+        optimizationGoal: decision.supportingMetrics.optimizationGoal,
+      },
+      policy: decision.policy,
+    }));
 }
 
 function buildBudgetShifts(input: {
   campaigns: MetaCampaignDecision[];
   campaignRows: MetaCampaignRow[];
+  winnerScaleCandidates: MetaWinnerScaleCandidate[];
 }) {
   const byId = new Map(input.campaignRows.map((campaign) => [campaign.id, campaign]));
   const eligibleCampaigns = input.campaigns.filter(
@@ -1386,17 +1875,40 @@ function buildBudgetShifts(input: {
   const donors = eligibleCampaigns.filter((campaign) =>
     campaign.primaryAction === "pause" || campaign.primaryAction === "reduce_budget",
   );
-  const recipients = eligibleCampaigns.filter((campaign) =>
-    campaign.primaryAction === "scale_budget" || campaign.primaryAction === "recover",
+  const recipientCandidateByCampaign = new Map<
+    string,
+    { campaign: MetaCampaignDecision; candidate: MetaWinnerScaleCandidate }
+  >();
+  for (const candidate of input.winnerScaleCandidates) {
+    const campaign = eligibleCampaigns.find(
+      (decision) => decision.campaignId === candidate.campaignId,
+    );
+    if (!campaign) continue;
+    const existing = recipientCandidateByCampaign.get(candidate.campaignId);
+    if (!existing || candidate.confidence > existing.candidate.confidence) {
+      recipientCandidateByCampaign.set(candidate.campaignId, { campaign, candidate });
+    }
+  }
+  const recipients = Array.from(recipientCandidateByCampaign.values()).sort(
+    (left, right) =>
+      right.candidate.confidence - left.candidate.confidence ||
+      right.candidate.supportingMetrics.roas - left.candidate.supportingMetrics.roas,
   );
   const maxRows = Math.min(donors.length, recipients.length, 4);
   const shifts: MetaBudgetShift[] = [];
+  const availableRecipients = recipients.map((entry) => entry.campaign);
 
   for (let index = 0; index < maxRows; index += 1) {
     const donor = donors[index];
-    const recipient = recipients[index];
+    const recipientIndex = availableRecipients.findIndex(
+      (candidate) => candidate.campaignId !== donor?.campaignId,
+    );
+    const recipient =
+      recipientIndex >= 0
+        ? availableRecipients.splice(recipientIndex, 1)[0]
+        : null;
     const donorRow = byId.get(donor.campaignId);
-    const recipientRow = byId.get(recipient.campaignId);
+    const recipientRow = recipient ? byId.get(recipient.campaignId) : null;
     if (!donor || !recipient || !donorRow || !recipientRow) continue;
     const movePct = donor.primaryAction === "pause" ? "20-30%" : "10-15%";
     shifts.push({
@@ -1474,6 +1986,7 @@ function buildSummary(input: {
   budgetShifts: MetaBudgetShift[];
   geoDecisions: MetaGeoDecision[];
   noTouchList: MetaNoTouchItem[];
+  winnerScaleCandidates: MetaWinnerScaleCandidate[];
   operatingMode: AccountOperatingModePayload | null;
   geoFreshness: MetaGeoSourceFreshness;
   commercialTruth: BusinessCommercialTruthSnapshot;
@@ -1522,6 +2035,16 @@ function buildSummary(input: {
       input.noTouchList.length > 0
         ? `${input.noTouchList.length} winner path${input.noTouchList.length > 1 ? "s are" : " is"} marked no-touch.`
         : "No protected no-touch path is active yet.",
+    winnerScaleSummary: {
+      candidateCount: input.winnerScaleCandidates.length,
+      protectedCount: input.noTouchList.filter(
+        (item) => item.entityType === "campaign" || item.entityType === "adset",
+      ).length,
+      headline:
+        input.winnerScaleCandidates.length > 0
+          ? `${input.winnerScaleCandidates.length} active winner scale candidate${input.winnerScaleCandidates.length > 1 ? "s are" : " is"} ready for controlled growth.`
+          : "No clean winner scale candidate is ready yet.",
+    },
     operatingMode: input.operatingMode
       ? {
           currentMode: input.operatingMode.currentMode,
@@ -1641,9 +2164,13 @@ export function buildMetaDecisionOs(
     });
   });
 
+  const winnerScaleCandidates = buildWinnerScaleCandidates({
+    adSetDecisions,
+  });
   const budgetShifts = buildBudgetShifts({
     campaigns: campaignDecisions,
     campaignRows: input.campaigns,
+    winnerScaleCandidates,
   });
   const geoDecisions = hydrateGeoClusters(
     geoRows
@@ -1674,6 +2201,7 @@ export function buildMetaDecisionOs(
     budgetShifts,
     geoDecisions,
     noTouchList,
+    winnerScaleCandidates,
     operatingMode,
     geoFreshness,
     commercialTruth: input.commercialTruth,
@@ -1700,6 +2228,7 @@ export function buildMetaDecisionOs(
     geoDecisions,
     placementAnomalies,
     noTouchList,
+    winnerScaleCandidates,
     commercialTruthCoverage,
   };
 }

@@ -53,9 +53,23 @@ Decision OS ships as a versioned payload:
 - `geoDecisions`
 - `placementAnomalies`
 - `noTouchList`
+- `winnerScaleCandidates`
 - `commercialTruthCoverage`
 
 The engine is deterministic and typed. It does not depend on AI generation.
+
+V2-04 is additive on top of the original Meta Decision OS baseline:
+
+- campaign and ad set decisions now include deterministic `policy` metadata
+  - `strategyClass`
+  - `objectiveFamily`
+  - `bidRegime`
+  - `primaryDriver`
+  - `secondaryDrivers`
+  - `winnerState`
+- `summary.winnerScaleSummary` now explains how many clean scale candidates exist vs protected winner paths
+- `winnerScaleCandidates` exposes a dedicated read-only board for active winners that still have scale headroom
+- `contractVersion` remains `meta-decision-os.v1`
 
 Additive GEO V2 fields now expose:
 
@@ -109,10 +123,25 @@ Inputs used:
 
 - current efficiency against configured target or conservative fallback
 - signal depth
+- objective family and bid regime
 - recent config changes
 - mixed config truth
 - commercial constraints
 - role context
+
+V2-04 strategy semantics stay additive while `actionType` remains execution-compatible:
+
+- `review_hold` -> `hold`
+- `review_cost_cap` -> `tighten_bid`
+- `creative_refresh_required` -> `hold`
+- `stable_no_touch` -> `hold`
+
+The decision engine now enforces:
+
+- `pause` only for active, lower-funnel, high-signal losers with no recent-change ambiguity and no conflicting constraint pressure
+- `no-touch` only for truly active stable winners
+- winner-scale surfacing only for live-confident winners with clean headroom
+- budget shifts only from active losers into those active winner candidates
 
 ### GEO OS
 

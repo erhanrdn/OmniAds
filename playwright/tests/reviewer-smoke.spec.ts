@@ -6,6 +6,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
 
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
+  await expect(page.getByTestId("meta-winner-scale-candidates")).toBeVisible();
   await expect(page.getByTestId("meta-geo-board")).toBeVisible();
   await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
   await expect(page.getByTestId("meta-recommendations-panel")).toBeVisible();

@@ -29,7 +29,7 @@ Current accepted live baseline for this phase:
 | --- | --- | --- | --- | --- |
 | `Operating Mode` | `live` | `n/a` | `current` | Deterministic commercial-truth overlay remains live on Meta and Creative contexts. |
 | `Recommendations` | `live` | `n/a` | `current` | Meta `Recommendations` wording remains current and operator-visible. |
-| `Meta Decision OS` | `live` or `flagged` | `META_DECISION_OS_V1`, `META_DECISION_OS_CANARY_BUSINESSES` | `current` | Release authority must report whether the surface is globally enabled or allowlisted. |
+| `Meta Decision OS` | `live` or `flagged` | `META_DECISION_OS_V1`, `META_DECISION_OS_CANARY_BUSINESSES` | `current` | Release authority must report whether the surface is globally enabled or allowlisted. The current baseline includes additive policy metadata and a read-only winner scale candidate board while keeping the execution subset unchanged. |
 | `Creative Decision OS` | `live` or `flagged` | `CREATIVE_DECISION_OS_V1`, `CREATIVE_DECISION_OS_CANARY_BUSINESSES` | `current` | Deterministic creative surface remains separate from AI commentary. |
 | `Decision Signals` | `live` | `n/a` | `current` | Compatibility surface for deterministic creative actions. |
 | `AI Commentary` | `live` | `n/a` | `current` | Commentary remains interpretation-only, never workflow authority. |

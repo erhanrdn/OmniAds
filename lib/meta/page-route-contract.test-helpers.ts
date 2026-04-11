@@ -163,5 +163,6 @@ export function assertMetaDecisionOsPageContract(payload: Record<string, unknown
   expect(Array.isArray(payload.geoDecisions)).toBe(true);
   expect(Array.isArray(payload.placementAnomalies)).toBe(true);
   expect(Array.isArray(payload.noTouchList)).toBe(true);
+  expect(Array.isArray(payload.winnerScaleCandidates)).toBe(true);
   expect(payload.commercialTruthCoverage).toBeTruthy();
 }
