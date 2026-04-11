@@ -140,6 +140,50 @@ function adSet(overrides: Record<string, unknown> = {}) {
   } as any;
 }
 
+function configuredTruthSnapshot() {
+  const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
+  snapshot.targetPack = {
+    targetCpa: 40,
+    targetRoas: 2.5,
+    breakEvenCpa: 55,
+    breakEvenRoas: 1.7,
+    contributionMarginAssumption: null,
+    aovAssumption: null,
+    newCustomerWeight: null,
+    defaultRiskPosture: "balanced",
+    sourceLabel: "manual",
+    updatedAt: "2026-04-09T09:00:00.000Z",
+    updatedByUserId: null,
+  };
+  snapshot.sectionMeta.targetPack = {
+    configured: true,
+    itemCount: 1,
+    sourceLabel: "manual",
+    updatedAt: "2026-04-09T09:00:00.000Z",
+    updatedByUserId: null,
+  };
+  return snapshot;
+}
+
+function countryEconomics(
+  countryCode: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    countryCode,
+    economicsMultiplier: null,
+    marginModifier: null,
+    serviceability: "full",
+    priorityTier: "tier_2",
+    scaleOverride: "default",
+    notes: null,
+    sourceLabel: "manual",
+    updatedAt: "2026-04-09T09:00:00.000Z",
+    updatedByUserId: null,
+    ...overrides,
+  } as any;
+}
+
 describe("buildMetaDecisionOs", () => {
   it("keeps promo role precedence above retargeting-style naming", () => {
     const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
@@ -332,6 +376,146 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.geoDecisions[0]?.action).toBe("cut");
     expect(result.placementAnomalies[0]?.action).toBe("exception_review");
+  });
+
+  it("builds pooled GEO watchlist clusters from the dedicated country source", () => {
+    const snapshot = configuredTruthSnapshot();
+    snapshot.countryEconomics = [
+      countryEconomics("DE", { priorityTier: "tier_3" }),
+      countryEconomics("FR", { priorityTier: "tier_3" }),
+    ];
+    snapshot.sectionMeta.countryEconomics = {
+      configured: true,
+      itemCount: 2,
+      sourceLabel: "manual",
+      updatedAt: "2026-04-09T09:00:00.000Z",
+      updatedByUserId: null,
+    };
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [adSet()],
+      breakdowns: { location: [], placement: [] },
+      geoSource: {
+        rows: [
+          {
+            key: "DE",
+            label: "Germany",
+            spend: 180,
+            revenue: 320,
+            purchases: 3,
+            clicks: 72,
+            impressions: 4200,
+          },
+          {
+            key: "FR",
+            label: "France",
+            spend: 190,
+            revenue: 300,
+            purchases: 4,
+            clicks: 74,
+            impressions: 4300,
+          },
+        ],
+        freshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: "Country-only warehouse rows are serving the GEO board.",
+        },
+      },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.geoDecisions).toHaveLength(2);
+    expect(result.geoDecisions.every((decision) => decision.action === "pool")).toBe(true);
+    expect(result.geoDecisions.every((decision) => decision.grouped)).toBe(true);
+    expect(result.geoDecisions[0]?.clusterKey).toBe(result.geoDecisions[1]?.clusterKey);
+    expect(result.geoDecisions[0]?.groupMemberCount).toBe(2);
+    expect(result.geoDecisions[0]?.groupMemberLabels).toEqual(
+      expect.arrayContaining(["France", "Germany"]),
+    );
+    expect(result.geoDecisions[0]?.materiality).toEqual({
+      thinSignal: true,
+      material: true,
+      archiveContext: false,
+    });
+    expect(result.summary.geoSummary).toMatchObject({
+      actionCoreCount: 0,
+      watchlistCount: 2,
+      queuedCount: 0,
+      pooledClusterCount: 1,
+      sourceFreshness: {
+        dataState: "ready",
+        reason: "Country-only warehouse rows are serving the GEO board.",
+      },
+      countryEconomics: {
+        configured: true,
+        updatedAt: "2026-04-09T09:00:00.000Z",
+        sourceLabel: "manual",
+      },
+    });
+  });
+
+  it("trust-caps strong GEOs into the watchlist when country economics are missing", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [adSet()],
+      breakdowns: { location: [], placement: [] },
+      geoSource: {
+        rows: [
+          {
+            key: "US",
+            label: "United States",
+            spend: 720,
+            revenue: 2160,
+            purchases: 12,
+            clicks: 320,
+            impressions: 12000,
+          },
+        ],
+        freshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: null,
+        },
+      },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.geoDecisions[0]).toMatchObject({
+      action: "scale",
+      queueEligible: false,
+      materiality: {
+        thinSignal: false,
+        material: true,
+        archiveContext: false,
+      },
+      trust: {
+        surfaceLane: "watchlist",
+        truthState: "degraded_missing_truth",
+        operatorDisposition: "degraded_no_scale",
+      },
+    });
+    expect(result.summary.geoSummary).toMatchObject({
+      actionCoreCount: 0,
+      watchlistCount: 1,
+      queuedCount: 0,
+      pooledClusterCount: 0,
+    });
   });
 
   it("keeps decisions stable when only the analytics window changes", () => {

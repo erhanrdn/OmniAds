@@ -73,6 +73,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     notes: [
       "Current runtime posture is derived from the existing Meta Decision OS config helpers.",
       "Allowlist posture remains visible without exposing business IDs.",
+      "GEO V2 uses dedicated country-only serving so GEO rows can stay live even when broader breakdown surfaces are partial.",
     ],
   },
   {
@@ -156,6 +157,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     notes: [
       "Workflow state remains additive on top of deterministic decision sources.",
       "Current posture is resolved from the Command Center config helpers.",
+      "Meta GEO intake only queues material queue-eligible GEO rows; pooled/watchlist GEOs stay out of the default queue.",
     ],
   },
   {

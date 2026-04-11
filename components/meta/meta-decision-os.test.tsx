@@ -36,6 +36,24 @@ function payload() {
         archiveCount: 0,
         degradedCount: 1,
       },
+      geoSummary: {
+        actionCoreCount: 1,
+        watchlistCount: 1,
+        queuedCount: 1,
+        pooledClusterCount: 1,
+        sourceFreshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: "Country-only warehouse rows are serving the GEO board.",
+        },
+        countryEconomics: {
+          configured: true,
+          updatedAt: "2026-04-09T09:00:00.000Z",
+          sourceLabel: "manual",
+        },
+      },
     },
     campaigns: [
       {
@@ -121,16 +139,107 @@ function payload() {
         countryCode: "US",
         label: "US",
         action: "scale",
+        queueEligible: true,
         confidence: 0.84,
         why: "Winner geo",
         evidence: [],
         guardrails: [],
         whatWouldChangeThisDecision: [],
+        clusterKey: null,
+        clusterLabel: null,
+        grouped: false,
+        groupMemberCount: 1,
+        groupMemberLabels: ["US"],
+        materiality: {
+          thinSignal: false,
+          material: true,
+          archiveContext: false,
+        },
+        supportingMetrics: {
+          spend: 620,
+          revenue: 2108,
+          roas: 3.4,
+          purchases: 16,
+          clicks: 240,
+          impressions: 9200,
+          spendShare: 0.58,
+        },
+        freshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: null,
+        },
+        commercialContext: {
+          serviceability: "full",
+          priorityTier: "tier_1",
+          scaleOverride: "prefer_scale",
+          economicsMultiplier: null,
+          marginModifier: null,
+          countryEconomicsConfigured: true,
+          countryEconomicsUpdatedAt: "2026-04-09T09:00:00.000Z",
+          countryEconomicsSourceLabel: "manual",
+        },
         trust: {
           surfaceLane: "action_core",
           truthState: "live_confident",
           operatorDisposition: "standard",
           reasons: ["Winner geo"],
+        },
+      },
+      {
+        geoKey: "DE:pool",
+        countryCode: "DE",
+        label: "Germany",
+        action: "pool",
+        queueEligible: false,
+        confidence: 0.68,
+        why: "Thin-signal GEOs should validate in a pooled cluster.",
+        evidence: [],
+        guardrails: [],
+        whatWouldChangeThisDecision: [],
+        clusterKey: "pool:tier_3:full:live_confident",
+        clusterLabel: "pool • tier 3 • full",
+        grouped: true,
+        groupMemberCount: 2,
+        groupMemberLabels: ["Germany", "France"],
+        materiality: {
+          thinSignal: true,
+          material: true,
+          archiveContext: false,
+        },
+        supportingMetrics: {
+          spend: 180,
+          revenue: 324,
+          roas: 1.8,
+          purchases: 3,
+          clicks: 74,
+          impressions: 4300,
+          spendShare: 0.21,
+        },
+        freshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: "Country-only warehouse rows are serving the GEO board.",
+        },
+        commercialContext: {
+          serviceability: "full",
+          priorityTier: "tier_3",
+          scaleOverride: "default",
+          economicsMultiplier: null,
+          marginModifier: null,
+          countryEconomicsConfigured: true,
+          countryEconomicsUpdatedAt: "2026-04-09T09:00:00.000Z",
+          countryEconomicsSourceLabel: "manual",
+        },
+        trust: {
+          surfaceLane: "watchlist",
+          truthState: "live_confident",
+          operatorDisposition: "monitor_low_truth",
+          reasons: ["Thin-signal GEOs should validate in a pooled cluster."],
         },
       },
     ],
@@ -178,6 +287,10 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Budget Shift Board");
     expect(html).toContain("Top Ad Set Actions");
     expect(html).toContain("GEO OS");
+    expect(html).toContain("Action Core GEOs");
+    expect(html).toContain("Watchlist / Pooled Validation");
+    expect(html).toContain("Country-only warehouse rows are serving the GEO board.");
+    expect(html).toContain("Members Germany, France");
     expect(html).toContain("No-Touch List");
     expect(html).toContain("Commercial truth is incomplete");
   });

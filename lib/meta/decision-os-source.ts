@@ -8,6 +8,16 @@ import {
   getMetaDecisionWindowContext,
 } from "@/lib/meta/operator-decision-source";
 
+function normalizeGeoFreshnessState(
+  value: string | null | undefined,
+): "ready" | "syncing" | "stale" {
+  if (value === "ready") return "ready";
+  if (value === "stale" || value === "paused" || value === "action_required") {
+    return "stale";
+  }
+  return "syncing";
+}
+
 export async function getMetaDecisionOsForRange(input: {
   businessId: string;
   startDate: string;
@@ -21,7 +31,7 @@ export async function getMetaDecisionOsForRange(input: {
       endDate: input.endDate,
     }),
   ]);
-  const { campaigns, breakdowns, adSets } = await getMetaDecisionSourceSnapshot({
+  const { campaigns, breakdowns, geoBreakdown, adSets } = await getMetaDecisionSourceSnapshot({
     businessId: input.businessId,
     decisionWindows: decisionContext.decisionWindows,
   });
@@ -36,6 +46,16 @@ export async function getMetaDecisionOsForRange(input: {
     decisionAsOf: decisionContext.decisionAsOf,
     campaigns: campaigns.rows ?? [],
     adSets: adSets.rows ?? [],
+    geoSource: {
+      rows: geoBreakdown?.rows ?? breakdowns.location ?? [],
+      freshness: {
+        dataState: normalizeGeoFreshnessState(geoBreakdown?.freshness?.dataState),
+        lastSyncedAt: geoBreakdown?.freshness?.lastSyncedAt ?? null,
+        isPartial: geoBreakdown?.isPartial ?? Boolean(breakdowns.isPartial),
+        verificationState: geoBreakdown?.verification?.verificationState ?? null,
+        reason: geoBreakdown?.notReadyReason ?? breakdowns.notReadyReason ?? null,
+      },
+    },
     breakdowns:
       breakdowns.location.length > 0 || breakdowns.placement.length > 0
         ? {

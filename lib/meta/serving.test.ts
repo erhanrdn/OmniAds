@@ -47,6 +47,7 @@ const {
   getMetaWarehouseAdSets,
   getMetaWarehouseCampaignTable,
   getMetaWarehouseBreakdowns,
+  getMetaWarehouseCountryBreakdowns,
 } = await import("@/lib/meta/serving");
 
 describe("meta historical serving", () => {
@@ -700,6 +701,78 @@ describe("meta historical serving", () => {
     expect(payload.placement).toEqual([
       expect.objectContaining({ key: "facebook|feed|mobile", spend: 12 }),
     ]);
+  });
+
+  it("serves country-only breakdown rows even when age and placement rows are absent", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-01",
+        breakdownType: "country",
+        breakdownKey: "DE",
+        breakdownLabel: "Germany",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 185,
+        impressions: 3200,
+        clicks: 84,
+        reach: 2800,
+        frequency: 1.2,
+        conversions: 4,
+        revenue: 410,
+        roas: 2.22,
+        cpa: 46.25,
+        ctr: 2.63,
+        cpc: 2.2,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-geo-1",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "finalized_verified",
+      truthReady: true,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-04-02T00:00:00Z",
+      publishedAt: "2026-04-02T00:05:00Z",
+      asOf: "2026-04-02T00:05:00Z",
+      publishedSlices: 1,
+      totalExpectedSlices: 1,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        account_daily: ["act_1:2026-04-01"],
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseCountryBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(payload.rows).toEqual([
+      expect.objectContaining({
+        key: "DE",
+        label: "Germany",
+        spend: 185,
+        purchases: 4,
+      }),
+    ]);
+    expect(payload.isPartial).toBe(false);
+    expect(payload.freshness.dataState).toBe("ready");
   });
 
   it("normalizes non-ISO trend dates before grouping and sorting", async () => {

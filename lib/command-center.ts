@@ -657,7 +657,9 @@ export function aggregateCommandCenterActions(input: {
       );
     });
 
-    input.metaDecisionOs.geoDecisions.forEach((decision) => {
+    input.metaDecisionOs.geoDecisions
+      .filter((decision) => decision.queueEligible)
+      .forEach((decision) => {
       actions.push(
         buildMetaAction({
           sourceSystem: "meta",
@@ -705,7 +707,7 @@ export function aggregateCommandCenterActions(input: {
           },
         }),
       );
-    });
+      });
 
     input.metaDecisionOs.placementAnomalies.forEach((anomaly) => {
       actions.push(

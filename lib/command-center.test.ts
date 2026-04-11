@@ -47,6 +47,24 @@ function metaFixture(): MetaDecisionOsV1Response {
         archiveCount: 0,
         degradedCount: 1,
       },
+      geoSummary: {
+        actionCoreCount: 1,
+        watchlistCount: 0,
+        queuedCount: 1,
+        pooledClusterCount: 0,
+        sourceFreshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: null,
+        },
+        countryEconomics: {
+          configured: true,
+          updatedAt: "2026-04-09T09:00:00.000Z",
+          sourceLabel: "manual",
+        },
+      },
     },
     campaigns: [],
     adSets: [
@@ -110,11 +128,48 @@ function metaFixture(): MetaDecisionOsV1Response {
         countryCode: "US",
         label: "United States",
         action: "scale",
+        queueEligible: true,
         confidence: 0.76,
         why: "US is outperforming.",
         evidence: [{ label: "ROAS", value: "3.2x", impact: "positive" }],
         guardrails: ["Do not cut CA yet."],
         whatWouldChangeThisDecision: [],
+        clusterKey: null,
+        clusterLabel: null,
+        grouped: false,
+        groupMemberCount: 1,
+        groupMemberLabels: ["United States"],
+        materiality: {
+          thinSignal: false,
+          material: true,
+          archiveContext: false,
+        },
+        supportingMetrics: {
+          spend: 420,
+          revenue: 1344,
+          roas: 3.2,
+          purchases: 18,
+          clicks: 210,
+          impressions: 6800,
+          spendShare: 0.52,
+        },
+        freshness: {
+          dataState: "ready",
+          lastSyncedAt: "2026-04-10T06:30:00.000Z",
+          isPartial: false,
+          verificationState: "finalized_verified",
+          reason: null,
+        },
+        commercialContext: {
+          serviceability: "full",
+          priorityTier: "tier_1",
+          scaleOverride: "prefer_scale",
+          economicsMultiplier: null,
+          marginModifier: null,
+          countryEconomicsConfigured: true,
+          countryEconomicsUpdatedAt: "2026-04-09T09:00:00.000Z",
+          countryEconomicsSourceLabel: "manual",
+        },
         trust: {
           surfaceLane: "action_core",
           truthState: "live_confident",
@@ -510,6 +565,78 @@ describe("command center domain", () => {
     });
 
     expect(actionCore.every((action) => action.surfaceLane === "action_core")).toBe(true);
+  });
+
+  it("drops non-queue-eligible GEO watchlist rows from the default GEO intake", () => {
+    const payload = metaFixture();
+    payload.geoDecisions.push({
+      geoKey: "geo:de",
+      countryCode: "DE",
+      label: "Germany",
+      action: "pool",
+      queueEligible: false,
+      confidence: 0.68,
+      why: "Signal is still thin, so keep this in pooled validation.",
+      evidence: [{ label: "ROAS", value: "1.8x", impact: "mixed" }],
+      guardrails: ["Do not isolate this GEO yet."],
+      whatWouldChangeThisDecision: [],
+      clusterKey: "pool:tier_3:full:live_confident",
+      clusterLabel: "pool • tier 3 • full",
+      grouped: true,
+      groupMemberCount: 2,
+      groupMemberLabels: ["Germany", "France"],
+      materiality: {
+        thinSignal: true,
+        material: true,
+        archiveContext: false,
+      },
+      supportingMetrics: {
+        spend: 180,
+        revenue: 324,
+        roas: 1.8,
+        purchases: 3,
+        clicks: 74,
+        impressions: 4300,
+        spendShare: 0.22,
+      },
+      freshness: {
+        dataState: "ready",
+        lastSyncedAt: "2026-04-10T06:30:00.000Z",
+        isPartial: false,
+        verificationState: "finalized_verified",
+        reason: null,
+      },
+      commercialContext: {
+        serviceability: "full",
+        priorityTier: "tier_3",
+        scaleOverride: "default",
+        economicsMultiplier: null,
+        marginModifier: null,
+        countryEconomicsConfigured: true,
+        countryEconomicsUpdatedAt: "2026-04-09T09:00:00.000Z",
+        countryEconomicsSourceLabel: "manual",
+      },
+      trust: {
+        surfaceLane: "watchlist",
+        truthState: "live_confident",
+        operatorDisposition: "monitor_low_truth",
+        reasons: ["Signal is still thin, so keep this in pooled validation."],
+      },
+    });
+
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: payload,
+      creativeDecisionOs: creativeFixture(),
+    });
+
+    const geoActions = actions.filter((action) => action.sourceType === "meta_geo_decision");
+
+    expect(geoActions).toHaveLength(1);
+    expect(geoActions[0]?.title).toBe("United States");
+    expect(geoActions[0]?.sourceContext.sourceDecisionId).toBe("geo:us");
   });
 
   it("enforces workflow transition guards", () => {

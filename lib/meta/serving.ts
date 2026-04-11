@@ -32,6 +32,7 @@ import {
 import {
   type MetaAccountDailyRow,
   type MetaAdSetDailyRow,
+  type MetaBreakdownDailyRow,
   type MetaCampaignDailyRow,
   type MetaDirtyRecentDateRow,
   type MetaHistoricalVerificationState,
@@ -337,6 +338,13 @@ export interface MetaWarehouseBreakdownsResponse {
   };
 }
 
+export interface MetaWarehouseCountryBreakdownsResponse {
+  freshness: MetaWarehouseFreshness;
+  isPartial?: boolean;
+  verification?: MetaWarehouseSummaryResponse["verification"];
+  rows: MetaWarehouseBreakdownsResponse["location"];
+}
+
 function buildVerificationMetadata(
   verification: MetaPublishedVerificationSummary | null | undefined,
 ) {
@@ -417,6 +425,103 @@ function filterBreakdownRowsToPublishedKeys<
     }
     return true;
   });
+}
+
+type RequestedMetaBreakdownType = "age" | "country" | "placement";
+
+function aggregateMetaBreakdownRows(input: {
+  breakdownRows: MetaBreakdownDailyRow[];
+  kind: RequestedMetaBreakdownType;
+}) {
+  const byKey = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      spend: number;
+      purchases: number;
+      revenue: number;
+      clicks: number;
+      impressions: number;
+    }
+  >();
+  for (const row of input.breakdownRows.filter(
+    (candidate) => candidate.breakdownType === input.kind,
+  )) {
+    const existing = byKey.get(row.breakdownKey);
+    if (existing) {
+      existing.spend = r2(existing.spend + row.spend);
+      existing.purchases += row.conversions;
+      existing.revenue = r2(existing.revenue + row.revenue);
+      existing.clicks += row.clicks;
+      existing.impressions += row.impressions;
+    } else {
+      byKey.set(row.breakdownKey, {
+        key: row.breakdownKey,
+        label: row.breakdownLabel,
+        spend: row.spend,
+        purchases: row.conversions,
+        revenue: row.revenue,
+        clicks: row.clicks,
+        impressions: row.impressions,
+      });
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
+}
+
+async function getMetaWarehouseBreakdownSnapshot(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+  requestedBreakdownTypes: RequestedMetaBreakdownType[];
+}) {
+  const providerAccountIds = input.providerAccountIds ?? [];
+  const v2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
+    providerAccountIds.length > 0;
+  const [rawBreakdownRows, campaigns, adsets, verification] = await Promise.all([
+    getMetaBreakdownDailyRange({
+      businessId: input.businessId,
+      providerAccountIds: input.providerAccountIds,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      breakdownTypes: [...input.requestedBreakdownTypes],
+    }),
+    getMetaWarehouseCampaigns(input),
+    getMetaWarehouseAdSets({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      campaignId: "",
+    }).catch(() => []),
+    v2Enabled
+      ? getMetaPublishedVerificationSummary({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          providerAccountIds,
+          surfaces: ["account_daily", "campaign_daily"],
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const breakdownRows = v2Enabled
+    ? filterBreakdownRowsToPublishedKeys({
+        rows: rawBreakdownRows,
+        verification,
+        requiredBreakdownTypes: [...input.requestedBreakdownTypes],
+      })
+    : rawBreakdownRows;
+
+  return {
+    breakdownRows,
+    campaigns,
+    adsets,
+    verification,
+    isPartial: v2Enabled ? !verification?.truthReady : breakdownRows.length === 0,
+  };
 }
 
 async function canServeMetaCoreWarehouseWhileFinalizePending(input: {
@@ -1915,80 +2020,26 @@ export async function getMetaWarehouseBreakdowns(input: {
   endDate: string;
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseBreakdownsResponse> {
-  const providerAccountIds = input.providerAccountIds ?? [];
-  const v2Enabled =
-    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
-    providerAccountIds.length > 0;
   const requestedBreakdownTypes = ["age", "country", "placement"] as const;
-  const [rawBreakdownRows, campaigns, adsets, verification] = await Promise.all([
-    getMetaBreakdownDailyRange({
-      businessId: input.businessId,
-      providerAccountIds: input.providerAccountIds,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      breakdownTypes: [...requestedBreakdownTypes],
-    }),
-    getMetaWarehouseCampaigns(input),
-    getMetaWarehouseAdSets({
+  const { breakdownRows, campaigns, adsets, verification, isPartial } =
+    await getMetaWarehouseBreakdownSnapshot({
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
       providerAccountIds: input.providerAccountIds,
-      campaignId: "",
-    }).catch(() => []),
-    v2Enabled
-      ? getMetaPublishedVerificationSummary({
-          businessId: input.businessId,
-          startDate: input.startDate,
-          endDate: input.endDate,
-          providerAccountIds,
-          surfaces: ["account_daily", "campaign_daily"],
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
-  const breakdownRows = v2Enabled
-    ? filterBreakdownRowsToPublishedKeys({
-        rows: rawBreakdownRows,
-        verification,
-        requiredBreakdownTypes: [...requestedBreakdownTypes],
-      })
-    : rawBreakdownRows;
-
-  const aggregateRows = (kind: "age" | "country" | "placement") => {
-    const byKey = new Map<string, { key: string; label: string; spend: number; purchases: number; revenue: number; clicks: number; impressions: number }>();
-    for (const row of breakdownRows.filter((candidate) => candidate.breakdownType === kind)) {
-      const existing = byKey.get(row.breakdownKey);
-      if (existing) {
-        existing.spend = r2(existing.spend + row.spend);
-        existing.purchases += row.conversions;
-        existing.revenue = r2(existing.revenue + row.revenue);
-        existing.clicks += row.clicks;
-        existing.impressions += row.impressions;
-      } else {
-        byKey.set(row.breakdownKey, {
-          key: row.breakdownKey,
-          label: row.breakdownLabel,
-          spend: row.spend,
-          purchases: row.conversions,
-          revenue: row.revenue,
-          clicks: row.clicks,
-          impressions: row.impressions,
-        });
-      }
-    }
-    return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
-  };
+      requestedBreakdownTypes: [...requestedBreakdownTypes],
+    });
 
   return {
     freshness: buildFreshnessFromRows(
       breakdownRows.map((row) => ({ updatedAt: row.updatedAt })),
       breakdownRows.length > 0 ? "ready" : "syncing"
     ),
-    isPartial: v2Enabled ? !verification?.truthReady : breakdownRows.length === 0,
+    isPartial,
     verification: buildVerificationMetadata(verification),
-    age: aggregateRows("age"),
-    location: aggregateRows("country"),
-    placement: aggregateRows("placement"),
+    age: aggregateMetaBreakdownRows({ breakdownRows, kind: "age" }),
+    location: aggregateMetaBreakdownRows({ breakdownRows, kind: "country" }),
+    placement: aggregateMetaBreakdownRows({ breakdownRows, kind: "placement" }),
     budget: {
       campaign: campaigns.rows.map((row) => ({
         key: row.campaignId,
@@ -2001,5 +2052,31 @@ export async function getMetaWarehouseBreakdowns(input: {
         spend: row.spend,
       })),
     },
+  };
+}
+
+export async function getMetaWarehouseCountryBreakdowns(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds?: string[] | null;
+}): Promise<MetaWarehouseCountryBreakdownsResponse> {
+  const { breakdownRows, verification, isPartial } =
+    await getMetaWarehouseBreakdownSnapshot({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      requestedBreakdownTypes: ["country"],
+    });
+
+  return {
+    freshness: buildFreshnessFromRows(
+      breakdownRows.map((row) => ({ updatedAt: row.updatedAt })),
+      breakdownRows.length > 0 ? "ready" : "syncing",
+    ),
+    isPartial,
+    verification: buildVerificationMetadata(verification),
+    rows: aggregateMetaBreakdownRows({ breakdownRows, kind: "country" }),
   };
 }

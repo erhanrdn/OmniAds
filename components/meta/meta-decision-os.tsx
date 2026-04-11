@@ -14,6 +14,13 @@ function formatActionLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function formatTimestampLabel(value: string | null) {
+  if (!value) return "Unavailable";
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return value;
+  return parsed.toISOString().slice(0, 16).replace("T", " ");
+}
+
 function confidenceTone(confidence: number) {
   if (confidence >= 0.82) return "text-emerald-700";
   if (confidence >= 0.68) return "text-amber-700";
@@ -153,6 +160,19 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
 }
 
 function GeoDecisionRow({ decision }: { decision: MetaGeoDecision }) {
+  const supportingMetrics = decision.supportingMetrics ?? {
+    roas: 0,
+    spend: 0,
+  };
+  const commercialContext = decision.commercialContext ?? {
+    serviceability: null,
+    scaleOverride: null,
+  };
+  const freshness = decision.freshness ?? {
+    dataState: "syncing",
+    isPartial: false,
+    lastSyncedAt: null,
+  };
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -171,6 +191,11 @@ function GeoDecisionRow({ decision }: { decision: MetaGeoDecision }) {
       </div>
       <p className="mt-2 text-xs text-slate-600">{decision.why}</p>
       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        <span>ROAS {supportingMetrics.roas.toFixed(2)}x</span>
+        <span>Spend ${supportingMetrics.spend.toFixed(0)}</span>
+        <span>
+          {commercialContext.serviceability ?? "unknown"} / {commercialContext.scaleOverride ?? "default"}
+        </span>
         <span
           className={cn(
             "rounded-full px-2 py-0.5 capitalize",
@@ -191,6 +216,62 @@ function GeoDecisionRow({ decision }: { decision: MetaGeoDecision }) {
         ) : null}
         Confidence {(decision.confidence * 100).toFixed(0)}%
       </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Source {freshness.dataState}
+        {freshness.isPartial ? " · partial" : ""}
+        {freshness.lastSyncedAt ? ` · updated ${formatTimestampLabel(freshness.lastSyncedAt)}` : ""}
+      </p>
+    </div>
+  );
+}
+
+function GeoWatchlistClusterRow({ decision }: { decision: MetaGeoDecision }) {
+  const commercialContext = decision.commercialContext ?? {
+    priorityTier: null,
+    serviceability: null,
+  };
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900">
+            {decision.clusterLabel ?? decision.label}
+          </p>
+          <p className="mt-1 text-xs text-slate-600">{decision.why}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              actionTone(decision.action),
+            )}
+          >
+            {formatActionLabel(decision.action)}
+          </span>
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              trustTone(decision.trust.operatorDisposition),
+            )}
+          >
+            {formatActionLabel(decision.trust.operatorDisposition)}
+          </span>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        <span>{decision.groupMemberCount} GEOs</span>
+        <span>{commercialContext.priorityTier ?? "unconfigured"}</span>
+        <span>{commercialContext.serviceability ?? "unknown serviceability"}</span>
+        <span className={confidenceTone(decision.confidence)}>
+          Confidence {(decision.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Members {decision.groupMemberLabels.slice(0, 5).join(", ")}
+        {decision.groupMemberLabels.length > 5
+          ? ` +${decision.groupMemberLabels.length - 5} more`
+          : ""}
+      </p>
     </div>
   );
 }
@@ -238,6 +319,33 @@ export function MetaDecisionOsOverview({
   );
   const actionCoreGeos = decisionOs.geoDecisions.filter(
     (decision) => decision.trust.surfaceLane === "action_core",
+  );
+  const geoSummary = decisionOs.summary.geoSummary ?? {
+    actionCoreCount: actionCoreGeos.length,
+    watchlistCount: decisionOs.geoDecisions.filter(
+      (decision) => decision.trust.surfaceLane === "watchlist",
+    ).length,
+    queuedCount: decisionOs.geoDecisions.filter((decision) => decision.queueEligible).length,
+    pooledClusterCount: 0,
+    sourceFreshness: {
+      dataState: "syncing" as const,
+      isPartial: false,
+      lastSyncedAt: null,
+      verificationState: null,
+      reason: null,
+    },
+    countryEconomics: {
+      configured: false,
+      updatedAt: null,
+      sourceLabel: null,
+    },
+  };
+  const watchlistGeoClusters = Array.from(
+    new Map(
+      decisionOs.geoDecisions
+        .filter((decision) => decision.trust.surfaceLane === "watchlist")
+        .map((decision) => [decision.clusterKey ?? decision.geoKey, decision]),
+    ).values(),
   );
 
   return (
@@ -349,15 +457,71 @@ export function MetaDecisionOsOverview({
       </DecisionListCard>
 
       <DecisionListCard title="GEO OS" testId="meta-geo-board" empty="No GEO actions are available.">
-        {actionCoreGeos.length === 0 ? (
-          <p className="text-xs text-slate-500">No GEO actions are available.</p>
-        ) : (
-          <div className="space-y-3">
-            {actionCoreGeos.slice(0, 5).map((decision) => (
-              <GeoDecisionRow key={decision.geoKey} decision={decision} />
-            ))}
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+            <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
+              <span>
+                GEO source {geoSummary.sourceFreshness.dataState}
+                {geoSummary.sourceFreshness.isPartial ? " · partial" : ""}
+              </span>
+              <span>
+                action-core {geoSummary.actionCoreCount}
+              </span>
+              <span>
+                watchlist {geoSummary.watchlistCount}
+              </span>
+              <span>
+                pooled clusters {geoSummary.pooledClusterCount}
+              </span>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              Country economics{" "}
+              {geoSummary.countryEconomics.configured
+                ? `configured · updated ${formatTimestampLabel(
+                    geoSummary.countryEconomics.updatedAt,
+                  )}`
+                : "not configured"}
+            </p>
+            {geoSummary.sourceFreshness.reason ? (
+              <p className="mt-2 text-[11px] text-slate-500">
+                {geoSummary.sourceFreshness.reason}
+              </p>
+            ) : null}
           </div>
-        )}
+
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              Action Core GEOs
+            </p>
+            {actionCoreGeos.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No material GEO actions are in the action core.</p>
+            ) : (
+              <div className="mt-2 space-y-3">
+                {actionCoreGeos.slice(0, 5).map((decision) => (
+                  <GeoDecisionRow key={decision.geoKey} decision={decision} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              Watchlist / Pooled Validation
+            </p>
+            {watchlistGeoClusters.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No pooled or watchlist GEO cluster is active.</p>
+            ) : (
+              <div className="mt-2 space-y-3">
+                {watchlistGeoClusters.slice(0, 5).map((decision) => (
+                  <GeoWatchlistClusterRow
+                    key={decision.clusterKey ?? decision.geoKey}
+                    decision={decision}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </DecisionListCard>
 
       <DecisionListCard

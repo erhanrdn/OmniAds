@@ -22,6 +22,7 @@ The shipped surface must answer:
 - `Operating Mode` remains the top commercial-truth guardrail.
 - `Recommendations`, `Decision Signals`, and `AI Commentary` wording remains unchanged. Decision OS does not relabel AI output as deterministic truth.
 - Commercial truth remains soft-fail. Missing target pack or GEO economics lowers confidence and action aggressiveness rather than hard-failing the page.
+- GEO serving uses shared direct sources only. No route-to-route internal HTTP is introduced for Decision OS.
 - Reviewer seeded login and smoke-operator flows remain intact.
 
 ## Exact code path
@@ -29,6 +30,10 @@ The shipped surface must answer:
 - `app/api/meta/decision-os/route.ts`
 - `lib/meta/decision-os.ts`
 - `lib/meta/decision-os-config.ts`
+- `lib/meta/serving.ts`
+- `lib/meta/breakdowns-source.ts`
+- `lib/meta/operator-decision-source.ts`
+- `lib/meta/decision-os-source.ts`
 - `lib/meta/adsets-source.ts`
 - `components/meta/meta-decision-os.tsx`
 - `components/meta/meta-campaign-list.tsx`
@@ -51,6 +56,14 @@ Decision OS ships as a versioned payload:
 - `commercialTruthCoverage`
 
 The engine is deterministic and typed. It does not depend on AI generation.
+
+Additive GEO V2 fields now expose:
+
+- grouped / pooled-cluster metadata
+- GEO materiality and queue eligibility
+- GEO source freshness and verification state
+- GEO commercial truth context
+- GEO summary counts for action-core, watchlist, queued rows, and pooled clusters
 
 ## Decision logic
 
@@ -106,6 +119,7 @@ Inputs used:
 GEO decisions use:
 
 - account-level Meta location rows
+- dedicated country-only warehouse rows when generic breakdown payloads are partial
 - country economics
 - serviceability
 - scale overrides
@@ -120,6 +134,33 @@ Outputs are:
 - `cut`
 - `monitor`
 
+GEO V2 materiality is fixed and deterministic:
+
+- `archive_context`: spend `<= 0` or `spend < 120 && purchases === 0`
+- `thin_signal`: `spend < 250 || purchases < 6`
+- `material`: non-archive and `spend >= 120 || purchases > 0`
+- `strong`: `roas >= targetRoas && purchases >= 10`
+- `weak`: `roas > 0 && roas < breakEvenRoas && spend >= 200`
+
+GEO action precedence is fixed:
+
+1. blocked serviceability or `deprioritize` override -> `cut`
+2. `hold` override -> `monitor`
+3. `prefer_scale` + strong -> `scale`
+4. strong + spend `>= 600` + `tier_1` -> `isolate`
+5. strong + spend `>= 600` -> `scale`
+6. thin signal + `tier_3` or missing commercial truth -> `pool`
+7. thin signal -> `validate`
+8. weak -> `cut`
+9. else -> `monitor`
+
+The GEO board is intentionally split:
+
+- `Action Core GEOs` for material `scale`, `isolate`, and explainable `cut`
+- `Watchlist / Pooled Validation` for `pool`, `validate`, `monitor`, and degraded no-scale outcomes
+
+Missing country economics does not hide GEO rows. It trust-caps `scale` and `isolate` into watchlist-only `degraded_no_scale` outcomes and leaves the page in an honest partial state when freshness says so.
+
 ### Placement anomalies
 
 Placement stays automation-first.
@@ -131,4 +172,4 @@ Placement stays automation-first.
 
 - If `META_DECISION_OS_V1` is disabled, or the workspace is not in `META_DECISION_OS_CANARY_BUSINESSES`, the page falls back to the Phase 02 baseline and the route returns disabled.
 - If commercial truth is missing, the engine switches to conservative fallback thresholds and prefers safer actions.
-- If campaigns, ad sets, or breakdowns are thin or incomplete, the engine still returns a read-only payload but confidence drops and actions collapse toward `hold` or `monitor_only`.
+- If campaigns, ad sets, or breakdowns are thin or incomplete, the engine still returns a read-only payload but confidence drops and actions collapse toward `hold`, `monitor_only`, pooled GEO validation, or honest partial-state messaging.

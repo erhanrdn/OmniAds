@@ -24,6 +24,8 @@ interface MetaDecisionOsV1Response {
 }
 ```
 
+`contractVersion` remains `meta-decision-os.v1`. GEO V2 is additive only.
+
 ## Campaign decision
 
 ```ts
@@ -106,13 +108,41 @@ interface MetaAdSetDecision {
   - explainable read-only movement from one campaign to another
   - includes `from`, `to`, `whyNow`, `riskLevel`, `expectedBenefit`, `suggestedMoveBand`
 - `MetaGeoDecision`
-  - operational GEO action with evidence, guardrails, and change triggers
+  - operational GEO action with evidence, guardrails, change triggers, and additive GEO V2 metadata
+  - additive fields:
+    - `queueEligible`
+    - `clusterKey`
+    - `clusterLabel`
+    - `grouped`
+    - `groupMemberCount`
+    - `groupMemberLabels`
+    - `materiality`
+    - `supportingMetrics`
+    - `freshness`
+    - `commercialContext`
 - `MetaPlacementAnomaly`
   - automation-first anomaly object for exception review only
 - `MetaNoTouchItem`
   - stable winner or protected path the operator should avoid disturbing
 - `MetaCommercialTruthCoverage`
   - explains whether business-specific truth was available or conservative fallback was used
+
+## GEO summary
+
+`MetaDecisionOsSummary` now includes additive `geoSummary` fields:
+
+- `actionCoreCount`
+- `watchlistCount`
+- `queuedCount`
+- `pooledClusterCount`
+- `sourceFreshness`
+- `countryEconomics`
+
+## GEO queue semantics
+
+- `queueEligible=true` means the GEO row is material, non-archive, and still in the deterministic action core.
+- `queueEligible=false` GEO rows remain operator-visible on the Meta page but do not enter the default Command Center queue.
+- Fingerprint format is unchanged; the intake is behaviorally narrower, not version-bumped.
 
 ## Non-goals
 

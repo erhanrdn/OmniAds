@@ -73,6 +73,56 @@ export interface MetaDecisionEvidence {
   impact: MetaDecisionImpact;
 }
 
+export interface MetaGeoSourceFreshness {
+  dataState: "ready" | "syncing" | "stale";
+  lastSyncedAt: string | null;
+  isPartial: boolean;
+  verificationState: string | null;
+  reason: string | null;
+}
+
+export interface MetaGeoSourceRow {
+  key: string;
+  label: string;
+  spend: number;
+  revenue: number;
+  purchases: number;
+  clicks: number;
+  impressions: number;
+}
+
+export interface MetaGeoSourceSnapshot {
+  rows: MetaGeoSourceRow[];
+  freshness: MetaGeoSourceFreshness;
+}
+
+export interface MetaGeoMateriality {
+  thinSignal: boolean;
+  material: boolean;
+  archiveContext: boolean;
+}
+
+export interface MetaGeoSupportingMetrics {
+  spend: number;
+  revenue: number;
+  roas: number;
+  purchases: number;
+  clicks: number;
+  impressions: number;
+  spendShare: number;
+}
+
+export interface MetaGeoCommercialContext {
+  serviceability: BusinessCountryEconomicsRow["serviceability"] | null;
+  priorityTier: BusinessCountryEconomicsRow["priorityTier"] | null;
+  scaleOverride: BusinessCountryEconomicsRow["scaleOverride"] | null;
+  economicsMultiplier: number | null;
+  marginModifier: number | null;
+  countryEconomicsConfigured: boolean;
+  countryEconomicsUpdatedAt: string | null;
+  countryEconomicsSourceLabel: string | null;
+}
+
 export interface MetaCampaignDecision {
   campaignId: string;
   campaignName: string;
@@ -143,11 +193,21 @@ export interface MetaGeoDecision {
   countryCode: string;
   label: string;
   action: MetaGeoActionType;
+  queueEligible: boolean;
   confidence: number;
   why: string;
   evidence: MetaDecisionEvidence[];
   guardrails: string[];
   whatWouldChangeThisDecision: string[];
+  clusterKey: string | null;
+  clusterLabel: string | null;
+  grouped: boolean;
+  groupMemberCount: number;
+  groupMemberLabels: string[];
+  materiality: MetaGeoMateriality;
+  supportingMetrics: MetaGeoSupportingMetrics;
+  freshness: MetaGeoSourceFreshness;
+  commercialContext: MetaGeoCommercialContext;
   trust: DecisionTrustMetadata;
 }
 
@@ -197,6 +257,18 @@ export interface MetaDecisionOsSummary {
     archiveCount: number;
     degradedCount: number;
   };
+  geoSummary: {
+    actionCoreCount: number;
+    watchlistCount: number;
+    queuedCount: number;
+    pooledClusterCount: number;
+    sourceFreshness: MetaGeoSourceFreshness;
+    countryEconomics: {
+      configured: boolean;
+      updatedAt: string | null;
+      sourceLabel: string | null;
+    };
+  };
 }
 
 export interface MetaDecisionOsV1Response {
@@ -230,6 +302,7 @@ export interface BuildMetaDecisionOsInput {
   campaigns: MetaCampaignRow[];
   adSets: MetaAdSetData[];
   breakdowns: Pick<MetaBreakdownsResponse, "location" | "placement"> | null;
+  geoSource?: MetaGeoSourceSnapshot | null;
   commercialTruth: BusinessCommercialTruthSnapshot;
 }
 
@@ -542,16 +615,67 @@ function findGeoConstraint(
   };
 }
 
+function formatPriorityTierLabel(
+  value: BusinessCountryEconomicsRow["priorityTier"] | null,
+) {
+  if (!value) return "unconfigured";
+  return value.replace("_", " ");
+}
+
+function buildGeoClusterKey(input: {
+  action: Extract<MetaGeoActionType, "pool" | "validate" | "monitor">;
+  priorityTier: BusinessCountryEconomicsRow["priorityTier"] | null;
+  serviceability: BusinessCountryEconomicsRow["serviceability"] | null;
+  truthState: DecisionTrustMetadata["truthState"];
+}) {
+  return [
+    input.action,
+    input.priorityTier ?? "unconfigured",
+    input.serviceability ?? "unknown",
+    input.truthState,
+  ].join(":");
+}
+
+function buildGeoClusterLabel(input: {
+  action: Extract<MetaGeoActionType, "pool" | "validate" | "monitor">;
+  priorityTier: BusinessCountryEconomicsRow["priorityTier"] | null;
+  serviceability: BusinessCountryEconomicsRow["serviceability"] | null;
+}) {
+  return `${input.action} • ${formatPriorityTierLabel(input.priorityTier)} • ${input.serviceability ?? "unknown serviceability"}`;
+}
+
+function resolveDefaultGeoSourceFreshness(
+  input: Pick<BuildMetaDecisionOsInput, "breakdowns">,
+): MetaGeoSourceFreshness {
+  const rowCount = input.breakdowns?.location.length ?? 0;
+  return {
+    dataState: rowCount > 0 ? "ready" : "stale",
+    lastSyncedAt: null,
+    isPartial: false,
+    verificationState: null,
+    reason:
+      rowCount > 0
+        ? null
+        : "Country breakdown source did not return rows for the current decision window.",
+  };
+}
+
 function buildGeoAction(input: {
-  row: { key: string; label: string; spend: number; revenue: number; purchases: number; clicks: number; impressions: number };
+  row: MetaGeoSourceRow;
   accountRoas: number;
   snapshot: BusinessCommercialTruthSnapshot;
   thresholds: TargetThresholds;
+  geoFreshness: MetaGeoSourceFreshness;
+  totalGeoSpend: number;
 }): MetaGeoDecision {
   const countryCode = toCountryCode(input.row.label) ?? input.row.key.toUpperCase();
   const roas = input.row.spend > 0 ? input.row.revenue / input.row.spend : 0;
   const constraint = findGeoConstraint(input.snapshot, countryCode);
   const thinSignal = input.row.spend < 250 || input.row.purchases < 6;
+  const archiveContext =
+    input.row.spend <= 0 ||
+    (input.row.spend < 120 && input.row.purchases === 0);
+  const material = !archiveContext && (input.row.spend >= 120 || input.row.purchases > 0);
   const strong = roas >= input.thresholds.targetRoas && input.row.purchases >= 10;
   const weak = roas > 0 && roas < input.thresholds.breakEvenRoas && input.row.spend >= 200;
   let action: MetaGeoActionType = "monitor";
@@ -599,9 +723,6 @@ function buildGeoAction(input: {
     confidence = 0.8;
   }
 
-  const archiveContext =
-    input.row.spend <= 0 ||
-    (thinSignal && input.row.spend < 120 && input.row.purchases === 0);
   const degradedMissingTruth =
     input.thresholds.mode === "conservative_fallback" ||
     input.snapshot.countryEconomics.length === 0;
@@ -647,12 +768,31 @@ function buildGeoAction(input: {
             operatorDisposition: "standard",
             reasons: [why],
           });
+  const queueEligible = material && trust.surfaceLane === "action_core";
+  const clusterKey =
+    action === "pool" || action === "validate" || action === "monitor"
+      ? buildGeoClusterKey({
+          action,
+          priorityTier: constraint?.priorityTier ?? null,
+          serviceability: constraint?.serviceability ?? null,
+          truthState: trust.truthState,
+        })
+      : null;
+  const clusterLabel =
+    action === "pool" || action === "validate" || action === "monitor"
+      ? buildGeoClusterLabel({
+          action,
+          priorityTier: constraint?.priorityTier ?? null,
+          serviceability: constraint?.serviceability ?? null,
+        })
+      : null;
 
   return {
     geoKey: `${countryCode}:${action}`,
     countryCode,
     label: input.row.label,
     action,
+    queueEligible,
     confidence: clampConfidence(confidence),
     why,
     evidence: [
@@ -674,8 +814,69 @@ function buildGeoAction(input: {
         ? "ROAS recovering above break-even or serviceability improving would reopen this GEO."
         : "More conversion depth or an explicit business override would change this GEO decision.",
     ],
+    clusterKey,
+    clusterLabel,
+    grouped: false,
+    groupMemberCount: 1,
+    groupMemberLabels: [input.row.label],
+    materiality: {
+      thinSignal,
+      material,
+      archiveContext,
+    },
+    supportingMetrics: {
+      spend: round(input.row.spend),
+      revenue: round(input.row.revenue),
+      roas: round(roas),
+      purchases: input.row.purchases,
+      clicks: input.row.clicks,
+      impressions: input.row.impressions,
+      spendShare:
+        input.totalGeoSpend > 0 ? round(input.row.spend / input.totalGeoSpend, 4) : 0,
+    },
+    freshness: input.geoFreshness,
+    commercialContext: {
+      serviceability: constraint?.serviceability ?? null,
+      priorityTier: constraint?.priorityTier ?? null,
+      scaleOverride: constraint?.scaleOverride ?? null,
+      economicsMultiplier: constraint?.economicsMultiplier ?? null,
+      marginModifier: constraint?.marginModifier ?? null,
+      countryEconomicsConfigured:
+        input.snapshot.sectionMeta.countryEconomics.configured,
+      countryEconomicsUpdatedAt:
+        input.snapshot.sectionMeta.countryEconomics.updatedAt,
+      countryEconomicsSourceLabel:
+        input.snapshot.sectionMeta.countryEconomics.sourceLabel,
+    },
     trust,
   };
+}
+
+function hydrateGeoClusters(geoDecisions: MetaGeoDecision[]) {
+  const decisionsByCluster = new Map<string, MetaGeoDecision[]>();
+  for (const decision of geoDecisions) {
+    if (!decision.clusterKey) continue;
+    const existing = decisionsByCluster.get(decision.clusterKey);
+    if (existing) existing.push(decision);
+    else decisionsByCluster.set(decision.clusterKey, [decision]);
+  }
+
+  return geoDecisions.map((decision) => {
+    if (!decision.clusterKey) return decision;
+    const peers =
+      decisionsByCluster.get(decision.clusterKey)?.slice().sort(
+        (left, right) =>
+          right.supportingMetrics.spend - left.supportingMetrics.spend ||
+          left.label.localeCompare(right.label),
+      ) ?? [decision];
+    return {
+      ...decision,
+      grouped: peers.length > 1,
+      groupMemberCount: peers.length,
+      groupMemberLabels: peers.map((peer) => peer.label),
+      clusterLabel: decision.clusterLabel ?? peers[0]?.clusterLabel ?? null,
+    };
+  });
 }
 
 function buildPlacementAnomalies(input: {
@@ -1274,6 +1475,8 @@ function buildSummary(input: {
   geoDecisions: MetaGeoDecision[];
   noTouchList: MetaNoTouchItem[];
   operatingMode: AccountOperatingModePayload | null;
+  geoFreshness: MetaGeoSourceFreshness;
+  commercialTruth: BusinessCommercialTruthSnapshot;
 }): MetaDecisionOsSummary {
   const topAdSetActions = [...input.adSetDecisions]
     .filter((decision) => decision.trust.surfaceLane === "action_core")
@@ -1299,6 +1502,11 @@ function buildSummary(input: {
     ...input.adSetDecisions.map((decision) => decision.trust),
     ...input.geoDecisions.map((decision) => decision.trust),
   ];
+  const pooledClusterCount = new Set(
+    input.geoDecisions
+      .filter((decision) => decision.grouped && decision.clusterKey)
+      .map((decision) => decision.clusterKey),
+  ).size;
 
   return {
     todayPlanHeadline:
@@ -1336,6 +1544,22 @@ function buildSummary(input: {
         (row) => row.truthState === "degraded_missing_truth",
       ).length,
     },
+    geoSummary: {
+      actionCoreCount: input.geoDecisions.filter(
+        (decision) => decision.trust.surfaceLane === "action_core",
+      ).length,
+      watchlistCount: input.geoDecisions.filter(
+        (decision) => decision.trust.surfaceLane === "watchlist",
+      ).length,
+      queuedCount: input.geoDecisions.filter((decision) => decision.queueEligible).length,
+      pooledClusterCount,
+      sourceFreshness: input.geoFreshness,
+      countryEconomics: {
+        configured: input.commercialTruth.sectionMeta.countryEconomics.configured,
+        updatedAt: input.commercialTruth.sectionMeta.countryEconomics.updatedAt,
+        sourceLabel: input.commercialTruth.sectionMeta.countryEconomics.sourceLabel,
+      },
+    },
   };
 }
 
@@ -1367,9 +1591,13 @@ export function buildMetaDecisionOs(
     .map((promo) => normalizeText(`${promo.title} ${promo.affectedScope ?? ""}`))
     .filter(Boolean);
   const operatingMode = buildOperatingModeSummary(input);
+  const geoFreshness =
+    input.geoSource?.freshness ?? resolveDefaultGeoSourceFreshness(input);
+  const geoRows = input.geoSource?.rows ?? input.breakdowns?.location ?? [];
   const accountRoas =
     input.campaigns.reduce((sum, campaign) => sum + campaign.revenue, 0) /
     Math.max(1, input.campaigns.reduce((sum, campaign) => sum + campaign.spend, 0));
+  const totalGeoSpend = geoRows.reduce((sum, row) => sum + row.spend, 0);
   const campaignById = new Map(input.campaigns.map((campaign) => [campaign.id, campaign]));
 
   const campaignRoleById = new Map<string, CampaignRoleDecision>();
@@ -1417,16 +1645,20 @@ export function buildMetaDecisionOs(
     campaigns: campaignDecisions,
     campaignRows: input.campaigns,
   });
-  const geoDecisions = (input.breakdowns?.location ?? [])
+  const geoDecisions = hydrateGeoClusters(
+    geoRows
     .map((row) =>
       buildGeoAction({
         row,
         accountRoas: Number.isFinite(accountRoas) ? accountRoas : 0,
         snapshot: input.commercialTruth,
         thresholds,
+        geoFreshness,
+        totalGeoSpend,
       }),
     )
-    .sort((left, right) => right.confidence - left.confidence);
+    .sort((left, right) => right.confidence - left.confidence),
+  );
   const placementAnomalies = buildPlacementAnomalies({
     rows: input.breakdowns?.placement ?? [],
     accountRoas: Number.isFinite(accountRoas) ? accountRoas : 0,
@@ -1443,6 +1675,8 @@ export function buildMetaDecisionOs(
     geoDecisions,
     noTouchList,
     operatingMode,
+    geoFreshness,
+    commercialTruth: input.commercialTruth,
   });
 
   return {
