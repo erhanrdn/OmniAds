@@ -10,6 +10,8 @@ import { resolveCommercialSmokeOperatorConfig } from "./seed-commercial-smoke-op
 
 const OPERATOR = resolveCommercialSmokeOperatorConfig(process.env);
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+const EXECUTION_BUSINESS_ID =
+  process.env.COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID?.trim() || null;
 
 async function ensureCommercialTruthTables(sql) {
   await sql`
@@ -300,6 +302,15 @@ async function main() {
     DO UPDATE SET role = 'collaborator', status = 'active'
   `;
 
+  if (EXECUTION_BUSINESS_ID && EXECUTION_BUSINESS_ID !== DEMO_BUSINESS_ID) {
+    await sql`
+      INSERT INTO memberships (user_id, business_id, role, status)
+      VALUES (${operator.id}, ${EXECUTION_BUSINESS_ID}, 'collaborator', 'active')
+      ON CONFLICT (user_id, business_id)
+      DO UPDATE SET role = 'collaborator', status = 'active'
+    `;
+  }
+
   await sql`
     UPDATE sessions
     SET active_business_id = ${DEMO_BUSINESS_ID}
@@ -320,6 +331,7 @@ async function main() {
         },
         loginUrl: `${APP_URL.replace(/\/$/, "")}/login`,
         businessId: DEMO_BUSINESS_ID,
+        executionBusinessId: EXECUTION_BUSINESS_ID,
       },
       null,
       2,

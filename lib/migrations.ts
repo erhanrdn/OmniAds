@@ -792,6 +792,76 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_handoffs_business_shift
           ON command_center_handoffs (business_id, shift, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_action_execution_state (
+          id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          action_fingerprint           TEXT NOT NULL,
+          execution_status             TEXT NOT NULL
+                                        CHECK (execution_status IN ('draft', 'ready_for_apply', 'applying', 'executed', 'failed', 'rolled_back', 'manual_only', 'unsupported')),
+          support_mode                 TEXT NOT NULL
+                                        CHECK (support_mode IN ('supported', 'manual_only', 'unsupported')),
+          source_system                TEXT NOT NULL CHECK (source_system IN ('meta', 'creative')),
+          source_type                  TEXT NOT NULL,
+          requested_action             TEXT NOT NULL,
+          preview_hash                 TEXT,
+          workflow_status_snapshot     TEXT NOT NULL DEFAULT 'pending'
+                                        CHECK (workflow_status_snapshot IN ('pending', 'approved', 'rejected', 'snoozed', 'completed_manual', 'executed', 'failed', 'canceled')),
+          approval_actor_user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+          approval_actor_name          TEXT,
+          approval_actor_email         TEXT,
+          approved_at                  TIMESTAMPTZ,
+          applied_by_user_id           UUID REFERENCES users(id) ON DELETE SET NULL,
+          applied_by_name              TEXT,
+          applied_by_email             TEXT,
+          applied_at                   TIMESTAMPTZ,
+          rollback_kind                TEXT NOT NULL DEFAULT 'not_available'
+                                        CHECK (rollback_kind IN ('provider_rollback', 'recovery_note_only', 'not_available')),
+          rollback_note                TEXT,
+          last_client_mutation_id      TEXT,
+          last_error_code              TEXT,
+          last_error_message           TEXT,
+          current_state_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
+          requested_state_json         JSONB NOT NULL DEFAULT 'null'::jsonb,
+          captured_pre_apply_state_json JSONB NOT NULL DEFAULT 'null'::jsonb,
+          provider_response_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, action_fingerprint)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_execution_state_business_status
+          ON command_center_action_execution_state (business_id, execution_status, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_action_execution_audit (
+          id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          action_fingerprint           TEXT NOT NULL,
+          client_mutation_id           TEXT NOT NULL,
+          operation                    TEXT NOT NULL CHECK (operation IN ('apply', 'rollback')),
+          execution_status             TEXT NOT NULL
+                                        CHECK (execution_status IN ('draft', 'ready_for_apply', 'applying', 'executed', 'failed', 'rolled_back', 'manual_only', 'unsupported')),
+          support_mode                 TEXT NOT NULL
+                                        CHECK (support_mode IN ('supported', 'manual_only', 'unsupported')),
+          actor_user_id                UUID REFERENCES users(id) ON DELETE SET NULL,
+          actor_name                   TEXT,
+          actor_email                  TEXT,
+          approval_actor_user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+          approval_actor_name          TEXT,
+          approval_actor_email         TEXT,
+          approved_at                  TIMESTAMPTZ,
+          preview_hash                 TEXT,
+          rollback_kind                TEXT NOT NULL DEFAULT 'not_available'
+                                        CHECK (rollback_kind IN ('provider_rollback', 'recovery_note_only', 'not_available')),
+          rollback_note                TEXT,
+          current_state_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
+          requested_state_json         JSONB NOT NULL DEFAULT 'null'::jsonb,
+          captured_pre_apply_state_json JSONB NOT NULL DEFAULT 'null'::jsonb,
+          provider_response_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
+          failure_reason               TEXT,
+          external_refs_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
+          created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, client_mutation_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_execution_audit_business_action
+          ON command_center_action_execution_audit (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
       ]);
 
       // ── PHASE 4: Tables with deeper deps + all remaining indexes ──────────

@@ -48,6 +48,10 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(queueActions.first()).toBeVisible();
   await queueActions.first().click();
   const workflowDialog = page.getByRole("dialog");
+  await expect(workflowDialog.getByTestId("command-center-execution-panel")).toBeVisible();
+  await expect(workflowDialog.getByTestId("command-center-execution-support-mode")).toBeVisible();
+  await expect(workflowDialog.getByTestId("command-center-execution-audit")).toBeVisible();
+  await expect(workflowDialog.getByTestId("command-center-execution-apply")).toBeDisabled();
   await expect(workflowDialog.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
   await workflowDialog.getByRole("button", { name: "Approve", exact: true }).click();
   await workflowDialog.getByRole("button", { name: "Reopen", exact: true }).click();
@@ -104,4 +108,69 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
     path: testInfo.outputPath("commercial-creative-context.png"),
     fullPage: true,
   });
+});
+
+test("commercial execution canary smoke applies and rolls back a supported ad set when configured", async ({
+  page,
+}) => {
+  const executionBusinessId =
+    process.env.PLAYWRIGHT_EXECUTION_CANARY_BUSINESS_ID ??
+    process.env.COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID;
+  test.skip(
+    !executionBusinessId,
+    "Execution canary smoke requires COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID.",
+  );
+  test.slow();
+
+  await page.goto("/command-center");
+  const switchResponse = await page.evaluate(async (businessId) => {
+    const response = await fetch("/api/auth/switch-business", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ businessId }),
+    });
+    return {
+      ok: response.ok,
+      status: response.status,
+      text: await response.text(),
+    };
+  }, executionBusinessId);
+  expect(switchResponse.ok, switchResponse.text).toBeTruthy();
+
+  await page.goto("/command-center");
+  const queueActions = page.locator('[data-testid^="command-center-action-"]');
+  await expect(queueActions.first()).toBeVisible({ timeout: 45_000 });
+
+  let supportedActionFound = false;
+  const totalActions = await queueActions.count();
+  const maxActionsToScan = Math.min(totalActions, 12);
+
+  for (let index = 0; index < maxActionsToScan; index += 1) {
+    await queueActions.nth(index).click();
+    const workflowDialog = page.getByRole("dialog");
+    await expect(workflowDialog.getByTestId("command-center-execution-panel")).toBeVisible();
+    const supportText = (
+      await workflowDialog
+        .getByTestId("command-center-execution-support-mode")
+        .textContent()
+    )?.toLowerCase();
+    if (!supportText?.includes("supported")) continue;
+
+    supportedActionFound = true;
+    await workflowDialog.getByRole("button", { name: "Approve", exact: true }).click();
+    await expect(workflowDialog.getByTestId("command-center-execution-apply")).toBeEnabled({
+      timeout: 45_000,
+    });
+    await workflowDialog.getByTestId("command-center-execution-apply").click();
+    await expect(workflowDialog).toContainText(/executed/i, { timeout: 45_000 });
+    await expect(workflowDialog.getByTestId("command-center-execution-rollback")).toBeEnabled({
+      timeout: 45_000,
+    });
+    await workflowDialog.getByTestId("command-center-execution-rollback").click();
+    await expect(workflowDialog).toContainText(/rolled back/i, { timeout: 45_000 });
+    break;
+  }
+
+  expect(supportedActionFound).toBeTruthy();
 });

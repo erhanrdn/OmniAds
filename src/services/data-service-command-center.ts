@@ -4,6 +4,7 @@ import type {
   CommandCenterResponse,
   CommandCenterSavedViewDefinition,
 } from "@/lib/command-center";
+import type { CommandCenterExecutionPreview } from "@/lib/command-center-execution";
 import {
   buildApiUrl,
   getApiErrorMessage,
@@ -220,4 +221,96 @@ export async function acknowledgeCommandCenterHandoff(input: {
   }
 
   return payload as { ok: true; handoff: CommandCenterHandoff | null };
+}
+
+export async function getCommandCenterExecutionPreview(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  actionFingerprint: string;
+}) {
+  const url = buildApiUrl("/api/command-center/execution");
+  url.searchParams.set("businessId", input.businessId);
+  url.searchParams.set("startDate", input.startDate);
+  url.searchParams.set("endDate", input.endDate);
+  url.searchParams.set("actionFingerprint", input.actionFingerprint);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Execution preview failed with status ${response.status}`,
+      ),
+    );
+  }
+
+  return payload as CommandCenterExecutionPreview;
+}
+
+export async function applyCommandCenterExecution(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  actionFingerprint: string;
+  previewHash: string;
+  clientMutationId: string;
+}) {
+  const url = buildApiUrl("/api/command-center/execution/apply");
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Execution apply failed with status ${response.status}`,
+      ),
+    );
+  }
+
+  return payload as { ok: true; preview: CommandCenterExecutionPreview };
+}
+
+export async function rollbackCommandCenterExecution(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  actionFingerprint: string;
+  clientMutationId: string;
+}) {
+  const url = buildApiUrl("/api/command-center/execution/rollback");
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Execution rollback failed with status ${response.status}`,
+      ),
+    );
+  }
+
+  return payload as { ok: true; preview: CommandCenterExecutionPreview };
 }

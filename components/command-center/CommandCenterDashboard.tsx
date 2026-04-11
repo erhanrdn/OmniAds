@@ -29,15 +29,19 @@ import type {
   CommandCenterResponse,
   CommandCenterSavedViewDefinition,
 } from "@/lib/command-center";
+import type { CommandCenterExecutionPreview } from "@/lib/command-center-execution";
 import { cn } from "@/lib/utils";
 import {
   addCommandCenterNote,
   acknowledgeCommandCenterHandoff,
+  applyCommandCenterExecution,
   createCommandCenterHandoff,
   createCommandCenterSavedView,
   deleteCommandCenterSavedView,
   getCommandCenter,
+  getCommandCenterExecutionPreview,
   mutateCommandCenterAction,
+  rollbackCommandCenterExecution,
 } from "@/src/services";
 import { useAppStore } from "@/store/app-store";
 
@@ -70,6 +74,36 @@ function resolveStatusTone(status: CommandCenterActionStatus) {
 
 function formatActionLabel(value: string) {
   return value.replaceAll("_", " ");
+}
+
+function resolveExecutionSupportTone(
+  mode: CommandCenterExecutionPreview["supportMode"],
+) {
+  if (mode === "supported") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (mode === "manual_only") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function resolveExecutionStatusTone(
+  status: CommandCenterExecutionPreview["status"],
+) {
+  if (status === "executed" || status === "rolled_back") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (status === "failed") {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+  if (status === "ready_for_apply") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  if (status === "manual_only" || status === "unsupported") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
 function createClientMutationId() {
@@ -332,10 +366,35 @@ export function CommandCenterDashboard() {
   );
 
   const canEdit = query.data?.permissions.canEdit ?? false;
+  const executionQuery = useQuery({
+    queryKey: [
+      "command-center-execution",
+      selectedBusinessId,
+      startDate,
+      endDate,
+      selectedAction?.actionFingerprint ?? null,
+      selectedAction?.status ?? null,
+      selectedAction?.lastMutatedAt ?? null,
+    ],
+    enabled: Boolean(selectedBusinessId && selectedAction),
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      getCommandCenterExecutionPreview({
+        businessId: selectedBusinessId!,
+        startDate,
+        endDate,
+        actionFingerprint: selectedAction!.actionFingerprint,
+      }),
+  });
 
   async function refresh() {
     setPageError(null);
     await query.refetch();
+    if (selectedAction) {
+      await executionQuery.refetch();
+    }
   }
 
   async function runMutation(input: {
@@ -483,6 +542,49 @@ export function CommandCenterDashboard() {
     } catch (error) {
       setPageError(
         error instanceof Error ? error.message : "Could not acknowledge handoff.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function runExecutionApply() {
+    if (!selectedBusinessId || !selectedAction || !executionQuery.data) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await applyCommandCenterExecution({
+        businessId: selectedBusinessId,
+        startDate,
+        endDate,
+        actionFingerprint: selectedAction.actionFingerprint,
+        previewHash: executionQuery.data.previewHash,
+        clientMutationId: createClientMutationId(),
+      });
+      await Promise.all([query.refetch(), executionQuery.refetch()]);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Execution apply failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function runExecutionRollback() {
+    if (!selectedBusinessId || !selectedAction) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await rollbackCommandCenterExecution({
+        businessId: selectedBusinessId,
+        startDate,
+        endDate,
+        actionFingerprint: selectedAction.actionFingerprint,
+        clientMutationId: createClientMutationId(),
+      });
+      await Promise.all([query.refetch(), executionQuery.refetch()]);
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Execution rollback failed.",
       );
     } finally {
       setPending(false);
@@ -1066,6 +1168,252 @@ export function CommandCenterDashboard() {
                       Complete manual
                     </Button>
                   </div>
+                </section>
+
+                <section
+                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                  data-testid="command-center-execution-panel"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Execution
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Preview first, apply second. Unsupported or manual-only paths stay explicit.
+                      </p>
+                    </div>
+                    {executionQuery.data ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Badge
+                          variant="outline"
+                          className={resolveExecutionSupportTone(
+                            executionQuery.data.supportMode,
+                          )}
+                          data-testid="command-center-execution-support-mode"
+                        >
+                          {formatActionLabel(executionQuery.data.supportMode)}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className={resolveExecutionStatusTone(executionQuery.data.status)}
+                        >
+                          {formatActionLabel(executionQuery.data.status)}
+                        </Badge>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {executionQuery.isLoading ? (
+                    <div className="mt-4 h-28 animate-pulse rounded-2xl bg-slate-100" />
+                  ) : executionQuery.error ? (
+                    <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-700">
+                      {executionQuery.error instanceof Error
+                        ? executionQuery.error.message
+                        : "Execution preview failed."}
+                    </div>
+                  ) : executionQuery.data ? (
+                    <div className="mt-4 space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Current state
+                          </p>
+                          <div className="mt-2 space-y-1 text-sm text-slate-700">
+                            <p>Status: {executionQuery.data.currentState?.status ?? "Unavailable"}</p>
+                            <p>
+                              Daily budget:{" "}
+                              {executionQuery.data.currentState?.dailyBudget != null
+                                ? `$${Math.round(
+                                    executionQuery.data.currentState.dailyBudget,
+                                  )}`
+                                : "Unavailable"}
+                            </p>
+                            <p>
+                              Budget level:{" "}
+                              {executionQuery.data.currentState?.budgetLevel ?? "Unavailable"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Requested state
+                          </p>
+                          <div className="mt-2 space-y-1 text-sm text-slate-700">
+                            <p>
+                              Status: {executionQuery.data.requestedState?.status ?? "Unavailable"}
+                            </p>
+                            <p>
+                              Daily budget:{" "}
+                              {executionQuery.data.requestedState?.dailyBudget != null
+                                ? `$${Math.round(
+                                    executionQuery.data.requestedState.dailyBudget,
+                                  )}`
+                                : "Unavailable"}
+                            </p>
+                            <p>
+                              Rollback: {formatActionLabel(executionQuery.data.rollback.kind)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Preview diff
+                        </p>
+                        <div className="mt-3 space-y-2" data-testid="command-center-execution-diff">
+                          {executionQuery.data.diff.map((item) => (
+                            <div
+                              key={`${item.key}:${item.currentValue}:${item.requestedValue}`}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                            >
+                              <p className="font-medium text-slate-900">{item.label}</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {item.currentValue} → {item.requestedValue}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Approval and permissions
+                        </p>
+                        <div className="mt-2 space-y-1">
+                          <p>
+                            Workflow status:{" "}
+                            {formatActionLabel(executionQuery.data.approval.workflowStatus)}
+                          </p>
+                          <p>
+                            Approved by:{" "}
+                            {executionQuery.data.approval.approvedByName ??
+                              executionQuery.data.approval.approvedByEmail ??
+                              "Pending approval"}
+                          </p>
+                          {executionQuery.data.permission.reason ? (
+                            <p className="text-amber-700">
+                              Apply gate: {executionQuery.data.permission.reason}
+                            </p>
+                          ) : (
+                            <p className="text-emerald-700">Apply gate: ready</p>
+                          )}
+                          {executionQuery.data.permission.rollbackReason ? (
+                            <p className="text-slate-600">
+                              Rollback: {executionQuery.data.permission.rollbackReason}
+                            </p>
+                          ) : (
+                            <p className="text-emerald-700">Rollback: available</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {executionQuery.data.prerequisites.length > 0 ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Prerequisites
+                          </p>
+                          <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                            {executionQuery.data.prerequisites.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {executionQuery.data.risks.length > 0 ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Risks
+                          </p>
+                          <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                            {executionQuery.data.risks.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {executionQuery.data.manualInstructions.length > 0 ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">
+                            Manual instructions
+                          </p>
+                          <ul className="mt-2 space-y-1 text-sm text-amber-900">
+                            {executionQuery.data.manualInstructions.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => void runExecutionApply()}
+                          disabled={
+                            pending ||
+                            !executionQuery.data.permission.canApply ||
+                            executionQuery.data.supportMode !== "supported"
+                          }
+                          data-testid="command-center-execution-apply"
+                        >
+                          Apply
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void runExecutionRollback()}
+                          disabled={pending || !executionQuery.data.permission.canRollback}
+                          data-testid="command-center-execution-rollback"
+                        >
+                          Rollback
+                        </Button>
+                      </div>
+
+                      <div
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
+                        data-testid="command-center-execution-audit"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Execution audit trail
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {executionQuery.data.auditTrail.length === 0 ? (
+                            <p className="text-sm text-slate-500">
+                              No execution audit entries yet.
+                            </p>
+                          ) : (
+                            executionQuery.data.auditTrail.map((entry) => (
+                              <div
+                                key={entry.id}
+                                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="font-medium text-slate-900">
+                                    {formatActionLabel(entry.operation)} ·{" "}
+                                    {formatActionLabel(entry.executionStatus)}
+                                  </p>
+                                  <Badge variant="outline">
+                                    {entry.actorName ?? entry.actorEmail ?? "Operator"}
+                                  </Badge>
+                                </div>
+                                {entry.failureReason ? (
+                                  <p className="mt-1 text-xs text-rose-700">
+                                    {entry.failureReason}
+                                  </p>
+                                ) : null}
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {entry.createdAt}
+                                </p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                 </section>
 
                 <section className="rounded-2xl border border-slate-200 bg-white p-4">

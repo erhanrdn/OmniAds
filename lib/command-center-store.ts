@@ -914,3 +914,60 @@ export async function addCommandCenterNote(input: {
     clientMutationId: input.clientMutationId,
   });
 }
+
+export async function syncCommandCenterActionWorkflowStatus(input: {
+  businessId: string;
+  action: CommandCenterAction;
+  actorUserId: string;
+  actorName: string | null;
+  actorEmail: string | null;
+  clientMutationId: string;
+  nextStatus: Extract<CommandCenterActionStatus, "approved" | "executed" | "failed">;
+  message: string;
+  metadata?: Record<string, unknown>;
+}) {
+  await assertDbSchemaReady({
+    tables: [...COMMAND_CENTER_TABLES],
+    context: "command_center:sync_execution_status",
+  });
+
+  const current =
+    (await getCommandCenterStateRecord({
+      businessId: input.businessId,
+      actionFingerprint: input.action.actionFingerprint,
+    })) ?? null;
+
+  if (current?.lastMutationId === input.clientMutationId) {
+    return current;
+  }
+
+  await writeCommandCenterJournal({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    action: input.action,
+    actorUserId: input.actorUserId,
+    actorName: input.actorName,
+    actorEmail: input.actorEmail,
+    eventType: "status_changed",
+    message: input.message,
+    note: null,
+    metadata: {
+      currentStatus: current?.workflowStatus ?? input.action.status ?? "pending",
+      nextStatus: input.nextStatus,
+      ...(input.metadata ?? {}),
+    },
+  });
+
+  return upsertCommandCenterActionState({
+    action: input.action,
+    businessId: input.businessId,
+    nextStatus: input.nextStatus,
+    assigneeUserId: current?.assigneeUserId ?? input.action.assigneeUserId ?? null,
+    assigneeName: current?.assigneeName ?? input.action.assigneeName ?? null,
+    snoozeUntil: current?.snoozeUntil ?? input.action.snoozeUntil ?? null,
+    latestNoteExcerpt:
+      current?.latestNoteExcerpt ?? input.action.latestNoteExcerpt ?? null,
+    noteCount: current?.noteCount ?? input.action.noteCount ?? 0,
+    clientMutationId: input.clientMutationId,
+  });
+}

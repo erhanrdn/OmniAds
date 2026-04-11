@@ -28,6 +28,12 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("command-center-journal")).toBeVisible();
   await expect(page.getByTestId("command-center-handoffs")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save view" })).toBeDisabled();
+  const reviewerQueueActions = page.locator('[data-testid^="command-center-action-"]');
+  await expect(reviewerQueueActions.first()).toBeVisible();
+  await reviewerQueueActions.first().click();
+  const reviewerExecutionPanel = page.getByTestId("command-center-execution-panel");
+  await expect(reviewerExecutionPanel).toBeVisible();
+  await expect(reviewerExecutionPanel).toContainText(/Preview first, apply second|Execution preview failed/);
   await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
 
   await page.goto("/creatives");

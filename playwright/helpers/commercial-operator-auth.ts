@@ -13,6 +13,7 @@ export interface CommercialSmokeSeedResult {
   };
   loginUrl: string;
   businessId: string;
+  executionBusinessId?: string | null;
 }
 
 export async function seedCommercialSmokeOperator(): Promise<CommercialSmokeSeedResult> {
