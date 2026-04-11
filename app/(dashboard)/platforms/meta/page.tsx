@@ -1242,12 +1242,6 @@ export default function MetaPage() {
     recommendationsQuery.data?.recommendations,
   ]);
 
-  useEffect(() => {
-    if (!campaignRowsForTable.length || !selectedCampaignId) return;
-    if (campaignRowsForTable.some((campaign) => campaign.id === selectedCampaignId)) return;
-    setSelectedCampaignId(null);
-  }, [campaignRowsForTable, selectedCampaignId]);
-
   return (
     <PlanGate requiredPlan="growth">
     <div className="space-y-5">

@@ -195,7 +195,7 @@ async function selectFirstCommandCenterViewWithActions(page: Page) {
   throw new Error("No Command Center action cards were visible in any fallback view.");
 }
 
-async function selectFirstMetaCommandCenterAction(page: Page) {
+async function openFirstCampaignAwareMetaCommandCenterAction(page: Page) {
   const viewCandidates = [
     page.getByRole("button", { name: "Default queue" }),
     page.getByTestId("command-center-view-no_touch_surfaces"),
@@ -205,16 +205,26 @@ async function selectFirstMetaCommandCenterAction(page: Page) {
 
   for (const candidate of viewCandidates) {
     await candidate.click();
-    const metaAction = page
+    const metaActions = page
       .locator('[data-testid^="command-center-action-"]')
-      .filter({ hasText: "Meta Decision OS" })
-      .first();
-    if ((await metaAction.count()) > 0) {
-      return metaAction;
+      .filter({ hasText: "Meta Decision OS" });
+    const count = await metaActions.count();
+    for (let index = 0; index < count; index += 1) {
+      const metaAction = metaActions.nth(index);
+      await metaAction.click();
+      const metaWorkflowDialog = page.getByRole("dialog");
+      await expect(metaWorkflowDialog).toBeVisible();
+      const href = await metaWorkflowDialog
+        .getByRole("link", { name: "Open source surface" })
+        .getAttribute("href");
+      if (href?.includes("campaignId=")) {
+        return metaWorkflowDialog;
+      }
+      await metaWorkflowDialog.getByRole("button", { name: "Close", exact: true }).click();
     }
   }
 
-  throw new Error("No Meta-backed Command Center action was visible in fallback views.");
+  throw new Error("No campaign-aware Meta-backed Command Center action was visible in fallback views.");
 }
 
 test("commercial truth smoke covers settings edit, Meta operating mode, and Creative context", async ({ page }, testInfo) => {
@@ -358,10 +368,7 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(feedbackPanel).toContainText("Smoke operator feedback on queue prioritization.");
   await workflowDialog.getByRole("button", { name: "Close", exact: true }).click();
 
-  const metaQueueAction = await selectFirstMetaCommandCenterAction(page);
-  await expect(metaQueueAction).toBeVisible();
-  await metaQueueAction.click();
-  const metaWorkflowDialog = page.getByRole("dialog");
+  const metaWorkflowDialog = await openFirstCampaignAwareMetaCommandCenterAction(page);
   await metaWorkflowDialog.getByRole("link", { name: "Open source surface" }).click();
   await page.waitForURL(/\/platforms\/meta\?.*campaignId=/, { timeout: 45_000 });
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
