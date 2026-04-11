@@ -48,7 +48,7 @@ function summarizeFlagPosture(input: {
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA?.trim() ||
-  "5bdf330869ae9170e8f6a8aa977c26a831fd1dba";
+  "6fc971574946f65f4c7217eb4a51b6e8ed66fefb";
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE?.trim() ||

@@ -10,8 +10,8 @@ Current live release truth is not inferred from older phase docs alone. It is de
 
 Current accepted live baseline for this authority layer:
 
-- current live SHA: `5bdf330869ae9170e8f6a8aa977c26a831fd1dba`
-- rollback target before the next release: `5bdf330869ae9170e8f6a8aa977c26a831fd1dba`
+- current live SHA: `433f9ca8aec08a5c6bd843b5a3999870f4ce0b52`
+- rollback target before the next release: `6fc971574946f65f4c7217eb4a51b6e8ed66fefb`
 - repository authority: `erhanrdn/OmniAds` `main`
 
 ## Authority Rules
