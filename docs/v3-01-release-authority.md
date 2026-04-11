@@ -2,21 +2,20 @@
 
 This document is generated from `lib/release-authority/*`. Do not hand-edit it.
 
-Current accepted live baseline for this authority layer:
+Current accepted authority contract for this layer:
 
-- current live SHA: `a002eb41f10e0783479d73960f85462befdf762d`
-- current main SHA: `a002eb41f10e0783479d73960f85462befdf762d`
-- rollback target before the next release: `6fc971574946f65f4c7217eb4a51b6e8ed66fefb`
+- runtime live SHA source: `https://adsecute.com/api/build-info`
+- runtime release authority source: `https://adsecute.com/api/release-authority`
 - repository authority: `erhanrdn/OmniAds` `main`
-- build info URL: `https://adsecute.com/api/build-info`
-- release authority URL: `https://adsecute.com/api/release-authority`
+- canonical doc path: `docs/v3-01-release-authority.md`
+- rollback target before the next release: `6fc971574946f65f4c7217eb4a51b6e8ed66fefb`
 
 ## Literal parity
 
-- live vs main: `aligned`
-- docs vs runtime: `aligned`
-- flags vs runtime: `aligned`
-- overall: `aligned`
+- build info URL must expose the same live SHA that `/api/release-authority` reports at runtime.
+- `/api/release-authority` must expose the current remote `main` SHA.
+- The rollback target in this doc must match the rollback target in `/api/release-authority`.
+- The surface matrix below must stay literal with the release-authority inventory.
 
 ## Feature Matrix
 
@@ -43,7 +42,7 @@ Current accepted live baseline for this authority layer:
 
 ## Review Order
 
-1. Review release identity first: live SHA a002eb41f10e0783479d73960f85462befdf762d vs main a002eb41f10e0783479d73960f85462befdf762d.
+1. Review release identity first: live SHA c0914a95e52772474e997d422803dddd15add605 vs main c0914a95e52772474e997d422803dddd15add605.
 2. Review the feature matrix next: runtime state, flag posture, and docs posture for each surface.
 3. Review docs/v3-01-release-authority.md before older Phase 02-06 docs when deciding what is truly live.
 4. Review legacy aliases after the main surfaces so redirects do not get mistaken for canonical entrypoints.

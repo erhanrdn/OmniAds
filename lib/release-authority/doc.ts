@@ -33,21 +33,20 @@ export function buildReleaseAuthorityCanonicalDoc(
 
 This document is generated from \`lib/release-authority/*\`. Do not hand-edit it.
 
-Current accepted live baseline for this authority layer:
+Current accepted authority contract for this layer:
 
-- current live SHA: \`${report.runtime.currentLiveSha}\`
-- current main SHA: \`${report.runtime.currentMainSha ?? "unresolved"}\`
-- rollback target before the next release: \`${report.release.previousKnownGoodSha}\`
+- runtime live SHA source: \`${report.release.buildInfoUrl}\`
+- runtime release authority source: \`${report.release.releaseAuthorityUrl}\`
 - repository authority: \`${report.release.repository.fullName}\` \`${report.release.repository.branch}\`
-- build info URL: \`${report.release.buildInfoUrl}\`
-- release authority URL: \`${report.release.releaseAuthorityUrl}\`
+- canonical doc path: \`${report.release.featureAuthoritySource.canonicalDoc}\`
+- rollback target before the next release: \`${report.release.previousKnownGoodSha}\`
 
 ## Literal parity
 
-- live vs main: \`${report.verdicts.liveVsMain.status}\`
-- docs vs runtime: \`${report.verdicts.docsVsRuntime.status}\`
-- flags vs runtime: \`${report.verdicts.flagsVsRuntime.status}\`
-- overall: \`${report.verdicts.overall.status}\`
+- build info URL must expose the same live SHA that \`/api/release-authority\` reports at runtime.
+- \`/api/release-authority\` must expose the current remote \`${report.release.repository.branch}\` SHA.
+- The rollback target in this doc must match the rollback target in \`/api/release-authority\`.
+- The surface matrix below must stay literal with the release-authority inventory.
 
 ## Feature Matrix
 
