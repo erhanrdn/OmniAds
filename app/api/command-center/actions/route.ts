@@ -116,7 +116,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(
       {
         error: "action_not_found",
-        message: "Command Center action could not be resolved for this range.",
+        message: "Command Center action could not be resolved from the live decision snapshot.",
       },
       { status: 404 },
     );

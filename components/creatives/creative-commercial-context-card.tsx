@@ -37,7 +37,7 @@ export function CreativeCommercialContextCard({
         data-testid="creative-detail-commercial-context"
       >
         <p className="text-sm text-slate-500">
-          Commercial context is unavailable for this range.
+          Commercial context is unavailable for the live decision windows.
         </p>
       </section>
     );
@@ -73,7 +73,13 @@ export function CreativeCommercialContextCard({
       </div>
       <p className="mt-2 text-xs leading-5 text-slate-700">
         {query.data.why[0] ??
-          "Commercial truth is available for this selected range."}
+          "Decisions use live windows. Selected period affects analysis only."}
+      </p>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Decisions use live windows. Selected period affects analysis only.
+      </p>
+      <p className="mt-2 text-[11px] text-slate-500">
+        Decision as of {query.data.decisionAsOf} · primary window {query.data.decisionWindows.primary30d.startDate} to {query.data.decisionWindows.primary30d.endDate}
       </p>
       {query.data.activeCommercialInputs.length > 0 ? (
         <div className="mt-3 space-y-1.5">

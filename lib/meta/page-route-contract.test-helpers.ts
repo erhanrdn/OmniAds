@@ -152,6 +152,10 @@ export function assertMetaDecisionOsPageContract(payload: Record<string, unknown
   expectStringOrNull(payload.businessId);
   expectStringOrNull(payload.startDate);
   expectStringOrNull(payload.endDate);
+  expectStringOrNull(payload.decisionAsOf);
+  expect(payload.analyticsWindow).toBeTruthy();
+  expect(payload.decisionWindows).toBeTruthy();
+  expect(payload.historicalMemory).toBeTruthy();
   expect(payload.summary).toBeTruthy();
   expect(Array.isArray(payload.campaigns)).toBe(true);
   expect(Array.isArray(payload.adSets)).toBe(true);

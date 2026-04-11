@@ -1,18 +1,28 @@
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import {
   MetaCampaignDecisionPanel,
   MetaDecisionOsOverview,
 } from "@/components/meta/meta-decision-os";
 
 function payload() {
+  const metadata = buildOperatorDecisionMetadata({
+    analyticsStartDate: "2026-04-01",
+    analyticsEndDate: "2026-04-05",
+    decisionAsOf: "2026-04-10",
+  });
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
     businessId: "biz",
     startDate: "2026-04-01",
     endDate: "2026-04-05",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     summary: {
       todayPlanHeadline: "Today plan",
       todayPlan: ["Protect winners", "Cut weak GEOs"],
@@ -140,6 +150,7 @@ describe("MetaDecisionOsOverview", () => {
     );
 
     expect(html).toContain("Today plan");
+    expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Budget Shift Board");
     expect(html).toContain("Top Ad Set Actions");
     expect(html).toContain("GEO OS");

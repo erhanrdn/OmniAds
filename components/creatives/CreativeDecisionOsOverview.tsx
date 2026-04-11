@@ -94,6 +94,12 @@ export function CreativeDecisionOsOverview({
           <p className="mt-1 max-w-3xl text-sm text-slate-600">
             {decisionOs.summary.message}
           </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Decisions use live windows. Selected period affects analysis only.
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
+          </p>
         </div>
         <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
           Operating Mode:{" "}

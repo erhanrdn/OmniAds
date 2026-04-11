@@ -267,4 +267,27 @@ describe("buildCreativeDecisionOs", () => {
     expect(byId.get("comeback")?.lifecycleState).toBe("comeback_candidate");
     expect(byId.get("comeback")?.primaryAction).toBe("retest_comeback");
   });
+
+  it("keeps lifecycle and primary decisions stable when only the analytics window changes", () => {
+    const april = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-30",
+      decisionAsOf: "2026-04-10",
+      rows: [buildRow()],
+    });
+    const march = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: "2026-04-10",
+      rows: [buildRow()],
+    });
+
+    expect(april.creatives[0]?.lifecycleState).toBe(march.creatives[0]?.lifecycleState);
+    expect(april.creatives[0]?.primaryAction).toBe(march.creatives[0]?.primaryAction);
+    expect(april.decisionWindows.primary30d).toEqual(march.decisionWindows.primary30d);
+    expect(april.analyticsWindow.startDate).toBe("2026-04-01");
+    expect(march.analyticsWindow.startDate).toBe("2026-03-01");
+  });
 });

@@ -90,6 +90,7 @@ describe("business operating mode", () => {
       businessId: "biz",
       startDate: "2026-04-05",
       endDate: "2026-04-10",
+      decisionAsOf: "2026-04-10",
       snapshot,
       campaigns: buildCampaigns(),
       breakdowns: buildBreakdowns(),
@@ -142,5 +143,35 @@ describe("business operating mode", () => {
 
     expect(result.recommendedMode).toBe("Explore");
     expect(result.missingInputs.length).toBeGreaterThan(0);
+  });
+
+  it("keeps operating mode stable when the analytics window changes", () => {
+    const snapshot = buildBaseSnapshot();
+    const base = buildAccountOperatingMode({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      decisionAsOf: "2026-04-10",
+      snapshot,
+      campaigns: buildCampaigns({ spend: 1600, revenue: 5200, purchases: 48 }),
+      breakdowns: buildBreakdowns(),
+    });
+    const shifted = buildAccountOperatingMode({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: "2026-04-10",
+      snapshot,
+      campaigns: buildCampaigns({ spend: 1600, revenue: 5200, purchases: 48 }),
+      breakdowns: buildBreakdowns(),
+    });
+
+    expect(base.recommendedMode).toBe("Exploit");
+    expect(shifted.recommendedMode).toBe("Exploit");
+    expect(base.currentMode).toBe(shifted.currentMode);
+    expect(base.decisionAsOf).toBe("2026-04-10");
+    expect(base.analyticsWindow.startDate).toBe("2026-04-01");
+    expect(shifted.analyticsWindow.startDate).toBe("2026-03-01");
+    expect(base.decisionWindows.primary30d).toEqual(shifted.decisionWindows.primary30d);
   });
 });

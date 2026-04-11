@@ -1,6 +1,168 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+const STANDARD_DATE_RANGE = {
+  rangePreset: "30d",
+  customStart: "",
+  customEnd: "",
+  comparisonPreset: "none",
+  comparisonStart: "",
+  comparisonEnd: "",
+} as const;
+
+const BROWSER_DECISION_RANGES = [
+  {
+    label: "last 30d",
+    standard: STANDARD_DATE_RANGE,
+    creative: {
+      preset: "last30Days",
+      customStart: "",
+      customEnd: "",
+      lastDays: 30,
+      sinceDate: "",
+    },
+  },
+  {
+    label: "today",
+    standard: {
+      rangePreset: "today",
+      customStart: "",
+      customEnd: "",
+      comparisonPreset: "none",
+      comparisonStart: "",
+      comparisonEnd: "",
+    },
+    creative: {
+      preset: "today",
+      customStart: "",
+      customEnd: "",
+      lastDays: 30,
+      sinceDate: "",
+    },
+  },
+  {
+    label: "last 7d",
+    standard: {
+      rangePreset: "7d",
+      customStart: "",
+      customEnd: "",
+      comparisonPreset: "none",
+      comparisonStart: "",
+      comparisonEnd: "",
+    },
+    creative: {
+      preset: "last7Days",
+      customStart: "",
+      customEnd: "",
+      lastDays: 30,
+      sinceDate: "",
+    },
+  },
+  {
+    label: "previous month",
+    standard: {
+      rangePreset: "lastMonth",
+      customStart: "",
+      customEnd: "",
+      comparisonPreset: "none",
+      comparisonStart: "",
+      comparisonEnd: "",
+    },
+    creative: {
+      preset: "lastMonth",
+      customStart: "",
+      customEnd: "",
+      lastDays: 30,
+      sinceDate: "",
+    },
+  },
+  {
+    label: "custom past range",
+    standard: {
+      rangePreset: "custom",
+      customStart: "2026-02-01",
+      customEnd: "2026-02-10",
+      comparisonPreset: "none",
+      comparisonStart: "",
+      comparisonEnd: "",
+    },
+    creative: {
+      preset: "custom",
+      customStart: "2026-02-01",
+      customEnd: "2026-02-10",
+      lastDays: 30,
+      sinceDate: "",
+    },
+  },
+] as const;
+
+function normalizeText(value: string | null | undefined) {
+  return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+async function setStoredDateRange(
+  page: Page,
+  key: "metaDateRange" | "commandCenterDateRange" | "creativeDateRange",
+  value: Record<string, unknown>,
+) {
+  await page.evaluate(({ key, value }) => {
+    const storageKey = "omniads-preferences-store-v1";
+    const raw = window.localStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : { state: {}, version: 0 };
+    parsed.state = {
+      ...(parsed.state ?? {}),
+      [key]: value,
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(parsed));
+  }, { key, value });
+}
+
+async function captureMetaDecisionSignature(
+  page: Page,
+) {
+  return {
+    operatingMode: normalizeText(
+      await page.getByTestId("meta-operating-mode-card").textContent(),
+    ),
+    decisionOs: normalizeText(
+      await page.getByTestId("meta-decision-os-overview").textContent(),
+    ),
+    topActions: normalizeText(
+      await page.getByTestId("meta-top-adset-actions").textContent(),
+    ),
+  };
+}
+
+async function captureCommandCenterDecisionSignature(
+  page: Page,
+) {
+  const cards = page.locator('[data-testid^="command-center-action-"]');
+  const count = Math.min(await cards.count(), 3);
+  const entries: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    entries.push(normalizeText(await cards.nth(index).textContent()));
+  }
+  return entries;
+}
+
+async function captureCreativeDecisionSignature(
+  page: Page,
+) {
+  return {
+    overview: normalizeText(
+      await page.getByTestId("creative-decision-os-overview").textContent(),
+    ),
+    lifecycle: normalizeText(
+      await page.getByTestId("creative-lifecycle-board").textContent(),
+    ),
+    queues: normalizeText(
+      await page.getByTestId("creative-operator-queues").textContent(),
+    ),
+  };
+}
 
 test("commercial truth smoke covers settings edit, Meta operating mode, and Creative context", async ({ page }, testInfo) => {
+  test.slow();
+
   await page.goto("/settings");
 
   await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
@@ -28,10 +190,32 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(operatingModeCard).toBeVisible();
   await expect(operatingModeCard).toContainText("Operating Mode");
   await expect(operatingModeCard).toContainText(/Current Mode|Recommended Mode/);
+  await expect(operatingModeCard).toContainText("Decisions use live windows");
+  await expect(operatingModeCard).toContainText("Selected period affects analysis only");
+  await expect(operatingModeCard).not.toContainText("Loading operating mode...");
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Decisions use live windows");
+  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Selected period affects analysis only");
   await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
   await expect(page.getByTestId("meta-geo-board")).toBeVisible();
   await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
+  let metaBaseline: Awaited<ReturnType<typeof captureMetaDecisionSignature>> | null = null;
+  for (const range of BROWSER_DECISION_RANGES) {
+    await setStoredDateRange(page, "metaDateRange", range.standard);
+    await page.reload();
+    await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
+    await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
+    await expect(page.getByTestId("meta-operating-mode-card")).not.toContainText("Loading operating mode...");
+    const signature = await captureMetaDecisionSignature(page);
+    if (!metaBaseline) {
+      metaBaseline = signature;
+    } else {
+      expect(signature).toEqual(metaBaseline);
+    }
+  }
+  await setStoredDateRange(page, "metaDateRange", STANDARD_DATE_RANGE);
+  await page.reload();
+  await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
@@ -43,6 +227,25 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   });
 
   await page.goto("/command-center");
+  await expect(page.getByTestId("command-center-page")).toBeVisible();
+  await expect(page.getByTestId("command-center-page")).toContainText("Decisions use live windows");
+  await expect(page.getByTestId("command-center-page")).toContainText("Selected period affects analysis only");
+  let commandCenterBaseline: Awaited<ReturnType<typeof captureCommandCenterDecisionSignature>> | null = null;
+  for (const range of BROWSER_DECISION_RANGES) {
+    await setStoredDateRange(page, "commandCenterDateRange", range.standard);
+    await page.reload();
+    await expect(page.getByTestId("command-center-page")).toBeVisible();
+    const queueActionsForRange = page.locator('[data-testid^="command-center-action-"]');
+    await expect(queueActionsForRange.first()).toBeVisible({ timeout: 45_000 });
+    const signature = await captureCommandCenterDecisionSignature(page);
+    if (!commandCenterBaseline) {
+      commandCenterBaseline = signature;
+    } else {
+      expect(signature).toEqual(commandCenterBaseline);
+    }
+  }
+  await setStoredDateRange(page, "commandCenterDateRange", STANDARD_DATE_RANGE);
+  await page.reload();
   await expect(page.getByTestId("command-center-page")).toBeVisible();
   const queueActions = page.locator('[data-testid^="command-center-action-"]');
   await expect(queueActions.first()).toBeVisible();
@@ -80,9 +283,25 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
 
   await page.goto("/creatives");
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("creative-decision-os-overview")).toContainText("Decisions use live windows");
+  await expect(page.getByTestId("creative-decision-os-overview")).toContainText("Selected period affects analysis only");
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
   await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
+  let creativeBaseline: Awaited<ReturnType<typeof captureCreativeDecisionSignature>> | null = null;
+  for (const range of BROWSER_DECISION_RANGES) {
+    await setStoredDateRange(page, "creativeDateRange", range.creative);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
+    await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
+    await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+    const signature = await captureCreativeDecisionSignature(page);
+    if (!creativeBaseline) {
+      creativeBaseline = signature;
+    } else {
+      expect(signature).toEqual(creativeBaseline);
+    }
+  }
 
   const familyCards = page.locator('button[data-testid^="creative-family-"]');
   await expect(familyCards.first()).toBeVisible();

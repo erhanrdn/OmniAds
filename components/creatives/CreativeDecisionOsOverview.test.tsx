@@ -1,9 +1,15 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 
 function payload() {
+  const metadata = buildOperatorDecisionMetadata({
+    analyticsStartDate: "2026-04-01",
+    analyticsEndDate: "2026-04-10",
+    decisionAsOf: "2026-04-10",
+  });
   return {
     contractVersion: "creative-decision-os.v1",
     engineVersion: "2026-04-10-phase-04-v1",
@@ -11,6 +17,10 @@ function payload() {
     businessId: "biz",
     startDate: "2026-04-01",
     endDate: "2026-04-10",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     summary: {
       totalCreatives: 8,
       scaleReadyCount: 2,
@@ -101,6 +111,7 @@ describe("CreativeDecisionOsOverview", () => {
 
     expect(html).toContain("Recommendations");
     expect(html).toContain("Creative Decision OS");
+    expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Lifecycle Board");
     expect(html).toContain("Operator Queues");
     expect(html).toContain("Concept Families");

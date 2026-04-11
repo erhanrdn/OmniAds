@@ -1,15 +1,28 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+
+const metadata = buildOperatorDecisionMetadata({
+  analyticsStartDate: "2026-04-01",
+  analyticsEndDate: "2026-04-10",
+  decisionAsOf: "2026-04-10",
+});
 
 let mockQuery: Record<string, unknown> = {
   isLoading: false,
   isError: false,
   data: {
+    startDate: "2026-04-01",
+    endDate: "2026-04-10",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     currentMode: "Margin Protect",
     recommendedMode: "Margin Protect",
     confidence: 0.74,
-    why: ["Selected-range performance is below break-even."],
+    why: ["Live decision-window performance is below break-even."],
     guardrails: ["Restrict scaling until margin pressure clears."],
     changeTriggers: [],
     activeCommercialInputs: [
@@ -17,7 +30,7 @@ let mockQuery: Record<string, unknown> = {
       { label: "Target ROAS", detail: "2.30x" },
     ],
     platformInputs: [],
-    missingInputs: ["Meta location breakdown is unavailable for the selected range."],
+    missingInputs: ["Meta location breakdown is unavailable for the live decision window."],
   },
 };
 
@@ -41,6 +54,7 @@ describe("CreativeCommercialContextCard", () => {
 
     expect(html).toContain("Commercial Context");
     expect(html).toContain("Margin Protect");
+    expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Guardrail");
     expect(html).toContain("Missing inputs:");
   });
@@ -60,6 +74,6 @@ describe("CreativeCommercialContextCard", () => {
       />,
     );
 
-    expect(html).toContain("Commercial context is unavailable for this range.");
+    expect(html).toContain("Commercial context is unavailable for the live decision windows.");
   });
 });

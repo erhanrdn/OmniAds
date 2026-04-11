@@ -15,10 +15,11 @@ import {
   type CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
 import { addDaysToIsoDate, META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
-import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
-import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
-import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import {
+  getMetaDecisionSourceSnapshot,
+  getMetaDecisionWindowContext,
+} from "@/lib/meta/operator-decision-source";
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
@@ -250,11 +251,16 @@ export async function getCreativeDecisionOsForRange(input: {
   startDate: string;
   endDate: string;
 }): Promise<CreativeDecisionOsV1Response> {
-  let selectedRows: MetaCreativeRow[] = [];
+  const decisionContext = await getMetaDecisionWindowContext({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+  let decisionRows: MetaCreativeRow[] = [];
   let historyById = new Map<string, CreativeDecisionOsHistoricalWindows>();
-  let campaigns: Awaited<ReturnType<typeof getMetaCampaignsForRange>>["rows"] = [];
-  let adSets: Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"] = [];
-  let breakdowns: Awaited<ReturnType<typeof getMetaBreakdownsForRange>> = {
+  let campaigns: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["campaigns"]["rows"] = [];
+  let adSets: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["adSets"]["rows"] = [];
+  let breakdowns: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["breakdowns"] = {
     age: [],
     location: [],
     placement: [],
@@ -264,27 +270,28 @@ export async function getCreativeDecisionOsForRange(input: {
   };
 
   if (isDemoBusinessId(input.businessId)) {
-    selectedRows = (getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[]).map(
+    decisionRows = (getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[]).map(
       mapApiRowToUiRow,
     );
-    historyById = buildDemoHistoryById(selectedRows);
+    historyById = buildDemoHistoryById(decisionRows);
     campaigns = getDemoMetaCampaigns().rows as Awaited<
-      ReturnType<typeof getMetaCampaignsForRange>
-    >["rows"];
+      ReturnType<typeof getMetaDecisionSourceSnapshot>
+    >["campaigns"]["rows"];
     adSets = getDemoMetaAdSets();
     breakdowns = getDemoMetaBreakdowns() as Awaited<
-      ReturnType<typeof getMetaBreakdownsForRange>
-    >;
+      ReturnType<typeof getMetaDecisionSourceSnapshot>
+    >["breakdowns"];
   } else {
+    const primaryWindow = decisionContext.decisionWindows.primary30d;
     const windowDefs = {
-      last3: { startDate: addDaysToIsoDate(input.endDate, -2), endDate: input.endDate },
-      last7: { startDate: addDaysToIsoDate(input.endDate, -6), endDate: input.endDate },
-      last14: { startDate: addDaysToIsoDate(input.endDate, -13), endDate: input.endDate },
-      last30: { startDate: addDaysToIsoDate(input.endDate, -29), endDate: input.endDate },
-      last90: { startDate: addDaysToIsoDate(input.endDate, -89), endDate: input.endDate },
+      last3: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -2), endDate: decisionContext.decisionAsOf },
+      last7: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -6), endDate: decisionContext.decisionAsOf },
+      last14: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -13), endDate: decisionContext.decisionAsOf },
+      last30: { startDate: primaryWindow.startDate, endDate: primaryWindow.endDate },
+      last90: { startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -89), endDate: decisionContext.decisionAsOf },
       allHistory: {
-        startDate: addDaysToIsoDate(input.endDate, -(META_WAREHOUSE_HISTORY_DAYS - 1)),
-        endDate: input.endDate,
+        startDate: addDaysToIsoDate(decisionContext.decisionAsOf, -(META_WAREHOUSE_HISTORY_DAYS - 1)),
+        endDate: decisionContext.decisionAsOf,
       },
     } satisfies Record<
       keyof CreativeDecisionOsHistoricalWindows,
@@ -292,30 +299,34 @@ export async function getCreativeDecisionOsForRange(input: {
     >;
 
     const [
-      selected,
+      primary,
       last3,
       last7,
       last14,
       last30,
       last90,
       allHistory,
-      campaignRows,
-      breakdownRows,
-      adSetRows,
+      decisionSnapshot,
     ] = await Promise.all([
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, startDate: input.startDate, endDate: input.endDate }),
+      fetchCreativeRowsForWindow({
+        request: input.request,
+        businessId: input.businessId,
+        startDate: primaryWindow.startDate,
+        endDate: primaryWindow.endDate,
+      }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last3 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last7 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last14 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last30 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last90 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.allHistory }),
-      getMetaCampaignsForRange({ businessId: input.businessId, startDate: input.startDate, endDate: input.endDate }),
-      getMetaBreakdownsForRange({ businessId: input.businessId, startDate: input.startDate, endDate: input.endDate }),
-      getMetaAdSetsForRange({ businessId: input.businessId, campaignId: null, startDate: input.startDate, endDate: input.endDate }),
+      getMetaDecisionSourceSnapshot({
+        businessId: input.businessId,
+        decisionWindows: decisionContext.decisionWindows,
+      }),
     ]);
 
-    selectedRows = selected;
+    decisionRows = primary;
     historyById = buildHistoryById({
       last3,
       last7,
@@ -324,9 +335,9 @@ export async function getCreativeDecisionOsForRange(input: {
       last90,
       allHistory,
     });
-    campaigns = campaignRows.rows ?? [];
-    adSets = adSetRows.rows ?? [];
-    breakdowns = breakdownRows;
+    campaigns = decisionSnapshot.campaigns.rows ?? [];
+    adSets = decisionSnapshot.adSets.rows ?? [];
+    breakdowns = decisionSnapshot.breakdowns;
   }
 
   const snapshot = await getBusinessCommercialTruthSnapshot(input.businessId);
@@ -334,6 +345,10 @@ export async function getCreativeDecisionOsForRange(input: {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsWindow: decisionContext.analyticsWindow,
+    decisionWindows: decisionContext.decisionWindows,
+    historicalMemory: decisionContext.historicalMemory,
+    decisionAsOf: decisionContext.decisionAsOf,
     snapshot,
     campaigns: { rows: campaigns },
     breakdowns,
@@ -343,7 +358,11 @@ export async function getCreativeDecisionOsForRange(input: {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
-    rows: selectedRows.map((row) => toDecisionInputRow(row, historyById.get(row.id) ?? null)),
+    analyticsWindow: decisionContext.analyticsWindow,
+    decisionWindows: decisionContext.decisionWindows,
+    historicalMemory: decisionContext.historicalMemory,
+    decisionAsOf: decisionContext.decisionAsOf,
+    rows: decisionRows.map((row) => toDecisionInputRow(row, historyById.get(row.id) ?? null)),
     campaigns,
     adSets,
     breakdowns: {

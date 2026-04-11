@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { CommandCenterAction, CommandCenterPermissions } from "@/lib/command-center";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 
 vi.mock("@/lib/command-center-store", () => ({
   listCommandCenterJournal: vi.fn(),
@@ -90,12 +91,21 @@ function buildActionFixture(
 }
 
 function buildMetaDecisionResponse() {
+  const metadata = buildOperatorDecisionMetadata({
+    analyticsStartDate: "2026-04-01",
+    analyticsEndDate: "2026-04-10",
+    decisionAsOf: "2026-04-10",
+  });
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-11T00:00:00.000Z",
     businessId: "biz",
     startDate: "2026-04-01",
     endDate: "2026-04-10",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     summary: {
       todayPlanHeadline: "Today plan",
       todayPlan: [],

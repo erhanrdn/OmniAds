@@ -13,6 +13,11 @@ import type {
   MetaNoTouchItem,
   MetaPlacementAnomaly,
 } from "@/lib/meta/decision-os";
+import type {
+  OperatorAnalyticsWindow,
+  OperatorDecisionWindows,
+  OperatorHistoricalMemory,
+} from "@/src/types/operator-decision";
 
 export const COMMAND_CENTER_CONTRACT_VERSION = "command-center.v1" as const;
 export const COMMAND_CENTER_ACTION_FINGERPRINT_VERSION =
@@ -208,6 +213,10 @@ export interface CommandCenterResponse {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  decisionWindows: OperatorDecisionWindows;
+  historicalMemory: OperatorHistoricalMemory;
+  decisionAsOf: string;
   activeViewKey: string | null;
   permissions: CommandCenterPermissions;
   summary: {

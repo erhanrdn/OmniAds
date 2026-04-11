@@ -176,6 +176,7 @@ describe("buildMetaDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
       campaigns: [campaign({ name: "Promo Retargeting Push" })],
       adSets: [adSet()],
       breakdowns: { location: [], placement: [] },
@@ -192,6 +193,7 @@ describe("buildMetaDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
       campaigns: [campaign()],
       adSets: [adSet()],
       breakdowns: { location: [], placement: [] },
@@ -235,6 +237,7 @@ describe("buildMetaDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
       campaigns: [campaign({ name: "Retargeting Winner" })],
       adSets: [adSet({ status: "ACTIVE" })],
       breakdowns: { location: [], placement: [] },
@@ -280,6 +283,7 @@ describe("buildMetaDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
       campaigns: [campaign()],
       adSets: [adSet()],
       breakdowns: {
@@ -296,5 +300,51 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.geoDecisions[0]?.action).toBe("cut");
     expect(result.placementAnomalies[0]?.action).toBe("exception_review");
+  });
+
+  it("keeps decisions stable when only the analytics window changes", () => {
+    const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
+    snapshot.targetPack = {
+      targetCpa: 40,
+      targetRoas: 2.5,
+      breakEvenCpa: 55,
+      breakEvenRoas: 1.7,
+      contributionMarginAssumption: null,
+      aovAssumption: null,
+      newCustomerWeight: null,
+      defaultRiskPosture: "balanced",
+      sourceLabel: "manual",
+      updatedAt: null,
+      updatedByUserId: null,
+    };
+
+    const april = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-30",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [adSet()],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+    const march = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [adSet()],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(april.adSets[0]?.actionType).toBe(march.adSets[0]?.actionType);
+    expect(april.campaigns[0]?.role).toBe(march.campaigns[0]?.role);
+    expect(april.decisionWindows.primary30d).toEqual(
+      march.decisionWindows.primary30d,
+    );
+    expect(april.analyticsWindow.startDate).toBe("2026-04-01");
+    expect(march.analyticsWindow.startDate).toBe("2026-03-01");
   });
 });

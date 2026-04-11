@@ -612,6 +612,16 @@ export function CommandCenterDashboard() {
               Daily action queue, approval state, assignees, saved views, handoff notes,
               and decision history live in one operator surface.
             </p>
+            {payload ? (
+              <>
+                <p className="mt-2 text-xs text-slate-500">
+                  Decisions use live windows. Selected period affects analysis only.
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Decision as of {payload.decisionAsOf} · primary window {payload.decisionWindows.primary30d.startDate} to {payload.decisionWindows.primary30d.endDate}
+                </p>
+              </>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <DateRangePicker
@@ -1019,6 +1029,11 @@ export function CommandCenterDashboard() {
                 <SheetDescription className="text-sm">
                   {formatActionLabel(selectedAction.recommendedAction)} · {selectedAction.summary}
                 </SheetDescription>
+                {payload ? (
+                  <p className="text-xs text-slate-500">
+                    Decisions use live windows. Selected period affects analysis only.
+                  </p>
+                ) : null}
               </SheetHeader>
 
               <div className="space-y-5 overflow-y-auto p-4">

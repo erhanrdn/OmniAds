@@ -29,6 +29,11 @@ vi.mock("@/lib/meta/breakdowns-source", () => ({
   getMetaBreakdownsForRange: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/operator-decision-source", () => ({
+  getMetaDecisionWindowContext: vi.fn(),
+  getMetaDecisionSourceSnapshot: vi.fn(),
+}));
+
 vi.mock("@/lib/creative-decision-os-config", () => ({
   isCreativeDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
@@ -44,6 +49,7 @@ const creativesApi = await import("@/lib/meta/creatives-api");
 const campaignsSource = await import("@/lib/meta/campaigns-source");
 const adsetsSource = await import("@/lib/meta/adsets-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
+const decisionWindowSource = await import("@/lib/meta/operator-decision-source");
 const config = await import("@/lib/creative-decision-os-config");
 const decisionOs = await import("@/lib/creative-decision-os");
 const { GET } = await import("@/app/api/creatives/decision-os/route");
@@ -144,6 +150,49 @@ describe("GET /api/creatives/decision-os", () => {
       membership: {} as never,
     });
     vi.mocked(config.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockResolvedValue({
+      analyticsWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        role: "analysis_only",
+      },
+      decisionWindows: {
+        recent7d: {
+          key: "recent7d",
+          label: "recent 7d",
+          startDate: "2026-04-04",
+          endDate: "2026-04-10",
+          days: 7,
+          role: "recent_watch",
+        },
+        primary30d: {
+          key: "primary30d",
+          label: "primary 30d",
+          startDate: "2026-03-12",
+          endDate: "2026-04-10",
+          days: 30,
+          role: "decision_authority",
+        },
+        baseline90d: {
+          key: "baseline90d",
+          label: "baseline 90d",
+          startDate: "2026-01-11",
+          endDate: "2026-04-10",
+          days: 90,
+          role: "historical_memory",
+        },
+      },
+      historicalMemory: {
+        available: true,
+        source: "rolling_baseline",
+        baselineWindowKey: "baseline90d",
+        startDate: "2026-01-11",
+        endDate: "2026-04-10",
+        lookbackDays: 90,
+        note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+      },
+      decisionAsOf: "2026-04-10",
+    } as never);
     vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue({
       businessId: "biz",
       targetPack: null,
@@ -162,6 +211,47 @@ describe("GET /api/creatives/decision-os", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-10",
+      analyticsWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        role: "analysis_only",
+      },
+      decisionWindows: {
+        recent7d: {
+          key: "recent7d",
+          label: "recent 7d",
+          startDate: "2026-04-04",
+          endDate: "2026-04-10",
+          days: 7,
+          role: "recent_watch",
+        },
+        primary30d: {
+          key: "primary30d",
+          label: "primary 30d",
+          startDate: "2026-03-12",
+          endDate: "2026-04-10",
+          days: 30,
+          role: "decision_authority",
+        },
+        baseline90d: {
+          key: "baseline90d",
+          label: "baseline 90d",
+          startDate: "2026-01-11",
+          endDate: "2026-04-10",
+          days: 90,
+          role: "historical_memory",
+        },
+      },
+      historicalMemory: {
+        available: true,
+        source: "rolling_baseline",
+        baselineWindowKey: "baseline90d",
+        startDate: "2026-01-11",
+        endDate: "2026-04-10",
+        lookbackDays: 90,
+        note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+      },
+      decisionAsOf: "2026-04-10",
       currentMode: "Exploit",
       recommendedMode: "Exploit",
       confidence: 0.82,
@@ -199,6 +289,31 @@ describe("GET /api/creatives/decision-os", () => {
       isPartial: false,
       notReadyReason: null,
     });
+    vi.mocked(decisionWindowSource.getMetaDecisionSourceSnapshot).mockResolvedValue({
+      campaigns: {
+        status: "ok",
+        rows: [{ id: "cmp_1", name: "Campaign 1", status: "ACTIVE", spend: 300, revenue: 900, purchases: 25, roas: 3, cpa: 12, optimizationGoal: "Purchase", objective: "OUTCOME_SALES" } as never],
+        isPartial: false,
+        notReadyReason: null,
+      },
+      adSets: {
+        status: "ok",
+        rows: [{ id: "adset_1", name: "Ad Set 1", campaignId: "cmp_1", status: "ACTIVE", spend: 100, revenue: 250, purchases: 10, cpa: 10, ctr: 1.5, impressions: 1000, clicks: 50, dailyBudget: 100, lifetimeBudget: null, optimizationGoal: "Purchase", bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, isBudgetMixed: false, isConfigMixed: false } as never],
+        isPartial: false,
+        notReadyReason: null,
+      },
+      breakdowns: {
+        status: "ok",
+        age: [],
+        location: [{ key: "US", label: "US", spend: 100, revenue: 250, purchases: 10, clicks: 50, impressions: 1000 }],
+        placement: [],
+        budget: { campaign: [], adset: [] },
+        audience: { available: false },
+        products: { available: false },
+        isPartial: false,
+        notReadyReason: null,
+      },
+    } as never);
     vi.mocked(decisionOs.buildCreativeDecisionOs).mockReturnValue({
       contractVersion: "creative-decision-os.v1",
       engineVersion: "2026-04-10-phase-04-v1",
@@ -206,6 +321,47 @@ describe("GET /api/creatives/decision-os", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-10",
+      analyticsWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        role: "analysis_only",
+      },
+      decisionWindows: {
+        recent7d: {
+          key: "recent7d",
+          label: "recent 7d",
+          startDate: "2026-04-04",
+          endDate: "2026-04-10",
+          days: 7,
+          role: "recent_watch",
+        },
+        primary30d: {
+          key: "primary30d",
+          label: "primary 30d",
+          startDate: "2026-03-12",
+          endDate: "2026-04-10",
+          days: 30,
+          role: "decision_authority",
+        },
+        baseline90d: {
+          key: "baseline90d",
+          label: "baseline 90d",
+          startDate: "2026-01-11",
+          endDate: "2026-04-10",
+          days: 90,
+          role: "historical_memory",
+        },
+      },
+      historicalMemory: {
+        available: true,
+        source: "rolling_baseline",
+        baselineWindowKey: "baseline90d",
+        startDate: "2026-01-11",
+        endDate: "2026-04-10",
+        lookbackDays: 90,
+        note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+      },
+      decisionAsOf: "2026-04-10",
       summary: {
         totalCreatives: 1,
         scaleReadyCount: 1,
@@ -253,6 +409,7 @@ describe("GET /api/creatives/decision-os", () => {
         businessId: "biz",
         startDate: "2026-04-01",
         endDate: "2026-04-10",
+        decisionAsOf: "2026-04-10",
         rows: expect.arrayContaining([
           expect.objectContaining({
             creativeId: "ad_1",

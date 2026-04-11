@@ -1,3 +1,9 @@
+import type {
+  OperatorAnalyticsWindow,
+  OperatorDecisionWindows,
+  OperatorHistoricalMemory,
+} from "@/src/types/operator-decision";
+
 export const BUSINESS_RISK_POSTURES = ["conservative", "balanced", "aggressive"] as const;
 export type BusinessRiskPosture = (typeof BUSINESS_RISK_POSTURES)[number];
 
@@ -136,6 +142,10 @@ export interface AccountOperatingModePayload {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  decisionWindows: OperatorDecisionWindows;
+  historicalMemory: OperatorHistoricalMemory;
+  decisionAsOf: string;
   currentMode: AccountOperatingMode;
   recommendedMode: AccountOperatingMode;
   confidence: number;

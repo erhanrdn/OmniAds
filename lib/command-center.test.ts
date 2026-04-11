@@ -8,14 +8,28 @@ import {
 } from "@/lib/command-center";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+
+function decisionMetadata() {
+  return buildOperatorDecisionMetadata({
+    analyticsStartDate: "2026-04-01",
+    analyticsEndDate: "2026-04-10",
+    decisionAsOf: "2026-04-10",
+  });
+}
 
 function metaFixture(): MetaDecisionOsV1Response {
+  const metadata = decisionMetadata();
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
     businessId: "biz",
     startDate: "2026-04-01",
     endDate: "2026-04-10",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     summary: {
       todayPlanHeadline: "Today plan",
       todayPlan: ["Shift budget", "Review geo"],
@@ -115,6 +129,7 @@ function metaFixture(): MetaDecisionOsV1Response {
 }
 
 function creativeFixture(): CreativeDecisionOsV1Response {
+  const metadata = decisionMetadata();
   return {
     contractVersion: "creative-decision-os.v1",
     engineVersion: "2026-04-10-phase-04-v1",
@@ -122,6 +137,10 @@ function creativeFixture(): CreativeDecisionOsV1Response {
     businessId: "biz",
     startDate: "2026-04-01",
     endDate: "2026-04-10",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     summary: {
       totalCreatives: 2,
       scaleReadyCount: 1,
@@ -367,6 +386,53 @@ describe("command center domain", () => {
     });
 
     expect(rangeA[0]?.actionFingerprint).toBe(rangeB[0]?.actionFingerprint);
+  });
+
+  it("keeps source decisions stable across analytics ranges", () => {
+    const april = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+    const marchMeta = metaFixture();
+    marchMeta.startDate = "2026-03-01";
+    marchMeta.endDate = "2026-03-31";
+    marchMeta.analyticsWindow = {
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      role: "analysis_only",
+    };
+    const marchCreative = creativeFixture();
+    marchCreative.startDate = "2026-03-01";
+    marchCreative.endDate = "2026-03-31";
+    marchCreative.analyticsWindow = {
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      role: "analysis_only",
+    };
+    const march = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      metaDecisionOs: marchMeta,
+      creativeDecisionOs: marchCreative,
+    });
+
+    expect(
+      april.map((action) => ({
+        fingerprint: action.actionFingerprint,
+        title: action.title,
+        recommendedAction: action.recommendedAction,
+      })),
+    ).toEqual(
+      march.map((action) => ({
+        fingerprint: action.actionFingerprint,
+        title: action.title,
+        recommendedAction: action.recommendedAction,
+      })),
+    );
   });
 
   it("marks no-touch surfaces as watchlist-only and keeps them out of primary views", () => {

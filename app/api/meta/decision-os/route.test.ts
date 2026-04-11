@@ -22,6 +22,11 @@ vi.mock("@/lib/meta/breakdowns-source", () => ({
   getMetaBreakdownsForRange: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/operator-decision-source", () => ({
+  getMetaDecisionWindowContext: vi.fn(),
+  getMetaDecisionSourceSnapshot: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/decision-os-config", () => ({
   isMetaDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
@@ -33,9 +38,7 @@ vi.mock("@/lib/meta/decision-os", () => ({
 
 const access = await import("@/lib/access");
 const businessCommercial = await import("@/lib/business-commercial");
-const adsetsSource = await import("@/lib/meta/adsets-source");
-const campaignsSource = await import("@/lib/meta/campaigns-source");
-const breakdownsSource = await import("@/lib/meta/breakdowns-source");
+const decisionWindowSource = await import("@/lib/meta/operator-decision-source");
 const decisionOsConfig = await import("@/lib/meta/decision-os-config");
 const decisionOs = await import("@/lib/meta/decision-os");
 const { GET } = await import("@/app/api/meta/decision-os/route");
@@ -48,6 +51,49 @@ describe("GET /api/meta/decision-os", () => {
       membership: {} as never,
     });
     vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockResolvedValue({
+      analyticsWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-05",
+        role: "analysis_only",
+      },
+      decisionWindows: {
+        recent7d: {
+          key: "recent7d",
+          label: "recent 7d",
+          startDate: "2026-04-04",
+          endDate: "2026-04-10",
+          days: 7,
+          role: "recent_watch",
+        },
+        primary30d: {
+          key: "primary30d",
+          label: "primary 30d",
+          startDate: "2026-03-12",
+          endDate: "2026-04-10",
+          days: 30,
+          role: "decision_authority",
+        },
+        baseline90d: {
+          key: "baseline90d",
+          label: "baseline 90d",
+          startDate: "2026-01-11",
+          endDate: "2026-04-10",
+          days: 90,
+          role: "historical_memory",
+        },
+      },
+      historicalMemory: {
+        available: true,
+        source: "rolling_baseline",
+        baselineWindowKey: "baseline90d",
+        startDate: "2026-01-11",
+        endDate: "2026-04-10",
+        lookbackDays: 90,
+        note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+      },
+      decisionAsOf: "2026-04-10",
+    } as never);
     vi.mocked(businessCommercial.getBusinessCommercialTruthSnapshot).mockResolvedValue({
       businessId: "biz",
       targetPack: null,
@@ -62,35 +108,78 @@ describe("GET /api/meta/decision-os", () => {
         operatingConstraints: { configured: false, itemCount: 0, sourceLabel: null, updatedAt: null, updatedByUserId: null },
       },
     } as never);
-    vi.mocked(adsetsSource.getMetaAdSetsForRange).mockResolvedValue({
-      status: "ok",
-      rows: [{ id: "adset-1", name: "Adset One", campaignId: "cmp-1", status: "ACTIVE", spend: 250, revenue: 800, purchases: 10, cpa: 25, ctr: 1.4, impressions: 10000, clicks: 140, dailyBudget: 500, lifetimeBudget: null, optimizationGoal: "PURCHASE", bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, isBudgetMixed: false, isConfigMixed: false } as never],
-      isPartial: false,
-      notReadyReason: null,
-    });
-    vi.mocked(campaignsSource.getMetaCampaignsForRange).mockResolvedValue({
-      status: "ok",
-      rows: [{ id: "cmp-1", name: "Campaign One", status: "ACTIVE", spend: 500, revenue: 1500, purchases: 20, roas: 3, cpa: 25 } as never],
-      isPartial: false,
-      notReadyReason: null,
-    });
-    vi.mocked(breakdownsSource.getMetaBreakdownsForRange).mockResolvedValue({
-      status: "ok",
-      age: [],
-      location: [{ key: "US", label: "US", spend: 500, revenue: 1500, purchases: 20, clicks: 100, impressions: 10000 }],
-      placement: [{ key: "feed", label: "Feed", spend: 300, revenue: 600, purchases: 0, clicks: 0, impressions: 0 }],
-      budget: { campaign: [], adset: [] },
-      audience: { available: false },
-      products: { available: false },
-      isPartial: false,
-      notReadyReason: null,
-    });
+    vi.mocked(decisionWindowSource.getMetaDecisionSourceSnapshot).mockResolvedValue({
+      campaigns: {
+        status: "ok",
+        rows: [{ id: "cmp-1", name: "Campaign One", status: "ACTIVE", spend: 500, revenue: 1500, purchases: 20, roas: 3, cpa: 25 } as never],
+        isPartial: false,
+        notReadyReason: null,
+      },
+      adSets: {
+        status: "ok",
+        rows: [{ id: "adset-1", name: "Adset One", campaignId: "cmp-1", status: "ACTIVE", spend: 250, revenue: 800, purchases: 10, cpa: 25, ctr: 1.4, impressions: 10000, clicks: 140, dailyBudget: 500, lifetimeBudget: null, optimizationGoal: "PURCHASE", bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, isBudgetMixed: false, isConfigMixed: false } as never],
+        isPartial: false,
+        notReadyReason: null,
+      },
+      breakdowns: {
+        status: "ok",
+        age: [],
+        location: [{ key: "US", label: "US", spend: 500, revenue: 1500, purchases: 20, clicks: 100, impressions: 10000 }],
+        placement: [{ key: "feed", label: "Feed", spend: 300, revenue: 600, purchases: 0, clicks: 0, impressions: 0 }],
+        budget: { campaign: [], adset: [] },
+        audience: { available: false },
+        products: { available: false },
+        isPartial: false,
+        notReadyReason: null,
+      },
+    } as never);
     vi.mocked(decisionOs.buildMetaDecisionOs).mockReturnValue({
       contractVersion: "meta-decision-os.v1",
       generatedAt: "2026-04-10T00:00:00.000Z",
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-05",
+      analyticsWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-05",
+        role: "analysis_only",
+      },
+      decisionWindows: {
+        recent7d: {
+          key: "recent7d",
+          label: "recent 7d",
+          startDate: "2026-04-04",
+          endDate: "2026-04-10",
+          days: 7,
+          role: "recent_watch",
+        },
+        primary30d: {
+          key: "primary30d",
+          label: "primary 30d",
+          startDate: "2026-03-12",
+          endDate: "2026-04-10",
+          days: 30,
+          role: "decision_authority",
+        },
+        baseline90d: {
+          key: "baseline90d",
+          label: "baseline 90d",
+          startDate: "2026-01-11",
+          endDate: "2026-04-10",
+          days: 90,
+          role: "historical_memory",
+        },
+      },
+      historicalMemory: {
+        available: true,
+        source: "rolling_baseline",
+        baselineWindowKey: "baseline90d",
+        startDate: "2026-01-11",
+        endDate: "2026-04-10",
+        lookbackDays: 90,
+        note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+      },
+      decisionAsOf: "2026-04-10",
       summary: {
         todayPlanHeadline: "Today plan",
         todayPlan: ["Do the next thing"],
@@ -133,6 +222,7 @@ describe("GET /api/meta/decision-os", () => {
         businessId: "biz",
         startDate: "2026-04-01",
         endDate: "2026-04-05",
+        decisionAsOf: "2026-04-10",
         campaigns: expect.arrayContaining([
           expect.objectContaining({ id: "cmp-1", name: "Campaign One" }),
         ]),

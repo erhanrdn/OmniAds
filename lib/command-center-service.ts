@@ -16,6 +16,7 @@ import {
 } from "@/lib/command-center-store";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
+import { getMetaDecisionWindowContext } from "@/lib/meta/operator-decision-source";
 import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
 
@@ -28,6 +29,7 @@ export async function getCommandCenterSnapshot(input: {
   permissions: CommandCenterPermissions;
 }): Promise<CommandCenterResponse> {
   const [
+    decisionContext,
     metaDecisionOs,
     creativeDecisionOs,
     actionStates,
@@ -36,6 +38,11 @@ export async function getCommandCenterSnapshot(input: {
     handoffs,
     assignableUsers,
   ] = await Promise.all([
+    getMetaDecisionWindowContext({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }),
     isMetaDecisionOsV1EnabledForBusiness(input.businessId)
       ? getMetaDecisionOsForRange({
           businessId: input.businessId,
@@ -82,6 +89,10 @@ export async function getCommandCenterSnapshot(input: {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsWindow: decisionContext.analyticsWindow,
+    decisionWindows: decisionContext.decisionWindows,
+    historicalMemory: decisionContext.historicalMemory,
+    decisionAsOf: decisionContext.decisionAsOf,
     activeViewKey: input.activeViewKey ?? null,
     permissions: input.permissions,
     summary: summarizeCommandCenterActions(allActions),

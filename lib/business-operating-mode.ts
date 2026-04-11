@@ -1,5 +1,6 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import type {
   AccountOperatingMode,
   AccountOperatingModePayload,
@@ -63,13 +64,12 @@ function isWatchIssue(status: string | null | undefined) {
   return status === "watch";
 }
 
-function isPromoActive(
+function isPromoActiveOnDate(
   startDate: string,
   endDate: string,
-  rangeStart: string,
-  rangeEnd: string,
+  asOfDate: string,
 ) {
-  return startDate <= rangeEnd && endDate >= rangeStart;
+  return startDate <= asOfDate && endDate >= asOfDate;
 }
 
 function buildPerformanceSnapshot(
@@ -234,7 +234,7 @@ function guardrailsForMode(mode: AccountOperatingMode, context: {
   ];
 }
 
-function changeTriggersForMode(mode: AccountOperatingMode) {
+function changeTriggersForMode(mode: AccountOperatingMode, primaryWindowLabel: string) {
   if (mode === "Recovery") {
     return [
       "Critical site, checkout, feed, or conversion blocker clears.",
@@ -246,7 +246,7 @@ function changeTriggersForMode(mode: AccountOperatingMode) {
     return [
       "Promo window ends or severity is reduced.",
       "Stock pressure or checkout health worsens during the promo.",
-      "Selected-range efficiency falls below break-even while the promo is active.",
+      `${primaryWindowLabel} efficiency falls below break-even while the promo is active.`,
     ];
   }
   if (mode === "Margin Protect") {
@@ -271,9 +271,9 @@ function changeTriggersForMode(mode: AccountOperatingMode) {
     ];
   }
   return [
-    "Commercial truth is filled in and selected-range signal becomes strong enough for another mode.",
+    `Commercial truth is filled in and ${primaryWindowLabel} signal becomes strong enough for another mode.`,
     "A promo, blocker, or material GEO constraint becomes active.",
-    "Selected-range purchases and spend reach meaningful signal volume.",
+    `${primaryWindowLabel} purchases and spend reach meaningful signal volume.`,
   ];
 }
 
@@ -284,12 +284,31 @@ export function buildAccountOperatingMode(input: {
   snapshot: BusinessCommercialTruthSnapshot;
   campaigns: MetaCampaignsResponse | null;
   breakdowns: MetaBreakdownsResponse | null;
+  analyticsWindow?: AccountOperatingModePayload["analyticsWindow"];
+  decisionWindows?: AccountOperatingModePayload["decisionWindows"];
+  historicalMemory?: AccountOperatingModePayload["historicalMemory"];
+  decisionAsOf?: string;
 }): AccountOperatingModePayload {
+  const decisionMetadata = {
+    ...buildOperatorDecisionMetadata({
+      analyticsStartDate: input.startDate,
+      analyticsEndDate: input.endDate,
+      decisionAsOf: input.decisionAsOf ?? input.endDate,
+    }),
+    ...(input.analyticsWindow ? { analyticsWindow: input.analyticsWindow } : {}),
+    ...(input.decisionWindows ? { decisionWindows: input.decisionWindows } : {}),
+    ...(input.historicalMemory ? { historicalMemory: input.historicalMemory } : {}),
+    ...(input.decisionAsOf ? { decisionAsOf: input.decisionAsOf } : {}),
+  };
   const platform = buildPerformanceSnapshot(input.campaigns, input.breakdowns);
   const activePromos = input.snapshot.promoCalendar.filter(
     (promo) =>
       promo.severity !== "low" &&
-      isPromoActive(promo.startDate, promo.endDate, input.startDate, input.endDate),
+      isPromoActiveOnDate(
+        promo.startDate,
+        promo.endDate,
+        decisionMetadata.decisionAsOf,
+      ),
   );
   const constraints = input.snapshot.operatingConstraints;
   const criticalConstraint =
@@ -324,10 +343,10 @@ export function buildAccountOperatingMode(input: {
     missingInputs.push("Target pack is not configured yet.");
   }
   if (!platform.hasCampaignData) {
-    missingInputs.push("Meta selected-range campaign data is unavailable.");
+    missingInputs.push("Meta live decision-window campaign data is unavailable.");
   }
   if (!platform.hasLocationData) {
-    missingInputs.push("Meta location breakdown is unavailable for the selected range.");
+    missingInputs.push("Meta location breakdown is unavailable for the live decision window.");
   }
   if (!input.snapshot.operatingConstraints) {
     missingInputs.push("Site health and stock pressure constraints are not configured.");
@@ -351,19 +370,19 @@ export function buildAccountOperatingMode(input: {
   } else if (activePromos.length > 0) {
     mode = "Peak / Promo";
     why.push(
-      `Active ${activePromos[0].severity} promo overlaps the selected range: ${activePromos[0].title}.`,
+      `Active ${activePromos[0].severity} promo is live as of ${decisionMetadata.decisionAsOf}: ${activePromos[0].title}.`,
     );
   } else if (performance.belowBreakEven || majorGeoConstraint) {
     mode = "Margin Protect";
     if (performance.belowBreakEven) {
-      why.push("Selected-range performance is below break-even or target protection thresholds.");
+      why.push("Live decision-window performance is below break-even or target protection thresholds.");
     }
     if (majorGeoConstraint) {
       why.push("High-priority GEO economics or serviceability constraints are limiting scale.");
     }
   } else if (performance.meetsTarget && sufficientSignal && !watchConstraint) {
     mode = "Exploit";
-    why.push("Selected-range performance is beating the configured targets with enough signal to scale.");
+    why.push("Live decision-window performance is beating the configured targets with enough signal to scale.");
   } else if (performance.nearTarget || watchConstraint || geoConstraints.length > 0) {
     mode = "Stabilize";
     why.push("Signals are usable but mixed, so controlled moves are safer than aggressive scaling.");
@@ -373,7 +392,7 @@ export function buildAccountOperatingMode(input: {
   }
 
   if (why.length === 0) {
-    why.push("Commercial truth inputs and selected-range Meta signal are still incomplete, so Explore remains the safe default.");
+    why.push("Commercial truth inputs and live decision-window Meta signal are still incomplete, so Explore remains the safe default.");
   }
 
   const activeCommercialInputs = [];
@@ -442,15 +461,15 @@ export function buildAccountOperatingMode(input: {
 
   const platformInputs = [
     {
-      label: "Selected-range spend",
+      label: "Primary window spend",
       detail: formatCurrency(platform.totals.spend),
     },
     {
-      label: "Selected-range ROAS",
+      label: "Primary window ROAS",
       detail: formatRatio(platform.totals.roas),
     },
     {
-      label: "Selected-range CPA",
+      label: "Primary window CPA",
       detail: formatCurrency(platform.totals.cpa),
     },
     {
@@ -487,6 +506,10 @@ export function buildAccountOperatingMode(input: {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsWindow: decisionMetadata.analyticsWindow,
+    decisionWindows: decisionMetadata.decisionWindows,
+    historicalMemory: decisionMetadata.historicalMemory,
+    decisionAsOf: decisionMetadata.decisionAsOf,
     currentMode: mode,
     recommendedMode: mode,
     confidence,
@@ -497,7 +520,10 @@ export function buildAccountOperatingMode(input: {
       hasLandingConcern: Boolean(constraints?.landingPageConcern),
       hasMerchandisingConcern: Boolean(constraints?.merchandisingConcern),
     }),
-    changeTriggers: changeTriggersForMode(mode),
+    changeTriggers: changeTriggersForMode(
+      mode,
+      decisionMetadata.decisionWindows.primary30d.label,
+    ),
     activeCommercialInputs,
     platformInputs,
     missingInputs,

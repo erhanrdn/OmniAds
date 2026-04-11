@@ -1,6 +1,7 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { buildAccountOperatingMode } from "@/lib/business-operating-mode";
 import type {
@@ -8,6 +9,11 @@ import type {
   BusinessCommercialTruthSnapshot,
   BusinessCountryEconomicsRow,
 } from "@/src/types/business-commercial";
+import type {
+  OperatorAnalyticsWindow,
+  OperatorDecisionWindows,
+  OperatorHistoricalMemory,
+} from "@/src/types/operator-decision";
 
 export const META_DECISION_OS_V1_CONTRACT = "meta-decision-os.v1" as const;
 
@@ -185,6 +191,10 @@ export interface MetaDecisionOsV1Response {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  decisionWindows: OperatorDecisionWindows;
+  historicalMemory: OperatorHistoricalMemory;
+  decisionAsOf: string;
   summary: MetaDecisionOsSummary;
   campaigns: MetaCampaignDecision[];
   adSets: MetaAdSetDecision[];
@@ -199,6 +209,10 @@ export interface BuildMetaDecisionOsInput {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsWindow?: OperatorAnalyticsWindow;
+  decisionWindows?: OperatorDecisionWindows;
+  historicalMemory?: OperatorHistoricalMemory;
+  decisionAsOf?: string;
   campaigns: MetaCampaignRow[];
   adSets: MetaAdSetData[];
   breakdowns: Pick<MetaBreakdownsResponse, "location" | "placement"> | null;
@@ -295,13 +309,12 @@ function isRecentIso(input: string | null | undefined, referenceIso: string, day
   return reference - timestamp <= days * 86_400_000;
 }
 
-function isPromoActive(
+function isPromoActiveOnDate(
   startDate: string,
   endDate: string,
-  rangeStart: string,
-  rangeEnd: string,
+  asOfDate: string,
 ) {
-  return startDate <= rangeEnd && endDate >= rangeStart;
+  return startDate <= asOfDate && endDate >= asOfDate;
 }
 
 function determineThresholds(snapshot: BusinessCommercialTruthSnapshot): TargetThresholds {
@@ -435,6 +448,10 @@ function buildOperatingModeSummary(input: BuildMetaDecisionOsInput): AccountOper
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
+      analyticsWindow: input.analyticsWindow,
+      decisionWindows: input.decisionWindows,
+      historicalMemory: input.historicalMemory,
+      decisionAsOf: input.decisionAsOf,
       snapshot: input.commercialTruth,
       campaigns: { rows: input.campaigns },
       breakdowns: input.breakdowns
@@ -615,7 +632,7 @@ function buildAdSetDecision(input: {
   commercialTruth: BusinessCommercialTruthSnapshot;
   geoCoverageMode: MetaCommercialFallbackMode;
   operatingMode: AccountOperatingModePayload | null;
-  endDate: string;
+  decisionAsOf: string;
 }): MetaAdSetDecision {
   const roas = input.adSet.spend > 0 ? input.adSet.revenue / input.adSet.spend : 0;
   const cpa = input.adSet.cpa ?? (input.adSet.purchases > 0 ? input.adSet.spend / input.adSet.purchases : null);
@@ -623,8 +640,8 @@ function buildAdSetDecision(input: {
   const hasVeryStrongSignal = input.adSet.spend >= 500 && input.adSet.purchases >= 18;
   const lowSignal = !hasStrongSignal;
   const recentChange =
-    isRecentIso(input.adSet.previousBudgetCapturedAt, input.endDate, 3) ||
-    isRecentIso(input.adSet.previousBidValueCapturedAt, input.endDate, 3);
+    isRecentIso(input.adSet.previousBudgetCapturedAt, input.decisionAsOf, 3) ||
+    isRecentIso(input.adSet.previousBidValueCapturedAt, input.decisionAsOf, 3);
   const mixedConfig =
     input.adSet.isConfigMixed ||
     input.adSet.isBudgetMixed ||
@@ -1075,11 +1092,28 @@ function buildSummary(input: {
 export function buildMetaDecisionOs(
   input: BuildMetaDecisionOsInput,
 ): MetaDecisionOsV1Response {
+  const decisionMetadata = {
+    ...buildOperatorDecisionMetadata({
+      analyticsStartDate: input.startDate,
+      analyticsEndDate: input.endDate,
+      decisionAsOf: input.decisionAsOf ?? input.endDate,
+    }),
+    ...(input.analyticsWindow ? { analyticsWindow: input.analyticsWindow } : {}),
+    ...(input.decisionWindows ? { decisionWindows: input.decisionWindows } : {}),
+    ...(input.historicalMemory ? { historicalMemory: input.historicalMemory } : {}),
+    ...(input.decisionAsOf ? { decisionAsOf: input.decisionAsOf } : {}),
+  };
   const thresholds = determineThresholds(input.commercialTruth);
   const commercialTruthCoverage = collectCommercialTruthCoverage(input.commercialTruth);
   const laneByCampaignId = buildMetaCampaignLaneSignals(input.campaigns);
   const activePromoNames = input.commercialTruth.promoCalendar
-    .filter((promo) => isPromoActive(promo.startDate, promo.endDate, input.startDate, input.endDate))
+    .filter((promo) =>
+      isPromoActiveOnDate(
+        promo.startDate,
+        promo.endDate,
+        decisionMetadata.decisionAsOf,
+      ),
+    )
     .map((promo) => normalizeText(`${promo.title} ${promo.affectedScope ?? ""}`))
     .filter(Boolean);
   const operatingMode = buildOperatingModeSummary(input);
@@ -1109,7 +1143,7 @@ export function buildMetaDecisionOs(
       commercialTruth: input.commercialTruth,
       geoCoverageMode: commercialTruthCoverage.mode,
       operatingMode,
-      endDate: input.endDate,
+      decisionAsOf: decisionMetadata.decisionAsOf,
     }),
   );
 
@@ -1167,6 +1201,10 @@ export function buildMetaDecisionOs(
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsWindow: decisionMetadata.analyticsWindow,
+    decisionWindows: decisionMetadata.decisionWindows,
+    historicalMemory: decisionMetadata.historicalMemory,
+    decisionAsOf: decisionMetadata.decisionAsOf,
     summary,
     campaigns: campaignDecisions.sort((left, right) => right.confidence - left.confidence),
     adSets: adSetDecisions.sort(

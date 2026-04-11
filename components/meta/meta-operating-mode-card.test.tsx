@@ -1,19 +1,32 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+
+const metadata = buildOperatorDecisionMetadata({
+  analyticsStartDate: "2026-04-01",
+  analyticsEndDate: "2026-04-10",
+  decisionAsOf: "2026-04-10",
+});
 
 let mockQuery: Record<string, unknown> = {
   isLoading: false,
   isError: false,
   data: {
+    startDate: "2026-04-01",
+    endDate: "2026-04-10",
+    analyticsWindow: metadata.analyticsWindow,
+    decisionWindows: metadata.decisionWindows,
+    historicalMemory: metadata.historicalMemory,
+    decisionAsOf: metadata.decisionAsOf,
     currentMode: "Exploit",
     recommendedMode: "Exploit",
     confidence: 0.82,
-    why: ["Selected-range performance is beating targets."],
+    why: ["Live decision-window performance is beating targets."],
     guardrails: ["Scale in controlled steps."],
     changeTriggers: ["Performance slips toward target."],
     activeCommercialInputs: [{ label: "Target ROAS", detail: "2.40x" }],
-    platformInputs: [{ label: "Selected-range ROAS", detail: "3.10x" }],
+    platformInputs: [{ label: "Primary window ROAS", detail: "3.10x" }],
     missingInputs: [],
   },
 };
@@ -36,6 +49,7 @@ describe("MetaOperatingModeCard", () => {
 
     expect(html).toContain("Operating Mode");
     expect(html).toContain("Exploit");
+    expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Commercial Drivers");
     expect(html).toContain("What changes this mode");
   });

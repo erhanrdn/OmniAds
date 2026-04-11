@@ -6,6 +6,7 @@ const useWebServer = process.env.PLAYWRIGHT_USE_WEBSERVER !== "0";
 export default defineConfig({
   testDir: "./playwright/tests",
   fullyParallel: false,
+  workers: 1,
   timeout: 120_000,
   expect: {
     timeout: 20_000,

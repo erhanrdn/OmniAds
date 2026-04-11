@@ -112,7 +112,10 @@ export function MetaOperatingModeCard({
             {query.data.recommendedMode}
           </h3>
           <p className="mt-1 text-sm text-slate-700">
-            Deterministic commercial truth overlay for the selected Meta range.
+            Decisions use live windows. Selected period affects analysis only.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Decision as of {query.data.decisionAsOf} · primary window {query.data.decisionWindows.primary30d.startDate} to {query.data.decisionWindows.primary30d.endDate}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

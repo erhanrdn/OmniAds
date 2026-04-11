@@ -1,7 +1,13 @@
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import type { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
+import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
+import type {
+  OperatorAnalyticsWindow,
+  OperatorDecisionWindows,
+  OperatorHistoricalMemory,
+} from "@/src/types/operator-decision";
 import {
   metaCampaignFamilyLabel,
   resolveMetaCampaignFamily,
@@ -339,6 +345,10 @@ export interface CreativeDecisionOsV1Response {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  decisionWindows: OperatorDecisionWindows;
+  historicalMemory: OperatorHistoricalMemory;
+  decisionAsOf: string;
   summary: {
     totalCreatives: number;
     scaleReadyCount: number;
@@ -361,6 +371,10 @@ interface BuildCreativeDecisionOsInput {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsWindow?: OperatorAnalyticsWindow;
+  decisionWindows?: OperatorDecisionWindows;
+  historicalMemory?: OperatorHistoricalMemory;
+  decisionAsOf?: string;
   rows: CreativeDecisionOsInputRow[];
   campaigns?: MetaCampaignRow[];
   adSets?: MetaAdSetRow[];
@@ -1186,6 +1200,17 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
 export function buildCreativeDecisionOs(
   input: BuildCreativeDecisionOsInput,
 ): CreativeDecisionOsV1Response {
+  const decisionMetadata = {
+    ...buildOperatorDecisionMetadata({
+      analyticsStartDate: input.startDate,
+      analyticsEndDate: input.endDate,
+      decisionAsOf: input.decisionAsOf ?? input.endDate,
+    }),
+    ...(input.analyticsWindow ? { analyticsWindow: input.analyticsWindow } : {}),
+    ...(input.decisionWindows ? { decisionWindows: input.decisionWindows } : {}),
+    ...(input.historicalMemory ? { historicalMemory: input.historicalMemory } : {}),
+    ...(input.decisionAsOf ? { decisionAsOf: input.decisionAsOf } : {}),
+  };
   const rows = input.rows
     .map((row) => ({
       ...row,
@@ -1206,6 +1231,10 @@ export function buildCreativeDecisionOs(
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
+      analyticsWindow: decisionMetadata.analyticsWindow,
+      decisionWindows: decisionMetadata.decisionWindows,
+      historicalMemory: decisionMetadata.historicalMemory,
+      decisionAsOf: decisionMetadata.decisionAsOf,
       summary: {
         totalCreatives: 0,
         scaleReadyCount: 0,
@@ -1213,7 +1242,7 @@ export function buildCreativeDecisionOs(
         fatiguedCount: 0,
         blockedCount: 0,
         comebackCount: 0,
-        message: "No creative rows were available for the selected range.",
+        message: "No creative rows were available for the live decision window.",
         operatingMode: input.operatingMode?.recommendedMode ?? null,
       },
       creatives: [],
@@ -1295,8 +1324,8 @@ export function buildCreativeDecisionOs(
         spendP80: round(metricContext.spendP80, 4),
       },
       timeframeContext: {
-        coreVerdict: `Selected range is ${row.roas.toFixed(2)}x ROAS on ${row.purchases} purchases against the ${benchmark.selectedCohortLabel.toLowerCase()} benchmark.`,
-        selectedRangeOverlay: `Benchmark says ROAS is ${benchmark.metrics.roas.status} and click-to-purchase is ${benchmark.metrics.clickToPurchase.status}.`,
+        coreVerdict: `Live decision window is ${row.roas.toFixed(2)}x ROAS on ${row.purchases} purchases against the ${benchmark.selectedCohortLabel.toLowerCase()} benchmark.`,
+        selectedRangeOverlay: `Live decision window says ROAS is ${benchmark.metrics.roas.status} and click-to-purchase is ${benchmark.metrics.clickToPurchase.status}.`,
         historicalSupport:
           historical.total > 0
             ? `${historical.strongCount}/${historical.total} historical windows look like winner memory.`
@@ -1477,6 +1506,10 @@ export function buildCreativeDecisionOs(
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsWindow: decisionMetadata.analyticsWindow,
+    decisionWindows: decisionMetadata.decisionWindows,
+    historicalMemory: decisionMetadata.historicalMemory,
+    decisionAsOf: decisionMetadata.decisionAsOf,
     summary: {
       totalCreatives: creatives.length,
       scaleReadyCount: creatives.filter(

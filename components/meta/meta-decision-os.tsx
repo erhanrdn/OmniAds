@@ -189,6 +189,12 @@ export function MetaDecisionOsOverview({
             <h3 className="mt-1 text-lg font-semibold text-slate-950">
               {decisionOs.summary.todayPlanHeadline}
             </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Decisions use live windows. Selected period affects analysis only.
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
+            </p>
           </div>
           {decisionOs.summary.operatingMode ? (
             <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
