@@ -30,10 +30,10 @@ Current accepted live baseline for this authority layer:
 | `Operating Mode` | `live` | `n/a` | `current` | Deterministic commercial-truth overlay remains live on Meta and Creative contexts. |
 | `Recommendations` | `live` | `n/a` | `current` | Meta `Recommendations` wording remains current and operator-visible. |
 | `Meta Decision OS` | `live` or `flagged` | `META_DECISION_OS_V1`, `META_DECISION_OS_CANARY_BUSINESSES` | `current` | Release authority must report whether the surface is globally enabled or allowlisted. The current baseline includes additive policy metadata and a read-only winner scale candidate board while keeping the execution subset unchanged. |
-| `Creative Decision OS` | `live` or `flagged` | `CREATIVE_DECISION_OS_V1`, `CREATIVE_DECISION_OS_CANARY_BUSINESSES` | `current` | Deterministic creative surface remains separate from AI commentary; the current baseline uses a dedicated resizable drawer plus additive economics, compatibility, protected winners, and supply planning boards. |
+| `Creative Decision OS` | `live` or `flagged` | `CREATIVE_DECISION_OS_V1`, `CREATIVE_DECISION_OS_CANARY_BUSINESSES` | `current` | Deterministic creative surface remains separate from AI commentary; the current baseline uses a dedicated resizable drawer plus additive economics, compatibility, protected winners, supply planning boards, and an analysis-only selected-period historical panel. |
 | `Decision Signals` | `live` | `n/a` | `current` | Compatibility surface for deterministic creative actions. |
 | `AI Commentary` | `live` | `n/a` | `current` | Commentary remains interpretation-only, never workflow authority. |
-| `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, throughput budgeting, structured feedback, and status-only batch workflow. |
+| `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, throughput budgeting, structured feedback, status-only batch workflow, and an additive historical intelligence / self-tuning panel. |
 | `Command Center execution preview` | `live` or `flagged` | `COMMAND_CENTER_EXECUTION_V1` | `current` | Preview-first surface is inventoried separately from apply authority and now includes an explicit per-family support matrix plus rollback-truth copy. |
 | `Command Center apply / rollback` | `flagged` until canary apply is explicitly enabled | `COMMAND_CENTER_EXECUTION_V1`, `META_EXECUTION_APPLY_ENABLED`, `META_EXECUTION_CANARY_BUSINESSES` | `current` | This baseline must never present disabled apply as live. Duplicate `clientMutationId` flows must replay the terminal result or stop with a non-dispatching conflict instead of issuing a second write. |
 | `/copies` | `live` | `n/a` | `current` | The route stays visible in the matrix so copy-surface risk cannot go opaque. |
@@ -49,8 +49,9 @@ Current workflow throughput baseline references:
 - `docs/v2-07-safe-execution-proof.md`
 - `docs/v2-07-release-checklist.md`
 - `docs/v2-07-rollout-runbook.md`
+- `docs/v2-08-historical-intelligence.md`
 
-These V2-06 and V2-07 docs define the current additive workflow and execution-proof layer on top of the already accepted Phase 05 and Phase 06 baselines.
+These V2-06, V2-07, and V2-08 docs define the current additive workflow, execution-proof, and historical-intelligence layers on top of the already accepted Phase 05 and Phase 06 baselines.
 
 - `docs/phase-02-operating-modes.md`
 - `docs/phase-03-meta-decision-os.md`

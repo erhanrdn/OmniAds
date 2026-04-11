@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { CommandCenterExecutionSupportMatrix } from "@/components/command-center/CommandCenterExecutionSupportMatrix";
+import { CommandCenterHistoricalIntelligencePanel } from "@/components/command-center/CommandCenterHistoricalIntelligencePanel";
 import {
   DEFAULT_DATE_RANGE,
   DateRangePicker,
@@ -1028,6 +1029,14 @@ export function CommandCenterDashboard() {
         {pageError ? (
           <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {pageError}
+          </div>
+        ) : null}
+
+        {payload ? (
+          <div className="mt-4">
+            <CommandCenterHistoricalIntelligencePanel
+              intelligence={payload.historicalIntelligence}
+            />
           </div>
         ) : null}
       </div>

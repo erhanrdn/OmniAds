@@ -38,9 +38,13 @@ vi.mock("@/lib/creative-decision-os-config", () => ({
   isCreativeDecisionOsV1EnabledForBusiness: vi.fn(),
 }));
 
-vi.mock("@/lib/creative-decision-os", () => ({
-  buildCreativeDecisionOs: vi.fn(),
-}));
+vi.mock("@/lib/creative-decision-os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/creative-decision-os")>();
+  return {
+    ...actual,
+    buildCreativeDecisionOs: vi.fn(),
+  };
+});
 
 const access = await import("@/lib/access");
 const commercial = await import("@/lib/business-commercial");
@@ -369,12 +373,22 @@ describe("GET /api/creatives/decision-os", () => {
         fatiguedCount: 0,
         blockedCount: 0,
         comebackCount: 0,
+        protectedWinnerCount: 0,
+        supplyPlanCount: 0,
         message: "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
         operatingMode: "Exploit",
+        surfaceSummary: {
+          actionCoreCount: 1,
+          watchlistCount: 0,
+          archiveCount: 0,
+          degradedCount: 0,
+        },
       },
       creatives: [],
       families: [],
       patterns: [],
+      protectedWinners: [],
+      supplyPlan: [],
       lifecycleBoard: [],
       operatorQueues: [],
       commercialTruthCoverage: {
@@ -390,6 +404,21 @@ describe("GET /api/creatives/decision-os", () => {
           operatingConstraints: false,
         },
       },
+      historicalAnalysis: {
+        summary:
+          "Selected-period historical analysis is attached separately and does not change deterministic Decision Signals.",
+        selectedWindow: {
+          startDate: "2026-04-01",
+          endDate: "2026-04-10",
+          rowCount: 0,
+          materialRowCount: 0,
+          note: "Analysis only. Live decisions continue to use the primary decision window.",
+        },
+        winningFormats: [],
+        hookTrends: [],
+        angleTrends: [],
+        familyPerformance: [],
+      },
     } as never);
   });
 
@@ -404,6 +433,7 @@ describe("GET /api/creatives/decision-os", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.contractVersion).toBe("creative-decision-os.v1");
+    expect(payload.historicalAnalysis.selectedWindow.startDate).toBe("2026-04-01");
     expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
@@ -417,6 +447,18 @@ describe("GET /api/creatives/decision-os", () => {
             objectStoryId: "story_1",
           }),
         ]),
+      }),
+    );
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start: "2026-04-01",
+        end: "2026-04-10",
+      }),
+    );
+    expect(creativesApi.getMetaCreativesApiPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start: "2026-03-12",
+        end: "2026-04-10",
       }),
     );
   });

@@ -10,10 +10,12 @@ import {
 } from "@/lib/demo-business";
 import {
   buildCreativeDecisionOs,
+  buildEmptyCreativeHistoricalAnalysis,
   type CreativeDecisionOsHistoricalWindows,
   type CreativeDecisionOsInputRow,
   type CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
+import { buildCreativeHistoricalAnalysis } from "@/lib/creative-historical-intelligence";
 import { addDaysToIsoDate, META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
 import {
@@ -259,6 +261,7 @@ export async function getCreativeDecisionOsForRange(input: {
     endDate: input.endDate,
   });
   let decisionRows: MetaCreativeRow[] = [];
+  let selectedPeriodRows: MetaCreativeRow[] | null = null;
   let historyById = new Map<string, CreativeDecisionOsHistoricalWindows>();
   let campaigns: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["campaigns"]["rows"] = [];
   let adSets: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["adSets"]["rows"] = [];
@@ -275,6 +278,7 @@ export async function getCreativeDecisionOsForRange(input: {
     decisionRows = (getDemoMetaCreatives().rows as unknown as MetaCreativeApiRow[]).map(
       mapApiRowToUiRow,
     );
+    selectedPeriodRows = decisionRows;
     historyById = buildDemoHistoryById(decisionRows);
     campaigns = getDemoMetaCampaigns().rows as Awaited<
       ReturnType<typeof getMetaDecisionSourceSnapshot>
@@ -309,6 +313,7 @@ export async function getCreativeDecisionOsForRange(input: {
       last90,
       allHistory,
       decisionSnapshot,
+      selectedPeriod,
     ] = await Promise.all([
       fetchCreativeRowsForWindow({
         request: input.request,
@@ -326,9 +331,16 @@ export async function getCreativeDecisionOsForRange(input: {
         businessId: input.businessId,
         decisionWindows: decisionContext.decisionWindows,
       }),
+      fetchCreativeRowsForWindow({
+        request: input.request,
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }).catch(() => null),
     ]);
 
     decisionRows = primary;
+    selectedPeriodRows = selectedPeriod;
     historyById = buildHistoryById({
       last3,
       last7,
@@ -356,21 +368,36 @@ export async function getCreativeDecisionOsForRange(input: {
     breakdowns,
   });
 
-  return buildCreativeDecisionOs({
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    analyticsWindow: decisionContext.analyticsWindow,
-    decisionWindows: decisionContext.decisionWindows,
-    historicalMemory: decisionContext.historicalMemory,
-    decisionAsOf: decisionContext.decisionAsOf,
-    rows: decisionRows.map((row) => toDecisionInputRow(row, historyById.get(row.id) ?? null)),
-    campaigns,
-    adSets,
-    breakdowns: {
-      location: breakdowns.location ?? [],
-    },
-    commercialTruth: snapshot,
-    operatingMode,
-  });
+  const historicalAnalysis =
+    selectedPeriodRows && selectedPeriodRows.length > 0
+      ? buildCreativeHistoricalAnalysis({
+          startDate: input.startDate,
+          endDate: input.endDate,
+          rows: selectedPeriodRows.map((row) => toDecisionInputRow(row, null)),
+        })
+      : buildEmptyCreativeHistoricalAnalysis({
+          startDate: input.startDate,
+          endDate: input.endDate,
+        });
+
+  return {
+    ...buildCreativeDecisionOs({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      analyticsWindow: decisionContext.analyticsWindow,
+      decisionWindows: decisionContext.decisionWindows,
+      historicalMemory: decisionContext.historicalMemory,
+      decisionAsOf: decisionContext.decisionAsOf,
+      rows: decisionRows.map((row) => toDecisionInputRow(row, historyById.get(row.id) ?? null)),
+      campaigns,
+      adSets,
+      breakdowns: {
+        location: breakdowns.location ?? [],
+      },
+      commercialTruth: snapshot,
+      operatingMode,
+    }),
+    historicalAnalysis,
+  };
 }

@@ -4,6 +4,7 @@ import type {
   CreativeDecisionOsCreative,
   CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
+import type { MetaCampaignFamily } from "@/lib/meta/campaign-lanes";
 import type {
   MetaAdSetDecision,
   MetaBudgetShift,
@@ -242,6 +243,74 @@ export interface CommandCenterFeedbackSummary {
   recentEntries: CommandCenterFeedbackEntry[];
 }
 
+export interface CommandCenterHistoricalSelectedWindow {
+  startDate: string;
+  endDate: string;
+  note: string;
+}
+
+export interface CommandCenterHistoricalCampaignFamilySummary {
+  family: MetaCampaignFamily;
+  familyLabel: string;
+  campaignCount: number;
+  activeCampaignCount: number;
+  spend: number;
+  purchases: number;
+  roas: number;
+  summary: string;
+}
+
+export interface CommandCenterHistoricalHotspot {
+  key: string;
+  label: string;
+  count: number;
+  summary: string;
+}
+
+export interface CommandCenterSuppressionRates {
+  actionCore: number;
+  watchlist: number;
+  archive: number;
+  degraded: number;
+}
+
+export interface CommandCenterDecisionQualitySummary {
+  actionableCount: number;
+  selectedCount: number;
+  overflowCount: number;
+  queueGapCount: number;
+  feedbackCount: number;
+  falsePositiveCount: number;
+  falseNegativeCount: number;
+  badRecommendationCount: number;
+  suppressionRates: CommandCenterSuppressionRates;
+  falsePositiveHotspots: CommandCenterHistoricalHotspot[];
+  falseNegativeHotspots: CommandCenterHistoricalHotspot[];
+}
+
+export interface CommandCenterDegradedGuidance {
+  degradedActionCount: number;
+  missingInputs: string[];
+  reasons: string[];
+  summary: string;
+}
+
+export interface CommandCenterCalibrationSuggestion {
+  key: string;
+  priority: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  evidence: string;
+}
+
+export interface CommandCenterHistoricalIntelligence {
+  selectedWindow: CommandCenterHistoricalSelectedWindow;
+  campaignFamilies: CommandCenterHistoricalCampaignFamilySummary[];
+  decisionQuality: CommandCenterDecisionQualitySummary;
+  degradedGuidance: CommandCenterDegradedGuidance;
+  calibrationSuggestions: CommandCenterCalibrationSuggestion[];
+}
+
 export interface CommandCenterQueueBudgetSummary {
   totalBudget: number;
   quotas: Record<CommandCenterPriority, number>;
@@ -339,6 +408,7 @@ export interface CommandCenterResponse {
   shiftDigest: CommandCenterShiftDigest;
   viewStacks: CommandCenterViewStack[];
   feedbackSummary: CommandCenterFeedbackSummary;
+  historicalIntelligence: CommandCenterHistoricalIntelligence;
   actions: CommandCenterAction[];
   savedViews: CommandCenterSavedView[];
   journal: CommandCenterJournalEntry[];

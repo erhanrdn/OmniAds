@@ -137,6 +137,70 @@ function payload() {
         operatingConstraints: true,
       },
     },
+    historicalAnalysis: {
+      summary:
+        "Video leads the selected-period format mix while Travel Pack and Utility describe the strongest visible pattern. This block is analysis-only and does not change deterministic Decision Signals.",
+      selectedWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        rowCount: 8,
+        materialRowCount: 6,
+        note: "Analysis only. Live decisions continue to use the primary decision window.",
+      },
+      winningFormats: [
+        {
+          label: "Video",
+          creativeCount: 5,
+          spend: 640,
+          purchaseValue: 2_240,
+          purchases: 20,
+          roas: 3.5,
+          shareOfSpend: 0.64,
+          summary: "Format Video covers 5 creative(s), 640 spend, 3.50x ROAS, and 20 purchase(s) in the selected period.",
+        },
+      ],
+      hookTrends: [
+        {
+          label: "Travel Pack",
+          creativeCount: 3,
+          spend: 420,
+          purchaseValue: 1_660,
+          purchases: 18,
+          roas: 3.95,
+          shareOfSpend: 0.42,
+          summary: "Hook Travel Pack covers 3 creative(s), 420 spend, 3.95x ROAS, and 18 purchase(s) in the selected period.",
+        },
+      ],
+      angleTrends: [
+        {
+          label: "Utility",
+          creativeCount: 4,
+          spend: 480,
+          purchaseValue: 1_780,
+          purchases: 19,
+          roas: 3.71,
+          shareOfSpend: 0.48,
+          summary: "Angle Utility covers 4 creative(s), 480 spend, 3.71x ROAS, and 19 purchase(s) in the selected period.",
+        },
+      ],
+      familyPerformance: [
+        {
+          familyId: "family:1",
+          familyLabel: "Travel Hook Family",
+          familySource: "copy_signature",
+          creativeCount: 2,
+          dominantFormat: "Video",
+          spend: 420,
+          purchaseValue: 1_660,
+          purchases: 18,
+          roas: 3.95,
+          topHook: "Travel Pack",
+          topAngle: "Utility",
+          summary:
+            "Travel Hook Family covers 2 creative(s) with 420 spend and 3.95x ROAS in the selected period.",
+        },
+      ],
+    },
   } as any;
 }
 
@@ -163,5 +227,8 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Protected Winners");
     expect(html).toContain("Supply Planning");
     expect(html).toContain("Degraded commercial truth");
+    expect(html).toContain("Historical Analysis");
+    expect(html).toContain("Selected-period format and family patterns");
+    expect(html).toContain("Travel Hook Family");
   });
 });

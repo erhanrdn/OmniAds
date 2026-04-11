@@ -52,6 +52,51 @@ function supplyTone(kind: CreativeDecisionOsV1Response["supplyPlan"][number]["ki
   return "border-sky-200 bg-sky-50";
 }
 
+function formatShareOfSpend(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function HistoricalBucketList({
+  title,
+  buckets,
+  emptyCopy,
+}: {
+  title: string;
+  buckets: CreativeDecisionOsV1Response["historicalAnalysis"]["winningFormats"];
+  emptyCopy: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <span className="text-[11px] text-slate-500">selected period</span>
+      </div>
+      <div className="space-y-2">
+        {buckets.map((bucket) => (
+          <div
+            key={`${title}-${bucket.label}`}
+            className="rounded-xl border border-slate-200 bg-slate-50/70 p-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">{bucket.label}</p>
+                <p className="mt-1 text-xs text-slate-600">{bucket.summary}</p>
+              </div>
+              <div className="text-right text-xs text-slate-700">
+                <p>{formatShareOfSpend(bucket.shareOfSpend)} spend share</p>
+                <p>{bucket.creativeCount} creatives</p>
+              </div>
+            </div>
+          </div>
+        ))}
+        {buckets.length === 0 ? (
+          <p className="text-sm text-slate-500">{emptyCopy}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function CreativeDecisionOsOverview({
   decisionOs,
   isLoading,
@@ -96,13 +141,14 @@ export function CreativeDecisionOsOverview({
   ).filter(Boolean).length;
 
   return (
-    <section
-      className={cn(
-        "space-y-4 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#fcfdff_0%,#f8fbff_100%)] p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]",
-        className,
-      )}
-      data-testid="creative-decision-os-overview"
-    >
+    <>
+      <section
+        className={cn(
+          "space-y-4 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#fcfdff_0%,#f8fbff_100%)] p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]",
+          className,
+        )}
+        data-testid="creative-decision-os-overview"
+      >
       {showHeader ? (
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -417,6 +463,103 @@ export function CreativeDecisionOsOverview({
           </div>
         </div>
       </div>
-    </section>
+      </section>
+
+      <section
+        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]"
+        data-testid="creative-historical-analysis"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Historical Analysis
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">
+              Selected-period format and family patterns
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-slate-600">
+              {decisionOs.historicalAnalysis.summary}
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              Selected period {decisionOs.historicalAnalysis.selectedWindow.startDate} to{" "}
+              {decisionOs.historicalAnalysis.selectedWindow.endDate}.{" "}
+              {decisionOs.historicalAnalysis.selectedWindow.note}
+            </p>
+          </div>
+          <div className="grid gap-2 text-right text-xs text-slate-600">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Rows
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-950">
+                {decisionOs.historicalAnalysis.selectedWindow.materialRowCount}/
+                {decisionOs.historicalAnalysis.selectedWindow.rowCount}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr_1fr]">
+          <HistoricalBucketList
+            title="Winning formats"
+            buckets={decisionOs.historicalAnalysis.winningFormats}
+            emptyCopy="No material selected-period format trend is available."
+          />
+          <HistoricalBucketList
+            title="Hook trends"
+            buckets={decisionOs.historicalAnalysis.hookTrends}
+            emptyCopy="No hook trend is visible in the selected period."
+          />
+          <HistoricalBucketList
+            title="Angle trends"
+            buckets={decisionOs.historicalAnalysis.angleTrends}
+            emptyCopy="No messaging-angle trend is visible in the selected period."
+          />
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-950">
+              Family performance
+            </h3>
+            <span className="text-[11px] text-slate-500">
+              descriptive, not decision-authoritative
+            </span>
+          </div>
+          <div className="space-y-2">
+            {decisionOs.historicalAnalysis.familyPerformance.map((family) => (
+              <div
+                key={family.familyId}
+                className="rounded-xl border border-slate-200 bg-white p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">
+                      {family.familyLabel}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">{family.summary}</p>
+                  </div>
+                  <div className="text-right text-xs text-slate-700">
+                    <p>{family.dominantFormat} dominant</p>
+                    <p>{family.creativeCount} creatives</p>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                  {family.topHook ? <span>Hook {family.topHook}</span> : null}
+                  {family.topAngle ? <span>Angle {family.topAngle}</span> : null}
+                  <span>{family.roas.toFixed(2)}x ROAS</span>
+                  <span>{family.purchases} purchases</span>
+                </div>
+              </div>
+            ))}
+            {decisionOs.historicalAnalysis.familyPerformance.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No selected-period family trend is visible yet.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </>
   );
 }

@@ -414,6 +414,49 @@ export interface CreativeDecisionSupplyPlanItem {
   reasons: string[];
 }
 
+export interface CreativeHistoricalAnalysisSelectedWindow {
+  startDate: string;
+  endDate: string;
+  rowCount: number;
+  materialRowCount: number;
+  note: string;
+}
+
+export interface CreativeHistoricalAnalysisBucket {
+  label: string;
+  creativeCount: number;
+  spend: number;
+  purchaseValue: number;
+  purchases: number;
+  roas: number;
+  shareOfSpend: number;
+  summary: string;
+}
+
+export interface CreativeHistoricalFamilyPerformance {
+  familyId: string;
+  familyLabel: string;
+  familySource: CreativeDecisionFamilySource;
+  creativeCount: number;
+  dominantFormat: string;
+  spend: number;
+  purchaseValue: number;
+  purchases: number;
+  roas: number;
+  topHook: string | null;
+  topAngle: string | null;
+  summary: string;
+}
+
+export interface CreativeHistoricalAnalysis {
+  summary: string;
+  selectedWindow: CreativeHistoricalAnalysisSelectedWindow;
+  winningFormats: CreativeHistoricalAnalysisBucket[];
+  hookTrends: CreativeHistoricalAnalysisBucket[];
+  angleTrends: CreativeHistoricalAnalysisBucket[];
+  familyPerformance: CreativeHistoricalFamilyPerformance[];
+}
+
 export interface CreativeDecisionOsV1Response {
   contractVersion: typeof CREATIVE_DECISION_OS_CONTRACT_VERSION;
   engineVersion: typeof CREATIVE_DECISION_OS_ENGINE_VERSION;
@@ -451,6 +494,7 @@ export interface CreativeDecisionOsV1Response {
   lifecycleBoard: CreativeDecisionLifecycleBoardItem[];
   operatorQueues: CreativeDecisionOperatorQueue[];
   commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
+  historicalAnalysis: CreativeHistoricalAnalysis;
 }
 
 interface BuildCreativeDecisionOsInput {
@@ -656,7 +700,7 @@ interface FamilySeed {
   familySource: CreativeDecisionFamilySource;
 }
 
-function buildFamilySeeds(rows: CreativeDecisionOsInputRow[]) {
+export function buildCreativeFamilySeeds(rows: CreativeDecisionOsInputRow[]) {
   const counts = new Map<string, number>();
   const recordCount = (key: string | null) => {
     if (!key) return;
@@ -691,7 +735,7 @@ function buildFamilySeeds(rows: CreativeDecisionOsInputRow[]) {
   return result;
 }
 
-function chooseFamilyLabel(rows: CreativeDecisionOsInputRow[]) {
+export function chooseCreativeFamilyLabel(rows: CreativeDecisionOsInputRow[]) {
   const headline = rows
     .flatMap((row) => row.headlineVariants ?? [])
     .find((value) => normalizeText(value).length > 0);
@@ -794,6 +838,29 @@ function buildCommercialTruthCoverage(
       promoCalendar: snapshot?.sectionMeta.promoCalendar.configured ?? false,
       operatingConstraints: snapshot?.sectionMeta.operatingConstraints.configured ?? false,
     },
+  };
+}
+
+export function buildEmptyCreativeHistoricalAnalysis(input: {
+  startDate: string;
+  endDate: string;
+  summary?: string;
+}): CreativeHistoricalAnalysis {
+  return {
+    summary:
+      input.summary ??
+      "Selected-period historical analysis is unavailable for this range. This block stays descriptive and does not change deterministic Decision Signals.",
+    selectedWindow: {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      rowCount: 0,
+      materialRowCount: 0,
+      note: "Analysis only. Live decisions continue to use the primary decision window.",
+    },
+    winningFormats: [],
+    hookTrends: [],
+    angleTrends: [],
+    familyPerformance: [],
   };
 }
 
@@ -1888,12 +1955,18 @@ export function buildCreativeDecisionOs(
         input.commercialTruth,
         input.operatingMode,
       ),
+      historicalAnalysis: buildEmptyCreativeHistoricalAnalysis({
+        startDate: input.startDate,
+        endDate: input.endDate,
+        summary:
+          "No selected-period creative evidence was available. This block stays descriptive and does not change deterministic Decision Signals.",
+      }),
     };
   }
 
   const campaignsById = new Map((input.campaigns ?? []).map((campaign) => [campaign.id, campaign]));
   const locationRows = input.breakdowns?.location ?? [];
-  const familySeeds = buildFamilySeeds(rows);
+  const familySeeds = buildCreativeFamilySeeds(rows);
   const metricContext = buildMetricContext(rows);
   const familyRowsById = new Map<string, CreativeDecisionOsInputRow[]>();
 
@@ -1960,7 +2033,7 @@ export function buildCreativeDecisionOs(
     const pattern = buildPattern(row);
     const summary = buildSummary(primaryAction, lifecycleState, benchmark, fatigue, economics, deployment);
     const reasons = buildReasons(benchmark, fatigue, economics, deployment);
-    const familyLabel = chooseFamilyLabel(familyRows);
+    const familyLabel = chooseCreativeFamilyLabel(familyRows);
     const trust = buildCreativeTrust({
       row,
       lifecycleState,
@@ -2116,7 +2189,7 @@ export function buildCreativeDecisionOs(
     const topHooks = Array.from(new Set(creativeEntries.map((creative) => creative.pattern.hook))).slice(0, 3);
     return {
       familyId,
-      familyLabel: chooseFamilyLabel(familyRows),
+      familyLabel: chooseCreativeFamilyLabel(familyRows),
       familySource: familySeeds.get(familyRows[0]!.creativeId)?.familySource ?? "singleton",
       creativeIds: creativeEntries.map((creative) => creative.creativeId),
       dominantFormat,
@@ -2230,6 +2303,12 @@ export function buildCreativeDecisionOs(
     lifecycleBoard,
     operatorQueues,
     commercialTruthCoverage,
+    historicalAnalysis: buildEmptyCreativeHistoricalAnalysis({
+      startDate: input.startDate,
+      endDate: input.endDate,
+      summary:
+        "Selected-period historical analysis is attached separately and does not change deterministic Decision Signals.",
+    }),
   };
 }
 

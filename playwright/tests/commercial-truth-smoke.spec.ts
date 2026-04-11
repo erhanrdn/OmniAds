@@ -154,6 +154,12 @@ async function captureCommandCenterDecisionSignature(
   };
 }
 
+async function captureCommandCenterHistoricalSignature(page: Page) {
+  return normalizeText(
+    await page.getByTestId("command-center-historical-intelligence").textContent(),
+  );
+}
+
 async function captureCreativeDecisionSignature(
   page: Page,
 ) {
@@ -174,6 +180,12 @@ async function captureCreativeDecisionSignature(
       await page.getByTestId("creative-operator-queues").textContent(),
     ),
   };
+}
+
+async function captureCreativeHistoricalSignature(page: Page) {
+  return normalizeText(
+    await page.getByTestId("creative-historical-analysis").textContent(),
+  );
 }
 
 async function selectFirstCommandCenterViewWithActions(page: Page) {
@@ -298,7 +310,10 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(page.getByTestId("command-center-page")).toBeVisible();
   await expect(page.getByTestId("command-center-page")).toContainText("Decisions use live windows");
   await expect(page.getByTestId("command-center-page")).toContainText("Selected period affects analysis only");
+  await expect(page.getByTestId("command-center-historical-intelligence")).toBeVisible();
   let commandCenterBaseline: Awaited<ReturnType<typeof captureCommandCenterDecisionSignature>> | null = null;
+  let commandCenterHistoricalBaseline: string | null = null;
+  let commandCenterHistoricalChanged = false;
   for (const range of BROWSER_DECISION_RANGES) {
     await setStoredDateRange(page, "commandCenterDateRange", range.standard);
     await page.reload();
@@ -307,18 +322,25 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
       timeout: 45_000,
     });
     const signature = await captureCommandCenterDecisionSignature(page);
+    const historicalSignature = await captureCommandCenterHistoricalSignature(page);
     if (!commandCenterBaseline) {
       commandCenterBaseline = signature;
+      commandCenterHistoricalBaseline = historicalSignature;
     } else {
       expect(signature).toEqual(commandCenterBaseline);
+      if (historicalSignature !== commandCenterHistoricalBaseline) {
+        commandCenterHistoricalChanged = true;
+      }
     }
   }
+  expect(commandCenterHistoricalChanged).toBeTruthy();
   await setStoredDateRange(page, "commandCenterDateRange", STANDARD_DATE_RANGE);
   await page.reload();
   await expect(page.getByTestId("command-center-page")).toBeVisible();
   await expect(page.getByTestId("command-center-budget-summary")).toBeVisible();
   await expect(page.getByTestId("command-center-shift-digest")).toBeVisible();
   await expect(page.getByTestId("command-center-feedback-summary")).toBeVisible();
+  await expect(page.getByTestId("command-center-historical-intelligence")).toBeVisible();
   await expect(page.getByTestId("command-center-owner-workload")).toBeVisible();
   const queueActions = await selectFirstCommandCenterViewWithActions(page);
   await expect(queueActions.first()).toBeVisible();
@@ -410,9 +432,12 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Selected period affects analysis only");
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
   await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+  await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
   await page.getByLabel("Close Creative Decision OS").click();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
   let creativeBaseline: Awaited<ReturnType<typeof captureCreativeDecisionSignature>> | null = null;
+  let creativeHistoricalBaseline: string | null = null;
+  let creativeHistoricalChanged = false;
   for (const range of BROWSER_DECISION_RANGES) {
     await setStoredDateRange(page, "creativeDateRange", range.creative);
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -421,14 +446,21 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
     await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
     await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
     await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+    await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
     const signature = await captureCreativeDecisionSignature(page);
+    const historicalSignature = await captureCreativeHistoricalSignature(page);
     if (!creativeBaseline) {
       creativeBaseline = signature;
+      creativeHistoricalBaseline = historicalSignature;
     } else {
       expect(signature).toEqual(creativeBaseline);
+      if (historicalSignature !== creativeHistoricalBaseline) {
+        creativeHistoricalChanged = true;
+      }
     }
     await page.getByLabel("Close Creative Decision OS").click();
   }
+  expect(creativeHistoricalChanged).toBeTruthy();
 
   await page.getByRole("button", { name: "Creative Decision OS" }).click();
   const familyCards = page.locator('button[data-testid^="creative-family-"]');

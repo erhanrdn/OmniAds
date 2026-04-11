@@ -93,11 +93,13 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V2-01 authority doc" },
       { kind: "doc", path: "docs/phase-04-creative-decision-os.md", label: "Phase 04 creative decision OS" },
       { kind: "doc", path: "docs/phase-04-creative-action-contract.md", label: "Phase 04 action contract" },
+      { kind: "doc", path: "docs/v2-08-historical-intelligence.md", label: "V2-08 historical intelligence" },
     ],
     notes: [
       "Creative Decision OS stays deterministic and read-only.",
       "The current baseline opens the surface in a dedicated resizable drawer instead of a long inline page section.",
       "Additive economics floors, deployment compatibility, protected winners, and supply planning are current when the surface is enabled.",
+      "A separate selected-period historical analysis panel is additive and analysis-only; it does not change Decision Signals or live decision authority.",
       "The surface is current only when the Creative Decision OS flag posture permits it.",
     ],
   },
@@ -162,6 +164,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       { kind: "doc", path: "docs/v2-06-command-center-throughput.md", label: "V2-06 throughput baseline" },
       { kind: "doc", path: "docs/v2-06-release-checklist.md", label: "V2-06 release checklist" },
       { kind: "doc", path: "docs/v2-06-rollout-runbook.md", label: "V2-06 rollout runbook" },
+      { kind: "doc", path: "docs/v2-08-historical-intelligence.md", label: "V2-08 historical intelligence" },
     ],
     notes: [
       "Workflow state remains additive on top of deterministic decision sources.",
@@ -169,6 +172,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       "Meta GEO intake only queues material queue-eligible GEO rows; pooled/watchlist GEOs stay out of the default queue.",
       "The default queue is bounded server-side and exposes overflow, owner workload, and shift digest summaries.",
       "Structured feedback and status-only batch actions are current workflow surfaces and remain retry-safe.",
+      "A separate historical intelligence panel now summarizes selected-period campaign families, queue quality, degraded guidance, and deterministic calibration suggestions.",
     ],
   },
   {

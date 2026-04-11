@@ -591,6 +591,21 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         operatingConstraints: true,
       },
     },
+    historicalAnalysis: {
+      summary:
+        "Video leads the selected-period format mix while Travel Pack and Utility describe the strongest visible pattern. This block is analysis-only and does not change deterministic Decision Signals.",
+      selectedWindow: {
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        rowCount: 2,
+        materialRowCount: 2,
+        note: "Analysis only. Live decisions continue to use the primary decision window.",
+      },
+      winningFormats: [],
+      hookTrends: [],
+      angleTrends: [],
+      familyPerformance: [],
+    },
   };
 }
 

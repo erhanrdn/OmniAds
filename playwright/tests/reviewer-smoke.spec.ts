@@ -48,6 +48,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("command-center-budget-summary")).toBeVisible();
   await expect(page.getByTestId("command-center-owner-workload")).toBeVisible();
   await expect(page.getByTestId("command-center-feedback-summary")).toBeVisible();
+  await expect(page.getByTestId("command-center-historical-intelligence")).toBeVisible();
   const reviewerBatchToolbar = page.getByTestId("command-center-batch-toolbar");
   await expect(reviewerBatchToolbar).toBeVisible();
   await expect(
@@ -89,6 +90,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("creative-pattern-board")).toBeVisible();
   await expect(page.getByTestId("creative-protected-winners")).toBeVisible();
   await expect(page.getByTestId("creative-supply-plan")).toBeVisible();
+  await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
   await expect(page.getByTestId("creative-run-signals")).toContainText(/Run Signals|Refresh Signals/);
 

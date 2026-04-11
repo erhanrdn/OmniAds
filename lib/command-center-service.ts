@@ -23,8 +23,10 @@ import {
   listCommandCenterJournal,
   listCommandCenterSavedViews,
 } from "@/lib/command-center-store";
+import { buildCommandCenterHistoricalIntelligence } from "@/lib/command-center-historical-intelligence";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
+import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 import { getMetaDecisionWindowContext } from "@/lib/meta/operator-decision-source";
 import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
@@ -47,6 +49,7 @@ export async function getCommandCenterSnapshot(input: {
     handoffs,
     feedback,
     assignableUsers,
+    selectedPeriodCampaigns,
   ] = await Promise.all([
     getMetaDecisionWindowContext({
       businessId: input.businessId,
@@ -74,6 +77,16 @@ export async function getCommandCenterSnapshot(input: {
     listCommandCenterHandoffs({ businessId: input.businessId, limit: 20 }),
     listCommandCenterFeedback({ businessId: input.businessId, limit: 50 }),
     listAssignableCommandCenterUsers(input.businessId),
+    getMetaCampaignsForRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+    }).catch(() => ({
+      status: "not_connected" as const,
+      rows: [],
+      isPartial: true,
+      notReadyReason: "Selected-period Meta campaign analysis is unavailable.",
+    })),
   ]);
 
   const aggregatedActions = aggregateCommandCenterActions({
@@ -106,6 +119,17 @@ export async function getCommandCenterSnapshot(input: {
     ownerWorkload,
     feedbackSummary,
   });
+  const historicalIntelligence = buildCommandCenterHistoricalIntelligence({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    selectedPeriodCampaigns: selectedPeriodCampaigns.rows ?? [],
+    actions: allActions,
+    throughput,
+    feedbackSummary,
+    feedback,
+    metaDecisionOs,
+    creativeDecisionOs,
+  });
   const viewStacks = buildCommandCenterViewStacks(savedViews);
 
   const viewDefinition = buildCommandCenterFiltersFromViewKey(
@@ -135,6 +159,7 @@ export async function getCommandCenterSnapshot(input: {
     shiftDigest,
     viewStacks,
     feedbackSummary,
+    historicalIntelligence,
     actions: visibleActions,
     savedViews,
     journal,
