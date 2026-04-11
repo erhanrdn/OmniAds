@@ -309,6 +309,18 @@ async function main() {
       ON CONFLICT (user_id, business_id)
       DO UPDATE SET role = 'collaborator', status = 'active'
     `;
+    await sql`
+      DELETE FROM memberships
+      WHERE user_id = ${operator.id}
+        AND business_id <> ${DEMO_BUSINESS_ID}
+        AND business_id <> ${EXECUTION_BUSINESS_ID}
+    `;
+  } else {
+    await sql`
+      DELETE FROM memberships
+      WHERE user_id = ${operator.id}
+        AND business_id <> ${DEMO_BUSINESS_ID}
+    `;
   }
 
   await sql`

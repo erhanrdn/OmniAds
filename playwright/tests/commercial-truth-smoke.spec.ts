@@ -144,7 +144,7 @@ test("commercial execution canary smoke applies and rolls back a supported ad se
 
   let supportedActionFound = false;
   const totalActions = await queueActions.count();
-  const maxActionsToScan = Math.min(totalActions, 12);
+  const maxActionsToScan = Math.min(totalActions, 40);
 
   for (let index = 0; index < maxActionsToScan; index += 1) {
     await queueActions.nth(index).click();
@@ -154,8 +154,9 @@ test("commercial execution canary smoke applies and rolls back a supported ad se
       await workflowDialog
         .getByTestId("command-center-execution-support-mode")
         .textContent()
-    )?.toLowerCase();
-    if (!supportText?.includes("supported")) continue;
+    )?.trim()
+      .toLowerCase();
+    if (supportText !== "supported") continue;
 
     supportedActionFound = true;
     await workflowDialog.getByRole("button", { name: "Approve", exact: true }).click();
