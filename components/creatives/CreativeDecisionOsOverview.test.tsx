@@ -30,6 +30,12 @@ function payload() {
       comebackCount: 1,
       message: "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: "Exploit",
+      surfaceSummary: {
+        actionCoreCount: 4,
+        watchlistCount: 2,
+        archiveCount: 2,
+        degradedCount: 1,
+      },
     },
     creatives: [],
     lifecycleBoard: [
@@ -116,5 +122,6 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Operator Queues");
     expect(html).toContain("Concept Families");
     expect(html).toContain("Pattern Board");
+    expect(html).toContain("Degraded commercial truth");
   });
 });

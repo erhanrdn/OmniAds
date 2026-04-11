@@ -202,6 +202,38 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.commercialTruthCoverage.mode).toBe("conservative_fallback");
     expect(result.adSets[0]?.actionType).toBe("hold");
+    expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
+    expect(result.summary.surfaceSummary.degradedCount).toBeGreaterThan(0);
+  });
+
+  it("downgrades hard pauses to review-safe actions when commercial truth is missing", () => {
+    const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          spend: 420,
+          purchases: 6,
+          revenue: 180,
+          roas: 0.43,
+          cpa: 70,
+          ctr: 0.6,
+          impressions: 28000,
+          clicks: 180,
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.adSets[0]?.actionType).not.toBe("pause");
+    expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
+    expect(result.adSets[0]?.trust.operatorDisposition).not.toBe("standard");
   });
 
   it("marks stable winners as no-touch when commercial targets are configured", () => {

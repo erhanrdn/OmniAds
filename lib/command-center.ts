@@ -18,6 +18,12 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
+import {
+  DECISION_SURFACE_LANES,
+  type DecisionOperatorDisposition,
+  type DecisionSurfaceLane,
+  type DecisionTruthState,
+} from "@/src/types/decision-trust";
 
 export const COMMAND_CENTER_CONTRACT_VERSION = "command-center.v1" as const;
 export const COMMAND_CENTER_ACTION_FINGERPRINT_VERSION =
@@ -108,6 +114,10 @@ export interface CommandCenterAction {
   actionFingerprint: string;
   sourceSystem: CommandCenterSourceSystem;
   sourceType: CommandCenterSourceType;
+  surfaceLane: DecisionSurfaceLane;
+  truthState: DecisionTruthState;
+  operatorDisposition: DecisionOperatorDisposition;
+  trustReasons: string[];
   title: string;
   recommendedAction: string;
   confidence: number;
@@ -166,6 +176,7 @@ export interface CommandCenterSavedViewDefinition {
   statuses?: CommandCenterActionStatus[];
   tags?: string[];
   watchlistOnly?: boolean;
+  surfaceLanes?: DecisionSurfaceLane[];
 }
 
 export interface CommandCenterSavedView {
@@ -221,12 +232,15 @@ export interface CommandCenterResponse {
   permissions: CommandCenterPermissions;
   summary: {
     totalActions: number;
+    actionCoreCount: number;
     pendingCount: number;
     approvedCount: number;
     rejectedCount: number;
     snoozedCount: number;
     assignedCount: number;
     watchlistCount: number;
+    archiveCount: number;
+    degradedCount: number;
   };
   actions: CommandCenterAction[];
   savedViews: CommandCenterSavedView[];
@@ -270,6 +284,7 @@ export const COMMAND_CENTER_BUILT_IN_VIEWS = [
     definition: {
       watchlistOnly: false,
       statuses: ["pending", "approved", "failed"] satisfies CommandCenterActionStatus[],
+      surfaceLanes: ["action_core"] satisfies DecisionSurfaceLane[],
     },
   },
   {
@@ -312,6 +327,14 @@ export const COMMAND_CENTER_BUILT_IN_VIEWS = [
     name: "No-touch surfaces",
     definition: {
       watchlistOnly: true,
+      surfaceLanes: ["watchlist"] satisfies DecisionSurfaceLane[],
+    },
+  },
+  {
+    viewKey: "archive_context",
+    name: "Archive context",
+    definition: {
+      surfaceLanes: ["archive_context"] satisfies DecisionSurfaceLane[],
     },
   },
   {
@@ -535,6 +558,10 @@ export function aggregateCommandCenterActions(input: {
           sourceType: "meta_adset_decision",
           entityType: "adset",
           entityId: decision.adSetId,
+          surfaceLane: decision.trust.surfaceLane,
+          truthState: decision.trust.truthState,
+          operatorDisposition: decision.trust.operatorDisposition,
+          trustReasons: decision.trust.reasons,
           title: decision.adSetName,
           recommendedAction: decision.actionType,
           confidence: clampConfidence(decision.confidence),
@@ -556,7 +583,7 @@ export function aggregateCommandCenterActions(input: {
             },
           ],
           tags: metaAdSetTags(decision),
-          watchlistOnly: false,
+          watchlistOnly: decision.trust.surfaceLane === "watchlist",
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
@@ -578,6 +605,10 @@ export function aggregateCommandCenterActions(input: {
           sourceType: "meta_budget_shift",
           entityType: "campaign",
           entityId: `${shift.fromCampaignId}:${shift.toCampaignId}`,
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          trustReasons: [shift.whyNow],
           title: `${shift.from} -> ${shift.to}`,
           recommendedAction: "budget_shift",
           confidence: clampConfidence(shift.confidence),
@@ -633,6 +664,10 @@ export function aggregateCommandCenterActions(input: {
           sourceType: "meta_geo_decision",
           entityType: "geo",
           entityId: decision.geoKey,
+          surfaceLane: decision.trust.surfaceLane,
+          truthState: decision.trust.truthState,
+          operatorDisposition: decision.trust.operatorDisposition,
+          trustReasons: decision.trust.reasons,
           title: decision.label,
           recommendedAction: decision.action,
           confidence: clampConfidence(decision.confidence),
@@ -657,7 +692,7 @@ export function aggregateCommandCenterActions(input: {
               ? ["high_risk_actions"]
               : []),
           ],
-          watchlistOnly: false,
+          watchlistOnly: decision.trust.surfaceLane === "watchlist",
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
@@ -679,6 +714,10 @@ export function aggregateCommandCenterActions(input: {
           sourceType: "meta_placement_anomaly",
           entityType: "placement",
           entityId: anomaly.placementKey,
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          trustReasons: [anomaly.note],
           title: anomaly.label,
           recommendedAction: anomaly.action,
           confidence: clampConfidence(anomaly.confidence),
@@ -737,6 +776,10 @@ export function aggregateCommandCenterActions(input: {
           sourceType: "creative_primary_decision",
           entityType: "creative",
           entityId: creative.creativeId,
+          surfaceLane: creative.trust.surfaceLane,
+          truthState: creative.trust.truthState,
+          operatorDisposition: creative.trust.operatorDisposition,
+          trustReasons: creative.trust.reasons,
           title: creative.name,
           recommendedAction: creative.primaryAction,
           confidence: clampConfidence(creative.confidence),
@@ -777,7 +820,7 @@ export function aggregateCommandCenterActions(input: {
             ...creativeTags(creative),
             ...(watchlistOnly ? ["promo_mode_watchlist"] : []),
           ],
-          watchlistOnly,
+          watchlistOnly: creative.trust.surfaceLane === "watchlist" || watchlistOnly,
           sourceContext: {
             sourceLabel: "Creative Decision OS",
             operatingMode,
@@ -832,6 +875,10 @@ function metaNoTouchAction(input: {
     }),
     sourceSystem: "meta",
     sourceType: "meta_no_touch_item",
+    surfaceLane: "watchlist",
+    truthState: "live_confident",
+    operatorDisposition: "protected_watchlist",
+    trustReasons: [input.item.reason],
     title: input.item.label,
     recommendedAction: "hold_no_touch",
     confidence: clampConfidence(input.item.confidence),
@@ -947,12 +994,17 @@ export function resolveNextCommandCenterStatus(input: {
 export function summarizeCommandCenterActions(actions: CommandCenterAction[]) {
   return {
     totalActions: actions.length,
+    actionCoreCount: actions.filter((action) => action.surfaceLane === "action_core").length,
     pendingCount: actions.filter((action) => action.status === "pending").length,
     approvedCount: actions.filter((action) => action.status === "approved").length,
     rejectedCount: actions.filter((action) => action.status === "rejected").length,
     snoozedCount: actions.filter((action) => action.status === "snoozed").length,
     assignedCount: actions.filter((action) => Boolean(action.assigneeUserId)).length,
-    watchlistCount: actions.filter((action) => action.watchlistOnly).length,
+    watchlistCount: actions.filter((action) => action.surfaceLane === "watchlist").length,
+    archiveCount: actions.filter((action) => action.surfaceLane === "archive_context").length,
+    degradedCount: actions.filter(
+      (action) => action.truthState === "degraded_missing_truth",
+    ).length,
   };
 }
 
@@ -964,6 +1016,13 @@ export function filterCommandCenterActionsByView(
     if (
       definition.watchlistOnly != null &&
       action.watchlistOnly !== definition.watchlistOnly
+    ) {
+      return false;
+    }
+    if (
+      definition.surfaceLanes &&
+      definition.surfaceLanes.length > 0 &&
+      !definition.surfaceLanes.includes(action.surfaceLane)
     ) {
       return false;
     }
@@ -1043,12 +1102,19 @@ export function sanitizeCommandCenterSavedViewDefinition(
     typeof candidate.watchlistOnly === "boolean"
       ? candidate.watchlistOnly
       : undefined;
+  const surfaceLanes = Array.isArray(candidate.surfaceLanes)
+    ? candidate.surfaceLanes.filter((value): value is DecisionSurfaceLane =>
+        typeof value === "string" &&
+        DECISION_SURFACE_LANES.includes(value as DecisionSurfaceLane),
+      )
+    : undefined;
 
   return {
     ...(sourceTypes && sourceTypes.length > 0 ? { sourceTypes } : {}),
     ...(statuses && statuses.length > 0 ? { statuses } : {}),
     ...(tags && tags.length > 0 ? { tags } : {}),
     ...(watchlistOnly != null ? { watchlistOnly } : {}),
+    ...(surfaceLanes && surfaceLanes.length > 0 ? { surfaceLanes } : {}),
   };
 }
 

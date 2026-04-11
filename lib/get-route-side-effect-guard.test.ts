@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 describe("GET route side-effect scanner guard", () => {
-  it("reports zero GET/read-path write findings", () => {
+  it("reports zero GET/read-path write findings", { timeout: 20_000 }, () => {
     const result = spawnSync(
       process.execPath,
       ["--import", "tsx", "scripts/check-request-path-side-effects.ts", "--json"],

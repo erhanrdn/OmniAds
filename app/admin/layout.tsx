@@ -26,6 +26,7 @@ const navGroups = [
       { href: "/admin/integrations", label: "Entegrasyon Sağlığı", icon: AlertTriangle },
       { href: "/admin/auth-health", label: "Auth & OAuth", icon: KeyRound },
       { href: "/admin/sync-health", label: "Sync Health", icon: RefreshCw },
+      { href: "/admin/release-authority", label: "Release Authority", icon: ShieldCheck },
       { href: "/admin/revenue-risk", label: "Revenue Risk", icon: TrendingDown },
     ],
   },

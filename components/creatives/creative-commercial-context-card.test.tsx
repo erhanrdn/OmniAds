@@ -31,6 +31,12 @@ let mockQuery: Record<string, unknown> = {
     ],
     platformInputs: [],
     missingInputs: ["Meta location breakdown is unavailable for the live decision window."],
+    degradedMode: {
+      active: false,
+      confidenceCap: null,
+      reasons: [],
+      safeActionLabels: [],
+    },
   },
 };
 

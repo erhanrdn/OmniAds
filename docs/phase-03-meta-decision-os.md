@@ -1,5 +1,8 @@
 # Phase 03 - Meta Decision OS V1
 
+> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> This document remains a design and contract reference.
+
 ## Goal
 
 Phase 03 turns the Meta page from a read-only reporting view into a deterministic operator decision center.

@@ -1,5 +1,8 @@
 # Phase 06: Safe Execution Layer V1
 
+> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> This document remains a design and contract reference.
+
 Phase 06 extends Command Center from a deterministic decision queue into a human-approved execution surface.
 
 ## V1 scope

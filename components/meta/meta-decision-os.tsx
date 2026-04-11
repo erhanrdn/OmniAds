@@ -29,6 +29,25 @@ function actionTone(action: string) {
   return "bg-slate-500/10 text-slate-700";
 }
 
+function trustTone(
+  disposition: MetaAdSetDecision["trust"]["operatorDisposition"],
+) {
+  if (disposition === "protected_watchlist") return "bg-blue-500/10 text-blue-700";
+  if (disposition === "archive_only") return "bg-slate-500/10 text-slate-700";
+  if (disposition === "degraded_no_scale") return "bg-orange-500/10 text-orange-700";
+  if (disposition === "review_hold" || disposition === "review_reduce") {
+    return "bg-amber-500/10 text-amber-700";
+  }
+  if (disposition === "monitor_low_truth") return "bg-sky-500/10 text-sky-700";
+  return "bg-slate-500/10 text-slate-700";
+}
+
+function laneTone(lane: MetaAdSetDecision["trust"]["surfaceLane"]) {
+  if (lane === "action_core") return "bg-emerald-500/10 text-emerald-700";
+  if (lane === "watchlist") return "bg-blue-500/10 text-blue-700";
+  return "bg-slate-500/10 text-slate-700";
+}
+
 function EvidenceChips({
   evidence,
 }: {
@@ -98,12 +117,30 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
               no-touch
             </span>
           ) : null}
+          {decision.trust.operatorDisposition !== "standard" ? (
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                trustTone(decision.trust.operatorDisposition),
+              )}
+            >
+              {formatActionLabel(decision.trust.operatorDisposition)}
+            </span>
+          ) : null}
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{decision.reasons[0]}</p>
       <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
         <span>ROAS {decision.supportingMetrics.roas.toFixed(2)}x</span>
         <span>Spend ${decision.supportingMetrics.spend.toFixed(0)}</span>
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 capitalize",
+            laneTone(decision.trust.surfaceLane),
+          )}
+        >
+          {decision.trust.surfaceLane.replaceAll("_", " ")}
+        </span>
         <span className={confidenceTone(decision.confidence)}>
           Confidence {(decision.confidence * 100).toFixed(0)}%
         </span>
@@ -133,7 +170,25 @@ function GeoDecisionRow({ decision }: { decision: MetaGeoDecision }) {
         </span>
       </div>
       <p className="mt-2 text-xs text-slate-600">{decision.why}</p>
-      <div className="mt-2 text-[11px] text-slate-500">
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 capitalize",
+            laneTone(decision.trust.surfaceLane),
+          )}
+        >
+          {decision.trust.surfaceLane.replaceAll("_", " ")}
+        </span>
+        {decision.trust.operatorDisposition !== "standard" ? (
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 capitalize",
+              trustTone(decision.trust.operatorDisposition),
+            )}
+          >
+            {formatActionLabel(decision.trust.operatorDisposition)}
+          </span>
+        ) : null}
         Confidence {(decision.confidence * 100).toFixed(0)}%
       </div>
     </div>
@@ -178,6 +233,13 @@ export function MetaDecisionOsOverview({
 
   if (!decisionOs) return null;
 
+  const actionCoreAdSets = decisionOs.adSets.filter(
+    (decision) => decision.trust.surfaceLane === "action_core",
+  );
+  const actionCoreGeos = decisionOs.geoDecisions.filter(
+    (decision) => decision.trust.surfaceLane === "action_core",
+  );
+
   return (
     <div className="space-y-4" data-testid="meta-decision-os-overview">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -211,6 +273,18 @@ export function MetaDecisionOsOverview({
           ) : null}
         </div>
         <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
+            Action core {decisionOs.summary.surfaceSummary.actionCoreCount}
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
+            Watchlist {decisionOs.summary.surfaceSummary.watchlistCount}
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
+            Archive {decisionOs.summary.surfaceSummary.archiveCount}
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
+            Degraded {decisionOs.summary.surfaceSummary.degradedCount}
+          </div>
           {decisionOs.summary.todayPlan.slice(0, 6).map((item) => (
             <div
               key={item}
@@ -220,6 +294,11 @@ export function MetaDecisionOsOverview({
             </div>
           ))}
         </div>
+        {decisionOs.summary.surfaceSummary.degradedCount > 0 ? (
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Commercial truth is incomplete, so aggressive actions were downgraded into review-safe dispositions.
+          </div>
+        ) : null}
       </div>
 
       <DecisionListCard
@@ -258,11 +337,11 @@ export function MetaDecisionOsOverview({
         testId="meta-top-adset-actions"
         empty="No ad set actions are available."
       >
-        {decisionOs.adSets.length === 0 ? (
+        {actionCoreAdSets.length === 0 ? (
           <p className="text-xs text-slate-500">No ad set actions are available.</p>
         ) : (
           <div className="space-y-3">
-            {decisionOs.adSets.slice(0, 5).map((decision) => (
+            {actionCoreAdSets.slice(0, 5).map((decision) => (
               <AdSetDecisionRow key={decision.decisionId} decision={decision} />
             ))}
           </div>
@@ -270,11 +349,11 @@ export function MetaDecisionOsOverview({
       </DecisionListCard>
 
       <DecisionListCard title="GEO OS" testId="meta-geo-board" empty="No GEO actions are available.">
-        {decisionOs.geoDecisions.length === 0 ? (
+        {actionCoreGeos.length === 0 ? (
           <p className="text-xs text-slate-500">No GEO actions are available.</p>
         ) : (
           <div className="space-y-3">
-            {decisionOs.geoDecisions.slice(0, 5).map((decision) => (
+            {actionCoreGeos.slice(0, 5).map((decision) => (
               <GeoDecisionRow key={decision.geoKey} decision={decision} />
             ))}
           </div>
@@ -354,6 +433,16 @@ export function MetaCampaignDecisionPanel({
             {campaignDecision.noTouch ? (
               <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
                 no-touch
+              </span>
+            ) : null}
+            {campaignDecision.trust.operatorDisposition !== "standard" ? (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                  trustTone(campaignDecision.trust.operatorDisposition),
+                )}
+              >
+                {formatActionLabel(campaignDecision.trust.operatorDisposition)}
               </span>
             ) : null}
           </div>

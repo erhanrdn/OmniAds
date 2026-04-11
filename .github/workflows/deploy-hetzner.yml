@@ -426,6 +426,27 @@ jobs:
             require_public_build_match
           fi
 
+      - name: Setup Node for release verifier
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install verifier dependencies
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        run: npm ci
+
+      - name: Verify public release authority
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        run: |
+          set -euo pipefail
+
+          node --import tsx scripts/verify-release-authority.ts \
+            --mode=post_deploy \
+            --base-url=https://adsecute.com \
+            --expected-build-id=${{ steps.deploy_sha.outputs.sha }}
+
       - name: Smoke test public ingress
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
         shell: bash

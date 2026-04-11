@@ -81,6 +81,19 @@ export function CreativeCommercialContextCard({
       <p className="mt-2 text-[11px] text-slate-500">
         Decision as of {query.data.decisionAsOf} · primary window {query.data.decisionWindows.primary30d.startDate} to {query.data.decisionWindows.primary30d.endDate}
       </p>
+      {query.data.degradedMode.active ? (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <p className="font-semibold uppercase tracking-[0.14em] text-amber-700">
+            Degraded Mode
+          </p>
+          <p className="mt-1">
+            Commercial truth is incomplete, so scaling recommendations stay in review-safe mode.
+          </p>
+          <p className="mt-2">
+            Safe labels: {query.data.degradedMode.safeActionLabels.map((label) => label.replaceAll("_", " ")).join(", ")}
+          </p>
+        </div>
+      ) : null}
       {query.data.activeCommercialInputs.length > 0 ? (
         <div className="mt-3 space-y-1.5">
           {query.data.activeCommercialInputs.slice(0, 3).map((row) => (

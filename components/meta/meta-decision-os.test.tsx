@@ -30,6 +30,12 @@ function payload() {
       noTouchSummary: "One no-touch",
       operatingMode: { currentMode: "Exploit", recommendedMode: "Exploit", confidence: 0.82 },
       confidence: 0.82,
+      surfaceSummary: {
+        actionCoreCount: 3,
+        watchlistCount: 1,
+        archiveCount: 0,
+        degradedCount: 1,
+      },
     },
     campaigns: [
       {
@@ -46,6 +52,12 @@ function payload() {
         whatWouldChangeThisDecision: [],
         adSetDecisionIds: ["decision_1"],
         laneLabel: "Scaling",
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Winning lane"],
+        },
       },
     ],
     adSets: [
@@ -79,6 +91,12 @@ function payload() {
         },
         whatWouldChangeThisDecision: [],
         noTouch: false,
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "review_reduce",
+          reasons: ["Commercial truth is incomplete."],
+        },
       },
     ],
     budgetShifts: [
@@ -108,6 +126,12 @@ function payload() {
         evidence: [],
         guardrails: [],
         whatWouldChangeThisDecision: [],
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Winner geo"],
+        },
       },
     ],
     placementAnomalies: [
@@ -155,6 +179,7 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Top Ad Set Actions");
     expect(html).toContain("GEO OS");
     expect(html).toContain("No-Touch List");
+    expect(html).toContain("Commercial truth is incomplete");
   });
 
   it("renders the selected campaign decision panel", () => {

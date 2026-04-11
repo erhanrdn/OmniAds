@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildAccountOperatingMode } from "@/lib/business-operating-mode";
 import {
+  createEmptyCountryEconomicsRow,
   createEmptyBusinessCommercialTruthSnapshot,
   createEmptyOperatingConstraints,
   createEmptyPromoCalendarEvent,
@@ -17,6 +18,9 @@ function buildBaseSnapshot() {
     breakEvenCpa: 62,
   };
   snapshot.operatingConstraints = createEmptyOperatingConstraints();
+  snapshot.countryEconomics = [
+    createEmptyCountryEconomicsRow({ countryCode: "GB" }),
+  ];
   return snapshot;
 }
 
@@ -143,6 +147,8 @@ describe("business operating mode", () => {
 
     expect(result.recommendedMode).toBe("Explore");
     expect(result.missingInputs.length).toBeGreaterThan(0);
+    expect(result.degradedMode.active).toBe(true);
+    expect(result.degradedMode.safeActionLabels).toContain("review_hold");
   });
 
   it("keeps operating mode stable when the analytics window changes", () => {

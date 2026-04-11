@@ -1,5 +1,8 @@
 # Phase 04 - Creative Decision OS V1
 
+> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> This document remains a design and contract reference.
+
 ## Goal
 
 Phase 04 turns `/creatives` into a concept-first operator decision center.

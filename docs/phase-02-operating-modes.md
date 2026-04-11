@@ -1,5 +1,8 @@
 # Phase 02 Operating Modes
 
+> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> This document remains a design and contract reference.
+
 ## Route
 
 `GET /api/business-operating-mode?businessId=<id>&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD`

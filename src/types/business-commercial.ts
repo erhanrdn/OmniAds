@@ -3,6 +3,7 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
+import type { DecisionSafeActionLabel } from "@/src/types/decision-trust";
 
 export const BUSINESS_RISK_POSTURES = ["conservative", "balanced", "aggressive"] as const;
 export type BusinessRiskPosture = (typeof BUSINESS_RISK_POSTURES)[number];
@@ -155,6 +156,12 @@ export interface AccountOperatingModePayload {
   activeCommercialInputs: AccountOperatingModeLineItem[];
   platformInputs: AccountOperatingModeLineItem[];
   missingInputs: string[];
+  degradedMode: {
+    active: boolean;
+    confidenceCap: number | null;
+    reasons: string[];
+    safeActionLabels: DecisionSafeActionLabel[];
+  };
 }
 
 function createSectionMeta(): BusinessCommercialSectionMeta {

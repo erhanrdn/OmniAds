@@ -52,7 +52,7 @@ export default defineConfig({
   webServer: useWebServer
     ? {
         command:
-          "ALLOW_INSECURE_LOCAL_AUTH_COOKIE=1 HOSTNAME=127.0.0.1 PORT=3000 node --env-file=.env.local .next/standalone/server.js",
+          "node --env-file=.env.local scripts/start-local-smoke-server.mjs",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,

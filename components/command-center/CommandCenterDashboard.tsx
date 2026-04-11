@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ import type {
   CommandCenterResponse,
   CommandCenterSavedViewDefinition,
 } from "@/lib/command-center";
+import { filterCommandCenterActionsByView } from "@/lib/command-center";
 import type { CommandCenterExecutionPreview } from "@/lib/command-center-execution";
 import { cn } from "@/lib/utils";
 import {
@@ -74,6 +75,41 @@ function resolveStatusTone(status: CommandCenterActionStatus) {
 
 function formatActionLabel(value: string) {
   return value.replaceAll("_", " ");
+}
+
+function formatSurfaceLane(value: CommandCenterAction["surfaceLane"]) {
+  return value.replaceAll("_", " ");
+}
+
+function resolveSurfaceLaneTone(lane: CommandCenterAction["surfaceLane"]) {
+  if (lane === "action_core") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (lane === "watchlist") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function resolveDispositionTone(
+  disposition: CommandCenterAction["operatorDisposition"],
+) {
+  if (disposition === "protected_watchlist") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  if (disposition === "archive_only") {
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+  if (disposition === "review_hold" || disposition === "review_reduce") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (disposition === "degraded_no_scale") {
+    return "border-orange-200 bg-orange-50 text-orange-700";
+  }
+  if (disposition === "monitor_low_truth") {
+    return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
 function resolveExecutionSupportTone(
@@ -122,6 +158,11 @@ function buildSavedViewDefinition(input: {
   const next: CommandCenterSavedViewDefinition = {
     ...(input.currentViewDefinition ?? {}),
   };
+  if (input.watchlistOnly) {
+    next.surfaceLanes = ["watchlist"];
+  } else if (!input.currentViewDefinition?.surfaceLanes?.length) {
+    next.surfaceLanes = ["action_core"];
+  }
   if (input.sourceFilter !== "all") {
     next.sourceTypes =
       input.sourceFilter === "meta"
@@ -216,9 +257,26 @@ function ActionCard({
               {formatActionLabel(action.status)}
             </Badge>
             <Badge variant="outline">{action.sourceContext.sourceLabel}</Badge>
-            {action.watchlistOnly ? (
-              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-                watchlist
+            <Badge
+              variant="outline"
+              className={cn("capitalize", resolveSurfaceLaneTone(action.surfaceLane))}
+            >
+              {formatSurfaceLane(action.surfaceLane)}
+            </Badge>
+            {action.operatorDisposition !== "standard" ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "capitalize",
+                  resolveDispositionTone(action.operatorDisposition),
+                )}
+              >
+                {formatActionLabel(action.operatorDisposition)}
+              </Badge>
+            ) : null}
+            {action.truthState === "degraded_missing_truth" ? (
+              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                degraded truth
               </Badge>
             ) : null}
           </div>
@@ -258,6 +316,9 @@ export function CommandCenterDashboard() {
   );
   const [selectedActionFingerprint, setSelectedActionFingerprint] = useState<string | null>(
     searchParams.get("action"),
+  );
+  const [executionSheetOpen, setExecutionSheetOpen] = useState(
+    Boolean(searchParams.get("action")),
   );
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -305,39 +366,12 @@ export function CommandCenterDashboard() {
 
   const baseActions = useMemo(() => {
     if (!query.data) return [];
-    if (!selectedView) return query.data.actions;
-
-    const definition = selectedView.definition;
-    return query.data.actions.filter((action) => {
-      if (
-        definition.watchlistOnly != null &&
-        action.watchlistOnly !== definition.watchlistOnly
-      ) {
-        return false;
-      }
-      if (
-        definition.sourceTypes &&
-        definition.sourceTypes.length > 0 &&
-        !definition.sourceTypes.includes(action.sourceType)
-      ) {
-        return false;
-      }
-      if (
-        definition.statuses &&
-        definition.statuses.length > 0 &&
-        !definition.statuses.includes(action.status)
-      ) {
-        return false;
-      }
-      if (
-        definition.tags &&
-        definition.tags.length > 0 &&
-        !definition.tags.some((tag) => action.tags.includes(tag))
-      ) {
-        return false;
-      }
-      return true;
-    });
+    if (!selectedView) {
+      return filterCommandCenterActionsByView(query.data.actions, {
+        surfaceLanes: ["action_core"],
+      });
+    }
+    return filterCommandCenterActionsByView(query.data.actions, selectedView.definition);
   }, [query.data, selectedView]);
 
   const filteredActions = useMemo(
@@ -360,8 +394,24 @@ export function CommandCenterDashboard() {
     ) ??
     null;
 
+  useEffect(() => {
+    if (!selectedAction) {
+      setExecutionSheetOpen(false);
+    }
+  }, [selectedAction]);
+
   const watchlistActions = useMemo(
-    () => query.data?.actions.filter((action) => action.watchlistOnly).slice(0, 6) ?? [],
+    () =>
+      query.data?.actions
+        .filter((action) => action.surfaceLane === "watchlist")
+        .slice(0, 6) ?? [],
+    [query.data],
+  );
+  const archiveContextActions = useMemo(
+    () =>
+      query.data?.actions
+        .filter((action) => action.surfaceLane === "archive_context")
+        .slice(0, 6) ?? [],
     [query.data],
   );
 
@@ -640,8 +690,8 @@ export function CommandCenterDashboard() {
         {payload ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
-              label="Total actions"
-              value={payload.summary.totalActions}
+              label="Action core"
+              value={payload.summary.actionCoreCount}
               icon={<ArrowRight className="h-4 w-4" />}
             />
             <SummaryCard
@@ -650,15 +700,26 @@ export function CommandCenterDashboard() {
               icon={<Clock3 className="h-4 w-4" />}
             />
             <SummaryCard
-              label="Assigned"
-              value={payload.summary.assignedCount}
-              icon={<Users className="h-4 w-4" />}
-            />
-            <SummaryCard
               label="Watchlist"
               value={payload.summary.watchlistCount}
               icon={<ShieldAlert className="h-4 w-4" />}
             />
+            <SummaryCard
+              label="Archive"
+              value={payload.summary.archiveCount}
+              icon={<Users className="h-4 w-4" />}
+            />
+          </div>
+        ) : null}
+
+        {payload && payload.summary.degradedCount > 0 ? (
+          <div
+            className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            data-testid="command-center-degraded-banner"
+          >
+            {payload.summary.degradedCount} queue items are trust-capped because
+            commercial truth is incomplete. Default queue shows only action-core
+            actions; watchlist and archive lanes stay separate.
           </div>
         ) : null}
 
@@ -687,7 +748,7 @@ export function CommandCenterDashboard() {
             size="sm"
             onClick={() => setActiveViewKey(null)}
           >
-            All actions
+            Default queue
           </Button>
           {(payload?.savedViews ?? []).map((view) => (
             <div key={view.viewKey} className="flex items-center gap-1">
@@ -765,12 +826,16 @@ export function CommandCenterDashboard() {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-slate-950">Action queue</h2>
+                <h2 className="text-sm font-semibold text-slate-950">
+                  {selectedView ? "Action queue" : "Action core queue"}
+                </h2>
                 <p className="text-xs text-slate-500">
                   {filteredActions.length} visible actions
                 </p>
               </div>
-              <Badge variant="outline">deterministic queue only</Badge>
+              <Badge variant="outline">
+                {selectedView ? "deterministic queue only" : "action core only"}
+              </Badge>
             </div>
 
             {query.isLoading ? (
@@ -781,7 +846,9 @@ export function CommandCenterDashboard() {
               </div>
             ) : filteredActions.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
-                No actions match this view.
+                {selectedView
+                  ? "No actions match this view."
+                  : "No action-core items are ready in this window."}
               </div>
             ) : (
               <div className="space-y-3">
@@ -790,7 +857,10 @@ export function CommandCenterDashboard() {
                     key={action.actionFingerprint}
                     action={action}
                     active={action.actionFingerprint === selectedActionFingerprint}
-                    onSelect={() => setSelectedActionFingerprint(action.actionFingerprint)}
+                    onSelect={() => {
+                      setSelectedActionFingerprint(action.actionFingerprint);
+                      setExecutionSheetOpen(true);
+                    }}
                   />
                 ))}
               </div>
@@ -981,20 +1051,74 @@ export function CommandCenterDashboard() {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-slate-950">No-touch watchlist</h2>
+                <h2 className="text-sm font-semibold text-slate-950">Watchlist</h2>
                 <p className="text-xs text-slate-500">
-                  Surfaces kept out of the primary queue.
+                  Deterministic surfaces kept out of the default queue.
                 </p>
               </div>
               <Badge variant="outline">{watchlistActions.length}</Badge>
             </div>
             <div className="space-y-3">
-              {watchlistActions.map((action) => (
-                <div key={action.actionFingerprint} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-sm font-medium text-slate-900">{action.title}</p>
-                  <p className="mt-1 text-xs text-slate-600">{action.summary}</p>
+              {watchlistActions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+                  No watchlist items are active.
                 </div>
-              ))}
+              ) : (
+                watchlistActions.map((action) => (
+                  <div key={action.actionFingerprint} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-900">{action.title}</p>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "capitalize",
+                          resolveDispositionTone(action.operatorDisposition),
+                        )}
+                      >
+                        {formatActionLabel(action.operatorDisposition)}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">{action.summary}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">Archive context</h2>
+                <p className="text-xs text-slate-500">
+                  Inactive or immaterial rows retained for operator context.
+                </p>
+              </div>
+              <Badge variant="outline">{archiveContextActions.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {archiveContextActions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+                  No archive-context rows are attached to this window.
+                </div>
+              ) : (
+                archiveContextActions.map((action) => (
+                  <div key={action.actionFingerprint} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-900">{action.title}</p>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "capitalize",
+                          resolveSurfaceLaneTone(action.surfaceLane),
+                        )}
+                      >
+                        {formatSurfaceLane(action.surfaceLane)}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">{action.summary}</p>
+                  </div>
+                ))
+              )}
             </div>
           </section>
         </div>
@@ -1002,10 +1126,8 @@ export function CommandCenterDashboard() {
 
       <Sheet
         modal={false}
-        open={Boolean(selectedAction)}
-        onOpenChange={(open) => {
-          if (!open) setSelectedActionFingerprint(null);
-        }}
+        open={Boolean(selectedAction) && executionSheetOpen}
+        onOpenChange={setExecutionSheetOpen}
       >
         <SheetContent className="w-full sm:max-w-2xl" showOverlay={false}>
           {selectedAction ? (
@@ -1019,6 +1141,26 @@ export function CommandCenterDashboard() {
                     {formatActionLabel(selectedAction.status)}
                   </Badge>
                   <Badge variant="outline">{selectedAction.sourceContext.sourceLabel}</Badge>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "capitalize",
+                      resolveSurfaceLaneTone(selectedAction.surfaceLane),
+                    )}
+                  >
+                    {formatSurfaceLane(selectedAction.surfaceLane)}
+                  </Badge>
+                  {selectedAction.operatorDisposition !== "standard" ? (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "capitalize",
+                        resolveDispositionTone(selectedAction.operatorDisposition),
+                      )}
+                    >
+                      {formatActionLabel(selectedAction.operatorDisposition)}
+                    </Badge>
+                  ) : null}
                   {selectedAction.sourceContext.operatingMode ? (
                     <Badge variant="outline">
                       Operating Mode: {selectedAction.sourceContext.operatingMode}
@@ -1052,6 +1194,12 @@ export function CommandCenterDashboard() {
                       <p className="capitalize">{selectedAction.priority} priority</p>
                     </div>
                   </div>
+                  {selectedAction.truthState === "degraded_missing_truth" ? (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Commercial truth is incomplete, so this recommendation is
+                      limited to a review-safe disposition.
+                    </div>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {selectedAction.relatedEntities.map((entity) => (
                       <Badge key={`${entity.type}:${entity.id}`} variant="outline">

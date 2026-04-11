@@ -290,4 +290,112 @@ describe("buildCreativeDecisionOs", () => {
     expect(april.analyticsWindow.startDate).toBe("2026-04-01");
     expect(march.analyticsWindow.startDate).toBe("2026-03-01");
   });
+
+  it("routes low-truth and inactive creatives into explicit surface lanes", () => {
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      operatingMode: {
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        analyticsWindow: {
+          startDate: "2026-04-01",
+          endDate: "2026-04-10",
+          role: "analysis_only",
+        },
+        decisionWindows: {
+          recent7d: {
+            key: "recent7d",
+            label: "recent 7d",
+            startDate: "2026-04-04",
+            endDate: "2026-04-10",
+            days: 7,
+            role: "recent_watch",
+          },
+          primary30d: {
+            key: "primary30d",
+            label: "primary 30d",
+            startDate: "2026-03-12",
+            endDate: "2026-04-10",
+            days: 30,
+            role: "decision_authority",
+          },
+          baseline90d: {
+            key: "baseline90d",
+            label: "baseline 90d",
+            startDate: "2026-01-11",
+            endDate: "2026-04-10",
+            days: 90,
+            role: "historical_memory",
+          },
+        },
+        historicalMemory: {
+          available: true,
+          source: "rolling_baseline",
+          baselineWindowKey: "baseline90d",
+          startDate: "2026-01-11",
+          endDate: "2026-04-10",
+          lookbackDays: 90,
+          note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+        },
+        decisionAsOf: "2026-04-10",
+        currentMode: "Explore",
+        recommendedMode: "Explore",
+        confidence: 0.62,
+        why: ["Low-truth operating mode."],
+        guardrails: [],
+        changeTriggers: [],
+        activeCommercialInputs: [],
+        platformInputs: [],
+        missingInputs: ["Target pack is missing."],
+        degradedMode: {
+          active: true,
+          confidenceCap: 0.62,
+          reasons: ["Commercial truth is incomplete."],
+          safeActionLabels: ["review_hold", "degraded_no_scale"],
+        },
+      },
+      rows: [
+        buildRow({
+          creativeId: "scale",
+          spend: 420,
+          purchaseValue: 1512,
+          roas: 3.6,
+          purchases: 18,
+        }),
+        buildRow({
+          creativeId: "hold",
+          name: "Hold",
+          spend: 80,
+          purchaseValue: 120,
+          roas: 1.5,
+          purchases: 2,
+          impressions: 1800,
+          linkClicks: 24,
+        }),
+        buildRow({
+          creativeId: "retired",
+          name: "Retired",
+          spend: 4,
+          purchaseValue: 0,
+          roas: 0,
+          purchases: 0,
+          impressions: 120,
+          linkClicks: 4,
+          historicalWindows: {},
+        }),
+      ],
+    });
+
+    const byId = new Map(payload.creatives.map((creative) => [creative.creativeId, creative]));
+
+    expect(byId.get("scale")?.trust.operatorDisposition).toBe("degraded_no_scale");
+    expect(byId.get("scale")?.trust.surfaceLane).toBe("watchlist");
+    expect(byId.get("hold")?.trust.truthState).toBe("degraded_missing_truth");
+    expect(byId.get("retired")?.trust.surfaceLane).toBe("archive_context");
+    expect(payload.summary.surfaceSummary.watchlistCount).toBeGreaterThan(0);
+    expect(payload.summary.surfaceSummary.archiveCount).toBeGreaterThan(0);
+  });
 });

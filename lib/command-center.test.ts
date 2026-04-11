@@ -41,6 +41,12 @@ function metaFixture(): MetaDecisionOsV1Response {
         confidence: 0.84,
       },
       confidence: 0.82,
+      surfaceSummary: {
+        actionCoreCount: 3,
+        watchlistCount: 2,
+        archiveCount: 0,
+        degradedCount: 1,
+      },
     },
     campaigns: [],
     adSets: [
@@ -74,6 +80,12 @@ function metaFixture(): MetaDecisionOsV1Response {
         },
         whatWouldChangeThisDecision: [],
         noTouch: false,
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "degraded_no_scale",
+          reasons: ["Commercial truth is incomplete."],
+        },
       },
     ],
     budgetShifts: [
@@ -103,6 +115,12 @@ function metaFixture(): MetaDecisionOsV1Response {
         evidence: [{ label: "ROAS", value: "3.2x", impact: "positive" }],
         guardrails: ["Do not cut CA yet."],
         whatWouldChangeThisDecision: [],
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["US is outperforming."],
+        },
       },
     ],
     placementAnomalies: [],
@@ -151,6 +169,12 @@ function creativeFixture(): CreativeDecisionOsV1Response {
       message:
         "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: "Exploit",
+      surfaceSummary: {
+        actionCoreCount: 1,
+        watchlistCount: 1,
+        archiveCount: 0,
+        degradedCount: 1,
+      },
     },
     creatives: [
       {
@@ -249,6 +273,12 @@ function creativeFixture(): CreativeDecisionOsV1Response {
             legacyAction: "scale",
           },
         },
+        trust: {
+          surfaceLane: "watchlist",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "degraded_no_scale",
+          reasons: ["Commercial truth is incomplete."],
+        },
       },
       {
         creativeId: "creative_2",
@@ -345,6 +375,12 @@ function creativeFixture(): CreativeDecisionOsV1Response {
             primaryAction: "hold_no_touch",
             legacyAction: "watch",
           },
+        },
+        trust: {
+          surfaceLane: "watchlist",
+          truthState: "live_confident",
+          operatorDisposition: "protected_watchlist",
+          reasons: ["Needs more clean learning."],
         },
       },
     ],
@@ -460,6 +496,22 @@ describe("command center domain", () => {
     ).toBe(true);
   });
 
+  it("keeps the default action-core view free of watchlist lanes", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+
+    const actionCore = filterCommandCenterActionsByView(actions, {
+      surfaceLanes: ["action_core"],
+    });
+
+    expect(actionCore.every((action) => action.surfaceLane === "action_core")).toBe(true);
+  });
+
   it("enforces workflow transition guards", () => {
     expect(canTransitionCommandCenterStatus("pending", "approved")).toBe(true);
     expect(canTransitionCommandCenterStatus("approved", "completed_manual")).toBe(true);
@@ -485,12 +537,14 @@ describe("command center domain", () => {
         statuses: ["pending", "wat"],
         tags: ["budget_shifts"],
         watchlistOnly: true,
+        surfaceLanes: ["watchlist", "wat"],
       }),
     ).toEqual({
       sourceTypes: ["meta_budget_shift"],
       statuses: ["pending"],
       tags: ["budget_shifts"],
       watchlistOnly: true,
+      surfaceLanes: ["watchlist"],
     });
   });
 });

@@ -78,6 +78,10 @@ export function CreativeDecisionOsOverview({
 
   if (!decisionOs) return null;
 
+  const configuredSectionCount = Object.values(
+    decisionOs.commercialTruthCoverage.configuredSections,
+  ).filter(Boolean).length;
+
   return (
     <section
       className="space-y-4 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#fcfdff_0%,#f8fbff_100%)] p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]"
@@ -124,6 +128,38 @@ export function CreativeDecisionOsOverview({
           </div>
         ))}
       </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {[
+          ["Action core", decisionOs.summary.surfaceSummary.actionCoreCount],
+          ["Watchlist", decisionOs.summary.surfaceSummary.watchlistCount],
+          ["Archive", decisionOs.summary.surfaceSummary.archiveCount],
+          ["Degraded", decisionOs.summary.surfaceSummary.degradedCount],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {(decisionOs.summary.surfaceSummary.degradedCount > 0 ||
+        decisionOs.commercialTruthCoverage.missingInputs.length > 0) ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Degraded commercial truth</p>
+          <p className="mt-1">
+            {decisionOs.summary.surfaceSummary.degradedCount} deterministic rows are
+            trust-capped. Action-core queues exclude watchlist and archive lanes by
+            default.
+          </p>
+          <p className="mt-2 text-xs text-amber-800">
+            Configured sections: {configuredSectionCount}/4. Missing inputs:{" "}
+            {decisionOs.commercialTruthCoverage.missingInputs.length > 0
+              ? decisionOs.commercialTruthCoverage.missingInputs.join(", ")
+              : "none"}
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
         <div

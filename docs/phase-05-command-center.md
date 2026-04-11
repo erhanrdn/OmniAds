@@ -1,5 +1,8 @@
 # Phase 05 Command Center & Team Workflow V1
 
+> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> This document remains a design and contract reference.
+
 ## Scope
 - Phase 05 adds an operator workflow layer on top of shipped Phase 03 Meta Decision OS and Phase 04 Creative Decision OS.
 - Deterministic decision engines remain the source of truth for action candidates, evidence, guardrails, and operating-mode semantics.

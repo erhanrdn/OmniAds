@@ -7,6 +7,7 @@ import type {
   BusinessCommercialTruthSnapshot,
   BusinessCountryEconomicsRow,
 } from "@/src/types/business-commercial";
+import type { DecisionSafeActionLabel } from "@/src/types/decision-trust";
 
 interface AggregatedPerformanceMetrics {
   spend: number;
@@ -277,6 +278,44 @@ function changeTriggersForMode(mode: AccountOperatingMode, primaryWindowLabel: s
   ];
 }
 
+function buildDegradedMode(input: {
+  snapshot: BusinessCommercialTruthSnapshot;
+  lowSignal: boolean;
+  missingInputs: string[];
+}) {
+  const reasons: string[] = [];
+  let confidenceCap: number | null = null;
+  const safeActionLabels: DecisionSafeActionLabel[] = [];
+
+  if (!input.snapshot.targetPack) {
+    reasons.push("Target pack is missing, so aggressive pause/scale actions stay in review mode.");
+    confidenceCap = 0.68;
+    safeActionLabels.push("review_hold", "review_reduce", "degraded_no_scale");
+  }
+  if (input.snapshot.countryEconomics.length === 0) {
+    reasons.push("Country economics are missing, so GEO-aware scaling remains confidence-capped.");
+    confidenceCap = confidenceCap == null ? 0.68 : Math.min(confidenceCap, 0.68);
+    safeActionLabels.push("review_hold", "monitor_low_truth", "degraded_no_scale");
+  }
+  if (!input.snapshot.operatingConstraints) {
+    reasons.push("Operating constraints are missing, so commercial guardrails stay conservative.");
+    confidenceCap = confidenceCap == null ? 0.72 : Math.min(confidenceCap, 0.72);
+    safeActionLabels.push("review_hold", "monitor_low_truth");
+  }
+  if (input.lowSignal) {
+    reasons.push("Live signal depth is thin, so decisions stay capped to review-safe actions.");
+    confidenceCap = confidenceCap == null ? 0.62 : Math.min(confidenceCap, 0.62);
+    safeActionLabels.push("review_hold", "monitor_low_truth");
+  }
+
+  return {
+    active: reasons.length > 0 || input.missingInputs.length > 0,
+    confidenceCap,
+    reasons,
+    safeActionLabels: Array.from(new Set(safeActionLabels)),
+  } satisfies AccountOperatingModePayload["degradedMode"];
+}
+
 export function buildAccountOperatingMode(input: {
   businessId: string;
   startDate: string;
@@ -341,6 +380,9 @@ export function buildAccountOperatingMode(input: {
   const missingInputs: string[] = [];
   if (!input.snapshot.targetPack) {
     missingInputs.push("Target pack is not configured yet.");
+  }
+  if (input.snapshot.countryEconomics.length === 0) {
+    missingInputs.push("Country economics are not configured for the live decision window.");
   }
   if (!platform.hasCampaignData) {
     missingInputs.push("Meta live decision-window campaign data is unavailable.");
@@ -495,12 +537,21 @@ export function buildAccountOperatingMode(input: {
 
   let confidence = 0.9;
   if (!input.snapshot.targetPack) confidence -= 0.18;
+  if (input.snapshot.countryEconomics.length === 0) confidence -= 0.08;
   if (!platform.hasCampaignData) confidence -= 0.2;
   if (!platform.hasLocationData) confidence -= 0.08;
   if (!input.snapshot.operatingConstraints) confidence -= 0.08;
   if (lowSignal) confidence -= 0.12;
   if (mode === "Explore") confidence -= 0.05;
   confidence = Math.min(0.98, Math.max(0.3, round(confidence, 2)));
+  const degradedMode = buildDegradedMode({
+    snapshot: input.snapshot,
+    lowSignal,
+    missingInputs,
+  });
+  if (degradedMode.active && degradedMode.confidenceCap != null) {
+    confidence = Math.min(confidence, degradedMode.confidenceCap);
+  }
 
   return {
     businessId: input.businessId,
@@ -527,5 +578,6 @@ export function buildAccountOperatingMode(input: {
     activeCommercialInputs,
     platformInputs,
     missingInputs,
+    degradedMode,
   };
 }

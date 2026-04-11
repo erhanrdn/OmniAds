@@ -8,6 +8,11 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
+import type {
+  DecisionOperatorDisposition,
+  DecisionSurfaceLane,
+  DecisionTrustMetadata,
+} from "@/src/types/decision-trust";
 import {
   metaCampaignFamilyLabel,
   resolveMetaCampaignFamily,
@@ -277,6 +282,7 @@ export interface CreativeDecisionOsCreative {
   deployment: CreativeDecisionDeploymentRecommendation;
   pattern: CreativeDecisionPatternReference;
   report: CreativeRuleReportPayload;
+  trust: DecisionTrustMetadata;
 }
 
 export interface CreativeDecisionOsFamily {
@@ -358,6 +364,12 @@ export interface CreativeDecisionOsV1Response {
     comebackCount: number;
     message: string;
     operatingMode: AccountOperatingModePayload["recommendedMode"] | null;
+    surfaceSummary: {
+      actionCoreCount: number;
+      watchlistCount: number;
+      archiveCount: number;
+      degradedCount: number;
+    };
   };
   creatives: CreativeDecisionOsCreative[];
   families: CreativeDecisionOsFamily[];
@@ -420,6 +432,22 @@ function normalizeText(value: string | null | undefined) {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[^\w\s-]/g, "");
+}
+
+function buildDecisionTrust(input: {
+  surfaceLane: DecisionSurfaceLane;
+  truthState: DecisionTrustMetadata["truthState"];
+  operatorDisposition: DecisionOperatorDisposition;
+  reasons: Array<string | null | undefined>;
+}) {
+  return {
+    surfaceLane: input.surfaceLane,
+    truthState: input.truthState,
+    operatorDisposition: input.operatorDisposition,
+    reasons: input.reasons
+      .map((reason) => reason?.trim())
+      .filter((reason): reason is string => Boolean(reason)),
+  } satisfies DecisionTrustMetadata;
 }
 
 function normalizeMediaKey(value: string | null | undefined) {
@@ -934,6 +962,82 @@ function decidePrimaryAction(
   return "keep_in_test" as const;
 }
 
+function buildCreativeTrust(input: {
+  row: CreativeDecisionOsInputRow;
+  lifecycleState: CreativeDecisionLifecycleState;
+  primaryAction: CreativeDecisionPrimaryAction;
+  operatingMode: AccountOperatingModePayload | null | undefined;
+  historical: ReturnType<typeof buildHistoricalSummary>;
+  summary: string;
+}) {
+  const lowMateriality =
+    input.row.spend < 40 && input.row.purchases === 0 && input.row.impressions < 2_000;
+  const archiveContext =
+    input.lifecycleState === "retired" ||
+    (lowMateriality &&
+      input.primaryAction !== "retest_comeback" &&
+      input.historical.strongCount === 0);
+  const degradedMode = input.operatingMode?.degradedMode;
+
+  if (archiveContext) {
+    return buildDecisionTrust({
+      surfaceLane: "archive_context",
+      truthState: "inactive_or_immaterial",
+      operatorDisposition: "archive_only",
+      reasons: [
+        input.lifecycleState === "retired"
+          ? "Creative is retired from the live action core."
+          : "Creative signal is too small for the default action core.",
+        input.summary,
+      ],
+    });
+  }
+
+  if (input.primaryAction === "hold_no_touch") {
+    return buildDecisionTrust({
+      surfaceLane: "watchlist",
+      truthState: "live_confident",
+      operatorDisposition: "protected_watchlist",
+      reasons: [input.summary],
+    });
+  }
+
+  if (degradedMode?.active) {
+    if (input.primaryAction === "promote_to_scaling") {
+      return buildDecisionTrust({
+        surfaceLane: "watchlist",
+        truthState: "degraded_missing_truth",
+        operatorDisposition: "degraded_no_scale",
+        reasons: [...degradedMode.reasons, input.summary],
+      });
+    }
+    if (input.primaryAction === "keep_in_test") {
+      return buildDecisionTrust({
+        surfaceLane: lowMateriality ? "watchlist" : "action_core",
+        truthState: "degraded_missing_truth",
+        operatorDisposition: lowMateriality ? "monitor_low_truth" : "review_hold",
+        reasons: [...degradedMode.reasons, input.summary],
+      });
+    }
+  }
+
+  if (input.primaryAction === "keep_in_test" && lowMateriality) {
+    return buildDecisionTrust({
+      surfaceLane: "watchlist",
+      truthState: "live_confident",
+      operatorDisposition: "monitor_low_truth",
+      reasons: [input.summary],
+    });
+  }
+
+  return buildDecisionTrust({
+    surfaceLane: "action_core",
+    truthState: "live_confident",
+    operatorDisposition: "standard",
+    reasons: [input.summary],
+  });
+}
+
 function buildDeployment(
   row: CreativeDecisionOsInputRow,
   input: {
@@ -1157,6 +1261,9 @@ function buildLifecycleBoard(creatives: CreativeDecisionOsCreative[]) {
 }
 
 function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
+  const actionCoreCreatives = creatives.filter(
+    (creative) => creative.trust.surfaceLane === "action_core",
+  );
   const definitions = [
     {
       key: "promotion" as const,
@@ -1186,7 +1293,7 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
   ];
 
   return definitions.map((definition) => {
-    const matched = creatives.filter(definition.match);
+    const matched = actionCoreCreatives.filter(definition.match);
     return {
       key: definition.key,
       label: definition.label,
@@ -1244,6 +1351,12 @@ export function buildCreativeDecisionOs(
         comebackCount: 0,
         message: "No creative rows were available for the live decision window.",
         operatingMode: input.operatingMode?.recommendedMode ?? null,
+        surfaceSummary: {
+          actionCoreCount: 0,
+          watchlistCount: 0,
+          archiveCount: 0,
+          degradedCount: 0,
+        },
       },
       creatives: [],
       families: [],
@@ -1306,6 +1419,14 @@ export function buildCreativeDecisionOs(
     const summary = buildSummary(primaryAction, lifecycleState, benchmark, fatigue);
     const reasons = buildReasons(benchmark, fatigue, deployment);
     const familyLabel = chooseFamilyLabel(familyRows);
+    const trust = buildCreativeTrust({
+      row,
+      lifecycleState,
+      primaryAction,
+      operatingMode: input.operatingMode,
+      historical,
+      summary,
+    });
     const report: CreativeRuleReportPayload = {
       creativeId: row.creativeId,
       creativeName: row.name,
@@ -1433,6 +1554,7 @@ export function buildCreativeDecisionOs(
       deployment,
       pattern,
       report,
+      trust,
     };
   });
 
@@ -1498,6 +1620,20 @@ export function buildCreativeDecisionOs(
     input.commercialTruth,
     input.operatingMode,
   );
+  const surfaceSummary = {
+    actionCoreCount: creatives.filter(
+      (creative) => creative.trust.surfaceLane === "action_core",
+    ).length,
+    watchlistCount: creatives.filter(
+      (creative) => creative.trust.surfaceLane === "watchlist",
+    ).length,
+    archiveCount: creatives.filter(
+      (creative) => creative.trust.surfaceLane === "archive_context",
+    ).length,
+    degradedCount: creatives.filter(
+      (creative) => creative.trust.truthState === "degraded_missing_truth",
+    ).length,
+  };
 
   return {
     contractVersion: CREATIVE_DECISION_OS_CONTRACT_VERSION,
@@ -1528,6 +1664,7 @@ export function buildCreativeDecisionOs(
           ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and block outcomes."
           : "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: input.operatingMode?.recommendedMode ?? null,
+      surfaceSummary,
     },
     creatives,
     families: families.sort((left, right) => right.totalSpend - left.totalSpend),

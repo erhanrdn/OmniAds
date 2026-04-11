@@ -27,6 +27,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/me",
   "/api/auth/demo-login",
   "/api/build-info",
+  "/api/release-authority",
   "/api/invite",
   "/api/creatives/share",
   "/api/webhooks/shopify",
@@ -106,12 +107,13 @@ export function proxy(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
     if (hasSession && !hasLanguage) {
-      const languageUrl = new URL("/select-language", request.url);
-      const nextPath = `${pathname}${request.nextUrl.search}`;
-      if (nextPath !== "/select-language") {
-        languageUrl.searchParams.set("next", nextPath);
-      }
-      return NextResponse.redirect(languageUrl);
+      const response = NextResponse.next();
+      response.cookies.set(LANGUAGE_COOKIE, "en", {
+        path: "/",
+        maxAge: 31536000,
+        sameSite: "lax",
+      });
+      return response;
     }
   }
 

@@ -80,4 +80,28 @@ describe("proxy internal sync auth", () => {
       message: "Authentication required.",
     });
   });
+
+  it("allows the public release authority route without a session", () => {
+    const response = proxy(
+      buildRequest({
+        pathname: "/api/release-authority",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("hydrates a default language cookie for authenticated page requests", () => {
+    const response = proxy(
+      buildRequest({
+        pathname: "/platforms/meta",
+        sessionToken: "session_123",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.cookies.get("adsecute_locale")?.value).toBe("en");
+  });
 });

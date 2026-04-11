@@ -14,6 +14,11 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
+import type {
+  DecisionOperatorDisposition,
+  DecisionSurfaceLane,
+  DecisionTrustMetadata,
+} from "@/src/types/decision-trust";
 
 export const META_DECISION_OS_V1_CONTRACT = "meta-decision-os.v1" as const;
 
@@ -82,6 +87,7 @@ export interface MetaCampaignDecision {
   whatWouldChangeThisDecision: string[];
   adSetDecisionIds: string[];
   laneLabel: "Scaling" | "Validation" | "Test" | null;
+  trust: DecisionTrustMetadata;
 }
 
 export interface MetaAdSetDecision {
@@ -114,6 +120,7 @@ export interface MetaAdSetDecision {
   };
   whatWouldChangeThisDecision: string[];
   noTouch: boolean;
+  trust: DecisionTrustMetadata;
 }
 
 export interface MetaBudgetShift {
@@ -141,6 +148,7 @@ export interface MetaGeoDecision {
   evidence: MetaDecisionEvidence[];
   guardrails: string[];
   whatWouldChangeThisDecision: string[];
+  trust: DecisionTrustMetadata;
 }
 
 export interface MetaPlacementAnomaly {
@@ -183,6 +191,12 @@ export interface MetaDecisionOsSummary {
     confidence: number;
   } | null;
   confidence: number;
+  surfaceSummary: {
+    actionCoreCount: number;
+    watchlistCount: number;
+    archiveCount: number;
+    degradedCount: number;
+  };
 }
 
 export interface MetaDecisionOsV1Response {
@@ -470,6 +484,45 @@ function buildOperatingModeSummary(input: BuildMetaDecisionOsInput): AccountOper
   }
 }
 
+function buildDecisionTrust(input: {
+  surfaceLane: DecisionSurfaceLane;
+  truthState: DecisionTrustMetadata["truthState"];
+  operatorDisposition: DecisionOperatorDisposition;
+  reasons: Array<string | null | undefined>;
+}): DecisionTrustMetadata {
+  return {
+    surfaceLane: input.surfaceLane,
+    truthState: input.truthState,
+    operatorDisposition: input.operatorDisposition,
+    reasons: input.reasons
+      .map((reason) => reason?.trim())
+      .filter((reason): reason is string => Boolean(reason)),
+  };
+}
+
+function isInactiveMetaStatus(status: string | null | undefined) {
+  const normalized = normalizeText(status);
+  return normalized.length > 0 && normalized !== "active";
+}
+
+function isArchiveMetaAdSet(adSet: MetaAdSetData) {
+  if (isInactiveMetaStatus(adSet.status)) return true;
+  if (adSet.spend <= 0) return true;
+  if (adSet.spend < 60 && adSet.purchases === 0 && adSet.impressions < 3_000) {
+    return true;
+  }
+  return false;
+}
+
+function isArchiveMetaCampaign(campaign: MetaCampaignRow) {
+  if (isInactiveMetaStatus(campaign.status)) return true;
+  if (campaign.spend <= 0) return true;
+  if (campaign.spend < 90 && campaign.purchases === 0 && campaign.impressions < 8_000) {
+    return true;
+  }
+  return false;
+}
+
 function findGeoConstraint(
   snapshot: BusinessCommercialTruthSnapshot,
   countryCode: string | null,
@@ -546,6 +599,55 @@ function buildGeoAction(input: {
     confidence = 0.8;
   }
 
+  const archiveContext =
+    input.row.spend <= 0 ||
+    (thinSignal && input.row.spend < 120 && input.row.purchases === 0);
+  const degradedMissingTruth =
+    input.thresholds.mode === "conservative_fallback" ||
+    input.snapshot.countryEconomics.length === 0;
+  const watchlistAction = action === "monitor" || action === "pool" || action === "validate";
+  const trust = archiveContext
+    ? buildDecisionTrust({
+        surfaceLane: "archive_context",
+        truthState: "inactive_or_immaterial",
+        operatorDisposition: "archive_only",
+        reasons: [
+          "Geo signal is inactive or immaterial for the live action core.",
+          thinSignal ? "Thin-signal GEOs stay out of the default action core." : null,
+        ],
+      })
+    : degradedMissingTruth
+      ? buildDecisionTrust({
+          surfaceLane:
+            action === "scale" || action === "isolate" || watchlistAction
+              ? "watchlist"
+              : "action_core",
+          truthState: "degraded_missing_truth",
+          operatorDisposition:
+            action === "scale" || action === "isolate"
+              ? "degraded_no_scale"
+              : action === "cut"
+                ? "review_reduce"
+                : "monitor_low_truth",
+          reasons: [
+            "Commercial truth is incomplete, so GEO actions stay trust-capped.",
+            why,
+          ],
+        })
+      : watchlistAction
+        ? buildDecisionTrust({
+            surfaceLane: "watchlist",
+            truthState: "live_confident",
+            operatorDisposition: "monitor_low_truth",
+            reasons: [why],
+          })
+        : buildDecisionTrust({
+            surfaceLane: "action_core",
+            truthState: "live_confident",
+            operatorDisposition: "standard",
+            reasons: [why],
+          });
+
   return {
     geoKey: `${countryCode}:${action}`,
     countryCode,
@@ -572,6 +674,7 @@ function buildGeoAction(input: {
         ? "ROAS recovering above break-even or serviceability improving would reopen this GEO."
         : "More conversion depth or an explicit business override would change this GEO decision.",
     ],
+    trust,
   };
 }
 
@@ -677,6 +780,7 @@ function buildAdSetDecision(input: {
   let actionSize: MetaActionSize = "none";
   let priority: MetaDecisionPriority = "low";
   let confidence = 0.74;
+  let fallbackDisposition: DecisionOperatorDisposition | null = null;
 
   if (stockBlocked || manualDoNotScale) {
     actionType = "hold";
@@ -802,12 +906,30 @@ function buildAdSetDecision(input: {
     guardrails.push("Low-signal lanes should stay observable, not over-operated.");
   }
 
-  if (input.geoCoverageMode === "conservative_fallback" && (actionType === "scale_budget" || actionType === "broaden")) {
-    actionType = "hold";
-    actionSize = "none";
-    priority = "medium";
-    confidence = Math.min(confidence, 0.68);
-    actionReasons.unshift("Commercial targets are missing, so aggressive actions are downgraded to a safer hold.");
+  if (input.geoCoverageMode === "conservative_fallback") {
+    if (actionType === "pause") {
+      actionType = hasStrongSignal ? "reduce_budget" : "hold";
+      actionSize = hasStrongSignal ? "medium" : "none";
+      priority = "high";
+      confidence = Math.min(confidence, hasStrongSignal ? 0.72 : 0.66);
+      fallbackDisposition = hasStrongSignal ? "review_reduce" : "review_hold";
+      actionReasons.unshift(
+        "Commercial targets are missing, so a hard pause is downgraded to a review-safe action.",
+      );
+    } else if (actionType === "scale_budget" || actionType === "broaden") {
+      actionType = "hold";
+      actionSize = "none";
+      priority = "medium";
+      confidence = Math.min(confidence, 0.68);
+      fallbackDisposition = "degraded_no_scale";
+      actionReasons.unshift("Commercial targets are missing, so aggressive actions are downgraded to a safer hold.");
+    } else if (actionType === "reduce_budget") {
+      fallbackDisposition = "review_reduce";
+    } else if (actionType === "hold") {
+      fallbackDisposition = "review_hold";
+    } else if (actionType === "monitor_only") {
+      fallbackDisposition = "monitor_low_truth";
+    }
   }
   if (mixedConfig) confidence -= 0.08;
   if (recentChange) confidence -= 0.07;
@@ -827,6 +949,52 @@ function buildAdSetDecision(input: {
     actionReasons.unshift("This is a stable winner, so the safer move is to preserve it.");
     guardrails.push("Do not mix tests or structure changes into this winner path.");
   }
+
+  const archiveContext = isArchiveMetaAdSet(input.adSet);
+  const watchlistAction = noTouch || actionType === "hold" || actionType === "monitor_only";
+  const trust = archiveContext
+    ? buildDecisionTrust({
+        surfaceLane: "archive_context",
+        truthState: "inactive_or_immaterial",
+        operatorDisposition: "archive_only",
+        reasons: [
+          isInactiveMetaStatus(input.adSet.status)
+            ? `Ad set status is ${normalizeText(input.adSet.status)}.`
+            : "Ad set volume is too small for the live action core.",
+          actionReasons[0],
+        ],
+      })
+    : fallbackDisposition
+      ? buildDecisionTrust({
+          surfaceLane:
+            fallbackDisposition === "review_reduce" ? "action_core" : "watchlist",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: fallbackDisposition,
+          reasons: [
+            "Commercial truth is incomplete, so this action is trust-capped.",
+            actionReasons[0],
+          ],
+        })
+      : noTouch
+        ? buildDecisionTrust({
+            surfaceLane: "watchlist",
+            truthState: "live_confident",
+            operatorDisposition: "protected_watchlist",
+            reasons: [actionReasons[0]],
+          })
+        : watchlistAction
+          ? buildDecisionTrust({
+              surfaceLane: "watchlist",
+              truthState: "live_confident",
+              operatorDisposition: actionType === "monitor_only" ? "monitor_low_truth" : "review_hold",
+              reasons: [actionReasons[0]],
+            })
+          : buildDecisionTrust({
+              surfaceLane: "action_core",
+              truthState: "live_confident",
+              operatorDisposition: "standard",
+              reasons: [actionReasons[0]],
+            });
 
   return {
     decisionId: `${input.adSet.id}:${actionType}`,
@@ -869,6 +1037,7 @@ function buildAdSetDecision(input: {
         : "A stronger target hit, cleaner config, or more conversion depth would change this action.",
     ],
     noTouch,
+    trust,
   };
 }
 
@@ -916,6 +1085,62 @@ function buildCampaignDecision(input: {
   const why = noTouch
     ? "This campaign contains a stable winner that should be protected before making broader changes."
     : input.roleDecision.why;
+  const degradedFromAdSets = input.adSetDecisions.some(
+    (decision) => decision.trust.truthState === "degraded_missing_truth",
+  );
+  const archiveContext =
+    isArchiveMetaCampaign(input.campaign) ||
+    input.adSetDecisions.every(
+      (decision) => decision.trust.surfaceLane === "archive_context",
+    );
+  const watchlistAction =
+    noTouch ||
+    primaryAction === "hold" ||
+    primaryAction === "monitor_only" ||
+    input.adSetDecisions.some((decision) => decision.trust.surfaceLane === "watchlist");
+  const trust = archiveContext
+    ? buildDecisionTrust({
+        surfaceLane: "archive_context",
+        truthState: "inactive_or_immaterial",
+        operatorDisposition: "archive_only",
+        reasons: [
+          isInactiveMetaStatus(input.campaign.status)
+            ? `Campaign status is ${normalizeText(input.campaign.status)}.`
+            : "Campaign signal is inactive or immaterial for the default action core.",
+          why,
+        ],
+      })
+    : degradedFromAdSets
+      ? buildDecisionTrust({
+          surfaceLane: watchlistAction ? "watchlist" : "action_core",
+          truthState: "degraded_missing_truth",
+          operatorDisposition:
+            primaryAction === "reduce_budget" ? "review_reduce" : "review_hold",
+          reasons: [
+            "Related ad-set actions are trust-capped because commercial truth is incomplete.",
+            why,
+          ],
+        })
+      : noTouch
+        ? buildDecisionTrust({
+            surfaceLane: "watchlist",
+            truthState: "live_confident",
+            operatorDisposition: "protected_watchlist",
+            reasons: [why],
+          })
+        : watchlistAction
+          ? buildDecisionTrust({
+              surfaceLane: "watchlist",
+              truthState: "live_confident",
+              operatorDisposition: "review_hold",
+              reasons: [why],
+            })
+          : buildDecisionTrust({
+              surfaceLane: "action_core",
+              truthState: "live_confident",
+              operatorDisposition: "standard",
+              reasons: [why],
+            });
 
   return {
     campaignId: input.campaign.id,
@@ -945,6 +1170,7 @@ function buildCampaignDecision(input: {
     ],
     adSetDecisionIds: input.adSetDecisions.map((decision) => decision.decisionId),
     laneLabel: input.laneLabel,
+    trust,
   };
 }
 
@@ -953,10 +1179,13 @@ function buildBudgetShifts(input: {
   campaignRows: MetaCampaignRow[];
 }) {
   const byId = new Map(input.campaignRows.map((campaign) => [campaign.id, campaign]));
-  const donors = input.campaigns.filter((campaign) =>
+  const eligibleCampaigns = input.campaigns.filter(
+    (campaign) => campaign.trust.surfaceLane === "action_core",
+  );
+  const donors = eligibleCampaigns.filter((campaign) =>
     campaign.primaryAction === "pause" || campaign.primaryAction === "reduce_budget",
   );
-  const recipients = input.campaigns.filter((campaign) =>
+  const recipients = eligibleCampaigns.filter((campaign) =>
     campaign.primaryAction === "scale_budget" || campaign.primaryAction === "recover",
   );
   const maxRows = Math.min(donors.length, recipients.length, 4);
@@ -1020,7 +1249,11 @@ function buildNoTouchList(input: {
       guardrails: adSet.guardrails,
     });
   }
-  for (const geo of input.geoDecisions.filter((row) => row.action === "isolate" || row.action === "scale")) {
+  for (const geo of input.geoDecisions.filter(
+    (row) =>
+      (row.action === "isolate" || row.action === "scale") &&
+      row.trust.truthState === "live_confident",
+  )) {
     if (geo.confidence < 0.82) continue;
     items.push({
       entityType: "geo",
@@ -1043,6 +1276,7 @@ function buildSummary(input: {
   operatingMode: AccountOperatingModePayload | null;
 }): MetaDecisionOsSummary {
   const topAdSetActions = [...input.adSetDecisions]
+    .filter((decision) => decision.trust.surfaceLane === "action_core")
     .sort(
       (left, right) =>
         ACTION_PRIORITY[left.actionType] - ACTION_PRIORITY[right.actionType] ||
@@ -1055,10 +1289,16 @@ function buildSummary(input: {
         `${decision.campaignName} / ${decision.adSetName}: ${decision.actionType.replaceAll("_", " ")}`,
     ),
     ...input.geoDecisions
+      .filter((geo) => geo.trust.surfaceLane === "action_core")
       .filter((geo) => geo.action !== "monitor")
       .slice(0, 2)
       .map((geo) => `${geo.label}: ${geo.action}`),
   ].slice(0, 5);
+  const surfaceRows = [
+    ...input.campaignDecisions.map((decision) => decision.trust),
+    ...input.adSetDecisions.map((decision) => decision.trust),
+    ...input.geoDecisions.map((decision) => decision.trust),
+  ];
 
   return {
     todayPlanHeadline:
@@ -1086,6 +1326,16 @@ function buildSummary(input: {
         ? topAdSetActions.reduce((sum, decision) => sum + decision.confidence, 0) / topAdSetActions.length
         : 0.56,
     ),
+    surfaceSummary: {
+      actionCoreCount:
+        input.budgetShifts.length +
+        surfaceRows.filter((row) => row.surfaceLane === "action_core").length,
+      watchlistCount: surfaceRows.filter((row) => row.surfaceLane === "watchlist").length,
+      archiveCount: surfaceRows.filter((row) => row.surfaceLane === "archive_context").length,
+      degradedCount: surfaceRows.filter(
+        (row) => row.truthState === "degraded_missing_truth",
+      ).length,
+    },
   };
 }
 

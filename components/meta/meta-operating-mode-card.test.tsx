@@ -28,6 +28,12 @@ let mockQuery: Record<string, unknown> = {
     activeCommercialInputs: [{ label: "Target ROAS", detail: "2.40x" }],
     platformInputs: [{ label: "Primary window ROAS", detail: "3.10x" }],
     missingInputs: [],
+    degradedMode: {
+      active: false,
+      confidenceCap: null,
+      reasons: [],
+      safeActionLabels: [],
+    },
   },
 };
 
