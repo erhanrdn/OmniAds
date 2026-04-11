@@ -2,14 +2,23 @@ import type { NextRequest } from "next/server";
 import type { CommandCenterPermissions, CommandCenterResponse } from "@/lib/command-center";
 import {
   COMMAND_CENTER_CONTRACT_VERSION,
+  applyCommandCenterQueueSelection,
   aggregateCommandCenterActions,
+  buildCommandCenterDefaultQueueSummary,
   buildCommandCenterFiltersFromViewKey,
+  buildCommandCenterOwnerWorkload,
+  buildCommandCenterShiftDigest,
+  buildCommandCenterViewStacks,
+  compareCommandCenterActions,
+  decorateCommandCenterActionsWithThroughput,
   filterCommandCenterActionsByView,
+  summarizeCommandCenterFeedback,
   summarizeCommandCenterActions,
 } from "@/lib/command-center";
 import {
   listAssignableCommandCenterUsers,
   listCommandCenterActionStates,
+  listCommandCenterFeedback,
   listCommandCenterHandoffs,
   listCommandCenterJournal,
   listCommandCenterSavedViews,
@@ -36,6 +45,7 @@ export async function getCommandCenterSnapshot(input: {
     savedViews,
     journal,
     handoffs,
+    feedback,
     assignableUsers,
   ] = await Promise.all([
     getMetaDecisionWindowContext({
@@ -62,10 +72,11 @@ export async function getCommandCenterSnapshot(input: {
     listCommandCenterSavedViews(input.businessId),
     listCommandCenterJournal({ businessId: input.businessId, limit: 60 }),
     listCommandCenterHandoffs({ businessId: input.businessId, limit: 20 }),
+    listCommandCenterFeedback({ businessId: input.businessId, limit: 50 }),
     listAssignableCommandCenterUsers(input.businessId),
   ]);
 
-  const allActions = aggregateCommandCenterActions({
+  const aggregatedActions = aggregateCommandCenterActions({
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
@@ -73,6 +84,29 @@ export async function getCommandCenterSnapshot(input: {
     creativeDecisionOs,
     stateByFingerprint: actionStates,
   });
+  const throughputDecoratedActions = decorateCommandCenterActionsWithThroughput({
+    actions: aggregatedActions,
+    decisionAsOf: decisionContext.decisionAsOf,
+  }).sort(compareCommandCenterActions);
+  const throughput = buildCommandCenterDefaultQueueSummary(
+    throughputDecoratedActions,
+  );
+  const allActions = applyCommandCenterQueueSelection({
+    actions: throughputDecoratedActions,
+    throughput,
+  });
+  const ownerWorkload = buildCommandCenterOwnerWorkload({
+    actions: allActions,
+    throughput,
+  });
+  const feedbackSummary = summarizeCommandCenterFeedback(feedback);
+  const shiftDigest = buildCommandCenterShiftDigest({
+    throughput,
+    actions: allActions,
+    ownerWorkload,
+    feedbackSummary,
+  });
+  const viewStacks = buildCommandCenterViewStacks(savedViews);
 
   const viewDefinition = buildCommandCenterFiltersFromViewKey(
     input.businessId,
@@ -96,10 +130,16 @@ export async function getCommandCenterSnapshot(input: {
     activeViewKey: input.activeViewKey ?? null,
     permissions: input.permissions,
     summary: summarizeCommandCenterActions(allActions),
+    throughput,
+    ownerWorkload,
+    shiftDigest,
+    viewStacks,
+    feedbackSummary,
     actions: visibleActions,
     savedViews,
     journal,
     handoffs,
+    feedback,
     assignableUsers,
   };
 }

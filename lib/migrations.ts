@@ -763,6 +763,17 @@ export async function runMigrations(options?: {
           ON command_center_action_journal (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_journal_business_created
           ON command_center_action_journal (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_mutation_receipts (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          client_mutation_id TEXT NOT NULL,
+          mutation_scope     TEXT NOT NULL,
+          payload_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, client_mutation_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_mutation_receipts_business_created
+          ON command_center_mutation_receipts (business_id, created_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS command_center_saved_views (
           id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id     UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
@@ -792,6 +803,27 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_handoffs_business_shift
           ON command_center_handoffs (business_id, shift, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS command_center_feedback (
+          id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id        UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          client_mutation_id TEXT NOT NULL,
+          feedback_type      TEXT NOT NULL
+                              CHECK (feedback_type IN ('false_positive', 'bad_recommendation', 'false_negative')),
+          scope              TEXT NOT NULL CHECK (scope IN ('action', 'queue_gap')),
+          action_fingerprint TEXT,
+          action_title       TEXT,
+          source_system      TEXT CHECK (source_system IN ('meta', 'creative')),
+          source_type        TEXT,
+          view_key           TEXT,
+          note               TEXT NOT NULL,
+          actor_user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, client_mutation_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_feedback_business_created
+          ON command_center_feedback (business_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_command_center_feedback_business_action
+          ON command_center_feedback (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_execution_state (
           id                           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                  UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,

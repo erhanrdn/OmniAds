@@ -48,11 +48,11 @@ function summarizeFlagPosture(input: {
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA?.trim() ||
-  "3c13c44772ee510c67cfabc6b77ab05dae33b039";
+  "5017c8d3d598b05bf384ce1c1149b68a297fab13";
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE?.trim() ||
-  "docs/meta-rollout-record-2026-04-07.md";
+  "docs/v2-01-release-authority.md";
 
 export const RELEASE_AUTHORITY_CANONICAL_DOC =
   "docs/v2-01-release-authority.md";

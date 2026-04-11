@@ -12,6 +12,9 @@ import type {
   CommandCenterActionStateRecord,
   CommandCenterActionStatus,
   CommandCenterAssignableUser,
+  CommandCenterFeedbackEntry,
+  CommandCenterFeedbackScope,
+  CommandCenterFeedbackType,
   CommandCenterHandoff,
   CommandCenterJournalEntry,
   CommandCenterPermissions,
@@ -36,6 +39,17 @@ const COMMAND_CENTER_TABLES = [
   "command_center_action_journal",
   "command_center_saved_views",
   "command_center_handoffs",
+] as const;
+
+const COMMAND_CENTER_ACTION_MUTATION_TABLES = [
+  "command_center_action_state",
+  "command_center_action_journal",
+  "command_center_mutation_receipts",
+] as const;
+
+const COMMAND_CENTER_FEEDBACK_TABLES = [
+  "command_center_feedback",
+  "command_center_mutation_receipts",
 ] as const;
 
 function parseJsonArray(value: unknown): string[] {
@@ -68,6 +82,72 @@ function parseJsonObject(
     }
   }
   return {};
+}
+
+function normalizeTimestamp(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+  return null;
+}
+
+async function getCommandCenterMutationReceipt<T>(input: {
+  businessId: string;
+  clientMutationId: string;
+}): Promise<T | null> {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["command_center_mutation_receipts"],
+  }).catch(() => null);
+  if (!readiness?.ready) return null;
+
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT payload_json
+    FROM command_center_mutation_receipts
+    WHERE business_id = ${input.businessId}
+      AND client_mutation_id = ${input.clientMutationId}
+    LIMIT 1
+  `) as Array<{ payload_json: unknown }>;
+
+  const payload = rows[0]?.payload_json;
+  if (!payload) return null;
+  return payload as T;
+}
+
+async function writeCommandCenterMutationReceipt(input: {
+  businessId: string;
+  clientMutationId: string;
+  mutationScope: string;
+  payload: unknown;
+}) {
+  await assertDbSchemaReady({
+    tables: ["command_center_mutation_receipts"],
+    context: "command_center:write_mutation_receipt",
+  });
+
+  const sql = getDb();
+  await sql`
+    INSERT INTO command_center_mutation_receipts (
+      business_id,
+      client_mutation_id,
+      mutation_scope,
+      payload_json
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.clientMutationId},
+      ${input.mutationScope},
+      ${JSON.stringify(input.payload)}
+    )
+    ON CONFLICT (business_id, client_mutation_id) DO NOTHING
+  `;
 }
 
 export function getCommandCenterReadOnlyReason(input: {
@@ -195,13 +275,13 @@ export async function listCommandCenterActionStates(
         workflowStatus: row.workflow_status,
         assigneeUserId: row.assignee_user_id,
         assigneeName: row.assignee_name,
-        snoozeUntil: row.snooze_until,
+        snoozeUntil: normalizeTimestamp(row.snooze_until) ?? row.snooze_until,
         latestNoteExcerpt: row.latest_note_excerpt,
         noteCount: Number(row.note_count ?? 0),
         lastMutationId: row.last_mutation_id,
-        lastMutatedAt: row.last_mutated_at,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        lastMutatedAt: normalizeTimestamp(row.last_mutated_at),
+        createdAt: normalizeTimestamp(row.created_at) ?? new Date().toISOString(),
+        updatedAt: normalizeTimestamp(row.updated_at) ?? new Date().toISOString(),
       },
     ]),
   );
@@ -279,7 +359,7 @@ export async function listCommandCenterJournal(input: {
     message: row.message,
     note: row.note,
     metadata: parseJsonObject(row.metadata_json),
-    createdAt: row.created_at,
+    createdAt: normalizeTimestamp(row.created_at) ?? new Date().toISOString(),
   }));
 }
 
@@ -315,8 +395,8 @@ export async function listCommandCenterSavedViews(
     name: row.name,
     definition: sanitizeCommandCenterSavedViewDefinition(row.definition_json),
     isBuiltIn: false,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
   }));
 
   return [...builtIns, ...customViews];
@@ -372,8 +452,8 @@ export async function createCommandCenterSavedView(input: {
     name: row.name,
     definition: sanitizeCommandCenterSavedViewDefinition(row.definition_json),
     isBuiltIn: false,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
   };
 }
 
@@ -419,8 +499,8 @@ export async function updateCommandCenterSavedView(input: {
     name: row.name,
     definition: sanitizeCommandCenterSavedViewDefinition(row.definition_json),
     isBuiltIn: false,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: normalizeTimestamp(row.created_at),
+    updatedAt: normalizeTimestamp(row.updated_at),
   };
 }
 
@@ -514,11 +594,11 @@ export async function listCommandCenterHandoffs(input: {
     fromUserName: row.from_user_name,
     toUserId: row.to_user_id,
     toUserName: row.to_user_name,
-    acknowledgedAt: row.acknowledged_at,
+    acknowledgedAt: normalizeTimestamp(row.acknowledged_at),
     acknowledgedByUserId: row.acknowledged_by_user_id,
     acknowledgedByUserName: row.acknowledged_by_user_name,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: normalizeTimestamp(row.created_at) ?? new Date().toISOString(),
+    updatedAt: normalizeTimestamp(row.updated_at) ?? new Date().toISOString(),
   }));
 }
 
@@ -630,6 +710,156 @@ export async function acknowledgeCommandCenterHandoff(input: {
     limit: 50,
   });
   return handoffs.find((handoff) => handoff.id === input.handoffId) ?? null;
+}
+
+export async function listCommandCenterFeedback(input: {
+  businessId: string;
+  limit?: number;
+}) {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["command_center_feedback", "users"],
+  }).catch(() => null);
+  if (!readiness?.ready) return [];
+
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT
+      feedback.id,
+      feedback.business_id,
+      feedback.client_mutation_id,
+      feedback.feedback_type,
+      feedback.scope,
+      feedback.action_fingerprint,
+      feedback.action_title,
+      feedback.source_system,
+      feedback.source_type,
+      feedback.view_key,
+      feedback.note,
+      feedback.actor_user_id,
+      actor.name AS actor_name,
+      actor.email AS actor_email,
+      feedback.created_at
+    FROM command_center_feedback feedback
+    LEFT JOIN users actor ON actor.id = feedback.actor_user_id
+    WHERE feedback.business_id = ${input.businessId}
+    ORDER BY feedback.created_at DESC
+    LIMIT ${Math.max(1, Math.min(input.limit ?? 50, 200))}
+  `) as Array<{
+    id: string;
+    business_id: string;
+    client_mutation_id: string;
+    feedback_type: CommandCenterFeedbackType;
+    scope: CommandCenterFeedbackScope;
+    action_fingerprint: string | null;
+    action_title: string | null;
+    source_system: CommandCenterSourceSystem | null;
+    source_type: CommandCenterSourceType | null;
+    view_key: string | null;
+    note: string;
+    actor_user_id: string;
+    actor_name: string | null;
+    actor_email: string | null;
+    created_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    businessId: row.business_id,
+    clientMutationId: row.client_mutation_id,
+    feedbackType: row.feedback_type,
+    scope: row.scope,
+    actionFingerprint: row.action_fingerprint,
+    actionTitle: row.action_title,
+    sourceSystem: row.source_system,
+    sourceType: row.source_type,
+    viewKey: row.view_key,
+    actorUserId: row.actor_user_id,
+    actorName: row.actor_name,
+    actorEmail: row.actor_email,
+    note: row.note,
+    createdAt: normalizeTimestamp(row.created_at) ?? new Date().toISOString(),
+  })) satisfies CommandCenterFeedbackEntry[];
+}
+
+export async function createCommandCenterFeedback(input: {
+  businessId: string;
+  clientMutationId: string;
+  feedbackType: CommandCenterFeedbackType;
+  scope: CommandCenterFeedbackScope;
+  actionFingerprint?: string | null;
+  actionTitle?: string | null;
+  sourceSystem?: CommandCenterSourceSystem | null;
+  sourceType?: CommandCenterSourceType | null;
+  viewKey?: string | null;
+  note: string;
+  actorUserId: string;
+  actorName: string | null;
+  actorEmail: string | null;
+}) {
+  const existingReceipt = await getCommandCenterMutationReceipt<CommandCenterFeedbackEntry>({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+  });
+  if (existingReceipt) return existingReceipt;
+
+  await assertDbSchemaReady({
+    tables: [...COMMAND_CENTER_FEEDBACK_TABLES],
+    context: "command_center:create_feedback",
+  });
+
+  const sql = getDb();
+  const rows = (await sql`
+    INSERT INTO command_center_feedback (
+      business_id,
+      client_mutation_id,
+      feedback_type,
+      scope,
+      action_fingerprint,
+      action_title,
+      source_system,
+      source_type,
+      view_key,
+      note,
+      actor_user_id
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.clientMutationId},
+      ${input.feedbackType},
+      ${input.scope},
+      ${input.actionFingerprint ?? null},
+      ${input.actionTitle ?? null},
+      ${input.sourceSystem ?? null},
+      ${input.sourceType ?? null},
+      ${input.viewKey ?? null},
+      ${input.note.trim()},
+      ${input.actorUserId}
+    )
+    ON CONFLICT (business_id, client_mutation_id) DO NOTHING
+    RETURNING id
+  `) as Array<{ id: string }>;
+
+  const entries = await listCommandCenterFeedback({
+    businessId: input.businessId,
+    limit: 100,
+  });
+  const feedback =
+    entries.find((entry) => entry.id === rows[0]?.id) ??
+    entries.find((entry) => entry.clientMutationId === input.clientMutationId) ??
+    null;
+
+  if (!feedback) {
+    throw new Error("Could not resolve the newly created feedback entry.");
+  }
+
+  await writeCommandCenterMutationReceipt({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    mutationScope: "feedback",
+    payload: feedback,
+  });
+
+  return feedback;
 }
 
 async function getCommandCenterStateRecord(input: {
@@ -774,8 +1004,17 @@ export async function applyCommandCenterActionMutation(input: {
   assigneeName?: string | null;
   snoozeUntil?: string | null;
 }) {
+  const existingReceipt =
+    await getCommandCenterMutationReceipt<CommandCenterActionStateRecord>({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+    });
+  if (existingReceipt) {
+    return existingReceipt;
+  }
+
   await assertDbSchemaReady({
-    tables: [...COMMAND_CENTER_TABLES],
+    tables: [...COMMAND_CENTER_ACTION_MUTATION_TABLES],
     context: "command_center:apply_action_mutation",
   });
 
@@ -784,10 +1023,6 @@ export async function applyCommandCenterActionMutation(input: {
       businessId: input.businessId,
       actionFingerprint: input.action.actionFingerprint,
     })) ?? null;
-
-  if (current?.lastMutationId === input.clientMutationId) {
-    return current;
-  }
 
   const currentStatus = current?.workflowStatus ?? "pending";
   const nextStatus = resolveNextCommandCenterStatus({
@@ -846,7 +1081,7 @@ export async function applyCommandCenterActionMutation(input: {
     },
   });
 
-  return upsertCommandCenterActionState({
+  const state = await upsertCommandCenterActionState({
     action: input.action,
     businessId: input.businessId,
     nextStatus,
@@ -858,6 +1093,15 @@ export async function applyCommandCenterActionMutation(input: {
     noteCount: current?.noteCount ?? input.action.noteCount ?? 0,
     clientMutationId: input.clientMutationId,
   });
+
+  await writeCommandCenterMutationReceipt({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    mutationScope: "action_mutation",
+    payload: state,
+  });
+
+  return state;
 }
 
 export async function addCommandCenterNote(input: {
@@ -869,8 +1113,17 @@ export async function addCommandCenterNote(input: {
   clientMutationId: string;
   note: string;
 }) {
+  const existingReceipt =
+    await getCommandCenterMutationReceipt<CommandCenterActionStateRecord>({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+    });
+  if (existingReceipt) {
+    return existingReceipt;
+  }
+
   await assertDbSchemaReady({
-    tables: [...COMMAND_CENTER_TABLES],
+    tables: [...COMMAND_CENTER_ACTION_MUTATION_TABLES],
     context: "command_center:add_note",
   });
 
@@ -879,10 +1132,6 @@ export async function addCommandCenterNote(input: {
       businessId: input.businessId,
       actionFingerprint: input.action.actionFingerprint,
     })) ?? null;
-
-  if (current?.lastMutationId === input.clientMutationId) {
-    return current;
-  }
 
   const note = input.note.trim();
   const excerpt = note.slice(0, 280);
@@ -902,7 +1151,7 @@ export async function addCommandCenterNote(input: {
     metadata: {},
   });
 
-  return upsertCommandCenterActionState({
+  const state = await upsertCommandCenterActionState({
     action: input.action,
     businessId: input.businessId,
     nextStatus: current?.workflowStatus ?? input.action.status ?? "pending",
@@ -913,6 +1162,15 @@ export async function addCommandCenterNote(input: {
     noteCount: (current?.noteCount ?? input.action.noteCount ?? 0) + 1,
     clientMutationId: input.clientMutationId,
   });
+
+  await writeCommandCenterMutationReceipt({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    mutationScope: "note",
+    payload: state,
+  });
+
+  return state;
 }
 
 export async function syncCommandCenterActionWorkflowStatus(input: {

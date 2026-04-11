@@ -90,6 +90,17 @@ function buildActionFixture(
       sourceDeepLink: "/platforms/meta",
       sourceDecisionId: "decision_1",
     },
+    throughput: {
+      priorityScore: 88,
+      actionable: true,
+      defaultQueueEligible: true,
+      selectedInDefaultQueue: true,
+      ageHours: 12,
+      ageLabel: "12h old",
+      ageAnchorAt: "2026-04-10T12:00:00.000Z",
+      slaTargetHours: 24,
+      slaStatus: "on_track",
+    },
     ...overrides,
   };
 }

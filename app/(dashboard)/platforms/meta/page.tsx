@@ -36,7 +36,7 @@ import { IntegrationEmptyState } from "@/components/states/IntegrationEmptyState
 import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { Button } from "@/components/ui/button";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow, MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
@@ -671,6 +671,9 @@ export default function MetaPage() {
   const language = "en" as "en" | "tr";
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { plan: currentPlan } = usePlanState();
   const businessId = selectedBusinessId ?? "";
   const sym = useCurrencySymbol();
@@ -693,6 +696,7 @@ export default function MetaPage() {
   const [resolvedMetaTimeZoneLabel, setResolvedMetaTimeZoneLabel] = useState<string | null>(null);
   const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
   const previousYearAllowed = allowedHistoryDays === null || allowedHistoryDays > 365;
+  const campaignIdParam = searchParams.get("campaignId");
 
 
   if (!selectedBusinessId) return <BusinessEmptyState />;
@@ -741,6 +745,11 @@ export default function MetaPage() {
   useEffect(() => {
     if (metaTimeZoneLabel) setResolvedMetaTimeZoneLabel(metaTimeZoneLabel);
   }, [metaTimeZoneLabel]);
+
+  useEffect(() => {
+    if (campaignIdParam === selectedCampaignId) return;
+    setSelectedCampaignId(campaignIdParam);
+  }, [campaignIdParam, selectedCampaignId]);
 
   const effectiveMetaReferenceDate = metaReferenceDate ?? resolvedMetaReferenceDate;
   const effectiveMetaTimeZoneLabel = metaTimeZoneLabel ?? resolvedMetaTimeZoneLabel;
@@ -876,6 +885,20 @@ export default function MetaPage() {
     const el = document.getElementById(`meta-list-item-${selectedCampaignId}`);
     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [selectedCampaignId]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    if (selectedCampaignId) {
+      nextParams.set("campaignId", selectedCampaignId);
+    } else {
+      nextParams.delete("campaignId");
+    }
+    const currentQuery = searchParams.toString();
+    const nextQuery = nextParams.toString();
+    if (currentQuery === nextQuery) return;
+    const nextHref = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+    router.replace(nextHref, { scroll: false });
+  }, [pathname, router, searchParams, selectedCampaignId]);
 
   useEffect(() => {
     setRecommendationsError(null);
@@ -1218,6 +1241,12 @@ export default function MetaPage() {
     selectedCampaignId,
     recommendationsQuery.data?.recommendations,
   ]);
+
+  useEffect(() => {
+    if (!campaignRowsForTable.length || !selectedCampaignId) return;
+    if (campaignRowsForTable.some((campaign) => campaign.id === selectedCampaignId)) return;
+    setSelectedCampaignId(null);
+  }, [campaignRowsForTable, selectedCampaignId]);
 
   return (
     <PlanGate requiredPlan="growth">

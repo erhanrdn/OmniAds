@@ -183,7 +183,9 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
+  usePathname: () => "/platforms/meta",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({

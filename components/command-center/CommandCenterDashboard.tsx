@@ -4,7 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Clock3, NotebookPen, RefreshCw, ShieldAlert, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckSquare2,
+  Clock3,
+  Layers3,
+  ListChecks,
+  MessageSquareWarning,
+  NotebookPen,
+  RefreshCw,
+  ShieldAlert,
+  Square,
+  Users,
+} from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import {
   DEFAULT_DATE_RANGE,
@@ -25,7 +38,9 @@ import { usePersistentCommandCenterDateRange } from "@/hooks/use-persistent-date
 import type {
   CommandCenterAction,
   CommandCenterActionStatus,
+  CommandCenterFeedbackType,
   CommandCenterHandoff,
+  CommandCenterOwnerWorkloadSummary,
   CommandCenterResponse,
   CommandCenterSavedViewDefinition,
 } from "@/lib/command-center";
@@ -36,6 +51,8 @@ import {
   addCommandCenterNote,
   acknowledgeCommandCenterHandoff,
   applyCommandCenterExecution,
+  batchMutateCommandCenterActions,
+  createCommandCenterFeedback,
   createCommandCenterHandoff,
   createCommandCenterSavedView,
   deleteCommandCenterSavedView,
@@ -142,6 +159,29 @@ function resolveExecutionStatusTone(
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
+function resolveSlaTone(status: CommandCenterAction["throughput"]["slaStatus"]) {
+  if (status === "overdue") {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+  if (status === "due_soon") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (status === "on_track") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function resolveOwnerWorkloadTone(owner: CommandCenterOwnerWorkloadSummary) {
+  if (owner.isUnassigned || owner.overdueCount > 0) {
+    return "border-rose-200 bg-rose-50";
+  }
+  if (owner.highPriorityCount > 0) {
+    return "border-amber-200 bg-amber-50";
+  }
+  return "border-slate-200 bg-white";
+}
+
 function createClientMutationId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -231,10 +271,16 @@ function SummaryCard({
 function ActionCard({
   action,
   active,
+  selectedForBatch,
+  canBatchEdit,
+  onToggleBatchSelection,
   onSelect,
 }: {
   action: CommandCenterAction;
   active: boolean;
+  selectedForBatch: boolean;
+  canBatchEdit: boolean;
+  onToggleBatchSelection: () => void;
   onSelect: () => void;
 }) {
   return (
@@ -250,6 +296,11 @@ function ActionCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
+            {action.throughput.selectedInDefaultQueue ? (
+              <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                shift budget
+              </Badge>
+            ) : null}
             <Badge
               variant="outline"
               className={cn("capitalize", resolveStatusTone(action.status))}
@@ -285,9 +336,33 @@ function ActionCard({
             {formatActionLabel(action.recommendedAction)} · {action.summary}
           </p>
         </div>
-        <div className="text-right text-xs text-slate-500">
-          <p>{Math.round(action.confidence * 100)}% confidence</p>
-          <p className="mt-1 capitalize">{action.priority} priority</p>
+        <div className="flex items-start gap-3">
+          {canBatchEdit ? (
+            <span
+              className="mt-0.5 text-slate-500"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleBatchSelection();
+              }}
+              role="checkbox"
+              aria-checked={selectedForBatch}
+              aria-label={
+                selectedForBatch ? "Deselect action for batch review" : "Select action for batch review"
+              }
+              data-testid={`command-center-batch-toggle-${action.actionFingerprint}`}
+            >
+              {selectedForBatch ? (
+                <CheckSquare2 className="h-4 w-4" />
+              ) : (
+                <Square className="h-4 w-4" />
+              )}
+            </span>
+          ) : null}
+          <div className="text-right text-xs text-slate-500">
+            <p>{Math.round(action.confidence * 100)}% confidence</p>
+            <p className="mt-1 capitalize">{action.priority} priority</p>
+            <p className="mt-1">Score {action.throughput.priorityScore}</p>
+          </div>
         </div>
       </div>
 
@@ -295,6 +370,15 @@ function ActionCard({
         {action.assigneeName ? <span>Assignee: {action.assigneeName}</span> : null}
         {action.snoozeUntil ? <span>Snooze until {action.snoozeUntil}</span> : null}
         {action.noteCount > 0 ? <span>{action.noteCount} notes</span> : null}
+        <span>{action.throughput.ageLabel}</span>
+        <Badge
+          variant="outline"
+          className={cn(resolveSlaTone(action.throughput.slaStatus))}
+        >
+          {action.throughput.slaStatus === "n_a"
+            ? "sla n/a"
+            : `sla ${formatActionLabel(action.throughput.slaStatus)}`}
+        </Badge>
       </div>
     </button>
   );
@@ -331,6 +415,9 @@ export function CommandCenterDashboard() {
   const [handoffToUserId, setHandoffToUserId] = useState<string>("");
   const [linkedHandoffActions, setLinkedHandoffActions] = useState<string[]>([]);
   const [noteDraft, setNoteDraft] = useState("");
+  const [feedbackNoteDraft, setFeedbackNoteDraft] = useState("");
+  const [queueGapNoteDraft, setQueueGapNoteDraft] = useState("");
+  const [batchSelection, setBatchSelection] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -358,21 +445,27 @@ export function CommandCenterDashboard() {
     refetchOnWindowFocus: false,
     queryFn: () => getCommandCenter(selectedBusinessId!, startDate, endDate),
   });
+  const payload = query.data as CommandCenterResponse | undefined;
 
   const selectedView = useMemo(() => {
     if (!query.data || !activeViewKey) return null;
     return query.data.savedViews.find((view) => view.viewKey === activeViewKey) ?? null;
   }, [activeViewKey, query.data]);
 
+  const budgetedActionFingerprints = useMemo(
+    () => new Set(query.data?.throughput.selectedActionFingerprints ?? []),
+    [query.data?.throughput.selectedActionFingerprints],
+  );
+
   const baseActions = useMemo(() => {
     if (!query.data) return [];
     if (!selectedView) {
-      return filterCommandCenterActionsByView(query.data.actions, {
-        surfaceLanes: ["action_core"],
-      });
+      return query.data.actions.filter((action) =>
+        budgetedActionFingerprints.has(action.actionFingerprint),
+      );
     }
     return filterCommandCenterActionsByView(query.data.actions, selectedView.definition);
-  }, [query.data, selectedView]);
+  }, [budgetedActionFingerprints, query.data, selectedView]);
 
   const filteredActions = useMemo(
     () =>
@@ -393,6 +486,14 @@ export function CommandCenterDashboard() {
       (action) => action.actionFingerprint === selectedActionFingerprint,
     ) ??
     null;
+
+  useEffect(() => {
+    setBatchSelection((current) =>
+      current.filter((fingerprint) =>
+        filteredActions.some((action) => action.actionFingerprint === fingerprint),
+      ),
+    );
+  }, [filteredActions]);
 
   useEffect(() => {
     if (!selectedAction) {
@@ -416,6 +517,15 @@ export function CommandCenterDashboard() {
   );
 
   const canEdit = query.data?.permissions.canEdit ?? false;
+  const selectedFeedbackEntries = useMemo(
+    () =>
+      selectedAction
+        ? (payload?.feedback ?? []).filter(
+            (entry) => entry.actionFingerprint === selectedAction.actionFingerprint,
+          )
+        : [],
+    [payload?.feedback, selectedAction],
+  );
   const executionQuery = useQuery({
     queryKey: [
       "command-center-execution",
@@ -500,6 +610,104 @@ export function CommandCenterDashboard() {
     } finally {
       setPending(false);
     }
+  }
+
+  function toggleBatchSelection(actionFingerprint: string) {
+    setBatchSelection((current) =>
+      current.includes(actionFingerprint)
+        ? current.filter((item) => item !== actionFingerprint)
+        : [...current, actionFingerprint],
+    );
+  }
+
+  async function runBatchMutation(
+    mutation: "approve" | "reject" | "reopen" | "complete_manual",
+  ) {
+    if (!selectedBusinessId || batchSelection.length === 0) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      const result = await batchMutateCommandCenterActions({
+        businessId: selectedBusinessId,
+        startDate,
+        endDate,
+        actionFingerprints: batchSelection,
+        clientMutationId: createClientMutationId(),
+        mutation,
+      });
+      if (result.failureCount > 0) {
+        setPageError(
+          `${result.failureCount} batch item(s) could not be updated. The rest completed successfully.`,
+        );
+      }
+      setBatchSelection([]);
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Batch mutation failed.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitActionFeedback(feedbackType: Exclude<CommandCenterFeedbackType, "false_negative">) {
+    if (!selectedBusinessId || !selectedAction || !feedbackNoteDraft.trim()) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await createCommandCenterFeedback({
+        businessId: selectedBusinessId,
+        startDate,
+        endDate,
+        actionFingerprint: selectedAction.actionFingerprint,
+        clientMutationId: createClientMutationId(),
+        feedbackType,
+        scope: "action",
+        note: feedbackNoteDraft.trim(),
+      });
+      setFeedbackNoteDraft("");
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Feedback could not be saved.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function submitQueueGapFeedback() {
+    if (!selectedBusinessId || !queueGapNoteDraft.trim()) return;
+    setPending(true);
+    setPageError(null);
+    try {
+      await createCommandCenterFeedback({
+        businessId: selectedBusinessId,
+        clientMutationId: createClientMutationId(),
+        feedbackType: "false_negative",
+        scope: "queue_gap",
+        note: queueGapNoteDraft.trim(),
+        sourceSystem: sourceFilter === "all" ? null : sourceFilter,
+        viewKey: activeViewKey,
+      });
+      setQueueGapNoteDraft("");
+      await query.refetch();
+    } catch (error) {
+      setPageError(
+        error instanceof Error ? error.message : "Queue-gap feedback failed.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function prefillHandoffFromDigest() {
+    if (!payload) return;
+    setHandoffSummary(payload.shiftDigest.headline);
+    setHandoffBlockers(payload.shiftDigest.blockers.join(", "));
+    setHandoffWatchouts(payload.shiftDigest.watchouts.join(", "));
+    setLinkedHandoffActions(payload.shiftDigest.linkedActionFingerprints);
   }
 
   async function saveCurrentView() {
@@ -645,8 +853,6 @@ export function CommandCenterDashboard() {
     return <BusinessEmptyState />;
   }
 
-  const payload = query.data as CommandCenterResponse | undefined;
-
   return (
     <div className="space-y-5" data-testid="command-center-page">
       <div className="rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#f7fafc_60%,#eef5ff_100%)] p-5 shadow-sm">
@@ -690,13 +896,13 @@ export function CommandCenterDashboard() {
         {payload ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <SummaryCard
-              label="Action core"
-              value={payload.summary.actionCoreCount}
+              label="Shift Budget"
+              value={payload.throughput.selectedCount}
               icon={<ArrowRight className="h-4 w-4" />}
             />
             <SummaryCard
-              label="Pending"
-              value={payload.summary.pendingCount}
+              label="Overflow"
+              value={payload.throughput.overflowCount}
               icon={<Clock3 className="h-4 w-4" />}
             />
             <SummaryCard
@@ -705,10 +911,95 @@ export function CommandCenterDashboard() {
               icon={<ShieldAlert className="h-4 w-4" />}
             />
             <SummaryCard
-              label="Archive"
-              value={payload.summary.archiveCount}
+              label="Feedback"
+              value={payload.feedbackSummary.totalCount}
               icon={<Users className="h-4 w-4" />}
             />
+          </div>
+        ) : null}
+
+        {payload ? (
+          <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_0.8fr_0.8fr]">
+            <div
+              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              data-testid="command-center-budget-summary"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Queue budget
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {payload.throughput.selectedCount} of {payload.throughput.actionableCount} actionable
+                    items fit the current operator budget.
+                  </p>
+                </div>
+                <Badge variant="outline">{payload.throughput.totalBudget} max</Badge>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                <Badge variant="outline">Critical {payload.throughput.quotas.critical}</Badge>
+                <Badge variant="outline">High {payload.throughput.quotas.high}</Badge>
+                <Badge variant="outline">Medium {payload.throughput.quotas.medium}</Badge>
+                <Badge variant="outline">Low {payload.throughput.quotas.low}</Badge>
+              </div>
+              {payload.throughput.overflowCount > 0 ? (
+                <p className="mt-3 text-xs text-amber-700">
+                  {payload.throughput.overflowCount} item(s) overflow the current shift budget and stay outside the default queue.
+                </p>
+              ) : null}
+            </div>
+
+            <div
+              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              data-testid="command-center-shift-digest"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Shift digest
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-950">
+                    {payload.shiftDigest.headline}
+                  </p>
+                </div>
+                <Layers3 className="h-4 w-4 text-slate-500" />
+              </div>
+              <p className="mt-2 text-xs text-slate-600">{payload.shiftDigest.summary}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {payload.shiftDigest.blockers.map((item) => (
+                  <Badge key={item} variant="outline" className="border-rose-200 bg-rose-50 text-rose-700">
+                    blocker: {item}
+                  </Badge>
+                ))}
+                {payload.shiftDigest.watchouts.map((item) => (
+                  <Badge key={item} variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                    watch: {item}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            <div
+              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              data-testid="command-center-feedback-summary"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Feedback
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {payload.feedbackSummary.falsePositiveCount} false positive ·{" "}
+                    {payload.feedbackSummary.badRecommendationCount} bad recommendation ·{" "}
+                    {payload.feedbackSummary.falseNegativeCount} false negative
+                  </p>
+                </div>
+                <MessageSquareWarning className="h-4 w-4 text-slate-500" />
+              </div>
+              <p className="mt-2 text-xs text-slate-600">
+                {payload.feedbackSummary.queueGapCount} queue-gap report(s) are currently open.
+              </p>
+            </div>
           </div>
         ) : null}
 
@@ -750,28 +1041,77 @@ export function CommandCenterDashboard() {
           >
             Default queue
           </Button>
-          {(payload?.savedViews ?? []).map((view) => (
-            <div key={view.viewKey} className="flex items-center gap-1">
-              <Button
-                variant={activeViewKey === view.viewKey ? "default" : "outline"}
-                size="sm"
-                onClick={() => setActiveViewKey(activeViewKey === view.viewKey ? null : view.viewKey)}
-                data-testid={`command-center-view-${view.viewKey}`}
-              >
-                {view.name}
-              </Button>
-              {!view.isBuiltIn ? (
-                <button
-                  type="button"
-                  className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
-                  onClick={() => void removeView(view.viewKey)}
-                  aria-label={`Delete ${view.name}`}
-                >
-                  x
-                </button>
-              ) : null}
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="space-y-3">
+            {(payload?.viewStacks ?? []).map((stack) => (
+              <div key={stack.stackKey}>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {stack.label}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {stack.views.map((view) => (
+                    <div key={view.viewKey} className="flex items-center gap-1">
+                      <Button
+                        variant={activeViewKey === view.viewKey ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setActiveViewKey(activeViewKey === view.viewKey ? null : view.viewKey)}
+                        data-testid={`command-center-view-${view.viewKey}`}
+                      >
+                        {view.name}
+                      </Button>
+                      {!view.isBuiltIn ? (
+                        <button
+                          type="button"
+                          className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-50"
+                          onClick={() => void removeView(view.viewKey)}
+                          aria-label={`Delete ${view.name}`}
+                        >
+                          x
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div data-testid="command-center-owner-workload">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Owner workload
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Derived from the actionable queue without extra write paths.
+                </p>
+              </div>
+              <ListChecks className="h-4 w-4 text-slate-500" />
             </div>
-          ))}
+            <div className="mt-3 space-y-2">
+              {(payload?.ownerWorkload ?? []).slice(0, 4).map((owner) => (
+                <div
+                  key={owner.ownerUserId ?? "unassigned"}
+                  className={cn(
+                    "rounded-2xl border px-3 py-3",
+                    resolveOwnerWorkloadTone(owner),
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-950">{owner.ownerName}</p>
+                    <Badge variant="outline">{owner.openCount} open</Badge>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                    <span>{owner.overdueCount} overdue</span>
+                    <span>{owner.highPriorityCount} high-priority</span>
+                    <span>{owner.budgetedCount} budgeted</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-4 grid gap-3 xl:grid-cols-[1fr_auto]">
@@ -838,6 +1178,91 @@ export function CommandCenterDashboard() {
               </Badge>
             </div>
 
+            <div className="mb-4 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+              <div
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                data-testid="command-center-batch-toolbar"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Batch review
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Status-only batch actions stay within the retry-safe workflow subset.
+                    </p>
+                  </div>
+                  <Badge variant="outline">{batchSelection.length} selected</Badge>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => void runBatchMutation("approve")}
+                    disabled={!canEdit || pending || batchSelection.length === 0}
+                  >
+                    Batch approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void runBatchMutation("reject")}
+                    disabled={!canEdit || pending || batchSelection.length === 0}
+                  >
+                    Batch reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void runBatchMutation("reopen")}
+                    disabled={!canEdit || pending || batchSelection.length === 0}
+                  >
+                    Batch reopen
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void runBatchMutation("complete_manual")}
+                    disabled={!canEdit || pending || batchSelection.length === 0}
+                  >
+                    Batch complete
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Queue-gap feedback
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Report missing work when the queue misses a real operator action.
+                    </p>
+                  </div>
+                  <AlertTriangle className="h-4 w-4 text-slate-500" />
+                </div>
+                <textarea
+                  value={queueGapNoteDraft}
+                  onChange={(event) => setQueueGapNoteDraft(event.target.value)}
+                  placeholder="What action is missing from this queue?"
+                  className="mt-3 min-h-[80px] w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  disabled={!canEdit || pending}
+                />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-slate-500">
+                    Scope: {activeViewKey ?? "default_queue"} · {sourceFilter}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => void submitQueueGapFeedback()}
+                    disabled={!canEdit || pending || !queueGapNoteDraft.trim()}
+                  >
+                    Report missing action
+                  </Button>
+                </div>
+              </div>
+            </div>
+
             {query.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -857,6 +1282,11 @@ export function CommandCenterDashboard() {
                     key={action.actionFingerprint}
                     action={action}
                     active={action.actionFingerprint === selectedActionFingerprint}
+                    selectedForBatch={batchSelection.includes(action.actionFingerprint)}
+                    canBatchEdit={canEdit}
+                    onToggleBatchSelection={() =>
+                      toggleBatchSelection(action.actionFingerprint)
+                    }
                     onSelect={() => {
                       setSelectedActionFingerprint(action.actionFingerprint);
                       setExecutionSheetOpen(true);
@@ -908,11 +1338,25 @@ export function CommandCenterDashboard() {
             </div>
 
             <div className="mt-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-slate-500">
+                  Prefill from current shift digest to keep handoff wording aligned.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={prefillHandoffFromDigest}
+                  disabled={!payload}
+                >
+                  Prefill from digest
+                </Button>
+              </div>
               <textarea
                 value={handoffSummary}
                 onChange={(event) => setHandoffSummary(event.target.value)}
                 placeholder="Summary for the next shift"
                 className="min-h-[84px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                disabled={!canEdit || pending}
               />
               <div className="grid gap-3 md:grid-cols-2">
                 <input
@@ -920,12 +1364,14 @@ export function CommandCenterDashboard() {
                   onChange={(event) => setHandoffBlockers(event.target.value)}
                   placeholder="Blockers, comma-separated"
                   className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+                  disabled={!canEdit || pending}
                 />
                 <input
                   value={handoffWatchouts}
                   onChange={(event) => setHandoffWatchouts(event.target.value)}
                   placeholder="Watchouts, comma-separated"
                   className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+                  disabled={!canEdit || pending}
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -943,10 +1389,20 @@ export function CommandCenterDashboard() {
                       ]);
                     }
                   }}
-                  disabled={!selectedAction}
+                  disabled={!canEdit || pending || !selectedAction}
                 >
                   Link selected action
                 </Button>
+                {linkedHandoffActions.length > 0 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLinkedHandoffActions([])}
+                    disabled={!canEdit || pending}
+                  >
+                    Clear linked actions
+                  </Button>
+                ) : null}
                 {linkedHandoffActions.map((fingerprint) => (
                   <Badge key={fingerprint} variant="outline">
                     {fingerprint.slice(0, 12)}
@@ -1598,6 +2054,75 @@ export function CommandCenterDashboard() {
                     <Button size="sm" onClick={() => void submitNote()} disabled={!canEdit || pending || !noteDraft.trim()}>
                       Add note
                     </Button>
+                  </div>
+                </section>
+
+                <section
+                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                  data-testid="command-center-action-feedback"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Feedback
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Capture operator disagreement without changing deterministic provenance.
+                      </p>
+                    </div>
+                    <Badge variant="outline">
+                      {selectedFeedbackEntries.length} recent
+                    </Badge>
+                  </div>
+                  <textarea
+                    value={feedbackNoteDraft}
+                    onChange={(event) => setFeedbackNoteDraft(event.target.value)}
+                    placeholder="Why was this a false positive or bad recommendation?"
+                    className="mt-3 min-h-[96px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    disabled={!canEdit || pending}
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void submitActionFeedback("false_positive")}
+                      disabled={!canEdit || pending || !feedbackNoteDraft.trim()}
+                    >
+                      Mark false positive
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void submitActionFeedback("bad_recommendation")}
+                      disabled={!canEdit || pending || !feedbackNoteDraft.trim()}
+                    >
+                      Mark bad recommendation
+                    </Button>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {selectedFeedbackEntries.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-xs text-slate-500">
+                        No feedback captured for this action yet.
+                      </div>
+                    ) : (
+                      selectedFeedbackEntries.slice(0, 5).map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <Badge variant="outline">
+                              {formatActionLabel(entry.feedbackType)}
+                            </Badge>
+                            <p className="text-[11px] text-slate-500">
+                              {entry.actorName ?? entry.actorEmail ?? "Operator"} ·{" "}
+                              {entry.createdAt}
+                            </p>
+                          </div>
+                          <p className="mt-2 text-sm text-slate-700">{entry.note}</p>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </section>
               </div>

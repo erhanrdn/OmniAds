@@ -81,6 +81,12 @@ export type CommandCenterSourceType =
   | "creative_primary_decision";
 
 export type CommandCenterPriority = "critical" | "high" | "medium" | "low";
+export type CommandCenterFeedbackType =
+  | "false_positive"
+  | "bad_recommendation"
+  | "false_negative";
+export type CommandCenterFeedbackScope = "action" | "queue_gap";
+export type CommandCenterSlaStatus = "on_track" | "due_soon" | "overdue" | "n_a";
 
 const COMMAND_CENTER_SOURCE_TYPES = [
   "meta_adset_decision",
@@ -108,6 +114,18 @@ export interface CommandCenterActionSourceContext {
   operatingMode: string | null;
   sourceDeepLink: string;
   sourceDecisionId: string;
+}
+
+export interface CommandCenterActionThroughput {
+  priorityScore: number;
+  actionable: boolean;
+  defaultQueueEligible: boolean;
+  selectedInDefaultQueue: boolean;
+  ageHours: number;
+  ageLabel: string;
+  ageAnchorAt: string;
+  slaTargetHours: number | null;
+  slaStatus: CommandCenterSlaStatus;
 }
 
 export interface CommandCenterAction {
@@ -139,6 +157,7 @@ export interface CommandCenterAction {
   lastMutationId: string | null;
   createdAt: string;
   sourceContext: CommandCenterActionSourceContext;
+  throughput: CommandCenterActionThroughput;
 }
 
 export interface CommandCenterPermissions {
@@ -190,6 +209,67 @@ export interface CommandCenterSavedView {
   updatedAt: string | null;
 }
 
+export interface CommandCenterViewStack {
+  stackKey: "run_now" | "optimize" | "watch" | "history" | "custom";
+  label: string;
+  views: CommandCenterSavedView[];
+}
+
+export interface CommandCenterFeedbackEntry {
+  id: string;
+  businessId: string;
+  clientMutationId: string;
+  feedbackType: CommandCenterFeedbackType;
+  scope: CommandCenterFeedbackScope;
+  actionFingerprint: string | null;
+  actionTitle: string | null;
+  sourceSystem: CommandCenterSourceSystem | null;
+  sourceType: CommandCenterSourceType | null;
+  viewKey: string | null;
+  actorUserId: string;
+  actorName: string | null;
+  actorEmail: string | null;
+  note: string;
+  createdAt: string;
+}
+
+export interface CommandCenterFeedbackSummary {
+  totalCount: number;
+  falsePositiveCount: number;
+  badRecommendationCount: number;
+  falseNegativeCount: number;
+  queueGapCount: number;
+  recentEntries: CommandCenterFeedbackEntry[];
+}
+
+export interface CommandCenterQueueBudgetSummary {
+  totalBudget: number;
+  quotas: Record<CommandCenterPriority, number>;
+  selectedActionFingerprints: string[];
+  overflowCount: number;
+  actionableCount: number;
+  selectedCount: number;
+}
+
+export interface CommandCenterOwnerWorkloadSummary {
+  ownerUserId: string | null;
+  ownerName: string;
+  openCount: number;
+  overdueCount: number;
+  highPriorityCount: number;
+  budgetedCount: number;
+  isUnassigned: boolean;
+}
+
+export interface CommandCenterShiftDigest {
+  generatedAt: string;
+  headline: string;
+  summary: string;
+  blockers: string[];
+  watchouts: string[];
+  linkedActionFingerprints: string[];
+}
+
 export interface CommandCenterHandoff {
   id: string;
   businessId: string;
@@ -218,6 +298,18 @@ export interface CommandCenterMutationRequest {
   snoozeUntil?: string | null;
 }
 
+export interface CommandCenterBatchMutationRequest {
+  businessId: string;
+  actionFingerprints: string[];
+  clientMutationId: string;
+  mutation: Extract<
+    CommandCenterActionMutation,
+    "approve" | "reject" | "reopen" | "complete_manual"
+  >;
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface CommandCenterResponse {
   contractVersion: typeof COMMAND_CENTER_CONTRACT_VERSION;
   generatedAt: string;
@@ -242,10 +334,16 @@ export interface CommandCenterResponse {
     archiveCount: number;
     degradedCount: number;
   };
+  throughput: CommandCenterQueueBudgetSummary;
+  ownerWorkload: CommandCenterOwnerWorkloadSummary[];
+  shiftDigest: CommandCenterShiftDigest;
+  viewStacks: CommandCenterViewStack[];
+  feedbackSummary: CommandCenterFeedbackSummary;
   actions: CommandCenterAction[];
   savedViews: CommandCenterSavedView[];
   journal: CommandCenterJournalEntry[];
   handoffs: CommandCenterHandoff[];
+  feedback: CommandCenterFeedbackEntry[];
   assignableUsers: CommandCenterAssignableUser[];
 }
 
@@ -357,6 +455,28 @@ export const COMMAND_CENTER_BUILT_IN_VIEWS = [
   definition: CommandCenterSavedViewDefinition;
 }>;
 
+export const COMMAND_CENTER_DEFAULT_QUEUE_BUDGET = 12;
+export const COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS = {
+  critical: 4,
+  high: 4,
+  medium: 3,
+  low: 1,
+} as const satisfies Record<CommandCenterPriority, number>;
+
+export const COMMAND_CENTER_PRIORITY_SCORE_WEIGHTS = {
+  critical: 100,
+  high: 80,
+  medium: 55,
+  low: 35,
+} as const satisfies Record<CommandCenterPriority, number>;
+
+export const COMMAND_CENTER_SLA_TARGET_HOURS = {
+  critical: 4,
+  high: 24,
+  medium: 72,
+  low: 168,
+} as const satisfies Record<CommandCenterPriority, number>;
+
 const STATUS_TRANSITIONS: Record<
   CommandCenterActionStatus,
   CommandCenterActionStatus[]
@@ -383,6 +503,20 @@ function slugify(value: string) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 64);
+}
+
+function parseIsoTimestamp(value: string | null | undefined) {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function formatAgeLabel(ageHours: number) {
+  if (!Number.isFinite(ageHours) || ageHours <= 0.25) return "fresh now";
+  if (ageHours < 24) return `${Math.max(1, Math.round(ageHours))}h old`;
+  const ageDays = ageHours / 24;
+  if (ageDays < 7) return `${Math.max(1, Math.round(ageDays))}d old`;
+  return `${Math.max(1, Math.round(ageDays / 7))}w old`;
 }
 
 function joinSignals(values: Array<string | null | undefined>) {
@@ -456,8 +590,25 @@ function createActionFingerprint(base: CommandCenterActionBase) {
   return `cc_${createHash("sha256").update(signature).digest("hex").slice(0, 24)}`;
 }
 
+function buildMetaSourceDeepLink(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  campaignId?: string | null;
+}) {
+  const params = new URLSearchParams({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+  });
+  if (input.campaignId) {
+    params.set("campaignId", input.campaignId);
+  }
+  return `/platforms/meta?${params.toString()}`;
+}
+
 function buildMetaAction(
-  input: Omit<CommandCenterAction, "actionFingerprint" | "status" | "assigneeUserId" | "assigneeName" | "snoozeUntil" | "latestNoteExcerpt" | "noteCount" | "lastMutatedAt" | "lastMutationId" | "createdAt"> & {
+  input: Omit<CommandCenterAction, "actionFingerprint" | "status" | "assigneeUserId" | "assigneeName" | "snoozeUntil" | "latestNoteExcerpt" | "noteCount" | "lastMutatedAt" | "lastMutationId" | "createdAt" | "throughput"> & {
     entityType: string;
     entityId: string;
   },
@@ -481,6 +632,17 @@ function buildMetaAction(
     lastMutatedAt: null,
     lastMutationId: null,
     createdAt: new Date().toISOString(),
+    throughput: {
+      priorityScore: 0,
+      actionable: false,
+      defaultQueueEligible: false,
+      selectedInDefaultQueue: false,
+      ageHours: 0,
+      ageLabel: "fresh now",
+      ageAnchorAt: new Date().toISOString(),
+      slaTargetHours: null,
+      slaStatus: "n_a",
+    },
   };
 }
 
@@ -596,11 +758,12 @@ export function aggregateCommandCenterActions(input: {
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
-            sourceDeepLink: `/platforms/meta?businessId=${encodeURIComponent(
-              input.businessId,
-            )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
-              input.endDate,
-            )}`,
+            sourceDeepLink: buildMetaSourceDeepLink({
+              businessId: input.businessId,
+              startDate: input.startDate,
+              endDate: input.endDate,
+              campaignId: decision.campaignId,
+            }),
             sourceDecisionId: decision.decisionId,
           },
         }),
@@ -655,11 +818,12 @@ export function aggregateCommandCenterActions(input: {
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
-            sourceDeepLink: `/platforms/meta?businessId=${encodeURIComponent(
-              input.businessId,
-            )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
-              input.endDate,
-            )}`,
+            sourceDeepLink: buildMetaSourceDeepLink({
+              businessId: input.businessId,
+              startDate: input.startDate,
+              endDate: input.endDate,
+              campaignId: shift.toCampaignId,
+            }),
             sourceDecisionId: `${shift.fromCampaignId}:${shift.toCampaignId}`,
           },
         }),
@@ -707,11 +871,11 @@ export function aggregateCommandCenterActions(input: {
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
-            sourceDeepLink: `/platforms/meta?businessId=${encodeURIComponent(
-              input.businessId,
-            )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
-              input.endDate,
-            )}`,
+            sourceDeepLink: buildMetaSourceDeepLink({
+              businessId: input.businessId,
+              startDate: input.startDate,
+              endDate: input.endDate,
+            }),
             sourceDecisionId: decision.geoKey,
           },
         }),
@@ -752,11 +916,11 @@ export function aggregateCommandCenterActions(input: {
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
-            sourceDeepLink: `/platforms/meta?businessId=${encodeURIComponent(
-              input.businessId,
-            )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
-              input.endDate,
-            )}`,
+            sourceDeepLink: buildMetaSourceDeepLink({
+              businessId: input.businessId,
+              startDate: input.startDate,
+              endDate: input.endDate,
+            }),
             sourceDecisionId: anomaly.placementKey,
           },
         }),
@@ -921,17 +1085,380 @@ function metaNoTouchAction(input: {
     lastMutatedAt: null,
     lastMutationId: null,
     createdAt: input.generatedAt,
+    throughput: {
+      priorityScore: 0,
+      actionable: false,
+      defaultQueueEligible: false,
+      selectedInDefaultQueue: false,
+      ageHours: 0,
+      ageLabel: "fresh now",
+      ageAnchorAt: input.generatedAt,
+      slaTargetHours: null,
+      slaStatus: "n_a",
+    },
     sourceContext: {
       sourceLabel: "Meta Decision OS",
       operatingMode: input.operatingMode,
-      sourceDeepLink: `/platforms/meta?businessId=${encodeURIComponent(
-        input.businessId,
-      )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
-        input.endDate,
-      )}`,
+      sourceDeepLink: buildMetaSourceDeepLink({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        campaignId:
+          input.item.entityType === "campaign" ? input.item.entityId : null,
+      }),
       sourceDecisionId: input.item.entityId,
     },
   } satisfies CommandCenterAction;
+}
+
+const COMMAND_CENTER_ACTIONABLE_STATUSES = new Set<
+  Extract<CommandCenterActionStatus, "pending" | "approved" | "failed">
+>(["pending", "approved", "failed"]);
+
+export function isCommandCenterActionActionable(action: CommandCenterAction) {
+  return (
+    action.surfaceLane === "action_core" &&
+    COMMAND_CENTER_ACTIONABLE_STATUSES.has(
+      action.status as Extract<
+        CommandCenterActionStatus,
+        "pending" | "approved" | "failed"
+      >,
+    )
+  );
+}
+
+export function calculateCommandCenterPriorityScore(action: CommandCenterAction) {
+  let score = COMMAND_CENTER_PRIORITY_SCORE_WEIGHTS[action.priority];
+  score += Math.round(action.confidence * 20);
+  if (action.status === "failed") score += 8;
+  if (!action.assigneeUserId) score += 6;
+  if (
+    action.tags.includes("high_risk_actions") ||
+    action.priority === "critical"
+  ) {
+    score += 5;
+  }
+  if (action.truthState === "degraded_missing_truth") {
+    score -= 10;
+  }
+  if (action.watchlistOnly || action.surfaceLane !== "action_core") {
+    score -= 25;
+  }
+  return score;
+}
+
+export function decorateCommandCenterActionsWithThroughput(input: {
+  actions: CommandCenterAction[];
+  decisionAsOf: string;
+}): CommandCenterAction[] {
+  const decisionAsOfTimestamp =
+    parseIsoTimestamp(`${input.decisionAsOf}T00:00:00.000Z`) ?? Date.now();
+
+  return input.actions.map((action) => {
+    const ageAnchorAt =
+      action.lastMutatedAt ?? action.createdAt ?? `${input.decisionAsOf}T00:00:00.000Z`;
+    const ageAnchorTimestamp = parseIsoTimestamp(ageAnchorAt) ?? decisionAsOfTimestamp;
+    const ageHours = Math.max(
+      0,
+      Number(((decisionAsOfTimestamp - ageAnchorTimestamp) / 3_600_000).toFixed(1)),
+    );
+    const actionable = isCommandCenterActionActionable(action);
+    const priorityScore = calculateCommandCenterPriorityScore(action);
+    const slaTargetHours = actionable
+      ? COMMAND_CENTER_SLA_TARGET_HOURS[action.priority]
+      : null;
+    const slaStatus: CommandCenterSlaStatus =
+      slaTargetHours == null
+        ? "n_a"
+        : ageHours >= slaTargetHours
+          ? "overdue"
+          : ageHours >= slaTargetHours * 0.7
+            ? "due_soon"
+            : "on_track";
+
+    return {
+      ...action,
+      throughput: {
+        priorityScore,
+        actionable,
+        defaultQueueEligible: actionable,
+        selectedInDefaultQueue: false,
+        ageHours,
+        ageLabel: formatAgeLabel(ageHours),
+        ageAnchorAt,
+        slaTargetHours,
+        slaStatus,
+      },
+    };
+  });
+}
+
+function actionComparatorForBudget(
+  left: CommandCenterAction,
+  right: CommandCenterAction,
+) {
+  if (left.throughput.priorityScore !== right.throughput.priorityScore) {
+    return right.throughput.priorityScore - left.throughput.priorityScore;
+  }
+  if (left.throughput.ageHours !== right.throughput.ageHours) {
+    return right.throughput.ageHours - left.throughput.ageHours;
+  }
+  if (left.confidence !== right.confidence) {
+    return right.confidence - left.confidence;
+  }
+  return left.title.localeCompare(right.title);
+}
+
+export function buildCommandCenterDefaultQueueSummary(actions: CommandCenterAction[]) {
+  const actionableActions = actions
+    .filter((action) => action.throughput.defaultQueueEligible)
+    .sort(actionComparatorForBudget);
+  const remainingQuotas: Record<CommandCenterPriority, number> = {
+    critical: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.critical,
+    high: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.high,
+    medium: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.medium,
+    low: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.low,
+  };
+  const selectedFingerprints: string[] = [];
+
+  for (const action of actionableActions) {
+    if (selectedFingerprints.length >= COMMAND_CENTER_DEFAULT_QUEUE_BUDGET) break;
+    if (remainingQuotas[action.priority] <= 0) continue;
+    selectedFingerprints.push(action.actionFingerprint);
+    remainingQuotas[action.priority] -= 1;
+  }
+
+  if (selectedFingerprints.length < COMMAND_CENTER_DEFAULT_QUEUE_BUDGET) {
+    for (const action of actionableActions) {
+      if (selectedFingerprints.length >= COMMAND_CENTER_DEFAULT_QUEUE_BUDGET) break;
+      if (selectedFingerprints.includes(action.actionFingerprint)) continue;
+      selectedFingerprints.push(action.actionFingerprint);
+    }
+  }
+
+  return {
+    totalBudget: COMMAND_CENTER_DEFAULT_QUEUE_BUDGET,
+    quotas: {
+      critical: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.critical,
+      high: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.high,
+      medium: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.medium,
+      low: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.low,
+    },
+    selectedActionFingerprints: selectedFingerprints,
+    overflowCount: Math.max(0, actionableActions.length - selectedFingerprints.length),
+    actionableCount: actionableActions.length,
+    selectedCount: selectedFingerprints.length,
+  } satisfies CommandCenterQueueBudgetSummary;
+}
+
+export function applyCommandCenterQueueSelection(input: {
+  actions: CommandCenterAction[];
+  throughput: CommandCenterQueueBudgetSummary;
+}) {
+  const selected = new Set(input.throughput.selectedActionFingerprints);
+  return input.actions.map((action) => ({
+    ...action,
+    throughput: {
+      ...action.throughput,
+      selectedInDefaultQueue: selected.has(action.actionFingerprint),
+    },
+  }));
+}
+
+export function buildCommandCenterOwnerWorkload(input: {
+  actions: CommandCenterAction[];
+  throughput: CommandCenterQueueBudgetSummary;
+}) {
+  const selected = new Set(input.throughput.selectedActionFingerprints);
+  const owners = new Map<string, CommandCenterOwnerWorkloadSummary>();
+
+  const ensureOwner = (
+    ownerUserId: string | null,
+    ownerName: string,
+    isUnassigned: boolean,
+  ) => {
+    const key = ownerUserId ?? "unassigned";
+    const existing = owners.get(key);
+    if (existing) return existing;
+    const created = {
+      ownerUserId,
+      ownerName,
+      openCount: 0,
+      overdueCount: 0,
+      highPriorityCount: 0,
+      budgetedCount: 0,
+      isUnassigned,
+    } satisfies CommandCenterOwnerWorkloadSummary;
+    owners.set(key, created);
+    return created;
+  };
+
+  input.actions
+    .filter((action) => action.throughput.actionable)
+    .forEach((action) => {
+      const owner = ensureOwner(
+        action.assigneeUserId,
+        action.assigneeName ?? (action.assigneeUserId ? "Assigned operator" : "Unassigned"),
+        !action.assigneeUserId,
+      );
+      owner.openCount += 1;
+      if (action.throughput.slaStatus === "overdue") owner.overdueCount += 1;
+      if (action.priority === "critical" || action.priority === "high") {
+        owner.highPriorityCount += 1;
+      }
+      if (selected.has(action.actionFingerprint)) owner.budgetedCount += 1;
+    });
+
+  return [...owners.values()].sort((left, right) => {
+    if (left.isUnassigned !== right.isUnassigned) {
+      return Number(right.isUnassigned) - Number(left.isUnassigned);
+    }
+    if (left.overdueCount !== right.overdueCount) {
+      return right.overdueCount - left.overdueCount;
+    }
+    if (left.highPriorityCount !== right.highPriorityCount) {
+      return right.highPriorityCount - left.highPriorityCount;
+    }
+    if (left.openCount !== right.openCount) {
+      return right.openCount - left.openCount;
+    }
+    return left.ownerName.localeCompare(right.ownerName);
+  });
+}
+
+const VIEW_STACK_LABELS = {
+  run_now: "Run now",
+  optimize: "Optimize",
+  watch: "Watch",
+  history: "History",
+  custom: "Custom",
+} as const satisfies Record<CommandCenterViewStack["stackKey"], string>;
+
+function resolveCommandCenterViewStack(view: CommandCenterSavedView): CommandCenterViewStack["stackKey"] {
+  if (!view.isBuiltIn) return "custom";
+  if (["today_priorities", "high_risk_actions"].includes(view.viewKey)) return "run_now";
+  if (
+    [
+      "budget_shifts",
+      "test_backlog",
+      "scale_promotions",
+      "fatigue_refresh",
+      "geo_issues",
+    ].includes(view.viewKey)
+  ) {
+    return "optimize";
+  }
+  if (["no_touch_surfaces", "promo_mode_watchlist"].includes(view.viewKey)) {
+    return "watch";
+  }
+  return "history";
+}
+
+export function buildCommandCenterViewStacks(savedViews: CommandCenterSavedView[]) {
+  const stacks = new Map<CommandCenterViewStack["stackKey"], CommandCenterSavedView[]>();
+  for (const key of Object.keys(VIEW_STACK_LABELS) as CommandCenterViewStack["stackKey"][]) {
+    stacks.set(key, []);
+  }
+
+  savedViews.forEach((view) => {
+    stacks.get(resolveCommandCenterViewStack(view))?.push(view);
+  });
+
+  return (Object.keys(VIEW_STACK_LABELS) as CommandCenterViewStack["stackKey"][])
+    .map((stackKey) => ({
+      stackKey,
+      label: VIEW_STACK_LABELS[stackKey],
+      views: (stacks.get(stackKey) ?? []).sort((left, right) =>
+        left.name.localeCompare(right.name),
+      ),
+    }))
+    .filter((stack) => stack.views.length > 0);
+}
+
+export function summarizeCommandCenterFeedback(
+  entries: CommandCenterFeedbackEntry[],
+) {
+  const recentEntries = [...entries]
+    .sort((left, right) => {
+      const leftTimestamp = Date.parse(String(left.createdAt));
+      const rightTimestamp = Date.parse(String(right.createdAt));
+      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp)) {
+        return rightTimestamp - leftTimestamp;
+      }
+      return String(right.createdAt).localeCompare(String(left.createdAt));
+    })
+    .slice(0, 8);
+
+  return {
+    totalCount: entries.length,
+    falsePositiveCount: entries.filter((entry) => entry.feedbackType === "false_positive")
+      .length,
+    badRecommendationCount: entries.filter(
+      (entry) => entry.feedbackType === "bad_recommendation",
+    ).length,
+    falseNegativeCount: entries.filter((entry) => entry.feedbackType === "false_negative")
+      .length,
+    queueGapCount: entries.filter((entry) => entry.scope === "queue_gap").length,
+    recentEntries,
+  } satisfies CommandCenterFeedbackSummary;
+}
+
+export function buildCommandCenterShiftDigest(input: {
+  throughput: CommandCenterQueueBudgetSummary;
+  actions: CommandCenterAction[];
+  ownerWorkload: CommandCenterOwnerWorkloadSummary[];
+  feedbackSummary: CommandCenterFeedbackSummary;
+}) {
+  const selectedSet = new Set(input.throughput.selectedActionFingerprints);
+  const selectedActions = input.actions.filter((action) =>
+    selectedSet.has(action.actionFingerprint),
+  );
+  const overdueCount = selectedActions.filter(
+    (action) => action.throughput.slaStatus === "overdue",
+  ).length;
+  const unassignedCount = selectedActions.filter((action) => !action.assigneeUserId).length;
+  const topOwner = input.ownerWorkload[0];
+  const blockers: string[] = [];
+  const watchouts: string[] = [];
+
+  if (overdueCount > 0) {
+    blockers.push(`${overdueCount} budgeted item(s) are already overdue.`);
+  }
+  if (unassignedCount > 0) {
+    blockers.push(`${unassignedCount} budgeted item(s) are still unassigned.`);
+  }
+  if (input.throughput.overflowCount > 0) {
+    watchouts.push(
+      `${input.throughput.overflowCount} additional actionable item(s) overflowed the current shift budget.`,
+    );
+  }
+  if (input.feedbackSummary.queueGapCount > 0) {
+    watchouts.push(
+      `${input.feedbackSummary.queueGapCount} queue-gap report(s) indicate missing work outside the surfaced queue.`,
+    );
+  }
+  const degradedCount = selectedActions.filter(
+    (action) => action.truthState === "degraded_missing_truth",
+  ).length;
+  if (degradedCount > 0) {
+    watchouts.push(
+      `${degradedCount} budgeted item(s) are operating under degraded commercial truth.`,
+    );
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    headline: `${input.throughput.selectedCount} actions fit the current shift budget.`,
+    summary:
+      topOwner != null
+        ? `${topOwner.ownerName} carries the hottest workload with ${topOwner.openCount} open item(s).`
+        : "No owner hotspots are active in the current queue.",
+    blockers,
+    watchouts,
+    linkedActionFingerprints: selectedActions
+      .slice(0, 6)
+      .map((action) => action.actionFingerprint),
+  } satisfies CommandCenterShiftDigest;
 }
 
 export function compareCommandCenterActions(
@@ -960,6 +1487,10 @@ export function compareCommandCenterActions(
 
   const watchlistDelta = Number(left.watchlistOnly) - Number(right.watchlistOnly);
   if (watchlistDelta !== 0) return watchlistDelta;
+
+  if (left.throughput.priorityScore !== right.throughput.priorityScore) {
+    return right.throughput.priorityScore - left.throughput.priorityScore;
+  }
 
   const priorityDelta = priorityWeight[left.priority] - priorityWeight[right.priority];
   if (priorityDelta !== 0) return priorityDelta;

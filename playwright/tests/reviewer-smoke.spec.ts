@@ -1,5 +1,24 @@
 import { expect, test } from "@playwright/test";
 
+async function selectFirstReviewerCommandCenterViewWithActions(page: import("@playwright/test").Page) {
+  const viewCandidates = [
+    page.getByRole("button", { name: "Default queue" }),
+    page.getByTestId("command-center-view-no_touch_surfaces"),
+    page.getByTestId("command-center-view-archive_context"),
+    page.getByTestId("command-center-view-today_priorities"),
+  ];
+
+  for (const candidate of viewCandidates) {
+    await candidate.click();
+    const queueActions = page.locator('[data-testid^="command-center-action-"]');
+    if ((await queueActions.count()) > 0) {
+      return queueActions;
+    }
+  }
+
+  throw new Error("No Command Center actions were visible for the reviewer smoke flow.");
+}
+
 test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
@@ -26,15 +45,31 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await page.goto("/command-center");
   await expect(page.getByTestId("command-center-page")).toBeVisible();
   await expect(page.getByTestId("command-center-read-only-banner")).toBeVisible();
+  await expect(page.getByTestId("command-center-budget-summary")).toBeVisible();
+  await expect(page.getByTestId("command-center-owner-workload")).toBeVisible();
+  await expect(page.getByTestId("command-center-feedback-summary")).toBeVisible();
+  const reviewerBatchToolbar = page.getByTestId("command-center-batch-toolbar");
+  await expect(reviewerBatchToolbar).toBeVisible();
+  await expect(
+    reviewerBatchToolbar.getByRole("button", { name: "Batch approve" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Report missing action" }),
+  ).toBeDisabled();
   await expect(page.getByTestId("command-center-journal")).toBeVisible();
   await expect(page.getByTestId("command-center-handoffs")).toBeVisible();
   await expect(page.getByRole("button", { name: "Save view" })).toBeDisabled();
-  const reviewerQueueActions = page.locator('[data-testid^="command-center-action-"]');
+  const reviewerQueueActions = await selectFirstReviewerCommandCenterViewWithActions(page);
   await expect(reviewerQueueActions.first()).toBeVisible();
   await reviewerQueueActions.first().click();
   const reviewerExecutionPanel = page.getByTestId("command-center-execution-panel");
   await expect(reviewerExecutionPanel).toBeVisible();
   await expect(reviewerExecutionPanel).toContainText(/Preview first, apply second|Execution preview failed/);
+  const reviewerFeedbackPanel = page.getByTestId("command-center-action-feedback");
+  await expect(reviewerFeedbackPanel).toBeVisible();
+  await expect(
+    reviewerFeedbackPanel.getByRole("button", { name: "Mark false positive" }),
+  ).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
 
   await page.goto("/creatives");

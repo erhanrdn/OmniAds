@@ -8,10 +8,10 @@ Current live release truth is not inferred from older phase docs alone. It is de
 - `GET /api/release-authority`
 - `/admin/release-authority`
 
-Current accepted live baseline for this phase:
+Current accepted live baseline for this authority layer:
 
-- current live SHA: `7d43776fac53f7988e2c3c2b36b239d1f58425ab`
-- previous known-good SHA: `b9ab92f0514022ed1b76b3395486e42cfeaa133f`
+- current live SHA: `5017c8d3d598b05bf384ce1c1149b68a297fab13`
+- rollback target before the next release: `5017c8d3d598b05bf384ce1c1149b68a297fab13`
 - repository authority: `erhanrdn/OmniAds` `main`
 
 ## Authority Rules
@@ -33,7 +33,7 @@ Current accepted live baseline for this phase:
 | `Creative Decision OS` | `live` or `flagged` | `CREATIVE_DECISION_OS_V1`, `CREATIVE_DECISION_OS_CANARY_BUSINESSES` | `current` | Deterministic creative surface remains separate from AI commentary; the current baseline uses a dedicated resizable drawer plus additive economics, compatibility, protected winners, and supply planning boards. |
 | `Decision Signals` | `live` | `n/a` | `current` | Compatibility surface for deterministic creative actions. |
 | `AI Commentary` | `live` | `n/a` | `current` | Commentary remains interpretation-only, never workflow authority. |
-| `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, and handoffs. |
+| `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, throughput budgeting, structured feedback, and status-only batch workflow. |
 | `Command Center execution preview` | `live` or `flagged` | `COMMAND_CENTER_EXECUTION_V1` | `current` | Preview-first surface is inventoried separately from apply authority. |
 | `Command Center apply / rollback` | `flagged` until canary apply is explicitly enabled | `COMMAND_CENTER_EXECUTION_V1`, `META_EXECUTION_APPLY_ENABLED`, `META_EXECUTION_CANARY_BUSINESSES` | `current` | This baseline must never present disabled apply as live. |
 | `/copies` | `live` | `n/a` | `current` | The route stays visible in the matrix so copy-surface risk cannot go opaque. |
@@ -41,13 +41,21 @@ Current accepted live baseline for this phase:
 
 ## Docs Role Split
 
+Current workflow throughput baseline references:
+
+- `docs/v2-06-command-center-throughput.md`
+- `docs/v2-06-release-checklist.md`
+- `docs/v2-06-rollout-runbook.md`
+
+These V2-06 docs define the current additive workflow layer on top of the already accepted Phase 05 and Phase 06 baselines.
+
 - `docs/phase-02-operating-modes.md`
 - `docs/phase-03-meta-decision-os.md`
 - `docs/phase-04-creative-decision-os.md`
 - `docs/phase-05-command-center.md`
 - `docs/phase-06-safe-execution-layer.md`
 
-These documents remain important references for design intent, contracts, and rollout context. They are not allowed to override the live/flagged/legacy posture reported by `/api/release-authority`.
+These older phase documents remain important references for design intent, contracts, and rollout context. They are not allowed to override the live/flagged/legacy posture reported by `/api/release-authority`.
 
 ## Drift Policy
 

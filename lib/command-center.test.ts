@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyCommandCenterQueueSelection,
   aggregateCommandCenterActions,
+  buildCommandCenterDefaultQueueSummary,
+  buildCommandCenterOwnerWorkload,
+  buildCommandCenterShiftDigest,
+  buildCommandCenterViewStacks,
   canTransitionCommandCenterStatus,
+  decorateCommandCenterActionsWithThroughput,
   filterCommandCenterActionsByView,
+  getBuiltInCommandCenterSavedViews,
   resolveNextCommandCenterStatus,
   sanitizeCommandCenterSavedViewDefinition,
+  summarizeCommandCenterFeedback,
+} from "@/lib/command-center";
+import type {
+  CommandCenterAction,
+  CommandCenterFeedbackEntry,
+  CommandCenterSavedView,
 } from "@/lib/command-center";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
@@ -581,6 +594,89 @@ function creativeFixture(): CreativeDecisionOsV1Response {
   };
 }
 
+function buildActionFixture(
+  overrides: Partial<CommandCenterAction> = {},
+): CommandCenterAction {
+  const fingerprint = overrides.actionFingerprint ?? `cc_${Math.random().toString(36).slice(2, 10)}`;
+  return {
+    actionFingerprint: fingerprint,
+    sourceSystem: "meta",
+    sourceType: "meta_adset_decision",
+    surfaceLane: "action_core",
+    truthState: "live_confident",
+    operatorDisposition: "standard",
+    trustReasons: ["Stable queue fixture."],
+    title: overrides.title ?? fingerprint,
+    recommendedAction: "scale_budget",
+    confidence: 0.82,
+    priority: "medium",
+    summary: "Fixture action",
+    decisionSignals: ["Stable queue fixture."],
+    evidence: [],
+    guardrails: [],
+    relatedEntities: [
+      {
+        type: "campaign",
+        id: "cmp_fixture",
+        label: "Fixture Campaign",
+      },
+    ],
+    tags: [],
+    watchlistOnly: false,
+    status: "pending",
+    assigneeUserId: null,
+    assigneeName: null,
+    snoozeUntil: null,
+    latestNoteExcerpt: null,
+    noteCount: 0,
+    lastMutatedAt: null,
+    lastMutationId: null,
+    createdAt: "2026-04-09T00:00:00.000Z",
+    sourceContext: {
+      sourceLabel: "Meta Decision OS",
+      operatingMode: "Exploit",
+      sourceDeepLink: "/platforms/meta?businessId=biz",
+      sourceDecisionId: fingerprint,
+    },
+    throughput: {
+      priorityScore: 0,
+      actionable: false,
+      defaultQueueEligible: false,
+      selectedInDefaultQueue: false,
+      ageHours: 0,
+      ageLabel: "fresh now",
+      ageAnchorAt: "2026-04-09T00:00:00.000Z",
+      slaTargetHours: null,
+      slaStatus: "n_a",
+    },
+    ...overrides,
+  };
+}
+
+function buildFeedbackEntry(
+  overrides: Partial<CommandCenterFeedbackEntry> = {},
+): CommandCenterFeedbackEntry {
+  return {
+    id: overrides.id ?? `feedback_${Math.random().toString(36).slice(2, 8)}`,
+    businessId: "biz",
+    clientMutationId:
+      overrides.clientMutationId ?? `mutation_${Math.random().toString(36).slice(2, 8)}`,
+    feedbackType: "false_positive",
+    scope: "action",
+    actionFingerprint: "cc_feedback",
+    actionTitle: "Feedback action",
+    sourceSystem: "meta",
+    sourceType: "meta_adset_decision",
+    viewKey: null,
+    actorUserId: "user_1",
+    actorName: "Operator",
+    actorEmail: "operator@adsecute.com",
+    note: "Feedback note",
+    createdAt: "2026-04-10T08:00:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("command center domain", () => {
   it("keeps action fingerprints stable across date ranges", () => {
     const rangeA = aggregateCommandCenterActions({
@@ -795,5 +891,181 @@ describe("command center domain", () => {
       watchlistOnly: true,
       surfaceLanes: ["watchlist"],
     });
+  });
+
+  it("decorates actions with throughput metadata and keeps Meta source deep links entity-aware", () => {
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions: aggregateCommandCenterActions({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: metaFixture(),
+        creativeDecisionOs: creativeFixture(),
+      }).map((action) =>
+        action.actionFingerprint.includes("cc_")
+          ? {
+              ...action,
+              createdAt: "2026-04-08T00:00:00.000Z",
+            }
+          : action,
+      ),
+      decisionAsOf: "2026-04-10",
+    });
+
+    const adsetAction = decorated.find(
+      (action) => action.sourceType === "meta_adset_decision",
+    );
+    const budgetShiftAction = decorated.find(
+      (action) => action.sourceType === "meta_budget_shift",
+    );
+
+    expect(adsetAction?.throughput.priorityScore).toBeGreaterThan(80);
+    expect(adsetAction?.throughput.slaStatus).toBe("overdue");
+    expect(adsetAction?.sourceContext.sourceDeepLink).toContain("campaignId=cmp_1");
+    expect(budgetShiftAction?.sourceContext.sourceDeepLink).toContain(
+      "campaignId=cmp_1",
+    );
+  });
+
+  it("builds a bounded default queue, owner workload, and shift digest from throughput metadata", () => {
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      decisionAsOf: "2026-04-10",
+      actions: [
+        buildActionFixture({
+          actionFingerprint: "critical_a",
+          title: "Critical A",
+          priority: "critical",
+          createdAt: "2026-04-09T18:00:00.000Z",
+          assigneeUserId: "owner_1",
+          assigneeName: "Alice",
+        }),
+        buildActionFixture({
+          actionFingerprint: "critical_b",
+          title: "Critical B",
+          priority: "critical",
+          createdAt: "2026-04-09T16:00:00.000Z",
+        }),
+        ...Array.from({ length: 4 }, (_, index) =>
+          buildActionFixture({
+            actionFingerprint: `high_${index}`,
+            title: `High ${index}`,
+            priority: "high",
+            createdAt: `2026-04-08T0${index}:00:00.000Z`,
+            assigneeUserId: "owner_1",
+            assigneeName: "Alice",
+          }),
+        ),
+        ...Array.from({ length: 5 }, (_, index) =>
+          buildActionFixture({
+            actionFingerprint: `medium_${index}`,
+            title: `Medium ${index}`,
+            priority: "medium",
+            createdAt: "2026-04-06T00:00:00.000Z",
+            assigneeUserId: index < 2 ? "owner_2" : null,
+            assigneeName: index < 2 ? "Blair" : null,
+          }),
+        ),
+        ...Array.from({ length: 3 }, (_, index) =>
+          buildActionFixture({
+            actionFingerprint: `low_${index}`,
+            title: `Low ${index}`,
+            priority: "low",
+            createdAt: "2026-04-09T20:00:00.000Z",
+          }),
+        ),
+      ],
+    });
+
+    const throughput = buildCommandCenterDefaultQueueSummary(decorated);
+    const selected = applyCommandCenterQueueSelection({
+      actions: decorated,
+      throughput,
+    });
+    const ownerWorkload = buildCommandCenterOwnerWorkload({
+      actions: selected,
+      throughput,
+    });
+    const feedbackSummary = summarizeCommandCenterFeedback([
+      buildFeedbackEntry({
+        feedbackType: "false_negative",
+        scope: "queue_gap",
+        actionFingerprint: null,
+        actionTitle: null,
+        sourceSystem: "meta",
+      }),
+    ]);
+    const shiftDigest = buildCommandCenterShiftDigest({
+      throughput,
+      actions: selected,
+      ownerWorkload,
+      feedbackSummary,
+    });
+
+    expect(throughput.selectedCount).toBe(12);
+    expect(throughput.overflowCount).toBe(2);
+    expect(
+      selected.filter((action) => action.throughput.selectedInDefaultQueue),
+    ).toHaveLength(12);
+    expect(ownerWorkload[0]).toMatchObject({
+      ownerName: "Unassigned",
+      openCount: 7,
+      overdueCount: 4,
+    });
+    expect(shiftDigest.headline).toContain("12 actions fit the current shift budget");
+    expect(shiftDigest.watchouts.some((entry) => entry.includes("queue-gap"))).toBe(true);
+  });
+
+  it("groups saved views into fixed stacks and summarizes feedback rollups", () => {
+    const builtIns = getBuiltInCommandCenterSavedViews("biz");
+    const customView: CommandCenterSavedView = {
+      id: "custom:1",
+      businessId: "biz",
+      viewKey: "custom_operator_focus",
+      name: "Operator focus",
+      definition: {
+        statuses: ["pending"],
+      },
+      isBuiltIn: false,
+      createdAt: "2026-04-10T00:00:00.000Z",
+      updatedAt: "2026-04-10T00:00:00.000Z",
+    };
+    const stacks = buildCommandCenterViewStacks([...builtIns, customView]);
+    const feedbackSummary = summarizeCommandCenterFeedback([
+      buildFeedbackEntry({
+        id: "fp_1",
+        feedbackType: "false_positive",
+        createdAt: "2026-04-10T08:00:00.000Z",
+      }),
+      buildFeedbackEntry({
+        id: "br_1",
+        feedbackType: "bad_recommendation",
+        createdAt: "2026-04-10T09:00:00.000Z",
+      }),
+      buildFeedbackEntry({
+        id: "fn_1",
+        feedbackType: "false_negative",
+        scope: "queue_gap",
+        actionFingerprint: null,
+        actionTitle: null,
+        createdAt: "2026-04-10T10:00:00.000Z",
+      }),
+    ]);
+
+    expect(stacks.map((stack) => stack.label)).toEqual([
+      "Run now",
+      "Optimize",
+      "Watch",
+      "History",
+      "Custom",
+    ]);
+    expect(stacks.at(-1)?.views[0]?.viewKey).toBe("custom_operator_focus");
+    expect(feedbackSummary).toMatchObject({
+      totalCount: 3,
+      falsePositiveCount: 1,
+      badRecommendationCount: 1,
+      falseNegativeCount: 1,
+      queueGapCount: 1,
+    });
+    expect(feedbackSummary.recentEntries[0]?.id).toBe("fn_1");
   });
 });

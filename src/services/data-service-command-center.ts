@@ -1,8 +1,13 @@
 import type {
+  CommandCenterBatchMutationRequest,
+  CommandCenterFeedbackEntry,
+  CommandCenterFeedbackScope,
+  CommandCenterFeedbackType,
   CommandCenterActionMutation,
   CommandCenterHandoff,
   CommandCenterResponse,
   CommandCenterSavedViewDefinition,
+  CommandCenterSourceSystem,
 } from "@/lib/command-center";
 import type { CommandCenterExecutionPreview } from "@/lib/command-center-execution";
 import {
@@ -104,6 +109,79 @@ export async function addCommandCenterNote(input: {
   }
 
   return payload as { ok: true; state: unknown };
+}
+
+export async function batchMutateCommandCenterActions(
+  input: CommandCenterBatchMutationRequest,
+) {
+  const url = buildApiUrl("/api/command-center/actions/batch");
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Command Center batch mutation failed with status ${response.status}`,
+      ),
+    );
+  }
+
+  return payload as {
+    ok: boolean;
+    mutation: CommandCenterBatchMutationRequest["mutation"];
+    requestedCount: number;
+    successCount: number;
+    failureCount: number;
+    results: Array<{
+      actionFingerprint: string;
+      ok: boolean;
+      state?: unknown;
+      error?: string;
+    }>;
+  };
+}
+
+export async function createCommandCenterFeedback(input: {
+  businessId: string;
+  clientMutationId: string;
+  feedbackType: CommandCenterFeedbackType;
+  scope: CommandCenterFeedbackScope;
+  note: string;
+  actionFingerprint?: string;
+  startDate?: string;
+  endDate?: string;
+  viewKey?: string | null;
+  sourceSystem?: CommandCenterSourceSystem | null;
+}) {
+  const url = buildApiUrl("/api/command-center/feedback");
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      getApiErrorMessage(
+        payload,
+        `Create feedback failed with status ${response.status}`,
+      ),
+    );
+  }
+
+  return payload as { ok: true; feedback: CommandCenterFeedbackEntry };
 }
 
 export async function createCommandCenterSavedView(input: {

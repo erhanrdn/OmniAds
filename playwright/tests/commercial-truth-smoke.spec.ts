@@ -135,13 +135,23 @@ async function captureMetaDecisionSignature(
 async function captureCommandCenterDecisionSignature(
   page: Page,
 ) {
+  const budgetSummary = normalizeText(
+    await page.getByTestId("command-center-budget-summary").textContent(),
+  );
+  const shiftDigest = normalizeText(
+    await page.getByTestId("command-center-shift-digest").textContent(),
+  );
   const cards = page.locator('[data-testid^="command-center-action-"]');
   const count = Math.min(await cards.count(), 3);
   const entries: string[] = [];
   for (let index = 0; index < count; index += 1) {
     entries.push(normalizeText(await cards.nth(index).textContent()));
   }
-  return entries;
+  return {
+    budgetSummary,
+    shiftDigest,
+    entries,
+  };
 }
 
 async function captureCreativeDecisionSignature(
@@ -164,6 +174,47 @@ async function captureCreativeDecisionSignature(
       await page.getByTestId("creative-operator-queues").textContent(),
     ),
   };
+}
+
+async function selectFirstCommandCenterViewWithActions(page: Page) {
+  const viewCandidates = [
+    page.getByRole("button", { name: "Default queue" }),
+    page.getByTestId("command-center-view-no_touch_surfaces"),
+    page.getByTestId("command-center-view-archive_context"),
+    page.getByTestId("command-center-view-today_priorities"),
+  ];
+
+  for (const candidate of viewCandidates) {
+    await candidate.click();
+    const queueActions = page.locator('[data-testid^="command-center-action-"]');
+    if ((await queueActions.count()) > 0) {
+      return queueActions;
+    }
+  }
+
+  throw new Error("No Command Center action cards were visible in any fallback view.");
+}
+
+async function selectFirstMetaCommandCenterAction(page: Page) {
+  const viewCandidates = [
+    page.getByRole("button", { name: "Default queue" }),
+    page.getByTestId("command-center-view-no_touch_surfaces"),
+    page.getByTestId("command-center-view-archive_context"),
+    page.getByTestId("command-center-view-today_priorities"),
+  ];
+
+  for (const candidate of viewCandidates) {
+    await candidate.click();
+    const metaAction = page
+      .locator('[data-testid^="command-center-action-"]')
+      .filter({ hasText: "Meta Decision OS" })
+      .first();
+    if ((await metaAction.count()) > 0) {
+      return metaAction;
+    }
+  }
+
+  throw new Error("No Meta-backed Command Center action was visible in fallback views.");
 }
 
 test("commercial truth smoke covers settings edit, Meta operating mode, and Creative context", async ({ page }, testInfo) => {
@@ -242,8 +293,9 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
     await setStoredDateRange(page, "commandCenterDateRange", range.standard);
     await page.reload();
     await expect(page.getByTestId("command-center-page")).toBeVisible();
-    const queueActionsForRange = page.locator('[data-testid^="command-center-action-"]');
-    await expect(queueActionsForRange.first()).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId("command-center-budget-summary")).toBeVisible({
+      timeout: 45_000,
+    });
     const signature = await captureCommandCenterDecisionSignature(page);
     if (!commandCenterBaseline) {
       commandCenterBaseline = signature;
@@ -254,14 +306,40 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await setStoredDateRange(page, "commandCenterDateRange", STANDARD_DATE_RANGE);
   await page.reload();
   await expect(page.getByTestId("command-center-page")).toBeVisible();
-  const queueActions = page.locator('[data-testid^="command-center-action-"]');
+  await expect(page.getByTestId("command-center-budget-summary")).toBeVisible();
+  await expect(page.getByTestId("command-center-shift-digest")).toBeVisible();
+  await expect(page.getByTestId("command-center-feedback-summary")).toBeVisible();
+  await expect(page.getByTestId("command-center-owner-workload")).toBeVisible();
+  const queueActions = await selectFirstCommandCenterViewWithActions(page);
   await expect(queueActions.first()).toBeVisible();
+  const batchToolbar = page.getByTestId("command-center-batch-toolbar");
+  const batchToggles = page.locator('[data-testid^="command-center-batch-toggle-"]');
+  const batchSelectionCount = Math.min(await batchToggles.count(), 2);
+  for (let index = 0; index < batchSelectionCount; index += 1) {
+    await batchToggles.nth(index).click();
+  }
+  await expect(batchToolbar).toContainText(`${batchSelectionCount} selected`);
+  await batchToolbar.getByRole("button", { name: "Batch approve" }).click();
+  await expect(batchToolbar).toContainText("0 selected");
+  for (let index = 0; index < batchSelectionCount; index += 1) {
+    await batchToggles.nth(index).click();
+  }
+  await batchToolbar.getByRole("button", { name: "Batch reopen" }).click();
+  await expect(batchToolbar).toContainText("0 selected");
+
+  const queueGapInput = page.getByPlaceholder("What action is missing from this queue?");
+  await queueGapInput.fill("Missing donor-campaign queue item for manual reallocation.");
+  await page.getByRole("button", { name: "Report missing action" }).click();
+  await expect(queueGapInput).toHaveValue("");
+
   await queueActions.first().click();
   const workflowDialog = page.getByRole("dialog");
   await expect(workflowDialog.getByTestId("command-center-execution-panel")).toBeVisible();
   await expect(workflowDialog.getByTestId("command-center-execution-support-mode")).toBeVisible();
   await expect(workflowDialog.getByTestId("command-center-execution-audit")).toBeVisible();
   await expect(workflowDialog.getByTestId("command-center-execution-apply")).toBeDisabled();
+  const feedbackPanel = workflowDialog.getByTestId("command-center-action-feedback");
+  await expect(feedbackPanel).toBeVisible();
   await expect(workflowDialog.getByRole("button", { name: "Approve", exact: true })).toBeVisible();
   await workflowDialog.getByRole("button", { name: "Approve", exact: true }).click();
   await workflowDialog.getByRole("button", { name: "Reopen", exact: true }).click();
@@ -273,12 +351,36 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   await workflowDialog.locator('label:has-text("Snooze until") input[type="datetime-local"]').fill("2026-04-12T09:00");
   await workflowDialog.getByPlaceholder("Add operator context, blockers, or approval rationale").fill("Smoke note from operator.");
   await workflowDialog.getByRole("button", { name: "Add note", exact: true }).click();
+  await feedbackPanel
+    .getByPlaceholder("Why was this a false positive or bad recommendation?")
+    .fill("Smoke operator feedback on queue prioritization.");
+  await feedbackPanel.getByRole("button", { name: "Mark false positive" }).click();
+  await expect(feedbackPanel).toContainText("Smoke operator feedback on queue prioritization.");
   await workflowDialog.getByRole("button", { name: "Close", exact: true }).click();
+
+  const metaQueueAction = await selectFirstMetaCommandCenterAction(page);
+  await expect(metaQueueAction).toBeVisible();
+  await metaQueueAction.click();
+  const metaWorkflowDialog = page.getByRole("dialog");
+  await metaWorkflowDialog.getByRole("link", { name: "Open source surface" }).click();
+  await page.waitForURL(/\/platforms\/meta\?.*campaignId=/, { timeout: 45_000 });
+  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
+  const metaDetailVisible = await page
+    .getByTestId("meta-campaign-detail")
+    .isVisible()
+    .catch(() => false);
+  if (!metaDetailVisible) {
+    await expect(page.locator('[data-testid^="meta-list-item-"]').first()).toBeVisible();
+  }
+  await page.goBack();
+  await expect(page.getByTestId("command-center-page")).toBeVisible();
+
   await page.getByPlaceholder("Save current view").fill("Smoke saved view");
   await page.getByRole("button", { name: "Save view" }).click();
-  await queueActions.first().click();
-  await page.getByTestId("command-center-handoffs").getByPlaceholder("Summary for the next shift").fill("Watch promo budget reallocations.");
-  await page.getByRole("button", { name: "Link selected action" }).click();
+  await page.getByTestId("command-center-handoffs").getByRole("button", { name: "Prefill from digest" }).click();
+  await expect(
+    page.getByTestId("command-center-handoffs").getByPlaceholder("Summary for the next shift"),
+  ).not.toHaveValue("");
   await page.getByTestId("command-center-handoffs").getByRole("button", { name: "Save handoff" }).click();
   const handoffCard = page.locator('[data-testid^="command-center-handoff-"]').first();
   await expect(handoffCard).toBeVisible();
