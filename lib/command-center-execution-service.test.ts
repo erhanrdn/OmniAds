@@ -4,8 +4,10 @@ import type { CommandCenterAction, CommandCenterPermissions } from "@/lib/comman
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 
 vi.mock("@/lib/command-center-store", () => ({
+  getCommandCenterMutationReceipt: vi.fn(),
   listCommandCenterJournal: vi.fn(),
   syncCommandCenterActionWorkflowStatus: vi.fn(),
+  writeCommandCenterMutationReceipt: vi.fn(),
 }));
 
 vi.mock("@/lib/command-center-execution-store", () => ({
@@ -241,11 +243,79 @@ function buildMetaDecisionResponse() {
   };
 }
 
+function buildExecutionStateRecord(
+  overrides: Partial<
+    NonNullable<
+      Awaited<ReturnType<typeof executionStore.getCommandCenterExecutionState>>
+    >
+  > = {},
+) {
+  return {
+    businessId: "biz",
+    actionFingerprint: "cc_meta_1",
+    executionStatus: "executed",
+    supportMode: "supported",
+    sourceSystem: "meta",
+    sourceType: "meta_adset_decision",
+    requestedAction: "scale_budget",
+    previewHash: "preview_hash",
+    workflowStatusSnapshot: "executed",
+    approvalActorUserId: "user_1",
+    approvalActorName: "Operator",
+    approvalActorEmail: "operator@adsecute.com",
+    approvedAt: "2026-04-11T10:00:00.000Z",
+    appliedByUserId: "user_1",
+    appliedByName: "Operator",
+    appliedByEmail: "operator@adsecute.com",
+    appliedAt: "2026-04-11T10:05:00.000Z",
+    rollbackKind: "provider_rollback",
+    rollbackNote:
+      "Rollback restores the captured pre-apply ad set status and daily budget snapshot.",
+    lastClientMutationId: "apply_1",
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    currentState: {
+      status: "ACTIVE",
+      budgetLevel: "adset",
+      dailyBudget: 115,
+      lifetimeBudget: null,
+      optimizationGoal: "PURCHASE",
+      bidStrategyLabel: "Cost Cap",
+    },
+    requestedState: {
+      status: "ACTIVE",
+      budgetLevel: "adset",
+      dailyBudget: 115,
+      lifetimeBudget: null,
+      optimizationGoal: "PURCHASE",
+      bidStrategyLabel: "Cost Cap",
+    },
+    capturedPreApplyState: {
+      status: "ACTIVE",
+      budgetLevel: "adset",
+      dailyBudget: 100,
+      lifetimeBudget: null,
+      optimizationGoal: "PURCHASE",
+      bidStrategyLabel: "Cost Cap",
+    },
+    providerResponse: {},
+    createdAt: "2026-04-11T10:05:00.000Z",
+    updatedAt: "2026-04-11T10:05:00.000Z",
+    ...overrides,
+  } as NonNullable<
+    Awaited<ReturnType<typeof executionStore.getCommandCenterExecutionState>>
+  >;
+}
+
 describe("command center execution service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(executionConfig.isCommandCenterExecutionV1Enabled).mockReturnValue(true);
     vi.mocked(executionConfig.canApplyMetaExecutionForBusiness).mockReturnValue(true);
+    vi.mocked(commandCenterStore.getCommandCenterMutationReceipt).mockResolvedValue(null);
+    vi.mocked(commandCenterStore.writeCommandCenterMutationReceipt).mockResolvedValue(
+      undefined,
+    );
     vi.mocked(commandCenterStore.listCommandCenterJournal).mockResolvedValue([
       {
         id: "journal_1",
@@ -307,6 +377,16 @@ describe("command center execution service", () => {
     expect(preview.requestedState?.dailyBudget).toBe(115);
     expect(preview.plan?.requestedDailyBudget).toBe(115);
     expect(preview.permission.canApply).toBe(true);
+    expect(preview.supportMatrix.selectedEntry.familyKey).toBe(
+      "meta_adset_decision:scale_budget",
+    );
+    expect(
+      preview.supportMatrix.entries.some(
+        (entry) =>
+          entry.familyKey === "meta_budget_shift:budget_shift" &&
+          entry.supportMode === "manual_only",
+      ),
+    ).toBe(true);
   });
 
   it("degrades to manual-only for campaign-owned budgets", async () => {
@@ -344,6 +424,7 @@ describe("command center execution service", () => {
     expect(preview.supportMode).toBe("manual_only");
     expect(preview.status).toBe("manual_only");
     expect(preview.permission.canApply).toBe(false);
+    expect(preview.supportMatrix.selectedEntry.supportMode).toBe("supported");
   });
 
   it("rejects apply when the preview hash is stale", async () => {
@@ -364,5 +445,152 @@ describe("command center execution service", () => {
         previewHash: "stale_hash",
       }),
     ).rejects.toThrow("Execution preview is stale");
+  });
+
+  it("replays a stored terminal apply receipt without issuing a second provider write", async () => {
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+    vi.mocked(commandCenterStore.getCommandCenterMutationReceipt).mockResolvedValue({
+      kind: "command_center_execution",
+      operation: "apply",
+      success: true,
+      preview,
+      error: null,
+    } as never);
+
+    const result = await executionService.applyCommandCenterExecution({
+      request: new NextRequest("http://localhost/api/command-center/execution/apply", {
+        method: "POST",
+      }),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+      actorUserId: "user_1",
+      actorName: "Operator",
+      actorEmail: "operator@adsecute.com",
+      clientMutationId: "apply_1",
+      previewHash: preview.previewHash,
+    });
+
+    expect(result.previewHash).toBe(preview.previewHash);
+    expect(metaExecution.mutateMetaAdSetExecution).not.toHaveBeenCalled();
+  });
+
+  it("blocks ambiguous duplicate apply retries without issuing a second provider write", async () => {
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+    vi.mocked(executionStore.getCommandCenterExecutionState).mockResolvedValue(
+      buildExecutionStateRecord({
+        executionStatus: "applying",
+        workflowStatusSnapshot: "approved",
+        lastClientMutationId: "apply_1",
+        currentState: {
+          status: "ACTIVE",
+          budgetLevel: "adset",
+          dailyBudget: 100,
+          lifetimeBudget: null,
+          optimizationGoal: "PURCHASE",
+          bidStrategyLabel: "Cost Cap",
+        },
+      }) as never,
+    );
+    vi.mocked(metaExecution.getMetaAdSetExecutionState).mockResolvedValue({
+      provider: "meta",
+      businessId: "biz",
+      adSetId: "adset_1",
+      adSetName: "Prospecting Wide US",
+      providerAccountId: "act_1",
+      providerAccountName: "Account 1",
+      currency: "USD",
+      campaignId: "cmp_1",
+      campaignName: "Spring Promo",
+      status: "ACTIVE",
+      budgetLevel: "adset",
+      dailyBudget: 100,
+      lifetimeBudget: null,
+      optimizationGoal: "PURCHASE",
+      bidStrategyLabel: "Cost Cap",
+      isBudgetMixed: false,
+      isConfigMixed: false,
+      providerAccessible: true,
+      isDemo: false,
+    } as never);
+
+    await expect(
+      executionService.applyCommandCenterExecution({
+        request: new NextRequest("http://localhost/api/command-center/execution/apply", {
+          method: "POST",
+        }),
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        action: buildActionFixture(),
+        permissions,
+        actorUserId: "user_1",
+        actorName: "Operator",
+        actorEmail: "operator@adsecute.com",
+        clientMutationId: "apply_1",
+        previewHash: preview.previewHash,
+      }),
+    ).rejects.toThrow("Apply is already in progress");
+
+    expect(metaExecution.mutateMetaAdSetExecution).not.toHaveBeenCalled();
+  });
+
+  it("replays a stored terminal rollback receipt without issuing a second provider write", async () => {
+    vi.mocked(executionStore.getCommandCenterExecutionState).mockResolvedValue(
+      buildExecutionStateRecord({
+        executionStatus: "executed",
+        workflowStatusSnapshot: "executed",
+        lastClientMutationId: "apply_0",
+      }) as never,
+    );
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+    vi.mocked(commandCenterStore.getCommandCenterMutationReceipt).mockResolvedValue({
+      kind: "command_center_execution",
+      operation: "rollback",
+      success: true,
+      preview,
+      error: null,
+    } as never);
+
+    const result = await executionService.rollbackCommandCenterExecution({
+      request: new NextRequest("http://localhost/api/command-center/execution/rollback", {
+        method: "POST",
+      }),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+      actorUserId: "user_1",
+      actorName: "Operator",
+      actorEmail: "operator@adsecute.com",
+      clientMutationId: "rollback_1",
+    });
+
+    expect(result.previewHash).toBe(preview.previewHash);
+    expect(metaExecution.mutateMetaAdSetExecution).not.toHaveBeenCalled();
   });
 });

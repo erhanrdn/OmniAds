@@ -82,4 +82,29 @@ describe("POST /api/command-center/execution/rollback", () => {
       }),
     );
   });
+
+  it("returns a non-dispatching conflict for duplicate rollback retries", async () => {
+    vi.mocked(executionService.rollbackCommandCenterExecution).mockRejectedValue({
+      code: "execution_rollback_in_progress",
+      status: 409,
+      message:
+        "Rollback is already in progress or could not be safely replayed. Wait for the original attempt to settle and do not retry automatically.",
+    });
+    vi.mocked(executionService.isCommandCenterExecutionError).mockReturnValue(true);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/command-center/execution/rollback", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: "biz",
+          actionFingerprint: "cc_meta_1",
+          clientMutationId: "rollback_1",
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toBe("execution_rollback_in_progress");
+  });
 });

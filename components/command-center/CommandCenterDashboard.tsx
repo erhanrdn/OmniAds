@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { CommandCenterExecutionSupportMatrix } from "@/components/command-center/CommandCenterExecutionSupportMatrix";
 import {
   DEFAULT_DATE_RANGE,
   DateRangePicker,
@@ -1925,8 +1926,17 @@ export function CommandCenterDashboard() {
                           ) : (
                             <p className="text-emerald-700">Rollback: available</p>
                           )}
+                          <p className="text-slate-600">
+                            Rollback truth:{" "}
+                            {executionQuery.data.rollback.note ??
+                              "No rollback note is available for this action."}
+                          </p>
                         </div>
                       </div>
+
+                      <CommandCenterExecutionSupportMatrix
+                        preview={executionQuery.data}
+                      />
 
                       {executionQuery.data.prerequisites.length > 0 ? (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">

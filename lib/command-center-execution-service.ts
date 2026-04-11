@@ -5,7 +5,10 @@ import type {
   CommandCenterPermissions,
 } from "@/lib/command-center";
 import {
+  getCommandCenterMutationReceipt,
   listCommandCenterJournal,
+  syncCommandCenterActionWorkflowStatus,
+  writeCommandCenterMutationReceipt,
 } from "@/lib/command-center-store";
 import {
   buildCommandCenterExecutionPreviewHash,
@@ -14,12 +17,17 @@ import {
   type CommandCenterExecutionDiffItem,
   type CommandCenterExecutionPreview,
   type CommandCenterExecutionStateSummary,
+  type CommandCenterExecutionSupportMatrix,
   type CommandCenterExecutionSupportMode,
   type MetaExecutionMutationPlan,
   META_EXECUTION_SUPPORTED_ACTIONS,
   normalizeMetaExecutionStatus,
   summarizeExecutionStateValue,
 } from "@/lib/command-center-execution";
+import {
+  buildCommandCenterExecutionSupportMatrix,
+  resolveCommandCenterExecutionSupportEntry,
+} from "@/lib/command-center-execution-support";
 import {
   appendCommandCenterExecutionAudit,
   getCommandCenterExecutionState,
@@ -30,7 +38,6 @@ import {
   canApplyMetaExecutionForBusiness,
   isCommandCenterExecutionV1Enabled,
 } from "@/lib/command-center-execution-config";
-import { syncCommandCenterActionWorkflowStatus } from "@/lib/command-center-store";
 import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 import type { MetaAdSetDecision } from "@/lib/meta/decision-os";
 import {
@@ -57,6 +64,103 @@ class CommandCenterExecutionError extends Error {
     this.status = input.status;
     this.details = input.details;
   }
+}
+
+function buildExecutionMutationReceipt(input: {
+  operation: "apply" | "rollback";
+  preview: CommandCenterExecutionPreview | null;
+  success: boolean;
+  error?: CommandCenterExecutionMutationReceipt["error"];
+}) {
+  return {
+    kind: "command_center_execution",
+    operation: input.operation,
+    success: input.success,
+    preview: input.preview,
+    error: input.error ?? null,
+  } satisfies CommandCenterExecutionMutationReceipt;
+}
+
+async function readExecutionMutationReceipt(input: {
+  businessId: string;
+  clientMutationId: string;
+  operation: "apply" | "rollback";
+}) {
+  const receipt =
+    await getCommandCenterMutationReceipt<CommandCenterExecutionMutationReceipt>({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+    });
+  if (
+    !receipt ||
+    receipt.kind !== "command_center_execution" ||
+    receipt.operation !== input.operation
+  ) {
+    return null;
+  }
+  return receipt;
+}
+
+async function writeExecutionMutationReceipt(input: {
+  businessId: string;
+  clientMutationId: string;
+  operation: "apply" | "rollback";
+  preview: CommandCenterExecutionPreview | null;
+  success: boolean;
+  error?: CommandCenterExecutionMutationReceipt["error"];
+}) {
+  await writeCommandCenterMutationReceipt({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    mutationScope: `command_center_execution:${input.operation}`,
+    payload: buildExecutionMutationReceipt({
+      operation: input.operation,
+      preview: input.preview,
+      success: input.success,
+      error: input.error,
+    }),
+  });
+}
+
+function replayExecutionMutationReceipt(
+  receipt: CommandCenterExecutionMutationReceipt,
+) {
+  if (receipt.success && receipt.preview) {
+    return receipt.preview;
+  }
+
+  throw new CommandCenterExecutionError({
+    code: receipt.error?.code ?? "execution_receipt_replay_failed",
+    status: receipt.error?.status ?? 409,
+    message:
+      receipt.error?.message ??
+      "The original execution attempt already completed without a replayable preview payload.",
+    details: receipt.preview ? { preview: receipt.preview } : undefined,
+  });
+}
+
+function buildObservedProviderResult(reason: string) {
+  return {
+    statusCode: 202,
+    ok: true,
+    traceId: null,
+    body: {
+      source: "live_state_reconciliation",
+      reason,
+    },
+  } satisfies MetaExecutionMutationResult;
+}
+
+interface CommandCenterExecutionMutationReceipt {
+  kind: "command_center_execution";
+  operation: "apply" | "rollback";
+  success: boolean;
+  preview: CommandCenterExecutionPreview | null;
+  error: {
+    code: string;
+    status: number;
+    message: string;
+  } | null;
 }
 
 function isSupportedMetaExecutionAction(
@@ -194,10 +298,13 @@ function buildManualOnlyPreview(input: {
   auditTrail: Awaited<ReturnType<typeof listCommandCenterExecutionAudit>>;
   currentState: CommandCenterExecutionStateSummary | null;
   requestedState: CommandCenterExecutionStateSummary | null;
+  supportMatrix: CommandCenterExecutionSupportMatrix;
   manualInstructions: string[];
   prerequisites: string[];
   risks: string[];
   supportMode: CommandCenterExecutionSupportMode;
+  applyReason?: string | null;
+  rollbackReason?: string | null;
 }) {
   const diff = buildDiff({
     currentState: input.currentState,
@@ -227,15 +334,18 @@ function buildManualOnlyPreview(input: {
     supportMode: input.supportMode,
     status: input.supportMode === "unsupported" ? "unsupported" : "manual_only",
     previewHash,
+    supportMatrix: input.supportMatrix,
     approval: input.approval,
     permission: {
       canApply: false,
       reason:
-        input.supportMode === "unsupported"
-          ? "This action is outside the Phase 06 execution subset."
-          : "This action requires manual execution.",
+        input.applyReason ??
+        (input.supportMode === "unsupported"
+          ? "This action is outside the V2-07 execution subset."
+          : "This action requires manual execution."),
       canRollback: false,
-      rollbackReason: "No provider rollback is available for this action.",
+      rollbackReason:
+        input.rollbackReason ?? "No provider rollback is available for this preview.",
     },
     target: {
       entityType:
@@ -262,7 +372,9 @@ function buildManualOnlyPreview(input: {
     plan: null,
     rollback: {
       kind: "not_available",
-      note: "Rollback is unavailable because no provider-side apply path exists.",
+      note:
+        input.rollbackReason ??
+        "Rollback is unavailable because no provider-side apply path exists.",
     },
   } satisfies CommandCenterExecutionPreview;
 }
@@ -300,6 +412,141 @@ function doesRequestedStateMatch(input: {
   );
 }
 
+async function replayStoredExecutionReceiptIfPresent(input: {
+  businessId: string;
+  clientMutationId: string;
+  operation: "apply" | "rollback";
+}) {
+  const receipt = await readExecutionMutationReceipt(input);
+  if (!receipt) return null;
+  return replayExecutionMutationReceipt(receipt);
+}
+
+async function finalizeObservedExecutionCommit(input: {
+  businessId: string;
+  action: CommandCenterAction;
+  startDate: string;
+  endDate: string;
+  permissions: CommandCenterPermissions;
+  request: NextRequest;
+  preview: CommandCenterExecutionPreview;
+  clientMutationId: string;
+  actorUserId: string;
+  actorName: string | null;
+  actorEmail: string | null;
+  operation: "apply" | "rollback";
+  currentState: CommandCenterExecutionStateSummary | null;
+  requestedState: CommandCenterExecutionStateSummary | null;
+  capturedPreApplyState: CommandCenterExecutionStateSummary | null;
+  workflowStatus: "executed" | "approved";
+  reconciliationReason: string;
+}) {
+  await finalizeExecutionSuccess({
+    businessId: input.businessId,
+    action: input.action,
+    preview: input.preview,
+    clientMutationId: input.clientMutationId,
+    actorUserId: input.actorUserId,
+    actorName: input.actorName,
+    actorEmail: input.actorEmail,
+    operation: input.operation,
+    providerResult: buildObservedProviderResult(input.reconciliationReason),
+    currentState: input.currentState,
+    requestedState: input.requestedState,
+    capturedPreApplyState: input.capturedPreApplyState,
+    workflowStatus: input.workflowStatus,
+  });
+
+  const resolvedPreview = await getCommandCenterExecutionPreview({
+    request: input.request,
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    action: input.action,
+    permissions: input.permissions,
+  });
+
+  await writeExecutionMutationReceipt({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    operation: input.operation,
+    preview: resolvedPreview,
+    success: true,
+  });
+
+  return resolvedPreview;
+}
+
+async function resolveDuplicateInFlightExecution(input: {
+  businessId: string;
+  action: CommandCenterAction;
+  startDate: string;
+  endDate: string;
+  permissions: CommandCenterPermissions;
+  request: NextRequest;
+  preview: CommandCenterExecutionPreview;
+  clientMutationId: string;
+  actorUserId: string;
+  actorName: string | null;
+  actorEmail: string | null;
+  operation: "apply" | "rollback";
+  targetState: CommandCenterExecutionStateSummary | null;
+  capturedPreApplyState: CommandCenterExecutionStateSummary | null;
+  workflowStatus: "executed" | "approved";
+}) {
+  const targetId = input.preview.plan?.targetId ?? null;
+  const liveState =
+    targetId == null
+      ? null
+      : await getMetaAdSetExecutionState({
+          businessId: input.businessId,
+          adSetId: targetId,
+        }).then(toExecutionStateSummary);
+
+  if (
+    doesRequestedStateMatch({
+      currentState: liveState,
+      requestedState: input.targetState,
+    })
+  ) {
+    return finalizeObservedExecutionCommit({
+      businessId: input.businessId,
+      action: input.action,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      permissions: input.permissions,
+      request: input.request,
+      preview: input.preview,
+      clientMutationId: input.clientMutationId,
+      actorUserId: input.actorUserId,
+      actorName: input.actorName,
+      actorEmail: input.actorEmail,
+      operation: input.operation,
+      currentState: liveState,
+      requestedState: input.targetState,
+      capturedPreApplyState: input.capturedPreApplyState,
+      workflowStatus: input.workflowStatus,
+      reconciliationReason: `${input.operation}_duplicate_live_state_match`,
+    });
+  }
+
+  throw new CommandCenterExecutionError({
+    code:
+      input.operation === "apply"
+        ? "execution_apply_in_progress"
+        : "execution_rollback_in_progress",
+    status: 409,
+    message:
+      input.operation === "apply"
+        ? "Apply is already in progress or could not be safely replayed. Wait for the original attempt to settle and do not retry automatically."
+        : "Rollback is already in progress or could not be safely replayed. Wait for the original attempt to settle and do not retry automatically.",
+    details: {
+      preview: input.preview,
+      observedLiveState: liveState,
+    },
+  });
+}
+
 async function getActionJournal(input: {
   businessId: string;
   actionFingerprint: string;
@@ -334,6 +581,8 @@ async function resolveMetaExecutionPreview(input: {
     }),
   ]);
   const approval = buildApprovalSnapshot(input.action, journal);
+  const supportMatrix = buildCommandCenterExecutionSupportMatrix(input.action);
+  const selectedSupportEntry = supportMatrix.selectedEntry;
 
   if (input.action.sourceSystem !== "meta") {
     return buildManualOnlyPreview({
@@ -346,19 +595,17 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
-      risks: ["Execution is intentionally limited to Meta ad set actions in V1."],
-      manualInstructions: [
-        "Execute this action manually from the source surface.",
-        "Do not mark unsupported actions as applied.",
-      ],
-      supportMode: "unsupported",
+      risks: ["Execution is intentionally limited to Meta ad set actions in V2-07."],
+      manualInstructions: selectedSupportEntry.operatorGuidance,
+      supportMode: selectedSupportEntry.supportMode,
+      applyReason: selectedSupportEntry.supportReason,
+      rollbackReason: selectedSupportEntry.rollback.note,
     });
   }
 
   if (input.action.sourceType !== "meta_adset_decision") {
-    const supportMode =
-      input.action.sourceType === "meta_budget_shift" ? "manual_only" : "unsupported";
     return buildManualOnlyPreview({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -369,18 +616,13 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
-      risks: [
-        supportMode === "manual_only"
-          ? "Budget-shift recommendations are banded and do not ship exact transfer targets in V1."
-          : "This Command Center source does not have a provider execution path in V1.",
-      ],
-      manualInstructions: [
-        supportMode === "manual_only"
-          ? "Review the source decision and perform the transfer manually in Meta Ads Manager."
-          : "Unsupported actions remain read-only in V1.",
-      ],
-      supportMode,
+      risks: [selectedSupportEntry.supportReason],
+      manualInstructions: selectedSupportEntry.operatorGuidance,
+      supportMode: selectedSupportEntry.supportMode,
+      applyReason: selectedSupportEntry.supportReason,
+      rollbackReason: selectedSupportEntry.rollback.note,
     });
   }
 
@@ -408,12 +650,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
       risks: ["The decision source drifted and could not be matched to a live Meta ad set decision."],
       manualInstructions: [
         "Refresh the source Decision OS surface before applying any change.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "The source decision could not be matched to a live Meta ad set decision. Refresh before attempting apply.",
     });
   }
 
@@ -434,12 +679,13 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
-      risks: ["This ad set action is outside the supported V1 mutation subset."],
-      manualInstructions: [
-        "Use Meta Ads Manager to apply this action manually.",
-      ],
-      supportMode: "manual_only",
+      risks: [selectedSupportEntry.supportReason],
+      manualInstructions: selectedSupportEntry.operatorGuidance,
+      supportMode: selectedSupportEntry.supportMode,
+      applyReason: selectedSupportEntry.supportReason,
+      rollbackReason: selectedSupportEntry.rollback.note,
     });
   }
 
@@ -454,12 +700,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
       risks: ["The current live ad set configuration could not be resolved."],
       manualInstructions: [
         "Validate the ad set directly in Meta Ads Manager before making changes.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "The current live ad set configuration could not be resolved safely for provider-backed execution.",
     });
   }
 
@@ -474,12 +723,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
       risks: ["The current execution state could not be summarized safely."],
       manualInstructions: [
         "Refresh the source decision before attempting any live mutation.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "The current execution state could not be summarized safely enough for provider-backed execution.",
     });
   }
 
@@ -494,12 +746,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
       risks: ["Demo and unassigned provider scopes remain manual-only in V1."],
       manualInstructions: [
         "Execution preview is informational only on demo or non-assigned scopes.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "Demo and non-provider-assigned scopes remain manual-only for execution.",
     });
   }
 
@@ -514,12 +769,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
       risks: ["Campaign-owned ad set budgets are not executed automatically in V1."],
       manualInstructions: [
         "Update the campaign budget manually if you want to follow this recommendation.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "Campaign-owned ad set budgets are outside the safe provider-backed execution subset.",
     });
   }
 
@@ -534,12 +792,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      supportMatrix,
       prerequisites: [],
       risks: ["Lifetime or mixed-budget ad sets are outside the safe V1 execution subset."],
       manualInstructions: [
         "Review this ad set manually before changing budget configuration.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "Lifetime or mixed-budget ad set configurations remain manual-only.",
     });
   }
 
@@ -561,12 +822,15 @@ async function resolveMetaExecutionPreview(input: {
         auditTrail,
         currentState,
         requestedState: null,
+        supportMatrix,
         prerequisites: [],
         risks: ["A live ad set daily budget was not available for this mutation."],
         manualInstructions: [
           "Inspect the budget configuration manually before applying any change.",
         ],
         supportMode: "manual_only",
+        applyReason:
+          "A live daily budget was not available, so the exact requested mutation cannot be issued safely.",
       });
     }
     const multiplier = getBudgetMultiplier(decision);
@@ -588,12 +852,15 @@ async function resolveMetaExecutionPreview(input: {
         auditTrail,
         currentState,
         requestedState: null,
+        supportMatrix,
         prerequisites: [],
         risks: ["The exact requested daily budget is either invalid or already live."],
         manualInstructions: [
           "No provider write will be issued for a no-op or invalid budget target.",
         ],
         supportMode: "manual_only",
+        applyReason:
+          "The exact requested daily budget is invalid, non-material, or already live.",
       });
     }
     requestedState.dailyBudget = requestedBudget;
@@ -610,12 +877,15 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState,
+      supportMatrix,
       prerequisites: [],
       risks: ["The live state already matches the requested target."],
       manualInstructions: [
         "No automatic apply is available because this recommendation is already satisfied.",
       ],
       supportMode: "manual_only",
+      applyReason:
+        "The live state already matches the requested target, so no provider write is issued.",
     });
   }
 
@@ -696,6 +966,7 @@ async function resolveMetaExecutionPreview(input: {
     supportMode: "supported",
     status,
     previewHash,
+    supportMatrix,
     approval,
     permission: {
       canApply,
@@ -869,14 +1140,18 @@ async function finalizeExecutionFailure(input: {
   actorUserId: string;
   actorName: string | null;
   actorEmail: string | null;
+  operation: "apply" | "rollback";
   failureReason: string;
+  currentState?: CommandCenterExecutionStateSummary | null;
+  requestedState?: CommandCenterExecutionStateSummary | null;
+  capturedPreApplyState?: CommandCenterExecutionStateSummary | null;
   providerResult?: MetaExecutionMutationResult | null;
 }) {
   await appendCommandCenterExecutionAudit({
     businessId: input.businessId,
     actionFingerprint: input.action.actionFingerprint,
     clientMutationId: input.clientMutationId,
-    operation: "apply",
+    operation: input.operation,
     executionStatus: "failed",
     supportMode: input.preview.supportMode,
     actorUserId: input.actorUserId,
@@ -889,9 +1164,10 @@ async function finalizeExecutionFailure(input: {
     previewHash: input.preview.previewHash,
     rollbackKind: input.preview.rollback.kind,
     rollbackNote: input.preview.rollback.note,
-    currentState: input.preview.currentState,
-    requestedState: input.preview.requestedState,
-    capturedPreApplyState: input.preview.currentState,
+    currentState: input.currentState ?? input.preview.currentState,
+    requestedState: input.requestedState ?? input.preview.requestedState,
+    capturedPreApplyState:
+      input.capturedPreApplyState ?? input.preview.currentState,
     providerResponse: input.providerResult
       ? {
           statusCode: input.providerResult.statusCode,
@@ -925,11 +1201,15 @@ async function finalizeExecutionFailure(input: {
     rollbackKind: input.preview.rollback.kind,
     rollbackNote: input.preview.rollback.note,
     lastClientMutationId: input.clientMutationId,
-    lastErrorCode: "provider_apply_failed",
+    lastErrorCode:
+      input.operation === "apply"
+        ? "provider_apply_failed"
+        : "provider_rollback_failed",
     lastErrorMessage: input.failureReason,
-    currentState: input.preview.currentState,
-    requestedState: input.preview.requestedState,
-    capturedPreApplyState: input.preview.currentState,
+    currentState: input.currentState ?? input.preview.currentState,
+    requestedState: input.requestedState ?? input.preview.requestedState,
+    capturedPreApplyState:
+      input.capturedPreApplyState ?? input.preview.currentState,
     providerResponse: input.providerResult
       ? {
           statusCode: input.providerResult.statusCode,
@@ -945,11 +1225,14 @@ async function finalizeExecutionFailure(input: {
     actorUserId: input.actorUserId,
     actorName: input.actorName,
     actorEmail: input.actorEmail,
-    clientMutationId: `${input.clientMutationId}:apply:workflow`,
+    clientMutationId: `${input.clientMutationId}:${input.operation}:workflow`,
     nextStatus: "failed",
-    message: `Execution failed for ${input.action.title}.`,
+    message:
+      input.operation === "apply"
+        ? `Execution failed for ${input.action.title}.`
+        : `Rollback failed for ${input.action.title}.`,
     metadata: {
-      executionOperation: "apply",
+      executionOperation: input.operation,
       previewHash: input.preview.previewHash,
       failureReason: input.failureReason,
     },
@@ -1005,13 +1288,20 @@ export async function applyCommandCenterExecution(input: {
     });
   }
 
+  const receiptReplay = await replayStoredExecutionReceiptIfPresent({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    operation: "apply",
+  });
+  if (receiptReplay) return receiptReplay;
+
   const existingState = await getCommandCenterExecutionState({
     businessId: input.businessId,
     actionFingerprint: input.action.actionFingerprint,
   });
   if (existingState?.lastClientMutationId === input.clientMutationId) {
     if (existingState.executionStatus === "executed") {
-      return getCommandCenterExecutionPreview({
+      const resolvedPreview = await getCommandCenterExecutionPreview({
         request: input.request,
         businessId: input.businessId,
         startDate: input.startDate,
@@ -1019,24 +1309,61 @@ export async function applyCommandCenterExecution(input: {
         action: input.action,
         permissions: input.permissions,
       });
+      await writeExecutionMutationReceipt({
+        businessId: input.businessId,
+        clientMutationId: input.clientMutationId,
+        operation: "apply",
+        preview: resolvedPreview,
+        success: true,
+      });
+      return resolvedPreview;
     }
-    if (
-      existingState.executionStatus === "applying" &&
-      doesRequestedStateMatch({
-        currentState: await getMetaAdSetExecutionState({
-          businessId: input.businessId,
-          adSetId: preview.plan.targetId,
-        }).then(toExecutionStateSummary),
-        requestedState: preview.requestedState,
-      })
-    ) {
-      return getCommandCenterExecutionPreview({
+    if (existingState.executionStatus === "failed") {
+      const failedPreview = await getCommandCenterExecutionPreview({
         request: input.request,
         businessId: input.businessId,
         startDate: input.startDate,
         endDate: input.endDate,
         action: input.action,
         permissions: input.permissions,
+      });
+      const error = {
+        code: "execution_apply_failed",
+        status: 502,
+        message:
+          existingState.lastErrorMessage ??
+          "Execution apply failed on the original attempt.",
+      } as const;
+      await writeExecutionMutationReceipt({
+        businessId: input.businessId,
+        clientMutationId: input.clientMutationId,
+        operation: "apply",
+        preview: failedPreview,
+        success: false,
+        error,
+      });
+      throw new CommandCenterExecutionError({
+        ...error,
+        details: { preview: failedPreview },
+      });
+    }
+    if (existingState.executionStatus === "applying") {
+      return resolveDuplicateInFlightExecution({
+        businessId: input.businessId,
+        action: input.action,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        permissions: input.permissions,
+        request: input.request,
+        preview,
+        clientMutationId: input.clientMutationId,
+        actorUserId: input.actorUserId,
+        actorName: input.actorName,
+        actorEmail: input.actorEmail,
+        operation: "apply",
+        targetState: preview.requestedState,
+        capturedPreApplyState: preview.currentState,
+        workflowStatus: "executed",
       });
     }
   }
@@ -1094,6 +1421,23 @@ export async function applyCommandCenterExecution(input: {
       capturedPreApplyState: preview.currentState,
       workflowStatus: "executed",
     });
+
+    const resolvedPreview = await getCommandCenterExecutionPreview({
+      request: input.request,
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      permissions: input.permissions,
+    });
+    await writeExecutionMutationReceipt({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+      operation: "apply",
+      preview: resolvedPreview,
+      success: true,
+    });
+    return resolvedPreview;
   } catch (error) {
     const providerResult =
       error &&
@@ -1112,25 +1456,36 @@ export async function applyCommandCenterExecution(input: {
       actorUserId: input.actorUserId,
       actorName: input.actorName,
       actorEmail: input.actorEmail,
+      operation: "apply",
       failureReason: message,
       providerResult,
     });
-    throw new CommandCenterExecutionError({
+    const failedPreview = await getCommandCenterExecutionPreview({
+      request: input.request,
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      permissions: input.permissions,
+    });
+    const receiptError = {
       code: "execution_apply_failed",
       status: 502,
       message,
-      details: { preview },
+    } as const;
+    await writeExecutionMutationReceipt({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+      operation: "apply",
+      preview: failedPreview,
+      success: false,
+      error: receiptError,
+    });
+    throw new CommandCenterExecutionError({
+      ...receiptError,
+      details: { preview: failedPreview },
     });
   }
-
-  return getCommandCenterExecutionPreview({
-    request: input.request,
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    action: input.action,
-    permissions: input.permissions,
-  });
 }
 
 export async function rollbackCommandCenterExecution(input: {
@@ -1167,8 +1522,80 @@ export async function rollbackCommandCenterExecution(input: {
     });
   }
 
+  const receiptReplay = await replayStoredExecutionReceiptIfPresent({
+    businessId: input.businessId,
+    clientMutationId: input.clientMutationId,
+    operation: "rollback",
+  });
+  if (receiptReplay) return receiptReplay;
+
   if (latestState?.lastClientMutationId === input.clientMutationId) {
-    return preview;
+    if (latestState.executionStatus === "rolled_back") {
+      const resolvedPreview = await getCommandCenterExecutionPreview({
+        request: input.request,
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        action: input.action,
+        permissions: input.permissions,
+      });
+      await writeExecutionMutationReceipt({
+        businessId: input.businessId,
+        clientMutationId: input.clientMutationId,
+        operation: "rollback",
+        preview: resolvedPreview,
+        success: true,
+      });
+      return resolvedPreview;
+    }
+    if (latestState.executionStatus === "failed") {
+      const failedPreview = await getCommandCenterExecutionPreview({
+        request: input.request,
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        action: input.action,
+        permissions: input.permissions,
+      });
+      const error = {
+        code: "rollback_failed",
+        status: 502,
+        message:
+          latestState.lastErrorMessage ??
+          "Rollback failed on the original attempt.",
+      } as const;
+      await writeExecutionMutationReceipt({
+        businessId: input.businessId,
+        clientMutationId: input.clientMutationId,
+        operation: "rollback",
+        preview: failedPreview,
+        success: false,
+        error,
+      });
+      throw new CommandCenterExecutionError({
+        ...error,
+        details: { preview: failedPreview },
+      });
+    }
+    if (latestState.executionStatus === "applying") {
+      return resolveDuplicateInFlightExecution({
+        businessId: input.businessId,
+        action: input.action,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        permissions: input.permissions,
+        request: input.request,
+        preview,
+        clientMutationId: input.clientMutationId,
+        actorUserId: input.actorUserId,
+        actorName: input.actorName,
+        actorEmail: input.actorEmail,
+        operation: "rollback",
+        targetState: rollbackState,
+        capturedPreApplyState: rollbackState,
+        workflowStatus: "approved",
+      });
+    }
   }
 
   await upsertCommandCenterExecutionState({
@@ -1194,61 +1621,104 @@ export async function rollbackCommandCenterExecution(input: {
     lastClientMutationId: input.clientMutationId,
     currentState: preview.currentState,
     requestedState: rollbackState,
-    capturedPreApplyState: rollbackState,
+    capturedPreApplyState: latestState?.capturedPreApplyState ?? rollbackState,
   });
 
-  const providerResult = await mutateMetaAdSetExecution({
-    businessId: input.businessId,
-    adSetId: preview.plan.targetId,
-    requestedStatus: rollbackState.status,
-    requestedDailyBudget: rollbackState.dailyBudget,
-  }).catch((error) => {
-    const providerResultCandidate =
+  try {
+    const providerResult = await mutateMetaAdSetExecution({
+      businessId: input.businessId,
+      adSetId: preview.plan.targetId,
+      requestedStatus: rollbackState.status,
+      requestedDailyBudget: rollbackState.dailyBudget,
+    });
+
+    const currentState = await getMetaAdSetExecutionState({
+      businessId: input.businessId,
+      adSetId: preview.plan.targetId,
+    }).then(toExecutionStateSummary);
+
+    await finalizeExecutionSuccess({
+      businessId: input.businessId,
+      action: input.action,
+      preview,
+      clientMutationId: input.clientMutationId,
+      actorUserId: input.actorUserId,
+      actorName: input.actorName,
+      actorEmail: input.actorEmail,
+      operation: "rollback",
+      providerResult,
+      currentState,
+      requestedState: rollbackState,
+      capturedPreApplyState: latestState?.capturedPreApplyState ?? rollbackState,
+      workflowStatus: "approved",
+    });
+
+    const resolvedPreview = await getCommandCenterExecutionPreview({
+      request: input.request,
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      permissions: input.permissions,
+    });
+    await writeExecutionMutationReceipt({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+      operation: "rollback",
+      preview: resolvedPreview,
+      success: true,
+    });
+    return resolvedPreview;
+  } catch (error) {
+    const providerResult =
       error &&
       typeof error === "object" &&
       "providerResult" in error &&
       (error as { providerResult?: MetaExecutionMutationResult }).providerResult
         ? (error as { providerResult: MetaExecutionMutationResult }).providerResult
         : null;
-    throw new CommandCenterExecutionError({
+    const message = error instanceof Error ? error.message : "Rollback failed.";
+    await finalizeExecutionFailure({
+      businessId: input.businessId,
+      action: input.action,
+      preview,
+      clientMutationId: input.clientMutationId,
+      actorUserId: input.actorUserId,
+      actorName: input.actorName,
+      actorEmail: input.actorEmail,
+      operation: "rollback",
+      failureReason: message,
+      currentState: preview.currentState,
+      requestedState: rollbackState,
+      capturedPreApplyState: latestState?.capturedPreApplyState ?? rollbackState,
+      providerResult,
+    });
+    const failedPreview = await getCommandCenterExecutionPreview({
+      request: input.request,
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      permissions: input.permissions,
+    });
+    const receiptError = {
       code: "rollback_failed",
       status: 502,
-      message: error instanceof Error ? error.message : "Rollback failed.",
-      details: {
-        providerResult: providerResultCandidate,
-      },
+      message,
+    } as const;
+    await writeExecutionMutationReceipt({
+      businessId: input.businessId,
+      clientMutationId: input.clientMutationId,
+      operation: "rollback",
+      preview: failedPreview,
+      success: false,
+      error: receiptError,
     });
-  });
-
-  const currentState = await getMetaAdSetExecutionState({
-    businessId: input.businessId,
-    adSetId: preview.plan.targetId,
-  }).then(toExecutionStateSummary);
-
-  await finalizeExecutionSuccess({
-    businessId: input.businessId,
-    action: input.action,
-    preview,
-    clientMutationId: input.clientMutationId,
-    actorUserId: input.actorUserId,
-    actorName: input.actorName,
-    actorEmail: input.actorEmail,
-    operation: "rollback",
-    providerResult,
-    currentState,
-    requestedState: rollbackState,
-    capturedPreApplyState: rollbackState,
-    workflowStatus: "approved",
-  });
-
-  return getCommandCenterExecutionPreview({
-    request: input.request,
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    action: input.action,
-    permissions: input.permissions,
-  });
+    throw new CommandCenterExecutionError({
+      ...receiptError,
+      details: { preview: failedPreview },
+    });
+  }
 }
 
 export function isCommandCenterExecutionError(error: unknown): error is CommandCenterExecutionError {

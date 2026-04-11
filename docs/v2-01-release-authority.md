@@ -10,8 +10,8 @@ Current live release truth is not inferred from older phase docs alone. It is de
 
 Current accepted live baseline for this authority layer:
 
-- current live SHA: `5017c8d3d598b05bf384ce1c1149b68a297fab13`
-- rollback target before the next release: `5017c8d3d598b05bf384ce1c1149b68a297fab13`
+- current live SHA: `5bdf330869ae9170e8f6a8aa977c26a831fd1dba`
+- rollback target before the next release: `5bdf330869ae9170e8f6a8aa977c26a831fd1dba`
 - repository authority: `erhanrdn/OmniAds` `main`
 
 ## Authority Rules
@@ -34,8 +34,8 @@ Current accepted live baseline for this authority layer:
 | `Decision Signals` | `live` | `n/a` | `current` | Compatibility surface for deterministic creative actions. |
 | `AI Commentary` | `live` | `n/a` | `current` | Commentary remains interpretation-only, never workflow authority. |
 | `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, throughput budgeting, structured feedback, and status-only batch workflow. |
-| `Command Center execution preview` | `live` or `flagged` | `COMMAND_CENTER_EXECUTION_V1` | `current` | Preview-first surface is inventoried separately from apply authority. |
-| `Command Center apply / rollback` | `flagged` until canary apply is explicitly enabled | `COMMAND_CENTER_EXECUTION_V1`, `META_EXECUTION_APPLY_ENABLED`, `META_EXECUTION_CANARY_BUSINESSES` | `current` | This baseline must never present disabled apply as live. |
+| `Command Center execution preview` | `live` or `flagged` | `COMMAND_CENTER_EXECUTION_V1` | `current` | Preview-first surface is inventoried separately from apply authority and now includes an explicit per-family support matrix plus rollback-truth copy. |
+| `Command Center apply / rollback` | `flagged` until canary apply is explicitly enabled | `COMMAND_CENTER_EXECUTION_V1`, `META_EXECUTION_APPLY_ENABLED`, `META_EXECUTION_CANARY_BUSINESSES` | `current` | This baseline must never present disabled apply as live. Duplicate `clientMutationId` flows must replay the terminal result or stop with a non-dispatching conflict instead of issuing a second write. |
 | `/copies` | `live` | `n/a` | `current` | The route stays visible in the matrix so copy-surface risk cannot go opaque. |
 | `/meta -> /platforms/meta` | `legacy` | `n/a` | `current` | Intentional redirect alias, not the canonical Meta entrypoint. |
 
@@ -46,8 +46,11 @@ Current workflow throughput baseline references:
 - `docs/v2-06-command-center-throughput.md`
 - `docs/v2-06-release-checklist.md`
 - `docs/v2-06-rollout-runbook.md`
+- `docs/v2-07-safe-execution-proof.md`
+- `docs/v2-07-release-checklist.md`
+- `docs/v2-07-rollout-runbook.md`
 
-These V2-06 docs define the current additive workflow layer on top of the already accepted Phase 05 and Phase 06 baselines.
+These V2-06 and V2-07 docs define the current additive workflow and execution-proof layer on top of the already accepted Phase 05 and Phase 06 baselines.
 
 - `docs/phase-02-operating-modes.md`
 - `docs/phase-03-meta-decision-os.md`

@@ -65,6 +65,12 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   const reviewerExecutionPanel = page.getByTestId("command-center-execution-panel");
   await expect(reviewerExecutionPanel).toBeVisible();
   await expect(reviewerExecutionPanel).toContainText(/Preview first, apply second|Execution preview failed/);
+  await expect(
+    reviewerExecutionPanel.getByTestId("command-center-execution-support-matrix"),
+  ).toBeVisible();
+  await expect(
+    reviewerExecutionPanel.getByTestId("command-center-execution-selected-support"),
+  ).toBeVisible();
   const reviewerFeedbackPanel = page.getByTestId("command-center-action-feedback");
   await expect(reviewerFeedbackPanel).toBeVisible();
   await expect(

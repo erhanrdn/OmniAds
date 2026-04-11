@@ -346,6 +346,11 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   const workflowDialog = page.getByRole("dialog");
   await expect(workflowDialog.getByTestId("command-center-execution-panel")).toBeVisible();
   await expect(workflowDialog.getByTestId("command-center-execution-support-mode")).toBeVisible();
+  await expect(workflowDialog.getByTestId("command-center-execution-support-matrix")).toBeVisible();
+  await expect(workflowDialog.getByTestId("command-center-execution-selected-support")).toBeVisible();
+  await expect(
+    workflowDialog.getByTestId("command-center-execution-selected-rollback-kind"),
+  ).toBeVisible();
   await expect(workflowDialog.getByTestId("command-center-execution-audit")).toBeVisible();
   await expect(workflowDialog.getByTestId("command-center-execution-apply")).toBeDisabled();
   const feedbackPanel = workflowDialog.getByTestId("command-center-action-feedback");
@@ -493,6 +498,7 @@ test("commercial execution canary smoke applies and rolls back a supported ad se
     await queueActions.nth(index).click();
     const workflowDialog = page.getByRole("dialog");
     await expect(workflowDialog.getByTestId("command-center-execution-panel")).toBeVisible();
+    await expect(workflowDialog.getByTestId("command-center-execution-support-matrix")).toBeVisible();
     const supportText = (
       await workflowDialog
         .getByTestId("command-center-execution-support-mode")
@@ -513,6 +519,9 @@ test("commercial execution canary smoke applies and rolls back a supported ad se
     });
     await workflowDialog.getByTestId("command-center-execution-rollback").click();
     await expect(workflowDialog).toContainText(/rolled back/i, { timeout: 45_000 });
+    await expect(workflowDialog.getByTestId("command-center-execution-audit")).toContainText(
+      /apply|rollback/i,
+    );
     break;
   }
 

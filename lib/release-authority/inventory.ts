@@ -186,10 +186,12 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V2-01 authority doc" },
       { kind: "doc", path: "docs/phase-06-safe-execution-layer.md", label: "Phase 06 safe execution layer" },
       { kind: "doc", path: "docs/phase-06-executor-contract.md", label: "Phase 06 execution contract" },
+      { kind: "doc", path: "docs/v2-07-safe-execution-proof.md", label: "V2-07 safe execution proof" },
     ],
     notes: [
       "Preview-first execution posture is tracked separately from apply/rollback authority.",
       "This surface is operator-visible only when the execution preview flag is enabled.",
+      "The current preview baseline exposes an explicit per-family support matrix and rollback-truth copy without widening provider-backed scope.",
     ],
   },
   {
@@ -208,10 +210,14 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V2-01 authority doc" },
       { kind: "doc", path: "docs/phase-06-safe-execution-layer.md", label: "Phase 06 safe execution layer" },
       { kind: "doc", path: "docs/phase-06-rollout-runbook.md", label: "Phase 06 rollout runbook" },
+      { kind: "doc", path: "docs/v2-07-safe-execution-proof.md", label: "V2-07 safe execution proof" },
+      { kind: "doc", path: "docs/v2-07-release-checklist.md", label: "V2-07 release checklist" },
+      { kind: "doc", path: "docs/v2-07-rollout-runbook.md", label: "V2-07 rollout runbook" },
     ],
     notes: [
       "Apply and rollback authority stay explicit and canary-gated.",
       "A disabled or allowlist-only apply posture is intentional and not treated as hidden.",
+      "Duplicate client mutation IDs now replay terminal results or stop with a non-dispatching conflict instead of issuing a second provider write.",
     ],
   },
   {

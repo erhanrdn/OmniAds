@@ -98,7 +98,7 @@ function normalizeTimestamp(value: unknown): string | null {
   return null;
 }
 
-async function getCommandCenterMutationReceipt<T>(input: {
+export async function getCommandCenterMutationReceipt<T>(input: {
   businessId: string;
   clientMutationId: string;
 }): Promise<T | null> {
@@ -121,7 +121,7 @@ async function getCommandCenterMutationReceipt<T>(input: {
   return payload as T;
 }
 
-async function writeCommandCenterMutationReceipt(input: {
+export async function writeCommandCenterMutationReceipt(input: {
   businessId: string;
   clientMutationId: string;
   mutationScope: string;

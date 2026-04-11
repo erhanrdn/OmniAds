@@ -31,6 +31,16 @@ export const COMMAND_CENTER_EXECUTION_STATUSES = [
 export type CommandCenterExecutionStatus =
   (typeof COMMAND_CENTER_EXECUTION_STATUSES)[number];
 
+export const COMMAND_CENTER_EXECUTION_APPLY_GATE_POSTURES = [
+  "enabled",
+  "allowlist_only",
+  "disabled",
+  "not_applicable",
+] as const;
+
+export type CommandCenterExecutionApplyGatePosture =
+  (typeof COMMAND_CENTER_EXECUTION_APPLY_GATE_POSTURES)[number];
+
 export const META_EXECUTION_SUPPORTED_ACTIONS = [
   "pause",
   "recover",
@@ -112,6 +122,30 @@ export interface CommandCenterExecutionPermission {
   rollbackReason: string | null;
 }
 
+export interface CommandCenterExecutionSupportMatrixEntry {
+  familyKey: string;
+  label: string;
+  sourceSystem: CommandCenterSourceSystem;
+  sourceType: CommandCenterSourceType;
+  recommendedAction: string | null;
+  supportMode: CommandCenterExecutionSupportMode;
+  applyGate: {
+    posture: CommandCenterExecutionApplyGatePosture;
+    note: string;
+  };
+  rollback: {
+    kind: MetaExecutionRollbackKind;
+    note: string | null;
+  };
+  supportReason: string;
+  operatorGuidance: string[];
+}
+
+export interface CommandCenterExecutionSupportMatrix {
+  selectedEntry: CommandCenterExecutionSupportMatrixEntry;
+  entries: CommandCenterExecutionSupportMatrixEntry[];
+}
+
 export interface CommandCenterExecutionAuditEntry {
   id: string;
   businessId: string;
@@ -181,6 +215,7 @@ export interface CommandCenterExecutionPreview {
   supportMode: CommandCenterExecutionSupportMode;
   status: CommandCenterExecutionStatus;
   previewHash: string;
+  supportMatrix: CommandCenterExecutionSupportMatrix;
   approval: CommandCenterExecutionApprovalSnapshot;
   permission: CommandCenterExecutionPermission;
   target: {

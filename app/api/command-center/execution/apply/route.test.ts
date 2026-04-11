@@ -85,6 +85,32 @@ describe("POST /api/command-center/execution/apply", () => {
     );
   });
 
+  it("returns a non-dispatching conflict for duplicate apply retries", async () => {
+    vi.mocked(executionService.applyCommandCenterExecution).mockRejectedValue({
+      code: "execution_apply_in_progress",
+      status: 409,
+      message:
+        "Apply is already in progress or could not be safely replayed. Wait for the original attempt to settle and do not retry automatically.",
+    });
+    vi.mocked(executionService.isCommandCenterExecutionError).mockReturnValue(true);
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/command-center/execution/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          businessId: "biz",
+          actionFingerprint: "cc_meta_1",
+          previewHash: "preview_hash",
+          clientMutationId: "apply_1",
+        }),
+      }),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toBe("execution_apply_in_progress");
+  });
+
   it("blocks read-only reviewers", async () => {
     vi.mocked(store.getCommandCenterPermissions).mockReturnValue({
       canEdit: false,
