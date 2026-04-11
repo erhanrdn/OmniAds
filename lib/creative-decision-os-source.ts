@@ -114,6 +114,8 @@ function toDecisionInputRow(
     creativeId: row.id,
     name: row.name,
     creativeFormat: row.format,
+    previewUrl: row.previewUrl ?? null,
+    imageUrl: row.imageUrl ?? null,
     creativeAgeDays,
     spendVelocity: row.spend / Math.max(1, creativeAgeDays || 1),
     frequency,

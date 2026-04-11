@@ -609,6 +609,14 @@ export function CreativeDetailExperience({
                     label="Target lane"
                     value={decisionOsCreative.deployment.targetLane ?? "None"}
                   />
+                  <CompactMetricCell
+                    label="Compatibility"
+                    value={decisionOsCreative.deployment.compatibility.status}
+                  />
+                  <CompactMetricCell
+                    label="Family provenance"
+                    value={`${decisionOsCreative.familyProvenance.confidence} / ${decisionOsCreative.familyProvenance.overGroupingRisk}`}
+                  />
                 </div>
 
                 {report.timeframeContext ? (
@@ -792,10 +800,81 @@ export function CreativeDetailExperience({
                       value={decisionOsCreative.deployment.targetAdSetRole ?? "None"}
                     />
                     <CompactMetricCell label="GEO context" value={decisionOsCreative.deployment.geoContext} />
+                    <CompactMetricCell
+                      label="Compatibility"
+                      value={decisionOsCreative.deployment.compatibility.status}
+                    />
+                    <CompactMetricCell
+                      label="Objective family"
+                      value={decisionOsCreative.deployment.compatibility.objectiveFamily ?? "Unknown"}
+                    />
+                    <CompactMetricCell
+                      label="Optimization"
+                      value={decisionOsCreative.deployment.compatibility.optimizationGoal ?? "Unknown"}
+                    />
+                    <CompactMetricCell
+                      label="Bid regime"
+                      value={decisionOsCreative.deployment.compatibility.bidRegime ?? "Unknown"}
+                    />
                   </div>
+                  {decisionOsCreative.deployment.compatibility.reasons.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.deployment.compatibility.reasons.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
                   {decisionOsCreative.deployment.constraints.length > 0 ? (
                     <div className="mt-2 space-y-1">
                       {decisionOsCreative.deployment.constraints.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Economics floor
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Status" value={decisionOsCreative.economics.status} />
+                    <CompactMetricCell
+                      label="Spend floor"
+                      value={`$${decisionOsCreative.economics.absoluteSpendFloor}`}
+                    />
+                    <CompactMetricCell
+                      label="Purchase floor"
+                      value={String(decisionOsCreative.economics.absolutePurchaseFloor)}
+                    />
+                    <CompactMetricCell
+                      label="ROAS floor"
+                      value={
+                        decisionOsCreative.economics.roasFloor === null
+                          ? "Unknown"
+                          : `${decisionOsCreative.economics.roasFloor.toFixed(2)}x`
+                      }
+                    />
+                    <CompactMetricCell
+                      label="CPA ceiling"
+                      value={
+                        decisionOsCreative.economics.cpaCeiling === null
+                          ? "None"
+                          : formatMoney(
+                              decisionOsCreative.economics.cpaCeiling,
+                              currency,
+                              defaultCurrency,
+                            )
+                      }
+                    />
+                  </div>
+                  {decisionOsCreative.economics.reasons.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.economics.reasons.slice(0, 3).map((item) => (
                         <p key={item} className="text-[11px] text-slate-600">
                           {item}
                         </p>
@@ -872,6 +951,28 @@ export function CreativeDetailExperience({
                   {decisionOsCreative.fatigue.evidence.length > 0 ? (
                     <div className="mt-2 space-y-1">
                       {decisionOsCreative.fatigue.evidence.slice(0, 3).map((item) => (
+                        <p key={item} className="text-[11px] text-slate-600">
+                          {item}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    Family provenance
+                  </p>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <CompactMetricCell label="Confidence" value={decisionOsCreative.familyProvenance.confidence} />
+                    <CompactMetricCell
+                      label="Over-grouping risk"
+                      value={decisionOsCreative.familyProvenance.overGroupingRisk}
+                    />
+                  </div>
+                  {decisionOsCreative.familyProvenance.evidence.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {decisionOsCreative.familyProvenance.evidence.slice(0, 3).map((item) => (
                         <p key={item} className="text-[11px] text-slate-600">
                           {item}
                         </p>

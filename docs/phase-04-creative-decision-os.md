@@ -7,6 +7,14 @@
 
 Phase 04 turns `/creatives` into a concept-first operator decision center.
 
+Phase 05 keeps the same deterministic contract and read-only posture, but upgrades the shipped surface with:
+
+- a dedicated resizable `Creative Decision OS` drawer instead of a long inline page block
+- additive deterministic economics floors for scale promotion
+- additive deployment compatibility evidence
+- additive family provenance, protected winners, and supply planning boards
+- structured filters that keep deterministic taxonomy and AI-tag provenance separate
+
 The shipped surface must answer:
 
 - which creative is scale-ready
@@ -33,6 +41,7 @@ The shipped surface must answer:
 - `lib/creative-decision-os-config.ts`
 - `lib/ai/generate-creative-decisions.ts`
 - `components/creatives/CreativeDecisionOsOverview.tsx`
+- `components/creatives/CreativeDecisionOsDrawer.tsx`
 - `components/creatives/CreativesTableSection.tsx`
 - `components/creatives/CreativeDetailExperience.tsx`
 - `app/(dashboard)/creatives/page.tsx`
@@ -50,6 +59,8 @@ Creative Decision OS ships as a versioned payload:
 - `creatives`
 - `families`
 - `patterns`
+- `protectedWinners`
+- `supplyPlan`
 - `lifecycleBoard`
 - `operatorQueues`
 - `commercialTruthCoverage`
@@ -68,6 +79,13 @@ Family grouping precedence is fixed:
 4. singleton fallback
 
 Each family carries `familySource` so the operator can see whether the grouping came from strong identity or heuristic fallback.
+
+Phase 05 tightens heuristic grouping:
+
+- same format is required
+- same deterministic primary taxonomy is required
+- heuristic grouping only happens on exact normalized headline match, or matching `hookTactic + messagingAngle`
+- each creative and family now carries provenance confidence plus over-grouping risk
 
 ### Contextual benchmarks
 
@@ -109,6 +127,19 @@ Primary deterministic actions are:
 
 These map back to the shipped `Decision Signals` action set so the Phase 03 baseline does not regress.
 
+### Economics floors
+
+`promote_to_scaling` is now gated by absolute floors, not benchmark wins alone.
+
+- minimum `spend >= 200`
+- minimum `purchases >= 4`
+- if `targetRoas` exists, ROAS must meet it
+- else if `breakEvenRoas` exists, ROAS must clear `breakEvenRoas + 0.15`
+- else fallback floor is `spend >= 250`, `purchases >= 5`, `roas >= 2.0`
+- if `targetCpa` or `breakEvenCpa` exists, CPA must also stay inside ceiling
+
+When commercial truth is degraded, the surface may still show a strong candidate, but it will not ship as action-core scale promotion.
+
 ### Fatigue engine
 
 Fatigue uses:
@@ -134,7 +165,22 @@ Deployment guidance stays aligned with Phase 03 Meta semantics:
 - constraints
 - what would change this decision
 
+Phase 05 adds `deployment.compatibility`:
+
+- `compatible | limited | blocked`
+- objective family / optimization / bid-regime readout
+- matched campaign and ad set ids
+- explicit reasons when scale deployment is downgraded or blocked
+
 Deployment aggressiveness is softened by commercial truth and `Operating Mode`.
+
+## Drawer UX
+
+- `/creatives` no longer renders the full Decision OS overview inline
+- the surface opens from a `Creative Decision OS` button in the top controls row
+- the drawer is right-anchored, resizable, wider than the creative detail panels by default, and persists its width locally
+- queue/family clicks still focus the main table
+- active Decision OS queue/family filters remain visible near the trigger after the drawer closes
 
 ## Fallback semantics
 

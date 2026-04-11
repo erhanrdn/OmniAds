@@ -88,6 +88,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     references: [
       { kind: "page", path: "app/(dashboard)/creatives/page.tsx", label: "Creatives page" },
       { kind: "component", path: "components/creatives/CreativeDecisionOsOverview.tsx", label: "Creative Decision OS overview" },
+      { kind: "component", path: "components/creatives/CreativeDecisionOsDrawer.tsx", label: "Creative Decision OS drawer" },
       { kind: "api", path: "app/api/creatives/decision-os/route.ts", label: "Creative Decision OS route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V2-01 authority doc" },
       { kind: "doc", path: "docs/phase-04-creative-decision-os.md", label: "Phase 04 creative decision OS" },
@@ -95,6 +96,8 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     ],
     notes: [
       "Creative Decision OS stays deterministic and read-only.",
+      "The current baseline opens the surface in a dedicated resizable drawer instead of a long inline page section.",
+      "Additive economics floors, deployment compatibility, protected winners, and supply planning are current when the surface is enabled.",
       "The surface is current only when the Creative Decision OS flag posture permits it.",
     ],
   },

@@ -12,7 +12,7 @@ function payload() {
   });
   return {
     contractVersion: "creative-decision-os.v1",
-    engineVersion: "2026-04-10-phase-04-v1",
+    engineVersion: "2026-04-11-phase-05-v2",
     generatedAt: "2026-04-10T00:00:00.000Z",
     businessId: "biz",
     startDate: "2026-04-01",
@@ -28,6 +28,8 @@ function payload() {
       fatiguedCount: 1,
       blockedCount: 2,
       comebackCount: 1,
+      protectedWinnerCount: 1,
+      supplyPlanCount: 2,
       message: "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: "Exploit",
       surfaceSummary: {
@@ -70,6 +72,11 @@ function payload() {
         topHooks: ["travel hook"],
         metaFamily: "purchase_value",
         metaFamilyLabel: "purchase/value",
+        provenance: {
+          confidence: "medium",
+          overGroupingRisk: "medium",
+          evidence: ["Heuristic family matched same format, primary taxonomy, and normalized headline."],
+        },
       },
     ],
     patterns: [
@@ -84,6 +91,37 @@ function payload() {
         roas: 3.95,
         lifecycleState: "scale_ready",
         confidence: 0.78,
+      },
+    ],
+    protectedWinners: [
+      {
+        creativeId: "c4",
+        familyId: "family:1",
+        creativeName: "Winner creative",
+        familyLabel: "Travel Hook Family",
+        spend: 240,
+        roas: 3.8,
+        reasons: ["Deterministic engine marks this as a shipped winner that should stay protected."],
+      },
+    ],
+    supplyPlan: [
+      {
+        kind: "expand_angle_family",
+        priority: "medium",
+        familyId: "family:1",
+        familyLabel: "Travel Hook Family",
+        creativeIds: ["c1", "c2"],
+        summary: "Expand this winner family with adjacent angle variants before saturation shows up.",
+        reasons: ["Family is scale-capable but creative depth is still shallow."],
+      },
+      {
+        kind: "new_test_concepts",
+        priority: "high",
+        familyId: "family:2",
+        familyLabel: "Backup Family",
+        creativeIds: ["c5"],
+        summary: "Generate fresh test concepts to widen hook and angle coverage for this family.",
+        reasons: ["Family has meaningful spend but no protected winner yet."],
       },
     ],
     commercialTruthCoverage: {
@@ -122,6 +160,8 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Operator Queues");
     expect(html).toContain("Concept Families");
     expect(html).toContain("Pattern Board");
+    expect(html).toContain("Protected Winners");
+    expect(html).toContain("Supply Planning");
     expect(html).toContain("Degraded commercial truth");
   });
 });

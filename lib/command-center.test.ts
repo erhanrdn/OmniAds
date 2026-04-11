@@ -251,7 +251,7 @@ function creativeFixture(): CreativeDecisionOsV1Response {
   const metadata = decisionMetadata();
   return {
     contractVersion: "creative-decision-os.v1",
-    engineVersion: "2026-04-10-phase-04-v1",
+    engineVersion: "2026-04-11-phase-05-v2",
     generatedAt: "2026-04-10T00:00:00.000Z",
     businessId: "biz",
     startDate: "2026-04-01",
@@ -267,6 +267,8 @@ function creativeFixture(): CreativeDecisionOsV1Response {
       fatiguedCount: 0,
       blockedCount: 0,
       comebackCount: 0,
+      protectedWinnerCount: 1,
+      supplyPlanCount: 1,
       message:
         "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: "Exploit",
@@ -334,6 +336,23 @@ function creativeFixture(): CreativeDecisionOsV1Response {
           evidence: [],
           missingContext: [],
         },
+        economics: {
+          status: "eligible",
+          absoluteSpendFloor: 200,
+          absolutePurchaseFloor: 4,
+          roasFloor: 2.5,
+          cpaCeiling: 28,
+          targetRoas: 2.5,
+          breakEvenRoas: 1.8,
+          targetCpa: 28,
+          breakEvenCpa: 34,
+          reasons: [],
+        },
+        familyProvenance: {
+          confidence: "medium",
+          overGroupingRisk: "medium",
+          evidence: ["Heuristic family matched same format, primary taxonomy, and normalized headline."],
+        },
         deployment: {
           metaFamily: "purchase_value",
           metaFamilyLabel: "purchase/value",
@@ -346,6 +365,15 @@ function creativeFixture(): CreativeDecisionOsV1Response {
           geoContext: "scale",
           constraints: ["Keep promo spend monitored."],
           whatWouldChangeThisDecision: [],
+          compatibility: {
+            status: "compatible",
+            objectiveFamily: "OUTCOME_SALES",
+            optimizationGoal: "PURCHASE",
+            bidRegime: "lowest_cost",
+            matchedCampaignIds: ["cmp_1"],
+            matchedAdSetIds: ["adset_1"],
+            reasons: [],
+          },
         },
         pattern: {
           hook: "Promo hook",
@@ -437,6 +465,23 @@ function creativeFixture(): CreativeDecisionOsV1Response {
           evidence: [],
           missingContext: [],
         },
+        economics: {
+          status: "guarded",
+          absoluteSpendFloor: 200,
+          absolutePurchaseFloor: 4,
+          roasFloor: 2.5,
+          cpaCeiling: 28,
+          targetRoas: 2.5,
+          breakEvenRoas: 1.8,
+          targetCpa: 28,
+          breakEvenCpa: 34,
+          reasons: ["Promotion floor requires at least $200 spend."],
+        },
+        familyProvenance: {
+          confidence: "high",
+          overGroupingRisk: "low",
+          evidence: ["Creative remains a singleton family by design."],
+        },
         deployment: {
           metaFamily: "purchase_value",
           metaFamilyLabel: "purchase/value",
@@ -449,6 +494,15 @@ function creativeFixture(): CreativeDecisionOsV1Response {
           geoContext: "none",
           constraints: [],
           whatWouldChangeThisDecision: [],
+          compatibility: {
+            status: "limited",
+            objectiveFamily: "OUTCOME_SALES",
+            optimizationGoal: "PURCHASE",
+            bidRegime: "lowest_cost",
+            matchedCampaignIds: [],
+            matchedAdSetIds: [],
+            reasons: ["No active scaling lane matched the current family."],
+          },
         },
         pattern: {
           hook: "Hold",
@@ -487,6 +541,28 @@ function creativeFixture(): CreativeDecisionOsV1Response {
     ],
     families: [],
     patterns: [],
+    protectedWinners: [
+      {
+        creativeId: "creative_2",
+        familyId: "family_2",
+        creativeName: "Holdout Creative",
+        familyLabel: "Holdout",
+        spend: 60,
+        roas: 1.5,
+        reasons: ["Keep this out of the primary queue."],
+      },
+    ],
+    supplyPlan: [
+      {
+        kind: "new_test_concepts",
+        priority: "medium",
+        familyId: "family_1",
+        familyLabel: "Promo UGC",
+        creativeIds: ["creative_1"],
+        summary: "Generate fresh test concepts to widen hook and angle coverage for this family.",
+        reasons: ["Family has meaningful spend but no protected winner yet."],
+      },
+    ],
     lifecycleBoard: [],
     operatorQueues: [],
     commercialTruthCoverage: {

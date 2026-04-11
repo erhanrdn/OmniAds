@@ -39,11 +39,15 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
 
   await page.goto("/creatives");
 
+  await page.getByRole("button", { name: "Creative Decision OS" }).click();
+  await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
   await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
   await expect(page.getByTestId("creative-family-board")).toBeVisible();
   await expect(page.getByTestId("creative-pattern-board")).toBeVisible();
+  await expect(page.getByTestId("creative-protected-winners")).toBeVisible();
+  await expect(page.getByTestId("creative-supply-plan")).toBeVisible();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
   await expect(page.getByTestId("creative-run-signals")).toContainText(/Run Signals|Refresh Signals/);
 
@@ -52,6 +56,8 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   const totalAfterQueueFilter = await page.locator('[data-testid^="creative-row-"]').count();
   expect(totalAfterQueueFilter).toBeGreaterThan(0);
   expect(totalAfterQueueFilter).toBeLessThanOrEqual(totalBeforeFilter);
+  await page.getByLabel("Close Creative Decision OS").click();
+  await expect(page.getByText("Decision OS filter: Promotion queue")).toBeVisible();
   await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');

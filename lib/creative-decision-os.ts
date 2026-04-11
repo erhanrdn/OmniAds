@@ -14,6 +14,8 @@ import type {
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
 import {
+  buildMetaCampaignLaneSignals,
+  comparableMetaIntentKey,
   metaCampaignFamilyLabel,
   resolveMetaCampaignFamily,
   type MetaCampaignFamily,
@@ -22,9 +24,10 @@ import {
 
 type MetaAdSetRow = Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"][number];
 type MetaBreakdownRow = Awaited<ReturnType<typeof getMetaBreakdownsForRange>>["location"][number];
+type MetaCampaignLaneSignalMap = ReturnType<typeof buildMetaCampaignLaneSignals>;
 
 export const CREATIVE_DECISION_OS_CONTRACT_VERSION = "creative-decision-os.v1";
-export const CREATIVE_DECISION_OS_ENGINE_VERSION = "2026-04-10-phase-04-v1";
+export const CREATIVE_DECISION_OS_ENGINE_VERSION = "2026-04-11-phase-05-v2";
 
 export type CreativeDecisionAction = "scale_hard" | "scale" | "watch" | "test_more" | "pause" | "kill";
 export type LegacyCreativeLifecycleState =
@@ -73,6 +76,19 @@ export type CreativeDecisionAdSetRole =
   | "hold_position"
   | "blocked"
   | null;
+export type CreativeDecisionEconomicsStatus = "eligible" | "guarded" | "blocked";
+export type CreativeDecisionDeploymentCompatibilityStatus =
+  | "compatible"
+  | "limited"
+  | "blocked";
+export type CreativeDecisionFamilyConfidence = "high" | "medium" | "low";
+export type CreativeDecisionOverGroupingRisk = "low" | "medium" | "high";
+export type CreativeDecisionSupplyPlanKind =
+  | "new_test_concepts"
+  | "refresh_existing_winner"
+  | "expand_angle_family"
+  | "revive_comeback";
+export type CreativeDecisionSupplyPlanPriority = "high" | "medium" | "low";
 
 export interface CreativeDecisionOsHistoricalWindow {
   spend: number;
@@ -105,6 +121,8 @@ export interface CreativeDecisionOsInputRow {
   creativeId: string;
   name: string;
   creativeFormat?: "image" | "video" | "catalog";
+  previewUrl?: string | null;
+  imageUrl?: string | null;
   creativeAgeDays: number;
   spendVelocity: number;
   frequency: number;
@@ -192,6 +210,34 @@ export interface CreativeDecisionDeploymentRecommendation {
   geoContext: CreativeDecisionGeoContext;
   constraints: string[];
   whatWouldChangeThisDecision: string[];
+  compatibility: {
+    status: CreativeDecisionDeploymentCompatibilityStatus;
+    objectiveFamily: string | null;
+    optimizationGoal: string | null;
+    bidRegime: string | null;
+    matchedCampaignIds: string[];
+    matchedAdSetIds: string[];
+    reasons: string[];
+  };
+}
+
+export interface CreativeDecisionEconomics {
+  status: CreativeDecisionEconomicsStatus;
+  absoluteSpendFloor: number;
+  absolutePurchaseFloor: number;
+  roasFloor: number | null;
+  cpaCeiling: number | null;
+  targetRoas: number | null;
+  breakEvenRoas: number | null;
+  targetCpa: number | null;
+  breakEvenCpa: number | null;
+  reasons: string[];
+}
+
+export interface CreativeDecisionFamilyProvenance {
+  confidence: CreativeDecisionFamilyConfidence;
+  overGroupingRisk: CreativeDecisionOverGroupingRisk;
+  evidence: string[];
 }
 
 export interface CreativeDecisionPatternReference {
@@ -239,6 +285,7 @@ export interface CreativeRuleReportPayload {
   };
   benchmark?: CreativeDecisionBenchmark;
   fatigue?: CreativeDecisionFatigue;
+  economics?: CreativeDecisionEconomics;
   deployment?: CreativeDecisionDeploymentRecommendation;
   deterministicDecision?: {
     lifecycleState: CreativeDecisionLifecycleState;
@@ -279,6 +326,8 @@ export interface CreativeDecisionOsCreative {
   summary: string;
   benchmark: CreativeDecisionBenchmark;
   fatigue: CreativeDecisionFatigue;
+  economics: CreativeDecisionEconomics;
+  familyProvenance: CreativeDecisionFamilyProvenance;
   deployment: CreativeDecisionDeploymentRecommendation;
   pattern: CreativeDecisionPatternReference;
   report: CreativeRuleReportPayload;
@@ -300,6 +349,7 @@ export interface CreativeDecisionOsFamily {
   topHooks: string[];
   metaFamily: MetaCampaignFamily;
   metaFamilyLabel: string;
+  provenance: CreativeDecisionFamilyProvenance;
 }
 
 export interface CreativeDecisionOsPattern {
@@ -344,6 +394,26 @@ export interface CreativeDecisionOsCommercialTruthCoverage {
   };
 }
 
+export interface CreativeDecisionProtectedWinner {
+  creativeId: string;
+  familyId: string;
+  creativeName: string;
+  familyLabel: string;
+  spend: number;
+  roas: number;
+  reasons: string[];
+}
+
+export interface CreativeDecisionSupplyPlanItem {
+  kind: CreativeDecisionSupplyPlanKind;
+  priority: CreativeDecisionSupplyPlanPriority;
+  familyId: string;
+  familyLabel: string;
+  creativeIds: string[];
+  summary: string;
+  reasons: string[];
+}
+
 export interface CreativeDecisionOsV1Response {
   contractVersion: typeof CREATIVE_DECISION_OS_CONTRACT_VERSION;
   engineVersion: typeof CREATIVE_DECISION_OS_ENGINE_VERSION;
@@ -362,6 +432,8 @@ export interface CreativeDecisionOsV1Response {
     fatiguedCount: number;
     blockedCount: number;
     comebackCount: number;
+    protectedWinnerCount: number;
+    supplyPlanCount: number;
     message: string;
     operatingMode: AccountOperatingModePayload["recommendedMode"] | null;
     surfaceSummary: {
@@ -374,6 +446,8 @@ export interface CreativeDecisionOsV1Response {
   creatives: CreativeDecisionOsCreative[];
   families: CreativeDecisionOsFamily[];
   patterns: CreativeDecisionOsPattern[];
+  protectedWinners: CreativeDecisionProtectedWinner[];
+  supplyPlan: CreativeDecisionSupplyPlanItem[];
   lifecycleBoard: CreativeDecisionLifecycleBoardItem[];
   operatorQueues: CreativeDecisionOperatorQueue[];
   commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
@@ -468,6 +542,24 @@ function sumBy<T>(rows: T[], pick: (row: T) => number) {
   return rows.reduce((acc, row) => acc + pick(row), 0);
 }
 
+function firstNonEmpty(values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function modeValue(values: Array<string | null | undefined>) {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    if (!value) continue;
+    const key = value.trim();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
+}
+
 function meanMetric(rows: CreativeDecisionOsInputRow[], pick: (row: CreativeDecisionOsInputRow) => number) {
   if (rows.length === 0) return 0;
   return average(rows.map(pick));
@@ -537,28 +629,26 @@ function buildStoryIdentityKey(row: CreativeDecisionOsInputRow) {
 
 function buildAssetIdentityKey(row: CreativeDecisionOsInputRow) {
   const mediaKey = normalizeMediaKey(
-    (row as CreativeDecisionOsInputRow & { previewUrl?: string | null }).previewUrl ??
-      (row as CreativeDecisionOsInputRow & { imageUrl?: string | null }).imageUrl ??
-      null,
+    row.previewUrl ?? row.imageUrl ?? null,
   );
   return mediaKey ? `asset:${mediaKey}` : null;
 }
 
 function buildCopyIdentityKey(row: CreativeDecisionOsInputRow) {
-  const aiTagSignature = Object.entries(row.aiTags ?? {})
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, values]) => `${key}:${(values ?? []).join("|")}`)
-    .join(";");
-  const copyKey = [
-    normalizeText(row.copyText ?? row.copyVariants?.[0] ?? null),
-    normalizeText(row.headlineVariants?.[0] ?? null),
-    normalizeText(row.name),
-    normalizeText(row.taxonomyPrimaryLabel ?? null),
-    aiTagSignature,
-  ]
-    .filter(Boolean)
-    .join("|");
-  return copyKey ? `copy:${copyKey}` : null;
+  const format = normalizeText(row.creativeFormat ?? row.taxonomyVisualFormat ?? null);
+  const primaryTaxonomy = normalizeText(row.taxonomyPrimaryLabel ?? null);
+  const headline = normalizeText(row.headlineVariants?.[0] ?? null);
+  const hook = normalizeText(row.aiTags?.hookTactic?.[0] ?? null);
+  const angle = normalizeText(row.aiTags?.messagingAngle?.[0] ?? null);
+
+  if (!format || !primaryTaxonomy) return null;
+  if (headline) {
+    return `copy:${format}|${primaryTaxonomy}|headline:${headline}`;
+  }
+  if (hook && angle) {
+    return `copy:${format}|${primaryTaxonomy}|hook:${hook}|angle:${angle}`;
+  }
+  return null;
 }
 
 interface FamilySeed {
@@ -611,6 +701,56 @@ function chooseFamilyLabel(rows: CreativeDecisionOsInputRow[]) {
     .find((value) => normalizeText(value).length > 0);
   if (copy) return copy;
   return rows[0]?.name ?? "Creative family";
+}
+
+function buildFamilyProvenance(
+  familySeed: FamilySeed,
+  familyRows: CreativeDecisionOsInputRow[],
+): CreativeDecisionFamilyProvenance {
+  const headline = normalizeText(familyRows[0]?.headlineVariants?.[0] ?? null);
+  const hook = normalizeText(familyRows[0]?.aiTags?.hookTactic?.[0] ?? null);
+  const angle = normalizeText(familyRows[0]?.aiTags?.messagingAngle?.[0] ?? null);
+  if (familySeed.familySource === "story_identity") {
+    return {
+      confidence: "high",
+      overGroupingRisk: "low",
+      evidence: [
+        `Shared story/post identity across ${familyRows.length} creatives.`,
+        "Family precedence came from stable story identity.",
+      ],
+    };
+  }
+  if (familySeed.familySource === "asset_identity") {
+    return {
+      confidence: "high",
+      overGroupingRisk: "low",
+      evidence: [
+        `Shared asset fingerprint across ${familyRows.length} creatives.`,
+        "Grouping came from the same preview or image source.",
+      ],
+    };
+  }
+  if (familySeed.familySource === "copy_signature") {
+    const exactHeadline = Boolean(headline);
+    return {
+      confidence: exactHeadline ? "medium" : "low",
+      overGroupingRisk: exactHeadline && familyRows.length <= 3 ? "medium" : "high",
+      evidence: [
+        exactHeadline
+          ? "Heuristic family matched same format, primary taxonomy, and normalized headline."
+          : "Heuristic family matched same format, primary taxonomy, hook tactic, and messaging angle.",
+        hook || angle ? `AI tag anchor: ${[hook, angle].filter(Boolean).join(" / ")}.` : "No story or asset identity matched.",
+      ],
+    };
+  }
+  return {
+    confidence: "high",
+    overGroupingRisk: "low",
+    evidence: [
+      "No shared story, asset, or heuristic signature matched.",
+      "Creative remains a singleton family by design.",
+    ],
+  };
 }
 
 function ageBucket(ageDays: number) {
@@ -700,6 +840,130 @@ function buildHistoricalSummary(row: CreativeDecisionOsInputRow) {
     bestWindow,
     baselineRoas,
   };
+}
+
+function resolveCampaignBidRegime(
+  row: Pick<
+    MetaCampaignRow,
+    "bidStrategyType" | "bidStrategyLabel" | "bidValueFormat" | "manualBidAmount" | "bidValue"
+  >,
+) {
+  const bidStrategy = normalizeText(row.bidStrategyType ?? row.bidStrategyLabel ?? null);
+  if (bidStrategy.includes("cost cap")) return "cost_cap";
+  if (bidStrategy.includes("bid cap")) return "bid_cap";
+  if (bidStrategy.includes("highest value")) return "highest_value";
+  if (bidStrategy.includes("lowest cost")) return "lowest_cost";
+  if (row.bidValueFormat === "roas" || safeNumber(row.bidValue) > 0) return "roas_floor";
+  if (safeNumber(row.manualBidAmount) > 0) return "manual_bid";
+  return bidStrategy || null;
+}
+
+function resolveAdSetBidRegime(
+  row: Pick<
+    MetaAdSetRow,
+    "bidStrategyType" | "bidStrategyLabel" | "bidValueFormat" | "manualBidAmount" | "bidValue"
+  >,
+) {
+  const bidStrategy = normalizeText(row.bidStrategyType ?? row.bidStrategyLabel ?? null);
+  if (bidStrategy.includes("cost cap")) return "cost_cap";
+  if (bidStrategy.includes("bid cap")) return "bid_cap";
+  if (bidStrategy.includes("highest value")) return "highest_value";
+  if (bidStrategy.includes("lowest cost")) return "lowest_cost";
+  if (row.bidValueFormat === "roas" || safeNumber(row.bidValue) > 0) return "roas_floor";
+  if (safeNumber(row.manualBidAmount) > 0) return "manual_bid";
+  return bidStrategy || null;
+}
+
+function resolveCampaignLane(
+  campaign: MetaCampaignRow,
+  laneSignals: MetaCampaignLaneSignalMap,
+): MetaCampaignLaneLabel | null {
+  const explicitLane = laneSignals.get(campaign.id)?.lane ?? null;
+  if (explicitLane) return explicitLane;
+  const name = normalizeText(campaign.name);
+  if (name.includes("scal")) return "Scaling";
+  if (name.includes("validat")) return "Validation";
+  if (name.includes("test")) return "Test";
+  return null;
+}
+
+function buildEconomics(
+  row: CreativeDecisionOsInputRow,
+  commercialTruth: BusinessCommercialTruthSnapshot | null | undefined,
+) {
+  const absoluteSpendFloor = 200;
+  const absolutePurchaseFloor = 4;
+  const fallbackRoasFloor = 2.0;
+  const fallbackSpendFloor = 250;
+  const fallbackPurchaseFloor = 5;
+  const targetRoas = commercialTruth?.targetPack?.targetRoas ?? null;
+  const breakEvenRoas = commercialTruth?.targetPack?.breakEvenRoas ?? null;
+  const targetCpa = commercialTruth?.targetPack?.targetCpa ?? null;
+  const breakEvenCpa = commercialTruth?.targetPack?.breakEvenCpa ?? null;
+  const roasFloor =
+    targetRoas ??
+    (breakEvenRoas !== null ? round(breakEvenRoas + 0.15, 2) : fallbackRoasFloor);
+  const cpaCeiling =
+    targetCpa ??
+    breakEvenCpa;
+  const reasons: string[] = [];
+
+  if (row.spend < absoluteSpendFloor) {
+    reasons.push(`Promotion floor requires at least $${absoluteSpendFloor} spend.`);
+  }
+  if (row.purchases < absolutePurchaseFloor) {
+    reasons.push(`Promotion floor requires at least ${absolutePurchaseFloor} purchases.`);
+  }
+  if (targetRoas !== null && row.roas < targetRoas) {
+    reasons.push(`ROAS ${round(row.roas, 2)}x is below target ROAS ${round(targetRoas, 2)}x.`);
+  } else if (targetRoas === null && breakEvenRoas !== null && row.roas < breakEvenRoas + 0.15) {
+    reasons.push(
+      `ROAS ${round(row.roas, 2)}x is below break-even + 0.15 (${round(breakEvenRoas + 0.15, 2)}x).`,
+    );
+  } else if (
+    targetRoas === null &&
+    breakEvenRoas === null &&
+    (row.roas < fallbackRoasFloor || row.spend < fallbackSpendFloor || row.purchases < fallbackPurchaseFloor)
+  ) {
+    reasons.push(
+      `Fallback promotion floor requires ${fallbackSpendFloor} spend, ${fallbackPurchaseFloor} purchases, and ${fallbackRoasFloor.toFixed(1)}x ROAS.`,
+    );
+  }
+
+  if (cpaCeiling !== null && row.cpa > cpaCeiling) {
+    reasons.push(`CPA ${round(row.cpa, 2)} is above ceiling ${round(cpaCeiling, 2)}.`);
+  }
+
+  const eligible =
+    row.spend >= absoluteSpendFloor &&
+    row.purchases >= absolutePurchaseFloor &&
+    (targetRoas !== null
+      ? row.roas >= targetRoas
+      : breakEvenRoas !== null
+        ? row.roas >= breakEvenRoas + 0.15
+        : row.roas >= fallbackRoasFloor &&
+          row.spend >= fallbackSpendFloor &&
+          row.purchases >= fallbackPurchaseFloor) &&
+    (cpaCeiling === null || row.cpa <= cpaCeiling);
+
+  const guarded =
+    !eligible &&
+    row.spend >= 120 &&
+    row.purchases >= 2 &&
+    row.roas >= Math.max(1.2, breakEvenRoas ?? 1.2);
+
+  return {
+    status: eligible ? "eligible" : guarded ? "guarded" : "blocked",
+    absoluteSpendFloor,
+    absolutePurchaseFloor,
+    roasFloor,
+    cpaCeiling,
+    targetRoas,
+    breakEvenRoas,
+    targetCpa,
+    breakEvenCpa,
+    reasons: reasons.slice(0, 4),
+  } satisfies CreativeDecisionEconomics;
 }
 
 function selectBenchmark(
@@ -962,6 +1226,31 @@ function decidePrimaryAction(
   return "keep_in_test" as const;
 }
 
+function resolvePrimaryAction(input: {
+  lifecycleState: CreativeDecisionLifecycleState;
+  baseAction: CreativeDecisionPrimaryAction;
+  economics: CreativeDecisionEconomics;
+  operatingMode: AccountOperatingModePayload | null | undefined;
+  deployment: CreativeDecisionDeploymentRecommendation;
+}) {
+  if (input.baseAction !== "promote_to_scaling") {
+    return input.baseAction;
+  }
+  if (input.operatingMode?.degradedMode.active) {
+    return input.lifecycleState === "stable_winner" ? "hold_no_touch" : "keep_in_test";
+  }
+  if (input.economics.status !== "eligible") {
+    return "keep_in_test";
+  }
+  if (input.deployment.compatibility.status === "compatible") {
+    return "promote_to_scaling";
+  }
+  if (input.deployment.compatibility.status === "limited") {
+    return "keep_in_test";
+  }
+  return "block_deploy";
+}
+
 function buildCreativeTrust(input: {
   row: CreativeDecisionOsInputRow;
   lifecycleState: CreativeDecisionLifecycleState;
@@ -969,6 +1258,7 @@ function buildCreativeTrust(input: {
   operatingMode: AccountOperatingModePayload | null | undefined;
   historical: ReturnType<typeof buildHistoricalSummary>;
   summary: string;
+  deployment: CreativeDecisionDeploymentRecommendation;
 }) {
   const lowMateriality =
     input.row.spend < 40 && input.row.purchases === 0 && input.row.impressions < 2_000;
@@ -1002,6 +1292,22 @@ function buildCreativeTrust(input: {
     });
   }
 
+  if (
+    input.primaryAction === "block_deploy" &&
+    input.lifecycleState !== "blocked" &&
+    input.lifecycleState !== "retired"
+  ) {
+    return buildDecisionTrust({
+      surfaceLane: "watchlist",
+      truthState: "live_confident",
+      operatorDisposition: "review_hold",
+      reasons: [
+        ...input.deployment.compatibility.reasons,
+        input.summary,
+      ],
+    });
+  }
+
   if (degradedMode?.active) {
     if (input.primaryAction === "promote_to_scaling") {
       return buildDecisionTrust({
@@ -1012,6 +1318,14 @@ function buildCreativeTrust(input: {
       });
     }
     if (input.primaryAction === "keep_in_test") {
+      if (input.lifecycleState === "scale_ready" || input.lifecycleState === "stable_winner") {
+        return buildDecisionTrust({
+          surfaceLane: "watchlist",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "degraded_no_scale",
+          reasons: [...degradedMode.reasons, input.summary],
+        });
+      }
       return buildDecisionTrust({
         surfaceLane: lowMateriality ? "watchlist" : "action_core",
         truthState: "degraded_missing_truth",
@@ -1042,6 +1356,7 @@ function buildDeployment(
   row: CreativeDecisionOsInputRow,
   input: {
     campaignsById: Map<string, MetaCampaignRow>;
+    campaigns: MetaCampaignRow[];
     adSets: MetaAdSetRow[];
     locationRows: MetaBreakdownRow[];
     operatingMode: AccountOperatingModePayload | null | undefined;
@@ -1052,12 +1367,12 @@ function buildDeployment(
   },
 ): CreativeDecisionDeploymentRecommendation {
   const currentCampaign = row.campaignId ? input.campaignsById.get(row.campaignId) : null;
-  const preferredCampaigns = (currentCampaign
-    ? [currentCampaign]
-    : Array.from(input.campaignsById.values()).filter(
-        (campaign) => resolveMetaCampaignFamily(campaign) === input.metaFamily,
-      ))
-    .filter((campaign) => campaign.status === "ACTIVE");
+  const laneSignals = buildMetaCampaignLaneSignals(input.campaigns);
+  const activeFamilyCampaigns = input.campaigns.filter(
+    (campaign) =>
+      campaign.status === "ACTIVE" &&
+      resolveMetaCampaignFamily(campaign) === input.metaFamily,
+  );
 
   const targetLane: MetaCampaignLaneLabel | null =
     input.primaryAction === "promote_to_scaling" || input.primaryAction === "hold_no_touch"
@@ -1085,11 +1400,73 @@ function buildDeployment(
               ? "refresh_replacement"
               : "blocked";
 
-  const compatibleAdSets = input.adSets.filter((adSet) => {
-    if (row.campaignId && adSet.campaignId === row.campaignId) return true;
-    if (preferredCampaigns.some((campaign) => campaign.id === adSet.campaignId)) return true;
-    return false;
+  const currentIntentKey = currentCampaign ? comparableMetaIntentKey(currentCampaign) : null;
+  const objectiveFamily =
+    currentCampaign?.objective ??
+    firstNonEmpty(activeFamilyCampaigns.map((campaign) => campaign.objective ?? null)) ??
+    metaCampaignFamilyLabel(input.metaFamily);
+  const optimizationGoal =
+    currentCampaign?.optimizationGoal ??
+    modeValue(activeFamilyCampaigns.map((campaign) => campaign.optimizationGoal)) ??
+    null;
+  const bidRegime =
+    (currentCampaign ? resolveCampaignBidRegime(currentCampaign) : null) ??
+    modeValue(activeFamilyCampaigns.map((campaign) => resolveCampaignBidRegime(campaign))) ??
+    null;
+
+  const laneMatchedCampaigns = targetLane
+    ? activeFamilyCampaigns.filter((campaign) => resolveCampaignLane(campaign, laneSignals) === targetLane)
+    : activeFamilyCampaigns;
+  const intentMatchedCampaigns =
+    currentIntentKey && laneMatchedCampaigns.length > 0
+      ? laneMatchedCampaigns.filter((campaign) => comparableMetaIntentKey(campaign) === currentIntentKey)
+      : [];
+  const matchedCampaigns =
+    intentMatchedCampaigns.length > 0 ? intentMatchedCampaigns : laneMatchedCampaigns;
+
+  const matchedAdSets = input.adSets.filter((adSet) => {
+    if (!matchedCampaigns.some((campaign) => campaign.id === adSet.campaignId)) return false;
+    if (optimizationGoal && adSet.optimizationGoal && normalizeText(adSet.optimizationGoal) !== normalizeText(optimizationGoal)) {
+      return false;
+    }
+    const adSetBidRegime = resolveAdSetBidRegime(adSet);
+    if (bidRegime && adSetBidRegime && adSetBidRegime !== bidRegime) {
+      return false;
+    }
+    return adSet.status === "ACTIVE";
   });
+
+  const fallbackCampaigns = targetLane === "Scaling"
+    ? activeFamilyCampaigns.filter((campaign) => {
+        const lane = resolveCampaignLane(campaign, laneSignals);
+        return lane === "Validation" || lane === "Test" || lane === null;
+      })
+    : [];
+  const compatibilityReasons: string[] = [];
+  if (activeFamilyCampaigns.length === 0) {
+    compatibilityReasons.push(`No active ${metaCampaignFamilyLabel(input.metaFamily)} campaigns are available.`);
+  } else if (targetLane && matchedCampaigns.length === 0) {
+    compatibilityReasons.push(`No active ${targetLane.toLowerCase()} lane matched the current family.`);
+  }
+  if (currentIntentKey && laneMatchedCampaigns.length > 0 && intentMatchedCampaigns.length === 0) {
+    compatibilityReasons.push("No active lane matched the same objective or optimization intent.");
+  }
+  if (optimizationGoal && matchedCampaigns.length > 0 && matchedAdSets.length === 0) {
+    compatibilityReasons.push("Ad set optimization or bid regime did not align with the preferred target.");
+  }
+
+  const compatibilityStatus: CreativeDecisionDeploymentCompatibilityStatus =
+    targetLane === null
+      ? activeFamilyCampaigns.length > 0
+        ? "compatible"
+        : "limited"
+      : matchedCampaigns.length > 0 && matchedAdSets.length > 0
+        ? "compatible"
+        : targetLane === "Scaling" && fallbackCampaigns.length > 0
+          ? "limited"
+          : activeFamilyCampaigns.length > 0
+            ? "limited"
+            : "blocked";
 
   const constraints = [...(input.operatingMode?.guardrails ?? [])];
   if (input.operatingMode?.recommendedMode === "Margin Protect") {
@@ -1117,13 +1494,22 @@ function buildDeployment(
     metaFamilyLabel: metaCampaignFamilyLabel(input.metaFamily),
     targetLane,
     targetAdSetRole,
-    preferredCampaignIds: input.confidence >= 0.56 ? preferredCampaigns.slice(0, 2).map((campaign) => campaign.id) : [],
-    preferredCampaignNames: input.confidence >= 0.56 ? preferredCampaigns.slice(0, 2).map((campaign) => campaign.name) : [],
-    preferredAdSetIds: input.confidence >= 0.64 ? compatibleAdSets.slice(0, 3).map((adSet) => adSet.id) : [],
-    preferredAdSetNames: input.confidence >= 0.64 ? compatibleAdSets.slice(0, 3).map((adSet) => adSet.name) : [],
+    preferredCampaignIds: input.confidence >= 0.56 ? matchedCampaigns.slice(0, 3).map((campaign) => campaign.id) : [],
+    preferredCampaignNames: input.confidence >= 0.56 ? matchedCampaigns.slice(0, 3).map((campaign) => campaign.name) : [],
+    preferredAdSetIds: input.confidence >= 0.64 ? matchedAdSets.slice(0, 4).map((adSet) => adSet.id) : [],
+    preferredAdSetNames: input.confidence >= 0.64 ? matchedAdSets.slice(0, 4).map((adSet) => adSet.name) : [],
     geoContext,
     constraints: constraints.slice(0, 4),
     whatWouldChangeThisDecision: whatWouldChangeThisDecision.slice(0, 4),
+    compatibility: {
+      status: compatibilityStatus,
+      objectiveFamily,
+      optimizationGoal,
+      bidRegime,
+      matchedCampaignIds: matchedCampaigns.slice(0, 3).map((campaign) => campaign.id),
+      matchedAdSetIds: matchedAdSets.slice(0, 4).map((adSet) => adSet.id),
+      reasons: compatibilityReasons.slice(0, 4),
+    },
   };
 }
 
@@ -1181,6 +1567,7 @@ function buildSignals(params: {
   primaryAction: CreativeDecisionPrimaryAction;
   benchmark: CreativeDecisionBenchmark;
   fatigue: CreativeDecisionFatigue;
+  economics: CreativeDecisionEconomics;
   deployment: CreativeDecisionDeploymentRecommendation;
 }) {
   const signals = [
@@ -1188,9 +1575,13 @@ function buildSignals(params: {
     `Primary decision: ${params.primaryAction.replaceAll("_", " ")}`,
     `Benchmark cohort: ${params.benchmark.selectedCohortLabel}`,
     `Deployment lane: ${params.deployment.targetLane ?? "none"}`,
+    `Deployment compatibility: ${params.deployment.compatibility.status}`,
   ];
   if (params.fatigue.status !== "none") {
     signals.push(`Fatigue: ${params.fatigue.status}`);
+  }
+  if (params.economics.status !== "eligible") {
+    signals.push(`Economics: ${params.economics.status}`);
   }
   return signals;
 }
@@ -1200,6 +1591,8 @@ function buildSummary(
   lifecycleState: CreativeDecisionLifecycleState,
   benchmark: CreativeDecisionBenchmark,
   fatigue: CreativeDecisionFatigue,
+  economics: CreativeDecisionEconomics,
+  deployment: CreativeDecisionDeploymentRecommendation,
 ) {
   if (primaryAction === "promote_to_scaling") {
     return "Deterministic engine marks this creative as scale-ready for a Meta scaling lane.";
@@ -1211,12 +1604,18 @@ function buildSummary(
     return "Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.";
   }
   if (primaryAction === "block_deploy") {
+    if (deployment.compatibility.status === "blocked" && lifecycleState !== "blocked" && lifecycleState !== "retired") {
+      return "Deterministic engine blocks deployment because no compatible live lane is currently available for this family.";
+    }
     return lifecycleState === "retired"
       ? "Deterministic engine keeps this inactive until it earns a comeback case."
       : "Deterministic engine blocks deployment because downside risk outweighs current upside.";
   }
   if (primaryAction === "retest_comeback") {
     return "Deterministic engine sees prior winner memory and recommends a bounded comeback retest.";
+  }
+  if (economics.status === "guarded") {
+    return "Deterministic engine keeps this in test because relative strength exists, but absolute scaling floors are not proven yet.";
   }
   if (fatigue.status === "watch") {
     return "Deterministic engine keeps this in test while monitoring early fatigue pressure.";
@@ -1227,6 +1626,7 @@ function buildSummary(
 function buildReasons(
   benchmark: CreativeDecisionBenchmark,
   fatigue: CreativeDecisionFatigue,
+  economics: CreativeDecisionEconomics,
   deployment: CreativeDecisionDeploymentRecommendation,
 ) {
   const reasons = [
@@ -1234,7 +1634,9 @@ function buildReasons(
     `Click-to-purchase benchmark status is ${benchmark.metrics.clickToPurchase.status}.`,
     `Selected cohort is ${benchmark.selectedCohortLabel}.`,
   ];
+  if (economics.reasons[0]) reasons.push(economics.reasons[0]);
   if (fatigue.evidence[0]) reasons.push(fatigue.evidence[0]);
+  if (deployment.compatibility.reasons[0]) reasons.push(deployment.compatibility.reasons[0]);
   if (deployment.constraints[0]) reasons.push(deployment.constraints[0]);
   return reasons.slice(0, 4);
 }
@@ -1304,6 +1706,121 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
   });
 }
 
+function buildProtectedWinners(creatives: CreativeDecisionOsCreative[]) {
+  return creatives
+    .filter(
+      (creative) =>
+        creative.primaryAction === "hold_no_touch" ||
+        creative.lifecycleState === "stable_winner",
+    )
+    .sort((left, right) => right.spend - left.spend)
+    .slice(0, 8)
+    .map((creative) => ({
+      creativeId: creative.creativeId,
+      familyId: creative.familyId,
+      creativeName: creative.name,
+      familyLabel: creative.familyLabel,
+      spend: round(creative.spend, 2),
+      roas: round(creative.roas, 2),
+      reasons: [
+        creative.summary,
+        creative.fatigue.status !== "none"
+          ? `Fatigue status: ${creative.fatigue.status}.`
+          : "Winner remains protected outside the action-core promotion queue.",
+      ].slice(0, 3),
+    })) satisfies CreativeDecisionProtectedWinner[];
+}
+
+function buildSupplyPlan(
+  creatives: CreativeDecisionOsCreative[],
+  families: CreativeDecisionOsFamily[],
+) {
+  const items: CreativeDecisionSupplyPlanItem[] = [];
+
+  for (const family of families) {
+    const familyCreatives = creatives.filter((creative) => creative.familyId === family.familyId);
+    const hasComeback = familyCreatives.some((creative) => creative.primaryAction === "retest_comeback");
+    const hasProtectedWinner = familyCreatives.some((creative) => creative.primaryAction === "hold_no_touch");
+    const hasScaleCandidate = familyCreatives.some((creative) => creative.primaryAction === "promote_to_scaling");
+    const hasFatigue = familyCreatives.some(
+      (creative) =>
+        creative.primaryAction === "refresh_replace" ||
+        creative.fatigue.status === "watch" ||
+        creative.fatigue.status === "fatigued",
+    );
+
+    if (hasFatigue && family.totalSpend >= 150) {
+      items.push({
+        kind: "refresh_existing_winner",
+        priority: family.lifecycleState === "fatigued_winner" ? "high" : "medium",
+        familyId: family.familyId,
+        familyLabel: family.familyLabel,
+        creativeIds: family.creativeIds,
+        summary: "Refresh the dominant winner before fatigue decay spills into the next live window.",
+        reasons: [
+          ...familyCreatives.flatMap((creative) => creative.fatigue.evidence.slice(0, 1)),
+          "Family shows winner memory with active fatigue pressure.",
+        ].slice(0, 3),
+      });
+    }
+
+    if (hasScaleCandidate && family.topAngles.length <= 1 && family.creativeIds.length <= 2) {
+      items.push({
+        kind: "expand_angle_family",
+        priority: "medium",
+        familyId: family.familyId,
+        familyLabel: family.familyLabel,
+        creativeIds: family.creativeIds,
+        summary: "Expand this winner family with adjacent angle variants before saturation shows up.",
+        reasons: [
+          "Family is scale-capable but creative depth is still shallow.",
+          `Current angle depth: ${family.topAngles.length}.`,
+        ].slice(0, 3),
+      });
+    }
+
+    if (!hasProtectedWinner && !hasComeback && family.primaryAction === "keep_in_test" && family.totalSpend >= 150) {
+      items.push({
+        kind: "new_test_concepts",
+        priority: family.totalSpend >= 300 ? "high" : "medium",
+        familyId: family.familyId,
+        familyLabel: family.familyLabel,
+        creativeIds: family.creativeIds,
+        summary: "Generate fresh test concepts to widen hook and angle coverage for this family.",
+        reasons: [
+          "Family has meaningful spend but no protected winner yet.",
+          `Observed hooks: ${family.topHooks.join(", ") || "limited"}.`,
+        ].slice(0, 3),
+      });
+    }
+
+    if (hasComeback) {
+      items.push({
+        kind: "revive_comeback",
+        priority: "low",
+        familyId: family.familyId,
+        familyLabel: family.familyLabel,
+        creativeIds: family.creativeIds,
+        summary: "Retest the historical winner with bounded volume before committing broader spend.",
+        reasons: [
+          "Historical winner memory exists for this family.",
+          "Comeback candidates should stay tightly scoped and retry-safe.",
+        ],
+      });
+    }
+  }
+
+  const priorityRank: Record<CreativeDecisionSupplyPlanPriority, number> = {
+    high: 3,
+    medium: 2,
+    low: 1,
+  };
+
+  return items
+    .sort((left, right) => priorityRank[right.priority] - priorityRank[left.priority])
+    .slice(0, 10);
+}
+
 export function buildCreativeDecisionOs(
   input: BuildCreativeDecisionOsInput,
 ): CreativeDecisionOsV1Response {
@@ -1349,6 +1866,8 @@ export function buildCreativeDecisionOs(
         fatiguedCount: 0,
         blockedCount: 0,
         comebackCount: 0,
+        protectedWinnerCount: 0,
+        supplyPlanCount: 0,
         message: "No creative rows were available for the live decision window.",
         operatingMode: input.operatingMode?.recommendedMode ?? null,
         surfaceSummary: {
@@ -1361,6 +1880,8 @@ export function buildCreativeDecisionOs(
       creatives: [],
       families: [],
       patterns: [],
+      protectedWinners: [],
+      supplyPlan: [],
       lifecycleBoard: buildLifecycleBoard([]),
       operatorQueues: buildOperatorQueues([]),
       commercialTruthCoverage: buildCommercialTruthCoverage(
@@ -1384,6 +1905,7 @@ export function buildCreativeDecisionOs(
   const creatives: CreativeDecisionOsCreative[] = rows.map((row) => {
     const familySeed = familySeeds.get(row.creativeId)!;
     const familyRows = familyRowsById.get(familySeed.familyId) ?? [row];
+    const familyProvenance = buildFamilyProvenance(familySeed, familyRows);
     const metaFamily = metaFamilyFromRow(row, campaignsById);
     const benchmark = selectBenchmark(row, familyRows, rows, metaFamily);
     const fatigue = buildFatigue(row, familyRows, benchmark);
@@ -1395,7 +1917,26 @@ export function buildCreativeDecisionOs(
       historical,
       operatingMode: input.operatingMode,
     });
-    const primaryAction = decidePrimaryAction(lifecycleState, input.operatingMode);
+    const basePrimaryAction = decidePrimaryAction(lifecycleState, input.operatingMode);
+    const economics = buildEconomics(row, input.commercialTruth);
+    const preliminaryDeployment = buildDeployment(row, {
+      campaignsById,
+      campaigns: input.campaigns ?? [],
+      adSets: input.adSets ?? [],
+      locationRows,
+      operatingMode: input.operatingMode,
+      primaryAction: basePrimaryAction,
+      lifecycleState,
+      metaFamily,
+      confidence: 0.64,
+    });
+    const primaryAction = resolvePrimaryAction({
+      lifecycleState,
+      baseAction: basePrimaryAction,
+      economics,
+      operatingMode: input.operatingMode,
+      deployment: preliminaryDeployment,
+    });
     const score = buildScore(row, benchmark, fatigue, lifecycleState);
     const confidence = buildConfidence(row, benchmark, fatigue, input.operatingMode);
     const legacyAction = legacyActionFromPrimary({
@@ -1407,6 +1948,7 @@ export function buildCreativeDecisionOs(
     const legacyLifecycleState = legacyLifecycleFromState(lifecycleState, legacyAction);
     const deployment = buildDeployment(row, {
       campaignsById,
+      campaigns: input.campaigns ?? [],
       adSets: input.adSets ?? [],
       locationRows,
       operatingMode: input.operatingMode,
@@ -1416,8 +1958,8 @@ export function buildCreativeDecisionOs(
       confidence,
     });
     const pattern = buildPattern(row);
-    const summary = buildSummary(primaryAction, lifecycleState, benchmark, fatigue);
-    const reasons = buildReasons(benchmark, fatigue, deployment);
+    const summary = buildSummary(primaryAction, lifecycleState, benchmark, fatigue, economics, deployment);
+    const reasons = buildReasons(benchmark, fatigue, economics, deployment);
     const familyLabel = chooseFamilyLabel(familyRows);
     const trust = buildCreativeTrust({
       row,
@@ -1426,6 +1968,7 @@ export function buildCreativeDecisionOs(
       operatingMode: input.operatingMode,
       historical,
       summary,
+      deployment,
     });
     const report: CreativeRuleReportPayload = {
       creativeId: row.creativeId,
@@ -1505,6 +2048,7 @@ export function buildCreativeDecisionOs(
       },
       benchmark,
       fatigue,
+      economics,
       deployment,
       deterministicDecision: {
         lifecycleState,
@@ -1546,11 +2090,14 @@ export function buildCreativeDecisionOs(
         primaryAction,
         benchmark,
         fatigue,
+        economics,
         deployment,
       }),
       summary,
       benchmark,
       fatigue,
+      economics,
+      familyProvenance,
       deployment,
       pattern,
       report,
@@ -1562,6 +2109,9 @@ export function buildCreativeDecisionOs(
     const creativeEntries = creatives.filter((creative) => creative.familyId === familyId);
     const dominantFormat = creativeEntries[0]?.creativeFormat ?? "image";
     const highestPriority = [...creativeEntries].sort((left, right) => right.score - left.score)[0];
+    const familyProvenance =
+      highestPriority?.familyProvenance ??
+      buildFamilyProvenance(familySeeds.get(familyRows[0]!.creativeId)!, familyRows);
     const topAngles = Array.from(new Set(creativeEntries.map((creative) => creative.pattern.angle))).slice(0, 3);
     const topHooks = Array.from(new Set(creativeEntries.map((creative) => creative.pattern.hook))).slice(0, 3);
     return {
@@ -1579,6 +2129,7 @@ export function buildCreativeDecisionOs(
       topHooks,
       metaFamily: highestPriority?.deployment.metaFamily ?? "purchase_value",
       metaFamilyLabel: highestPriority?.deployment.metaFamilyLabel ?? metaCampaignFamilyLabel("purchase_value"),
+      provenance: familyProvenance,
     } satisfies CreativeDecisionOsFamily;
   });
 
@@ -1614,6 +2165,9 @@ export function buildCreativeDecisionOs(
   const patterns = Array.from(patternMap.values())
     .sort((left, right) => right.spend - left.spend)
     .slice(0, 8);
+  const sortedFamilies = families.sort((left, right) => right.totalSpend - left.totalSpend);
+  const protectedWinners = buildProtectedWinners(creatives);
+  const supplyPlan = buildSupplyPlan(creatives, sortedFamilies);
   const lifecycleBoard = buildLifecycleBoard(creatives);
   const operatorQueues = buildOperatorQueues(creatives);
   const commercialTruthCoverage = buildCommercialTruthCoverage(
@@ -1659,6 +2213,8 @@ export function buildCreativeDecisionOs(
           creative.lifecycleState === "blocked" || creative.lifecycleState === "retired",
       ).length,
       comebackCount: creatives.filter((creative) => creative.lifecycleState === "comeback_candidate").length,
+      protectedWinnerCount: protectedWinners.length,
+      supplyPlanCount: supplyPlan.length,
       message:
         input.operatingMode?.recommendedMode === "Recovery"
           ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and block outcomes."
@@ -1667,8 +2223,10 @@ export function buildCreativeDecisionOs(
       surfaceSummary,
     },
     creatives,
-    families: families.sort((left, right) => right.totalSpend - left.totalSpend),
+    families: sortedFamilies,
     patterns,
+    protectedWinners,
+    supplyPlan,
     lifecycleBoard,
     operatorQueues,
     commercialTruthCoverage,

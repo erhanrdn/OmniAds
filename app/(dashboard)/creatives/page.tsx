@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import {
   type MetaCreativeRow,
 } from "@/components/creatives/metricConfig";
-import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 import { CreativesTableSection } from "@/components/creatives/CreativesTableSection";
 import {
   applyCreativeFilters,
@@ -108,6 +107,10 @@ const CreativeAdBreakdownDrawer = dynamic(
   () => import("@/components/creatives/CreativeAdBreakdownDrawer").then((mod) => mod.CreativeAdBreakdownDrawer),
   { ssr: false, loading: () => null }
 );
+const CreativeDecisionOsDrawer = dynamic(
+  () => import("@/components/creatives/CreativeDecisionOsDrawer").then((mod) => mod.CreativeDecisionOsDrawer),
+  { ssr: false, loading: () => null }
+);
 
 export default function CreativesPage() {
   const router = useRouter();
@@ -157,6 +160,7 @@ export default function CreativesPage() {
   const [tableSortedRows, setTableSortedRows] = useState<MetaCreativeRow[]>([]);
   const [decisionOsFamilyFilter, setDecisionOsFamilyFilter] = useState<string | null>(null);
   const [decisionOsQueueFilter, setDecisionOsQueueFilter] = useState<CreativeDecisionOperatorQueue["key"] | null>(null);
+  const [decisionOsDrawerOpen, setDecisionOsDrawerOpen] = useState(false);
 
   const platform: "meta" = "meta";
   const metaView = deriveProviderViewState(
@@ -379,12 +383,30 @@ export default function CreativesPage() {
     }
     return null;
   }, [creativeDecisionOs, decisionOsFamilyFilter, decisionOsQueueFilter]);
+  const clearDecisionOsFilters = useCallback(() => {
+    setDecisionOsFamilyFilter(null);
+    setDecisionOsQueueFilter(null);
+  }, []);
+  const activeDecisionOsQueue = useMemo(
+    () =>
+      decisionOsQueueFilter
+        ? creativeDecisionOs?.operatorQueues.find((item) => item.key === decisionOsQueueFilter) ?? null
+        : null,
+    [creativeDecisionOs, decisionOsQueueFilter],
+  );
+  const activeDecisionOsFamily = useMemo(
+    () =>
+      decisionOsFamilyFilter
+        ? creativeDecisionOs?.families.find((item) => item.familyId === decisionOsFamilyFilter) ?? null
+        : null,
+    [creativeDecisionOs, decisionOsFamilyFilter],
+  );
   const filteredRows = useMemo(() => {
     if (platform !== "meta") return [];
-    const baseRows = applyCreativeFilters(allRows, topFilters);
+    const baseRows = applyCreativeFilters(allRows, topFilters, creativeDecisionOs);
     if (!decisionOsFocusIds || decisionOsFocusIds.size === 0) return baseRows;
     return baseRows.filter((row) => decisionOsFocusIds.has(row.id));
-  }, [allRows, decisionOsFocusIds, platform, topFilters]);
+  }, [allRows, creativeDecisionOs, decisionOsFocusIds, platform, topFilters]);
   const creativeHistoryById = useMemo(() => {
     const historyRows: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>> = {};
     creativeHistoryQueries.forEach((query, index) => {
@@ -770,21 +792,43 @@ export default function CreativesPage() {
               csvError={csvError}
               previewStripState={previewStripState}
               previewStripSummary={previewStripSummary}
-            />
-
-            <CreativeDecisionOsOverview
               decisionOs={creativeDecisionOs}
-              isLoading={creativeDecisionOsQuery.isLoading}
-              activeFamilyId={decisionOsFamilyFilter}
-              activeQueueKey={decisionOsQueueFilter}
-              onSelectFamily={(familyId) => {
-                setDecisionOsQueueFilter(null);
-                setDecisionOsFamilyFilter(familyId);
-              }}
-              onSelectQueue={(queueKey) => {
-                setDecisionOsFamilyFilter(null);
-                setDecisionOsQueueFilter(queueKey);
-              }}
+              actionsPrefix={
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={() => setDecisionOsDrawerOpen(true)}
+                  >
+                    {creativeDecisionOsQuery.isLoading && !creativeDecisionOs
+                      ? "Creative Decision OS · Loading..."
+                      : "Creative Decision OS"}
+                  </Button>
+
+                  {(activeDecisionOsQueue || activeDecisionOsFamily) ? (
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {activeDecisionOsQueue ? (
+                        <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] font-medium text-sky-800">
+                          Decision OS filter: {activeDecisionOsQueue.label}
+                        </span>
+                      ) : null}
+                      {activeDecisionOsFamily ? (
+                        <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-800">
+                          Family: {activeDecisionOsFamily.familyLabel}
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={clearDecisionOsFilters}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              }
             />
 
             {creativesMetadataQuery.isLoading && <CreativesTableShell />}
@@ -885,6 +929,23 @@ export default function CreativesPage() {
         onOpenChange={(open) =>
           setBreakdownDrawerState((prev) => ({ ...prev, open, activeRowId: open ? prev.activeRowId : null }))
         }
+      />
+      <CreativeDecisionOsDrawer
+        decisionOs={creativeDecisionOs}
+        isLoading={creativeDecisionOsQuery.isLoading}
+        open={decisionOsDrawerOpen}
+        onOpenChange={setDecisionOsDrawerOpen}
+        activeFamilyId={decisionOsFamilyFilter}
+        activeQueueKey={decisionOsQueueFilter}
+        onSelectFamily={(familyId) => {
+          setDecisionOsQueueFilter(null);
+          setDecisionOsFamilyFilter(familyId);
+        }}
+        onSelectQueue={(queueKey) => {
+          setDecisionOsFamilyFilter(null);
+          setDecisionOsQueueFilter(queueKey);
+        }}
+        onClearFilters={clearDecisionOsFilters}
       />
     </div>
     </PlanGate>

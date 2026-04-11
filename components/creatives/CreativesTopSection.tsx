@@ -5,6 +5,7 @@ import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, 
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -89,9 +90,28 @@ export type CreativeFilterField =
   | "landingPage"
   | "launchDate"
   | "performanceMetrics"
-  | "aiTags"
+  | "creativePrimaryLabel"
+  | "creativeSecondaryLabel"
+  | "creativeVisualFormat"
+  | "creativeDeliveryType"
+  | "taxonomySource"
+  | "isCatalog"
+  | "lifecycleState"
+  | "primaryAction"
+  | "surfaceLane"
+  | "familySource"
+  | "deploymentTargetLane"
+  | "deploymentCompatibilityStatus"
   | "namingConvention"
-  | "customTags";
+  | "customTags"
+  | "assetType"
+  | "visualFormat"
+  | "intendedAudience"
+  | "messagingAngle"
+  | "seasonality"
+  | "offerType"
+  | "hookTactic"
+  | "headlineTactic";
 
 type GoodDirection = "high" | "low" | "neutral";
 
@@ -147,6 +167,7 @@ interface CreativesTopSectionProps {
     minimumReady: number;
   };
   actionsPrefix?: ReactNode;
+  decisionOs?: CreativeDecisionOsV1Response | null;
 }
 
 const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
@@ -211,13 +232,47 @@ const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value
     ],
   },
   {
+    label: "Taxonomy",
+    children: [
+      { label: "Primary label", value: "creativePrimaryLabel" },
+      { label: "Secondary label", value: "creativeSecondaryLabel" },
+      { label: "Visual format", value: "creativeVisualFormat" },
+      { label: "Delivery type", value: "creativeDeliveryType" },
+      { label: "Taxonomy source", value: "taxonomySource" },
+      { label: "Is catalog", value: "isCatalog" },
+    ],
+  },
+  {
+    label: "Decision OS",
+    children: [
+      { label: "Lifecycle state", value: "lifecycleState" },
+      { label: "Primary action", value: "primaryAction" },
+      { label: "Surface lane", value: "surfaceLane" },
+      { label: "Family source", value: "familySource" },
+      { label: "Deployment lane", value: "deploymentTargetLane" },
+      { label: "Compatibility status", value: "deploymentCompatibilityStatus" },
+    ],
+  },
+  {
+    label: "AI tags",
+    children: [
+      { label: "Asset type", value: "assetType" },
+      { label: "Visual format", value: "visualFormat" },
+      { label: "Intended audience", value: "intendedAudience" },
+      { label: "Messaging angle", value: "messagingAngle" },
+      { label: "Seasonality", value: "seasonality" },
+      { label: "Offer type", value: "offerType" },
+      { label: "Hook tactic", value: "hookTactic" },
+      { label: "Headline tactic", value: "headlineTactic" },
+    ],
+  },
+  {
     label: "Performance",
     children: [{ label: "Performance metrics", value: "performanceMetrics" }],
   },
   {
-    label: "Tags",
+    label: "Other",
     children: [
-      { label: "AI Tags", value: "aiTags" },
       { label: "Naming convention", value: "namingConvention" },
       { label: "Custom tags", value: "customTags" },
     ],
@@ -395,6 +450,7 @@ export function CreativesTopSection({
   showAiActionsRow = true,
   previewStripSummary,
   actionsPrefix,
+  decisionOs,
 }: CreativesTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
@@ -440,7 +496,12 @@ export function CreativesTopSection({
             </div>
           ) : null}
 
-          <AddFilterDropdown filters={filters} rows={allRowsForHeatmap} onChange={onFiltersChange} />
+          <AddFilterDropdown
+            filters={filters}
+            rows={allRowsForHeatmap}
+            decisionOs={decisionOs ?? null}
+            onChange={onFiltersChange}
+          />
 
           <div id="creative-ai-signals-slot" className="inline-flex items-center gap-1.5" />
 
@@ -538,24 +599,20 @@ function CreativeDateRangePicker({ value, onChange }: { value: CreativeDateRange
 function AddFilterDropdown({
   filters,
   rows,
+  decisionOs,
   onChange,
 }: {
   filters: CreativeFilterRule[];
   rows: MetaCreativeRow[];
+  decisionOs: CreativeDecisionOsV1Response | null;
   onChange: (next: CreativeFilterRule[]) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<"pick" | "compose">("pick");
-  const [fieldMenuOpen, setFieldMenuOpen] = useState(false);
-  const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
-  const [expandedCampaigns, setExpandedCampaigns] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
   const [field, setField] = useState<CreativeFilterField>("campaignName");
   const [operator, setOperator] = useState<CreativeFilterOperator>("contains");
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const queryRef = useRef<HTMLInputElement>(null);
 
   useDropdownBehavior({
@@ -564,30 +621,19 @@ function AddFilterDropdown({
     setOpen,
     containerRef: wrapRef,
     triggerRef,
-    focusRef: step === "pick" ? searchRef : queryRef,
+    focusRef: queryRef,
   });
 
   const filterOptions = useMemo(
-    () => [
-      { label: "Campaign name", value: "campaignName" as CreativeFilterField },
-      { label: "Ad set name", value: "adSetName" as CreativeFilterField },
-      { label: "Ad name", value: "adName" as CreativeFilterField },
-      { label: "Ad setup", value: "adSetup" as CreativeFilterField, showChevron: true },
-      { label: "Landing page", value: "landingPage" as CreativeFilterField },
-      { label: "Launch date", value: "launchDate" as CreativeFilterField },
-      { label: "Performance metrics", value: "performanceMetrics" as CreativeFilterField, showChevron: true },
-      { label: "AI Tags", value: "aiTags" as CreativeFilterField },
-      { label: "Naming convention", value: "namingConvention" as CreativeFilterField },
-      { label: "Custom tags", value: "customTags" as CreativeFilterField },
-    ],
-    []
+    () =>
+      FILTER_TREE.flatMap((group) =>
+        group.children.map((child) => ({
+          ...child,
+          groupLabel: group.label,
+        })),
+      ),
+    [],
   );
-
-  const filteredOptions = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    if (!normalizedSearch) return filterOptions;
-    return filterOptions.filter((option) => option.label.toLowerCase().includes(normalizedSearch));
-  }, [filterOptions, search]);
 
   const operatorOptions = useMemo(() => {
     if (field === "launchDate") {
@@ -626,54 +672,51 @@ function AddFilterDropdown({
         return collect(rows.map((row) => row.name));
       case "launchDate":
         return collect(rows.map((row) => row.launchDate)).sort((a, b) => a.localeCompare(b));
-      case "aiTags":
-        return collect(rows.flatMap((row) => [...row.tags, ...Object.values(row.aiTags ?? {}).flat()]));
+      case "creativePrimaryLabel":
+        return collect(rows.map((row) => row.creativePrimaryLabel));
+      case "creativeSecondaryLabel":
+        return collect(rows.map((row) => row.creativeSecondaryLabel));
+      case "creativeVisualFormat":
+        return collect(rows.map((row) => row.creativeVisualFormat));
+      case "creativeDeliveryType":
+        return collect(rows.map((row) => row.creativeDeliveryType));
+      case "taxonomySource":
+        return collect(rows.map((row) => row.taxonomySource ?? null));
+      case "isCatalog":
+        return ["true", "false"];
+      case "lifecycleState":
+        return collect(decisionOs?.creatives.map((creative) => creative.lifecycleState) ?? []);
+      case "primaryAction":
+        return collect(decisionOs?.creatives.map((creative) => creative.primaryAction) ?? []);
+      case "surfaceLane":
+        return collect(decisionOs?.creatives.map((creative) => creative.trust.surfaceLane) ?? []);
+      case "familySource":
+        return collect(decisionOs?.creatives.map((creative) => creative.familySource) ?? []);
+      case "deploymentTargetLane":
+        return collect(decisionOs?.creatives.map((creative) => creative.deployment.targetLane) ?? []);
+      case "deploymentCompatibilityStatus":
+        return collect(
+          decisionOs?.creatives.map((creative) => creative.deployment.compatibility.status) ?? [],
+        );
+      case "assetType":
+      case "visualFormat":
+      case "intendedAudience":
+      case "messagingAngle":
+      case "seasonality":
+      case "offerType":
+      case "hookTactic":
+      case "headlineTactic":
+        return collect(rows.flatMap((row) => row.aiTags?.[field] ?? []));
       default:
-        return [];
+        return collect(rows.flatMap((row) => row.tags ?? []));
     }
-  }, [field, rows]);
+  }, [decisionOs, field, rows]);
 
   const filteredSuggestions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return fieldSuggestions.slice(0, 8);
     return fieldSuggestions.filter((value) => value.toLowerCase().includes(normalizedQuery)).slice(0, 8);
   }, [fieldSuggestions, query]);
-
-  const campaignGroups = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    const groups = new Map<string, Set<string>>();
-
-    for (const row of rows) {
-      if (!(row.spend > 0)) continue;
-      const campaignName = row.campaignName?.trim();
-      if (!campaignName) continue;
-      if (!groups.has(campaignName)) groups.set(campaignName, new Set());
-      const adSetName = row.adSetName?.trim();
-      if (adSetName) groups.get(campaignName)?.add(adSetName);
-    }
-
-    return Array.from(groups.entries())
-      .map(([campaignName, adSetNames]) => ({
-        campaignName,
-        adSetNames: Array.from(adSetNames).sort((a, b) => a.localeCompare(b)),
-      }))
-      .filter((group) => {
-        if (!normalizedQuery) return true;
-        if (group.campaignName.toLowerCase().includes(normalizedQuery)) return true;
-        return group.adSetNames.some((adSetName) => adSetName.toLowerCase().includes(normalizedQuery));
-      })
-      .sort((a, b) => a.campaignName.localeCompare(b.campaignName));
-  }, [query, rows]);
-
-  const showCampaignBrowser = field === "campaignName" || field === "adSetName";
-
-  const toggleCampaignExpanded = (campaignName: string) => {
-    setExpandedCampaigns((prev) =>
-      prev.includes(campaignName)
-        ? prev.filter((item) => item !== campaignName)
-        : [...prev, campaignName]
-    );
-  };
 
   const addRuleWith = (nextField: CreativeFilterField, nextOperator: CreativeFilterOperator, nextQuery: string) => {
     const cleanQuery = nextQuery.trim();
@@ -689,12 +732,8 @@ function AddFilterDropdown({
       },
     ]);
     setQuery("");
-    setSearch("");
-    setStep("compose");
     setField(nextField);
     setOperator(nextOperator);
-    setFieldMenuOpen(false);
-    setOperatorMenuOpen(false);
     setOpen(false);
   };
 
@@ -704,19 +743,7 @@ function AddFilterDropdown({
     addRuleWith(field, operator, cleanQuery);
   };
 
-  const selectedFieldLabel = prettyFieldLabel(field);
-  const selectedOperatorLabel = operatorOptions.find((item) => item.value === operator)?.label ?? "contains";
-
   const removeRule = (ruleId: string) => onChange(filters.filter((rule) => rule.id !== ruleId));
-
-  const openBuilder = (nextField: CreativeFilterField) => {
-    setField(nextField);
-    setOperator(nextField === "launchDate" ? "equals" : "contains");
-    setStep("compose");
-    setFieldMenuOpen(false);
-    setOperatorMenuOpen(false);
-    window.setTimeout(() => queryRef.current?.focus(), 0);
-  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -728,10 +755,8 @@ function AddFilterDropdown({
             setOpen((prev) => {
               const next = !prev;
               if (next) {
-                setStep("compose");
                 setField("campaignName");
                 setOperator("equals");
-                setSearch("");
                 setQuery("");
               }
               return next;
@@ -744,60 +769,101 @@ function AddFilterDropdown({
         </button>
 
         {open && (
-          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[min(460px,calc(100vw-32px))] max-w-[calc(100vw-32px)] rounded-[28px] border bg-background p-3 shadow-lg duration-150">
-            <div className="flex items-center gap-2 rounded-2xl border px-3 py-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <input
-                ref={queryRef}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search campaigns or ad sets..."
-                className="w-full bg-transparent text-sm outline-none"
-              />
+          <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-11 z-50 w-[min(520px,calc(100vw-32px))] max-w-[calc(100vw-32px)] rounded-[28px] border bg-background p-3 shadow-lg duration-150">
+            <div className="grid gap-2 md:grid-cols-[1.15fr_0.9fr_1.15fr_auto]">
+              <label className="space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Field
+                </span>
+                <select
+                  value={field}
+                  onChange={(event) => {
+                    const nextField = event.target.value as CreativeFilterField;
+                    setField(nextField);
+                    setOperator(nextField === "launchDate" ? "equals" : "contains");
+                    setQuery("");
+                  }}
+                  className="h-10 w-full rounded-2xl border bg-background px-3 text-sm outline-none"
+                >
+                  {FILTER_TREE.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.children.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Operator
+                </span>
+                <select
+                  value={operator}
+                  onChange={(event) => setOperator(event.target.value as CreativeFilterOperator)}
+                  className="h-10 w-full rounded-2xl border bg-background px-3 text-sm outline-none"
+                >
+                  {operatorOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Query
+                </span>
+                <div className="flex items-center gap-2 rounded-2xl border px-3 py-2">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <input
+                    ref={queryRef}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={`Filter by ${prettyFieldLabel(field).toLowerCase()}`}
+                    className="w-full bg-transparent text-sm outline-none"
+                  />
+                </div>
+              </label>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={addRule}
+                  className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-900 bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                  disabled={!query.trim()}
+                >
+                  Add
+                </button>
+              </div>
             </div>
 
-            <div className="mt-2 max-h-80 overflow-auto rounded-2xl border bg-muted/10 p-1.5">
-              {campaignGroups.map((group) => {
-                const isExpanded = expandedCampaigns.includes(group.campaignName) || query.trim().length > 0;
-                return (
-                  <div key={group.campaignName} className="rounded-xl">
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleCampaignExpanded(group.campaignName)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-accent/50"
-                        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${group.campaignName}`}
-                      >
-                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", !isExpanded && "-rotate-90")} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => addRuleWith("campaignName", "equals", group.campaignName)}
-                        className="flex-1 rounded-xl px-3 py-2 text-left text-sm hover:bg-accent/50"
-                      >
-                        {group.campaignName}
-                      </button>
-                    </div>
-                    {isExpanded && group.adSetNames.length > 0 && (
-                      <div className="ml-9 mt-1 space-y-1 border-l pl-3">
-                        {group.adSetNames.map((adSetName) => (
-                          <button
-                            key={`${group.campaignName}-${adSetName}`}
-                            type="button"
-                            onClick={() => addRuleWith("adSetName", "equals", adSetName)}
-                            className="block w-full rounded-lg px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                          >
-                            {adSetName}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {campaignGroups.length === 0 && (
-                <p className="px-3 py-2 text-sm text-muted-foreground">No campaigns found.</p>
-              )}
+            {filteredSuggestions.length > 0 ? (
+              <div className="mt-2 rounded-2xl border bg-muted/10 p-2">
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Suggestions
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {filteredSuggestions.map((suggestion) => (
+                    <button
+                      key={`${field}-${suggestion}`}
+                      type="button"
+                      onClick={() => addRuleWith(field, operator, suggestion)}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-2 rounded-2xl border bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
+              Decision OS filters are deterministic. AI tag filters use tag values only and do not rewrite taxonomy.
             </div>
           </div>
         )}

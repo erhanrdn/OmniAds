@@ -147,6 +147,12 @@ async function captureCommandCenterDecisionSignature(
 async function captureCreativeDecisionSignature(
   page: Page,
 ) {
+  const drawer = page.getByTestId("creative-decision-os-drawer");
+  const alreadyOpen = await drawer.isVisible().catch(() => false);
+  if (!alreadyOpen) {
+    await page.getByRole("button", { name: "Creative Decision OS" }).click();
+  }
+  await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   return {
     overview: normalizeText(
       await page.getByTestId("creative-decision-os-overview").textContent(),
@@ -283,16 +289,21 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   });
 
   await page.goto("/creatives");
+  await page.getByRole("button", { name: "Creative Decision OS" }).click();
+  await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("creative-decision-os-overview")).toContainText("Decisions use live windows");
-  await expect(page.getByTestId("creative-decision-os-overview")).toContainText("Selected period affects analysis only");
+  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Decisions use live windows");
+  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Selected period affects analysis only");
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
   await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+  await page.getByLabel("Close Creative Decision OS").click();
   await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
   let creativeBaseline: Awaited<ReturnType<typeof captureCreativeDecisionSignature>> | null = null;
   for (const range of BROWSER_DECISION_RANGES) {
     await setStoredDateRange(page, "creativeDateRange", range.creative);
     await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Creative Decision OS" }).click();
+    await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
     await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
     await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
     await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
@@ -302,8 +313,10 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
     } else {
       expect(signature).toEqual(creativeBaseline);
     }
+    await page.getByLabel("Close Creative Decision OS").click();
   }
 
+  await page.getByRole("button", { name: "Creative Decision OS" }).click();
   const familyCards = page.locator('button[data-testid^="creative-family-"]');
   await expect(familyCards.first()).toBeVisible();
   const preFilterCount = await page.locator('[data-testid^="creative-row-"]').count();
@@ -311,6 +324,7 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   const postFilterCount = await page.locator('[data-testid^="creative-row-"]').count();
   expect(postFilterCount).toBeGreaterThan(0);
   expect(postFilterCount).toBeLessThanOrEqual(preFilterCount);
+  await page.getByLabel("Close Creative Decision OS").click();
   await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');

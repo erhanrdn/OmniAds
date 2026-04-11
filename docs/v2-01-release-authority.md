@@ -10,8 +10,8 @@ Current live release truth is not inferred from older phase docs alone. It is de
 
 Current accepted live baseline for this phase:
 
-- current live SHA: `f6ca8358e1bb415b2b44b414b5a5c3340ee75df0`
-- previous known-good SHA: `3c13c44772ee510c67cfabc6b77ab05dae33b039`
+- current live SHA: `7d43776fac53f7988e2c3c2b36b239d1f58425ab`
+- previous known-good SHA: `b9ab92f0514022ed1b76b3395486e42cfeaa133f`
 - repository authority: `erhanrdn/OmniAds` `main`
 
 ## Authority Rules
@@ -30,7 +30,7 @@ Current accepted live baseline for this phase:
 | `Operating Mode` | `live` | `n/a` | `current` | Deterministic commercial-truth overlay remains live on Meta and Creative contexts. |
 | `Recommendations` | `live` | `n/a` | `current` | Meta `Recommendations` wording remains current and operator-visible. |
 | `Meta Decision OS` | `live` or `flagged` | `META_DECISION_OS_V1`, `META_DECISION_OS_CANARY_BUSINESSES` | `current` | Release authority must report whether the surface is globally enabled or allowlisted. The current baseline includes additive policy metadata and a read-only winner scale candidate board while keeping the execution subset unchanged. |
-| `Creative Decision OS` | `live` or `flagged` | `CREATIVE_DECISION_OS_V1`, `CREATIVE_DECISION_OS_CANARY_BUSINESSES` | `current` | Deterministic creative surface remains separate from AI commentary. |
+| `Creative Decision OS` | `live` or `flagged` | `CREATIVE_DECISION_OS_V1`, `CREATIVE_DECISION_OS_CANARY_BUSINESSES` | `current` | Deterministic creative surface remains separate from AI commentary; the current baseline uses a dedicated resizable drawer plus additive economics, compatibility, protected winners, and supply planning boards. |
 | `Decision Signals` | `live` | `n/a` | `current` | Compatibility surface for deterministic creative actions. |
 | `AI Commentary` | `live` | `n/a` | `current` | Commentary remains interpretation-only, never workflow authority. |
 | `Command Center workflow` | `live` or `flagged` | `COMMAND_CENTER_V1`, `COMMAND_CENTER_CANARY_BUSINESSES` | `current` | Unified queue, journal, saved views, and handoffs. |

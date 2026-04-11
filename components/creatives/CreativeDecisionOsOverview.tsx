@@ -45,6 +45,13 @@ function patternTone(pattern: CreativeDecisionOsPattern) {
   return "border-slate-200 bg-white";
 }
 
+function supplyTone(kind: CreativeDecisionOsV1Response["supplyPlan"][number]["kind"]) {
+  if (kind === "refresh_existing_winner") return "border-orange-200 bg-orange-50";
+  if (kind === "expand_angle_family") return "border-emerald-200 bg-emerald-50";
+  if (kind === "revive_comeback") return "border-violet-200 bg-violet-50";
+  return "border-sky-200 bg-sky-50";
+}
+
 export function CreativeDecisionOsOverview({
   decisionOs,
   isLoading,
@@ -52,6 +59,9 @@ export function CreativeDecisionOsOverview({
   activeQueueKey,
   onSelectFamily,
   onSelectQueue,
+  onClearFilters,
+  showHeader = true,
+  className,
 }: {
   decisionOs: CreativeDecisionOsV1Response | null;
   isLoading: boolean;
@@ -59,11 +69,14 @@ export function CreativeDecisionOsOverview({
   activeQueueKey: CreativeDecisionOperatorQueue["key"] | null;
   onSelectFamily: (familyId: string | null) => void;
   onSelectQueue: (queueKey: CreativeDecisionOperatorQueue["key"] | null) => void;
+  onClearFilters?: () => void;
+  showHeader?: boolean;
+  className?: string;
 }) {
   if (isLoading) {
     return (
       <section
-        className="rounded-2xl border border-slate-200 bg-white p-5"
+        className={cn("rounded-2xl border border-slate-200 bg-white p-5", className)}
         data-testid="creative-decision-os-overview"
       >
         <div className="h-5 w-40 animate-pulse rounded bg-slate-200" />
@@ -84,34 +97,39 @@ export function CreativeDecisionOsOverview({
 
   return (
     <section
-      className="space-y-4 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#fcfdff_0%,#f8fbff_100%)] p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]"
+      className={cn(
+        "space-y-4 rounded-2xl border border-slate-200 bg-[linear-gradient(180deg,#fcfdff_0%,#f8fbff_100%)] p-5 shadow-[0_10px_28px_rgba(15,23,42,0.05)]",
+        className,
+      )}
       data-testid="creative-decision-os-overview"
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Recommendations
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">
-            Creative Decision OS
-          </h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-600">
-            {decisionOs.summary.message}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Decisions use live windows. Selected period affects analysis only.
-          </p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
-          </p>
+      {showHeader ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Recommendations
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">
+              Creative Decision OS
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-slate-600">
+              {decisionOs.summary.message}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Decisions use live windows. Selected period affects analysis only.
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
+            </p>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
+            Operating Mode:{" "}
+            <span className="font-semibold text-slate-900">
+              {decisionOs.summary.operatingMode ?? "Unavailable"}
+            </span>
+          </div>
         </div>
-        <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600">
-          Operating Mode:{" "}
-          <span className="font-semibold text-slate-900">
-            {decisionOs.summary.operatingMode ?? "Unavailable"}
-          </span>
-        </div>
-      </div>
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-6">
         {[
@@ -135,6 +153,8 @@ export function CreativeDecisionOsOverview({
           ["Watchlist", decisionOs.summary.surfaceSummary.watchlistCount],
           ["Archive", decisionOs.summary.surfaceSummary.archiveCount],
           ["Degraded", decisionOs.summary.surfaceSummary.degradedCount],
+          ["Protected winners", decisionOs.summary.protectedWinnerCount],
+          ["Supply plan", decisionOs.summary.supplyPlanCount],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
@@ -194,6 +214,7 @@ export function CreativeDecisionOsOverview({
               <button
                 type="button"
                 onClick={() => {
+                  onClearFilters?.();
                   onSelectFamily(null);
                   onSelectQueue(null);
                 }}
@@ -264,6 +285,9 @@ export function CreativeDecisionOsOverview({
                       <p className="mt-1 text-xs text-slate-600">
                         {family.metaFamilyLabel} • {family.familySource.replaceAll("_", " ")}
                       </p>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Provenance {family.provenance.confidence} confidence • {family.provenance.overGroupingRisk} over-grouping risk
+                      </p>
                     </div>
                     <span className="rounded-full border border-white/60 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
                       {family.lifecycleState.replaceAll("_", " ")}
@@ -274,6 +298,9 @@ export function CreativeDecisionOsOverview({
                     <span>${family.totalSpend.toFixed(0)} spend</span>
                     <span>{family.totalPurchases} purchases</span>
                   </div>
+                  {family.provenance.evidence[0] ? (
+                    <p className="mt-2 text-[11px] text-slate-600">{family.provenance.evidence[0]}</p>
+                  ) : null}
                 </button>
               );
             })}
@@ -309,6 +336,84 @@ export function CreativeDecisionOsOverview({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
+        <div
+          className="rounded-2xl border border-slate-200 bg-white p-4"
+          data-testid="creative-protected-winners"
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-950">Protected Winners</h3>
+            <span className="text-[11px] text-slate-500">
+              not queued for promotion
+            </span>
+          </div>
+          <div className="space-y-2">
+            {decisionOs.protectedWinners.slice(0, 6).map((winner) => (
+              <div
+                key={winner.creativeId}
+                className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{winner.creativeName}</p>
+                    <p className="mt-1 text-xs text-slate-600">{winner.familyLabel}</p>
+                  </div>
+                  <div className="text-right text-xs text-slate-700">
+                    <p>{winner.roas.toFixed(2)}x ROAS</p>
+                    <p>${winner.spend.toFixed(0)} spend</p>
+                  </div>
+                </div>
+                {winner.reasons[0] ? (
+                  <p className="mt-2 text-[11px] text-slate-600">{winner.reasons[0]}</p>
+                ) : null}
+              </div>
+            ))}
+            {decisionOs.protectedWinners.length === 0 ? (
+              <p className="text-sm text-slate-500">No protected winners are active in the live decision window.</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div
+          className="rounded-2xl border border-slate-200 bg-white p-4"
+          data-testid="creative-supply-plan"
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-950">Supply Planning</h3>
+            <span className="text-[11px] text-slate-500">
+              deterministic backlog
+            </span>
+          </div>
+          <div className="space-y-2">
+            {decisionOs.supplyPlan.slice(0, 6).map((item) => (
+              <div
+                key={`${item.kind}-${item.familyId}`}
+                className={cn("rounded-xl border p-3", supplyTone(item.kind))}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{item.familyLabel}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {item.kind.replaceAll("_", " ")}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/60 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                    {item.priority}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-700">{item.summary}</p>
+                {item.reasons[0] ? (
+                  <p className="mt-2 text-[11px] text-slate-600">{item.reasons[0]}</p>
+                ) : null}
+              </div>
+            ))}
+            {decisionOs.supplyPlan.length === 0 ? (
+              <p className="text-sm text-slate-500">No supply-planning actions are currently queued.</p>
+            ) : null}
           </div>
         </div>
       </div>

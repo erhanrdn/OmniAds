@@ -18,6 +18,8 @@ interface CreativeDecisionOsV1Response {
   creatives: CreativeDecisionOsCreative[];
   families: CreativeDecisionOsFamily[];
   patterns: CreativeDecisionOsPattern[];
+  protectedWinners: CreativeDecisionProtectedWinner[];
+  supplyPlan: CreativeDecisionSupplyPlanItem[];
   lifecycleBoard: CreativeDecisionLifecycleBucket[];
   operatorQueues: CreativeDecisionOperatorQueue[];
   commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
@@ -54,10 +56,14 @@ interface CreativeDecisionOsCreative {
   confidence: number;
   benchmark: CreativeDecisionBenchmark;
   fatigue: CreativeDecisionFatigue;
+  economics: CreativeDecisionEconomics;
+  familyProvenance: CreativeDecisionFamilyProvenance;
   deployment: CreativeDecisionDeploymentRecommendation;
   report: CreativeRuleReportPayload;
 }
 ```
+
+Additive V2-05 fields do not change `contractVersion`; they extend the existing read-only contract.
 
 ## Family and pattern objects
 
@@ -67,6 +73,10 @@ interface CreativeDecisionOsCreative {
   - hook / angle / format rollup with counts, spend, purchase value, and primary outcome mix
 - `CreativeDecisionOperatorQueue`
   - operator queue object for `promotion`, `keep_testing`, `fatigued_blocked`, and `comeback`
+- `CreativeDecisionProtectedWinner`
+  - stable winners that stay protected and out of the promotion queue
+- `CreativeDecisionSupplyPlanItem`
+  - deterministic creative backlog for `new_test_concepts`, `refresh_existing_winner`, `expand_angle_family`, and `revive_comeback`
 
 ## Compatibility contract
 
@@ -96,11 +106,14 @@ The UI must never relabel deterministic outputs as AI, and must never present AI
 
 ## UI test-id contract
 
+- `creative-decision-os-drawer`
 - `creative-decision-os-overview`
 - `creative-lifecycle-board`
 - `creative-operator-queues`
 - `creative-family-board`
 - `creative-pattern-board`
+- `creative-protected-winners`
+- `creative-supply-plan`
 - `creative-detail-deterministic-decision`
 - `creative-detail-commercial-context`
 - `creative-detail-ai-commentary`
