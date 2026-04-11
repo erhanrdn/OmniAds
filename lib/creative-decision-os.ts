@@ -2,6 +2,11 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import type { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import {
+  buildDecisionFreshness,
+} from "@/lib/decision-trust/kernel";
+import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
+import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
@@ -495,6 +500,7 @@ export interface CreativeDecisionOsV1Response {
   operatorQueues: CreativeDecisionOperatorQueue[];
   commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
   historicalAnalysis: CreativeHistoricalAnalysis;
+  authority?: import("@/src/types/decision-trust").DecisionSurfaceAuthority;
 }
 
 interface BuildCreativeDecisionOsInput {
@@ -550,22 +556,6 @@ function normalizeText(value: string | null | undefined) {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[^\w\s-]/g, "");
-}
-
-function buildDecisionTrust(input: {
-  surfaceLane: DecisionSurfaceLane;
-  truthState: DecisionTrustMetadata["truthState"];
-  operatorDisposition: DecisionOperatorDisposition;
-  reasons: Array<string | null | undefined>;
-}) {
-  return {
-    surfaceLane: input.surfaceLane,
-    truthState: input.truthState,
-    operatorDisposition: input.operatorDisposition,
-    reasons: input.reasons
-      .map((reason) => reason?.trim())
-      .filter((reason): reason is string => Boolean(reason)),
-  } satisfies DecisionTrustMetadata;
 }
 
 function normalizeMediaKey(value: string | null | undefined) {
@@ -1335,12 +1325,23 @@ function buildCreativeTrust(input: {
       input.primaryAction !== "retest_comeback" &&
       input.historical.strongCount === 0);
   const degradedMode = input.operatingMode?.degradedMode;
+  const entityState = input.lifecycleState === "retired" ? "retired" : "active";
+  const materiality = archiveContext
+    ? "immaterial"
+    : lowMateriality
+      ? "thin_signal"
+      : "material";
+  const freshness = input.operatingMode?.authority?.freshness;
+  const missingInputs = input.operatingMode?.missingInputs ?? [];
 
   if (archiveContext) {
-    return buildDecisionTrust({
+    return compileDecisionTrust({
       surfaceLane: "archive_context",
       truthState: "inactive_or_immaterial",
       operatorDisposition: "archive_only",
+      entityState,
+      materiality,
+      freshness,
       reasons: [
         input.lifecycleState === "retired"
           ? "Creative is retired from the live action core."
@@ -1351,10 +1352,13 @@ function buildCreativeTrust(input: {
   }
 
   if (input.primaryAction === "hold_no_touch") {
-    return buildDecisionTrust({
+    return compileDecisionTrust({
       surfaceLane: "watchlist",
       truthState: "live_confident",
       operatorDisposition: "protected_watchlist",
+      entityState,
+      materiality,
+      freshness,
       reasons: [input.summary],
     });
   }
@@ -1364,10 +1368,13 @@ function buildCreativeTrust(input: {
     input.lifecycleState !== "blocked" &&
     input.lifecycleState !== "retired"
   ) {
-    return buildDecisionTrust({
+    return compileDecisionTrust({
       surfaceLane: "watchlist",
       truthState: "live_confident",
       operatorDisposition: "review_hold",
+      entityState,
+      materiality,
+      freshness,
       reasons: [
         ...input.deployment.compatibility.reasons,
         input.summary,
@@ -1377,44 +1384,62 @@ function buildCreativeTrust(input: {
 
   if (degradedMode?.active) {
     if (input.primaryAction === "promote_to_scaling") {
-      return buildDecisionTrust({
+      return compileDecisionTrust({
         surfaceLane: "watchlist",
         truthState: "degraded_missing_truth",
         operatorDisposition: "degraded_no_scale",
+        entityState,
+        materiality,
+        freshness,
+        missingInputs,
         reasons: [...degradedMode.reasons, input.summary],
       });
     }
     if (input.primaryAction === "keep_in_test") {
       if (input.lifecycleState === "scale_ready" || input.lifecycleState === "stable_winner") {
-        return buildDecisionTrust({
+        return compileDecisionTrust({
           surfaceLane: "watchlist",
           truthState: "degraded_missing_truth",
           operatorDisposition: "degraded_no_scale",
+          entityState,
+          materiality,
+          freshness,
+          missingInputs,
           reasons: [...degradedMode.reasons, input.summary],
         });
       }
-      return buildDecisionTrust({
+      return compileDecisionTrust({
         surfaceLane: lowMateriality ? "watchlist" : "action_core",
         truthState: "degraded_missing_truth",
         operatorDisposition: lowMateriality ? "monitor_low_truth" : "review_hold",
+        entityState,
+        materiality,
+        freshness,
+        missingInputs,
         reasons: [...degradedMode.reasons, input.summary],
       });
     }
   }
 
   if (input.primaryAction === "keep_in_test" && lowMateriality) {
-    return buildDecisionTrust({
+    return compileDecisionTrust({
       surfaceLane: "watchlist",
       truthState: "live_confident",
       operatorDisposition: "monitor_low_truth",
+      entityState,
+      materiality,
+      freshness,
       reasons: [input.summary],
     });
   }
 
-  return buildDecisionTrust({
+  return compileDecisionTrust({
     surfaceLane: "action_core",
     truthState: "live_confident",
     operatorDisposition: "standard",
+    entityState,
+    materiality,
+    freshness,
     reasons: [input.summary],
   });
 }
@@ -1915,6 +1940,35 @@ export function buildCreativeDecisionOs(
     .filter((row) => row.creativeId);
 
   if (rows.length === 0) {
+    const commercialTruthCoverage = buildCommercialTruthCoverage(
+      input.commercialTruth,
+      input.operatingMode,
+    );
+    const authority = buildDecisionSurfaceAuthority({
+      scope: "Creative Decision OS",
+      truthState:
+        commercialTruthCoverage.missingInputs.length > 0
+          ? "degraded_missing_truth"
+          : "live_confident",
+      completeness:
+        commercialTruthCoverage.missingInputs.length === 0
+          ? "complete"
+          : commercialTruthCoverage.missingInputs.length >= 3
+            ? "missing"
+            : "partial",
+      freshness: input.operatingMode?.authority?.freshness ?? buildDecisionFreshness(),
+      missingInputs: commercialTruthCoverage.missingInputs,
+      reasons: commercialTruthCoverage.guardrails,
+      actionCoreCount: 0,
+      watchlistCount: 0,
+      archiveCount: 0,
+      suppressedCount: 0,
+      note:
+        commercialTruthCoverage.missingInputs.length > 0
+          ? "Creative Decision OS has no live rows and remains trust-capped by incomplete commercial truth."
+          : "Creative Decision OS has no live rows in the current decision window.",
+    });
+
     return {
       contractVersion: CREATIVE_DECISION_OS_CONTRACT_VERSION,
       engineVersion: CREATIVE_DECISION_OS_ENGINE_VERSION,
@@ -1951,16 +2005,14 @@ export function buildCreativeDecisionOs(
       supplyPlan: [],
       lifecycleBoard: buildLifecycleBoard([]),
       operatorQueues: buildOperatorQueues([]),
-      commercialTruthCoverage: buildCommercialTruthCoverage(
-        input.commercialTruth,
-        input.operatingMode,
-      ),
+      commercialTruthCoverage,
       historicalAnalysis: buildEmptyCreativeHistoricalAnalysis({
         startDate: input.startDate,
         endDate: input.endDate,
         summary:
           "No selected-period creative evidence was available. This block stays descriptive and does not change deterministic Decision Signals.",
       }),
+      authority,
     };
   }
 
@@ -2261,6 +2313,31 @@ export function buildCreativeDecisionOs(
       (creative) => creative.trust.truthState === "degraded_missing_truth",
     ).length,
   };
+  const authority = buildDecisionSurfaceAuthority({
+    scope: "Creative Decision OS",
+    truthState:
+      commercialTruthCoverage.missingInputs.length > 0
+        ? "degraded_missing_truth"
+        : "live_confident",
+    completeness:
+      commercialTruthCoverage.missingInputs.length === 0
+        ? "complete"
+        : commercialTruthCoverage.missingInputs.length >= 3
+          ? "missing"
+          : "partial",
+    freshness: buildDecisionFreshness(),
+    missingInputs: commercialTruthCoverage.missingInputs,
+    reasons: commercialTruthCoverage.guardrails,
+    actionCoreCount: surfaceSummary.actionCoreCount,
+    watchlistCount: surfaceSummary.watchlistCount,
+    archiveCount: surfaceSummary.archiveCount,
+    suppressedCount:
+      surfaceSummary.watchlistCount + surfaceSummary.archiveCount,
+    note:
+      commercialTruthCoverage.missingInputs.length > 0
+        ? "Creative Decision OS remains visible but caps aggressive actions until truth coverage improves."
+        : "Creative Decision OS is using the shared trust kernel without active truth caps.",
+  });
 
   return {
     contractVersion: CREATIVE_DECISION_OS_CONTRACT_VERSION,
@@ -2309,6 +2386,7 @@ export function buildCreativeDecisionOs(
       summary:
         "Selected-period historical analysis is attached separately and does not change deterministic Decision Signals.",
     }),
+    authority,
   };
 }
 

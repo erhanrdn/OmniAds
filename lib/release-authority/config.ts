@@ -52,10 +52,10 @@ export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA =
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE?.trim() ||
-  "docs/v2-01-release-authority.md";
+  "docs/v3-01-release-authority.md";
 
 export const RELEASE_AUTHORITY_CANONICAL_DOC =
-  "docs/v2-01-release-authority.md";
+  "docs/v3-01-release-authority.md";
 
 export function resolveMetaDecisionOsFlagPosture() {
   return summarizeFlagPosture({

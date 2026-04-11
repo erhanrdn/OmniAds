@@ -1,5 +1,7 @@
 # V2-01 Release Authority
 
+Historical reference only. The active canonical release-authority document moved to `docs/v3-01-release-authority.md`.
+
 This document is the canonical release-authority doc for the accepted V2-01 baseline.
 
 Current live release truth is not inferred from older phase docs alone. It is defined by:

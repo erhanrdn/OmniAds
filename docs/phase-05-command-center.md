@@ -1,6 +1,6 @@
 # Phase 05 Command Center & Team Workflow V1
 
-> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> Live release posture for this surface now lives in `docs/v3-01-release-authority.md` and `/api/release-authority`.
 > This document remains a design and contract reference.
 
 ## Scope

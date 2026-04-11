@@ -2,6 +2,7 @@ export const DECISION_SURFACE_LANES = [
   "action_core",
   "watchlist",
   "archive_context",
+  "opportunity_board",
 ] as const;
 
 export type DecisionSurfaceLane = (typeof DECISION_SURFACE_LANES)[number];
@@ -37,9 +38,78 @@ export const DECISION_SAFE_ACTION_LABELS = [
 export type DecisionSafeActionLabel =
   (typeof DECISION_SAFE_ACTION_LABELS)[number];
 
+export const DECISION_ENTITY_STATES = [
+  "active",
+  "paused",
+  "retired",
+  "stale",
+  "inactive",
+] as const;
+
+export type DecisionEntityState = (typeof DECISION_ENTITY_STATES)[number];
+
+export const DECISION_MATERIALITY_STATES = [
+  "material",
+  "thin_signal",
+  "immaterial",
+] as const;
+
+export type DecisionMaterialityState =
+  (typeof DECISION_MATERIALITY_STATES)[number];
+
+export const DECISION_EVIDENCE_COMPLETENESS = [
+  "complete",
+  "partial",
+  "missing",
+] as const;
+
+export type DecisionEvidenceCompleteness =
+  (typeof DECISION_EVIDENCE_COMPLETENESS)[number];
+
+export const DECISION_FRESHNESS_STATES = [
+  "fresh",
+  "partial",
+  "stale",
+  "timeout",
+] as const;
+
+export type DecisionFreshnessState = (typeof DECISION_FRESHNESS_STATES)[number];
+
+export interface DecisionFreshnessMetadata {
+  status: DecisionFreshnessState;
+  updatedAt: string | null;
+  reason: string | null;
+}
+
+export interface DecisionEvidenceEnvelope {
+  entityState: DecisionEntityState;
+  materiality: DecisionMaterialityState;
+  completeness: DecisionEvidenceCompleteness;
+  freshness: DecisionFreshnessMetadata;
+  suppressed: boolean;
+  suppressionReasons: string[];
+  aggressiveActionBlocked: boolean;
+  aggressiveActionBlockReasons: string[];
+}
+
+export interface DecisionSurfaceAuthority {
+  scope: string;
+  truthState: DecisionTruthState;
+  completeness: DecisionEvidenceCompleteness;
+  freshness: DecisionFreshnessMetadata;
+  missingInputs: string[];
+  reasons: string[];
+  actionCoreCount: number;
+  watchlistCount: number;
+  archiveCount: number;
+  suppressedCount: number;
+  note: string;
+}
+
 export interface DecisionTrustMetadata {
   surfaceLane: DecisionSurfaceLane;
   truthState: DecisionTruthState;
   operatorDisposition: DecisionOperatorDisposition;
   reasons: string[];
+  evidence?: DecisionEvidenceEnvelope;
 }

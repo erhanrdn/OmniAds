@@ -149,6 +149,12 @@ describe("business operating mode", () => {
     expect(result.missingInputs.length).toBeGreaterThan(0);
     expect(result.degradedMode.active).toBe(true);
     expect(result.degradedMode.safeActionLabels).toContain("review_hold");
+    expect(result.authority).toMatchObject({
+      scope: "Operating Mode",
+      truthState: "degraded_missing_truth",
+      suppressedCount: 1,
+    });
+    expect(result.authority?.completeness).toBe("missing");
   });
 
   it("keeps operating mode stable when the analytics window changes", () => {

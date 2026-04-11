@@ -1,6 +1,8 @@
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { buildDecisionFreshness } from "@/lib/decision-trust/kernel";
+import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import type {
   AccountOperatingMode,
   AccountOperatingModePayload,
@@ -553,6 +555,35 @@ export function buildAccountOperatingMode(input: {
     confidence = Math.min(confidence, degradedMode.confidenceCap);
   }
 
+  const authority = buildDecisionSurfaceAuthority({
+    scope: "Operating Mode",
+    truthState: degradedMode.active
+      ? "degraded_missing_truth"
+      : "live_confident",
+    completeness:
+      missingInputs.length === 0
+        ? "complete"
+        : missingInputs.length >= 3
+          ? "missing"
+          : "partial",
+    freshness: buildDecisionFreshness({
+      status: !platform.hasCampaignData || !platform.hasLocationData ? "partial" : "fresh",
+      updatedAt: null,
+      reason:
+        !platform.hasCampaignData || !platform.hasLocationData
+          ? "One or more Meta decision-window sources are incomplete."
+          : null,
+    }),
+    missingInputs,
+    reasons: degradedMode.reasons,
+    actionCoreCount: degradedMode.active ? 0 : 1,
+    watchlistCount: degradedMode.active ? 1 : 0,
+    archiveCount: 0,
+    note: degradedMode.active
+      ? "Operating Mode is present but trust-capped by missing truth or low-signal inputs."
+      : "Operating Mode is running on the live decision window without active truth caps.",
+  });
+
   return {
     businessId: input.businessId,
     startDate: input.startDate,
@@ -579,5 +610,6 @@ export function buildAccountOperatingMode(input: {
     platformInputs,
     missingInputs,
     degradedMode,
+    authority,
   };
 }

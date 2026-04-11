@@ -34,7 +34,7 @@ function buildPayload(overrides: Record<string, unknown> = {}) {
         manifestModule: "lib/release-authority/inventory.ts",
         apiRoute: "/api/release-authority",
         adminRoute: "/admin/release-authority",
-        canonicalDoc: "docs/v2-01-release-authority.md",
+        canonicalDoc: "docs/v3-01-release-authority.md",
       },
     },
     verdicts: {

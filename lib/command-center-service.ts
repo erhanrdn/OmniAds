@@ -24,6 +24,8 @@ import {
   listCommandCenterSavedViews,
 } from "@/lib/command-center-store";
 import { buildCommandCenterHistoricalIntelligence } from "@/lib/command-center-historical-intelligence";
+import { buildDecisionFreshness } from "@/lib/decision-trust/kernel";
+import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
@@ -130,6 +132,44 @@ export async function getCommandCenterSnapshot(input: {
     metaDecisionOs,
     creativeDecisionOs,
   });
+  const missingInputs = Array.from(
+    new Set([
+      ...(metaDecisionOs?.commercialTruthCoverage.missingInputs ?? []),
+      ...(creativeDecisionOs?.commercialTruthCoverage.missingInputs ?? []),
+    ]),
+  );
+  const degradedReasons = Array.from(
+    new Set([
+      ...(metaDecisionOs?.commercialTruthCoverage.notes ?? []),
+      ...(creativeDecisionOs?.commercialTruthCoverage.guardrails ?? []),
+    ]),
+  );
+  const authority = buildDecisionSurfaceAuthority({
+    scope: "Command Center",
+    truthState:
+      missingInputs.length > 0 || throughput.selectedCount < throughput.actionableCount
+        ? "degraded_missing_truth"
+        : "live_confident",
+    completeness:
+      missingInputs.length === 0
+        ? "complete"
+        : missingInputs.length >= 3
+          ? "missing"
+          : "partial",
+    freshness: buildDecisionFreshness(),
+    missingInputs,
+    reasons: degradedReasons,
+    actionCoreCount: summarizeCommandCenterActions(allActions).actionCoreCount,
+    watchlistCount: summarizeCommandCenterActions(allActions).watchlistCount,
+    archiveCount: summarizeCommandCenterActions(allActions).archiveCount,
+    suppressedCount:
+      summarizeCommandCenterActions(allActions).watchlistCount +
+      summarizeCommandCenterActions(allActions).archiveCount,
+    note:
+      missingInputs.length > 0
+        ? "Command Center is compiling from upstream surfaces with active trust caps."
+        : "Command Center is compiling action-core, watchlist, and archive lanes from the shared trust kernel.",
+  });
   const viewStacks = buildCommandCenterViewStacks(savedViews);
 
   const viewDefinition = buildCommandCenterFiltersFromViewKey(
@@ -153,6 +193,7 @@ export async function getCommandCenterSnapshot(input: {
     decisionAsOf: decisionContext.decisionAsOf,
     activeViewKey: input.activeViewKey ?? null,
     permissions: input.permissions,
+    authority,
     summary: summarizeCommandCenterActions(allActions),
     throughput,
     ownerWorkload,

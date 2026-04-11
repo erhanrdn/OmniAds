@@ -1,6 +1,6 @@
 # V2-08 Historical Intelligence & Self-Tuning
 
-> Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.
+> Live release posture for this surface now lives in `docs/v3-01-release-authority.md` and `/api/release-authority`.
 
 ## Goal
 

@@ -393,9 +393,19 @@ describe("buildCreativeDecisionOs", () => {
 
     expect(byId.get("scale")?.trust.operatorDisposition).toBe("degraded_no_scale");
     expect(byId.get("scale")?.trust.surfaceLane).toBe("watchlist");
+    expect(byId.get("scale")?.trust.evidence).toMatchObject({
+      completeness: "partial",
+      suppressed: true,
+      aggressiveActionBlocked: true,
+    });
     expect(byId.get("hold")?.trust.truthState).toBe("degraded_missing_truth");
     expect(byId.get("retired")?.trust.surfaceLane).toBe("archive_context");
     expect(payload.summary.surfaceSummary.watchlistCount).toBeGreaterThan(0);
     expect(payload.summary.surfaceSummary.archiveCount).toBeGreaterThan(0);
+    expect(payload.authority).toMatchObject({
+      scope: "Creative Decision OS",
+      truthState: "degraded_missing_truth",
+      completeness: "partial",
+    });
   });
 });

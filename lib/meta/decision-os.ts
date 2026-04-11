@@ -2,6 +2,13 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import {
+  buildDecisionFreshness,
+  classifyDecisionEntityState,
+  classifyDecisionMateriality,
+} from "@/lib/decision-trust/kernel";
+import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
+import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { buildAccountOperatingMode } from "@/lib/business-operating-mode";
 import type {
@@ -385,6 +392,7 @@ export interface MetaDecisionOsV1Response {
   noTouchList: MetaNoTouchItem[];
   winnerScaleCandidates: MetaWinnerScaleCandidate[];
   commercialTruthCoverage: MetaCommercialTruthCoverage;
+  authority?: import("@/src/types/decision-trust").DecisionSurfaceAuthority;
 }
 
 export interface BuildMetaDecisionOsInput {
@@ -792,43 +800,47 @@ function buildOperatingModeSummary(input: BuildMetaDecisionOsInput): AccountOper
   }
 }
 
-function buildDecisionTrust(input: {
-  surfaceLane: DecisionSurfaceLane;
-  truthState: DecisionTrustMetadata["truthState"];
-  operatorDisposition: DecisionOperatorDisposition;
-  reasons: Array<string | null | undefined>;
-}): DecisionTrustMetadata {
-  return {
-    surfaceLane: input.surfaceLane,
-    truthState: input.truthState,
-    operatorDisposition: input.operatorDisposition,
-    reasons: input.reasons
-      .map((reason) => reason?.trim())
-      .filter((reason): reason is string => Boolean(reason)),
-  };
-}
-
 function isInactiveMetaStatus(status: string | null | undefined) {
   const normalized = normalizeText(status);
   return normalized.length > 0 && normalized !== "active";
 }
 
 function isArchiveMetaAdSet(adSet: MetaAdSetData) {
-  if (isInactiveMetaStatus(adSet.status)) return true;
-  if (adSet.spend <= 0) return true;
-  if (adSet.spend < 60 && adSet.purchases === 0 && adSet.impressions < 3_000) {
-    return true;
-  }
-  return false;
+  const entityState = classifyDecisionEntityState({
+    status: adSet.status,
+    spend: adSet.spend,
+  });
+  if (entityState !== "active") return true;
+  return (
+    classifyDecisionMateriality({
+      spend: adSet.spend,
+      purchases: adSet.purchases,
+      impressions: adSet.impressions,
+      archiveSpendThreshold: 60,
+      archiveImpressionThreshold: 3_000,
+      thinSignalSpendThreshold: 120,
+      thinSignalPurchaseThreshold: 3,
+    }) === "immaterial"
+  );
 }
 
 function isArchiveMetaCampaign(campaign: MetaCampaignRow) {
-  if (isInactiveMetaStatus(campaign.status)) return true;
-  if (campaign.spend <= 0) return true;
-  if (campaign.spend < 90 && campaign.purchases === 0 && campaign.impressions < 8_000) {
-    return true;
-  }
-  return false;
+  const entityState = classifyDecisionEntityState({
+    status: campaign.status,
+    spend: campaign.spend,
+  });
+  if (entityState !== "active") return true;
+  return (
+    classifyDecisionMateriality({
+      spend: campaign.spend,
+      purchases: campaign.purchases,
+      impressions: campaign.impressions,
+      archiveSpendThreshold: 90,
+      archiveImpressionThreshold: 8_000,
+      thinSignalSpendThreshold: 180,
+      thinSignalPurchaseThreshold: 4,
+    }) === "immaterial"
+  );
 }
 
 function findGeoConstraint(
@@ -962,18 +974,40 @@ function buildGeoAction(input: {
     input.thresholds.mode === "conservative_fallback" ||
     input.snapshot.countryEconomics.length === 0;
   const watchlistAction = action === "monitor" || action === "pool" || action === "validate";
+  const entityState = input.row.spend <= 0 ? "inactive" : "active";
+  const materiality = archiveContext
+    ? "immaterial"
+    : thinSignal
+      ? "thin_signal"
+      : "material";
+  const missingInputs = [
+    ...(input.thresholds.mode === "conservative_fallback" ? ["target_pack"] : []),
+    ...(input.snapshot.countryEconomics.length === 0 ? ["country_economics"] : []),
+  ];
   const trust = archiveContext
-    ? buildDecisionTrust({
+    ? compileDecisionTrust({
         surfaceLane: "archive_context",
         truthState: "inactive_or_immaterial",
         operatorDisposition: "archive_only",
+        entityState,
+        materiality,
+        freshness: buildDecisionFreshness({
+          status:
+            input.geoFreshness.dataState === "ready"
+              ? "fresh"
+              : input.geoFreshness.isPartial
+                ? "partial"
+                : "stale",
+          updatedAt: input.geoFreshness.lastSyncedAt,
+          reason: input.geoFreshness.reason,
+        }),
         reasons: [
           "Geo signal is inactive or immaterial for the live action core.",
           thinSignal ? "Thin-signal GEOs stay out of the default action core." : null,
         ],
       })
     : degradedMissingTruth
-      ? buildDecisionTrust({
+      ? compileDecisionTrust({
           surfaceLane:
             action === "scale" || action === "isolate" || watchlistAction
               ? "watchlist"
@@ -985,22 +1019,59 @@ function buildGeoAction(input: {
               : action === "cut"
                 ? "review_reduce"
                 : "monitor_low_truth",
+          entityState,
+          materiality,
+          freshness: buildDecisionFreshness({
+            status:
+              input.geoFreshness.dataState === "ready"
+                ? "fresh"
+                : input.geoFreshness.isPartial
+                  ? "partial"
+                  : "stale",
+            updatedAt: input.geoFreshness.lastSyncedAt,
+            reason: input.geoFreshness.reason,
+          }),
+          missingInputs,
           reasons: [
             "Commercial truth is incomplete, so GEO actions stay trust-capped.",
             why,
           ],
         })
       : watchlistAction
-        ? buildDecisionTrust({
+        ? compileDecisionTrust({
             surfaceLane: "watchlist",
             truthState: "live_confident",
             operatorDisposition: "monitor_low_truth",
+            entityState,
+            materiality,
+            freshness: buildDecisionFreshness({
+              status:
+                input.geoFreshness.dataState === "ready"
+                  ? "fresh"
+                  : input.geoFreshness.isPartial
+                    ? "partial"
+                    : "stale",
+              updatedAt: input.geoFreshness.lastSyncedAt,
+              reason: input.geoFreshness.reason,
+            }),
             reasons: [why],
           })
-        : buildDecisionTrust({
+        : compileDecisionTrust({
             surfaceLane: "action_core",
             truthState: "live_confident",
             operatorDisposition: "standard",
+            entityState,
+            materiality,
+            freshness: buildDecisionFreshness({
+              status:
+                input.geoFreshness.dataState === "ready"
+                  ? "fresh"
+                  : input.geoFreshness.isPartial
+                    ? "partial"
+                    : "stale",
+              updatedAt: input.geoFreshness.lastSyncedAt,
+              reason: input.geoFreshness.reason,
+            }),
             reasons: [why],
           });
   const queueEligible = material && trust.surfaceLane === "action_core";
@@ -1533,7 +1604,21 @@ function buildAdSetDecision(input: {
     guardrails.push("Do not mix tests or structure changes into this winner path.");
   }
 
-  const archiveContext = isArchiveMetaAdSet(input.adSet);
+  const entityState = classifyDecisionEntityState({
+    status: input.adSet.status,
+    spend: input.adSet.spend,
+  });
+  const materiality = classifyDecisionMateriality({
+    spend: input.adSet.spend,
+    purchases: input.adSet.purchases,
+    impressions: input.adSet.impressions,
+    archiveSpendThreshold: 60,
+    archiveImpressionThreshold: 3_000,
+    thinSignalSpendThreshold: 120,
+    thinSignalPurchaseThreshold: 3,
+  });
+  const archiveContext =
+    entityState !== "active" || materiality === "immaterial";
   const watchlistAction =
     noTouch ||
     strategyClass === "review_hold" ||
@@ -1541,10 +1626,12 @@ function buildAdSetDecision(input: {
     actionType === "hold" ||
     actionType === "monitor_only";
   const trust = archiveContext
-    ? buildDecisionTrust({
+    ? compileDecisionTrust({
         surfaceLane: "archive_context",
         truthState: "inactive_or_immaterial",
         operatorDisposition: "archive_only",
+        entityState,
+        materiality,
         reasons: [
           isInactiveMetaStatus(input.adSet.status)
             ? `Ad set status is ${normalizeText(input.adSet.status)}.`
@@ -1553,34 +1640,47 @@ function buildAdSetDecision(input: {
         ],
       })
     : fallbackDisposition
-      ? buildDecisionTrust({
+      ? compileDecisionTrust({
           surfaceLane:
             fallbackDisposition === "review_reduce" ? "action_core" : "watchlist",
           truthState: "degraded_missing_truth",
           operatorDisposition: fallbackDisposition,
+          entityState,
+          materiality,
+          freshness: input.operatingMode?.authority?.freshness,
+          missingInputs: input.operatingMode?.missingInputs ?? [],
           reasons: [
             "Commercial truth is incomplete, so this action is trust-capped.",
             actionReasons[0],
           ],
         })
       : noTouch
-        ? buildDecisionTrust({
+        ? compileDecisionTrust({
             surfaceLane: "watchlist",
             truthState: "live_confident",
             operatorDisposition: "protected_watchlist",
+            entityState,
+            materiality,
+            freshness: input.operatingMode?.authority?.freshness,
             reasons: [actionReasons[0]],
           })
         : watchlistAction
-          ? buildDecisionTrust({
+          ? compileDecisionTrust({
               surfaceLane: "watchlist",
               truthState: "live_confident",
               operatorDisposition: actionType === "monitor_only" ? "monitor_low_truth" : "review_hold",
+              entityState,
+              materiality,
+              freshness: input.operatingMode?.authority?.freshness,
               reasons: [actionReasons[0]],
             })
-        : buildDecisionTrust({
+        : compileDecisionTrust({
             surfaceLane: "action_core",
             truthState: "live_confident",
             operatorDisposition: "standard",
+            entityState,
+            materiality,
+            freshness: input.operatingMode?.authority?.freshness,
             reasons: [actionReasons[0]],
           });
   const policy: MetaDecisionPolicy = {
@@ -1649,6 +1749,7 @@ function buildCampaignDecision(input: {
   roleDecision: CampaignRoleDecision;
   adSetDecisions: MetaAdSetDecision[];
   thresholds: TargetThresholds;
+  operatingMode: AccountOperatingModePayload | null;
 }): MetaCampaignDecision {
   const topAdSetDecision =
     [...input.adSetDecisions].sort(
@@ -1713,11 +1814,26 @@ function buildCampaignDecision(input: {
     primaryAction === "hold" ||
     primaryAction === "monitor_only" ||
     input.adSetDecisions.some((decision) => decision.trust.surfaceLane === "watchlist");
+  const entityState = classifyDecisionEntityState({
+    status: input.campaign.status,
+    spend: input.campaign.spend,
+  });
+  const materiality = classifyDecisionMateriality({
+    spend: input.campaign.spend,
+    purchases: input.campaign.purchases,
+    impressions: input.campaign.impressions,
+    archiveSpendThreshold: 90,
+    archiveImpressionThreshold: 8_000,
+    thinSignalSpendThreshold: 180,
+    thinSignalPurchaseThreshold: 4,
+  });
   const trust = archiveContext
-    ? buildDecisionTrust({
+    ? compileDecisionTrust({
         surfaceLane: "archive_context",
         truthState: "inactive_or_immaterial",
         operatorDisposition: "archive_only",
+        entityState,
+        materiality,
         reasons: [
           isInactiveMetaStatus(input.campaign.status)
             ? `Campaign status is ${normalizeText(input.campaign.status)}.`
@@ -1726,34 +1842,47 @@ function buildCampaignDecision(input: {
         ],
       })
     : degradedFromAdSets
-      ? buildDecisionTrust({
+      ? compileDecisionTrust({
           surfaceLane: watchlistAction ? "watchlist" : "action_core",
           truthState: "degraded_missing_truth",
           operatorDisposition:
             primaryAction === "reduce_budget" ? "review_reduce" : "review_hold",
+          entityState,
+          materiality,
+          freshness: input.operatingMode?.authority?.freshness,
+          missingInputs: input.operatingMode?.missingInputs ?? [],
           reasons: [
             "Related ad-set actions are trust-capped because commercial truth is incomplete.",
             why,
           ],
         })
       : noTouch
-        ? buildDecisionTrust({
+        ? compileDecisionTrust({
             surfaceLane: "watchlist",
             truthState: "live_confident",
             operatorDisposition: "protected_watchlist",
+            entityState,
+            materiality,
+            freshness: input.operatingMode?.authority?.freshness,
             reasons: [why],
           })
         : watchlistAction
-          ? buildDecisionTrust({
+          ? compileDecisionTrust({
               surfaceLane: "watchlist",
               truthState: "live_confident",
               operatorDisposition: "review_hold",
+              entityState,
+              materiality,
+              freshness: input.operatingMode?.authority?.freshness,
               reasons: [why],
             })
-          : buildDecisionTrust({
+          : compileDecisionTrust({
               surfaceLane: "action_core",
               truthState: "live_confident",
               operatorDisposition: "standard",
+              entityState,
+              materiality,
+              freshness: input.operatingMode?.authority?.freshness,
               reasons: [why],
             });
 
@@ -2161,6 +2290,7 @@ export function buildMetaDecisionOs(
       roleDecision,
       adSetDecisions: relatedAdSets,
       thresholds,
+      operatingMode,
     });
   });
 
@@ -2206,6 +2336,42 @@ export function buildMetaDecisionOs(
     geoFreshness,
     commercialTruth: input.commercialTruth,
   });
+  const authority = buildDecisionSurfaceAuthority({
+    scope: "Meta Decision OS",
+    truthState:
+      commercialTruthCoverage.missingInputs.length > 0
+        ? "degraded_missing_truth"
+        : "live_confident",
+    completeness:
+      commercialTruthCoverage.missingInputs.length === 0
+        ? "complete"
+        : commercialTruthCoverage.missingInputs.length >= 3
+          ? "missing"
+          : "partial",
+    freshness: buildDecisionFreshness({
+      status:
+        geoFreshness.dataState === "ready"
+          ? geoFreshness.isPartial
+            ? "partial"
+            : "fresh"
+          : geoFreshness.reason?.toLowerCase().includes("timeout")
+            ? "timeout"
+            : "stale",
+      updatedAt: geoFreshness.lastSyncedAt,
+      reason: geoFreshness.reason,
+    }),
+    missingInputs: commercialTruthCoverage.missingInputs,
+    reasons: commercialTruthCoverage.notes,
+    actionCoreCount: summary.surfaceSummary.actionCoreCount,
+    watchlistCount: summary.surfaceSummary.watchlistCount,
+    archiveCount: summary.surfaceSummary.archiveCount,
+    suppressedCount:
+      summary.surfaceSummary.watchlistCount + summary.surfaceSummary.archiveCount,
+    note:
+      commercialTruthCoverage.missingInputs.length > 0
+        ? "Meta Decision OS remains available but trust-capped by missing commercial truth."
+        : "Meta Decision OS is operating on the live decision window with shared trust-kernel suppression.",
+  });
 
   return {
     contractVersion: META_DECISION_OS_V1_CONTRACT,
@@ -2230,5 +2396,6 @@ export function buildMetaDecisionOs(
     noTouchList,
     winnerScaleCandidates,
     commercialTruthCoverage,
+    authority,
   };
 }

@@ -22,6 +22,7 @@ import type {
 import {
   DECISION_SURFACE_LANES,
   type DecisionOperatorDisposition,
+  type DecisionSurfaceAuthority,
   type DecisionSurfaceLane,
   type DecisionTruthState,
 } from "@/src/types/decision-trust";
@@ -391,6 +392,7 @@ export interface CommandCenterResponse {
   decisionAsOf: string;
   activeViewKey: string | null;
   permissions: CommandCenterPermissions;
+  authority?: DecisionSurfaceAuthority;
   summary: {
     totalActions: number;
     actionCoreCount: number;

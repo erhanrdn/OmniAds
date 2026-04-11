@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { RELEASE_AUTHORITY_CANONICAL_DOC } from "@/lib/release-authority/config";
 import { RELEASE_AUTHORITY_SURFACES } from "@/lib/release-authority/inventory";
 
 export interface ReleaseAuthorityIntegrityReport {
@@ -21,7 +22,7 @@ const PHASE_REFERENCE_DOCS = [
 ] as const;
 
 const EXPECTED_BANNER_SNIPPET =
-  "Live release posture for this surface now lives in `docs/v2-01-release-authority.md` and `/api/release-authority`.";
+  "Live release posture for this surface now lives in `docs/v3-01-release-authority.md` and `/api/release-authority`.";
 
 export function verifyReleaseAuthorityManifestIntegrity(): ReleaseAuthorityIntegrityReport {
   const missingPaths = new Set<string>();
@@ -36,6 +37,12 @@ export function verifyReleaseAuthorityManifestIntegrity(): ReleaseAuthorityInteg
         missingDocs.add(reference.path);
       }
     }
+  }
+
+  const canonicalDocPath = path.join(process.cwd(), RELEASE_AUTHORITY_CANONICAL_DOC);
+  if (!existsSync(canonicalDocPath)) {
+    missingPaths.add(RELEASE_AUTHORITY_CANONICAL_DOC);
+    missingDocs.add(RELEASE_AUTHORITY_CANONICAL_DOC);
   }
 
   const bannerFailures = PHASE_REFERENCE_DOCS.flatMap((relativePath) => {

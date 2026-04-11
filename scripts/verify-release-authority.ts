@@ -1,5 +1,9 @@
 import { configureOperationalScriptRuntime } from "@/scripts/_operational-runtime";
 import {
+  buildReleaseAuthorityCanonicalDoc,
+  readReleaseAuthorityCanonicalDoc,
+} from "@/lib/release-authority/doc";
+import {
   verifyReleaseAuthorityManifestIntegrity,
   resolveLocalGitHeadSha,
   resolveOriginMainSha,
@@ -17,6 +21,14 @@ interface RemoteJsonResult<T> {
   httpStatus: number | null;
   payload: T | null;
   error: string | null;
+}
+
+function tryReadCanonicalDoc() {
+  try {
+    return readReleaseAuthorityCanonicalDoc();
+  } catch {
+    return null;
+  }
 }
 
 function normalizeBaseUrl(value: string | null | undefined) {
@@ -112,6 +124,7 @@ async function fetchJson<T>(input: {
 function buildPreflightSummary(input: {
   report: ReleaseAuthorityReport;
   integrity: ReturnType<typeof verifyReleaseAuthorityManifestIntegrity>;
+  canonicalDocMatches: boolean;
 }) {
   const blockers: string[] = [];
   const notes: string[] = [];
@@ -124,7 +137,7 @@ function buildPreflightSummary(input: {
 
   if (input.integrity.bannerFailures.length > 0) {
     blockers.push(
-      `Phase 02-06 reference docs are missing the V2-01 release-authority banner in ${input.integrity.bannerFailures
+      `Phase 02-06 reference docs are missing the V3-01 release-authority banner in ${input.integrity.bannerFailures
         .map((entry) => entry.path)
         .join(", ")}`,
     );
@@ -136,6 +149,12 @@ function buildPreflightSummary(input: {
 
   if (input.report.verdicts.flagsVsRuntime.status !== "aligned") {
     blockers.push(input.report.verdicts.flagsVsRuntime.summary);
+  }
+
+  if (!input.canonicalDocMatches) {
+    blockers.push(
+      "Canonical release-authority doc does not match the generated V3 authority output. Run scripts/generate-release-authority-doc.ts and commit the result.",
+    );
   }
 
   if (input.report.runtime.currentMainShaSource === "unresolved") {
@@ -254,7 +273,15 @@ async function main() {
       nodeEnv: process.env.NODE_ENV ?? "development",
     });
     const integrity = verifyReleaseAuthorityManifestIntegrity();
-    const summary = buildPreflightSummary({ report, integrity });
+    const canonicalDoc = tryReadCanonicalDoc();
+    const summary = buildPreflightSummary({
+      report,
+      integrity,
+      canonicalDocMatches:
+        canonicalDoc !== null &&
+        canonicalDoc ===
+        buildReleaseAuthorityCanonicalDoc(report),
+    });
 
     console.log(
       JSON.stringify(
@@ -294,6 +321,17 @@ async function main() {
     buildInfo,
     authority,
   });
+
+  if (
+    authority.payload &&
+    tryReadCanonicalDoc() !==
+      buildReleaseAuthorityCanonicalDoc(authority.payload)
+  ) {
+    summary.result = "fail";
+    summary.blockers.push(
+      "Canonical release-authority doc does not literally match the live release-authority payload.",
+    );
+  }
 
   console.log(
     JSON.stringify(

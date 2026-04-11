@@ -248,7 +248,17 @@ describe("buildMetaDecisionOs", () => {
     expect(result.adSets[0]?.actionType).toBe("hold");
     expect(result.adSets[0]?.policy.strategyClass).toBe("review_hold");
     expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
+    expect(result.adSets[0]?.trust.evidence).toMatchObject({
+      completeness: "missing",
+      suppressed: true,
+      aggressiveActionBlocked: true,
+    });
     expect(result.summary.surfaceSummary.degradedCount).toBeGreaterThan(0);
+    expect(result.authority).toMatchObject({
+      scope: "Meta Decision OS",
+      truthState: "degraded_missing_truth",
+      completeness: "missing",
+    });
   });
 
   it("downgrades hard pauses to review-safe actions when commercial truth is missing", () => {
