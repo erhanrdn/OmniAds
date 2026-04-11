@@ -42,8 +42,8 @@ Current accepted authority contract for this layer:
 
 ## Review Order
 
-1. Review release identity first: live SHA c0914a95e52772474e997d422803dddd15add605 vs main c0914a95e52772474e997d422803dddd15add605.
+1. Review release identity through `/api/build-info` and `/api/release-authority` first.
 2. Review the feature matrix next: runtime state, flag posture, and docs posture for each surface.
-3. Review docs/v3-01-release-authority.md before older Phase 02-06 docs when deciding what is truly live.
+3. Review `docs/v3-01-release-authority.md` before older Phase 02-06 docs when deciding what is truly live.
 4. Review legacy aliases after the main surfaces so redirects do not get mistaken for canonical entrypoints.
-5. No unresolved drift items remain after the authority reconciliation.
+5. Resolve any unresolved drift items before treating the baseline as release-ready.

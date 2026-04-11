@@ -62,7 +62,11 @@ ${driftRows}
 
 ## Review Order
 
-${report.reviewOrder.map((item, index) => `${index + 1}. ${item}`).join("\n")}
+1. Review release identity through \`/api/build-info\` and \`/api/release-authority\` first.
+2. Review the feature matrix next: runtime state, flag posture, and docs posture for each surface.
+3. Review \`${report.release.featureAuthoritySource.canonicalDoc}\` before older Phase 02-06 docs when deciding what is truly live.
+4. Review legacy aliases after the main surfaces so redirects do not get mistaken for canonical entrypoints.
+5. Resolve any unresolved drift items before treating the baseline as release-ready.
 `;
 }
 
