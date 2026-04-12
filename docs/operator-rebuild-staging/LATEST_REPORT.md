@@ -1,208 +1,220 @@
-# Step 5 — Meta Daily Operator Surface Rebuild
+# Step 6 — Creative Preview Truth Gate And Decision-First Review
 
-# 1. Executive Summary
+## 1. Executive Summary
 
-* Step 5 rebuilt the Meta page around one persistent daily operator surface that stays visible at page level instead of living only inside the account-overview pane.
-* The Meta page is materially clearer in repo. The top now leads with readiness-aware action buckets, while campaign drilldown, workflow, recommendations, operating mode, and breakdown context are secondary.
-* The main clutter removed was top-level co-equality between presets, list/detail chrome, recommendations-style cues, and diagnostic context. The page no longer asks the operator to reconcile those as peer surfaces before seeing what matters now.
-* Remaining unresolved work is mostly depth-layer debt: selected-campaign reasoning is still denser than ideal, regime wording is better but not yet fully directional for every capped case, and live/runtime has not been observed on the Step 5 repo candidate.
+* Step 6 made preview/media truth the visible gating contract for Creative action instead of leaving it as background metadata.
+* The Creative page now leads with one operator-first decision order: `Act now`, `Needs truth`, `Keep testing`, `Blocked`, `Protected`.
+* Preview truth now changes action honesty at page level, row level, detail level, and drawer-support level.
+* AI commentary remains available only as bounded support and no longer reads like peer authority when preview truth is degraded or missing.
+* No Meta product surface was removed in this step because no remaining reasoning layer looked low-risk enough to delete without reopening Step 5 architecture.
+* Repo implementation is pushed on `main`, but production is still verified on the previous Step 5 SHA.
 
-# 2. Context Rebuild
+## 2. Truth Reconciliation
 
-* Read first:
-  * `docs/operator-rebuild/HANDOFF.md`
-  * `docs/operator-rebuild-staging/LATEST_REPORT.md`
-  * `docs/operator-rebuild-staging/STATUS.md`
-* Continuity status before implementation:
-  * continuity was not fully current because accepted Step 4 docs did not record the actual current `main` HEAD `bbefb3020336c3394bc54024676883c69573cfc4`
-  * `HANDOFF.md` and `STATUS.md` were repaired before Step 5 implementation work started so repo continuity matched the verified Step 4 baseline
-* Current branch / SHA at step start:
-  * `main`
-  * repo start SHA `bbefb3020336c3394bc54024676883c69573cfc4`
-* Live SHA if verified:
-  * `ad3d1ac52fa7c6dec381351c45005342511077ac`
-  * verified from `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority` on April 12, 2026
-* Repo candidate vs live baseline posture at step start:
-  * repo candidate truth was Step 4 complete on `main` with continuity closeout on top
-  * live baseline truth remained the older accepted Step 3 runtime on `ad3d1ac52fa7c6dec381351c45005342511077ac`
-  * Step 5 proceeded from repo truth; live verification stayed awareness-only and did not override repo candidate state
+Read order used before implementation:
 
-# 3. Scope Delivered
+1. `docs/operator-rebuild/HANDOFF.md`
+2. `docs/operator-rebuild-staging/LATEST_REPORT.md`
+3. `docs/operator-rebuild-staging/STATUS.md`
 
-* What changed in the Meta top-level hierarchy:
-  * moved `MetaDecisionOsOverview` into the persistent page-level hierarchy directly under status/readiness messaging
-  * kept the operator surface visible even when a campaign is selected, so page-level authority no longer disappears into drilldown state
-  * pushed KPI cards below the action surface so the page answers `what matters now` before showing summary metrics
-* What sections were removed, merged, demoted, or collapsed:
-  * removed the header-level Meta operator presets from prime page space
-  * removed the always-visible left-column country breakdown card from prime page space
-  * moved operating mode, workflow linkage, recommendations, and breakdowns into collapsed secondary context on account overview
-  * moved selected-campaign reasoning and workflow linkage into collapsed detail sections instead of leaving them as default top cards
-* How action presentation changed:
-  * the campaign list now uses the same compressed operator summary model instead of recommendation badges plus raw Decision OS chips
-  * the selected-campaign headline now uses the shared operator mapping for action, state, labels, reason, and blocker
-  * detail rows now reuse the same operator action wording instead of exposing raw action enums by default
-* How campaign-type / bid-regime meaning became more visible:
-  * capped regimes now read as `Review cost cap`, `Review bid cap`, or `Review target ROAS` instead of generic lower-bid language
-  * campaign drilldown rows expose the current action owner and regime label from the shared Meta operator summary
-  * `Profitable but capped` is now the top-level bucket label rather than a trust-only internal phrase
-* What diagnostics were made secondary:
-  * recommendations context
-  * command-center linkage
-  * operating mode card
-  * breakdown grid
-  * selected-campaign policy/explanation detail
+Verified repo truth at step start:
 
-# 4. Architecture Changes
+* branch: `main`
+* repo start SHA: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* repo start summary: `docs: finalize step 5 continuity`
 
-* Key files/modules changed:
-  * `app/(dashboard)/platforms/meta/page.tsx`
-  * `components/meta/meta-campaign-detail.tsx`
-  * `components/meta/meta-campaign-list.tsx`
-  * `components/meta/meta-decision-os.tsx`
-  * `lib/meta/operator-surface.ts`
-  * `docs/meta-page-ui-contract.md`
-  * `docs/v3-01-release-authority.md`
-  * `lib/release-authority/inventory.ts`
-* How the top-level operator contract changed:
-  * Meta now has one page-level action-first authority surface based on the shared operator model
-  * campaign drilldown is now a secondary navigator fed by `buildMetaCampaignOperatorLookup(...)`, not a competing recommendation/status strip
-  * list rows and campaign headlines now share one compressed operator vocabulary for action, state, blocker, and regime context
-* What internal reasoning remains available but secondary:
-  * `Show why` on the page-level Meta surface still exposes authority, policy review, winner-scale, GEO, and protected-context detail
-  * selected-campaign reasoning still exposes the full campaign decision panel and ad-set actions behind expansion
-  * recommendations compatibility remains available inside collapsed supporting context
-* What was intentionally left for later:
-  * full directional cap wording for every capped regime case
-  * deeper cleanup of selected-campaign reasoning density
-  * Creative preview/media truth work for Step 6
-  * live Step 5 verification on production
+Continuity drift found before implementation:
 
-# 5. Product Impact
+* continuity docs still treated `release-authority` as if `currentLiveSha/currentMainSha` were `9addb96bedfbaf5067584418c1c3e139543f92fd`
+* current verification at step start no longer matched that older story
+* continuity was repaired before product changes started
 
-* How the Meta page now feels different:
-  * it reads like a buyer-facing daily action surface first and a diagnostics page second
-  * the top of the page stays coherent even after selecting a campaign
-  * the left rail behaves like drilldown into the page-level truth rather than a second decision system
-* What operator confusion was reduced:
-  * removed header preset controls that implied multiple top-level modes on the same Meta surface
-  * removed recommendation badges from the campaign list so the list no longer behaves like a recommendation feed
-  * stopped forcing countries, workflow, and context cards into the first scan path
-* How profitable-but-capped states now appear:
-  * as an explicit `Profitable but capped` bucket in the page-level operator surface when present
-  * as `Needs truth` or capped-regime review wording in shared operator row copy instead of trust-kernel-only language
-* What still feels too generic, noisy, or incomplete:
-  * some cost-cap and bid-cap cases still stop at `Review ...` rather than a full raise/lower direction
-  * the `Show why` layer still contains a lot of policy/debug detail
-  * selected-campaign detail remains more diagnostic than ideal once the reasoning drawer is opened
+Verified live/runtime truth after the Step 6 push on April 12, 2026:
 
-# 6. Acceptance Checklist
+* `https://adsecute.com/api/build-info`
+  * build id `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* `https://adsecute.com/api/release-authority`
+  * `currentLiveSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+  * `currentMainSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+  * overall posture `aligned`
+* actual repo/local `HEAD` after Step 6 product changes
+  * `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* actual `origin/main`
+  * `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
 
-* top-level Meta hierarchy materially simplified: accepted
-  * page-level authority now leads ahead of KPIs and drilldown, and context surfaces are collapsed
-* primary next-action surface clearer: accepted
-  * one persistent operator surface now answers act now / profitable but capped / watch / do not touch
-* profitable-but-capped states clearer: accepted
-  * the bucket label and shared operator mapping now surface this directly when present
-* campaign-type / bid-regime meaning more visible: partial
-  * capped-regime review wording is explicit now, but not every case is fully directional as raise vs lower
-* diagnostics clutter demoted: accepted
-  * workflow, breakdowns, recommendations, and detailed campaign reasoning are all secondary or collapsible now
-* continuity files fully updated: yes
-* repo candidate truth captured: yes
-* real-account evidence captured: no
-  * no benchmark-business or live-account walkthrough was run in this step
-* browser evidence captured: yes
-  * local browser evidence was captured against the built app with reviewer auth, plus the reviewer Playwright smoke was updated for the new hierarchy
-* phase closure verdict: shipped-not-complete
-  * repo work is implemented, validated locally, committed, and pushed, but live/runtime was not verified on the Step 5 SHA and real-account evidence is still absent
+Repo-vs-live posture at closeout:
 
-# 7. Test Evidence
+* repo candidate truth: Step 6 is pushed on `main` at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* live-verified truth: production is still serving `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* release-authority posture: internally `aligned`, but stale about `currentMainSha` because it still reports `8eae2d713a78ac7ca500427e0bee05ddf6afa464` while actual remote `main` is `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
 
-* typecheck
-  * `npx tsc --noEmit`
+Do not collapse repo candidate truth and live-verified truth.
+
+## 3. Scope Delivered
+
+What changed in Creative hierarchy:
+
+* the top Creative surface now opens with a dedicated `Preview Truth Contract`
+* quick filters moved under that contract instead of competing with the header controls
+* operator authority order now consistently reads:
+  * `Act now`
+  * `Needs truth`
+  * `Keep testing`
+  * `Blocked`
+  * `Protected`
+* the drawer header now explicitly frames itself as `Decision Support`
+
+What changed in preview/media truth visibility:
+
+* page-level ready/degraded/missing counts and summary headline now sit above the worklist
+* selected-preview strip now shows a scoped preview-truth summary instead of treating preview state as incidental
+* row-level action chips now switch to `Preview degraded` or `Preview missing` when preview truth cannot support decisive wording
+* row authority pills now use the same vocabulary as the top operator buckets
+* detail view now leads with a `Preview Truth Gate` card that states whether action is ready, softened, or blocked
+* drawer overview now includes preview-truth summary support and no longer duplicates page-level quick filters
+
+What diagnostics were demoted or removed:
+
+* Creative drawer framing is now explicitly secondary support
+* drawer-level duplicate quick filters were removed
+* AI commentary in detail is explicitly marked `Support only`
+* degraded/missing preview truth now disables or softens AI instead of letting it sound authoritative
+* row-level secondary labels now lead with preview truth instead of burying it after other tags
+
+What changed in row-level action honesty:
+
+* `promote_to_scaling` no longer renders as `Promote now` when preview truth is degraded or missing
+* degraded preview rows render `Preview degraded` and `Blocked`
+* missing preview rows render `Preview missing` and `Blocked`
+* truth-capped rows route into `Needs truth` instead of reading like clean queue-ready work
+
+What changed in detail/drawer discipline:
+
+* deterministic decision stays visible and explicit
+* preview truth and deployment compatibility read as gating inputs
+* AI commentary is bounded support, not peer authority
+* the `Decision support` path remains available, but the page worklist stays primary
+
+Meta cleanup:
+
+* no Meta product file was changed
+* no Meta surface was fully removed in this step
+* this was intentional to avoid reopening Step 5 architecture without a clearly safe deletion
+
+## 4. Implementation Notes
+
+Key repo files changed:
+
+* `lib/creative-operator-surface.ts`
+* `lib/operator-surface.ts`
+* `components/operator/OperatorSurfaceSummary.tsx`
+* `components/creatives/CreativesTopSection.tsx`
+* `components/creatives/CreativesTableSection.tsx`
+* `components/creatives/CreativeDecisionOsOverview.tsx`
+* `components/creatives/CreativeDecisionOsDrawer.tsx`
+* `components/creatives/CreativeDetailExperience.tsx`
+* `app/(dashboard)/creatives/page.tsx`
+* `components/creatives/CreativesTableSection.test.tsx`
+* `components/creatives/CreativeDetailExperience.test.tsx`
+* `playwright/tests/reviewer-smoke.spec.ts`
+
+Shared truth-model reuse:
+
+* existing Creative Decision OS preview status
+* existing authority-state mapping
+* existing deployment compatibility fields
+* existing preview strip and preview helper infrastructure
+* existing deterministic Decision OS objects
+
+No new shadow decision system was introduced.
+
+## 5. Acceptance Check
+
+1. Preview/media truth is visibly first-class
+   * accepted in repo
+2. Decision-first review is clearer
+   * accepted in repo
+3. One Creative operator authority remains
+   * accepted in repo
+4. Blocked/degraded rows are honest
+   * accepted in repo
+5. Meta is not regressed
+   * accepted in repo
+6. Continuity is fully current
+   * accepted for repo-side continuity at closeout, with explicit live/runtime limits recorded
+
+Phase closure verdict:
+
+* `shipped-not-complete`
+
+Why not `accepted`:
+
+* repo implementation, tests, build, and focused `/creatives` browser smoke all passed
+* production is still verified on pre-Step-6 SHA `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* full reviewer smoke remains unstable in the Meta segment before it reaches the Creative path
+
+## 6. Test Evidence
+
+Exact commands run:
+
+* `npx tsc --noEmit`
   * passed
-* tests
-  * `npx vitest run lib/meta/operator-surface.test.ts components/meta/meta-campaign-list.test.tsx components/meta/meta-campaign-detail.test.tsx components/meta/meta-decision-os.test.tsx app/(dashboard)/platforms/meta/page.test.tsx`
+* `npx vitest run lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts components/creatives/CreativesTableSection.test.tsx components/creatives/CreativeDetailExperience.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDecisionOsDrawer.test.ts components/creatives/creatives-top-section-support.test.ts app/(dashboard)/creatives/page-support.test.ts lib/meta/__tests__/creatives-preview.test.ts app/api/meta/creatives/route.test.ts app/api/meta/creatives/history/route.test.ts app/api/meta/creatives/detail/route.test.ts app/api/creatives/decision-os/route.test.ts app/api/ai/creatives/commentary/route.test.ts app/api/ai/creatives/decisions/route.test.ts`
   * passed
-  * `npx vitest run lib/release-authority/report.test.ts lib/release-authority/integrity.test.ts`
+  * `15` test files passed
+  * `65` tests passed
+* `npm run build`
   * passed
-* build
-  * `npm run build`
-  * passed
-* local smoke
-  * direct Chromium smoke against the built app at `http://127.0.0.1:3100/platforms/meta` with saved reviewer auth
-  * confirmed visible top-level text beginning with `META DAILY OPERATOR SURFACE` and supporting summary `Workflow and context`
-* any focused regression tests added
-  * expanded `lib/meta/operator-surface.test.ts`
-  * updated `components/meta/meta-campaign-list.test.tsx`
-  * updated `components/meta/meta-campaign-detail.test.tsx`
-  * updated `components/meta/meta-decision-os.test.tsx`
-  * updated `playwright/tests/reviewer-smoke.spec.ts`
 
-# 8. Live Smoke Evidence
+Focused browser/local smoke:
 
-* build-info verification if checked
-  * checked at step start: `https://adsecute.com/api/build-info` returned live SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
-* release-authority verification if checked
-  * checked at step start: `https://adsecute.com/api/release-authority` reported `currentLiveSha` `ad3d1ac52fa7c6dec381351c45005342511077ac`
-  * the same release-authority response still showed remote main at pre-Step-5 `bbefb3020336c3394bc54024676883c69573cfc4` during context rebuild
-* live smoke if run
-  * no live Meta Step 5 smoke was run because production was still on the older live baseline
-* benchmark evidence
-  * none captured in this step
-* browser evidence
-  * local direct Chromium smoke on the built app verified the updated Meta top-level hierarchy and secondary-context summary text
-  * the existing reviewer Playwright smoke was updated for the new hierarchy; the harness itself remained noisy around teardown, so the strongest browser proof in this step is the direct built-app Chromium check
-* exact limitations if evidence was partial
-  * no live Step 5 browser walkthrough
-  * no benchmark-business walkthrough
-  * Playwright harness cleanup remained unstable/noisy after auth setup even though page-level evidence was captured
-* clearly distinguish repo validation from live validation
-  * repo validation is strong: typecheck, focused Vitest, release-authority tests, production build, and local Chromium check all reflect Step 5 code
-  * live validation remains limited to awareness-only build-info / release-authority checks on the older production SHA
+* local production-build browser smoke for `/creatives`
+  * started local smoke server from built output
+  * opened `/creatives` with reviewer auth
+  * verified:
+    * `creative-preview-truth-contract`
+    * `creative-quick-filters-panel`
+    * `Decision support` entry point
+    * `creative-decision-os-drawer`
+    * `creative-preview-truth-summary`
+    * row open -> `creative-detail-preview-truth`
+    * `creative-detail-deterministic-decision`
+    * `creative-detail-ai-commentary`
+  * result: passed
 
-# 9. Deployment And Rollout
+Reviewer smoke status:
 
-* exact implementation SHA
-  * Step 5 implementation SHA `14ff6f80288563bdc2d29b563733c262a8201c54`
-* CI / deploy summary if applicable
-  * local typecheck, focused Vitest, release-authority tests, and production build all passed
-  * Meta UI contract docs and release-authority notes were updated in repo with the Step 5 hierarchy change
-  * the Step 5 implementation commit was prepared for push to `main`; production deployment was not observed in this step
-* rollback target
-  * `bbefb3020336c3394bc54024676883c69573cfc4`
-* whether worktree ended clean
-  * yes, after Step 5 continuity closeout
+* updated `playwright/tests/reviewer-smoke.spec.ts` for:
+  * Creative button rename `Show why` -> `Decision support`
+  * Creative preview-truth surface assertions
+  * Creative detail preview-truth assertion
+* local reviewer smoke run:
+  * failed before the Creative segment completed
+  * failure remained in the Meta segment during campaign-detail expansion
+  * exact limitation: reviewer smoke is not primary proof for Step 6 because Meta smoke instability still blocks the shared end-to-end script
 
-# 10. Continuity Integrity Check
+`/platforms/meta` smoke:
 
-* was continuity current before the step started?
-  * no
-* if not, what was repaired?
-  * `HANDOFF.md` and `STATUS.md` were repaired before implementation so they recorded the actual verified Step 4 repo baseline on `bbefb3020336c3394bc54024676883c69573cfc4`
-* do HANDOFF / LATEST_REPORT / STATUS now all reflect Step 5 truth?
-  * yes
-* what exact next step should follow?
-  * Step 6 should focus on Creative preview/media truth and decision-first review, while also deciding whether any remaining Meta legacy reasoning surfaces can now be removed entirely
+* not required for Step 6 because Meta product code was not changed
 
-# 11. Known Risks
+## 7. Deployment / Rollout
 
-* unresolved Meta logic gaps still limit full directional cap guidance
-* deeper `Show why` diagnostics are still denser than the ideal operator detail layer
-* selected-campaign reasoning still contains more internal policy detail than a pure buyer workflow would want
-* operators still need live/runtime validation before trusting the production Meta page to match repo
-* repo-vs-live drift remains present because the verified live SHA stayed on `ad3d1ac52fa7c6dec381351c45005342511077ac`
+* repo start SHA: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* exact implementation SHA: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* current repo HEAD after product changes: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* current live SHA if verified: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* repo candidate vs live posture:
+  * repo/origin main are ahead on Step 6
+  * live build-info and release-authority still point to Step 5 closeout SHA
+  * release-authority `currentMainSha` is stale relative to actual `origin/main`
 
-# 12. Exact Review Request For GPT
+## 8. Limitations
 
-Ask for review of:
+* no live deployment proof for Step 6
+* no Meta browser smoke required or claimed for Step 6 product behavior
+* full reviewer smoke still unstable in Meta before the Creative segment finishes
+* no Meta surface was deleted in this step
 
-* whether the Meta rebuild went far enough
-* whether remaining diagnostic surfaces should be demoted further
-* whether Step 6 should now focus on Creative preview/media truth and decision-first review
-* whether any current Meta legacy surface should now be removed entirely
+## 9. Copy-Paste Summary
 
-# 13. Copy-Paste Quick Summary
-
-Step 5 is complete in repo. Meta now leads with one persistent daily operator surface above KPIs and drilldown, with explicit `Act now`, `Profitable but capped`, `Watch / wait`, and `Do not touch` buckets. The campaign list now uses the same shared operator summary instead of recommendation badges and raw Decision OS chips, capped regimes now read as reviewable levers instead of generic bid edits, and workflow/context surfaces were demoted into collapsed secondary sections. Focused Vitest, release-authority tests, typecheck, and build all passed, and a local Chromium smoke against the built app confirmed the new hierarchy. Live/runtime was only verified for awareness and still served the older SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`, so Step 6 should shift to Creative preview/media truth and decision-first review rather than extending Meta again by default.
+Step 6 is implemented and pushed on `main` at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`. Creative now leads with a visible preview-truth contract, one operator decision vocabulary, honest degraded/missing preview states, and support-only AI framing when preview truth is not ready. Typecheck, the targeted 15-file Vitest subset, build, and focused local `/creatives` browser smoke all passed. Production is still verified on `8eae2d713a78ac7ca500427e0bee05ddf6afa464`, and `release-authority` is currently stale about `currentMainSha`, so repo candidate truth and live truth must stay separate in the next chat.
