@@ -51,7 +51,6 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
-  await page.waitForLoadState("networkidle").catch(() => {});
 
   await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
   const metaCampaignReasoningSummary = page
@@ -119,7 +118,10 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("creative-quick-filters")).toBeVisible();
 
   const totalBeforeFilter = await page.locator('[data-testid^="creative-row-"]').count();
-  await page.locator('[data-testid^="creative-quick-filter-panel-"]').first().click();
+  const firstQuickFilter = page.locator('[data-testid^="creative-quick-filter-"]').first();
+  await firstQuickFilter.scrollIntoViewIfNeeded();
+  await firstQuickFilter.focus();
+  await firstQuickFilter.press("Enter");
   const totalAfterQuickFilter = await page.locator('[data-testid^="creative-row-"]').count();
   expect(totalAfterQuickFilter).toBeGreaterThan(0);
   expect(totalAfterQuickFilter).toBeLessThanOrEqual(totalBeforeFilter);

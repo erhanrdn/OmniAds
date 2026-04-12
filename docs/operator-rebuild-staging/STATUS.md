@@ -1,23 +1,26 @@
-Current step name: Step 7 - Deploy Step 6 Candidate And Capture Live Verification
+Current step name: Step 8 - Strong Live Proof Collection And Reviewer Smoke Stabilization
 Current branch: main
-Current repo HEAD at Step 7 closeout: eeea595f685d852acf82c744fea0a2715d76c7b0
-Current origin/main at Step 7 closeout: eeea595f685d852acf82c744fea0a2715d76c7b0
+Current repo HEAD at Step 8 closeout: 6db568b3defab4fd13e19514669c09d42c796911
+Current origin/main at Step 8 closeout: 6db568b3defab4fd13e19514669c09d42c796911
 Local HEAD matches origin/main: yes
-Repo SHA before Step 7 started: eeea595f685d852acf82c744fea0a2715d76c7b0
-Step 6 runtime deployment target SHA: 8f0f0b74047c0ce05c8a74b02890e0e104d75484
-Deploy requested: yes
-Deploy attempted: yes
-Deploy completed: yes
-Automatic deploy path result: skipped by freshness gate because target SHA 8f0f0b74047c0ce05c8a74b02890e0e104d75484 was no longer current main HEAD eeea595f685d852acf82c744fea0a2715d76c7b0
-Manual deploy path result: deploy-hetzner workflow run 24312805013 completed SSH deploy to production for 8f0f0b74047c0ce05c8a74b02890e0e104d75484
-Live SHA before deploy: 8eae2d713a78ac7ca500427e0bee05ddf6afa464
-Release-authority before deploy: currentLiveSha 8eae2d713a78ac7ca500427e0bee05ddf6afa464; currentMainSha eeea595f685d852acf82c744fea0a2715d76c7b0; currentMainShaSource github_branch_head; overall drifted
-Live SHA after deploy: 8f0f0b74047c0ce05c8a74b02890e0e104d75484
-Release-authority after deploy: currentLiveSha 8f0f0b74047c0ce05c8a74b02890e0e104d75484; currentMainSha eeea595f685d852acf82c744fea0a2715d76c7b0; currentMainShaSource github_branch_head; overall drifted
-Step 6 now live: yes
-Focused live /creatives proof: verified Preview Truth Contract, blocked row honesty, Preview Truth Gate in detail, deterministic decision panel, support-only AI commentary, and support-only drawer framing on production
-Reviewer smoke result: live reviewer auth setup passed, but reviewer-smoke.spec.ts timed out in Meta while waiting for meta-campaign-detail before reaching Creative
-Benchmark-business evidence: not captured safely because the available live operator session only exposed Adsecute Demo and not Grandmix, IwaStore, or TheSwaf
-Remaining blockers / limitations: reviewer smoke still unstable before Creative; benchmark-business proof unavailable from the safe live session; live demo business did not expose the full five-lane page-level Creative order; deploy verifier still marks explainable live-vs-main drift as blocking
-Report last updated timestamp: 2026-04-12T21:07:04+0300
+Repo SHA before Step 8 started: 6db568b3defab4fd13e19514669c09d42c796911
+Current live build SHA: 8f0f0b74047c0ce05c8a74b02890e0e104d75484
+Release-authority live SHA: 8f0f0b74047c0ce05c8a74b02890e0e104d75484
+Release-authority main SHA: 6db568b3defab4fd13e19514669c09d42c796911
+Step 6 runtime still live: yes
+Current runtime/main drift explainable or suspicious: explainable; current main is a docs-only continuity head and release-authority matches it
+Benchmark businesses attempted: Grandmix, IwaStore, TheSwaf
+Benchmark businesses reachable from the safe commercial smoke session: none
+Reachable live business during Step 8: Adsecute Demo
+Strongest live proof captured in Step 8: current production /creatives on Adsecute Demo re-confirmed the preview-truth contract, blocked page-level lane subset, blocked row wording, Preview Truth Gate, deterministic decision panel, support-only AI commentary, and support-only drawer framing
+Page-level visible quick-filter subset on the reachable dataset: BLOCKED only
+Reviewer smoke root cause hypothesis: smoke fragility, not a broad Meta product regression; the old Meta networkidle wait burned ~30 seconds, then Creative quick-filter interaction used a stale selector plus brittle pointer clicking inside the drawer
+Reviewer smoke change made: removed the Meta networkidle wait after campaign click; updated the Creative quick-filter selector to creative-quick-filter-*; activated the first quick filter via scroll + focus + Enter
+Reviewer smoke command: PLAYWRIGHT_BASE_URL='https://adsecute.com' PLAYWRIGHT_USE_WEBSERVER=0 node --env-file=.env.local node_modules/playwright/cli.js test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium
+Reviewer smoke final result: passed, 2 passed (17.0s)
+Reviewer smoke still blocks Creative verification: no
+Typecheck result: npx tsc --noEmit passed
+Targeted Vitest result: none applicable; only Playwright smoke code and continuity docs changed
+Remaining blockers / limitations: no safe non-demo business proof path was reachable; strongest live proof still comes from Adsecute Demo; accepted is still not justified without at least one real connected non-demo proof path
+Report last updated timestamp: 2026-04-12T21:54:28+0300
 Completion status: shipped-not-complete
