@@ -208,11 +208,20 @@ function resolveOwnerWorkloadTone(owner: CommandCenterOwnerWorkloadSummary) {
   return "border-slate-200 bg-white";
 }
 
-function resolveOpportunityTone(queueEligible: boolean, sourceSystem: "meta" | "creative") {
-  if (queueEligible) {
+function resolveOpportunityTone(
+  verdict: string,
+  sourceSystem: "meta" | "creative",
+) {
+  if (verdict === "queue_ready") {
     return sourceSystem === "meta"
       ? "border-emerald-200 bg-emerald-50"
       : "border-sky-200 bg-sky-50";
+  }
+  if (verdict === "protected") {
+    return "border-blue-200 bg-blue-50";
+  }
+  if (verdict === "blocked") {
+    return "border-rose-200 bg-rose-50";
   }
   return "border-slate-200 bg-slate-50";
 }
@@ -1135,7 +1144,8 @@ export function CommandCenterDashboard() {
                     className={cn(
                       "rounded-2xl border px-3 py-3",
                       resolveOpportunityTone(
-                        opportunity.queueEligible,
+                        opportunity.eligibilityTrace?.verdict ??
+                          (opportunity.queueEligible ? "queue_ready" : "board_only"),
                         opportunity.sourceSystem,
                       ),
                     )}
@@ -1156,7 +1166,12 @@ export function CommandCenterDashboard() {
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                       <span>{opportunity.sourceSystem}</span>
                       <span>{Math.round(opportunity.confidence * 100)}% confidence</span>
-                      <span>{opportunity.queueEligible ? "queue-ready" : "board-only"}</span>
+                      <span>
+                        {(
+                          opportunity.eligibilityTrace?.verdict ??
+                          (opportunity.queueEligible ? "queue_ready" : "board_only")
+                        ).replaceAll("_", "-")}
+                      </span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {opportunity.evidenceFloors.slice(0, 3).map((floor) => (
@@ -2215,9 +2230,14 @@ export function CommandCenterDashboard() {
                             <p>Provider: {executionQuery.data.capability.provider}</p>
                             <p>Target: {executionQuery.data.capability.targetType}</p>
                             <p>
-                              Verified apply / rollback:{" "}
-                              {executionQuery.data.capability.verifiedApply ? "yes" : "no"} /{" "}
-                              {executionQuery.data.capability.verifiedRollback ? "yes" : "no"}
+                              Apply / rollback proof:{" "}
+                              {formatActionLabel(
+                                executionQuery.data.capability.applyProofLevel,
+                              )}{" "}
+                              /{" "}
+                              {formatActionLabel(
+                                executionQuery.data.capability.rollbackProofLevel,
+                              )}
                             </p>
                           </div>
                         </div>
@@ -2269,6 +2289,40 @@ export function CommandCenterDashboard() {
                                       : check.status === "warn"
                                         ? "border-amber-200 bg-amber-50 text-amber-700"
                                         : "border-rose-200 bg-rose-50 text-rose-700",
+                                  )}
+                                >
+                                  {check.status}
+                                </Badge>
+                              </div>
+                              <p className="mt-1 text-xs text-slate-500">{check.detail}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Canary preflight
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {executionQuery.data.canaryPreflight.ready
+                            ? "Live canary prerequisites are satisfied for the current supported action."
+                            : "Live canary proof is still blocked by runtime or operator env requirements."}
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {executionQuery.data.canaryPreflight.checks.map((check) => (
+                            <div
+                              key={check.key}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="font-medium text-slate-900">{check.label}</p>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    check.status === "pass"
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : "border-rose-200 bg-rose-50 text-rose-700",
                                   )}
                                 >
                                   {check.status}

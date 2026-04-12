@@ -9,6 +9,7 @@ import {
   type BusinessCostModel,
 } from "@/lib/business-cost-model";
 import {
+  BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS,
   BUSINESS_DECISION_BID_REGIMES,
   BUSINESS_DECISION_CALIBRATION_CHANNELS,
   BUSINESS_DECISION_OBJECTIVE_FAMILIES,
@@ -25,8 +26,10 @@ import {
   createEmptyDecisionCalibrationProfile,
   createEmptyOperatingConstraints,
   createEmptyTargetPack,
+  type BusinessCommercialBootstrapSuggestion,
   type BusinessCommercialCoverageSummary,
   type BusinessCommercialFreshnessMeta,
+  type BusinessCommercialRequiredInput,
   type BusinessCommercialSectionMeta,
   type BusinessCommercialTruthSnapshot,
   type BusinessCountryEconomicsRow,
@@ -575,6 +578,195 @@ function buildCalibrationSummary(
   };
 }
 
+function buildCalibrationFreshness(
+  calibrationProfiles: BusinessDecisionCalibrationProfile[],
+): BusinessCommercialFreshnessMeta {
+  const latestUpdatedAt =
+    calibrationProfiles
+      .map((profile) => profile.updatedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+
+  if (calibrationProfiles.length === 0) {
+    return {
+      status: "missing",
+      updatedAt: null,
+      ageHours: null,
+      reason: "No calibration profiles exist yet.",
+    };
+  }
+
+  const ageHours = differenceInHours(latestUpdatedAt);
+  if (ageHours === null) {
+    return {
+      status: "stale",
+      updatedAt: latestUpdatedAt,
+      ageHours: null,
+      reason: "Calibration profiles are present, but their refresh timestamp is unavailable.",
+    };
+  }
+
+  if (ageHours > 24 * 30) {
+    return {
+      status: "stale",
+      updatedAt: latestUpdatedAt,
+      ageHours,
+      reason: "Calibration profiles are older than 30 days and should be reviewed.",
+    };
+  }
+
+  return {
+    status: "fresh",
+    updatedAt: latestUpdatedAt,
+    ageHours,
+    reason: null,
+  };
+}
+
+function buildRequiredInputs(input: {
+  targetPack: BusinessCommercialTruthSnapshot["targetPack"];
+  countryEconomics: BusinessCommercialTruthSnapshot["countryEconomics"];
+  promoCalendar: BusinessCommercialTruthSnapshot["promoCalendar"];
+  operatingConstraints: BusinessCommercialTruthSnapshot["operatingConstraints"];
+  sectionMeta: BusinessCommercialTruthSnapshot["sectionMeta"];
+  calibrationProfiles: BusinessDecisionCalibrationProfile[];
+}): BusinessCommercialRequiredInput[] {
+  const calibrationFreshness = buildCalibrationFreshness(input.calibrationProfiles);
+
+  return BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS.map((section) => {
+    if (section === "targetPack") {
+      return {
+        section,
+        blocking: true,
+        freshness: input.sectionMeta.targetPack.freshness ?? buildFreshnessMeta({
+          configured: false,
+          updatedAt: null,
+          staleAfterHours: SECTION_META_RULES.targetPack.staleAfterHours,
+          missingReason: SECTION_META_RULES.targetPack.missingReason,
+          staleReason: SECTION_META_RULES.targetPack.staleReason,
+        }),
+        reason:
+          !input.targetPack
+            ? "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults."
+            : input.sectionMeta.targetPack.freshness?.status === "stale"
+              ? input.sectionMeta.targetPack.freshness.reason ??
+                "Target pack thresholds need review."
+              : "Target pack thresholds are configured.",
+        actionCeiling: !input.targetPack ? "review_hold" : null,
+      } satisfies BusinessCommercialRequiredInput;
+    }
+
+    if (section === "countryEconomics") {
+      return {
+        section,
+        blocking: true,
+        freshness: input.sectionMeta.countryEconomics.freshness ?? buildFreshnessMeta({
+          configured: false,
+          updatedAt: null,
+          staleAfterHours: SECTION_META_RULES.countryEconomics.staleAfterHours,
+          missingReason: SECTION_META_RULES.countryEconomics.missingReason,
+          staleReason: SECTION_META_RULES.countryEconomics.staleReason,
+        }),
+        reason:
+          input.countryEconomics.length === 0
+            ? "Country economics are missing, so GEO-aware scaling remains review-safe."
+            : input.sectionMeta.countryEconomics.freshness?.status === "stale"
+              ? input.sectionMeta.countryEconomics.freshness.reason ??
+                "Country economics need review."
+              : "Country economics are configured.",
+        actionCeiling: input.countryEconomics.length === 0 ? "monitor_low_truth" : null,
+      } satisfies BusinessCommercialRequiredInput;
+    }
+
+    if (section === "promoCalendar") {
+      return {
+        section,
+        blocking: false,
+        freshness: input.sectionMeta.promoCalendar.freshness ?? buildFreshnessMeta({
+          configured: false,
+          updatedAt: null,
+          staleAfterHours: SECTION_META_RULES.promoCalendar.staleAfterHours,
+          missingReason: SECTION_META_RULES.promoCalendar.missingReason,
+          staleReason: SECTION_META_RULES.promoCalendar.staleReason,
+        }),
+        reason:
+          input.promoCalendar.length === 0
+            ? "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured."
+            : input.sectionMeta.promoCalendar.freshness?.status === "stale"
+              ? input.sectionMeta.promoCalendar.freshness.reason ??
+                "Promo calendar needs review."
+              : "Promo windows are configured.",
+        actionCeiling: null,
+      } satisfies BusinessCommercialRequiredInput;
+    }
+
+    if (section === "operatingConstraints") {
+      return {
+        section,
+        blocking: true,
+        freshness: input.sectionMeta.operatingConstraints.freshness ?? buildFreshnessMeta({
+          configured: false,
+          updatedAt: null,
+          staleAfterHours: SECTION_META_RULES.operatingConstraints.staleAfterHours,
+          missingReason: SECTION_META_RULES.operatingConstraints.missingReason,
+          staleReason: SECTION_META_RULES.operatingConstraints.staleReason,
+        }),
+        reason:
+          !input.operatingConstraints
+            ? "Operating constraints are missing, so action ceilings stay conservative."
+            : input.sectionMeta.operatingConstraints.freshness?.status === "stale"
+              ? input.sectionMeta.operatingConstraints.freshness.reason ??
+                "Operating constraints need review."
+              : "Operating constraints are configured.",
+        actionCeiling: !input.operatingConstraints ? "degraded_no_scale" : null,
+      } satisfies BusinessCommercialRequiredInput;
+    }
+
+    return {
+      section,
+      blocking: false,
+      freshness: calibrationFreshness,
+      reason:
+        input.calibrationProfiles.length === 0
+          ? "No calibration profiles exist yet, so channel-specific confidence caps stay generic."
+          : calibrationFreshness.status === "stale"
+            ? calibrationFreshness.reason ?? "Calibration profiles need review."
+            : "Calibration profiles are configured.",
+      actionCeiling:
+        input.calibrationProfiles.length === 0 ? "review_hold" : null,
+    } satisfies BusinessCommercialRequiredInput;
+  });
+}
+
+function buildBootstrapSuggestions(input: {
+  promoCalendar: BusinessCommercialTruthSnapshot["promoCalendar"];
+  calibrationProfiles: BusinessDecisionCalibrationProfile[];
+}): BusinessCommercialBootstrapSuggestion[] {
+  const suggestions: BusinessCommercialBootstrapSuggestion[] = [];
+
+  if (input.promoCalendar.length === 0) {
+    suggestions.push({
+      section: "promoCalendar",
+      title: "Record the next promo window",
+      detail:
+        "Capture only the next material launch, sale, or clearance window so promo-aware posture has an explicit date range to reference.",
+      safe: true,
+    });
+  }
+
+  if (input.calibrationProfiles.length === 0) {
+    suggestions.push({
+      section: "calibrationProfiles",
+      title: "Create a baseline calibration profile",
+      detail:
+        "Start with a conservative meta/default profile and keep the ceiling at review_hold until operator benchmark feedback exists.",
+      safe: true,
+    });
+  }
+
+  return suggestions;
+}
+
 function buildCommercialCoverageSummary(input: {
   targetPack: BusinessCommercialTruthSnapshot["targetPack"];
   countryEconomics: BusinessCommercialTruthSnapshot["countryEconomics"];
@@ -583,13 +775,10 @@ function buildCommercialCoverageSummary(input: {
   sectionMeta: BusinessCommercialTruthSnapshot["sectionMeta"];
   calibrationProfiles: BusinessDecisionCalibrationProfile[];
 }): BusinessCommercialCoverageSummary {
-  const blockingSections = [
-    input.sectionMeta.targetPack,
-    input.sectionMeta.countryEconomics,
-    input.sectionMeta.operatingConstraints,
-  ];
+  const requiredInputs = buildRequiredInputs(input);
+  const blockingSections = requiredInputs.filter((section) => section.blocking);
   const configuredBlockingCount = blockingSections.filter(
-    (section) => section.configured,
+    (section) => section.freshness.status !== "missing",
   ).length;
 
   const completeness =
@@ -610,7 +799,7 @@ function buildCommercialCoverageSummary(input: {
       .sort((left, right) => right.localeCompare(left))[0] ?? null;
 
   const staleBlockingSections = blockingSections.filter(
-    (section) => section.freshness?.status === "stale",
+    (section) => section.freshness.status === "stale",
   );
   const freshness: BusinessCommercialFreshnessMeta =
     completeness === "missing"
@@ -636,47 +825,27 @@ function buildCommercialCoverageSummary(input: {
             reason: null,
           };
 
-  const blockingReasons = dedupeStringList([
-    !input.targetPack
-      ? "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults."
-      : null,
-    input.sectionMeta.targetPack.freshness?.status === "stale"
-      ? input.sectionMeta.targetPack.freshness.reason
-      : null,
-    input.countryEconomics.length === 0
-      ? "Country economics are missing, so GEO-aware scaling remains review-safe."
-      : null,
-    input.sectionMeta.countryEconomics.freshness?.status === "stale"
-      ? input.sectionMeta.countryEconomics.freshness.reason
-      : null,
-    !input.operatingConstraints
-      ? "Operating constraints are missing, so action ceilings stay conservative."
-      : null,
-    input.sectionMeta.operatingConstraints.freshness?.status === "stale"
-      ? input.sectionMeta.operatingConstraints.freshness.reason
-      : null,
-  ]);
+  const blockingReasons = dedupeStringList(
+    requiredInputs
+      .filter(
+        (section) => section.blocking && section.freshness.status !== "fresh",
+      )
+      .map((section) => section.reason),
+  );
 
-  const nonBlockingReasons = dedupeStringList([
-    input.promoCalendar.length === 0
-      ? "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured."
-      : null,
-    input.sectionMeta.promoCalendar.freshness?.status === "stale"
-      ? input.sectionMeta.promoCalendar.freshness.reason
-      : null,
-  ]);
+  const nonBlockingReasons = dedupeStringList(
+    requiredInputs
+      .filter(
+        (section) => !section.blocking && section.freshness.status !== "fresh",
+      )
+      .map((section) => section.reason),
+  );
 
   const actionCeilings = Array.from(
     new Set([
-      ...(input.targetPack
-        ? []
-        : (["review_hold", "degraded_no_scale"] satisfies DecisionSafeActionLabel[])),
-      ...(input.countryEconomics.length > 0
-        ? []
-        : (["monitor_low_truth", "review_hold"] satisfies DecisionSafeActionLabel[])),
-      ...(!input.operatingConstraints
-        ? (["review_hold", "monitor_low_truth"] satisfies DecisionSafeActionLabel[])
-        : []),
+      ...requiredInputs
+        .map((section) => section.actionCeiling)
+        .filter((value): value is DecisionSafeActionLabel => Boolean(value)),
       ...input.calibrationProfiles
         .map((profile) => profile.actionCeiling)
         .filter((value): value is NonNullable<typeof value> => Boolean(value)),
@@ -693,6 +862,7 @@ function buildCommercialCoverageSummary(input: {
       targetPack: input.targetPack,
     }),
     calibration: buildCalibrationSummary(input.calibrationProfiles),
+    requiredInputs,
   };
 }
 
@@ -1024,6 +1194,10 @@ export async function getBusinessCommercialTruthSnapshot(
         promoCalendar,
         operatingConstraints,
         sectionMeta,
+        calibrationProfiles,
+      }),
+      bootstrapSuggestions: buildBootstrapSuggestions({
+        promoCalendar,
         calibrationProfiles,
       }),
     };

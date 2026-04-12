@@ -85,6 +85,16 @@ export interface ReleaseAuthorityDriftItem {
   detail: string;
 }
 
+export interface ReleaseAuthorityCarryForwardItem {
+  id: string;
+  surfaceId: string;
+  label: string;
+  status: "accepted_gap" | "complete";
+  proofLevel: string | null;
+  detail: string;
+  nextRequirement: string;
+}
+
 export interface ReleaseAuthorityReport {
   schemaVersion: typeof RELEASE_AUTHORITY_SCHEMA_VERSION;
   generatedAt: string;
@@ -122,5 +132,9 @@ export interface ReleaseAuthorityReport {
   };
   surfaces: ReleaseAuthoritySurface[];
   unresolvedDriftItems: ReleaseAuthorityDriftItem[];
+  carryForward: {
+    summary: string;
+    acceptanceGaps: ReleaseAuthorityCarryForwardItem[];
+  };
   reviewOrder: string[];
 }

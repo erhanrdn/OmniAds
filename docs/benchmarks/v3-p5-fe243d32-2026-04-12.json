@@ -1,0 +1,15 @@
+{
+  "phase": "v3-p5",
+  "date": "2026-04-12",
+  "baselineLiveSha": "fe243d32cf61cac68b68ebed7a2c1da0c8e9552c",
+  "status": "not_complete",
+  "canaryPreflightBlockers": [
+    "META_EXECUTION_APPLY_ENABLED",
+    "META_EXECUTION_CANARY_BUSINESSES",
+    "COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID"
+  ],
+  "smoke": {
+    "local": "4_passed_1_skipped",
+    "live": "4_passed_1_skipped"
+  }
+}

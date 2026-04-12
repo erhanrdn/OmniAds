@@ -33,6 +33,64 @@ function decisionMetadata() {
   });
 }
 
+function sourceHealthFixture() {
+  return [
+    {
+      source: "Commercial truth",
+      status: "healthy" as const,
+      detail: "Commercial truth is configured for this surface.",
+      fallbackLabel: null,
+    },
+  ];
+}
+
+function readReliabilityFixture() {
+  return {
+    status: "stable" as const,
+    determinism: "stable" as const,
+    detail: "Repeated reads should stay stable for this surface.",
+  };
+}
+
+function queueEligibilityFixture(input?: {
+  eligible?: boolean;
+  blockedReasons?: string[];
+  watchReasons?: string[];
+  verdict?: "queue_ready" | "board_only" | "protected" | "blocked";
+}) {
+  const blockedReasons = input?.blockedReasons ?? [];
+  const watchReasons = input?.watchReasons ?? [];
+  return {
+    eligible:
+      input?.eligible ?? (blockedReasons.length === 0 && watchReasons.length === 0),
+    blockedReasons,
+    watchReasons,
+    eligibilityTrace: {
+      verdict:
+        input?.verdict ??
+        (blockedReasons.length === 0 && watchReasons.length === 0
+          ? "queue_ready"
+          : blockedReasons.some((reason) => reason.toLowerCase().includes("protect"))
+            ? "protected"
+            : watchReasons.length > 0
+              ? "board_only"
+              : "blocked"),
+      evidenceFloors: {
+        met: [],
+        watch: [],
+        blocked: blockedReasons,
+      },
+      sharedTruthBlockers: [],
+      queueCompilerDecision: "Fixture queue compiler decision.",
+      protectedReasons: blockedReasons.filter((reason) =>
+        reason.toLowerCase().includes("protect"),
+      ),
+      blockedReasons,
+      watchReasons,
+    },
+  };
+}
+
 function metaFixture(): MetaDecisionOsV1Response {
   const metadata = decisionMetadata();
   const metaPolicyExplanation: DecisionPolicyExplanation = {
@@ -90,6 +148,8 @@ function metaFixture(): MetaDecisionOsV1Response {
         confidence: 0.84,
       },
       confidence: 0.82,
+      sourceHealth: sourceHealthFixture(),
+      readReliability: readReliabilityFixture(),
       surfaceSummary: {
         actionCoreCount: 3,
         watchlistCount: 2,
@@ -297,11 +357,8 @@ function metaFixture(): MetaDecisionOsV1Response {
         summary: "1 ad sets are carrying scalable winner signal in this campaign.",
         recommendedAction: "scale_budget",
         confidence: 0.86,
-        queue: {
-          eligible: true,
-          blockedReasons: [],
-          watchReasons: [],
-        },
+        queue: queueEligibilityFixture(),
+        eligibilityTrace: queueEligibilityFixture().eligibilityTrace,
         evidenceFloors: [
           {
             key: "winner_count",
@@ -336,17 +393,14 @@ function metaFixture(): MetaDecisionOsV1Response {
         summary: "US is outperforming.",
         recommendedAction: "scale",
         confidence: 0.76,
-        queue: {
-          eligible: true,
-          blockedReasons: [],
-          watchReasons: [],
-        },
+        queue: queueEligibilityFixture(),
+        eligibilityTrace: queueEligibilityFixture().eligibilityTrace,
         evidenceFloors: [
           {
             key: "freshness",
             label: "Freshness",
             status: "met",
-            current: "ready / verified",
+            current: "ready / fresh",
             required: "ready and not stale",
             reason: null,
           },
@@ -372,11 +426,20 @@ function metaFixture(): MetaDecisionOsV1Response {
         summary: "Do not disturb until checkout issue is resolved.",
         recommendedAction: "hold_no_touch",
         confidence: 0.71,
-        queue: {
+        queue: queueEligibilityFixture({
           eligible: false,
-          blockedReasons: ["Protected winners stay visible as guardrail context, not as queue work."],
-          watchReasons: [],
-        },
+          blockedReasons: [
+            "Protected winners stay visible as guardrail context, not as queue work.",
+          ],
+          verdict: "protected",
+        }),
+        eligibilityTrace: queueEligibilityFixture({
+          eligible: false,
+          blockedReasons: [
+            "Protected winners stay visible as guardrail context, not as queue work.",
+          ],
+          verdict: "protected",
+        }).eligibilityTrace,
         evidenceFloors: [
           {
             key: "winner_protection",
@@ -507,6 +570,8 @@ function creativeFixture(): CreativeDecisionOsV1Response {
       message:
         "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: "Exploit",
+      sourceHealth: sourceHealthFixture(),
+      readReliability: readReliabilityFixture(),
       surfaceSummary: {
         actionCoreCount: 1,
         watchlistCount: 1,
@@ -829,11 +894,8 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         summary: "Promote this concept into scaling.",
         recommendedAction: "promote_to_scaling",
         confidence: 0.83,
-        queue: {
-          eligible: true,
-          blockedReasons: [],
-          watchReasons: [],
-        },
+        queue: queueEligibilityFixture(),
+        eligibilityTrace: queueEligibilityFixture().eligibilityTrace,
         evidenceFloors: [
           {
             key: "scale_readiness",
@@ -861,11 +923,20 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         summary: "Keep this out of the primary queue.",
         recommendedAction: "hold_no_touch",
         confidence: 0.65,
-        queue: {
+        queue: queueEligibilityFixture({
           eligible: false,
-          blockedReasons: ["Protected winners stay visible for operator context, not as queue work."],
-          watchReasons: [],
-        },
+          blockedReasons: [
+            "Protected winners stay visible for operator context, not as queue work.",
+          ],
+          verdict: "protected",
+        }),
+        eligibilityTrace: queueEligibilityFixture({
+          eligible: false,
+          blockedReasons: [
+            "Protected winners stay visible for operator context, not as queue work.",
+          ],
+          verdict: "protected",
+        }).eligibilityTrace,
         evidenceFloors: [
           {
             key: "winner_protection",

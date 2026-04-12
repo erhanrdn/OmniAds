@@ -84,6 +84,22 @@ function buildPayload(overrides: Record<string, unknown> = {}) {
       },
     ],
     unresolvedDriftItems: [],
+    carryForward: {
+      summary: "1 accepted carry-forward gap remains and must stay literal in the authority docs.",
+      acceptanceGaps: [
+        {
+          id: "command-center-execution-live-canary-gap",
+          surfaceId: "command_center_execution_apply_rollback",
+          label: "Command Center apply / rollback proof carry-forward",
+          status: "accepted_gap",
+          proofLevel: "apply:provider_validated, rollback:provider_validated",
+          detail:
+            "Repo proof is provider-validated, but a live canary artifact chain is still outstanding.",
+          nextRequirement:
+            "Capture one narrow supported canary path with approve, apply, post-validate, and rollback artifacts.",
+        },
+      ],
+    },
     reviewOrder: ["Review release identity first."],
     ...overrides,
   };

@@ -81,6 +81,38 @@ export interface DecisionFreshnessMetadata {
   reason: string | null;
 }
 
+export const DECISION_SOURCE_HEALTH_STATUSES = [
+  "healthy",
+  "stale",
+  "timeout",
+  "degraded",
+] as const;
+
+export type DecisionSourceHealthStatus =
+  (typeof DECISION_SOURCE_HEALTH_STATUSES)[number];
+
+export const DECISION_READ_RELIABILITY_STATUSES = [
+  "stable",
+  "fallback",
+  "degraded",
+] as const;
+
+export type DecisionReadReliabilityStatus =
+  (typeof DECISION_READ_RELIABILITY_STATUSES)[number];
+
+export interface DecisionSourceHealthEntry {
+  source: string;
+  status: DecisionSourceHealthStatus;
+  detail: string;
+  fallbackLabel: string | null;
+}
+
+export interface DecisionReadReliability {
+  status: DecisionReadReliabilityStatus;
+  detail: string;
+  determinism: "stable" | "watch" | "unstable";
+}
+
 export interface DecisionEvidenceEnvelope {
   entityState: DecisionEntityState;
   materiality: DecisionMaterialityState;
@@ -104,6 +136,8 @@ export interface DecisionSurfaceAuthority {
   archiveCount: number;
   suppressedCount: number;
   note: string;
+  sourceHealth?: DecisionSourceHealthEntry[];
+  readReliability?: DecisionReadReliability | null;
 }
 
 export const DECISION_EVIDENCE_FLOOR_STATUSES = [
@@ -128,6 +162,19 @@ export interface DecisionOpportunityQueueEligibility {
   eligible: boolean;
   blockedReasons: string[];
   watchReasons: string[];
+  eligibilityTrace: {
+    verdict: "queue_ready" | "board_only" | "protected" | "blocked";
+    evidenceFloors: {
+      met: string[];
+      watch: string[];
+      blocked: string[];
+    };
+    sharedTruthBlockers: string[];
+    queueCompilerDecision: string;
+    protectedReasons: string[];
+    blockedReasons: string[];
+    watchReasons: string[];
+  };
 }
 
 export const DECISION_POLICY_CUTOVER_STATES = [

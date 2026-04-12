@@ -32,8 +32,10 @@ import {
   type DecisionEvidenceFloor,
   type DecisionOperatorDisposition,
   type DecisionPolicyExplanation,
+  type DecisionReadReliability,
   type DecisionSurfaceAuthority,
   type DecisionSurfaceLane,
+  type DecisionSourceHealthEntry,
   type DecisionTruthState,
 } from "@/src/types/decision-trust";
 
@@ -249,6 +251,9 @@ export interface CommandCenterOpportunityItem {
   recommendedAction: string;
   confidence: number;
   queueEligible: boolean;
+  eligibilityTrace:
+    | MetaOpportunityBoardItem["eligibilityTrace"]
+    | CreativeOpportunityBoardItem["eligibilityTrace"];
   evidenceFloors: DecisionEvidenceFloor[];
   tags: string[];
   sourceContext: CommandCenterActionSourceContext;
@@ -514,6 +519,8 @@ export interface CommandCenterResponse {
     watchlistCount: number;
     archiveCount: number;
     degradedCount: number;
+    sourceHealth: DecisionSourceHealthEntry[];
+    readReliability: DecisionReadReliability;
   };
   opportunitySummary: {
     totalCount: number;
@@ -1187,6 +1194,7 @@ function mapMetaOpportunityToCommandCenter(input: {
     recommendedAction: input.item.recommendedAction,
     confidence: input.item.confidence,
     queueEligible: input.item.queue.eligible,
+    eligibilityTrace: input.item.eligibilityTrace,
     evidenceFloors: input.item.evidenceFloors,
     tags: input.item.tags,
     sourceContext: {
@@ -1219,6 +1227,7 @@ function mapCreativeOpportunityToCommandCenter(input: {
     recommendedAction: input.item.recommendedAction,
     confidence: input.item.confidence,
     queueEligible: input.item.queue.eligible,
+    eligibilityTrace: input.item.eligibilityTrace,
     evidenceFloors: input.item.evidenceFloors,
     tags: input.item.tags,
     sourceContext: {

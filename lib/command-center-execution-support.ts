@@ -22,6 +22,8 @@ function toSupportMatrixEntry(
     supportMode: capability.supportMode,
     applyGate: capability.applyGate,
     rollback: capability.rollback,
+    applyProofLevel: capability.applyProofLevel,
+    rollbackProofLevel: capability.rollbackProofLevel,
     supportReason: capability.supportReason,
     operatorGuidance: capability.operatorGuidance,
   } satisfies CommandCenterExecutionSupportMatrixEntry;

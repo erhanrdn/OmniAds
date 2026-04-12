@@ -68,6 +68,16 @@ export const COMMAND_CENTER_EXECUTION_OPERATIONS = [
 export type CommandCenterExecutionOperation =
   (typeof COMMAND_CENTER_EXECUTION_OPERATIONS)[number];
 
+export const COMMAND_CENTER_EXECUTION_PROOF_LEVELS = [
+  "unsupported",
+  "code_supported",
+  "provider_validated",
+  "live_canary_proven",
+] as const;
+
+export type CommandCenterExecutionProofLevel =
+  (typeof COMMAND_CENTER_EXECUTION_PROOF_LEVELS)[number];
+
 export interface CommandCenterExecutionStateSummary {
   status: string | null;
   budgetLevel: "campaign" | "adset" | null;
@@ -160,8 +170,8 @@ export interface CommandCenterExecutionCapability {
     kind: MetaExecutionRollbackKind;
     note: string | null;
   };
-  verifiedApply: boolean;
-  verifiedRollback: boolean;
+  applyProofLevel: CommandCenterExecutionProofLevel;
+  rollbackProofLevel: CommandCenterExecutionProofLevel;
   supportReason: string;
   operatorGuidance: string[];
   validationPlan: string[];
@@ -218,8 +228,30 @@ export interface CommandCenterExecutionSupportMatrixEntry {
     kind: MetaExecutionRollbackKind;
     note: string | null;
   };
+  applyProofLevel: CommandCenterExecutionProofLevel;
+  rollbackProofLevel: CommandCenterExecutionProofLevel;
   supportReason: string;
   operatorGuidance: string[];
+}
+
+export interface CommandCenterExecutionCanaryPreflightCheck {
+  key:
+    | "command_center_execution_v1"
+    | "meta_execution_apply_enabled"
+    | "meta_execution_kill_switch"
+    | "meta_execution_canary_businesses"
+    | "commercial_smoke_operator_execution_business_id"
+    | "candidate_supported_action";
+  label: string;
+  status: "pass" | "blocked";
+  detail: string;
+}
+
+export interface CommandCenterExecutionCanaryPreflight {
+  ready: boolean;
+  candidateAction: MetaExecutionSupportedAction | null;
+  blockers: string[];
+  checks: CommandCenterExecutionCanaryPreflightCheck[];
 }
 
 export interface CommandCenterExecutionSupportMatrix {
@@ -319,6 +351,7 @@ export interface CommandCenterExecutionPreview {
   requestedState: CommandCenterExecutionStateSummary | null;
   diff: CommandCenterExecutionDiffItem[];
   preflight: CommandCenterExecutionPreflightReport;
+  canaryPreflight: CommandCenterExecutionCanaryPreflight;
   prerequisites: string[];
   risks: string[];
   manualInstructions: string[];

@@ -40,6 +40,14 @@ Current accepted authority contract for this layer:
 | none | aligned | No unresolved drift items remain. |
 
 
+## Carry-Forward Acceptance Gaps
+
+1 accepted carry-forward gap(s) remain and must stay literal in the authority docs.
+
+| Item | Status | Detail | Next requirement |
+| --- | --- | --- | --- |
+| Command Center apply / rollback proof carry-forward | accepted_gap | Command Center apply and rollback are intentionally shipped behind flagged canary authority. Repo proof is provider-validated, but a live canary artifact chain is still outstanding. | Capture one narrow supported canary path with approve, apply, post-validate, and rollback artifacts, then promote the proof level to live_canary_proven. |
+
 ## Review Order
 
 1. Review release identity through `/api/build-info` and `/api/release-authority` first.

@@ -26,8 +26,8 @@ const preview = {
       kind: "provider_rollback",
       note: "Rollback restores the captured pre-apply ad set status and daily budget snapshot.",
     },
-    verifiedApply: true,
-    verifiedRollback: true,
+    applyProofLevel: "provider_validated",
+    rollbackProofLevel: "provider_validated",
     supportReason:
       "Exact-target Meta ad set write-back exists for this action when the ad set stays inside the safe daily-budget subset.",
     operatorGuidance: [
@@ -72,6 +72,8 @@ const preview = {
         kind: "provider_rollback",
         note: "Rollback restores the captured pre-apply ad set status and daily budget snapshot.",
       },
+      applyProofLevel: "provider_validated",
+      rollbackProofLevel: "provider_validated",
       supportReason:
         "Exact-target Meta ad set write-back exists for this action when the ad set stays inside the safe daily-budget subset.",
       operatorGuidance: [
@@ -95,6 +97,8 @@ const preview = {
           kind: "provider_rollback",
           note: "Rollback restores the captured pre-apply ad set status and daily budget snapshot.",
         },
+        applyProofLevel: "provider_validated",
+        rollbackProofLevel: "provider_validated",
         supportReason:
           "Exact-target Meta ad set write-back exists for this action when the ad set stays inside the safe daily-budget subset.",
         operatorGuidance: [
@@ -117,6 +121,8 @@ const preview = {
           kind: "not_available",
           note: "No provider-backed rollback exists for this family.",
         },
+        applyProofLevel: "unsupported",
+        rollbackProofLevel: "unsupported",
         supportReason:
           "Budget-shift recommendations stay manual-only because the decision layer does not ship exact provider-side donor and receiver mutation targets.",
         operatorGuidance: [
@@ -142,6 +148,8 @@ describe("CommandCenterExecutionSupportMatrix", () => {
     expect(html).toContain("current preview: manual only");
     expect(html).toContain("rollback: not available");
     expect(html).toContain("Capability key: meta_adset_decision:scale_budget");
+    expect(html).toContain("Apply / rollback proof: provider validated / provider validated");
+    expect(html).toContain("apply proof: provider validated");
     expect(html).toContain("preflight: blocked");
     expect(html).toContain("Meta budget shift: budget shift");
   });

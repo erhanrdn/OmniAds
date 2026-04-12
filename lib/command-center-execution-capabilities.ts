@@ -2,6 +2,7 @@ import type { CommandCenterAction, CommandCenterSourceType } from "@/lib/command
 import type {
   CommandCenterExecutionApplyGatePosture,
   CommandCenterExecutionCapability,
+  CommandCenterExecutionProofLevel,
   CommandCenterExecutionSupportMode,
 } from "@/lib/command-center-execution";
 import { META_AD_SET_ACTION_TYPES, META_GEO_ACTION_TYPES } from "@/lib/meta/decision-os";
@@ -57,8 +58,8 @@ function buildCapability(input: {
   applyGatePosture: CommandCenterExecutionApplyGatePosture;
   supportReason: string;
   operatorGuidance: string[];
-  verifiedApply?: boolean;
-  verifiedRollback?: boolean;
+  applyProofLevel?: CommandCenterExecutionProofLevel;
+  rollbackProofLevel?: CommandCenterExecutionProofLevel;
   rollbackKind?: CommandCenterExecutionCapability["rollback"]["kind"];
   rollbackNote?: string | null;
   provider?: CommandCenterExecutionCapability["provider"];
@@ -93,8 +94,8 @@ function buildCapability(input: {
       kind: input.rollbackKind ?? "not_available",
       note: input.rollbackNote ?? NOT_AVAILABLE_ROLLBACK_NOTE,
     },
-    verifiedApply: input.verifiedApply ?? false,
-    verifiedRollback: input.verifiedRollback ?? false,
+    applyProofLevel: input.applyProofLevel ?? "unsupported",
+    rollbackProofLevel: input.rollbackProofLevel ?? "unsupported",
     supportReason: input.supportReason,
     operatorGuidance: input.operatorGuidance,
     validationPlan:
@@ -128,16 +129,20 @@ const META_ADSET_CAPABILITIES = META_AD_SET_ACTION_TYPES.map((actionType) =>
       actionType === "reduce_budget"
         ? "allowlist_only"
         : "not_applicable",
-    verifiedApply:
+    applyProofLevel:
       actionType === "pause" ||
       actionType === "recover" ||
       actionType === "scale_budget" ||
-      actionType === "reduce_budget",
-    verifiedRollback:
+      actionType === "reduce_budget"
+        ? "provider_validated"
+        : "unsupported",
+    rollbackProofLevel:
       actionType === "pause" ||
       actionType === "recover" ||
       actionType === "scale_budget" ||
-      actionType === "reduce_budget",
+      actionType === "reduce_budget"
+        ? "provider_validated"
+        : "unsupported",
     rollbackKind:
       actionType === "pause" ||
       actionType === "recover" ||
@@ -158,7 +163,7 @@ const META_ADSET_CAPABILITIES = META_AD_SET_ACTION_TYPES.map((actionType) =>
       actionType === "scale_budget" ||
       actionType === "reduce_budget"
         ? "Exact-target Meta ad set write-back exists for this action when the live ad set stays inside the safe daily-budget subset."
-        : "This Meta ad set action still requires manual execution because V3-06 only verifies provider-backed apply for pause, recover, scale budget, and reduce budget.",
+        : "This Meta ad set action still requires manual execution because V3 only supports provider-backed apply for pause, recover, scale budget, and reduce budget.",
     operatorGuidance:
       actionType === "pause" ||
       actionType === "recover" ||
@@ -199,7 +204,7 @@ const META_GEO_CAPABILITIES = META_GEO_ACTION_TYPES.map((actionType) =>
     supportMode: "unsupported",
     applyGatePosture: "not_applicable",
     supportReason:
-      "GEO actions remain read-only in V3-06; no provider-backed execution path is verified for pooled, isolated, or country-level routing actions.",
+      "GEO actions remain read-only in V3-06; no provider-backed execution path is provider-validated for pooled, isolated, or country-level routing actions.",
     operatorGuidance: [
       "Use the GEO board as decision support only.",
       "Execute any country or cluster changes manually in Meta Ads Manager.",
@@ -215,7 +220,7 @@ const META_PLACEMENT_CAPABILITIES = META_PLACEMENT_ACTIONS.map((actionType) =>
     supportMode: "unsupported",
     applyGatePosture: "not_applicable",
     supportReason:
-      "Placement anomaly actions remain unsupported because no exact provider-backed placement mutate path is verified in this release.",
+      "Placement anomaly actions remain unsupported because no exact provider-backed placement mutate path is provider-validated in this release.",
     operatorGuidance: [
       "Review the placement anomaly directly in Meta Ads Manager.",
       "Treat this card as operator guidance only.",
@@ -233,7 +238,7 @@ const META_NO_TOUCH_CAPABILITIES = META_NO_TOUCH_ACTIONS.map((actionType) =>
     supportReason:
       "No-touch items intentionally remain outside the execution subset. They are protective guidance, not write-back commands.",
     operatorGuidance: [
-      "Leave the stable winner untouched unless a separate verified workflow overrides it.",
+      "Leave the stable winner untouched unless a separate approved workflow overrides it.",
     ],
   }),
 );

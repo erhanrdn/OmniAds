@@ -1,0 +1,17 @@
+{
+  "phase": "v3-p3",
+  "date": "2026-04-12",
+  "baselineLiveSha": "fe243d32cf61cac68b68ebed7a2c1da0c8e9552c",
+  "status": "local_only_pending_deploy",
+  "sourceHealthInstrumentation": [
+    "Operating Mode",
+    "Meta Decision OS",
+    "Creative Decision OS",
+    "Command Center"
+  ],
+  "readReliabilityInstrumentation": [
+    "stable",
+    "fallback",
+    "degraded"
+  ]
+}

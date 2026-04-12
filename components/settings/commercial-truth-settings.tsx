@@ -73,6 +73,13 @@ function formatThresholdValue(value: number | null, suffix = "") {
   return `${value}${suffix}`;
 }
 
+function formatSectionLabel(value: string) {
+  return value
+    .replaceAll(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .toLowerCase();
+}
+
 function TextAreaField(
   props: TextareaHTMLAttributes<HTMLTextAreaElement>,
 ) {
@@ -340,6 +347,43 @@ export function CommercialTruthSettingsSection({
               </p>
             </div>
           </div>
+          {(snapshot.coverage?.requiredInputs.length ?? 0) > 0 ? (
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border bg-background px-3 py-3 text-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Benchmark Checklist
+                </p>
+                <div className="mt-2 space-y-1 text-foreground">
+                  {(snapshot.coverage?.requiredInputs ?? []).map((item) => (
+                    <p key={`${item.section}-${item.reason}`} className="text-sm">
+                      {formatSectionLabel(item.section)}: {item.freshness.status}
+                      {item.blocking ? " · blocking" : " · optional"}
+                      {item.actionCeiling ? ` · ceiling ${item.actionCeiling.replaceAll("_", " ")}` : ""}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-xl border bg-background px-3 py-3 text-sm">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  Calibration Bootstrap
+                </p>
+                {(snapshot.bootstrapSuggestions?.length ?? 0) > 0 ? (
+                  <div className="mt-2 space-y-2 text-foreground">
+                    {(snapshot.bootstrapSuggestions ?? []).map((item) => (
+                      <div key={`${item.section}-${item.title}`}>
+                        <p className="font-medium">{item.title}</p>
+                        <p className="text-muted-foreground">{item.detail}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-muted-foreground">
+                    No safe bootstrap suggestion is available for the currently missing sections.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
           {(snapshot.coverage?.blockingReasons.length ?? 0) > 0 ? (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">

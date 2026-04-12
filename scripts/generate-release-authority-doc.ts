@@ -31,6 +31,7 @@ async function main() {
         currentLiveSha: report.runtime.currentLiveSha,
         currentMainSha: report.runtime.currentMainSha,
         previousKnownGoodSha: report.release.previousKnownGoodSha,
+        carryForwardCount: report.carryForward.acceptanceGaps.length,
       },
       null,
       2,

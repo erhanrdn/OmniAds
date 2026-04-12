@@ -37,7 +37,9 @@ import type {
   DecisionEvidenceFloor,
   DecisionOperatorDisposition,
   DecisionPolicyExplanation,
+  DecisionReadReliability,
   DecisionOpportunityQueueEligibility,
+  DecisionSourceHealthEntry,
   DecisionSurfaceLane,
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
@@ -368,6 +370,7 @@ export interface MetaOpportunityBoardItem {
   recommendedAction: string;
   confidence: number;
   queue: DecisionOpportunityQueueEligibility;
+  eligibilityTrace: DecisionOpportunityQueueEligibility["eligibilityTrace"];
   evidenceFloors: DecisionEvidenceFloor[];
   tags: string[];
   trust: DecisionTrustMetadata;
@@ -399,6 +402,8 @@ export interface MetaDecisionOsSummary {
     confidence: number;
   } | null;
   confidence: number;
+  sourceHealth: DecisionSourceHealthEntry[];
+  readReliability: DecisionReadReliability;
   surfaceSummary: {
     actionCoreCount: number;
     watchlistCount: number;
@@ -830,7 +835,7 @@ function buildMetaPolicyLadder(input: {
     candidateReason =
       "Shared policy ladder keeps this winner on a protected no-touch path.";
     candidateGuardrail =
-      "Leave the stable winner untouched unless a separate verified constraint reopens it.";
+      "Leave the stable winner untouched unless a separate proven constraint reopens it.";
     actionCeiling = "No-touch only while the stable winner remains efficient and structurally clean.";
   } else if (deploymentFloor.status === "blocked") {
     candidateStrategyClass = "review_hold";
@@ -2410,7 +2415,7 @@ function buildMetaGeoOpportunityFloors(input: {
       input.decision.freshness.dataState === "ready"
         ? input.decision.freshness.isPartial
           ? "ready / partial"
-          : "ready / verified"
+          : "ready / fresh"
         : input.decision.freshness.dataState,
     required: "ready and not stale",
     status:
@@ -2502,6 +2507,7 @@ function buildMetaOpportunityBoard(input: {
       recommendedAction: decision.action,
       confidence: decision.confidence,
       queue,
+      eligibilityTrace: queue.eligibilityTrace,
       evidenceFloors,
       tags: [
         "geo_issues",
@@ -2601,6 +2607,7 @@ function buildMetaOpportunityBoard(input: {
         ]),
       ),
       queue,
+      eligibilityTrace: queue.eligibilityTrace,
       evidenceFloors,
       tags: ["scale_promotions"],
       trust: buildMetaOpportunityTrust({
@@ -2683,6 +2690,7 @@ function buildMetaOpportunityBoard(input: {
       recommendedAction: candidate.policy.strategyClass,
       confidence: candidate.confidence,
       queue,
+      eligibilityTrace: queue.eligibilityTrace,
       evidenceFloors,
       tags: ["scale_promotions"],
       trust: buildMetaOpportunityTrust({
@@ -2733,6 +2741,11 @@ function buildMetaOpportunityBoard(input: {
         reason: "Protected winners stay visible as guardrail context, not as queue work.",
       }),
     ];
+    const queue = evaluateDecisionOpportunityQueue({
+      truthState: baseTrust?.truthState ?? "live_confident",
+      authorityReady: false,
+      floors: evidenceFloors,
+    });
     items.push({
       opportunityId: `meta-protected:${item.entityType}:${item.entityId}`,
       kind: "protected_winner",
@@ -2740,11 +2753,8 @@ function buildMetaOpportunityBoard(input: {
       summary: item.reason,
       recommendedAction: "hold_no_touch",
       confidence: item.confidence,
-      queue: evaluateDecisionOpportunityQueue({
-        truthState: baseTrust?.truthState ?? "live_confident",
-        authorityReady: false,
-        floors: evidenceFloors,
-      }),
+      queue,
+      eligibilityTrace: queue.eligibilityTrace,
       evidenceFloors,
       tags: ["promo_mode_watchlist"],
       trust: buildMetaOpportunityTrust({
@@ -2915,6 +2925,7 @@ function buildSummary(input: {
   geoFreshness: MetaGeoSourceFreshness;
   commercialTruth: BusinessCommercialTruthSnapshot;
 }): MetaDecisionOsSummary {
+  const commercialCoverage = input.commercialTruth.coverage;
   const topAdSetActions = [...input.adSetDecisions]
     .filter((decision) => decision.trust.surfaceLane === "action_core")
     .sort(
@@ -2944,6 +2955,64 @@ function buildSummary(input: {
       .filter((decision) => decision.grouped && decision.clusterKey)
       .map((decision) => decision.clusterKey),
   ).size;
+  const sourceHealth: DecisionSourceHealthEntry[] = [
+    {
+      source: "Geo source",
+      status:
+        input.geoFreshness.dataState === "ready"
+          ? input.geoFreshness.isPartial
+            ? "stale"
+            : "healthy"
+          : input.geoFreshness.reason?.toLowerCase().includes("timeout")
+            ? "timeout"
+            : "degraded",
+      detail:
+        input.geoFreshness.reason ??
+        (input.geoFreshness.isPartial
+          ? "Geo source is partially ready, so pooled and validation reads stay labeled."
+          : "Geo source is ready for the current decision window."),
+      fallbackLabel: input.geoFreshness.isPartial ? "partial fallback" : null,
+    },
+    {
+      source: "Commercial truth",
+      status:
+        commercialCoverage?.freshness.status === "fresh"
+          ? "healthy"
+          : commercialCoverage?.freshness.status === "stale"
+            ? "stale"
+            : "degraded",
+      detail:
+        commercialCoverage?.freshness.reason ??
+        "Commercial truth is configured for the current decision window.",
+      fallbackLabel:
+        commercialCoverage?.freshness.status === "fresh"
+          ? null
+          : "shared trust ceiling",
+    },
+  ];
+  const readReliability: DecisionReadReliability =
+    input.geoFreshness.dataState === "ready" &&
+    !input.geoFreshness.isPartial &&
+    (commercialCoverage?.freshness.status ?? "missing") === "fresh"
+      ? {
+          status: "stable",
+          determinism: "stable",
+          detail:
+            "Repeated reads should stay stable because both provider freshness and shared commercial truth are current.",
+        }
+      : input.geoFreshness.reason?.toLowerCase().includes("timeout")
+        ? {
+            status: "degraded",
+            determinism: "unstable",
+            detail:
+              "A timeout or stale upstream source is forcing labeled fallback posture instead of queue promotion.",
+          }
+        : {
+            status: "fallback",
+            determinism: "watch",
+            detail:
+              "The surface is still readable, but operators should expect board-only or trust-capped outcomes until freshness improves.",
+          };
 
   return {
     todayPlanHeadline:
@@ -2981,6 +3050,8 @@ function buildSummary(input: {
         ? topAdSetActions.reduce((sum, decision) => sum + decision.confidence, 0) / topAdSetActions.length
         : 0.56,
     ),
+    sourceHealth,
+    readReliability,
     surfaceSummary: {
       actionCoreCount:
         input.budgetShifts.length +
@@ -3210,6 +3281,8 @@ export function buildMetaDecisionOs(
       commercialTruthCoverage.missingInputs.length > 0
         ? "Meta Decision OS remains available but trust-capped by missing commercial truth."
         : "Meta Decision OS is operating on the live decision window with shared trust-kernel suppression.",
+    sourceHealth: summary.sourceHealth,
+    readReliability: summary.readReliability,
   });
 
   return {

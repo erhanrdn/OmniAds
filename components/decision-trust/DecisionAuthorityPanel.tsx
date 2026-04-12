@@ -42,6 +42,13 @@ function resolveStatusTone(kind: "truth" | "completeness" | "freshness", value: 
   return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
+function formatRequiredSection(value: string) {
+  return value
+    .replaceAll(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .toLowerCase();
+}
+
 export function DecisionAuthorityPanel({
   authority,
   commercialSummary,
@@ -66,6 +73,9 @@ export function DecisionAuthorityPanel({
     new Set([
       ...(commercialSummary?.actionCeilings ?? []),
     ]),
+  );
+  const blockingInputs = (commercialSummary?.requiredInputs ?? []).filter(
+    (item) => item.blocking && item.freshness.status !== "fresh",
   );
   const thresholdPills = thresholds
     ? [
@@ -131,6 +141,23 @@ export function DecisionAuthorityPanel({
         </div>
       </div>
 
+      {blockingInputs.length > 0 ? (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            Blocking Truth Gaps
+          </p>
+          <p className="mt-1 text-xs leading-relaxed">
+            {blockingInputs.map((item) => formatRequiredSection(item.section)).join(" · ")}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed">
+            Ceiling:{" "}
+            {actionCeilings.length > 0
+              ? actionCeilings.map((item) => formatLabel(item)).join(", ")
+              : "No active ceiling"}
+          </p>
+        </div>
+      ) : null}
+
       {thresholdPills.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           {thresholdPills.map((item) => (
@@ -182,6 +209,40 @@ export function DecisionAuthorityPanel({
         </div>
       ) : null}
 
+      {(authority?.sourceHealth?.length ?? 0) > 0 || authority?.readReliability ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {(authority?.sourceHealth ?? []).map((entry) => (
+            <div
+              key={`${entry.source}-${entry.status}`}
+              className="rounded-xl border border-current/10 bg-white/70 px-3 py-2"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+                {entry.source}
+              </p>
+              <p className="mt-1 text-xs">
+                {formatLabel(entry.status)}
+                {entry.fallbackLabel ? ` · ${entry.fallbackLabel}` : ""}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed">{entry.detail}</p>
+            </div>
+          ))}
+          {authority?.readReliability ? (
+            <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+                Read Reliability
+              </p>
+              <p className="mt-1 text-xs">
+                {formatLabel(authority.readReliability.status)} ·{" "}
+                {authority.readReliability.determinism}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed">
+                {authority.readReliability.detail}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {blockingReasons.length > 0 ? (
         <div className="mt-3 rounded-xl border border-current/10 bg-white/70 px-3 py-2">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
@@ -190,6 +251,22 @@ export function DecisionAuthorityPanel({
           <p className="mt-1 text-xs leading-relaxed">
             {blockingReasons.join(" · ")}
           </p>
+        </div>
+      ) : null}
+
+      {(commercialSummary?.requiredInputs.length ?? 0) > 0 ? (
+        <div className="mt-3 rounded-xl border border-current/10 bg-white/70 px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            Required Inputs
+          </p>
+          <div className="mt-2 space-y-1 text-xs leading-relaxed">
+            {commercialSummary?.requiredInputs.map((item) => (
+              <p key={`${item.section}-${item.reason}`}>
+                {formatRequiredSection(item.section)}: {item.freshness.status}
+                {item.actionCeiling ? ` · ceiling ${formatLabel(item.actionCeiling)}` : ""}
+              </p>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>

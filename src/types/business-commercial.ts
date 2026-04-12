@@ -214,6 +214,32 @@ export interface BusinessCommercialThresholdSummary {
   defaultRiskPosture: BusinessRiskPosture;
 }
 
+export const BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS = [
+  "targetPack",
+  "countryEconomics",
+  "promoCalendar",
+  "operatingConstraints",
+  "calibrationProfiles",
+] as const;
+
+export type BusinessCommercialRequiredInputSection =
+  (typeof BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS)[number];
+
+export interface BusinessCommercialRequiredInput {
+  section: BusinessCommercialRequiredInputSection;
+  blocking: boolean;
+  freshness: BusinessCommercialFreshnessMeta;
+  reason: string;
+  actionCeiling: DecisionSafeActionLabel | null;
+}
+
+export interface BusinessCommercialBootstrapSuggestion {
+  section: BusinessCommercialRequiredInputSection;
+  title: string;
+  detail: string;
+  safe: boolean;
+}
+
 export interface BusinessCommercialCoverageSummary {
   completeness: BusinessCommercialCompletenessState;
   freshness: BusinessCommercialFreshnessMeta;
@@ -222,6 +248,7 @@ export interface BusinessCommercialCoverageSummary {
   actionCeilings: DecisionSafeActionLabel[];
   thresholds: BusinessCommercialThresholdSummary;
   calibration: BusinessDecisionCalibrationSummary;
+  requiredInputs: BusinessCommercialRequiredInput[];
 }
 
 export interface BusinessCommercialTruthSnapshot {
@@ -239,6 +266,7 @@ export interface BusinessCommercialTruthSnapshot {
     operatingConstraints: BusinessCommercialSectionMeta;
   };
   coverage?: BusinessCommercialCoverageSummary;
+  bootstrapSuggestions?: BusinessCommercialBootstrapSuggestion[];
 }
 
 export interface AccountOperatingModeLineItem {
@@ -420,6 +448,76 @@ export function createEmptyBusinessCommercialCoverageSummary(): BusinessCommerci
       channels: [],
       updatedAt: null,
     },
+    requiredInputs: [
+      {
+        section: "targetPack",
+        blocking: true,
+        freshness: {
+          status: "missing",
+          updatedAt: null,
+          ageHours: null,
+          reason: "Target pack thresholds are not configured yet.",
+        },
+        reason:
+          "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults.",
+        actionCeiling: "review_hold",
+      },
+      {
+        section: "countryEconomics",
+        blocking: true,
+        freshness: {
+          status: "missing",
+          updatedAt: null,
+          ageHours: null,
+          reason:
+            "Country economics are not configured for deterministic GEO decisions.",
+        },
+        reason:
+          "Country economics are missing, so GEO-aware scaling remains review-safe.",
+        actionCeiling: "monitor_low_truth",
+      },
+      {
+        section: "promoCalendar",
+        blocking: false,
+        freshness: {
+          status: "missing",
+          updatedAt: null,
+          ageHours: null,
+          reason:
+            "Promo calendar is not configured, so promo-aware posture stays conservative.",
+        },
+        reason:
+          "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured.",
+        actionCeiling: null,
+      },
+      {
+        section: "operatingConstraints",
+        blocking: true,
+        freshness: {
+          status: "missing",
+          updatedAt: null,
+          ageHours: null,
+          reason:
+            "Operating constraints are not configured, so blockers and action ceilings stay conservative.",
+        },
+        reason:
+          "Operating constraints are missing, so action ceilings stay conservative.",
+        actionCeiling: "degraded_no_scale",
+      },
+      {
+        section: "calibrationProfiles",
+        blocking: false,
+        freshness: {
+          status: "missing",
+          updatedAt: null,
+          ageHours: null,
+          reason: "No calibration profiles exist yet.",
+        },
+        reason:
+          "No calibration profiles exist yet, so channel-specific confidence caps stay generic.",
+        actionCeiling: "review_hold",
+      },
+    ],
   };
 }
 
@@ -441,5 +539,14 @@ export function createEmptyBusinessCommercialTruthSnapshot(
       operatingConstraints: createSectionMeta(),
     },
     coverage: createEmptyBusinessCommercialCoverageSummary(),
+    bootstrapSuggestions: [
+      {
+        section: "calibrationProfiles",
+        title: "Create a baseline calibration profile",
+        detail:
+          "Start with a conservative meta/default profile and keep the ceiling at review_hold until operator benchmark feedback exists.",
+        safe: true,
+      },
+    ],
   };
 }

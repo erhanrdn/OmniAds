@@ -10,6 +10,21 @@ function formatLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function resolveProofTone(
+  value: CommandCenterExecutionSupportMatrixEntry["applyProofLevel"],
+) {
+  if (value === "live_canary_proven") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (value === "provider_validated") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  if (value === "code_supported") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
 function resolveSupportTone(
   mode: CommandCenterExecutionSupportMatrixEntry["supportMode"],
 ) {
@@ -114,8 +129,8 @@ export function CommandCenterExecutionSupportMatrix({
           Capability key: {preview.capability.capabilityKey}
         </p>
         <p className="mt-1 text-xs text-slate-600">
-          Verified apply/rollback: {preview.capability.verifiedApply ? "yes" : "no"} /{" "}
-          {preview.capability.verifiedRollback ? "yes" : "no"}
+          Apply / rollback proof: {formatLabel(preview.capability.applyProofLevel)} /{" "}
+          {formatLabel(preview.capability.rollbackProofLevel)}
         </p>
       </div>
 
@@ -145,6 +160,18 @@ export function CommandCenterExecutionSupportMatrix({
                   </Badge>
                   <Badge variant="outline" className={resolveRollbackTone(entry.rollback.kind)}>
                     rollback: {formatLabel(entry.rollback.kind)}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={resolveProofTone(entry.applyProofLevel)}
+                  >
+                    apply proof: {formatLabel(entry.applyProofLevel)}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={resolveProofTone(entry.rollbackProofLevel)}
+                  >
+                    rollback proof: {formatLabel(entry.rollbackProofLevel)}
                   </Badge>
                 </div>
               </div>

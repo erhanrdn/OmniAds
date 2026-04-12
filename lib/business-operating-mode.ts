@@ -582,6 +582,61 @@ export function buildAccountOperatingMode(input: {
     note: degradedMode.active
       ? "Operating Mode is present but trust-capped by missing truth or low-signal inputs."
       : "Operating Mode is running on the live decision window without active truth caps.",
+    sourceHealth: [
+      {
+        source: "Meta decision window",
+        status:
+          platform.hasCampaignData && platform.hasLocationData
+            ? "healthy"
+            : "stale",
+        detail:
+          platform.hasCampaignData && platform.hasLocationData
+            ? "Campaign and GEO window inputs are available."
+            : "One or more Meta decision-window inputs are incomplete.",
+        fallbackLabel:
+          platform.hasCampaignData && platform.hasLocationData
+            ? null
+            : "low-signal fallback",
+      },
+      {
+        source: "Commercial truth",
+        status:
+          input.snapshot.coverage?.freshness.status === "fresh"
+            ? "healthy"
+            : input.snapshot.coverage?.freshness.status === "stale"
+              ? "stale"
+              : "degraded",
+        detail:
+          input.snapshot.coverage?.freshness.reason ??
+          "Commercial truth is configured for operating mode.",
+        fallbackLabel:
+          input.snapshot.coverage?.freshness.status === "fresh"
+            ? null
+            : "shared trust ceiling",
+      },
+    ],
+    readReliability:
+      platform.hasCampaignData && platform.hasLocationData
+        ? {
+            status:
+              input.snapshot.coverage?.freshness.status === "fresh"
+                ? "stable"
+                : "fallback",
+            determinism:
+              input.snapshot.coverage?.freshness.status === "fresh"
+                ? "stable"
+                : "watch",
+            detail:
+              input.snapshot.coverage?.freshness.status === "fresh"
+                ? "Operating Mode is reading stable platform and commercial inputs."
+                : "Operating Mode is readable, but missing or stale truth keeps the mode trust-capped.",
+          }
+        : {
+            status: "fallback",
+            determinism: "watch",
+            detail:
+              "Operating Mode is using labeled fallback posture because platform inputs are incomplete.",
+          },
   });
 
   return {

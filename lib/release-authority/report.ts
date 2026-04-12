@@ -1,4 +1,5 @@
 import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
+import { COMMAND_CENTER_EXECUTION_CAPABILITY_REGISTRY } from "@/lib/command-center-execution-capabilities";
 import {
   RELEASE_AUTHORITY_CANONICAL_DOC,
   RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA,
@@ -12,6 +13,7 @@ import {
   type ReleaseAuthorityDriftState,
   type ReleaseAuthorityFlagPosture,
   type ReleaseAuthorityReport,
+  type ReleaseAuthorityCarryForwardItem,
   type ReleaseAuthoritySurface,
   type ReleaseAuthoritySurfaceDefinition,
   type ReleaseAuthorityVerdict,
@@ -256,6 +258,64 @@ function buildReviewOrder(input: {
   return items;
 }
 
+const PROOF_LEVEL_RANK = {
+  unsupported: 0,
+  code_supported: 1,
+  provider_validated: 2,
+  live_canary_proven: 3,
+} as const;
+
+function buildCarryForward(input: {
+  surfaces: ReleaseAuthoritySurface[];
+}): ReleaseAuthorityReport["carryForward"] {
+  const executionSurface = input.surfaces.find(
+    (surface) => surface.id === "command_center_execution_apply_rollback",
+  );
+  const executionEntries = COMMAND_CENTER_EXECUTION_CAPABILITY_REGISTRY.filter(
+    (entry) => entry.supportMode === "supported",
+  );
+  const highestApplyProof = executionEntries.sort(
+    (left, right) =>
+      PROOF_LEVEL_RANK[right.applyProofLevel] - PROOF_LEVEL_RANK[left.applyProofLevel],
+  )[0]?.applyProofLevel ?? null;
+  const highestRollbackProof = executionEntries.sort(
+    (left, right) =>
+      PROOF_LEVEL_RANK[right.rollbackProofLevel] -
+      PROOF_LEVEL_RANK[left.rollbackProofLevel],
+  )[0]?.rollbackProofLevel ?? null;
+
+  const acceptanceGaps: ReleaseAuthorityCarryForwardItem[] =
+    highestApplyProof !== "live_canary_proven" ||
+    highestRollbackProof !== "live_canary_proven"
+      ? [
+          {
+            id: "command-center-execution-live-canary-gap",
+            surfaceId: "command_center_execution_apply_rollback",
+            label: "Command Center apply / rollback proof carry-forward",
+            status: "accepted_gap",
+            proofLevel:
+              highestApplyProof && highestRollbackProof
+                ? `apply:${highestApplyProof}, rollback:${highestRollbackProof}`
+                : null,
+            detail:
+              executionSurface?.runtimeState === "flagged"
+                ? "Command Center apply and rollback are intentionally shipped behind flagged canary authority. Repo proof is provider-validated, but a live canary artifact chain is still outstanding."
+                : "Command Center apply and rollback are shipped, but a live canary artifact chain is still outstanding.",
+            nextRequirement:
+              "Capture one narrow supported canary path with approve, apply, post-validate, and rollback artifacts, then promote the proof level to live_canary_proven.",
+          },
+        ]
+      : [];
+
+  return {
+    summary:
+      acceptanceGaps.length === 0
+        ? "No accepted carry-forward gaps remain."
+        : `${acceptanceGaps.length} accepted carry-forward gap(s) remain and must stay literal in the authority docs.`,
+    acceptanceGaps,
+  };
+}
+
 export function buildReleaseAuthorityReport(input: {
   currentLiveSha?: string;
   currentMainSha?: string | null;
@@ -288,6 +348,7 @@ export function buildReleaseAuthorityReport(input: {
     docsVsRuntime,
     flagsVsRuntime,
   });
+  const carryForward = buildCarryForward({ surfaces });
 
   const liveMainDocsStatus: ReleaseAuthorityDriftState =
     liveVsMain.status === "drifted" ||
@@ -356,6 +417,7 @@ export function buildReleaseAuthorityReport(input: {
     },
     surfaces,
     unresolvedDriftItems,
+    carryForward,
     reviewOrder: buildReviewOrder({
       currentLiveSha,
       currentMainSha,

@@ -54,9 +54,12 @@ function supplyTone(kind: CreativeDecisionOsV1Response["supplyPlan"][number]["ki
   return "border-sky-200 bg-sky-50";
 }
 
-function opportunityTone(queueEligible: boolean, kind: string) {
-  if (queueEligible) return "border-emerald-200 bg-emerald-50";
-  if (kind === "protected_winner") return "border-blue-200 bg-blue-50";
+function opportunityTone(verdict: string, kind: string) {
+  if (verdict === "queue_ready") return "border-emerald-200 bg-emerald-50";
+  if (verdict === "protected" || kind === "protected_winner") {
+    return "border-blue-200 bg-blue-50";
+  }
+  if (verdict === "blocked") return "border-rose-200 bg-rose-50";
   return "border-slate-200 bg-slate-50";
 }
 
@@ -267,47 +270,56 @@ export function CreativeDecisionOsOverview({
           <p className="mt-3 text-sm text-slate-500">No opportunity-board item is available yet.</p>
         ) : (
           <div className="mt-3 grid gap-3 xl:grid-cols-2">
-            {decisionOs.opportunityBoard.slice(0, 6).map((item) => (
-              <div
-                key={item.opportunityId}
-                className={cn(
-                  "rounded-2xl border p-3",
-                  opportunityTone(item.queue.eligible, item.kind),
-                )}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">{item.title}</p>
-                    <p className="mt-1 text-xs text-slate-600">{item.summary}</p>
-                  </div>
-                  <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                    {formatLifecycleLabel(item.kind)}
-                  </span>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                  <span>{formatLifecycleLabel(item.recommendedAction)}</span>
-                  <span>{Math.round(item.confidence * 100)}% confidence</span>
-                  <span>{item.queue.eligible ? "queue-ready" : "board-only"}</span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {item.evidenceFloors.slice(0, 3).map((floor) => (
-                    <span
-                      key={`${item.opportunityId}:${floor.key}`}
-                      className={cn(
-                        "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                        floor.status === "met"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : floor.status === "watch"
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-slate-200 text-slate-700",
-                      )}
-                    >
-                      {floor.label}: {floor.current}
+            {decisionOs.opportunityBoard.slice(0, 6).map((item) => {
+              const verdict =
+                item.eligibilityTrace?.verdict ??
+                (item.queue.eligible
+                  ? "queue_ready"
+                  : item.kind === "protected_winner"
+                    ? "protected"
+                    : "board_only");
+              return (
+                <div
+                  key={item.opportunityId}
+                  className={cn(
+                    "rounded-2xl border p-3",
+                    opportunityTone(verdict, item.kind),
+                  )}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{item.title}</p>
+                      <p className="mt-1 text-xs text-slate-600">{item.summary}</p>
+                    </div>
+                    <span className="rounded-full bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                      {formatLifecycleLabel(item.kind)}
                     </span>
-                  ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                    <span>{formatLifecycleLabel(item.recommendedAction)}</span>
+                    <span>{Math.round(item.confidence * 100)}% confidence</span>
+                    <span>{verdict.replaceAll("_", "-")}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.evidenceFloors.slice(0, 3).map((floor) => (
+                      <span
+                        key={`${item.opportunityId}:${floor.key}`}
+                        className={cn(
+                          "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                          floor.status === "met"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : floor.status === "watch"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-slate-200 text-slate-700",
+                        )}
+                      >
+                        {floor.label}: {floor.current}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

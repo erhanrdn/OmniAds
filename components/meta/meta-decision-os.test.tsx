@@ -426,7 +426,7 @@ function payload() {
             key: "freshness",
             label: "Freshness",
             status: "met",
-            current: "ready / verified",
+            current: "ready / fresh",
             required: "ready and not stale",
             reason: null,
           },

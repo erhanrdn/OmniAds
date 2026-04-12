@@ -29,7 +29,9 @@ import type {
   DecisionEvidenceFloor,
   DecisionOperatorDisposition,
   DecisionPolicyExplanation,
+  DecisionReadReliability,
   DecisionOpportunityQueueEligibility,
+  DecisionSourceHealthEntry,
   DecisionSurfaceLane,
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
@@ -465,6 +467,7 @@ export interface CreativeOpportunityBoardItem {
   recommendedAction: string;
   confidence: number;
   queue: DecisionOpportunityQueueEligibility;
+  eligibilityTrace: DecisionOpportunityQueueEligibility["eligibilityTrace"];
   evidenceFloors: DecisionEvidenceFloor[];
   tags: string[];
   trust: DecisionTrustMetadata;
@@ -537,6 +540,8 @@ export interface CreativeDecisionOsV1Response {
     supplyPlanCount: number;
     message: string;
     operatingMode: AccountOperatingModePayload["recommendedMode"] | null;
+    sourceHealth: DecisionSourceHealthEntry[];
+    readReliability: DecisionReadReliability;
     surfaceSummary: {
       actionCoreCount: number;
       watchlistCount: number;
@@ -2355,6 +2360,7 @@ function buildCreativeOpportunityBoard(input: {
         0.92,
       ),
       queue,
+      eligibilityTrace: queue.eligibilityTrace,
       evidenceFloors,
       tags: ["scale_promotions"],
       trust: buildCreativeOpportunityTrust({
@@ -2397,6 +2403,11 @@ function buildCreativeOpportunityBoard(input: {
           "Protected winners stay visible for operator context, not as queue work.",
       }),
     ];
+    const queue = evaluateDecisionOpportunityQueue({
+      truthState: baseTrust.truthState,
+      authorityReady: false,
+      floors: evidenceFloors,
+    });
     items.push({
       opportunityId: `creative-protected:${protectedWinner.creativeId}`,
       kind: "protected_winner",
@@ -2404,11 +2415,8 @@ function buildCreativeOpportunityBoard(input: {
       summary: protectedWinner.reasons[0] ?? "Protected creative winner.",
       recommendedAction: "hold_no_touch",
       confidence: baseCreative?.confidence ?? 0.72,
-      queue: evaluateDecisionOpportunityQueue({
-        truthState: baseTrust.truthState,
-        authorityReady: false,
-        floors: evidenceFloors,
-      }),
+      queue,
+      eligibilityTrace: queue.eligibilityTrace,
       evidenceFloors,
       tags: ["promo_mode_watchlist"],
       trust: buildCreativeOpportunityTrust({
@@ -2459,6 +2467,36 @@ export function buildCreativeDecisionOs(
       input.commercialTruth,
       input.operatingMode,
     );
+    const emptySourceHealth = [
+      {
+        source: "Creative source",
+        status: "degraded" as const,
+        detail: "No creative rows were available for the current decision window.",
+        fallbackLabel: "empty fallback",
+      },
+      {
+        source: "Commercial truth",
+        status:
+          commercialTruthCoverage.summary?.freshness.status === "fresh"
+            ? ("healthy" as const)
+            : commercialTruthCoverage.summary?.freshness.status === "stale"
+              ? ("stale" as const)
+              : ("degraded" as const),
+        detail:
+          commercialTruthCoverage.summary?.freshness.reason ??
+          "Commercial truth is configured for creative decisioning.",
+        fallbackLabel:
+          commercialTruthCoverage.summary?.freshness.status === "fresh"
+            ? null
+            : "shared trust ceiling",
+      },
+    ];
+    const emptyReadReliability = {
+      status: "degraded" as const,
+      determinism: "unstable" as const,
+      detail:
+        "The creative surface is in degraded mode because no rows were available for the current decision window.",
+    };
     const authority = buildDecisionSurfaceAuthority({
       scope: "Creative Decision OS",
       truthState:
@@ -2482,6 +2520,8 @@ export function buildCreativeDecisionOs(
         commercialTruthCoverage.missingInputs.length > 0
           ? "Creative Decision OS has no live rows and remains trust-capped by incomplete commercial truth."
           : "Creative Decision OS has no live rows in the current decision window.",
+      sourceHealth: emptySourceHealth,
+      readReliability: emptyReadReliability,
     });
 
     return {
@@ -2513,6 +2553,8 @@ export function buildCreativeDecisionOs(
         },
         message: "No creative rows were available for the live decision window.",
         operatingMode: input.operatingMode?.recommendedMode ?? null,
+        sourceHealth: emptySourceHealth,
+        readReliability: emptyReadReliability,
         surfaceSummary: {
           actionCoreCount: 0,
           watchlistCount: 0,
@@ -2852,6 +2894,77 @@ export function buildCreativeDecisionOs(
     input.commercialTruth,
     input.operatingMode,
   );
+  const creativeHistoryCoverage =
+    creatives.length === 0
+      ? 0
+      : creatives.filter(
+          (creative) =>
+            Boolean(
+              creative.report?.timeframeContext ||
+                creative.report?.benchmark?.sampleSize ||
+                creative.report?.fatigue?.evidence.length,
+            ),
+        ).length / creatives.length;
+  const sourceHealth: DecisionSourceHealthEntry[] = [
+    {
+      source: "Creative source",
+      status:
+        creatives.length === 0
+          ? "degraded"
+          : creativeHistoryCoverage >= 0.9
+            ? "healthy"
+            : creativeHistoryCoverage >= 0.5
+              ? "stale"
+              : "degraded",
+      detail:
+        creatives.length === 0
+          ? "No creative rows were available for the current decision window."
+          : creativeHistoryCoverage >= 0.9
+            ? "Creative rows and benchmark context resolved for the current decision window."
+            : "Some creative rows are missing historical or benchmark context, so fallback posture stays labeled.",
+      fallbackLabel:
+        creativeHistoryCoverage >= 0.9 ? null : "benchmark fallback",
+    },
+    {
+      source: "Commercial truth",
+      status:
+        commercialTruthCoverage.summary?.freshness.status === "fresh"
+          ? "healthy"
+          : commercialTruthCoverage.summary?.freshness.status === "stale"
+            ? "stale"
+            : "degraded",
+      detail:
+        commercialTruthCoverage.summary?.freshness.reason ??
+        "Commercial truth is configured for creative decisioning.",
+      fallbackLabel:
+        commercialTruthCoverage.summary?.freshness.status === "fresh"
+          ? null
+          : "shared trust ceiling",
+    },
+  ];
+  const readReliability: DecisionReadReliability =
+    creatives.length > 0 &&
+    creativeHistoryCoverage >= 0.9 &&
+    (commercialTruthCoverage.summary?.freshness.status ?? "missing") === "fresh"
+      ? {
+          status: "stable",
+          determinism: "stable",
+          detail:
+            "Repeated reads should stay stable because creative rows and shared commercial truth are current.",
+        }
+      : creatives.length === 0
+        ? {
+            status: "degraded",
+            determinism: "unstable",
+            detail:
+              "The creative surface is in degraded mode because no rows were available for the current decision window.",
+          }
+        : {
+            status: "fallback",
+            determinism: "watch",
+            detail:
+              "The creative surface is still readable, but fallback and trust-capped decisions remain labeled until benchmark coverage improves.",
+          };
   const surfaceSummary = {
     actionCoreCount: creatives.filter(
       (creative) => creative.trust.surfaceLane === "action_core",
@@ -2890,6 +3003,8 @@ export function buildCreativeDecisionOs(
       commercialTruthCoverage.missingInputs.length > 0
         ? "Creative Decision OS remains visible but caps aggressive actions until truth coverage improves."
         : "Creative Decision OS is using the shared trust kernel without active truth caps.",
+    sourceHealth,
+    readReliability,
   });
 
   return {
@@ -2937,6 +3052,8 @@ export function buildCreativeDecisionOs(
           ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and block outcomes."
           : "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: input.operatingMode?.recommendedMode ?? null,
+      sourceHealth,
+      readReliability,
       surfaceSummary,
     },
     creatives,

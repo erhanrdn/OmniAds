@@ -233,6 +233,16 @@ function OpportunityBoardRow({
 }: {
   item: MetaOpportunityBoardItem;
 }) {
+  const blockedReason = item.eligibilityTrace?.blockedReasons?.[0] ?? null;
+  const watchReason = item.eligibilityTrace?.watchReasons?.[0] ?? null;
+  const verdict = (
+    item.eligibilityTrace?.verdict ??
+    (item.queue.eligible
+      ? "queue_ready"
+      : item.kind === "protected_winner"
+        ? "protected"
+        : "board_only")
+  ).replaceAll("_", "-");
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -244,12 +254,16 @@ function OpportunityBoardRow({
           <span
             className={cn(
               "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
-              item.queue.eligible
+              verdict === "queue-ready"
                 ? "bg-emerald-500/10 text-emerald-700"
-                : "bg-slate-500/10 text-slate-700",
+                : verdict === "protected"
+                  ? "bg-blue-500/10 text-blue-700"
+                  : verdict === "blocked"
+                    ? "bg-rose-500/10 text-rose-700"
+                    : "bg-slate-500/10 text-slate-700",
             )}
           >
-            {item.queue.eligible ? "queue-ready" : "board-only"}
+            {verdict}
           </span>
           <span className="rounded-full bg-slate-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
             {formatActionLabel(item.kind)}
@@ -261,6 +275,11 @@ function OpportunityBoardRow({
         <span className={confidenceTone(item.confidence)}>
           Confidence {(item.confidence * 100).toFixed(0)}%
         </span>
+        {blockedReason ? (
+          <span>{blockedReason}</span>
+        ) : watchReason ? (
+          <span>{watchReason}</span>
+        ) : null}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {item.evidenceFloors.slice(0, 3).map((floor) => (

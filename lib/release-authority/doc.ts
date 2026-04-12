@@ -29,6 +29,16 @@ export function buildReleaseAuthorityCanonicalDoc(
           )
           .join("\n");
 
+  const carryForwardRows =
+    report.carryForward.acceptanceGaps.length === 0
+      ? "| none | complete | No accepted carry-forward gaps remain. | n/a |\n"
+      : report.carryForward.acceptanceGaps
+          .map(
+            (item) =>
+              `| ${item.label} | ${item.status} | ${escapePipe(item.detail)} | ${escapePipe(item.nextRequirement)} |`,
+          )
+          .join("\n");
+
   return `# V3-01 Release Authority
 
 This document is generated from \`lib/release-authority/*\`. Do not hand-edit it.
@@ -59,6 +69,14 @@ ${matrixRows}
 | Item | Status | Detail |
 | --- | --- | --- |
 ${driftRows}
+
+## Carry-Forward Acceptance Gaps
+
+${report.carryForward.summary}
+
+| Item | Status | Detail | Next requirement |
+| --- | --- | --- | --- |
+${carryForwardRows}
 
 ## Review Order
 

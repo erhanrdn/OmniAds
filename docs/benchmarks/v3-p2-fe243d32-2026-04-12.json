@@ -1,0 +1,29 @@
+{
+  "phase": "v3-p2",
+  "date": "2026-04-12",
+  "baselineLiveSha": "fe243d32cf61cac68b68ebed7a2c1da0c8e9552c",
+  "status": "local_only_pending_deploy",
+  "businesses": [
+    {
+      "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+      "label": "Grandmix",
+      "completeness": "missing",
+      "freshness": "missing",
+      "calibrationProfiles": 0
+    },
+    {
+      "businessId": "f8a3b5ac-588c-462f-8702-11cd24ff3cd2",
+      "label": "IwaStore",
+      "completeness": "missing",
+      "freshness": "missing",
+      "calibrationProfiles": 0
+    },
+    {
+      "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      "label": "TheSwaf",
+      "completeness": "missing",
+      "freshness": "missing",
+      "calibrationProfiles": 0
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import {
   COMMAND_CENTER_EXECUTION_CONTRACT_VERSION,
   type CommandCenterExecutionApprovalSnapshot,
   type CommandCenterExecutionCapability,
+  type CommandCenterExecutionCanaryPreflight,
   type CommandCenterExecutionDiffItem,
   type CommandCenterExecutionOperation,
   type CommandCenterExecutionPreflightCheck,
@@ -421,8 +422,8 @@ function buildPreflightReport(input: {
       required: true,
       passing: input.safeSubset,
       detail: input.safeSubset
-        ? "The target stays inside the verified ad-set-only safe mutation subset."
-        : "The target does not satisfy the verified safe subset requirements.",
+        ? "The target stays inside the supported ad-set-only safe mutation subset."
+        : "The target does not satisfy the supported safe subset requirements.",
     }),
     buildPreflightCheck({
       key: "already_at_target",
@@ -488,6 +489,85 @@ function getFirstBlockingPreflightDetail(
   );
 }
 
+function buildCanaryPreflight(input: {
+  action: CommandCenterAction;
+  capability: CommandCenterExecutionCapability;
+  boundaryState: ReturnType<typeof getMetaExecutionApplyBoundaryState>;
+}): CommandCenterExecutionCanaryPreflight {
+  const configuredSmokeBusiness = Boolean(
+    process.env.COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID?.trim() ||
+      process.env.PLAYWRIGHT_EXECUTION_CANARY_BUSINESS_ID?.trim(),
+  );
+  const candidateAction =
+    input.action.sourceType === "meta_adset_decision" &&
+    isSupportedMetaExecutionAction(input.action.recommendedAction)
+      ? input.action.recommendedAction
+      : null;
+  const checks = [
+    {
+      key: "command_center_execution_v1",
+      label: "COMMAND_CENTER_EXECUTION_V1",
+      status: input.boundaryState.executionPreviewEnabled ? "pass" : "blocked",
+      detail: input.boundaryState.executionPreviewEnabled
+        ? "Execution preview runtime is enabled."
+        : "Execution preview runtime is disabled.",
+    },
+    {
+      key: "meta_execution_apply_enabled",
+      label: "META_EXECUTION_APPLY_ENABLED",
+      status: input.boundaryState.applyEnabled ? "pass" : "blocked",
+      detail: input.boundaryState.applyEnabled
+        ? "Meta execution apply is enabled."
+        : "Meta execution apply is disabled.",
+    },
+    {
+      key: "meta_execution_kill_switch",
+      label: "META_EXECUTION_KILL_SWITCH",
+      status: input.boundaryState.killSwitchActive ? "blocked" : "pass",
+      detail: input.boundaryState.killSwitchActive
+        ? "Kill switch is active."
+        : "Kill switch is inactive.",
+    },
+    {
+      key: "meta_execution_canary_businesses",
+      label: "META_EXECUTION_CANARY_BUSINESSES",
+      status: input.boundaryState.canaryScoped ? "pass" : "blocked",
+      detail: input.boundaryState.canaryScoped
+        ? "Canary allowlist is configured."
+        : "No Meta execution canary allowlist is configured.",
+    },
+    {
+      key: "commercial_smoke_operator_execution_business_id",
+      label: "COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID",
+      status: configuredSmokeBusiness ? "pass" : "blocked",
+      detail: configuredSmokeBusiness
+        ? "Commercial smoke business is configured."
+        : "Execution canary smoke business is not configured in this runtime.",
+    },
+    {
+      key: "candidate_supported_action",
+      label: "candidate supported action availability",
+      status:
+        input.capability.supportMode === "supported" && candidateAction
+          ? "pass"
+          : "blocked",
+      detail:
+        input.capability.supportMode === "supported" && candidateAction
+          ? `Candidate supported action is ${candidateAction}.`
+          : "Current action is outside the supported canary apply subset.",
+    },
+  ] satisfies CommandCenterExecutionCanaryPreflight["checks"];
+
+  return {
+    ready: checks.every((check) => check.status === "pass"),
+    candidateAction,
+    blockers: checks
+      .filter((check) => check.status !== "pass")
+      .map((check) => check.label),
+    checks,
+  };
+}
+
 function buildApprovalSnapshot(
   action: CommandCenterAction,
   journal: CommandCenterJournalEntry[],
@@ -545,6 +625,7 @@ function buildManualOnlyPreview(input: {
   requestedState: CommandCenterExecutionStateSummary | null;
   capability: CommandCenterExecutionCapability;
   preflight: CommandCenterExecutionPreflightReport;
+  canaryPreflight: CommandCenterExecutionCanaryPreflight;
   supportMatrix: CommandCenterExecutionSupportMatrix;
   manualInstructions: string[];
   prerequisites: string[];
@@ -613,6 +694,7 @@ function buildManualOnlyPreview(input: {
     requestedState: input.requestedState,
     diff,
     preflight: input.preflight,
+    canaryPreflight: input.canaryPreflight,
     prerequisites: input.prerequisites,
     risks: input.risks,
     manualInstructions: input.manualInstructions,
@@ -848,6 +930,11 @@ async function resolveMetaExecutionPreview(input: {
   const selectedSupportEntry = supportMatrix.selectedEntry;
   const capability = resolveCommandCenterExecutionCapability(input.action);
   const boundaryState = getMetaExecutionApplyBoundaryState(input.businessId);
+  const canaryPreflight = buildCanaryPreflight({
+    action: input.action,
+    capability,
+    boundaryState,
+  });
   const buildPreviewPreflight = (options: {
     decisionResolved: boolean;
     liveStateResolved: boolean;
@@ -886,9 +973,10 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
-      risks: ["Execution is intentionally limited to the verified Meta ad set subset in V3-06."],
+      risks: ["Execution is intentionally limited to the supported Meta ad set subset in V3-06."],
       manualInstructions: selectedSupportEntry.operatorGuidance,
       supportMode: selectedSupportEntry.supportMode,
       applyReason: selectedSupportEntry.supportReason,
@@ -915,6 +1003,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: [selectedSupportEntry.supportReason],
@@ -957,6 +1046,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["The decision source drifted and could not be matched to a live Meta ad set decision."],
@@ -994,6 +1084,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: [selectedSupportEntry.supportReason],
@@ -1023,6 +1114,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["The current live ad set configuration could not be resolved."],
@@ -1054,6 +1146,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["The current execution state could not be summarized safely."],
@@ -1085,6 +1178,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["Demo and unassigned provider scopes remain manual-only in V3-06."],
@@ -1116,6 +1210,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["Campaign-owned ad set budgets are not executed automatically in V3-06."],
@@ -1147,6 +1242,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: false,
         alreadyAtTarget: false,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["Lifetime or mixed-budget ad sets are outside the safe V3-06 execution subset."],
@@ -1185,6 +1281,7 @@ async function resolveMetaExecutionPreview(input: {
           safeSubset: true,
           alreadyAtTarget: false,
         }),
+        canaryPreflight,
         supportMatrix,
         prerequisites: [],
         risks: ["A live ad set daily budget was not available for this mutation."],
@@ -1223,6 +1320,7 @@ async function resolveMetaExecutionPreview(input: {
           safeSubset: true,
           alreadyAtTarget: true,
         }),
+        canaryPreflight,
         supportMatrix,
         prerequisites: [],
         risks: ["The exact requested daily budget is either invalid or already live."],
@@ -1256,6 +1354,7 @@ async function resolveMetaExecutionPreview(input: {
         safeSubset: true,
         alreadyAtTarget: true,
       }),
+      canaryPreflight,
       supportMatrix,
       prerequisites: [],
       risks: ["The live state already matches the requested target."],
@@ -1382,6 +1481,7 @@ async function resolveMetaExecutionPreview(input: {
     requestedState,
     diff,
     preflight,
+    canaryPreflight,
     prerequisites: [
       "Preview hash must still match live state at apply time.",
       "Explicit human approval is required before apply.",

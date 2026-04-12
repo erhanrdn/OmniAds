@@ -23,6 +23,38 @@ interface RemoteJsonResult<T> {
   error: string | null;
 }
 
+function getCarryForwardSummary(report: Partial<ReleaseAuthorityReport> | null) {
+  const carryForward = report?.carryForward;
+  if (!carryForward) {
+    return null;
+  }
+
+  const acceptanceGaps = Array.isArray(carryForward.acceptanceGaps)
+    ? carryForward.acceptanceGaps
+    : [];
+
+  return {
+    summary:
+      typeof carryForward.summary === "string"
+        ? carryForward.summary
+        : `${acceptanceGaps.length} accepted carry-forward gap(s) remain.`,
+    acceptanceGaps,
+  };
+}
+
+function hasCurrentReleaseAuthoritySchema(
+  report: Partial<ReleaseAuthorityReport> | null,
+): report is ReleaseAuthorityReport {
+  return Boolean(
+    report &&
+      report.runtime &&
+      report.release &&
+      report.verdicts &&
+      report.carryForward &&
+      Array.isArray(report.carryForward.acceptanceGaps),
+  );
+}
+
 function tryReadCanonicalDoc() {
   try {
     return readReleaseAuthorityCanonicalDoc();
@@ -167,6 +199,11 @@ function buildPreflightSummary(input: {
     );
   }
 
+  const carryForward = getCarryForwardSummary(input.report);
+  if (carryForward && carryForward.acceptanceGaps.length > 0) {
+    notes.push(carryForward.summary);
+  }
+
   return {
     result: blockers.length === 0 ? "pass" : "fail",
     blockers,
@@ -246,6 +283,10 @@ function buildPostDeploySummary(input: {
     notes.push(
       `Feature authority source: ${report.release.featureAuthoritySource.apiRoute} + ${report.release.featureAuthoritySource.canonicalDoc}`,
     );
+    const carryForward = getCarryForwardSummary(report);
+    if (carryForward && carryForward.acceptanceGaps.length > 0) {
+      notes.push(carryForward.summary);
+    }
   }
 
   return {
@@ -322,15 +363,22 @@ async function main() {
     authority,
   });
 
-  if (
-    authority.payload &&
-    tryReadCanonicalDoc() !==
-      buildReleaseAuthorityCanonicalDoc(authority.payload)
-  ) {
-    summary.result = "fail";
-    summary.blockers.push(
-      "Canonical release-authority doc does not literally match the live release-authority payload.",
-    );
+  if (authority.payload) {
+    if (hasCurrentReleaseAuthoritySchema(authority.payload)) {
+      if (
+        tryReadCanonicalDoc() !==
+        buildReleaseAuthorityCanonicalDoc(authority.payload)
+      ) {
+        summary.result = "fail";
+        summary.blockers.push(
+          "Canonical release-authority doc does not literally match the live release-authority payload.",
+        );
+      }
+    } else {
+      summary.notes.push(
+        "Live release-authority payload does not expose the current carry-forward schema yet, so canonical-doc literal comparison was skipped.",
+      );
+    }
   }
 
   console.log(

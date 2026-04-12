@@ -161,6 +161,34 @@ export async function getCommandCenterSnapshot(input: {
     ]),
   );
   const hasMissingTruth = missingInputs.length > 0;
+  const baseSummary = summarizeCommandCenterActions(allActions);
+  const sourceHealth = [
+    ...(metaDecisionOs?.summary.sourceHealth ?? []),
+    ...(creativeDecisionOs?.summary.sourceHealth ?? []),
+  ];
+  const readReliability =
+    metaDecisionOs?.summary.readReliability?.status === "degraded" ||
+    creativeDecisionOs?.summary.readReliability?.status === "degraded"
+      ? {
+          status: "degraded" as const,
+          determinism: "unstable" as const,
+          detail:
+            "One or more upstream decision surfaces are degraded, so Command Center stays explicitly fallback-aware.",
+        }
+      : metaDecisionOs?.summary.readReliability?.status === "fallback" ||
+          creativeDecisionOs?.summary.readReliability?.status === "fallback"
+        ? {
+            status: "fallback" as const,
+            determinism: "watch" as const,
+            detail:
+              "At least one upstream decision surface is running on labeled fallback context.",
+          }
+        : {
+            status: "stable" as const,
+            determinism: "stable" as const,
+            detail:
+              "Command Center is reading stable upstream decision surfaces.",
+          };
   const authority = buildDecisionSurfaceAuthority({
     scope: "Command Center",
     truthState: hasMissingTruth ? "degraded_missing_truth" : "live_confident",
@@ -173,18 +201,18 @@ export async function getCommandCenterSnapshot(input: {
     freshness: buildDecisionFreshness(),
     missingInputs,
     reasons: degradedReasons,
-    actionCoreCount: summarizeCommandCenterActions(allActions).actionCoreCount,
-    watchlistCount: summarizeCommandCenterActions(allActions).watchlistCount,
-    archiveCount: summarizeCommandCenterActions(allActions).archiveCount,
-    suppressedCount:
-      summarizeCommandCenterActions(allActions).watchlistCount +
-      summarizeCommandCenterActions(allActions).archiveCount,
+    actionCoreCount: baseSummary.actionCoreCount,
+    watchlistCount: baseSummary.watchlistCount,
+    archiveCount: baseSummary.archiveCount,
+    suppressedCount: baseSummary.watchlistCount + baseSummary.archiveCount,
     note:
       hasMissingTruth
         ? "Command Center is compiling from upstream surfaces with active trust caps."
         : throughput.overflowCount > 0
           ? "Command Center is healthy; excess actionable rows stay in overflow backlog until queue capacity opens."
-        : "Command Center is compiling action-core, watchlist, and archive lanes from the shared trust kernel.",
+          : "Command Center is compiling action-core, watchlist, and archive lanes from the shared trust kernel.",
+    sourceHealth,
+    readReliability,
   });
   const viewStacks = buildCommandCenterViewStacks(savedViews);
 
@@ -211,7 +239,11 @@ export async function getCommandCenterSnapshot(input: {
     permissions: input.permissions,
     commercialSummary: commercialTruth?.coverage,
     authority,
-    summary: summarizeCommandCenterActions(allActions),
+    summary: {
+      ...baseSummary,
+      sourceHealth,
+      readReliability,
+    },
     opportunitySummary,
     throughput,
     queueSections,
