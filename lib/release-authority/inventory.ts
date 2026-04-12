@@ -15,6 +15,8 @@ function liveIfEnabled(input: {
 }
 
 export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
+  // Keep the V4 operator-coherence surface inventory explicit so canonical
+  // docs and runtime reports stay in lockstep through docs-only follow-up work.
   {
     id: "operating_mode",
     label: "Operating Mode",
