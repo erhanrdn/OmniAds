@@ -546,6 +546,26 @@ describe("buildMetaDecisionOs", () => {
       candidateCount: 1,
       headline: expect.stringContaining("winner scale candidate"),
     });
+    expect(result.summary.opportunitySummary).toMatchObject({
+      winnerScaleCount: 2,
+      queueEligibleCount: 2,
+    });
+    expect(
+      result.opportunityBoard.some(
+        (item) =>
+          item.kind === "adset_winner_scale" &&
+          item.source.entityId === "adset_winner" &&
+          item.queue.eligible,
+      ),
+    ).toBe(true);
+    expect(
+      result.opportunityBoard.some(
+        (item) =>
+          item.kind === "campaign_winner_scale" &&
+          item.source.entityId === "cmp_winner" &&
+          item.queue.eligible,
+      ),
+    ).toBe(true);
     expect(result.budgetShifts[0]).toMatchObject({
       fromCampaignId: "cmp_loser",
       toCampaignId: "cmp_winner",
@@ -687,6 +707,9 @@ describe("buildMetaDecisionOs", () => {
         sourceLabel: "manual",
       },
     });
+    expect(
+      result.opportunityBoard.find((item) => item.kind === "geo")?.queue.watchReasons[0],
+    ).toContain("Thin-signal GEOs");
   });
 
   it("trust-caps strong GEOs into the watchlist when country economics are missing", () => {

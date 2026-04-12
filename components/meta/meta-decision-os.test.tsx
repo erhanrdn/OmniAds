@@ -43,6 +43,14 @@ function payload() {
         archiveCount: 0,
         degradedCount: 1,
       },
+      opportunitySummary: {
+        totalCount: 4,
+        queueEligibleCount: 2,
+        geoCount: 2,
+        winnerScaleCount: 1,
+        protectedCount: 1,
+        headline: "2 opportunity-board items are queue-ready with evidence floors met.",
+      },
       geoSummary: {
         actionCoreCount: 1,
         watchlistCount: 1,
@@ -320,6 +328,155 @@ function payload() {
         },
       },
     ],
+    opportunityBoard: [
+      {
+        opportunityId: "meta-adset-winner:cmp_1:adset_1",
+        kind: "adset_winner_scale",
+        title: "Scale Winner",
+        summary: "This ad set is beating target with strong clean signal and still has room for controlled scale.",
+        recommendedAction: "scale_budget",
+        confidence: 0.87,
+        queue: {
+          eligible: true,
+          blockedReasons: [],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "signal_depth",
+            label: "Signal depth",
+            status: "met",
+            current: "$900 / 30 purchases",
+            required: "$250 spend and 6 purchases",
+            reason: null,
+          },
+        ],
+        tags: ["scale_promotions"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Winning ad set"],
+        },
+        source: {
+          entityType: "adset",
+          entityId: "adset_1",
+          groupKey: "cmp_1",
+        },
+        relatedEntities: [
+          { type: "campaign", id: "cmp_1", label: "Campaign One" },
+          { type: "adset", id: "adset_1", label: "Scale Winner" },
+        ],
+      },
+      {
+        opportunityId: "meta-geo:US:scale",
+        kind: "geo",
+        title: "US",
+        summary: "Winner geo",
+        recommendedAction: "scale",
+        confidence: 0.84,
+        queue: {
+          eligible: true,
+          blockedReasons: [],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "freshness",
+            label: "Freshness",
+            status: "met",
+            current: "ready / verified",
+            required: "ready and not stale",
+            reason: null,
+          },
+        ],
+        tags: ["geo_issues"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Winner geo"],
+        },
+        source: {
+          entityType: "geo",
+          entityId: "US:scale",
+          groupKey: null,
+        },
+        relatedEntities: [{ type: "geo", id: "US:scale", label: "US" }],
+      },
+      {
+        opportunityId: "meta-geo:DE:pool",
+        kind: "geo",
+        title: "Germany",
+        summary: "Thin-signal GEOs should validate in a pooled cluster.",
+        recommendedAction: "pool",
+        confidence: 0.68,
+        queue: {
+          eligible: false,
+          blockedReasons: [],
+          watchReasons: ["Thin-signal GEOs should validate in a pooled cluster."],
+        },
+        evidenceFloors: [
+          {
+            key: "signal_depth",
+            label: "Signal depth",
+            status: "watch",
+            current: "$180 / 3 purchases",
+            required: "$250 spend and 6 purchases",
+            reason: "Thin-signal GEOs stay on the opportunity board until deeper conversion proof exists.",
+          },
+        ],
+        tags: ["geo_issues"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "monitor_low_truth",
+          reasons: ["Thin-signal GEOs should validate in a pooled cluster."],
+        },
+        source: {
+          entityType: "geo",
+          entityId: "DE:pool",
+          groupKey: "pool:tier_3:full:live_confident",
+        },
+        relatedEntities: [{ type: "geo", id: "DE:pool", label: "Germany" }],
+      },
+      {
+        opportunityId: "meta-protected:campaign:cmp_1",
+        kind: "protected_winner",
+        title: "Campaign One",
+        summary: "Protect winner",
+        recommendedAction: "hold_no_touch",
+        confidence: 0.83,
+        queue: {
+          eligible: false,
+          blockedReasons: ["Protected winners stay visible as guardrail context, not as queue work."],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "winner_protection",
+            label: "Winner protection",
+            status: "met",
+            current: "protected",
+            required: "stable winner context",
+            reason: null,
+          },
+        ],
+        tags: ["promo_mode_watchlist"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "protected_watchlist",
+          reasons: ["Protect winner"],
+        },
+        source: {
+          entityType: "campaign",
+          entityId: "cmp_1",
+          groupKey: null,
+        },
+        relatedEntities: [{ type: "campaign", id: "cmp_1", label: "Campaign One" }],
+      },
+    ],
     commercialTruthCoverage: {
       mode: "configured_targets",
       targetPackConfigured: true,
@@ -360,6 +517,8 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Meta Authority");
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
+    expect(html).toContain("Opportunity Board");
+    expect(html).toContain("queue-ready");
     expect(html).toContain("Budget Shift Board");
     expect(html).toContain("Winner Scale Candidates");
     expect(html).toContain("winner scale candidate");

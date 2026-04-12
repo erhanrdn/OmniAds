@@ -5,6 +5,7 @@ import {
   COMMAND_CENTER_CONTRACT_VERSION,
   applyCommandCenterQueueSelection,
   aggregateCommandCenterActions,
+  buildCommandCenterOpportunities,
   buildCommandCenterDefaultQueueSummary,
   buildCommandCenterFiltersFromViewKey,
   buildCommandCenterOwnerWorkload,
@@ -13,6 +14,7 @@ import {
   compareCommandCenterActions,
   decorateCommandCenterActionsWithThroughput,
   filterCommandCenterActionsByView,
+  summarizeCommandCenterOpportunities,
   summarizeCommandCenterFeedback,
   summarizeCommandCenterActions,
 } from "@/lib/command-center";
@@ -102,6 +104,14 @@ export async function getCommandCenterSnapshot(input: {
     creativeDecisionOs,
     stateByFingerprint: actionStates,
   });
+  const opportunities = buildCommandCenterOpportunities({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    metaDecisionOs,
+    creativeDecisionOs,
+  });
+  const opportunitySummary = summarizeCommandCenterOpportunities(opportunities);
   const throughputDecoratedActions = decorateCommandCenterActionsWithThroughput({
     actions: aggregatedActions,
     decisionAsOf: decisionContext.decisionAsOf,
@@ -199,6 +209,7 @@ export async function getCommandCenterSnapshot(input: {
     commercialSummary: commercialTruth?.coverage,
     authority,
     summary: summarizeCommandCenterActions(allActions),
+    opportunitySummary,
     throughput,
     ownerWorkload,
     shiftDigest,
@@ -206,6 +217,7 @@ export async function getCommandCenterSnapshot(input: {
     feedbackSummary,
     historicalIntelligence,
     actions: visibleActions,
+    opportunities,
     savedViews,
     journal,
     handoffs,

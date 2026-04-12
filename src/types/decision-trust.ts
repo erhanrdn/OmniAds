@@ -106,6 +106,30 @@ export interface DecisionSurfaceAuthority {
   note: string;
 }
 
+export const DECISION_EVIDENCE_FLOOR_STATUSES = [
+  "met",
+  "watch",
+  "blocked",
+] as const;
+
+export type DecisionEvidenceFloorStatus =
+  (typeof DECISION_EVIDENCE_FLOOR_STATUSES)[number];
+
+export interface DecisionEvidenceFloor {
+  key: string;
+  label: string;
+  status: DecisionEvidenceFloorStatus;
+  current: string;
+  required: string;
+  reason: string | null;
+}
+
+export interface DecisionOpportunityQueueEligibility {
+  eligible: boolean;
+  blockedReasons: string[];
+  watchReasons: string[];
+}
+
 export interface DecisionTrustMetadata {
   surfaceLane: DecisionSurfaceLane;
   truthState: DecisionTruthState;

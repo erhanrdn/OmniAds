@@ -7,6 +7,10 @@ import {
   classifyDecisionEntityState,
   classifyDecisionMateriality,
 } from "@/lib/decision-trust/kernel";
+import {
+  buildDecisionEvidenceFloor,
+  evaluateDecisionOpportunityQueue,
+} from "@/lib/decision-trust/opportunity";
 import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
@@ -22,7 +26,9 @@ import type {
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
 import type {
+  DecisionEvidenceFloor,
   DecisionOperatorDisposition,
+  DecisionOpportunityQueueEligibility,
   DecisionSurfaceLane,
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
@@ -338,6 +344,35 @@ export interface MetaWinnerScaleCandidate {
   policy: MetaDecisionPolicy;
 }
 
+export type MetaOpportunityKind =
+  | "geo"
+  | "campaign_winner_scale"
+  | "adset_winner_scale"
+  | "protected_winner";
+
+export interface MetaOpportunityBoardItem {
+  opportunityId: string;
+  kind: MetaOpportunityKind;
+  title: string;
+  summary: string;
+  recommendedAction: string;
+  confidence: number;
+  queue: DecisionOpportunityQueueEligibility;
+  evidenceFloors: DecisionEvidenceFloor[];
+  tags: string[];
+  trust: DecisionTrustMetadata;
+  source: {
+    entityType: "campaign" | "adset" | "geo";
+    entityId: string;
+    groupKey: string | null;
+  };
+  relatedEntities: Array<{
+    type: "campaign" | "adset" | "geo";
+    id: string;
+    label: string;
+  }>;
+}
+
 export interface MetaDecisionOsSummary {
   todayPlanHeadline: string;
   todayPlan: string[];
@@ -359,6 +394,14 @@ export interface MetaDecisionOsSummary {
     watchlistCount: number;
     archiveCount: number;
     degradedCount: number;
+  };
+  opportunitySummary: {
+    totalCount: number;
+    queueEligibleCount: number;
+    geoCount: number;
+    winnerScaleCount: number;
+    protectedCount: number;
+    headline: string;
   };
   geoSummary: {
     actionCoreCount: number;
@@ -392,6 +435,7 @@ export interface MetaDecisionOsV1Response {
   placementAnomalies: MetaPlacementAnomaly[];
   noTouchList: MetaNoTouchItem[];
   winnerScaleCandidates: MetaWinnerScaleCandidate[];
+  opportunityBoard: MetaOpportunityBoardItem[];
   commercialTruthCoverage: MetaCommercialTruthCoverage;
   authority?: import("@/src/types/decision-trust").DecisionSurfaceAuthority;
 }
@@ -456,6 +500,12 @@ function clampConfidence(value: number) {
 
 function round(value: number, precision = 2) {
   return Number(value.toFixed(precision));
+}
+
+function average(values: number[]) {
+  const valid = values.filter((value) => Number.isFinite(value));
+  if (valid.length === 0) return 0;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
 }
 
 function formatCurrency(value: number | null | undefined) {
@@ -1994,6 +2044,428 @@ function buildWinnerScaleCandidates(input: {
     }));
 }
 
+function buildMetaOpportunityTrust(input: {
+  baseTrust: DecisionTrustMetadata;
+  reasons: string[];
+}) {
+  return compileDecisionTrust({
+    surfaceLane: "opportunity_board",
+    truthState: input.baseTrust.truthState,
+    operatorDisposition: input.baseTrust.operatorDisposition,
+    entityState: input.baseTrust.evidence?.entityState,
+    materiality: input.baseTrust.evidence?.materiality,
+    freshness: input.baseTrust.evidence?.freshness,
+    reasons: input.reasons,
+    missingInputs:
+      input.baseTrust.truthState === "degraded_missing_truth"
+        ? input.baseTrust.reasons
+        : [],
+    suppressionReasons: input.reasons,
+  });
+}
+
+function buildMetaGeoOpportunityFloors(input: {
+  decision: MetaGeoDecision;
+}) {
+  const signalFloor = buildDecisionEvidenceFloor({
+    key: "signal_depth",
+    label: "Signal depth",
+    current: `${formatCurrency(input.decision.supportingMetrics.spend)} / ${input.decision.supportingMetrics.purchases} purchases`,
+    required: "$250 spend and 6 purchases",
+    status: input.decision.materiality.archiveContext
+      ? "blocked"
+      : input.decision.materiality.thinSignal
+        ? "watch"
+        : "met",
+    reason: input.decision.materiality.archiveContext
+      ? "Geo is inactive or immaterial for live authority."
+      : input.decision.materiality.thinSignal
+        ? "Thin-signal GEOs stay on the opportunity board until deeper conversion proof exists."
+        : null,
+  });
+  const freshnessFloor = buildDecisionEvidenceFloor({
+    key: "freshness",
+    label: "Freshness",
+    current:
+      input.decision.freshness.dataState === "ready"
+        ? input.decision.freshness.isPartial
+          ? "ready / partial"
+          : "ready / verified"
+        : input.decision.freshness.dataState,
+    required: "ready and not stale",
+    status:
+      input.decision.freshness.dataState === "ready"
+        ? input.decision.freshness.isPartial
+          ? "watch"
+          : "met"
+        : "blocked",
+    reason:
+      input.decision.freshness.dataState === "ready"
+        ? input.decision.freshness.isPartial
+          ? "Source is partial, so this GEO should not graduate into queue authority yet."
+          : null
+        : input.decision.freshness.reason ??
+          "Source freshness is stale for the live GEO decision window.",
+  });
+  const commercialFloor = buildDecisionEvidenceFloor({
+    key: "commercial_context",
+    label: "Commercial context",
+    current: `${input.decision.commercialContext.serviceability ?? "unknown"} / ${input.decision.commercialContext.scaleOverride ?? "default"}`,
+    required: "configured country economics",
+    status: !input.decision.commercialContext.countryEconomicsConfigured
+      ? "blocked"
+      : input.decision.commercialContext.serviceability == null
+        ? "watch"
+        : "met",
+    reason: !input.decision.commercialContext.countryEconomicsConfigured
+      ? "Country economics are not configured, so GEO decisions stay trust-capped."
+      : input.decision.commercialContext.serviceability == null
+        ? "Country economics exist, but this GEO has no explicit serviceability row yet."
+        : null,
+  });
+  const actionFloor = buildDecisionEvidenceFloor({
+    key: "queue_readiness",
+    label: "Queue readiness",
+    current: input.decision.action,
+    required: "decisive action with live authority",
+    status: input.decision.queueEligible
+      ? "met"
+      : input.decision.action === "pool" ||
+          input.decision.action === "validate" ||
+          input.decision.action === "monitor"
+        ? "watch"
+        : "blocked",
+    reason: input.decision.queueEligible
+      ? null
+      : input.decision.action === "pool" ||
+          input.decision.action === "validate" ||
+          input.decision.action === "monitor"
+        ? "Validation and pooled GEO paths stay visible, but outside the default queue."
+        : "This GEO still lacks the authority floor required for queue intake.",
+  });
+
+  return [signalFloor, freshnessFloor, commercialFloor, actionFloor];
+}
+
+function buildMetaOpportunityBoard(input: {
+  campaigns: MetaCampaignDecision[];
+  adSets: MetaAdSetDecision[];
+  geoDecisions: MetaGeoDecision[];
+  winnerScaleCandidates: MetaWinnerScaleCandidate[];
+  noTouchList: MetaNoTouchItem[];
+  thresholds: TargetThresholds;
+}) {
+  const items: MetaOpportunityBoardItem[] = [];
+  const campaignById = new Map(input.campaigns.map((campaign) => [campaign.campaignId, campaign]));
+  const adSetById = new Map(input.adSets.map((adSet) => [adSet.adSetId, adSet]));
+
+  for (const decision of input.geoDecisions) {
+    const evidenceFloors = buildMetaGeoOpportunityFloors({ decision });
+    const queue = evaluateDecisionOpportunityQueue({
+      truthState: decision.trust.truthState,
+      authorityReady: decision.trust.surfaceLane === "action_core",
+      floors: evidenceFloors,
+      blockedReasons:
+        decision.trust.truthState === "degraded_missing_truth"
+          ? decision.trust.reasons
+          : [],
+      watchReasons:
+        decision.trust.surfaceLane === "watchlist" && !decision.queueEligible
+          ? decision.trust.reasons
+          : [],
+    });
+    items.push({
+      opportunityId: `meta-geo:${decision.geoKey}`,
+      kind: "geo",
+      title: decision.clusterLabel ?? decision.label,
+      summary: decision.why,
+      recommendedAction: decision.action,
+      confidence: decision.confidence,
+      queue,
+      evidenceFloors,
+      tags: [
+        "geo_issues",
+        ...(decision.action === "cut" || decision.action === "isolate"
+          ? ["high_risk_actions"]
+          : []),
+      ],
+      trust: buildMetaOpportunityTrust({
+        baseTrust: decision.trust,
+        reasons: [
+          decision.why,
+          ...(queue.blockedReasons[0] ? [queue.blockedReasons[0]] : []),
+        ],
+      }),
+      source: {
+        entityType: "geo",
+        entityId: decision.geoKey,
+        groupKey: decision.clusterKey,
+      },
+      relatedEntities: [
+        {
+          type: "geo",
+          id: decision.geoKey,
+          label: decision.label,
+        },
+      ],
+    });
+  }
+
+  const campaignCandidateGroups = new Map<string, MetaWinnerScaleCandidate[]>();
+  for (const candidate of input.winnerScaleCandidates) {
+    const existing = campaignCandidateGroups.get(candidate.campaignId);
+    if (existing) existing.push(candidate);
+    else campaignCandidateGroups.set(candidate.campaignId, [candidate]);
+  }
+
+  for (const [campaignId, candidates] of campaignCandidateGroups) {
+    const campaign = campaignById.get(campaignId);
+    if (!campaign) continue;
+    const sortedCandidates = candidates
+      .slice()
+      .sort((left, right) => right.confidence - left.confidence);
+    const bestCandidate = sortedCandidates[0];
+    if (!bestCandidate) continue;
+    const evidenceFloors = [
+      buildDecisionEvidenceFloor({
+        key: "winner_count",
+        label: "Winner count",
+        current: `${sortedCandidates.length} ad set`,
+        required: "1+ authoritative winner",
+        met: sortedCandidates.length > 0,
+      }),
+      buildDecisionEvidenceFloor({
+        key: "commercial_truth",
+        label: "Commercial truth",
+        current: campaign.trust.truthState.replaceAll("_", " "),
+        required: "live confident",
+        met: campaign.trust.truthState === "live_confident",
+        reason: "Campaign-level growth stays off-queue until commercial truth is fully authoritative.",
+      }),
+      buildDecisionEvidenceFloor({
+        key: "efficiency",
+        label: "Efficiency",
+        current: formatRatio(bestCandidate.supportingMetrics.roas),
+        required: formatRatio(input.thresholds.targetRoas),
+        met: bestCandidate.supportingMetrics.roas >= input.thresholds.targetRoas,
+        reason: "Campaign winner board requires at least one ad set still beating the target threshold.",
+      }),
+    ];
+    const queue = evaluateDecisionOpportunityQueue({
+      truthState: campaign.trust.truthState,
+      authorityReady:
+        campaign.trust.surfaceLane === "action_core" &&
+        sortedCandidates.some((candidate) => {
+          const adSet = adSetById.get(candidate.adSetId);
+          return adSet?.trust.surfaceLane === "action_core";
+        }),
+      floors: evidenceFloors,
+      blockedReasons:
+        campaign.trust.truthState === "degraded_missing_truth"
+          ? campaign.trust.reasons
+          : [],
+    });
+    items.push({
+      opportunityId: `meta-campaign-winner:${campaignId}`,
+      kind: "campaign_winner_scale",
+      title: campaign.campaignName,
+      summary:
+        sortedCandidates.length > 1
+          ? `${sortedCandidates.length} ad sets are carrying scalable winner signal in this campaign.`
+          : bestCandidate.why,
+      recommendedAction: "scale_budget",
+      confidence: clampConfidence(
+        average([
+          campaign.confidence,
+          ...sortedCandidates.map((candidate) => candidate.confidence),
+        ]),
+      ),
+      queue,
+      evidenceFloors,
+      tags: ["scale_promotions"],
+      trust: buildMetaOpportunityTrust({
+        baseTrust: campaign.trust,
+        reasons: [campaign.why],
+      }),
+      source: {
+        entityType: "campaign",
+        entityId: campaignId,
+        groupKey: campaignId,
+      },
+      relatedEntities: [
+        {
+          type: "campaign",
+          id: campaignId,
+          label: campaign.campaignName,
+        },
+        ...sortedCandidates.slice(0, 3).map((candidate) => ({
+          type: "adset" as const,
+          id: candidate.adSetId,
+          label: candidate.adSetName,
+        })),
+      ],
+    });
+  }
+
+  for (const candidate of input.winnerScaleCandidates) {
+    const adSet = adSetById.get(candidate.adSetId);
+    const fallbackTrust =
+      adSet?.trust ??
+      campaignById.get(candidate.campaignId)?.trust ??
+      compileDecisionTrust({
+        surfaceLane: "watchlist",
+        truthState: "degraded_missing_truth",
+        operatorDisposition: "degraded_no_scale",
+        reasons: [candidate.why],
+      });
+    const evidenceFloors = [
+      buildDecisionEvidenceFloor({
+        key: "signal_depth",
+        label: "Signal depth",
+        current: `${formatCurrency(candidate.supportingMetrics.spend)} / ${candidate.supportingMetrics.purchases} purchases`,
+        required: "$250 spend and 6 purchases",
+        met:
+          candidate.supportingMetrics.spend >= 250 &&
+          candidate.supportingMetrics.purchases >= 6,
+        reason: "Winner-scale intake needs both spend depth and purchase depth.",
+      }),
+      buildDecisionEvidenceFloor({
+        key: "efficiency",
+        label: "Efficiency",
+        current: formatRatio(candidate.supportingMetrics.roas),
+        required: formatRatio(input.thresholds.targetRoas),
+        met: candidate.supportingMetrics.roas >= input.thresholds.targetRoas,
+        reason: "Winner-scale intake only stays queue-ready while it still beats the target threshold.",
+      }),
+      buildDecisionEvidenceFloor({
+        key: "commercial_truth",
+        label: "Commercial truth",
+        current: adSet?.trust.truthState.replaceAll("_", " ") ?? "unavailable",
+        required: "live confident",
+        met: adSet?.trust.truthState === "live_confident",
+        reason: "Shared authority still caps this ad set out of the default queue.",
+      }),
+    ];
+    const queue = evaluateDecisionOpportunityQueue({
+      truthState: adSet?.trust.truthState ?? "degraded_missing_truth",
+      authorityReady: adSet?.trust.surfaceLane === "action_core" && !adSet?.noTouch,
+      floors: evidenceFloors,
+      blockedReasons:
+        adSet?.trust.truthState === "degraded_missing_truth"
+          ? adSet.trust.reasons
+          : [],
+    });
+    items.push({
+      opportunityId: `meta-adset-winner:${candidate.candidateId}`,
+      kind: "adset_winner_scale",
+      title: candidate.adSetName,
+      summary: candidate.why,
+      recommendedAction: candidate.policy.strategyClass,
+      confidence: candidate.confidence,
+      queue,
+      evidenceFloors,
+      tags: ["scale_promotions"],
+      trust: buildMetaOpportunityTrust({
+        baseTrust: fallbackTrust,
+        reasons: [candidate.why],
+      }),
+      source: {
+        entityType: "adset",
+        entityId: candidate.adSetId,
+        groupKey: candidate.campaignId,
+      },
+      relatedEntities: [
+        {
+          type: "campaign",
+          id: candidate.campaignId,
+          label: candidate.campaignName,
+        },
+        {
+          type: "adset",
+          id: candidate.adSetId,
+          label: candidate.adSetName,
+        },
+      ],
+    });
+  }
+
+  for (const item of input.noTouchList) {
+    const baseTrust =
+      item.entityType === "campaign"
+        ? campaignById.get(item.entityId)?.trust
+        : item.entityType === "adset"
+          ? adSetById.get(item.entityId)?.trust
+          : input.geoDecisions.find((decision) => decision.countryCode === item.entityId)?.trust;
+    const evidenceFloors = [
+      buildDecisionEvidenceFloor({
+        key: "winner_protection",
+        label: "Winner protection",
+        current: "protected",
+        required: "stable winner context",
+        met: true,
+      }),
+      buildDecisionEvidenceFloor({
+        key: "queue_readiness",
+        label: "Queue readiness",
+        current: "hold_no_touch",
+        required: "board-only guardrail",
+        status: "blocked",
+        reason: "Protected winners stay visible as guardrail context, not as queue work.",
+      }),
+    ];
+    items.push({
+      opportunityId: `meta-protected:${item.entityType}:${item.entityId}`,
+      kind: "protected_winner",
+      title: item.label,
+      summary: item.reason,
+      recommendedAction: "hold_no_touch",
+      confidence: item.confidence,
+      queue: evaluateDecisionOpportunityQueue({
+        truthState: baseTrust?.truthState ?? "live_confident",
+        authorityReady: false,
+        floors: evidenceFloors,
+      }),
+      evidenceFloors,
+      tags: ["promo_mode_watchlist"],
+      trust: buildMetaOpportunityTrust({
+        baseTrust:
+          baseTrust ??
+          compileDecisionTrust({
+            surfaceLane: "watchlist",
+            truthState: "live_confident",
+            operatorDisposition: "protected_watchlist",
+            reasons: [item.reason],
+          }),
+        reasons: [item.reason],
+      }),
+      source: {
+        entityType: item.entityType,
+        entityId: item.entityId,
+        groupKey: null,
+      },
+      relatedEntities: [
+        {
+          type:
+            item.entityType === "campaign"
+              ? "campaign"
+              : item.entityType === "adset"
+                ? "adset"
+                : "geo",
+          id: item.entityId,
+          label: item.label,
+        },
+      ],
+    });
+  }
+
+  return items.sort(
+    (left, right) =>
+      Number(right.queue.eligible) - Number(left.queue.eligible) ||
+      right.confidence - left.confidence ||
+      left.title.localeCompare(right.title),
+  );
+}
+
 function buildBudgetShifts(input: {
   campaigns: MetaCampaignDecision[];
   campaignRows: MetaCampaignRow[];
@@ -2118,6 +2590,7 @@ function buildSummary(input: {
   geoDecisions: MetaGeoDecision[];
   noTouchList: MetaNoTouchItem[];
   winnerScaleCandidates: MetaWinnerScaleCandidate[];
+  opportunityBoard: MetaOpportunityBoardItem[];
   operatingMode: AccountOperatingModePayload | null;
   geoFreshness: MetaGeoSourceFreshness;
   commercialTruth: BusinessCommercialTruthSnapshot;
@@ -2197,6 +2670,25 @@ function buildSummary(input: {
       degradedCount: surfaceRows.filter(
         (row) => row.truthState === "degraded_missing_truth",
       ).length,
+    },
+    opportunitySummary: {
+      totalCount: input.opportunityBoard.length,
+      queueEligibleCount: input.opportunityBoard.filter(
+        (item) => item.queue.eligible,
+      ).length,
+      geoCount: input.opportunityBoard.filter((item) => item.kind === "geo").length,
+      winnerScaleCount: input.opportunityBoard.filter(
+        (item) =>
+          item.kind === "campaign_winner_scale" ||
+          item.kind === "adset_winner_scale",
+      ).length,
+      protectedCount: input.opportunityBoard.filter(
+        (item) => item.kind === "protected_winner",
+      ).length,
+      headline:
+        input.opportunityBoard.filter((item) => item.queue.eligible).length > 0
+          ? `${input.opportunityBoard.filter((item) => item.queue.eligible).length} opportunity-board item${input.opportunityBoard.filter((item) => item.queue.eligible).length > 1 ? "s are" : " is"} queue-ready with evidence floors met.`
+          : "Opportunity board is populated, but no item is ready for queue intake yet.",
     },
     geoSummary: {
       actionCoreCount: input.geoDecisions.filter(
@@ -2296,13 +2788,8 @@ export function buildMetaDecisionOs(
     });
   });
 
-  const winnerScaleCandidates = buildWinnerScaleCandidates({
+  const winnerScaleCandidateSeed = buildWinnerScaleCandidates({
     adSetDecisions,
-  });
-  const budgetShifts = buildBudgetShifts({
-    campaigns: campaignDecisions,
-    campaignRows: input.campaigns,
-    winnerScaleCandidates,
   });
   const geoDecisions = hydrateGeoClusters(
     geoRows
@@ -2327,13 +2814,43 @@ export function buildMetaDecisionOs(
     adSets: adSetDecisions,
     geoDecisions,
   });
+  const opportunityBoard = buildMetaOpportunityBoard({
+    campaigns: campaignDecisions,
+    adSets: adSetDecisions,
+    geoDecisions,
+    winnerScaleCandidates: winnerScaleCandidateSeed,
+    noTouchList,
+    thresholds,
+  });
+  const winnerScaleCandidates = winnerScaleCandidateSeed.filter((candidate) =>
+    opportunityBoard.some(
+      (item) =>
+        item.kind === "adset_winner_scale" &&
+        item.source.entityId === candidate.adSetId &&
+        item.queue.eligible,
+    ),
+  );
+  const derivedNoTouchList = noTouchList.filter((item) =>
+    opportunityBoard.some(
+      (boardItem) =>
+        boardItem.kind === "protected_winner" &&
+        boardItem.source.entityType === item.entityType &&
+        boardItem.source.entityId === item.entityId,
+    ),
+  );
+  const budgetShifts = buildBudgetShifts({
+    campaigns: campaignDecisions,
+    campaignRows: input.campaigns,
+    winnerScaleCandidates,
+  });
   const summary = buildSummary({
     campaignDecisions,
     adSetDecisions,
     budgetShifts,
     geoDecisions,
-    noTouchList,
+    noTouchList: derivedNoTouchList,
     winnerScaleCandidates,
+    opportunityBoard,
     operatingMode,
     geoFreshness,
     commercialTruth: input.commercialTruth,
@@ -2395,8 +2912,9 @@ export function buildMetaDecisionOs(
     budgetShifts,
     geoDecisions,
     placementAnomalies,
-    noTouchList,
+    noTouchList: derivedNoTouchList,
     winnerScaleCandidates,
+    opportunityBoard,
     commercialTruthCoverage,
     authority,
   };

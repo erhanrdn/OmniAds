@@ -32,6 +32,13 @@ function payload() {
       comebackCount: 1,
       protectedWinnerCount: 1,
       supplyPlanCount: 2,
+      opportunitySummary: {
+        totalCount: 3,
+        queueEligibleCount: 1,
+        protectedCount: 1,
+        familyScaleCount: 2,
+        headline: "1 creative opportunity item is ready once evidence floors stay intact.",
+      },
       message: "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
       operatingMode: "Exploit",
       surfaceSummary: {
@@ -124,6 +131,104 @@ function payload() {
         creativeIds: ["c5"],
         summary: "Generate fresh test concepts to widen hook and angle coverage for this family.",
         reasons: ["Family has meaningful spend but no protected winner yet."],
+      },
+    ],
+    opportunityBoard: [
+      {
+        opportunityId: "creative-family-scale:family:1",
+        kind: "creative_family_winner_scale",
+        title: "Travel Hook Family",
+        summary: "Promote this concept into scaling.",
+        recommendedAction: "promote_to_scaling",
+        confidence: 0.83,
+        queue: {
+          eligible: true,
+          blockedReasons: [],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "scale_readiness",
+            label: "Scale readiness",
+            status: "met",
+            current: "1 promotable creative",
+            required: "1+ promotable creative",
+            reason: null,
+          },
+        ],
+        tags: ["scale_promotions"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Promote this concept into scaling."],
+        },
+        familyId: "family:1",
+        creativeIds: ["c1", "c2"],
+      },
+      {
+        opportunityId: "creative-family-scale:family:2",
+        kind: "creative_family_winner_scale",
+        title: "Backup Family",
+        summary: "Generate fresh test concepts to widen hook and angle coverage for this family.",
+        recommendedAction: "promote_to_scaling",
+        confidence: 0.66,
+        queue: {
+          eligible: false,
+          blockedReasons: ["Shared authority still caps this family out of the default queue."],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "commercial_truth",
+            label: "Commercial truth",
+            status: "blocked",
+            current: "degraded missing truth",
+            required: "live confident",
+            reason: "Shared authority still caps this family out of the default queue.",
+          },
+        ],
+        tags: ["scale_promotions"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "degraded_no_scale",
+          reasons: ["Commercial truth is incomplete."],
+        },
+        familyId: "family:2",
+        creativeIds: ["c5"],
+      },
+      {
+        opportunityId: "creative-protected:c4",
+        kind: "protected_winner",
+        title: "Winner creative",
+        summary: "Deterministic engine marks this as a shipped winner that should stay protected.",
+        recommendedAction: "hold_no_touch",
+        confidence: 0.8,
+        queue: {
+          eligible: false,
+          blockedReasons: ["Protected winners stay visible for operator context, not as queue work."],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "winner_protection",
+            label: "Winner protection",
+            status: "met",
+            current: "protected",
+            required: "stable winner context",
+            reason: null,
+          },
+        ],
+        tags: ["promo_mode_watchlist"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "protected_watchlist",
+          reasons: ["Deterministic engine marks this as a shipped winner that should stay protected."],
+        },
+        familyId: "family:1",
+        creativeIds: ["c4"],
       },
     ],
     commercialTruthCoverage: {
@@ -242,6 +347,8 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Creative Authority");
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
+    expect(html).toContain("Opportunity Board");
+    expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");
     expect(html).toContain("Operator Queues");
     expect(html).toContain("Concept Families");

@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import type { MembershipRole } from "@/lib/auth";
 import type {
   CreativeDecisionOsCreative,
+  CreativeOpportunityBoardItem,
   CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
 import type { MetaCampaignFamily } from "@/lib/meta/campaign-lanes";
@@ -12,6 +13,7 @@ import type {
   MetaDecisionOsV1Response,
   MetaGeoDecision,
   MetaNoTouchItem,
+  MetaOpportunityBoardItem,
   MetaPlacementAnomaly,
 } from "@/lib/meta/decision-os";
 import type {
@@ -21,6 +23,7 @@ import type {
 } from "@/src/types/operator-decision";
 import {
   DECISION_SURFACE_LANES,
+  type DecisionEvidenceFloor,
   type DecisionOperatorDisposition,
   type DecisionSurfaceAuthority,
   type DecisionSurfaceLane,
@@ -160,6 +163,20 @@ export interface CommandCenterAction {
   createdAt: string;
   sourceContext: CommandCenterActionSourceContext;
   throughput: CommandCenterActionThroughput;
+}
+
+export interface CommandCenterOpportunityItem {
+  opportunityId: string;
+  sourceSystem: CommandCenterSourceSystem;
+  kind: string;
+  title: string;
+  summary: string;
+  recommendedAction: string;
+  confidence: number;
+  queueEligible: boolean;
+  evidenceFloors: DecisionEvidenceFloor[];
+  tags: string[];
+  sourceContext: CommandCenterActionSourceContext;
 }
 
 export interface CommandCenterPermissions {
@@ -406,6 +423,14 @@ export interface CommandCenterResponse {
     archiveCount: number;
     degradedCount: number;
   };
+  opportunitySummary: {
+    totalCount: number;
+    queueEligibleCount: number;
+    protectedCount: number;
+    metaCount: number;
+    creativeCount: number;
+    headline: string;
+  };
   throughput: CommandCenterQueueBudgetSummary;
   ownerWorkload: CommandCenterOwnerWorkloadSummary[];
   shiftDigest: CommandCenterShiftDigest;
@@ -413,6 +438,7 @@ export interface CommandCenterResponse {
   feedbackSummary: CommandCenterFeedbackSummary;
   historicalIntelligence: CommandCenterHistoricalIntelligence;
   actions: CommandCenterAction[];
+  opportunities: CommandCenterOpportunityItem[];
   savedViews: CommandCenterSavedView[];
   journal: CommandCenterJournalEntry[];
   handoffs: CommandCenterHandoff[];
@@ -770,6 +796,120 @@ function metaEvidenceFromDecision(
     value: item.value,
     impact: item.impact,
   }));
+}
+
+function mapMetaOpportunityToCommandCenter(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  operatingMode: string | null;
+  item: MetaOpportunityBoardItem;
+}): CommandCenterOpportunityItem {
+  const campaignEntity = input.item.relatedEntities.find(
+    (entity) => entity.type === "campaign",
+  );
+  return {
+    opportunityId: input.item.opportunityId,
+    sourceSystem: "meta",
+    kind: input.item.kind,
+    title: input.item.title,
+    summary: input.item.summary,
+    recommendedAction: input.item.recommendedAction,
+    confidence: input.item.confidence,
+    queueEligible: input.item.queue.eligible,
+    evidenceFloors: input.item.evidenceFloors,
+    tags: input.item.tags,
+    sourceContext: {
+      sourceLabel: "Meta Decision OS",
+      operatingMode: input.operatingMode,
+      sourceDeepLink: buildMetaSourceDeepLink({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        campaignId: campaignEntity?.id ?? null,
+      }),
+      sourceDecisionId: input.item.opportunityId,
+    },
+  };
+}
+
+function mapCreativeOpportunityToCommandCenter(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  operatingMode: string | null;
+  item: CreativeOpportunityBoardItem;
+}): CommandCenterOpportunityItem {
+  return {
+    opportunityId: input.item.opportunityId,
+    sourceSystem: "creative",
+    kind: input.item.kind,
+    title: input.item.title,
+    summary: input.item.summary,
+    recommendedAction: input.item.recommendedAction,
+    confidence: input.item.confidence,
+    queueEligible: input.item.queue.eligible,
+    evidenceFloors: input.item.evidenceFloors,
+    tags: input.item.tags,
+    sourceContext: {
+      sourceLabel: "Creative Decision OS",
+      operatingMode: input.operatingMode,
+      sourceDeepLink: `/creatives?businessId=${encodeURIComponent(
+        input.businessId,
+      )}&startDate=${encodeURIComponent(input.startDate)}&endDate=${encodeURIComponent(
+        input.endDate,
+      )}&family=${encodeURIComponent(input.item.familyId)}`,
+      sourceDecisionId: input.item.opportunityId,
+    },
+  };
+}
+
+export function buildCommandCenterOpportunities(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  metaDecisionOs: MetaDecisionOsV1Response | null;
+  creativeDecisionOs: CreativeDecisionOsV1Response | null;
+}) {
+  const items: CommandCenterOpportunityItem[] = [];
+
+  if (input.metaDecisionOs) {
+    const operatingMode =
+      input.metaDecisionOs.summary.operatingMode?.recommendedMode ?? null;
+    for (const item of input.metaDecisionOs.opportunityBoard ?? []) {
+      items.push(
+        mapMetaOpportunityToCommandCenter({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          operatingMode,
+          item,
+        }),
+      );
+    }
+  }
+
+  if (input.creativeDecisionOs) {
+    const operatingMode = input.creativeDecisionOs.summary.operatingMode ?? null;
+    for (const item of input.creativeDecisionOs.opportunityBoard ?? []) {
+      items.push(
+        mapCreativeOpportunityToCommandCenter({
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          operatingMode,
+          item,
+        }),
+      );
+    }
+  }
+
+  return items.sort(
+    (left, right) =>
+      Number(right.queueEligible) - Number(left.queueEligible) ||
+      right.confidence - left.confidence ||
+      left.title.localeCompare(right.title),
+  );
 }
 
 export function aggregateCommandCenterActions(input: {
@@ -1620,6 +1760,27 @@ export function summarizeCommandCenterActions(actions: CommandCenterAction[]) {
     degradedCount: actions.filter(
       (action) => action.truthState === "degraded_missing_truth",
     ).length,
+  };
+}
+
+export function summarizeCommandCenterOpportunities(
+  opportunities: CommandCenterOpportunityItem[],
+) {
+  const queueEligibleCount = opportunities.filter(
+    (item) => item.queueEligible,
+  ).length;
+  return {
+    totalCount: opportunities.length,
+    queueEligibleCount,
+    protectedCount: opportunities.filter((item) =>
+      item.kind.includes("protected"),
+    ).length,
+    metaCount: opportunities.filter((item) => item.sourceSystem === "meta").length,
+    creativeCount: opportunities.filter((item) => item.sourceSystem === "creative").length,
+    headline:
+      queueEligibleCount > 0
+        ? `${queueEligibleCount} opportunity-board item${queueEligibleCount > 1 ? "s are" : " is"} ready before it needs queue promotion.`
+        : "Opportunity board is populated, but no item is queue-ready yet.",
   };
 }
 

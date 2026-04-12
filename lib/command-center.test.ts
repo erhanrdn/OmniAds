@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyCommandCenterQueueSelection,
   aggregateCommandCenterActions,
+  buildCommandCenterOpportunities,
   buildCommandCenterDefaultQueueSummary,
   buildCommandCenterOwnerWorkload,
   buildCommandCenterShiftDigest,
@@ -64,6 +65,14 @@ function metaFixture(): MetaDecisionOsV1Response {
         watchlistCount: 2,
         archiveCount: 0,
         degradedCount: 1,
+      },
+      opportunitySummary: {
+        totalCount: 3,
+        queueEligibleCount: 2,
+        geoCount: 1,
+        winnerScaleCount: 1,
+        protectedCount: 1,
+        headline: "2 opportunity-board items are ready before it needs queue promotion.",
       },
       geoSummary: {
         actionCoreCount: 1,
@@ -248,6 +257,119 @@ function metaFixture(): MetaDecisionOsV1Response {
         },
       },
     ],
+    opportunityBoard: [
+      {
+        opportunityId: "meta-campaign-winner:cmp_1",
+        kind: "campaign_winner_scale",
+        title: "Promo Spring",
+        summary: "1 ad sets are carrying scalable winner signal in this campaign.",
+        recommendedAction: "scale_budget",
+        confidence: 0.86,
+        queue: {
+          eligible: true,
+          blockedReasons: [],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "winner_count",
+            label: "Winner count",
+            status: "met",
+            current: "1 ad set",
+            required: "1+ authoritative winner",
+            reason: null,
+          },
+        ],
+        tags: ["scale_promotions"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["ROAS is beating target."],
+        },
+        source: {
+          entityType: "campaign",
+          entityId: "cmp_1",
+          groupKey: "cmp_1",
+        },
+        relatedEntities: [
+          { type: "campaign", id: "cmp_1", label: "Promo Spring" },
+          { type: "adset", id: "adset_1", label: "Prospecting A" },
+        ],
+      },
+      {
+        opportunityId: "meta-geo:geo:us",
+        kind: "geo",
+        title: "United States",
+        summary: "US is outperforming.",
+        recommendedAction: "scale",
+        confidence: 0.76,
+        queue: {
+          eligible: true,
+          blockedReasons: [],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "freshness",
+            label: "Freshness",
+            status: "met",
+            current: "ready / verified",
+            required: "ready and not stale",
+            reason: null,
+          },
+        ],
+        tags: ["geo_issues"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["US is outperforming."],
+        },
+        source: {
+          entityType: "geo",
+          entityId: "geo:us",
+          groupKey: null,
+        },
+        relatedEntities: [{ type: "geo", id: "geo:us", label: "United States" }],
+      },
+      {
+        opportunityId: "meta-protected:campaign:cmp_3",
+        kind: "protected_winner",
+        title: "Retargeting",
+        summary: "Do not disturb until checkout issue is resolved.",
+        recommendedAction: "hold_no_touch",
+        confidence: 0.71,
+        queue: {
+          eligible: false,
+          blockedReasons: ["Protected winners stay visible as guardrail context, not as queue work."],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "winner_protection",
+            label: "Winner protection",
+            status: "met",
+            current: "protected",
+            required: "stable winner context",
+            reason: null,
+          },
+        ],
+        tags: ["promo_mode_watchlist"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "protected_watchlist",
+          reasons: ["Do not disturb until checkout issue is resolved."],
+        },
+        source: {
+          entityType: "campaign",
+          entityId: "cmp_3",
+          groupKey: null,
+        },
+        relatedEntities: [{ type: "campaign", id: "cmp_3", label: "Retargeting" }],
+      },
+    ],
     commercialTruthCoverage: {
       mode: "configured_targets",
       targetPackConfigured: true,
@@ -290,6 +412,13 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         watchlistCount: 1,
         archiveCount: 0,
         degradedCount: 1,
+      },
+      opportunitySummary: {
+        totalCount: 2,
+        queueEligibleCount: 1,
+        protectedCount: 1,
+        familyScaleCount: 1,
+        headline: "1 opportunity-board item is ready before it needs queue promotion.",
       },
     },
     creatives: [
@@ -574,6 +703,72 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         creativeIds: ["creative_1"],
         summary: "Generate fresh test concepts to widen hook and angle coverage for this family.",
         reasons: ["Family has meaningful spend but no protected winner yet."],
+      },
+    ],
+    opportunityBoard: [
+      {
+        opportunityId: "creative-family-scale:family_1",
+        kind: "creative_family_winner_scale",
+        title: "Promo UGC",
+        summary: "Promote this concept into scaling.",
+        recommendedAction: "promote_to_scaling",
+        confidence: 0.83,
+        queue: {
+          eligible: true,
+          blockedReasons: [],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "scale_readiness",
+            label: "Scale readiness",
+            status: "met",
+            current: "1 promotable creative",
+            required: "1+ promotable creative",
+            reason: null,
+          },
+        ],
+        tags: ["scale_promotions"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "degraded_no_scale",
+          reasons: ["Promote this concept into scaling."],
+        },
+        familyId: "family_1",
+        creativeIds: ["creative_1"],
+      },
+      {
+        opportunityId: "creative-protected:creative_2",
+        kind: "protected_winner",
+        title: "Holdout Creative",
+        summary: "Keep this out of the primary queue.",
+        recommendedAction: "hold_no_touch",
+        confidence: 0.65,
+        queue: {
+          eligible: false,
+          blockedReasons: ["Protected winners stay visible for operator context, not as queue work."],
+          watchReasons: [],
+        },
+        evidenceFloors: [
+          {
+            key: "winner_protection",
+            label: "Winner protection",
+            status: "met",
+            current: "protected",
+            required: "stable winner context",
+            reason: null,
+          },
+        ],
+        tags: ["promo_mode_watchlist"],
+        trust: {
+          surfaceLane: "opportunity_board",
+          truthState: "live_confident",
+          operatorDisposition: "protected_watchlist",
+          reasons: ["Keep this out of the primary queue."],
+        },
+        familyId: "family_2",
+        creativeIds: ["creative_2"],
       },
     ],
     lifecycleBoard: [],
@@ -870,6 +1065,25 @@ describe("command center domain", () => {
     expect(geoActions).toHaveLength(1);
     expect(geoActions[0]?.title).toBe("United States");
     expect(geoActions[0]?.sourceContext.sourceDecisionId).toBe("geo:us");
+  });
+
+  it("builds an additive opportunity board from Meta and Creative sources", () => {
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+
+    expect(opportunities.some((item) => item.sourceSystem === "meta")).toBe(true);
+    expect(opportunities.some((item) => item.sourceSystem === "creative")).toBe(true);
+    expect(opportunities.some((item) => item.queueEligible)).toBe(true);
+    expect(
+      opportunities.some(
+        (item) => item.kind.includes("protected") && !item.queueEligible,
+      ),
+    ).toBe(true);
   });
 
   it("enforces workflow transition guards", () => {

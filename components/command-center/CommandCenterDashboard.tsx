@@ -9,6 +9,7 @@ import {
   ArrowRight,
   CheckSquare2,
   Clock3,
+  Lightbulb,
   Layers3,
   ListChecks,
   MessageSquareWarning,
@@ -183,6 +184,15 @@ function resolveOwnerWorkloadTone(owner: CommandCenterOwnerWorkloadSummary) {
     return "border-amber-200 bg-amber-50";
   }
   return "border-slate-200 bg-white";
+}
+
+function resolveOpportunityTone(queueEligible: boolean, sourceSystem: "meta" | "creative") {
+  if (queueEligible) {
+    return sourceSystem === "meta"
+      ? "border-emerald-200 bg-emerald-50"
+      : "border-sky-200 bg-sky-50";
+  }
+  return "border-slate-200 bg-slate-50";
 }
 
 function createClientMutationId() {
@@ -897,7 +907,7 @@ export function CommandCenterDashboard() {
         </div>
 
         {payload ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SummaryCard
               label="Shift Budget"
               value={payload.throughput.selectedCount}
@@ -917,6 +927,11 @@ export function CommandCenterDashboard() {
               label="Feedback"
               value={payload.feedbackSummary.totalCount}
               icon={<Users className="h-4 w-4" />}
+            />
+            <SummaryCard
+              label="Opportunities"
+              value={payload.opportunitySummary.totalCount}
+              icon={<Lightbulb className="h-4 w-4" />}
             />
           </div>
         ) : null}
@@ -1003,6 +1018,88 @@ export function CommandCenterDashboard() {
                 {payload.feedbackSummary.queueGapCount} queue-gap report(s) are currently open.
               </p>
             </div>
+          </div>
+        ) : null}
+
+        {payload ? (
+          <div
+            className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+            data-testid="command-center-opportunity-board"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Opportunity board
+                </p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">
+                  {payload.opportunitySummary.headline}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {payload.opportunitySummary.queueEligibleCount} queue-ready ·{" "}
+                  {payload.opportunitySummary.protectedCount} protected ·{" "}
+                  {payload.opportunitySummary.metaCount} Meta ·{" "}
+                  {payload.opportunitySummary.creativeCount} Creative
+                </p>
+              </div>
+              <Lightbulb className="h-4 w-4 text-slate-500" />
+            </div>
+
+            {payload.opportunities.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">
+                No opportunity-board item is available yet.
+              </p>
+            ) : (
+              <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                {payload.opportunities.slice(0, 6).map((opportunity) => (
+                  <div
+                    key={opportunity.opportunityId}
+                    className={cn(
+                      "rounded-2xl border px-3 py-3",
+                      resolveOpportunityTone(
+                        opportunity.queueEligible,
+                        opportunity.sourceSystem,
+                      ),
+                    )}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950">
+                          {opportunity.title}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          {opportunity.summary}
+                        </p>
+                      </div>
+                      <Badge variant="outline">
+                        {formatActionLabel(opportunity.recommendedAction)}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                      <span>{opportunity.sourceSystem}</span>
+                      <span>{Math.round(opportunity.confidence * 100)}% confidence</span>
+                      <span>{opportunity.queueEligible ? "queue-ready" : "board-only"}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {opportunity.evidenceFloors.slice(0, 3).map((floor) => (
+                        <Badge
+                          key={`${opportunity.opportunityId}:${floor.key}`}
+                          variant="outline"
+                          className={cn(
+                            floor.status === "met"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : floor.status === "watch"
+                                ? "border-amber-200 bg-amber-50 text-amber-700"
+                                : "border-slate-200 bg-slate-100 text-slate-700",
+                          )}
+                        >
+                          {floor.label}: {floor.current}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ) : null}
 

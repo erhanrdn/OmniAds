@@ -5,6 +5,10 @@ import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata"
 import {
   buildDecisionFreshness,
 } from "@/lib/decision-trust/kernel";
+import {
+  buildDecisionEvidenceFloor,
+  evaluateDecisionOpportunityQueue,
+} from "@/lib/decision-trust/opportunity";
 import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
@@ -14,7 +18,9 @@ import type {
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
 import type {
+  DecisionEvidenceFloor,
   DecisionOperatorDisposition,
+  DecisionOpportunityQueueEligibility,
   DecisionSurfaceLane,
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
@@ -420,6 +426,25 @@ export interface CreativeDecisionSupplyPlanItem {
   reasons: string[];
 }
 
+export type CreativeOpportunityKind =
+  | "creative_family_winner_scale"
+  | "protected_winner";
+
+export interface CreativeOpportunityBoardItem {
+  opportunityId: string;
+  kind: CreativeOpportunityKind;
+  title: string;
+  summary: string;
+  recommendedAction: string;
+  confidence: number;
+  queue: DecisionOpportunityQueueEligibility;
+  evidenceFloors: DecisionEvidenceFloor[];
+  tags: string[];
+  trust: DecisionTrustMetadata;
+  familyId: string;
+  creativeIds: string[];
+}
+
 export interface CreativeHistoricalAnalysisSelectedWindow {
   startDate: string;
   endDate: string;
@@ -491,12 +516,20 @@ export interface CreativeDecisionOsV1Response {
       archiveCount: number;
       degradedCount: number;
     };
+    opportunitySummary: {
+      totalCount: number;
+      queueEligibleCount: number;
+      protectedCount: number;
+      familyScaleCount: number;
+      headline: string;
+    };
   };
   creatives: CreativeDecisionOsCreative[];
   families: CreativeDecisionOsFamily[];
   patterns: CreativeDecisionOsPattern[];
   protectedWinners: CreativeDecisionProtectedWinner[];
   supplyPlan: CreativeDecisionSupplyPlanItem[];
+  opportunityBoard: CreativeOpportunityBoardItem[];
   lifecycleBoard: CreativeDecisionLifecycleBoardItem[];
   operatorQueues: CreativeDecisionOperatorQueue[];
   commercialTruthCoverage: CreativeDecisionOsCommercialTruthCoverage;
@@ -1915,6 +1948,196 @@ function buildSupplyPlan(
     .slice(0, 10);
 }
 
+function buildCreativeOpportunityTrust(input: {
+  baseTrust: DecisionTrustMetadata;
+  reasons: string[];
+}) {
+  return compileDecisionTrust({
+    surfaceLane: "opportunity_board",
+    truthState: input.baseTrust.truthState,
+    operatorDisposition: input.baseTrust.operatorDisposition,
+    entityState: input.baseTrust.evidence?.entityState,
+    materiality: input.baseTrust.evidence?.materiality,
+    freshness: input.baseTrust.evidence?.freshness,
+    reasons: input.reasons,
+    missingInputs:
+      input.baseTrust.truthState === "degraded_missing_truth"
+        ? input.baseTrust.reasons
+        : [],
+    suppressionReasons: input.reasons,
+  });
+}
+
+function buildCreativeOpportunityBoard(input: {
+  creatives: CreativeDecisionOsCreative[];
+  families: CreativeDecisionOsFamily[];
+  protectedWinners: CreativeDecisionProtectedWinner[];
+}) {
+  const items: CreativeOpportunityBoardItem[] = [];
+  const creativesById = new Map(
+    input.creatives.map((creative) => [creative.creativeId, creative]),
+  );
+
+  for (const family of input.families) {
+    const familyCreatives = input.creatives.filter(
+      (creative) => creative.familyId === family.familyId,
+    );
+    const bestPromotionCreative = familyCreatives
+      .filter((creative) => creative.primaryAction === "promote_to_scaling")
+      .sort((left, right) => right.confidence - left.confidence)[0];
+    if (!bestPromotionCreative) continue;
+    const baseTrust = bestPromotionCreative.trust;
+    const evidenceFloors = [
+      buildDecisionEvidenceFloor({
+        key: "scale_readiness",
+        label: "Scale readiness",
+        current: `${familyCreatives.filter((creative) => creative.primaryAction === "promote_to_scaling").length} promotable creative`,
+        required: "1+ promotable creative",
+        met: familyCreatives.some(
+          (creative) => creative.primaryAction === "promote_to_scaling",
+        ),
+      }),
+      buildDecisionEvidenceFloor({
+        key: "signal_depth",
+        label: "Signal depth",
+        current: `$${Math.round(family.totalSpend)} / ${family.totalPurchases} purchases`,
+        required: "$150 spend and 4 purchases",
+        status:
+          family.totalSpend >= 150 && family.totalPurchases >= 4
+            ? "met"
+            : family.totalSpend >= 80 || family.totalPurchases >= 2
+              ? "watch"
+              : "blocked",
+        reason:
+          family.totalSpend >= 150 && family.totalPurchases >= 4
+            ? null
+            : "Creative family needs more spend and purchase depth before queue intake.",
+      }),
+      buildDecisionEvidenceFloor({
+        key: "deployment_match",
+        label: "Deployment match",
+        current: bestPromotionCreative.deployment.compatibility.status,
+        required: "compatible lane",
+        status:
+          bestPromotionCreative.deployment.compatibility.status === "compatible"
+            ? "met"
+            : bestPromotionCreative.deployment.compatibility.status === "limited"
+              ? "watch"
+              : "blocked",
+        reason:
+          bestPromotionCreative.deployment.compatibility.reasons[0] ??
+          "No compatible live deployment lane is ready for this family.",
+      }),
+      buildDecisionEvidenceFloor({
+        key: "commercial_truth",
+        label: "Commercial truth",
+        current: baseTrust.truthState.replaceAll("_", " "),
+        required: "live confident",
+        met: baseTrust.truthState === "live_confident",
+        reason:
+          "Shared authority still caps this family out of the default queue.",
+      }),
+    ];
+    const queue = evaluateDecisionOpportunityQueue({
+      truthState: baseTrust.truthState,
+      authorityReady: baseTrust.surfaceLane === "action_core",
+      floors: evidenceFloors,
+      blockedReasons:
+        baseTrust.truthState === "degraded_missing_truth"
+          ? baseTrust.reasons
+          : [],
+    });
+    items.push({
+      opportunityId: `creative-family-scale:${family.familyId}`,
+      kind: "creative_family_winner_scale",
+      title: family.familyLabel,
+      summary:
+        bestPromotionCreative.summary ??
+        "This creative family has a deterministic scale-ready path.",
+      recommendedAction: "promote_to_scaling",
+      confidence: clamp(
+        average(
+          familyCreatives
+            .filter((creative) => creative.primaryAction === "promote_to_scaling")
+            .map((creative) => creative.confidence),
+        ),
+        0.3,
+        0.92,
+      ),
+      queue,
+      evidenceFloors,
+      tags: ["scale_promotions"],
+      trust: buildCreativeOpportunityTrust({
+        baseTrust,
+        reasons: [bestPromotionCreative.summary],
+      }),
+      familyId: family.familyId,
+      creativeIds: family.creativeIds,
+    });
+  }
+
+  for (const protectedWinner of input.protectedWinners) {
+    const baseCreative =
+      creativesById.get(protectedWinner.creativeId) ??
+      input.creatives.find((creative) => creative.familyId === protectedWinner.familyId) ??
+      null;
+    const baseTrust =
+      baseCreative?.trust ??
+      compileDecisionTrust({
+        surfaceLane: "watchlist",
+        truthState: "live_confident",
+        operatorDisposition: "protected_watchlist",
+        reasons: protectedWinner.reasons,
+      });
+    const evidenceFloors = [
+      buildDecisionEvidenceFloor({
+        key: "winner_protection",
+        label: "Winner protection",
+        current: "protected",
+        required: "stable winner context",
+        met: true,
+      }),
+      buildDecisionEvidenceFloor({
+        key: "queue_readiness",
+        label: "Queue readiness",
+        current: "hold_no_touch",
+        required: "board-only guardrail",
+        status: "blocked",
+        reason:
+          "Protected winners stay visible for operator context, not as queue work.",
+      }),
+    ];
+    items.push({
+      opportunityId: `creative-protected:${protectedWinner.creativeId}`,
+      kind: "protected_winner",
+      title: protectedWinner.creativeName,
+      summary: protectedWinner.reasons[0] ?? "Protected creative winner.",
+      recommendedAction: "hold_no_touch",
+      confidence: baseCreative?.confidence ?? 0.72,
+      queue: evaluateDecisionOpportunityQueue({
+        truthState: baseTrust.truthState,
+        authorityReady: false,
+        floors: evidenceFloors,
+      }),
+      evidenceFloors,
+      tags: ["promo_mode_watchlist"],
+      trust: buildCreativeOpportunityTrust({
+        baseTrust,
+        reasons: protectedWinner.reasons,
+      }),
+      familyId: protectedWinner.familyId,
+      creativeIds: [protectedWinner.creativeId],
+    });
+  }
+
+  return items.sort(
+    (left, right) =>
+      Number(right.queue.eligible) - Number(left.queue.eligible) ||
+      right.confidence - left.confidence ||
+      left.title.localeCompare(right.title),
+  );
+}
+
 export function buildCreativeDecisionOs(
   input: BuildCreativeDecisionOsInput,
 ): CreativeDecisionOsV1Response {
@@ -1991,6 +2214,13 @@ export function buildCreativeDecisionOs(
         comebackCount: 0,
         protectedWinnerCount: 0,
         supplyPlanCount: 0,
+        opportunitySummary: {
+          totalCount: 0,
+          queueEligibleCount: 0,
+          protectedCount: 0,
+          familyScaleCount: 0,
+          headline: "No opportunity-board item is available yet.",
+        },
         message: "No creative rows were available for the live decision window.",
         operatingMode: input.operatingMode?.recommendedMode ?? null,
         surfaceSummary: {
@@ -2005,6 +2235,7 @@ export function buildCreativeDecisionOs(
       patterns: [],
       protectedWinners: [],
       supplyPlan: [],
+      opportunityBoard: [],
       lifecycleBoard: buildLifecycleBoard([]),
       operatorQueues: buildOperatorQueues([]),
       commercialTruthCoverage,
@@ -2295,6 +2526,11 @@ export function buildCreativeDecisionOs(
   const sortedFamilies = families.sort((left, right) => right.totalSpend - left.totalSpend);
   const protectedWinners = buildProtectedWinners(creatives);
   const supplyPlan = buildSupplyPlan(creatives, sortedFamilies);
+  const opportunityBoard = buildCreativeOpportunityBoard({
+    creatives,
+    families: sortedFamilies,
+    protectedWinners,
+  });
   const lifecycleBoard = buildLifecycleBoard(creatives);
   const operatorQueues = buildOperatorQueues(creatives);
   const commercialTruthCoverage = buildCommercialTruthCoverage(
@@ -2367,6 +2603,20 @@ export function buildCreativeDecisionOs(
       comebackCount: creatives.filter((creative) => creative.lifecycleState === "comeback_candidate").length,
       protectedWinnerCount: protectedWinners.length,
       supplyPlanCount: supplyPlan.length,
+      opportunitySummary: {
+        totalCount: opportunityBoard.length,
+        queueEligibleCount: opportunityBoard.filter((item) => item.queue.eligible).length,
+        protectedCount: opportunityBoard.filter(
+          (item) => item.kind === "protected_winner",
+        ).length,
+        familyScaleCount: opportunityBoard.filter(
+          (item) => item.kind === "creative_family_winner_scale",
+        ).length,
+        headline:
+          opportunityBoard.filter((item) => item.queue.eligible).length > 0
+            ? `${opportunityBoard.filter((item) => item.queue.eligible).length} creative opportunity${opportunityBoard.filter((item) => item.queue.eligible).length > 1 ? " items are" : " item is"} ready once evidence floors stay intact.`
+            : "Creative opportunity board is populated, but nothing is queue-ready yet.",
+      },
       message:
         input.operatingMode?.recommendedMode === "Recovery"
           ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and block outcomes."
@@ -2379,6 +2629,7 @@ export function buildCreativeDecisionOs(
     patterns,
     protectedWinners,
     supplyPlan,
+    opportunityBoard,
     lifecycleBoard,
     operatorQueues,
     commercialTruthCoverage,

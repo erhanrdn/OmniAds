@@ -9,6 +9,7 @@ import type {
   MetaDecisionPolicy,
   MetaDecisionOsV1Response,
   MetaGeoDecision,
+  MetaOpportunityBoardItem,
   MetaPlacementAnomaly,
   MetaWinnerScaleCandidate,
 } from "@/lib/meta/decision-os";
@@ -226,6 +227,61 @@ function WinnerScaleCandidateRow({
   );
 }
 
+function OpportunityBoardRow({
+  item,
+}: {
+  item: MetaOpportunityBoardItem;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-900">{item.title}</p>
+          <p className="mt-1 text-xs text-slate-600">{item.summary}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              item.queue.eligible
+                ? "bg-emerald-500/10 text-emerald-700"
+                : "bg-slate-500/10 text-slate-700",
+            )}
+          >
+            {item.queue.eligible ? "queue-ready" : "board-only"}
+          </span>
+          <span className="rounded-full bg-slate-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            {formatActionLabel(item.kind)}
+          </span>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        <span>{formatActionLabel(item.recommendedAction)}</span>
+        <span className={confidenceTone(item.confidence)}>
+          Confidence {(item.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {item.evidenceFloors.slice(0, 3).map((floor) => (
+          <span
+            key={`${item.opportunityId}:${floor.key}`}
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              floor.status === "met"
+                ? "bg-emerald-500/10 text-emerald-700"
+                : floor.status === "watch"
+                  ? "bg-amber-500/10 text-amber-700"
+                  : "bg-slate-500/10 text-slate-700",
+            )}
+          >
+            {floor.label}: {floor.current}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GeoDecisionRow({ decision }: { decision: MetaGeoDecision }) {
   const supportingMetrics = decision.supportingMetrics ?? {
     roas: 0,
@@ -415,6 +471,23 @@ export function MetaDecisionOsOverview({
       sourceLabel: null,
     },
   };
+  const opportunitySummary = decisionOs.summary.opportunitySummary ?? {
+    totalCount: decisionOs.opportunityBoard.length,
+    queueEligibleCount: decisionOs.opportunityBoard.filter((item) => item.queue.eligible).length,
+    geoCount: decisionOs.opportunityBoard.filter((item) => item.kind === "geo").length,
+    winnerScaleCount: decisionOs.opportunityBoard.filter(
+      (item) =>
+        item.kind === "campaign_winner_scale" || item.kind === "adset_winner_scale",
+    ).length,
+    protectedCount: decisionOs.opportunityBoard.filter(
+      (item) => item.kind === "protected_winner",
+    ).length,
+    headline:
+      decisionOs.opportunityBoard.length > 0
+        ? "Opportunity board is populated."
+        : "Opportunity board is empty.",
+  };
+  const topOpportunityRows = decisionOs.opportunityBoard.slice(0, 5);
   const watchlistGeoClusters = Array.from(
     new Map(
       decisionOs.geoDecisions
@@ -487,6 +560,34 @@ export function MetaDecisionOsOverview({
         commercialSummary={decisionOs.commercialTruthCoverage.summary}
         title="Meta Authority"
       />
+
+      <DecisionListCard
+        title="Opportunity Board"
+        testId="meta-opportunity-board"
+        empty="No opportunity-board item is available."
+      >
+        <div className="space-y-3">
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+            <p className="text-xs text-slate-600">{opportunitySummary.headline}</p>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+              <span>Total {opportunitySummary.totalCount}</span>
+              <span>Queue-ready {opportunitySummary.queueEligibleCount}</span>
+              <span>Winner-scale {opportunitySummary.winnerScaleCount}</span>
+              <span>Protected {opportunitySummary.protectedCount}</span>
+              <span>GEO {opportunitySummary.geoCount}</span>
+            </div>
+          </div>
+          {topOpportunityRows.length === 0 ? (
+            <p className="text-xs text-slate-500">No opportunity-board item is available.</p>
+          ) : (
+            <div className="space-y-3">
+              {topOpportunityRows.map((item) => (
+                <OpportunityBoardRow key={item.opportunityId} item={item} />
+              ))}
+            </div>
+          )}
+        </div>
+      </DecisionListCard>
 
       <DecisionListCard
         title="Budget Shift Board"
