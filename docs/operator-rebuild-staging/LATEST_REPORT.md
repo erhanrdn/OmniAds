@@ -1,551 +1,191 @@
-# Meta + Creative Operator Rebuild Specification
+# Step 3 — Shared Operator Authority Foundation
 
 # 1. Executive Summary
 
-- The rebuild thesis is simple: Meta and Creative already contain meaningful decision logic, but the operator surfaces expose the system's reasoning layers instead of a usable operator contract.
-- The current product must be restructured because top-level space is still consumed by authority, policy, queue, readiness, provenance, and board abstractions while the operator still cannot answer the first question: "What should I do next?"
-- The new product must optimize for fast operator comprehension, regime-specific action wording, truthful blockers, and visible asset truth. It should not optimize for preserving existing panels.
-- The rebuild should be treated as a major rewrite with selective salvage.
-- What is salvageable:
-  - core Meta and Creative decision computation
-  - commercial-truth detection
-  - command-center linkage
-  - preview rendering primitives
-  - campaign / creative data fetchers and metric plumbing
-- What is not salvageable as a product contract:
-  - the current Meta Decision OS overview as a first-order surface
-  - the current Creative Decision OS overview / drawer framing
-  - account-level recommendation framing as the main Meta entry point
-  - preview-truth handling that still allows creative decisions to look authoritative when the operator cannot reliably inspect the asset
+* Step 3 implemented the first shared operator-facing authority layer across Meta and Creative.
+* The step targeted the core product problem from Step 2: top-level surfaces were exposing multiple competing action voices and too much backend reasoning instead of one operator-readable contract.
+* This step achieved a meaningful operator-facing improvement: Meta now leads with one compressed authority surface, Creative now gets the same shared authority summary plus compressed row wording, and truth-capped / preview-capped states are explicit.
+* This step did not complete the full Meta rebuild or full Creative rebuild. Deep detail surfaces, selected-campaign detail, and the Creative drawer still need later page-specific cleanup.
 
-# 2. Current-State Inputs
+# 2. Context Rebuild
 
-- Step 1 established and this step accepts as teardown truth:
-  - Meta is overloaded with backend reasoning leakage.
-  - Creative is less trustworthy than Meta because preview/media truth is inconsistent.
-  - the top-level Meta recommendation surface is structurally wrong because account-level recommendations can be empty while campaign and ad set actions still exist
-  - opportunity and queue framing is misleading for current real businesses
-  - campaign-type and bid-regime logic exists internally, but the surfaced wording is too generic
-- Current repo / runtime truth confirmed in this step:
-  - local `main` and `origin/main` both resolved to `4d27ad800513bacd0f756a9bdb874ebee0dad4da`
-  - production `https://adsecute.com/api/build-info` returned live SHA `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`
-  - production `https://adsecute.com/api/release-authority` reported live `79ea776...` vs main `4d27ad8...` as explicit drift
-  - `git diff --stat 79ea776..HEAD` showed only continuity-doc changes, so the product/runtime baseline for Step 2 is still the Step 1 code baseline
-- Current repo truth also confirms the structural diagnosis in code:
-  - Meta page composition still routes the operator into `MetaDecisionOsOverview`, `DecisionAuthorityPanel`, `DecisionPolicyExplanationPanel`, `MetaAccountRecs`, and `MetaOperatingModeCard`
-  - Creative page composition still routes the operator into a Decision OS button/drawer model, a dense metrics table, and an overloaded `CreativeDetailExperience`
-  - current contracts in `docs/phase-03-meta-action-contract.md` and `docs/phase-04-creative-action-contract.md` are payload contracts, not operator product contracts
-- Constraints this creates for Step 2:
-  - the rebuild should reuse current decision engines where possible, but the backend-to-UI adapter must be rewritten
-  - the next implementation must not assume that existing `DecisionAuthorityPanel`, `DecisionPolicyExplanationPanel`, or current OS overview cards remain primary UI
-  - live production is still behind repo docs, so Step 2 must clearly distinguish verified runtime truth from future implementation intent
+* Read first:
+  * `docs/operator-rebuild/HANDOFF.md`
+  * `docs/operator-rebuild-staging/LATEST_REPORT.md`
+  * `docs/operator-rebuild-staging/STATUS.md`
+* Continuity status at step start:
+  * `HANDOFF.md` was stale against repo truth and still referenced the older Step 2 baseline SHA.
+  * `LATEST_REPORT.md` was still the accepted Step 2 specification, so it remained the product contract source of truth for Step 3.
+* Current branch / SHA at rebuild start:
+  * `main`
+  * `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
+* Live SHA if verified:
+  * `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`
+  * verified on April 12, 2026 via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority`
+* Continuity fixes applied before implementation:
+  * repaired `HANDOFF.md` to current repo/live truth
+  * added a compact restart-safe workflow section and step lifecycle section
+  * confirmed local `main` and `origin/main` both matched `2a43df0...` before Step 3 code work began
 
-# 3. Rebuild Principles
+# 3. Scope Delivered
 
-- Non-negotiable operator principles:
-  - every top-level row must answer `what should I do`, `why`, and `what blocks a stronger move`
-  - every surfaced action must name the lever: budget, cost cap, bid cap, structure, creative, or no change
-  - top-level status must be action-first, not engine-first
-  - empty boards and system inventories must never outrank real worklists
-- Operator-facing clarity rules:
-  - one row gets one primary action, one primary reason, and at most one visible blocker
-  - use operator words, not internal taxonomies
-  - show the action unit that actually owns the lever; do not force account-level framing when the action lives at campaign or ad set level
-  - numeric confidence percentages should not be primary copy
-- Backend-to-UI compression rules:
-  - compress raw trust, readiness, policy, and provenance into a single operator authority state
-  - compress candidate vs baseline policy comparisons into one selected action plus one blocker or risk
-  - compress preview coverage inventories into a simple visible preview state
-  - preserve deep evidence behind `Show why` or debug-only detail, not on the default page
-- Truth / degraded / readiness principles:
-  - `Ready` means the system can surface an action safely
-  - `Truth capped` means the system sees potential but commercial truth blocks aggressive action
-  - `Signal capped` means the system needs more maturity before acting
-  - `Preview capped` means the operator cannot reliably judge the creative asset
-  - `Protected` means no action is the action
-- What must never be shown at top level again:
-  - truth state / completeness / freshness fields as standalone UI objects
-  - action ceilings, suppressed action classes, readiness-day counts, calibration profile counts
-  - baseline / candidate / selected action compare ladders
-  - queue eligibility traces, board-only / queue-ready semantics, and protected reason inventories
-  - family provenance confidence, over-grouping risk, source health, and read reliability
-  - preview coverage counters, missing-evidence inventories, and raw degraded-reason lists
+* Shared authority changes made:
+  * introduced a reusable operator surface contract in `lib/operator-surface.ts`
+  * added Meta and Creative surface mappers that compress internal decision payloads into one operator-facing action model
+  * added a shared `OperatorSurfaceSummary` renderer for both surfaces
+* Conflicting action surfaces unified, demoted, or reconciled:
+  * Meta now leads with one shared action authority summary instead of leading with Command Center, Meta Decision OS inventory cards, and account-context notes in parallel
+  * Meta account recommendations were demoted into opt-in supporting context
+  * Command Center on Meta was demoted below the primary authority layer
+  * Creative’s top surface now uses the shared authority layer, while the old Decision OS drawer is demoted into explicit `Show why` detail
+* Truth-capped states surfaced:
+  * Meta profitable-but-capped rows now map to explicit `Needs truth`
+  * Creative promotable rows that are capped by missing commercial truth now map to explicit `Needs truth`
+  * Creative preview-missing rows now map to explicit `Needs preview`
+* Thin-signal suppression changed:
+  * thin-signal and inactive rows are now counted but kept off headline action buckets
+  * Creative table rows now use the compressed contract instead of surfacing queue verdict / family provenance / preview internals as the top row language
+* Wording and compression changes made:
+  * action wording now trends toward buyer guidance: `Increase budget`, `Needs truth`, `Needs preview`, `Do not touch`, `Keep testing`, `Promote`, `Replace`
+  * top-level Meta no longer leads with raw action-core/watch/archive counts
+  * top-level Creative no longer relies only on the drawer label and raw Decision OS naming to explain what to do next
 
-# 4. Meta Product Contract
+# 4. Architecture Changes
 
-- What the Meta page is for:
-  - to show the operator which Meta entities need action now, which profitable entities are blocked, which entities should be left alone, and which lever comes first
-- What the user should understand in 5–10 seconds:
-  - how many actions need work now
-  - whether any profitable items are blocked by truth or regime constraints
-  - whether the page is in a degraded / capped mode
-  - whether the most important next moves are budget, cap, structure, creative, or no change
-- Primary action hierarchy:
-  - first: `Act now`
-  - second: `Profitable but blocked`
-  - third: `Wait / still learning`
-  - fourth: `Protected / no change`
-  - fifth: `Secondary opportunities`, only if they are real and non-empty
-- States and wording model:
-  - `Increase budget`
-    - only for open / lowest-cost / ASC style structures, or for cap-regime entities after cap pressure is explicitly cleared
-  - `Reduce budget`
-    - for mature underperformers where the first lever really is spend pressure
-  - `Adjust cost cap`
-    - always say `raise cost cap` or `lower cost cap`; never collapse this into generic `hold`
-  - `Adjust bid cap`
-    - always say `raise bid cap` or `lower bid cap`; never collapse this into generic `hold`
-  - `Refresh creative`
-    - when creative fatigue or creative insufficiency is the first blocker
-  - `Change structure`
-    - for duplication, consolidation, geo regrouping, or optimization changes
-  - `Wait`
-    - for immature or recently changed entities where the product is explicitly suppressing action
-  - `Needs truth`
-    - when commercial truth blocks the stronger move
-  - `Do not touch`
-    - for protected or stable winners
-- Visible wording requirements for truth-capped profitable items:
-  - show them in a dedicated top-level bucket, not buried in authority or watchlist sections
-  - row copy must read like:
-    - `Profitable, but budget scale is blocked by missing target truth`
-    - `Profitable, but review cost cap before releasing more budget`
-    - `Profitable, but still in learning; wait before scaling`
-  - never show only `hold` or `review_hold` without the explicit blocker
-- What information must be visible immediately:
-  - entity label in the form `campaign` or `campaign > ad set`
-  - campaign role or structure family when useful
-  - regime label: `Cost Cap`, `Bid Cap`, `Lowest Cost`, `ASC`, or `Broad`
-  - one primary action phrase
-  - one reason line
-  - one blocker / unlocker line when capped
-  - core metrics: spend, ROAS, purchases, CPA
-  - current lever context when relevant: current budget or current cap
-  - a simple confidence band only if the row is borderline
-- What should be hidden behind detail expansion:
-  - policy explanation ladders
-  - evidence-hit and missing-evidence inventories
-  - raw guardrail lists beyond the first material guardrail
-  - source-health and readiness instrumentation
-  - GEO clustering logic, budget-shift evidence, and winner-candidate internals
-  - deep breakdowns and raw ad-set metric grids
-- Top-level sections:
-  - scope bar: business, selected window, live-decision window note
-  - one page-level action-authority banner
-  - `Priority Actions` stack with `Act now`, `Profitable but blocked`, `Wait`, `Protected`
-  - one unified operator table, grouped by campaign but populated by the true action owner
-- Secondary sections:
-  - compact operating-mode summary if it materially changes interpretation
-  - optional breakdown context
-  - command-center linkage as a secondary workflow link, not a lead card
-  - optional protected list if it contains material rows
-- Detail-only sections:
-  - full action sequence and lever order
-  - ad-set detail
-  - creative dependency detail
-  - policy / evidence / debug tabs
-- What current sections / panels should be removed, merged, or demoted:
-  - remove `Action Context` as a primary account-level contract
-  - remove `Meta Decision OS` overview as a top-level surface
-  - remove empty `Opportunity Board`, `Budget Shift Board`, `Winner Scale Candidates`, and GEO boards from prime page space
-  - merge current operating mode into a compact contextual banner
-  - demote `DecisionAuthorityPanel` and `DecisionPolicyExplanationPanel` to detail / debug
-  - demote `Command Center` from a top card to a link / secondary badge
-  - keep the campaign list only if it is rewritten around the new row contract; the current list metadata chips are not enough
+* Key files/modules changed:
+  * `lib/operator-surface.ts`
+  * `lib/meta/operator-surface.ts`
+  * `lib/creative-operator-surface.ts`
+  * `components/operator/OperatorSurfaceSummary.tsx`
+  * `components/meta/meta-decision-os.tsx`
+  * `components/meta/meta-campaign-detail.tsx`
+  * `components/meta/meta-account-recs.tsx`
+  * `components/creatives/CreativesTopSection.tsx`
+  * `components/creatives/CreativesTableSection.tsx`
+  * `app/(dashboard)/creatives/page.tsx`
+  * focused tests plus reviewer smoke updates
+* Contract change between backend and UI:
+  * UI no longer consumes Meta and Creative payloads as raw Decision OS top-level product contracts
+  * UI now consumes compressed operator rows with:
+    * authority state
+    * primary action
+    * reason
+    * blocker
+    * confidence band
+    * key metrics
+  * top-level surfaces still retain deep evidence, but only behind explicit detail entry
+* Intentionally left untouched for later steps:
+  * full Meta page IA rebuild
+  * full Creative page IA rebuild
+  * Creative drawer information architecture
+  * selected campaign detail contract
+  * preview/media truth plumbing itself
+  * deeper detail/debug surface cleanup beyond the new top-layer demotion
 
-# 5. Creative Product Contract
+# 5. Product Impact
 
-- What the Creative page is for:
-  - to tell the operator which creatives to promote, keep testing, replace, protect, or block because preview or truth is not reliable enough
-- What the user should understand in 5–10 seconds:
-  - whether there is a real replacement queue
-  - whether there are genuine promotion candidates
-  - whether the page is safe to trust visually
-  - whether any rows are blocked because the operator cannot actually inspect the asset
-- Primary table / card structure:
-  - the default surface should be a worklist-first table with preview as the first column
-  - primary row fields:
-    - preview thumbnail or explicit preview-blocked state
-    - creative name and family label
-    - lifecycle label in operator language
-    - primary action
-    - one reason line
-    - one blocker line when capped
-    - target lane or intended placement when applicable
-    - core metrics: spend, ROAS, purchases, CTR or hook signal where relevant
-  - top-of-page summary should use worklist buckets, not Decision OS inventory buckets
-- Preview / media truth contract:
-  - preview is a gating contract for authoritative creative actions
-  - a row is only fully `Ready` if the operator can inspect a trustworthy asset rendering tied to the judged creative identity
-  - `Preview ready`
-    - trustworthy operator-visible asset exists
-    - authoritative lifecycle and action may be shown
-  - `Preview degraded`
-    - fallback media exists, but live review truth is incomplete
-    - metrics review is allowed, but decisive actions should be softened into `Review media before acting` or `Watch`
-  - `Preview missing`
-    - no trustworthy operator-visible asset exists
-    - the row must move to `Needs preview`
-    - AI commentary must remain off
-    - authoritative `Promote`, `Replace`, or `Protected winner` language must not be shown as top-level truth
-- What to do when preview truth is missing:
-  - do not hide it in the drawer
-  - show `Needs preview` directly in the table and in the top-level summary bucket
-  - allow the operator to inspect metrics, but not to mistake the row for a trustworthy asset-level decision
-  - suppress AI commentary and suppress decisive action copy
-- Lifecycle labels and recommended actions:
-  - visible lifecycle vocabulary should be:
-    - `Testing`
-    - `Ready to promote`
-    - `Protected winner`
-    - `Fatigued`
-    - `Blocked`
-    - `Comeback test`
-    - `Needs preview`
-  - visible action vocabulary should be:
-    - `Promote`
-    - `Keep testing`
-    - `Replace`
-    - `Do not touch`
-    - `Retry`
-    - `Needs preview`
-  - internal terms such as `scale_ready`, `keep_in_test`, `hold_no_touch`, and `refresh_replace` should be adapter-level only
-- What must be visible without opening a drawer:
-  - preview state
-  - action
-  - lifecycle
-  - one-line reason
-  - one blocker if present
-  - spend / ROAS / purchases
-  - deployment target or constraint if the action is promotion or replacement
-- What belongs in a drawer / detail panel only:
-  - large preview and asset inspection
-  - benchmark cohort detail
-  - fatigue evidence
-  - deployment compatibility matrix
-  - family provenance and pattern lineage
-  - command-center workflow state
-  - AI commentary
-  - extended metric history
-- What should be removed or demoted from the current experience:
-  - remove the current `Creative Decision OS` overview / drawer as the primary operator framing
-  - remove `Commercial Context` as a default main-column card
-  - remove `Decision score`, `confidence %`, `family provenance`, `queue verdict`, and `preview truth` as first-order metric cells
-  - demote family boards, pattern boards, supply plans, and historical analysis to optional views
-  - demote AI commentary to opt-in detail only
-  - demote provenance and policy review to detail / debug only
+* Meta is now different:
+  * one operator authority surface leads the page
+  * account recommendations are no longer a competing headline voice
+  * Command Center is secondary instead of leading the page
+  * truth-capped profitable rows are explicit in the authority summary instead of buried in raw trust metadata
+* Creative is now different:
+  * the top strip now includes the shared operator authority summary
+  * creative row copy is compressed into operator-readable action + state + blocker wording
+  * preview-missing rows are explicitly labeled through the shared contract
+  * the drawer entry is now `Show why`, not a primary Decision OS product voice
+* Operator confusion reduced:
+  * fewer top-level contradictory voices
+  * less raw queue / provenance / policy language in default visible space
+  * clearer distinction between `act`, `needs truth`, `needs preview`, `watch`, and `protect`
+* What remains confusing:
+  * the Creative drawer still contains a large amount of legacy Decision OS structure once opened
+  * selected-campaign Meta detail still uses older supporting panels
+  * preview/media truth remains operationally unresolved beyond the new surface contract language
 
-# 6. Shared Action Authority Model
+# 6. Acceptance Checklist
 
-- Shared operator-facing action model:
-  - every row must produce:
-    - `authority state`
-    - `primary action`
-    - `primary reason`
-    - `blocker or precondition`
-    - `key metrics`
-    - `show why` expansion
-- Action state taxonomy:
-  - `Act now`
-    - the system is sufficiently ready and the lever is explicit
-  - `Watch`
-    - do nothing now, but the row stays visible because the next trigger matters
-  - `No action`
-    - the correct instruction is to leave it alone
-  - `Needs truth`
-    - the system sees opportunity or risk, but missing truth caps the action
-  - `Blocked`
-    - action is not trustworthy because preview, compatibility, or hard constraints are unresolved
-- Truth-capped state taxonomy:
-  - `Truth capped`
-    - commercial truth missing; strong action is suppressed
-  - `Signal capped`
-    - maturity / cooldown / learning state suppresses action
-  - `Preview capped`
-    - asset truth suppresses creative authority
-  - `Protected`
-    - intentional no-touch state
-- Blocked / watch / no-action / action-now semantics:
-  - blocked rows must say what is missing
-  - watch rows must say what event would promote them into action
-  - no-action rows must say why touching them is a mistake
-  - action-now rows must say the first lever and why it comes first
-- Confidence and blocker presentation:
-  - use one human-readable confidence band: `High`, `Medium`, `Limited`
-  - do not show percentages on default rows
-  - if a blocker exists, show the blocker before the confidence band
-  - do not show multiple blocker inventories at top level
-- Vocabulary rules:
-  - approved top-level verbs:
-    - `Increase budget`
-    - `Reduce budget`
-    - `Raise cost cap`
-    - `Lower cost cap`
-    - `Raise bid cap`
-    - `Lower bid cap`
-    - `Refresh creative`
-    - `Change structure`
-    - `Keep testing`
-    - `Wait`
-    - `Needs truth`
-    - `Needs preview`
-    - `Do not touch`
-  - banned top-level vocabulary:
-    - `action_core`
-    - `watchlist`
-    - `archive_context`
-    - `opportunity_board`
-    - `queue_ready`
-    - `board_only`
-    - `baseline_locked`
-    - `candidate_active`
-    - `profitable_truth_capped`
-    - `family_provenance`
-- What must stay internal vs visible:
-  - visible:
-    - primary action
-    - primary reason
-    - blocker / unlocker
-    - lever
-    - key metrics
-  - internal or detail-only:
-    - raw truth state, completeness, freshness, source health, read reliability
-    - evidence-floor comparisons and policy ladders
-    - queue traces and board semantics
-    - family provenance and sample-size caveats
-    - preview coverage counts and missing-evidence inventories
+* one action authority model improved: accepted
+* truth-capped profitable state visible: accepted
+* zero-signal headline suppression improved: accepted
+* backend reasoning compressed at top level: accepted
+* continuity docs updated: yes
+* real-account evidence captured: no
+  * no benchmark-business browser or runtime capture was taken against `Grandmix`, `IwaStore`, or `TheSwaf` in this step
+* browser evidence captured: yes
+  * local Playwright reviewer smoke passed after the Step 3 contract updates
+* phase closure verdict: shipped-not-complete
+  * the repo step is complete and pushed, but live runtime remained on the older production SHA during this session
 
-# 7. Campaign-Type Action Framework
+# 7. Test Evidence
 
-- Cost cap
-  - what the system is trying to detect:
-    - whether delivery is constrained by the cost cap
-    - whether the lane is efficient enough to loosen the cap
-    - whether weak performance means pressure should be reduced instead
-  - valid responses:
-    - `Raise cost cap`
-    - `Lower cost cap`
-    - `Wait`
-    - `Reduce budget`, only when the lane is mature and genuinely inefficient
-    - `Refresh creative`, when fatigue or creative insufficiency is the primary blocker
-  - what should not be surfaced generically:
-    - `Increase budget` before the cap question is answered
-    - generic `Hold`
-    - generic structure duplication without a clear structure problem
+* typecheck:
+  * `npx tsc --noEmit`
+  * passed
+* tests:
+  * `npx vitest run lib/meta/operator-surface.test.ts lib/creative-operator-surface.test.ts components/meta/meta-decision-os.test.tsx components/meta/meta-campaign-detail.test.tsx`
+  * passed
+* build:
+  * `npm run build`
+  * passed
+* local smoke:
+  * `npx playwright test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium`
+  * passed
+* focused regression tests added:
+  * `lib/meta/operator-surface.test.ts`
+  * `lib/creative-operator-surface.test.ts`
+  * updated `components/meta/meta-decision-os.test.tsx`
+  * updated `playwright/tests/reviewer-smoke.spec.ts`
 
-- Bid cap
-  - what the system is trying to detect:
-    - whether a strong lane is being artificially constrained by the bid cap
-    - whether the bid cap should tighten because efficiency has fallen
-    - whether the lane is still immature and should stay unchanged
-  - valid responses:
-    - `Raise bid cap`
-    - `Lower bid cap`
-    - `Wait`
-    - `Needs truth before bid-cap review`
-  - what should not be surfaced generically:
-    - `Increase budget` while the bid cap remains the obvious first lever
-    - `Broaden` or `Rebuild` as a default substitute for cap guidance
+# 8. Live Smoke Evidence
 
-- Lowest cost / ASC
-  - what the system is trying to detect:
-    - whether open delivery has real budget headroom
-    - whether the lane is strong enough to scale
-    - whether creative fatigue or structural overlap is now the limiting factor
-  - valid responses:
-    - `Increase budget`
-    - `Reduce budget`
-    - `Refresh creative`
-    - `Change structure`
-    - `Wait`
-  - what should not be surfaced generically:
-    - cap-adjustment language
-    - forced geo or structure actions without evidence of structure-specific failure
+* build-info verification:
+  * on April 12, 2026 `https://adsecute.com/api/build-info` returned live SHA `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`
+* release-authority verification:
+  * on April 12, 2026 `https://adsecute.com/api/release-authority` reported runtime live SHA `79ea776...`
+  * during Step 3 rebuild start it reported remote `main` at `2a43df0...`, confirming live/runtime drift before implementation began
+* live smoke:
+  * no live browser smoke was captured after Step 3 because production runtime did not advance during this session
+* benchmark evidence:
+  * none captured in this step
+* browser evidence:
+  * local browser smoke passed on the rebuilt Meta and Creative surfaces on April 12, 2026
+* exact limitations:
+  * no post-deploy live UI verification
+  * no real-account benchmark walkthrough
+  * release-authority drift remained unresolved at runtime
 
-- Open / broad structures
-  - what the system is trying to detect:
-    - whether the broad structure is in early discovery, stable scale, or unstable decline
-    - whether the right lever is budget, creative, or isolation of winners
-  - valid responses:
-    - `Increase budget` when mature and stable
-    - `Wait` when broad is still learning
-    - `Refresh creative` when broad efficiency is weakening but the structure is still correct
-    - `Change structure` only when there is a real overlap / isolation / consolidation reason
-  - what should not be surfaced generically:
-    - `duplicate_to_new_geo_cluster` style language without material geo evidence
-    - `Increase budget` merely because ROAS is strong on immature spend
+# 9. Deployment And Rollout
 
-- Low-signal / immature
-  - what the system is trying to detect:
-    - whether the entity lacks enough spend, purchases, or time since the last change
-    - whether the correct operator behavior is restraint
-  - valid responses:
-    - `Wait`
-    - `Keep testing`
-    - `Needs truth`
-    - `Refresh creative`, only if the existing test clearly lacks viable creative input
-  - what should not be surfaced generically:
-    - aggressive scaling
-    - aggressive cuts
-    - regime-specific financial changes that the signal cannot support
+* exact shipped SHA:
+  * `dd2c5e7d1adbb3eaf42b7483530344ee8a367f41`
+* CI / deploy summary:
+  * local typecheck, focused Vitest, production build, and local reviewer Playwright smoke all passed
+  * implementation commit prepared on `main`
+  * live deployment was not observed to advance during this session
+* rollback target:
+  * `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
+* whether worktree ended clean:
+  * yes
 
-- Profitable but constrained
-  - what the system is trying to detect:
-    - whether performance is strong but the next move is capped by regime, readiness, or truth
-  - valid responses:
-    - cap-first adjustment for `cost_cap` and `bid_cap`
-    - budget scale for `lowest_cost`, `ASC`, and open/broad structures
-    - `Needs truth` when commercial thresholds block the stronger move
-  - what should not be surfaced generically:
-    - plain `Hold`
-    - empty queue framing without the explicit blocker
-  - explicit sequencing rule:
-    - if the regime is capped and performance is strong, cap adjustment comes before budget adjustment
+# 10. Known Risks
 
-- Underperforming but still learning / unstable
-  - what the system is trying to detect:
-    - whether weak performance is real or merely immature
-    - whether recent changes or incomplete truth make an aggressive response unsafe
-  - valid responses:
-    - `Wait`
-    - `Keep testing`
-    - `Review lower cap`, if capped and mature enough to diagnose pressure
-    - `Reduce budget`, only once instability is no longer the main explanation
-    - `Refresh creative`, if fatigue is the cleanest first lever
-  - what should not be surfaced generically:
-    - immediate hard cuts
-    - generic rebuild language
-    - budget or cap recommendations without stating why learning does not override them
+* This step did not solve the full Meta layout rebuild.
+* This step did not solve the full Creative layout rebuild.
+* The Creative drawer still exposes too much legacy Decision OS structure after the new top layer.
+* Meta selected-campaign detail still mixes older supporting surfaces.
+* Preview/media truth remains the critical Creative trust dependency.
+* Meta detail code still contains retained legacy sections behind the new top-layer cutover and should be cleaned in a later step after page-level decisions are finalized.
 
-- Cross-regime operator rules
-  - cap adjustment comes before budget adjustment when capped regimes show profitable delivery or cap-driven constraint
-  - budget scale must be suppressed even if ROAS is strong when:
-    - truth is capped
-    - the entity is still learning
-    - recent change cooldown is active
-    - creative sufficiency is the real blocker
-  - the system should say `Wait` instead of `Act` when signal immaturity is the dominant reason
-  - truth gaps must change the wording from a generic hold into `Needs truth before <lever>`
+# 11. Exact Review Request For GPT
 
-# 8. Information Architecture Plan
+Ask for review of:
 
-- Page-level structure for Meta:
-  - top-level:
-    - scope bar
-    - single authority / degraded banner
-    - priority action stack
-    - unified operator table grouped by campaign
-  - secondary:
-    - protected rows
-    - compact operating context
-    - optional breakdown context
-  - hidden detail:
-    - policy review
-    - authority diagnostics
-    - budget-shift, GEO, and winner-candidate internals
-    - raw ad-set drilldown tables
-- Page-level structure for Creative:
-  - top-level:
-    - scope bar
-    - preview / truth banner
-    - worklist buckets: `Replace`, `Promote`, `Keep testing`, `Protected`, `Needs preview`
-    - preview-first operator table
-  - secondary:
-    - optional family view only when families are real and multi-member
-    - optional deployment or backlog view
-  - hidden detail:
-    - benchmark, fatigue, provenance, pattern lineage, supply planning
-    - AI commentary
-    - command-center workflow detail
-    - raw Decision OS diagnostics
-- Top-level vs secondary vs hidden detail:
-  - top-level should contain work to do
-  - secondary should contain context that changes interpretation
-  - hidden detail should contain proof, diagnostics, and explainability
-- What current surfaces are clutter:
-  - Meta:
-    - `MetaDecisionOsOverview`
-    - `DecisionAuthorityPanel`
-    - `DecisionPolicyExplanationPanel`
-    - `Opportunity Board`
-    - `Budget Shift Board`
-    - `Winner Scale Candidates`
-    - GEO board framing
-    - account-level `Action Context`
-  - Creative:
-    - `CreativeDecisionOsOverview`
-    - `CreativeDecisionOsDrawer`
-    - `CreativeCommercialContextCard`
-    - default `AI Commentary`
-    - family / pattern / supply-plan boards as prime workflow
-    - current drawer scorecard fields like `Decision score`, `Family provenance`, `Queue status`, `Compatibility`, and raw `Preview truth`
-- What current surfaces are salvageable:
-  - Meta campaign list shell and metric plumbing, but only after rewriting row semantics
-  - Creative table shell and preview rendering primitives
-  - existing detail drawers as containers, not as current content contracts
-  - command-center linking
-  - operating-mode and commercial-truth data, but only as compressed context
-- What current surfaces must be rewritten:
-  - top-level Meta account overview
-  - Meta action hierarchy and campaign/ad-set prioritization
-  - Creative top section and Decision OS framing
-  - Creative row action model and lifecycle wording
-  - creative preview truth contract
-  - all default authority / policy / provenance presentation
+* whether the first implementation slice was the right one
+* whether the authority compression is strong enough
+* whether any remaining legacy surface should be removed in Step 4
+* whether the next step should focus on Meta page rebuild or Creative page rebuild first
 
-# 9. Recommended Rebuild Strategy
+# 12. Copy-Paste Quick Summary
 
-- The next implementation should be a major rewrite with selective salvage.
-- Why:
-  - both surfaces are structurally wrong, not merely visually noisy
-  - the current problem is centered in the backend-to-UI contract and page hierarchy, so incremental cleanup would preserve the wrong shape
-  - the underlying decision engines are useful enough that a full backend replacement is unnecessary
-  - the correct move is to keep the computation, rewrite the adapter, and rebuild the surfaces around the new operator contract
-
-# 10. Implementation Tracks To Follow Next
-
-1. Define the shared operator-facing schema and vocabulary layer.
-   - introduce one adapter contract for authority state, primary action, blocker, reason, metrics, and detail hooks
-   - map existing internal taxonomies into this compressed surface contract
-2. Build the Meta compression layer.
-   - unify campaign and ad-set actions into one prioritized operator feed
-   - implement regime-specific wording and lever sequencing
-   - expose truth-capped profitable rows as a first-class state
-3. Build the Creative compression layer.
-   - implement preview/media gating
-   - remap lifecycle and action language into operator vocabulary
-   - downgrade preview-degraded and preview-missing rows into explicit blocked states
-4. Rebuild the Meta page IA on top of the new contract.
-   - replace account overview / OS boards with the new priority stack and operator table
-   - move diagnostics behind detail
-5. Rebuild the Creative page IA on top of the new contract.
-   - replace Decision OS drawer primacy with preview-first worklists and a simpler drawer
-   - make preview-blocked handling visible in the table
-6. Reintroduce diagnostics only as on-demand detail.
-   - policy review
-   - authority detail
-   - provenance / benchmark / fatigue / debug
-7. Validate against benchmark businesses and live/runtime truth before release.
-   - use `Grandmix`, `IwaStore`, and `TheSwaf`
-   - verify that regime wording, truth-caps, and preview gating are understandable without reading debug panels
-
-# 11. Final Step 2 Verdict
-
-- What can be salvaged:
-  - deterministic Meta and Creative decision logic
-  - commercial-truth and operating-mode inputs
-  - preview rendering components
-  - command-center linkage
-  - data-fetch and metrics infrastructure
-- What must be rewritten:
-  - the operator-facing adapter layer
-  - Meta page action hierarchy
-  - Creative page action hierarchy
-  - creative preview truth handling
-  - all top-level authority / policy / board / provenance presentation
-- Whether the current Meta and Creative surfaces are patchable or structurally wrong:
-  - they are structurally wrong
-  - the issue is not that they lack data; the issue is that the surfaces are arranged around internal reasoning objects instead of operator action
-- What Step 3 should build next:
-  - Step 3 should build the shared operator contract and the Meta implementation on top of it first
-  - once the shared contract is real in code, Creative should follow immediately with preview gating and the same authority model
+Step 3 is complete. I implemented the shared operator authority foundation from the accepted Step 2 spec: Meta now leads with one compressed action-authority surface, Creative now gets the same shared authority summary plus compressed row wording, truth-capped and preview-missing states are explicit, thin-signal rows no longer headline the action stack, and deeper Decision OS reasoning is demoted behind `Show why` detail. Typecheck, focused Vitest, build, and local reviewer Playwright smoke all passed. Implementation SHA: `dd2c5e7d1adbb3eaf42b7483530344ee8a367f41`. Live runtime still remained on `79ea776...`, so the step closes as shipped-not-complete rather than fully live-verified.

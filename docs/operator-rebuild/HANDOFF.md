@@ -6,16 +6,16 @@ Rebuild the OmniAds operator-facing Meta and Creative surfaces into a clear, ope
 
 ## Current Step
 
-Step 3 is now active. Step 2 defined the rebuild specification and product contract for Meta and Creative. Step 3 is the first implementation pass for the shared operator-facing authority layer.
+Step 3 is complete. Step 3 delivered the first shared operator-facing authority layer. The next step should start from the accepted Step 3 state, not the older Step 2-only contract.
 
 ## Current Repo State
 
 * current branch: `main`
-* current repo SHA: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
-* local `main` and `origin/main` both resolve to `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
+* Step 3 implementation SHA: `dd2c5e7d1adbb3eaf42b7483530344ee8a367f41`
+* repo SHA at Step 3 rebuild start: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * Step 2 accepted spec commit: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * current live SHA if verified: `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8` verified via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority` on `2026-04-12`
-* release-authority posture: live/runtime still drifts from remote `main`; release authority reports `79ea776...` live versus `2a43df0...` main
+* release-authority posture during Step 3: live/runtime still drifted from remote `main`; production did not advance during this step
 
 ## Current Working Model
 
@@ -57,42 +57,43 @@ Step 3 is now active. Step 2 defined the rebuild specification and product contr
 
 - The correct rebuild shape is a major rewrite with selective salvage, not incremental cleanup.
 - Meta and Creative both need a new backend-to-UI compression layer that converts internal reasoning into one operator-facing action contract.
-- Meta top-level UI must become a unified priority action surface driven by the real action owner, not account-level recommendation emptiness, OS boards, or debug cards.
-- Creative top-level UI must become a preview-first operator surface where preview/media truth is a gating contract for authoritative creative action.
+- Step 3 implemented the first shared action-authority schema, the first shared summary renderer, and the first Meta + Creative adapter cutover onto that contract.
+- Meta top-level UI now leads with one compressed authority surface; Command Center and account-context notes were demoted below it.
+- Creative top-level UI now uses the shared authority summary and compressed row copy; the old drawer entry was demoted into `Show why` detail.
 - Truth, degraded, readiness, and blocker handling must be shared across Meta and Creative with one visible authority model and one operator vocabulary set.
 - Campaign-type and bid-regime logic must become explicit operator wording, especially for cost-cap, bid-cap, lowest-cost / ASC, open / broad, low-signal, profitable-but-constrained, and unstable-learning states.
 - Authority, policy, provenance, benchmark, fatigue, queue, and source-health objects are still useful, but only as detail-on-demand or debug layers.
 
 ## Open Problems / Blockers
 
-- Production runtime is still on `79ea776...`; the Step 2 spec is ahead of live implementation.
-- The current code still exposes authority, policy, queue, and preview internals directly. Step 3 must replace that adapter layer before surface polish will matter.
-- Creative preview truth remains unresolved in implementation and is still the critical blocker for trusting the Creative surface.
+- Production runtime is still on `79ea776...`; the Step 3 repo implementation is ahead of live runtime.
+- Creative preview truth remains the primary trust blocker even though the new surface now labels it explicitly.
+- Creative drawer detail and Meta selected-campaign detail still expose too much legacy structure after the new top-layer cutover.
 
 ## Explicitly Out Of Scope
 
-- Starting Step 3 implementation in this step
-- Preserving current Meta or Creative page structure for backward-compatibility reasons
+- Starting Step 4 automatically
+- Treating the Step 3 authority layer as the final Meta or final Creative rebuild
 - Expanding scope into unrelated channels or execution surfaces unless they directly affect Meta / Creative operator design
 - Turning this file into a long historical log
 
 ## Next Recommended Step
 
-Step 3 should deliver the shared operator contract first. The next execution order inside this step should be:
+Default recommendation: Step 4 should build the first full page-specific rebuild on top of the shared authority layer. If GPT review does not find a better ordering, do Meta first, then Creative. The next execution order should be:
 
-1. shared action-authority schema and vocabulary
-2. Meta top-layer compression and action-surface reconciliation
-3. Creative top-layer compression with preview/media gating on the same authority model
-4. detail/debug retention only behind secondary or explicit reasoning surfaces
+1. confirm the Step 3 authority layer is the right foundation
+2. rebuild the Meta page IA around the shared authority model
+3. remove any now-redundant legacy Meta top surfaces
+4. then rebuild the Creative page IA on the same contract with stricter preview/media gating
 
 ## Next Chat Bootstrap
 
-Continue the OmniAds Operator Rebuild from Step 3.
+Continue the OmniAds Operator Rebuild from Step 4 planning.
 Read `docs/operator-rebuild/HANDOFF.md` first.
 Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next.
 Check `docs/operator-rebuild-staging/STATUS.md` for the latest baseline.
 Use current repo/runtime truth over older docs or plans.
-Current repo SHA: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`.
+Step 3 implementation SHA: `dd2c5e7d1adbb3eaf42b7483530344ee8a367f41`.
 Last verified live SHA: `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`.
 Benchmark businesses: `Grandmix`, `IwaStore`, `TheSwaf`.
-Step 3 should implement the shared operator authority foundation described in the accepted Step 2 specification and stop after reports, commit, push, and a clean worktree.
+Step 3 is done. Review whether the next page-specific rebuild should start with Meta or Creative; default recommendation is Meta first unless the latest repo truth argues otherwise.
