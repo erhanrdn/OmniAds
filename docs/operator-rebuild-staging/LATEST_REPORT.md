@@ -121,7 +121,8 @@
   * on April 12, 2026 `https://adsecute.com/api/build-info` still returned live SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * release-authority verification:
   * on April 12, 2026 `https://adsecute.com/api/release-authority` still reported `currentLiveSha` at `ad3d1ac52fa7c6dec381351c45005342511077ac`
-  * at verification time it still reported `currentMainSha` at the pre-Step-4 remote main SHA `3a9144d95d41c29298902989bd9824a963189ca0`
+  * before the push it reported `currentMainSha` at the pre-Step-4 remote main SHA `3a9144d95d41c29298902989bd9824a963189ca0`
+  * after the Step 4 closeout push it reported `currentMainSha` at `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae` while `currentLiveSha` remained `ad3d1ac52fa7c6dec381351c45005342511077ac`
   * live release-authority still described the older Creative surface split, which is expected until production advances
 * live smoke:
   * no live browser walkthrough was captured after the Step 4 repo push
@@ -137,11 +138,12 @@
 # 9. Deployment And Rollout
 
 * exact shipped SHA:
-  * Step 4 implementation SHA `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`
+  * final pushed `main` SHA `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`
+  * Step 4 product implementation SHA `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`
 * CI / deploy summary:
   * local typecheck, focused Vitest, production build, and local reviewer Playwright smoke all passed
   * repo release-authority docs were regenerated after the inventory change
-  * the Step 4 implementation commit is pushed to `main`; live promotion was not observed during this session
+  * both the Step 4 implementation commit and the continuity closeout commit are pushed to `main`; live promotion was not observed during this session
 * rollback target:
   * `3a9144d95d41c29298902989bd9824a963189ca0`
 * whether worktree ended clean:
@@ -176,4 +178,4 @@ Ask for review of:
 
 # 13. Copy-Paste Quick Summary
 
-Step 4 is complete in repo on `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Creative now has one operator-facing authority: the shared Creative authority summary plus unified quick filters derived from Creative Decision OS (`SCALE`, `TEST MORE`, `PAUSE`, `NEEDS TRUTH`, `BLOCKED`, `NO ACTION`). The standalone table `Decision Signals` strip is gone, the drawer uses the same quick-filter model, table/grid filtering is now one shared page-level pipeline, and repo release-authority docs now treat `Decision Signals` as legacy compatibility instead of a live peer surface. Local typecheck, focused Vitest, build, and reviewer Playwright smoke all passed. Live still serves Step 3 on `ad3d1ac52fa7c6dec381351c45005342511077ac`, so Step 5 should target the Meta page rebuild next rather than starting automatically.
+Step 4 is complete on `main` at `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`, with the product implementation landing in `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Creative now has one operator-facing authority: the shared Creative authority summary plus unified quick filters derived from Creative Decision OS (`SCALE`, `TEST MORE`, `PAUSE`, `NEEDS TRUTH`, `BLOCKED`, `NO ACTION`). The standalone table `Decision Signals` strip is gone, the drawer uses the same quick-filter model, table/grid filtering is now one shared page-level pipeline, and repo release-authority docs now treat `Decision Signals` as legacy compatibility instead of a live peer surface. Local typecheck, focused Vitest, build, and reviewer Playwright smoke all passed. Live still serves Step 3 on `ad3d1ac52fa7c6dec381351c45005342511077ac` while release-authority now reports remote `main` at `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`, so Step 5 should target the Meta page rebuild next rather than starting automatically.
