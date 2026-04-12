@@ -130,6 +130,37 @@ export interface DecisionOpportunityQueueEligibility {
   watchReasons: string[];
 }
 
+export const DECISION_POLICY_CUTOVER_STATES = [
+  "matched",
+  "candidate_active",
+  "baseline_locked",
+] as const;
+
+export type DecisionPolicyCutoverState =
+  (typeof DECISION_POLICY_CUTOVER_STATES)[number];
+
+export interface DecisionPolicyCompare {
+  compareMode: boolean;
+  baselineAction: string;
+  candidateAction: string;
+  selectedAction: string;
+  cutoverState: DecisionPolicyCutoverState;
+  reason: string;
+}
+
+export interface DecisionPolicyExplanation {
+  summary: string;
+  evidenceHits: DecisionEvidenceFloor[];
+  missingEvidence: DecisionEvidenceFloor[];
+  blockers: DecisionEvidenceFloor[];
+  degradedReasons: string[];
+  actionCeiling: string | null;
+  protectedWinnerHandling: string | null;
+  fatigueOrComeback: string | null;
+  supplyPlanning: string | null;
+  compare: DecisionPolicyCompare;
+}
+
 export interface DecisionTrustMetadata {
   surfaceLane: DecisionSurfaceLane;
   truthState: DecisionTruthState;

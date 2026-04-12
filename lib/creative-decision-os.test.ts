@@ -260,12 +260,18 @@ describe("buildCreativeDecisionOs", () => {
     const byId = new Map(payload.creatives.map((creative) => [creative.creativeId, creative]));
 
     expect(byId.get("winner")?.lifecycleState).toMatch(/scale_ready|stable_winner/);
+    expect(byId.get("winner")?.policy?.explanation?.compare.cutoverState).toBeDefined();
     expect(byId.get("fatigue")?.lifecycleState).toBe("fatigued_winner");
     expect(byId.get("fatigue")?.primaryAction).toBe("refresh_replace");
+    expect(byId.get("fatigue")?.policy?.primaryDriver).toBe("fatigue");
+    expect(byId.get("fatigue")?.policy?.explanation?.fatigueOrComeback).toContain(
+      "Fatigue logic",
+    );
     expect(byId.get("blocked")?.lifecycleState).toBe("blocked");
     expect(byId.get("blocked")?.primaryAction).toBe("block_deploy");
     expect(byId.get("comeback")?.lifecycleState).toBe("comeback_candidate");
     expect(byId.get("comeback")?.primaryAction).toBe("retest_comeback");
+    expect(byId.get("comeback")?.policy?.primaryDriver).toBe("comeback");
   });
 
   it("keeps lifecycle and primary decisions stable when only the analytics window changes", () => {

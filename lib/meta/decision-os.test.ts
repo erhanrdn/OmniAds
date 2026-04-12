@@ -248,6 +248,8 @@ describe("buildMetaDecisionOs", () => {
     expect(result.adSets[0]?.actionType).toBe("hold");
     expect(result.adSets[0]?.policy.strategyClass).toBe("review_hold");
     expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
+    expect(result.adSets[0]?.policy.explanation?.compare.cutoverState).toBe("matched");
+    expect(result.adSets[0]?.policy.explanation?.degradedReasons.length).toBeGreaterThan(0);
     expect(result.adSets[0]?.trust.evidence).toMatchObject({
       completeness: "missing",
       suppressed: true,
@@ -287,7 +289,10 @@ describe("buildMetaDecisionOs", () => {
     });
 
     expect(result.adSets[0]?.actionType).not.toBe("pause");
-    expect(result.adSets[0]?.policy.secondaryDrivers).toContain("degraded_truth_cap");
+    expect(result.adSets[0]?.policy.primaryDriver).toBe("degraded_truth_cap");
+    expect(result.adSets[0]?.policy.explanation?.actionCeiling).toContain(
+      "Hold and review only until missing truth inputs are restored.",
+    );
     expect(result.adSets[0]?.trust.truthState).toBe("degraded_missing_truth");
     expect(result.adSets[0]?.trust.operatorDisposition).not.toBe("standard");
   });
@@ -335,6 +340,9 @@ describe("buildMetaDecisionOs", () => {
     expect(result.campaigns[0]?.primaryAction).toBe("hold");
     expect(result.campaigns[0]?.noTouch).toBe(true);
     expect(result.adSets[0]?.policy.strategyClass).toBe("stable_no_touch");
+    expect(result.adSets[0]?.policy.explanation?.protectedWinnerHandling).toContain(
+      "Stable winners stay visible as protected context",
+    );
     expect(result.noTouchList[0]?.entityType).toBe("campaign");
   });
 
@@ -410,6 +418,9 @@ describe("buildMetaDecisionOs", () => {
         winnerState: "creative_refresh_required",
       },
     });
+    expect(result.adSets[0]?.policy.explanation?.fatigueOrComeback).toContain(
+      "Creative fatigue stays ahead of spend escalation",
+    );
     expect(result.adSets[0]?.relatedCreativeNeeds[0]).toContain("Creative supply");
     expect(result.noTouchList).toHaveLength(0);
   });

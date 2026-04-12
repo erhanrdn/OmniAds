@@ -9,6 +9,14 @@ import {
   buildDecisionEvidenceFloor,
   evaluateDecisionOpportunityQueue,
 } from "@/lib/decision-trust/opportunity";
+import {
+  buildBidRegimePolicyFloor,
+  buildCampaignFamilyPolicyFloor,
+  buildDecisionPolicyCompare,
+  buildDeploymentCompatibilityPolicyFloor,
+  buildObjectiveFamilyPolicyFloor,
+  compileDecisionPolicyExplanation,
+} from "@/lib/decision-trust/policy";
 import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
@@ -20,6 +28,7 @@ import type {
 import type {
   DecisionEvidenceFloor,
   DecisionOperatorDisposition,
+  DecisionPolicyExplanation,
   DecisionOpportunityQueueEligibility,
   DecisionSurfaceLane,
   DecisionTrustMetadata,
@@ -100,6 +109,14 @@ export type CreativeDecisionSupplyPlanKind =
   | "expand_angle_family"
   | "revive_comeback";
 export type CreativeDecisionSupplyPlanPriority = "high" | "medium" | "low";
+export type CreativeDecisionPolicyDriver =
+  | "protected_winner"
+  | "fatigue"
+  | "comeback"
+  | "economics"
+  | "deployment_match"
+  | "commercial_truth"
+  | "test_validation";
 
 export interface CreativeDecisionOsHistoricalWindow {
   spend: number;
@@ -245,6 +262,15 @@ export interface CreativeDecisionEconomics {
   reasons: string[];
 }
 
+export interface CreativeDecisionPolicy {
+  primaryDriver: CreativeDecisionPolicyDriver;
+  objectiveFamily: string | null;
+  bidRegime: string | null;
+  metaFamily: MetaCampaignFamily;
+  deploymentCompatibility: CreativeDecisionDeploymentCompatibilityStatus;
+  explanation?: DecisionPolicyExplanation;
+}
+
 export interface CreativeDecisionFamilyProvenance {
   confidence: CreativeDecisionFamilyConfidence;
   overGroupingRisk: CreativeDecisionOverGroupingRisk;
@@ -338,6 +364,7 @@ export interface CreativeDecisionOsCreative {
   benchmark: CreativeDecisionBenchmark;
   fatigue: CreativeDecisionFatigue;
   economics: CreativeDecisionEconomics;
+  policy?: CreativeDecisionPolicy;
   familyProvenance: CreativeDecisionFamilyProvenance;
   deployment: CreativeDecisionDeploymentRecommendation;
   pattern: CreativeDecisionPatternReference;
@@ -1768,6 +1795,269 @@ function buildReasons(
   return reasons.slice(0, 4);
 }
 
+const CREATIVE_ACTION_AGGRESSION_RANK: Record<CreativeDecisionPrimaryAction, number> = {
+  block_deploy: 0,
+  hold_no_touch: 1,
+  refresh_replace: 1,
+  keep_in_test: 2,
+  retest_comeback: 2,
+  promote_to_scaling: 4,
+};
+
+function isConservativeCreativePolicyCutover(
+  baselineAction: CreativeDecisionPrimaryAction,
+  candidateAction: CreativeDecisionPrimaryAction,
+) {
+  return (
+    CREATIVE_ACTION_AGGRESSION_RANK[candidateAction] <=
+    CREATIVE_ACTION_AGGRESSION_RANK[baselineAction]
+  );
+}
+
+function resolveCreativePolicyDriver(input: {
+  primaryAction: CreativeDecisionPrimaryAction;
+  operatingMode: AccountOperatingModePayload | null | undefined;
+  deployment: CreativeDecisionDeploymentRecommendation;
+  fatigue: CreativeDecisionFatigue;
+  lifecycleState: CreativeDecisionLifecycleState;
+}): CreativeDecisionPolicyDriver {
+  if (input.operatingMode?.degradedMode.active) return "commercial_truth";
+  if (input.primaryAction === "hold_no_touch") return "protected_winner";
+  if (input.lifecycleState === "comeback_candidate" || input.primaryAction === "retest_comeback") {
+    return "comeback";
+  }
+  if (input.fatigue.status === "fatigued" || input.primaryAction === "refresh_replace") {
+    return "fatigue";
+  }
+  if (
+    input.deployment.compatibility.status === "blocked" ||
+    input.deployment.compatibility.status === "limited"
+  ) {
+    return "deployment_match";
+  }
+  if (input.primaryAction === "promote_to_scaling") return "economics";
+  return "test_validation";
+}
+
+function buildCreativePolicyEnvelope(input: {
+  lifecycleState: CreativeDecisionLifecycleState;
+  baselinePrimaryAction: CreativeDecisionPrimaryAction;
+  fatigue: CreativeDecisionFatigue;
+  economics: CreativeDecisionEconomics;
+  deployment: CreativeDecisionDeploymentRecommendation;
+  operatingMode: AccountOperatingModePayload | null | undefined;
+  metaFamily: MetaCampaignFamily;
+  metaFamilyLabel: string;
+  familyRowCount: number;
+  familyAngleDepth: number;
+}) {
+  const objectiveFamily =
+    normalizeText(input.deployment.compatibility.objectiveFamily).replaceAll("_", " ") ||
+    "unknown";
+  const bidRegime =
+    normalizeText(input.deployment.compatibility.bidRegime).replaceAll("_", " ") || "unknown";
+  const objectiveBlocked =
+    input.baselinePrimaryAction === "promote_to_scaling" &&
+    (objectiveFamily.includes("awareness") || objectiveFamily.includes("traffic"));
+  const objectiveWatch =
+    input.baselinePrimaryAction === "promote_to_scaling" &&
+    !objectiveBlocked &&
+    (objectiveFamily.includes("lead") || objectiveFamily.includes("engagement"));
+  const objectiveFloor = buildObjectiveFamilyPolicyFloor({
+    current: objectiveFamily,
+    required:
+      input.baselinePrimaryAction === "promote_to_scaling"
+        ? "lower-funnel objective family for scale deployment"
+        : "policy-compatible objective",
+    status: objectiveBlocked ? "blocked" : objectiveWatch ? "watch" : "met",
+    reason: objectiveBlocked
+      ? "Upper-funnel objectives stay on test or broaden ladders instead of moving straight into scaling."
+      : objectiveWatch
+        ? "Lead and engagement families need stronger proof before full scale promotion."
+        : null,
+  });
+  const bidFloor = buildBidRegimePolicyFloor({
+    current: bidRegime,
+    required:
+      input.baselinePrimaryAction === "promote_to_scaling"
+        ? "open or comfortably proven constrained bidding"
+        : "bid regime aligned with the next move",
+    status:
+      input.baselinePrimaryAction !== "promote_to_scaling"
+        ? "met"
+        : bidRegime === "bid_cap" || bidRegime === "roas_floor"
+          ? "blocked"
+          : bidRegime === "cost_cap"
+            ? "watch"
+            : "met",
+    reason:
+      input.baselinePrimaryAction !== "promote_to_scaling"
+        ? null
+        : bidRegime === "bid_cap" || bidRegime === "roas_floor"
+          ? "The current bid regime is too restrictive for a compare-safe scale promotion."
+          : bidRegime === "cost_cap"
+            ? "Cost-cap delivery can scale, but only while the cap still leaves clean headroom."
+            : null,
+  });
+  const campaignFamilyFloor = buildCampaignFamilyPolicyFloor({
+    current: input.metaFamilyLabel,
+    required:
+      input.baselinePrimaryAction === "promote_to_scaling"
+        ? "purchase, mid-funnel, or lead family"
+        : "family aligned with the current operator lane",
+    status:
+      input.baselinePrimaryAction !== "promote_to_scaling"
+        ? "met"
+        : input.metaFamily === "awareness" || input.metaFamily === "engagement"
+          ? "watch"
+          : "met",
+    reason:
+      input.baselinePrimaryAction === "promote_to_scaling" &&
+      (input.metaFamily === "awareness" || input.metaFamily === "engagement")
+        ? "Awareness and engagement families stay on softer deployment ladders until direct-response proof improves."
+        : null,
+  });
+  const deploymentFloor = buildDeploymentCompatibilityPolicyFloor({
+    current: input.deployment.compatibility.status,
+    required: "compatible live lane",
+    status:
+      input.deployment.compatibility.status === "compatible"
+        ? "met"
+        : input.deployment.compatibility.status === "limited"
+          ? "watch"
+          : "blocked",
+    reason:
+      input.deployment.compatibility.reasons[0] ??
+      (input.deployment.compatibility.status === "compatible"
+        ? null
+        : "No compatible live lane is ready for this creative."),
+  });
+
+  let candidateAction = input.baselinePrimaryAction;
+  let candidateReason =
+    "Shared policy ladder matched the baseline creative decision.";
+  let actionCeiling: string | null = null;
+
+  if (input.operatingMode?.degradedMode.active && input.baselinePrimaryAction === "promote_to_scaling") {
+    candidateAction = "keep_in_test";
+    candidateReason =
+      "Shared policy ladder keeps this in test because commercial truth is degraded.";
+    actionCeiling = "No scale promotion until degraded commercial truth is restored.";
+  } else if (
+    input.lifecycleState === "stable_winner" ||
+    input.baselinePrimaryAction === "hold_no_touch"
+  ) {
+    candidateAction = "hold_no_touch";
+    candidateReason =
+      "Shared policy ladder preserves the protected winner path for this creative.";
+    actionCeiling = "Protected winner only while performance remains stable.";
+  } else if (input.lifecycleState === "comeback_candidate") {
+    candidateAction = "retest_comeback";
+    candidateReason =
+      "Shared policy ladder keeps comeback memory on a bounded retest path.";
+    actionCeiling = "Retest only; keep comeback volume bounded until the next winner proof appears.";
+  } else if (input.fatigue.status === "fatigued") {
+    candidateAction = "refresh_replace";
+    candidateReason =
+      "Shared policy ladder routes this creative into refresh before any broader redeploy.";
+    actionCeiling = "Refresh only until fatigue pressure clears.";
+  } else if (input.baselinePrimaryAction === "promote_to_scaling") {
+    if (
+      deploymentFloor.status === "blocked" ||
+      objectiveFloor.status === "blocked" ||
+      bidFloor.status === "blocked"
+    ) {
+      candidateAction = "block_deploy";
+      candidateReason =
+        "Shared policy ladder blocks live promotion because a required scale floor is still blocked.";
+      actionCeiling = "Do not deploy into scaling until the blocked floor is cleared.";
+    } else if (
+      deploymentFloor.status === "watch" ||
+      objectiveFloor.status === "watch" ||
+      bidFloor.status === "watch" ||
+      campaignFamilyFloor.status === "watch"
+    ) {
+      candidateAction = "keep_in_test";
+      candidateReason =
+        "Shared policy ladder keeps this in test because one or more scale floors are still on watch.";
+      actionCeiling = "Test-only until deployment, family, and bid alignment all move out of watch state.";
+    }
+  }
+
+  const compare = buildDecisionPolicyCompare({
+    baselineAction: input.baselinePrimaryAction,
+    candidateAction,
+    allowCandidate: isConservativeCreativePolicyCutover(
+      input.baselinePrimaryAction,
+      candidateAction,
+    ),
+    candidateReason,
+    baselineReason:
+      "Shared policy ladder stayed in compare mode because the candidate branch was not safer than the current baseline.",
+  });
+
+  const primaryAction =
+    compare.selectedAction === input.baselinePrimaryAction
+      ? input.baselinePrimaryAction
+      : candidateAction;
+  const primaryDriver = resolveCreativePolicyDriver({
+    primaryAction,
+    operatingMode: input.operatingMode,
+    deployment: input.deployment,
+    fatigue: input.fatigue,
+    lifecycleState: input.lifecycleState,
+  });
+
+  return {
+    primaryAction,
+    policy: {
+      primaryDriver,
+      objectiveFamily:
+        input.deployment.compatibility.objectiveFamily ?? null,
+      bidRegime: input.deployment.compatibility.bidRegime ?? null,
+      metaFamily: input.metaFamily,
+      deploymentCompatibility: input.deployment.compatibility.status,
+      explanation: compileDecisionPolicyExplanation({
+        summary:
+          compare.selectedAction === input.baselinePrimaryAction
+            ? `Shared policy ladder kept ${input.baselinePrimaryAction.replaceAll("_", " ")} active for this creative.`
+            : `Shared policy ladder promoted ${candidateAction.replaceAll("_", " ")} as the active creative branch.`,
+        axes: [
+          objectiveFloor,
+          bidFloor,
+          campaignFamilyFloor,
+          deploymentFloor,
+        ],
+        degradedReasons: input.operatingMode?.degradedMode.active
+          ? input.operatingMode?.degradedMode.reasons
+          : [],
+        actionCeiling,
+        protectedWinnerHandling:
+          primaryAction === "hold_no_touch"
+            ? "Protected winners stay out of the promotion queue and remain visible as guardrail context."
+            : null,
+        fatigueOrComeback:
+          input.fatigue.status === "fatigued"
+            ? "Fatigue logic outranks deployment expansion until a refreshed concept exists."
+            : input.lifecycleState === "comeback_candidate"
+              ? "Comeback logic stays bounded and never jumps straight into scale."
+              : null,
+        supplyPlanning:
+          primaryAction === "refresh_replace"
+            ? "Supply planning should refresh the current winner family before reopening scale."
+            : primaryAction === "promote_to_scaling" &&
+                input.familyRowCount <= 2 &&
+                input.familyAngleDepth <= 1
+              ? "Supply planning should expand adjacent angles before saturation shows up."
+              : primaryAction === "retest_comeback"
+                ? "Supply planning should keep comeback retries isolated from the live winner pool."
+                : null,
+        compare,
+      }),
+    },
+  };
+}
+
 function buildLifecycleBoard(creatives: CreativeDecisionOsCreative[]) {
   const orderedStates: CreativeDecisionLifecycleState[] = [
     "incubating",
@@ -2295,10 +2585,27 @@ export function buildCreativeDecisionOs(
       operatingMode: input.operatingMode,
       deployment: preliminaryDeployment,
     });
+    const policyEnvelope = buildCreativePolicyEnvelope({
+      lifecycleState,
+      baselinePrimaryAction: primaryAction,
+      fatigue,
+      economics,
+      deployment: preliminaryDeployment,
+      operatingMode: input.operatingMode,
+      metaFamily,
+      metaFamilyLabel: metaCampaignFamilyLabel(metaFamily),
+      familyRowCount: familyRows.length,
+      familyAngleDepth: new Set(
+        familyRows.map(
+          (entry) => entry.aiTags?.messagingAngle?.[0] ?? entry.taxonomySecondaryLabel ?? "unlabeled",
+        ),
+      ).size,
+    });
+    const resolvedPrimaryAction = policyEnvelope.primaryAction;
     const score = buildScore(row, benchmark, fatigue, lifecycleState);
     const confidence = buildConfidence(row, benchmark, fatigue, input.operatingMode);
     const legacyAction = legacyActionFromPrimary({
-      primaryAction,
+      primaryAction: resolvedPrimaryAction,
       lifecycleState,
       score,
       confidence,
@@ -2310,19 +2617,26 @@ export function buildCreativeDecisionOs(
       adSets: input.adSets ?? [],
       locationRows,
       operatingMode: input.operatingMode,
-      primaryAction,
+      primaryAction: resolvedPrimaryAction,
       lifecycleState,
       metaFamily,
       confidence,
     });
     const pattern = buildPattern(row);
-    const summary = buildSummary(primaryAction, lifecycleState, benchmark, fatigue, economics, deployment);
+    const summary = buildSummary(
+      resolvedPrimaryAction,
+      lifecycleState,
+      benchmark,
+      fatigue,
+      economics,
+      deployment,
+    );
     const reasons = buildReasons(benchmark, fatigue, economics, deployment);
     const familyLabel = chooseCreativeFamilyLabel(familyRows);
     const trust = buildCreativeTrust({
       row,
       lifecycleState,
-      primaryAction,
+      primaryAction: resolvedPrimaryAction,
       operatingMode: input.operatingMode,
       historical,
       summary,
@@ -2410,7 +2724,7 @@ export function buildCreativeDecisionOs(
       deployment,
       deterministicDecision: {
         lifecycleState,
-        primaryAction,
+        primaryAction: resolvedPrimaryAction,
         legacyAction,
       },
       commercialContext: {
@@ -2440,12 +2754,12 @@ export function buildCreativeDecisionOs(
       score,
       confidence,
       lifecycleState,
-      primaryAction,
+      primaryAction: resolvedPrimaryAction,
       legacyAction,
       legacyLifecycleState,
       decisionSignals: buildSignals({
         lifecycleState,
-        primaryAction,
+        primaryAction: resolvedPrimaryAction,
         benchmark,
         fatigue,
         economics,
@@ -2455,6 +2769,7 @@ export function buildCreativeDecisionOs(
       benchmark,
       fatigue,
       economics,
+      policy: policyEnvelope.policy,
       familyProvenance,
       deployment,
       pattern,

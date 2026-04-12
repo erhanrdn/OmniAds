@@ -11,6 +11,14 @@ import {
   buildDecisionEvidenceFloor,
   evaluateDecisionOpportunityQueue,
 } from "@/lib/decision-trust/opportunity";
+import {
+  buildBidRegimePolicyFloor,
+  buildCampaignFamilyPolicyFloor,
+  buildDecisionPolicyCompare,
+  buildDeploymentCompatibilityPolicyFloor,
+  buildObjectiveFamilyPolicyFloor,
+  compileDecisionPolicyExplanation,
+} from "@/lib/decision-trust/policy";
 import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
@@ -28,6 +36,7 @@ import type {
 import type {
   DecisionEvidenceFloor,
   DecisionOperatorDisposition,
+  DecisionPolicyExplanation,
   DecisionOpportunityQueueEligibility,
   DecisionSurfaceLane,
   DecisionTrustMetadata,
@@ -197,6 +206,7 @@ export interface MetaDecisionPolicy {
   primaryDriver: MetaPolicyDriver;
   secondaryDrivers: MetaPolicyDriver[];
   winnerState: MetaWinnerState;
+  explanation?: DecisionPolicyExplanation;
 }
 
 export interface MetaCampaignDecision {
@@ -667,6 +677,262 @@ function determinePriorityFromAction(
   }
   if (actionType === "monitor_only") return "low";
   return "medium";
+}
+
+const META_STRATEGY_AGGRESSION_RANK: Record<MetaStrategyClass, number> = {
+  review_hold: 0,
+  stable_no_touch: 0,
+  creative_refresh_required: 1,
+  monitor_only: 1,
+  tighten_bid: 2,
+  review_cost_cap: 2,
+  duplicate_to_new_geo_cluster: 2,
+  merge_into_pooled_geo: 2,
+  switch_optimization: 2,
+  broaden: 2,
+  hold: 2,
+  reduce_budget: 2,
+  recover: 3,
+  rebuild: 3,
+  scale_budget: 4,
+  pause: 4,
+};
+
+function isConservativeMetaPolicyCutover(
+  baselineStrategyClass: MetaStrategyClass,
+  candidateStrategyClass: MetaStrategyClass,
+) {
+  return (
+    META_STRATEGY_AGGRESSION_RANK[candidateStrategyClass] <=
+    META_STRATEGY_AGGRESSION_RANK[baselineStrategyClass]
+  );
+}
+
+function buildMetaPolicyLadder(input: {
+  baselineStrategyClass: MetaStrategyClass;
+  baselineActionSize: MetaActionSize;
+  baselinePrimaryDriver: MetaPolicyDriver;
+  baselineWinnerState: MetaWinnerState;
+  baselineReason: string;
+  objectiveFamily: MetaObjectiveFamily;
+  bidRegime: MetaBidRegime;
+  campaignRole: MetaCampaignRole;
+  fallbackDisposition: DecisionOperatorDisposition | null;
+  operatingMode: AccountOperatingModePayload | null;
+  targetMet: boolean;
+  lowSignal: boolean;
+  recentChange: boolean;
+  mixedConfig: boolean;
+  geoRole: boolean;
+  stableProtectedWinner: boolean;
+  creativeFatigueCandidate: boolean;
+  constrainedBidRegime: boolean;
+  bidRegimePressure: boolean;
+}) {
+  const objectiveBlocked =
+    input.baselineStrategyClass === "scale_budget" &&
+    (input.objectiveFamily === "awareness" || input.objectiveFamily === "traffic");
+  const objectiveWatch =
+    input.baselineStrategyClass === "scale_budget" &&
+    (input.objectiveFamily === "engagement" || input.objectiveFamily === "leads");
+  const objectiveFloor = buildObjectiveFamilyPolicyFloor({
+    current: input.objectiveFamily,
+    required:
+      input.baselineStrategyClass === "scale_budget"
+        ? "sales, catalog, or proven lead efficiency for scale promotion"
+        : "policy-compatible objective",
+    status: objectiveBlocked ? "blocked" : objectiveWatch ? "watch" : "met",
+    reason: objectiveBlocked
+      ? "Upper-funnel objective families cap this ladder at broaden or hold instead of direct scale."
+      : objectiveWatch
+        ? "Lead and engagement families need stronger proof before using the full scale ladder."
+        : null,
+  });
+  const bidFloor = buildBidRegimePolicyFloor({
+    current: input.bidRegime,
+    required:
+      input.baselineStrategyClass === "scale_budget"
+        ? "open or clearly outperforming capped delivery"
+        : "bid regime aligned with the next move",
+    status: input.bidRegimePressure
+      ? "blocked"
+      : input.constrainedBidRegime && input.baselineStrategyClass === "scale_budget"
+        ? "watch"
+        : "met",
+    reason: input.bidRegimePressure
+      ? "The current bid guardrail is the first lever that needs review before broader action."
+      : input.constrainedBidRegime && input.baselineStrategyClass === "scale_budget"
+        ? "Capped delivery can scale, but only while the guardrail remains comfortably inside target."
+        : null,
+  });
+  const campaignFamilyFloor = buildCampaignFamilyPolicyFloor({
+    current: input.campaignRole,
+    required: "family matched to the active move ladder",
+    status: input.stableProtectedWinner
+      ? "met"
+      : input.geoRole && input.lowSignal
+        ? "watch"
+        : "met",
+    reason:
+      input.geoRole && input.lowSignal
+        ? "Geo expansion stays on a validation ladder until signal becomes material."
+        : null,
+  });
+  const deploymentFloor = buildDeploymentCompatibilityPolicyFloor({
+    current: input.mixedConfig
+      ? "mixed_config"
+      : input.recentChange
+        ? "cooldown"
+        : "ready",
+    required: "clean structure with no fresh config churn",
+    status: input.mixedConfig ? "blocked" : input.recentChange ? "watch" : "met",
+    reason: input.mixedConfig
+      ? "Mixed budget, bid, or optimization config blocks the candidate ladder."
+      : input.recentChange
+        ? "Recent edits keep the candidate ladder in compare mode until the signal settles."
+        : null,
+  });
+
+  let candidateStrategyClass = input.baselineStrategyClass;
+  let candidateActionSize = input.baselineActionSize;
+  let candidatePrimaryDriver = input.baselinePrimaryDriver;
+  let candidateWinnerState = input.baselineWinnerState;
+  let candidateReason = input.baselineReason;
+  let candidateGuardrail: string | null = null;
+  let actionCeiling: string | null = null;
+
+  if (input.fallbackDisposition) {
+    candidateStrategyClass = "review_hold";
+    candidateActionSize = "none";
+    candidatePrimaryDriver = "degraded_truth_cap";
+    candidateWinnerState =
+      input.baselineWinnerState === "not_a_winner" ? "not_a_winner" : "degraded";
+    candidateReason =
+      "Shared policy ladder keeps this in compare-safe hold because commercial truth is degraded.";
+    candidateGuardrail =
+      "Restore commercial truth before enabling the more aggressive branch of this ladder.";
+    actionCeiling = "Hold and review only until missing truth inputs are restored.";
+  } else if (input.creativeFatigueCandidate) {
+    candidateStrategyClass = "creative_refresh_required";
+    candidateActionSize = "none";
+    candidatePrimaryDriver = "creative_fatigue";
+    candidateWinnerState = "creative_refresh_required";
+    candidateReason =
+      "Shared policy ladder routes this lane into creative refresh before any further scale.";
+    candidateGuardrail =
+      "Refresh creative supply before stacking budget, bid, and structure changes together.";
+    actionCeiling = "Refresh only until fresh creative evidence clears the fatigue cap.";
+  } else if (input.stableProtectedWinner) {
+    candidateStrategyClass = "stable_no_touch";
+    candidateActionSize = "none";
+    candidatePrimaryDriver = "winner_stability";
+    candidateWinnerState = "stable_no_touch";
+    candidateReason =
+      "Shared policy ladder keeps this winner on a protected no-touch path.";
+    candidateGuardrail =
+      "Leave the stable winner untouched unless a separate verified constraint reopens it.";
+    actionCeiling = "No-touch only while the stable winner remains efficient and structurally clean.";
+  } else if (deploymentFloor.status === "blocked") {
+    candidateStrategyClass = "review_hold";
+    candidateActionSize = "none";
+    candidatePrimaryDriver = "mixed_config";
+    candidateWinnerState = "guarded";
+    candidateReason =
+      "Shared policy ladder blocks cutover because structure readiness is not clean enough yet.";
+    candidateGuardrail =
+      "Clear mixed config before allowing broader budget or bid actions.";
+    actionCeiling = "Review or rebuild only until structure readiness is clean.";
+  } else if (objectiveFloor.status === "blocked") {
+    candidateStrategyClass = "broaden";
+    candidateActionSize = "small";
+    candidatePrimaryDriver = "signal_density";
+    candidateWinnerState = "guarded";
+    candidateReason =
+      "Shared policy ladder caps upper-funnel efficiency at controlled broadening instead of direct scale.";
+    candidateGuardrail =
+      "Broaden in small steps and verify the current winner path is not simply budget-limited.";
+    actionCeiling = "Broaden or validate only; do not jump straight into the lower-funnel scale ladder.";
+  } else if (
+    input.baselineStrategyClass === "scale_budget" &&
+    bidFloor.status === "blocked"
+  ) {
+    candidateStrategyClass = "review_cost_cap";
+    candidateActionSize = "small";
+    candidatePrimaryDriver = "bid_regime_pressure";
+    candidateWinnerState = "guarded";
+    candidateReason =
+      "Shared policy ladder sends this through bid-regime review before adding broader scale pressure.";
+    candidateGuardrail =
+      "Review the bid guardrail before changing multiple levers in the same move.";
+    actionCeiling = "Bid review first, then reopen the scale ladder only if headroom remains clean.";
+  }
+
+  const compare = buildDecisionPolicyCompare({
+    baselineAction: input.baselineStrategyClass,
+    candidateAction: candidateStrategyClass,
+    allowCandidate: isConservativeMetaPolicyCutover(
+      input.baselineStrategyClass,
+      candidateStrategyClass,
+    ),
+    candidateReason,
+    baselineReason:
+      "Shared policy ladder stayed in compare mode because the candidate branch would have been more aggressive than the current baseline.",
+  });
+
+  return {
+    strategyClass:
+      compare.selectedAction === input.baselineStrategyClass
+        ? input.baselineStrategyClass
+        : candidateStrategyClass,
+    actionSize:
+      compare.selectedAction === input.baselineStrategyClass
+        ? input.baselineActionSize
+        : candidateActionSize,
+    primaryDriver:
+      compare.selectedAction === input.baselineStrategyClass
+        ? input.baselinePrimaryDriver
+        : candidatePrimaryDriver,
+    winnerState:
+      compare.selectedAction === input.baselineStrategyClass
+        ? input.baselineWinnerState
+        : candidateWinnerState,
+    selectedReason:
+      compare.selectedAction === input.baselineStrategyClass
+        ? input.baselineReason
+        : candidateReason,
+    selectedGuardrail:
+      compare.selectedAction === input.baselineStrategyClass
+        ? null
+        : candidateGuardrail,
+    explanation: compileDecisionPolicyExplanation({
+      summary:
+        compare.selectedAction === input.baselineStrategyClass
+          ? `Shared policy ladder kept ${input.baselineStrategyClass.replaceAll("_", " ")} active for this Meta lane.`
+          : `Shared policy ladder promoted ${candidateStrategyClass.replaceAll("_", " ")} as the active Meta branch.`,
+      axes: [
+        objectiveFloor,
+        bidFloor,
+        campaignFamilyFloor,
+        deploymentFloor,
+      ],
+      degradedReasons:
+        input.fallbackDisposition || input.operatingMode?.missingInputs?.length
+          ? input.operatingMode?.missingInputs ?? []
+          : [],
+      actionCeiling,
+      protectedWinnerHandling: input.stableProtectedWinner
+        ? "Stable winners stay visible as protected context and should not be mixed with broader edits."
+        : null,
+      fatigueOrComeback: input.creativeFatigueCandidate
+        ? "Creative fatigue stays ahead of spend escalation in the shared ladder."
+        : null,
+      supplyPlanning:
+        input.creativeFatigueCandidate || input.baselineStrategyClass === "creative_refresh_required"
+          ? "Refresh creative supply before re-opening the scale ladder."
+          : null,
+      compare,
+    }),
+  };
 }
 
 function matchesAnyKeyword(source: string, keywords: string[]) {
@@ -1638,6 +1904,50 @@ function buildAdSetDecision(input: {
   if (lowSignal) confidence -= 0.09;
   if (input.geoCoverageMode === "conservative_fallback") confidence -= 0.05;
 
+  const policyLadder = buildMetaPolicyLadder({
+    baselineStrategyClass: strategyClass,
+    baselineActionSize: actionSize,
+    baselinePrimaryDriver: primaryDriver,
+    baselineWinnerState: winnerState,
+    baselineReason:
+      actionReasons[0] ??
+      "Meta policy ladder is waiting for a cleaner signal before changing spend or structure.",
+    objectiveFamily,
+    bidRegime,
+    campaignRole: input.campaignRole,
+    fallbackDisposition,
+    operatingMode: input.operatingMode,
+    targetMet,
+    lowSignal,
+    recentChange,
+    mixedConfig,
+    geoRole,
+    stableProtectedWinner,
+    creativeFatigueCandidate,
+    constrainedBidRegime,
+    bidRegimePressure,
+  });
+
+  if (
+    policyLadder.strategyClass !== strategyClass &&
+    actionReasons[0] !== policyLadder.selectedReason
+  ) {
+    actionReasons.unshift(policyLadder.selectedReason);
+  }
+  if (
+    policyLadder.selectedGuardrail &&
+    !guardrails.includes(policyLadder.selectedGuardrail)
+  ) {
+    guardrails.push(policyLadder.selectedGuardrail);
+  }
+  if (!secondaryDriverPool.includes(policyLadder.primaryDriver)) {
+    secondaryDriverPool.push(policyLadder.primaryDriver);
+  }
+  strategyClass = policyLadder.strategyClass;
+  actionSize = policyLadder.actionSize;
+  primaryDriver = policyLadder.primaryDriver;
+  winnerState = policyLadder.winnerState;
+
   const actionType = mapStrategyClassToActionType(strategyClass);
   const noTouch =
     strategyClass === "stable_no_touch" &&
@@ -1745,6 +2055,7 @@ function buildAdSetDecision(input: {
     ),
     winnerState:
       fallbackDisposition && winnerState !== "not_a_winner" ? "degraded" : winnerState,
+    explanation: policyLadder.explanation,
   };
   const priority = determinePriorityFromAction(actionType, strategyClass, confidence);
 
@@ -1823,6 +2134,7 @@ function buildCampaignDecision(input: {
     primaryDriver: noTouch ? "winner_stability" : "signal_density",
     secondaryDrivers: [],
     winnerState: noTouch ? "stable_no_touch" : "not_a_winner",
+    explanation: undefined,
   };
   const primaryAction = noTouch
     ? "hold"
@@ -1977,6 +2289,14 @@ function buildCampaignDecision(input: {
         noTouch && dominantPolicy.winnerState !== "stable_no_touch"
           ? "stable_no_touch"
           : dominantPolicy.winnerState,
+      explanation: dominantPolicy.explanation
+        ? {
+            ...dominantPolicy.explanation,
+            summary: noTouch
+              ? "Campaign-level cutover keeps the protected winner path active."
+              : dominantPolicy.explanation.summary,
+          }
+        : undefined,
     },
     trust,
   };

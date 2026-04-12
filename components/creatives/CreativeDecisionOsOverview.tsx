@@ -1,6 +1,7 @@
 "use client";
 
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
+import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
 import { cn } from "@/lib/utils";
 import type {
   CreativeDecisionOperatorQueue,
@@ -146,6 +147,9 @@ export function CreativeDecisionOsOverview({
   const configuredSectionCount = Object.values(
     decisionOs.commercialTruthCoverage.configuredSections,
   ).filter(Boolean).length;
+  const policyCreatives = decisionOs.creatives
+    .filter((creative) => creative.policy?.explanation)
+    .slice(0, 4);
 
   return (
     <>
@@ -222,6 +226,28 @@ export function CreativeDecisionOsOverview({
         commercialSummary={decisionOs.commercialTruthCoverage.summary}
         title="Creative Authority"
       />
+
+      {policyCreatives.length > 0 ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="creative-policy-review">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">Policy Review</h3>
+              <p className="mt-1 text-xs text-slate-600">
+                Shared ladder compares baseline and candidate actions before cutover.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            {policyCreatives.map((creative) => (
+              <DecisionPolicyExplanationPanel
+                key={`creative-policy:${creative.creativeId}`}
+                explanation={creative.policy?.explanation}
+                title={creative.name}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="creative-opportunity-board">
         <div className="flex flex-wrap items-start justify-between gap-3">

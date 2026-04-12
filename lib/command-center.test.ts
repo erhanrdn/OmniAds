@@ -23,6 +23,7 @@ import type {
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import type { DecisionPolicyExplanation } from "@/src/types/decision-trust";
 
 function decisionMetadata() {
   return buildOperatorDecisionMetadata({
@@ -34,6 +35,35 @@ function decisionMetadata() {
 
 function metaFixture(): MetaDecisionOsV1Response {
   const metadata = decisionMetadata();
+  const metaPolicyExplanation: DecisionPolicyExplanation = {
+    summary: "Shared policy ladder kept scale budget active for this Meta lane.",
+    evidenceHits: [
+      {
+        key: "objective_family",
+        label: "Objective family",
+        status: "met",
+        current: "sales",
+        required: "policy-compatible objective",
+        reason: null,
+      },
+    ],
+    missingEvidence: [],
+    blockers: [],
+    degradedReasons: ["target_pack"],
+    actionCeiling: "No scale promotion until degraded commercial truth is restored.",
+    protectedWinnerHandling: null,
+    fatigueOrComeback: null,
+    supplyPlanning: null,
+    compare: {
+      compareMode: true,
+      baselineAction: "scale_budget",
+      candidateAction: "scale_budget",
+      selectedAction: "scale_budget",
+      cutoverState: "matched",
+      reason:
+        "Candidate ladder matched the baseline action, so no cutover guard was needed.",
+    },
+  };
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
@@ -132,6 +162,7 @@ function metaFixture(): MetaDecisionOsV1Response {
           primaryDriver: "roas_outperforming",
           secondaryDrivers: ["signal_density"],
           winnerState: "scale_candidate",
+          explanation: metaPolicyExplanation,
         },
         trust: {
           surfaceLane: "action_core",
@@ -254,6 +285,7 @@ function metaFixture(): MetaDecisionOsV1Response {
           primaryDriver: "roas_outperforming",
           secondaryDrivers: ["signal_density"],
           winnerState: "scale_candidate",
+          explanation: metaPolicyExplanation,
         },
       },
     ],
@@ -384,6 +416,74 @@ function metaFixture(): MetaDecisionOsV1Response {
 
 function creativeFixture(): CreativeDecisionOsV1Response {
   const metadata = decisionMetadata();
+  const creativePromotionPolicyExplanation: DecisionPolicyExplanation = {
+    summary: "Shared policy ladder kept promote to scaling active for this creative.",
+    evidenceHits: [
+      {
+        key: "campaign_family",
+        label: "Campaign family",
+        status: "met",
+        current: "purchase/value",
+        required: "purchase, mid-funnel, or lead family",
+        reason: null,
+      },
+    ],
+    missingEvidence: [
+      {
+        key: "deployment_compatibility",
+        label: "Deployment compatibility",
+        status: "watch",
+        current: "limited",
+        required: "compatible live lane",
+        reason: "No active scaling lane matched the current family.",
+      },
+    ],
+    blockers: [],
+    degradedReasons: [],
+    actionCeiling: "Test-only until deployment, family, and bid alignment all move out of watch state.",
+    protectedWinnerHandling: null,
+    fatigueOrComeback: null,
+    supplyPlanning: "Supply planning should expand adjacent angles before saturation shows up.",
+    compare: {
+      compareMode: true,
+      baselineAction: "promote_to_scaling",
+      candidateAction: "promote_to_scaling",
+      selectedAction: "promote_to_scaling",
+      cutoverState: "matched",
+      reason:
+        "Candidate ladder matched the baseline action, so no cutover guard was needed.",
+    },
+  };
+  const creativeProtectedPolicyExplanation: DecisionPolicyExplanation = {
+    summary: "Shared policy ladder preserved the protected winner path for this creative.",
+    evidenceHits: [
+      {
+        key: "campaign_family",
+        label: "Campaign family",
+        status: "met",
+        current: "purchase/value",
+        required: "purchase, mid-funnel, or lead family",
+        reason: null,
+      },
+    ],
+    missingEvidence: [],
+    blockers: [],
+    degradedReasons: [],
+    actionCeiling: "Protected winner only while performance remains stable.",
+    protectedWinnerHandling:
+      "Protected winners stay out of the promotion queue and remain visible as guardrail context.",
+    fatigueOrComeback: null,
+    supplyPlanning: null,
+    compare: {
+      compareMode: true,
+      baselineAction: "hold_no_touch",
+      candidateAction: "hold_no_touch",
+      selectedAction: "hold_no_touch",
+      cutoverState: "matched",
+      reason:
+        "Candidate ladder matched the baseline action, so no cutover guard was needed.",
+    },
+  };
   return {
     contractVersion: "creative-decision-os.v1",
     engineVersion: "2026-04-11-phase-05-v2",
@@ -489,6 +589,14 @@ function creativeFixture(): CreativeDecisionOsV1Response {
           targetCpa: 28,
           breakEvenCpa: 34,
           reasons: [],
+        },
+        policy: {
+          primaryDriver: "deployment_match",
+          objectiveFamily: "OUTCOME_SALES",
+          bidRegime: "lowest_cost",
+          metaFamily: "purchase_value",
+          deploymentCompatibility: "compatible",
+          explanation: creativePromotionPolicyExplanation,
         },
         familyProvenance: {
           confidence: "medium",
@@ -618,6 +726,14 @@ function creativeFixture(): CreativeDecisionOsV1Response {
           targetCpa: 28,
           breakEvenCpa: 34,
           reasons: ["Promotion floor requires at least $200 spend."],
+        },
+        policy: {
+          primaryDriver: "protected_winner",
+          objectiveFamily: "OUTCOME_SALES",
+          bidRegime: "lowest_cost",
+          metaFamily: "purchase_value",
+          deploymentCompatibility: "limited",
+          explanation: creativeProtectedPolicyExplanation,
         },
         familyProvenance: {
           confidence: "high",
@@ -993,6 +1109,23 @@ describe("command center domain", () => {
     });
 
     expect(actionCore.every((action) => action.surfaceLane === "action_core")).toBe(true);
+  });
+
+  it("carries upstream policy explanations into aggregated actions", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+
+    expect(
+      actions.find((action) => action.sourceType === "meta_adset_decision")?.policyExplanation?.compare.cutoverState,
+    ).toBe("matched");
+    expect(
+      actions.find((action) => action.sourceType === "creative_primary_decision")?.policyExplanation?.compare.reason,
+    ).toContain("Candidate ladder matched the baseline action");
   });
 
   it("drops non-queue-eligible GEO watchlist rows from the default GEO intake", () => {

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
+import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
 import { CommandCenterExecutionSupportMatrix } from "@/components/command-center/CommandCenterExecutionSupportMatrix";
 import { CommandCenterHistoricalIntelligencePanel } from "@/components/command-center/CommandCenterHistoricalIntelligencePanel";
 import {
@@ -1783,6 +1784,13 @@ export function CommandCenterDashboard() {
                     ))}
                   </ul>
                 </section>
+
+                {selectedAction.policyExplanation ? (
+                  <DecisionPolicyExplanationPanel
+                    explanation={selectedAction.policyExplanation}
+                    title="Policy Review"
+                  />
+                ) : null}
 
                 <section className="rounded-2xl border border-slate-200 bg-white p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">

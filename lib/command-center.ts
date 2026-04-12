@@ -25,6 +25,7 @@ import {
   DECISION_SURFACE_LANES,
   type DecisionEvidenceFloor,
   type DecisionOperatorDisposition,
+  type DecisionPolicyExplanation,
   type DecisionSurfaceAuthority,
   type DecisionSurfaceLane,
   type DecisionTruthState,
@@ -148,6 +149,7 @@ export interface CommandCenterAction {
   summary: string;
   decisionSignals: string[];
   evidence: CommandCenterActionEvidence[];
+  policyExplanation?: DecisionPolicyExplanation | null;
   guardrails: string[];
   relatedEntities: CommandCenterActionRelatedEntity[];
   tags: string[];
@@ -951,8 +953,10 @@ export function aggregateCommandCenterActions(input: {
             ...decision.policy.secondaryDrivers.map((driver) =>
               `Secondary driver ${driver.replaceAll("_", " ")}`,
             ),
+            decision.policy.explanation?.compare.reason,
           ]),
           evidence: evidenceFromMetrics(decision.supportingMetrics),
+          policyExplanation: decision.policy.explanation ?? null,
           guardrails: decision.guardrails,
           relatedEntities: [
             {
@@ -1173,7 +1177,10 @@ export function aggregateCommandCenterActions(input: {
           confidence: clampConfidence(creative.confidence),
           priority: priorityFromCreative(creative),
           summary: creative.summary,
-          decisionSignals: creative.decisionSignals,
+          decisionSignals: joinSignals([
+            ...creative.decisionSignals,
+            creative.policy?.explanation?.compare.reason,
+          ]),
           evidence: [
             {
               label: "Lifecycle",
@@ -1191,6 +1198,7 @@ export function aggregateCommandCenterActions(input: {
               impact: "neutral",
             },
           ],
+          policyExplanation: creative.policy?.explanation ?? null,
           guardrails: creative.deployment.constraints,
           relatedEntities: [
             {

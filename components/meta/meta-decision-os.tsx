@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
+import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
 import { cn } from "@/lib/utils";
 import type {
   MetaAdSetDecision,
@@ -488,6 +489,9 @@ export function MetaDecisionOsOverview({
         : "Opportunity board is empty.",
   };
   const topOpportunityRows = decisionOs.opportunityBoard.slice(0, 5);
+  const policyRows = actionCoreAdSets
+    .filter((decision) => decision.policy.explanation)
+    .slice(0, 3);
   const watchlistGeoClusters = Array.from(
     new Map(
       decisionOs.geoDecisions
@@ -560,6 +564,24 @@ export function MetaDecisionOsOverview({
         commercialSummary={decisionOs.commercialTruthCoverage.summary}
         title="Meta Authority"
       />
+
+      {policyRows.length > 0 ? (
+        <DecisionListCard
+          title="Policy Review"
+          testId="meta-policy-review"
+          empty="No policy review is available."
+        >
+          <div className="space-y-3">
+            {policyRows.map((decision) => (
+              <DecisionPolicyExplanationPanel
+                key={`policy:${decision.decisionId}`}
+                explanation={decision.policy.explanation}
+                title={decision.adSetName}
+              />
+            ))}
+          </div>
+        </DecisionListCard>
+      ) : null}
 
       <DecisionListCard
         title="Opportunity Board"
@@ -818,6 +840,11 @@ export function MetaCampaignDecisionPanel({
         </div>
         <PolicyChips policy={campaignDecision.policy} />
         <EvidenceChips evidence={campaignDecision.evidence} />
+        <DecisionPolicyExplanationPanel
+          explanation={campaignDecision.policy.explanation}
+          title="Campaign Policy Review"
+          className="mt-3"
+        />
         {campaignDecision.guardrails.length > 0 ? (
           <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
             {campaignDecision.guardrails[0]}

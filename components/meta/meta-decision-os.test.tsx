@@ -15,6 +15,44 @@ function payload() {
     decisionAsOf: "2026-04-10",
   });
   const commercialSummary = createEmptyBusinessCommercialCoverageSummary();
+  const policyExplanation = {
+    summary: "Shared policy ladder kept scale budget active for this Meta lane.",
+    evidenceHits: [
+      {
+        key: "objective_family",
+        label: "Objective family",
+        status: "met",
+        current: "sales",
+        required: "policy-compatible objective",
+        reason: null,
+      },
+    ],
+    missingEvidence: [
+      {
+        key: "bid_regime",
+        label: "Bid regime",
+        status: "watch",
+        current: "cost_cap",
+        required: "open or clearly outperforming capped delivery",
+        reason: "Cost-cap delivery can scale, but only while the cap still leaves clean headroom.",
+      },
+    ],
+    blockers: [],
+    degradedReasons: [],
+    actionCeiling: "Bid review first, then reopen the scale ladder only if headroom remains clean.",
+    protectedWinnerHandling: null,
+    fatigueOrComeback: null,
+    supplyPlanning: null,
+    compare: {
+      compareMode: true,
+      baselineAction: "scale_budget",
+      candidateAction: "review_cost_cap",
+      selectedAction: "scale_budget",
+      cutoverState: "baseline_locked",
+      reason:
+        "Shared policy ladder stayed in compare mode because the candidate branch would have been more aggressive than the current baseline.",
+    },
+  } as const;
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
@@ -92,6 +130,7 @@ function payload() {
           primaryDriver: "roas_outperforming",
           secondaryDrivers: ["signal_density"],
           winnerState: "scale_candidate",
+          explanation: policyExplanation,
         },
         trust: {
           surfaceLane: "action_core",
@@ -139,6 +178,7 @@ function payload() {
           primaryDriver: "roas_outperforming",
           secondaryDrivers: ["signal_density"],
           winnerState: "scale_candidate",
+          explanation: policyExplanation,
         },
         trust: {
           surfaceLane: "action_core",
@@ -325,6 +365,7 @@ function payload() {
           primaryDriver: "roas_outperforming",
           secondaryDrivers: ["signal_density"],
           winnerState: "scale_candidate",
+          explanation: policyExplanation,
         },
       },
     ],
@@ -518,6 +559,8 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Opportunity Board");
+    expect(html).toContain("Policy Review");
+    expect(html).toContain("baseline locked");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Budget Shift Board");
     expect(html).toContain("Winner Scale Candidates");
@@ -544,5 +587,6 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Prospecting Scale");
     expect(html).toContain("Scale Winner");
     expect(html).toContain("strategy scale budget");
+    expect(html).toContain("Campaign Policy Review");
   });
 });

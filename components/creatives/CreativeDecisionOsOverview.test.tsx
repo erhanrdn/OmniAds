@@ -12,6 +12,44 @@ function payload() {
     decisionAsOf: "2026-04-10",
   });
   const commercialSummary = createEmptyBusinessCommercialCoverageSummary();
+  const policyExplanation = {
+    summary: "Shared policy ladder kept keep in test active for this creative.",
+    evidenceHits: [
+      {
+        key: "campaign_family",
+        label: "Campaign family",
+        status: "met",
+        current: "purchase/value",
+        required: "purchase, mid-funnel, or lead family",
+        reason: null,
+      },
+    ],
+    missingEvidence: [
+      {
+        key: "deployment_compatibility",
+        label: "Deployment compatibility",
+        status: "watch",
+        current: "limited",
+        required: "compatible live lane",
+        reason: "No compatible live lane is ready for this creative yet.",
+      },
+    ],
+    blockers: [],
+    degradedReasons: [],
+    actionCeiling: "Test-only until deployment, family, and bid alignment all move out of watch state.",
+    protectedWinnerHandling: null,
+    fatigueOrComeback: null,
+    supplyPlanning: "Supply planning should expand adjacent angles before saturation shows up.",
+    compare: {
+      compareMode: true,
+      baselineAction: "promote_to_scaling",
+      candidateAction: "keep_in_test",
+      selectedAction: "keep_in_test",
+      cutoverState: "candidate_active",
+      reason:
+        "Shared policy ladder keeps this in test because one or more scale floors are still on watch.",
+    },
+  } as const;
   return {
     contractVersion: "creative-decision-os.v1",
     engineVersion: "2026-04-11-phase-05-v2",
@@ -48,7 +86,20 @@ function payload() {
         degradedCount: 1,
       },
     },
-    creatives: [],
+    creatives: [
+      {
+        creativeId: "c1",
+        name: "Travel Pack Winner",
+        policy: {
+          primaryDriver: "deployment_match",
+          objectiveFamily: "Sales",
+          bidRegime: "cost_cap",
+          metaFamily: "purchase_value",
+          deploymentCompatibility: "limited",
+          explanation: policyExplanation,
+        },
+      },
+    ],
     lifecycleBoard: [
       { state: "incubating", label: "incubating", count: 1, creativeIds: ["c1"] },
       { state: "validating", label: "validating", count: 1, creativeIds: ["c2"] },
@@ -345,6 +396,8 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Recommendations");
     expect(html).toContain("Creative Decision OS");
     expect(html).toContain("Creative Authority");
+    expect(html).toContain("Policy Review");
+    expect(html).toContain("candidate active");
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Opportunity Board");
