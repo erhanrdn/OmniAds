@@ -3,9 +3,9 @@
 # 1. Executive Summary
 
 * Step 3 implemented the first shared operator-facing authority layer across Meta and Creative.
-* The step targeted the core product problem from Step 2: top-level surfaces were exposing multiple competing action voices and too much backend reasoning instead of one operator-readable contract.
-* This step achieved a meaningful operator-facing improvement: Meta now leads with one compressed authority surface, Creative now gets the same shared authority summary plus compressed row wording, and truth-capped / preview-capped states are explicit.
-* This step did not complete the full Meta rebuild or full Creative rebuild. Deep detail surfaces, selected-campaign detail, and the Creative drawer still need later page-specific cleanup.
+* The step targeted the core Step 2 product problem: top-level surfaces were exposing multiple competing action voices and too much backend reasoning instead of one operator-readable contract.
+* This step achieved a meaningful operator-facing improvement. Meta now leads with one compressed authority surface, Creative now uses the same shared authority summary plus compressed row wording, and truth-capped / preview-capped states are explicit.
+* This step did not complete the full Meta rebuild or full Creative rebuild. Legacy detail surfaces, selected-campaign detail, preview/media truth, and Creative authority cleanup still remain for later steps.
 
 # 2. Context Rebuild
 
@@ -13,19 +13,20 @@
   * `docs/operator-rebuild/HANDOFF.md`
   * `docs/operator-rebuild-staging/LATEST_REPORT.md`
   * `docs/operator-rebuild-staging/STATUS.md`
-* Continuity status at step start:
-  * `HANDOFF.md` was stale against repo truth and still referenced the older Step 2 baseline SHA.
-  * `LATEST_REPORT.md` was still the accepted Step 2 specification, so it remained the product contract source of truth for Step 3.
-* Current branch / SHA at rebuild start:
+* Continuity status:
+  * Step 3 originally started from a stale continuity layer that still reflected the older Step 2-only baseline.
+  * After Step 3 landed, the continuity docs still needed a truth-alignment repair so they matched the accepted Step 3 closure and current live/runtime state.
+* Current branch / SHA:
   * `main`
-  * `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
+  * accepted Step 3 closure SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * Live SHA if verified:
-  * `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`
+  * `ad3d1ac52fa7c6dec381351c45005342511077ac`
   * verified on April 12, 2026 via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority`
-* Continuity fixes applied before implementation:
-  * repaired `HANDOFF.md` to current repo/live truth
-  * added a compact restart-safe workflow section and step lifecycle section
-  * confirmed local `main` and `origin/main` both matched `2a43df0...` before Step 3 code work began
+* Continuity fixes applied before implementation and at acceptance closure:
+  * repaired `HANDOFF.md` at Step 3 start so current repo/live truth outranked older teardown language
+  * replaced the temporary Step 2 staging report with the Step 3 report
+  * repaired the continuity layer again after live advanced so `HANDOFF.md`, `LATEST_REPORT.md`, and `STATUS.md` all reflect the accepted Step 3 baseline
+  * distinguished the Step 3 implementation SHA from the later accepted closure SHA so the continuity layer stays exact
 
 # 3. Scope Delivered
 
@@ -35,20 +36,22 @@
   * added a shared `OperatorSurfaceSummary` renderer for both surfaces
 * Conflicting action surfaces unified, demoted, or reconciled:
   * Meta now leads with one shared action authority summary instead of leading with Command Center, Meta Decision OS inventory cards, and account-context notes in parallel
-  * Meta account recommendations were demoted into opt-in supporting context
+  * Meta account recommendations were demoted into supporting context
   * Command Center on Meta was demoted below the primary authority layer
-  * Creative’s top surface now uses the shared authority layer, while the old Decision OS drawer is demoted into explicit `Show why` detail
+  * Creative’s top layer now uses the shared authority summary, while the old Decision OS drawer is secondary `Show why` detail rather than the primary product voice
+  * Accepted Step 3 direction is now explicit: Creative `Decision Signals` / legacy segmentation and `Creative Decision OS` should not survive as separate operator-facing authorities
 * Truth-capped states surfaced:
   * Meta profitable-but-capped rows now map to explicit `Needs truth`
-  * Creative promotable rows that are capped by missing commercial truth now map to explicit `Needs truth`
+  * Creative promotable rows capped by missing commercial truth now map to explicit `Needs truth`
   * Creative preview-missing rows now map to explicit `Needs preview`
 * Thin-signal suppression changed:
   * thin-signal and inactive rows are now counted but kept off headline action buckets
-  * Creative table rows now use the compressed contract instead of surfacing queue verdict / family provenance / preview internals as the top row language
+  * Creative table rows now use the compressed contract instead of surfacing queue verdict, family provenance, or preview internals as the top row language
 * Wording and compression changes made:
   * action wording now trends toward buyer guidance: `Increase budget`, `Needs truth`, `Needs preview`, `Do not touch`, `Keep testing`, `Promote`, `Replace`
   * top-level Meta no longer leads with raw action-core/watch/archive counts
-  * top-level Creative no longer relies only on the drawer label and raw Decision OS naming to explain what to do next
+  * top-level Creative no longer relies on raw Decision OS naming to explain what to do next
+  * useful quick filters such as `TEST MORE` and `PAUSE` are treated as later projections from the unified action model, not as a second authority source
 
 # 4. Architecture Changes
 
@@ -65,7 +68,7 @@
   * `app/(dashboard)/creatives/page.tsx`
   * focused tests plus reviewer smoke updates
 * Contract change between backend and UI:
-  * UI no longer consumes Meta and Creative payloads as raw Decision OS top-level product contracts
+  * UI no longer treats Meta and Creative payloads as raw top-level Decision OS product contracts
   * UI now consumes compressed operator rows with:
     * authority state
     * primary action
@@ -73,14 +76,14 @@
     * blocker
     * confidence band
     * key metrics
-  * top-level surfaces still retain deep evidence, but only behind explicit detail entry
+  * deeper evidence remains available as detail-on-demand rather than default top-layer copy
 * Intentionally left untouched for later steps:
-  * full Meta page IA rebuild
-  * full Creative page IA rebuild
+  * full Meta page information architecture rebuild
+  * full Creative page information architecture rebuild
   * Creative drawer information architecture
-  * selected campaign detail contract
+  * selected-campaign detail contract
   * preview/media truth plumbing itself
-  * deeper detail/debug surface cleanup beyond the new top-layer demotion
+  * final removal of remaining legacy authority surfaces after page-specific rebuild decisions are made
 
 # 5. Product Impact
 
@@ -91,15 +94,16 @@
   * truth-capped profitable rows are explicit in the authority summary instead of buried in raw trust metadata
 * Creative is now different:
   * the top strip now includes the shared operator authority summary
-  * creative row copy is compressed into operator-readable action + state + blocker wording
+  * creative row copy is compressed into operator-readable action, state, and blocker wording
   * preview-missing rows are explicitly labeled through the shared contract
-  * the drawer entry is now `Show why`, not a primary Decision OS product voice
+  * the drawer entry is `Show why`, not a primary Decision OS product voice
 * Operator confusion reduced:
   * fewer top-level contradictory voices
-  * less raw queue / provenance / policy language in default visible space
+  * less raw queue, provenance, and policy language in default visible space
   * clearer distinction between `act`, `needs truth`, `needs preview`, `watch`, and `protect`
 * What remains confusing:
   * the Creative drawer still contains a large amount of legacy Decision OS structure once opened
+  * Creative legacy segmentation and Decision OS inventory language still exist in the system and need page-level cleanup so they do not remain separate operator-facing authorities
   * selected-campaign Meta detail still uses older supporting panels
   * preview/media truth remains operationally unresolved beyond the new surface contract language
 
@@ -111,11 +115,11 @@
 * backend reasoning compressed at top level: accepted
 * continuity docs updated: yes
 * real-account evidence captured: no
-  * no benchmark-business browser or runtime capture was taken against `Grandmix`, `IwaStore`, or `TheSwaf` in this step
+  * no benchmark-business runtime or browser walkthrough was captured against `Grandmix`, `IwaStore`, or `TheSwaf`
 * browser evidence captured: yes
-  * local Playwright reviewer smoke passed after the Step 3 contract updates
-* phase closure verdict: shipped-not-complete
-  * the repo step is complete and pushed, but live runtime remained on the older production SHA during this session
+  * local Playwright reviewer smoke passed, but no manual post-alignment live browser walkthrough was captured
+* phase closure verdict: accepted
+  * repo, docs, and live runtime now align on accepted Step 3 closure SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
 
 # 7. Test Evidence
 
@@ -140,29 +144,29 @@
 # 8. Live Smoke Evidence
 
 * build-info verification:
-  * on April 12, 2026 `https://adsecute.com/api/build-info` returned live SHA `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`
+  * on April 12, 2026 `https://adsecute.com/api/build-info` returned live SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * release-authority verification:
-  * on April 12, 2026 `https://adsecute.com/api/release-authority` reported runtime live SHA `79ea776...`
-  * during Step 3 rebuild start it reported remote `main` at `2a43df0...`, confirming live/runtime drift before implementation began
+  * on April 12, 2026 `https://adsecute.com/api/release-authority` reported `currentLiveSha` and `currentMainSha` both at `ad3d1ac52fa7c6dec381351c45005342511077ac`
+  * overall verdict was `aligned`
 * live smoke:
-  * no live browser smoke was captured after Step 3 because production runtime did not advance during this session
+  * no manual live browser walkthrough was captured after live alignment
 * benchmark evidence:
   * none captured in this step
 * browser evidence:
   * local browser smoke passed on the rebuilt Meta and Creative surfaces on April 12, 2026
 * exact limitations:
-  * no post-deploy live UI verification
   * no real-account benchmark walkthrough
-  * release-authority drift remained unresolved at runtime
+  * no manual live UI walkthrough after runtime alignment
+  * release-authority still inventories legacy Creative surfaces even though accepted Step 3 direction is to collapse them into one operator-facing authority in later page work
 
 # 9. Deployment And Rollout
 
 * exact shipped SHA:
-  * `dd2c5e7d1adbb3eaf42b7483530344ee8a367f41`
+  * accepted Step 3 closure / live SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`, containing implementation payload `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`
 * CI / deploy summary:
   * local typecheck, focused Vitest, production build, and local reviewer Playwright smoke all passed
-  * implementation commit prepared on `main`
-  * live deployment was not observed to advance during this session
+  * Step 3 implementation landed in `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`
+  * the accepted Step 3 closure now serves live at `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * rollback target:
   * `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * whether worktree ended clean:
@@ -173,9 +177,10 @@
 * This step did not solve the full Meta layout rebuild.
 * This step did not solve the full Creative layout rebuild.
 * The Creative drawer still exposes too much legacy Decision OS structure after the new top layer.
+* Creative `Decision Signals` / legacy segmentation and `Creative Decision OS` still exist in repo/runtime inventory language and must not survive as separate operator-facing authorities in later page work.
+* Quick filters such as `TEST MORE` and `PAUSE` still need to be re-derived from the unified Creative action model instead of surviving as an independent legacy surface.
 * Meta selected-campaign detail still mixes older supporting surfaces.
 * Preview/media truth remains the critical Creative trust dependency.
-* Meta detail code still contains retained legacy sections behind the new top-layer cutover and should be cleaned in a later step after page-level decisions are finalized.
 
 # 11. Exact Review Request For GPT
 
@@ -188,4 +193,4 @@ Ask for review of:
 
 # 12. Copy-Paste Quick Summary
 
-Step 3 is complete. I implemented the shared operator authority foundation from the accepted Step 2 spec: Meta now leads with one compressed action-authority surface, Creative now gets the same shared authority summary plus compressed row wording, truth-capped and preview-missing states are explicit, thin-signal rows no longer headline the action stack, and deeper Decision OS reasoning is demoted behind `Show why` detail. Typecheck, focused Vitest, build, and local reviewer Playwright smoke all passed. Implementation SHA: `dd2c5e7d1adbb3eaf42b7483530344ee8a367f41`. Live runtime still remained on `79ea776...`, so the step closes as shipped-not-complete rather than fully live-verified.
+Step 3 is complete and now live-aligned. The accepted Step 3 implementation introduced one shared operator authority foundation across Meta and Creative: Meta now leads with one compressed action-authority surface, Creative now uses the same shared authority summary plus compressed row wording, truth-capped and preview-missing states are explicit, thin-signal rows no longer headline the action stack, and deeper Decision OS reasoning is secondary rather than primary. Accepted live closure SHA is `ad3d1ac52fa7c6dec381351c45005342511077ac`, containing Step 3 implementation commit `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`. Step 4 should build page-specific IA on top of this layer and must not let Creative `Decision Signals` / legacy segmentation and `Creative Decision OS` survive as separate operator-facing authorities.
