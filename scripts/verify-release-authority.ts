@@ -160,6 +160,8 @@ function buildPreflightSummary(input: {
 }) {
   const blockers: string[] = [];
   const notes: string[] = [];
+  const localCandidateDiffersFromMain =
+    input.report.verdicts.liveVsMain.status === "drifted";
 
   if (input.integrity.missingPaths.length > 0) {
     blockers.push(
@@ -184,16 +186,22 @@ function buildPreflightSummary(input: {
   }
 
   if (!input.canonicalDocMatches) {
-    blockers.push(
-      "Canonical release-authority doc does not match the generated V3 authority output. Run scripts/generate-release-authority-doc.ts and commit the result.",
-    );
+    if (localCandidateDiffersFromMain) {
+      notes.push(
+        "Canonical release-authority doc literal comparison was skipped because the local release candidate differs from current remote main. Regenerate the doc on the exact-SHA main deploy candidate before shipping.",
+      );
+    } else {
+      blockers.push(
+        "Canonical release-authority doc does not match the generated V3 authority output. Run scripts/generate-release-authority-doc.ts and commit the result.",
+      );
+    }
   }
 
   if (input.report.runtime.currentMainShaSource === "unresolved") {
     blockers.push("Remote main SHA could not be resolved in preflight.");
   }
 
-  if (input.report.verdicts.liveVsMain.status === "drifted") {
+  if (localCandidateDiffersFromMain) {
     notes.push(
       "Local release candidate differs from current remote main. This is expected on pull requests but must align before an exact-SHA production deploy.",
     );
