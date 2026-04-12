@@ -12,6 +12,68 @@ import {
   type OperatorSurfaceModel,
 } from "@/lib/operator-surface";
 
+export const CREATIVE_QUICK_FILTER_ORDER = [
+  "scale",
+  "test_more",
+  "pause",
+  "needs_truth",
+  "blocked",
+  "no_action",
+] as const;
+
+export type CreativeQuickFilterKey = (typeof CREATIVE_QUICK_FILTER_ORDER)[number];
+
+export interface CreativeQuickFilter {
+  key: CreativeQuickFilterKey;
+  label: string;
+  summary: string;
+  count: number;
+  creativeIds: string[];
+  tone: OperatorAuthorityState;
+}
+
+const CREATIVE_QUICK_FILTER_DEFS: Record<
+  CreativeQuickFilterKey,
+  Omit<CreativeQuickFilter, "count" | "creativeIds">
+> = {
+  scale: {
+    key: "scale",
+    label: "SCALE",
+    summary: "Promote now from the unified Creative authority.",
+    tone: "act_now",
+  },
+  test_more: {
+    key: "test_more",
+    label: "TEST MORE",
+    summary: "Keep learning without treating the row as decisive scale work.",
+    tone: "watch",
+  },
+  pause: {
+    key: "pause",
+    label: "PAUSE",
+    summary: "Refresh or hold back fatigued rows before more spend lands.",
+    tone: "blocked",
+  },
+  needs_truth: {
+    key: "needs_truth",
+    label: "NEEDS TRUTH",
+    summary: "Promising rows capped by missing commercial truth.",
+    tone: "needs_truth",
+  },
+  blocked: {
+    key: "blocked",
+    label: "BLOCKED",
+    summary: "Preview or deployment truth blocks live action.",
+    tone: "blocked",
+  },
+  no_action: {
+    key: "no_action",
+    label: "NO ACTION",
+    summary: "Protected winners that should stay out of churn.",
+    tone: "no_action",
+  },
+};
+
 function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
   return `$${value.toLocaleString(undefined, {
@@ -62,7 +124,7 @@ function isCreativeMuted(creative: CreativeDecisionOsCreative) {
   return materiality === "thin_signal" || materiality === "immaterial" || creative.trust.surfaceLane === "archive_context";
 }
 
-function creativeAuthorityState(creative: CreativeDecisionOsCreative) {
+export function resolveCreativeAuthorityState(creative: CreativeDecisionOsCreative) {
   if (creative.previewStatus?.liveDecisionWindow === "missing") {
     return "blocked" satisfies OperatorAuthorityState;
   }
@@ -153,7 +215,7 @@ function compactMetrics(metrics: OperatorSurfaceMetric[]) {
 }
 
 export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative): OperatorSurfaceItem {
-  const authorityState = creativeAuthorityState(creative);
+  const authorityState = resolveCreativeAuthorityState(creative);
   const muted = isCreativeMuted(creative);
   const blocker = creativeBlocker(creative, authorityState);
 
@@ -180,6 +242,52 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     muted,
     mutedReason: muted ? "Thin-signal or inactive creatives stay out of the headline action surface." : null,
   };
+}
+
+export function resolveCreativeQuickFilterKey(
+  creative: CreativeDecisionOsCreative,
+): CreativeQuickFilterKey {
+  const authorityState = resolveCreativeAuthorityState(creative);
+
+  if (authorityState === "needs_truth") return "needs_truth";
+  if (authorityState === "blocked") return "blocked";
+  if (creative.primaryAction === "hold_no_touch") return "no_action";
+  if (creative.primaryAction === "promote_to_scaling") return "scale";
+  if (
+    creative.primaryAction === "keep_in_test" ||
+    creative.primaryAction === "retest_comeback"
+  ) {
+    return "test_more";
+  }
+  return "pause";
+}
+
+export function buildCreativeQuickFilters(
+  decisionOs: CreativeDecisionOsV1Response | null | undefined,
+  options?: {
+    visibleIds?: Set<string> | null;
+    includeZeroCounts?: boolean;
+  },
+): CreativeQuickFilter[] {
+  if (!decisionOs) return [];
+
+  const visibleIds = options?.visibleIds ?? null;
+  const includeZeroCounts = options?.includeZeroCounts ?? false;
+
+  return CREATIVE_QUICK_FILTER_ORDER
+    .map((key) => {
+      const matchingCreatives = decisionOs.creatives.filter((creative) => {
+        if (visibleIds && !visibleIds.has(creative.creativeId)) return false;
+        return resolveCreativeQuickFilterKey(creative) === key;
+      });
+
+      return {
+        ...CREATIVE_QUICK_FILTER_DEFS[key],
+        count: matchingCreatives.length,
+        creativeIds: matchingCreatives.map((creative) => creative.creativeId),
+      } satisfies CreativeQuickFilter;
+    })
+    .filter((filter) => includeZeroCounts || filter.count > 0);
 }
 
 export function buildCreativeOperatorSurfaceModel(

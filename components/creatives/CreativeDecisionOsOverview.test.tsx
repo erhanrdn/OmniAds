@@ -2,6 +2,7 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { buildCreativeQuickFilters } from "@/lib/creative-operator-surface";
 import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 import { createEmptyBusinessCommercialCoverageSummary } from "@/src/types/business-commercial";
 
@@ -90,6 +91,33 @@ function payload() {
       {
         creativeId: "c1",
         name: "Travel Pack Winner",
+        familyLabel: "Travel Hook Family",
+        confidence: 0.84,
+        lifecycleState: "scale_ready",
+        primaryAction: "promote_to_scaling",
+        summary: "Promote this concept into scaling.",
+        spend: 420,
+        roas: 3.95,
+        purchases: 18,
+        ctr: 2.1,
+        previewStatus: {
+          liveDecisionWindow: "ready",
+          reason: null,
+        },
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          reasons: ["Promote this concept into scaling."],
+        },
+        deployment: {
+          targetLane: "Scaling",
+          constraints: [],
+          compatibility: { reasons: [] },
+        },
+        economics: {
+          reasons: [],
+        },
         policy: {
           primaryDriver: "deployment_match",
           objectiveFamily: "Sales",
@@ -385,11 +413,12 @@ describe("CreativeDecisionOsOverview", () => {
     const html = renderToStaticMarkup(
       <CreativeDecisionOsOverview
         decisionOs={payload()}
+        quickFilters={buildCreativeQuickFilters(payload())}
         isLoading={false}
         activeFamilyId={null}
-        activeQueueKey={null}
+        activeQuickFilterKey={null}
         onSelectFamily={vi.fn()}
-        onSelectQueue={vi.fn()}
+        onSelectQuickFilter={vi.fn()}
       />,
     );
 
@@ -403,7 +432,8 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");
-    expect(html).toContain("Operator Queues");
+    expect(html).toContain("Quick filters");
+    expect(html).toContain("SCALE");
     expect(html).toContain("Concept Families");
     expect(html).toContain("Pattern Board");
     expect(html).toContain("Protected Winners");

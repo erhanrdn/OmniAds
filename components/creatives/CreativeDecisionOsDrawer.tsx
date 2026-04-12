@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CreativeDecisionOperatorQueue, CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import type {
+  CreativeQuickFilter,
+  CreativeQuickFilterKey,
+} from "@/lib/creative-operator-surface";
+import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 
 const CREATIVE_DECISION_OS_DRAWER_STORAGE_KEY = "creative-decision-os-drawer-width-v1";
@@ -22,10 +26,11 @@ type CreativeDecisionOsDrawerProps = {
   isLoading: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  quickFilters: CreativeQuickFilter[];
   activeFamilyId: string | null;
-  activeQueueKey: CreativeDecisionOperatorQueue["key"] | null;
+  activeQuickFilterKey: CreativeQuickFilterKey | null;
   onSelectFamily: (familyId: string | null) => void;
-  onSelectQueue: (queueKey: CreativeDecisionOperatorQueue["key"] | null) => void;
+  onSelectQuickFilter: (key: CreativeQuickFilterKey) => void;
   onClearFilters: () => void;
 };
 
@@ -34,10 +39,11 @@ export function CreativeDecisionOsDrawer({
   isLoading,
   open,
   onOpenChange,
+  quickFilters,
   activeFamilyId,
-  activeQueueKey,
+  activeQuickFilterKey,
   onSelectFamily,
-  onSelectQueue,
+  onSelectQuickFilter,
   onClearFilters,
 }: CreativeDecisionOsDrawerProps) {
   const [width, setWidth] = useState(CREATIVE_DECISION_OS_DRAWER_DEFAULT_WIDTH);
@@ -182,11 +188,12 @@ export function CreativeDecisionOsDrawer({
         <div className={cn("flex-1 overflow-y-auto px-5 py-5 md:px-6")}>
           <CreativeDecisionOsOverview
             decisionOs={decisionOs}
+            quickFilters={quickFilters}
             isLoading={isLoading}
             activeFamilyId={activeFamilyId}
-            activeQueueKey={activeQueueKey}
+            activeQuickFilterKey={activeQuickFilterKey}
             onSelectFamily={onSelectFamily}
-            onSelectQueue={onSelectQueue}
+            onSelectQuickFilter={onSelectQuickFilter}
             onClearFilters={onClearFilters}
             showHeader={false}
             className="border-0 bg-transparent p-0 shadow-none"

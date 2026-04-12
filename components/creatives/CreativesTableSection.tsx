@@ -1,7 +1,6 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays,
   ChevronDown,
@@ -46,74 +45,10 @@ import {
 import { cn } from "@/lib/utils";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
-import {
-  getCreativeDecisions,
-  type CreativeDecision,
-  type CreativeDecisionInputRow,
-  type CreativeDecisionOs,
-  type CreativeDecisionOsRow,
-} from "@/src/services";
+import { type CreativeDecisionOs, type CreativeDecisionOsRow } from "@/src/services";
 import { createPortal } from "react-dom";
-import {
-  buildHeuristicCreativeDecisions,
-  CREATIVE_DECISION_ENGINE_VERSION,
-} from "@/lib/ai/generate-creative-decisions";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
-
-type AiSignalAction = CreativeDecision["action"];
-const AI_DECISION_ENGINE_VERSION = CREATIVE_DECISION_ENGINE_VERSION;
-
-const AI_SIGNAL_SEGMENTS: Array<{
-  key: AiSignalAction;
-  label: string;
-  inactiveCls: string;
-  activeCls: string;
-  dotCls: string;
-}> = [
-  {
-    key: "scale_hard",
-    label: "SCALE HARD",
-    inactiveCls: "bg-emerald-100 border-emerald-300 text-emerald-800 hover:bg-emerald-200",
-    activeCls: "bg-emerald-700 border-emerald-700 text-white",
-    dotCls: "bg-emerald-700",
-  },
-  {
-    key: "scale",
-    label: "SCALE",
-    inactiveCls: "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100",
-    activeCls: "bg-emerald-500 border-emerald-500 text-white",
-    dotCls: "bg-emerald-500",
-  },
-  {
-    key: "watch",
-    label: "WATCH",
-    inactiveCls: "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100",
-    activeCls: "bg-amber-500 border-amber-500 text-white",
-    dotCls: "bg-amber-500",
-  },
-  {
-    key: "test_more",
-    label: "TEST MORE",
-    inactiveCls: "bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100",
-    activeCls: "bg-sky-600 border-sky-600 text-white",
-    dotCls: "bg-sky-600",
-  },
-  {
-    key: "pause",
-    label: "PAUSE",
-    inactiveCls: "bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100",
-    activeCls: "bg-orange-500 border-orange-500 text-white",
-    dotCls: "bg-orange-500",
-  },
-  {
-    key: "kill",
-    label: "KILL",
-    inactiveCls: "bg-red-50 border-red-200 text-red-700 hover:bg-red-100",
-    activeCls: "bg-red-600 border-red-600 text-white",
-    dotCls: "bg-red-600",
-  },
-];
 
 type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
@@ -209,7 +144,6 @@ interface TablePreset {
 
 interface CreativesTableSectionProps {
   rows: MetaCreativeRow[];
-  businessId?: string;
   creativeHistoryById?: Map<string, CreativeHistoricalWindows>;
   decisionOs?: CreativeDecisionOs | null;
   defaultCurrency: string | null;
@@ -217,7 +151,6 @@ interface CreativesTableSectionProps {
   selectedMetricIds: string[];
   onSelectedMetricIdsChange: (next: string[]) => void;
   selectedRowIds: string[];
-  onReplaceSelectedRowIds?: (rowIds: string[]) => void;
   highlightedRowId?: string | null;
   onToggleRow: (rowId: string) => void;
   onToggleAll: () => void;
@@ -356,14 +289,6 @@ function getDefaultColumnWidths(): Record<string, number> {
 function parseLaunchDate(value: string): number {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function calculateCreativeAgeDays(launchDate: string): number {
-  const parsed = Date.parse(launchDate);
-  if (!Number.isFinite(parsed)) return 0;
-  const ageMs = Date.now() - parsed;
-  if (ageMs <= 0) return 0;
-  return Math.floor(ageMs / (1000 * 60 * 60 * 24));
 }
 
 const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
@@ -650,7 +575,6 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
 
 export function CreativesTableSection({
   rows,
-  businessId,
   creativeHistoryById,
   decisionOs,
   defaultCurrency,
@@ -658,7 +582,6 @@ export function CreativesTableSection({
   selectedMetricIds,
   onSelectedMetricIdsChange,
   selectedRowIds,
-  onReplaceSelectedRowIds,
   highlightedRowId = null,
   onToggleRow,
   onToggleAll,
@@ -666,7 +589,6 @@ export function CreativesTableSection({
   onOpenBreakdownRow,
   onSortedRowsChange,
 }: CreativesTableSectionProps) {
-  const queryClient = useQueryClient();
   const defaultPreset = PRESETS.find((p) => p.presetName === initialPresetName) ?? PRESETS[0];
   const [tablePreset, setTablePreset] = useState<TablePreset>(defaultPreset);
   const [presetSearch, setPresetSearch] = useState("");
@@ -699,12 +621,10 @@ export function CreativesTableSection({
   } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const [aiDecisionFilter, setAiDecisionFilter] = useState<AiSignalAction | null>(null);
   const decisionOsById = useMemo(
     () => new Map((decisionOs?.creatives ?? []).map((item) => [item.creativeId, item])),
     [decisionOs]
   );
-  const [aiSignalsHost, setAiSignalsHost] = useState<HTMLElement | null>(null);
 
   useDropdownBehavior({
     id: "table-preset-menu",
@@ -796,245 +716,14 @@ export function CreativesTableSection({
   useEffect(() => {
     onSortedRowsChange?.(sortedRows);
   }, [onSortedRowsChange, sortedRows]);
+  const allSelected = sortedRows.length > 0 && sortedRows.every((row) => selectedRowIdSet.has(row.id));
 
-  const aiDecisionInputRows = useMemo<CreativeDecisionInputRow[]>(
-    () =>
-      rows.map((row) => {
-        const creativeAgeDays = calculateCreativeAgeDays(row.launchDate);
-        const frequency = Number((row as MetaCreativeRow & { frequency?: number }).frequency ?? 0);
-        return {
-          creativeId: row.id,
-          name: row.name,
-          creativeFormat: row.format,
-          creativeAgeDays,
-          spendVelocity: row.spend / Math.max(1, creativeAgeDays),
-          frequency,
-          spend: row.spend,
-          purchaseValue: row.purchaseValue,
-          roas: row.roas,
-          cpa: row.cpa,
-          ctr: row.ctrAll,
-          cpm: row.cpm,
-          cpc: row.cpcLink,
-          purchases: row.purchases,
-          impressions: row.impressions,
-          linkClicks: row.linkClicks,
-          hookRate: row.thumbstop,
-          holdRate: row.video100,
-          video25Rate: row.video25,
-          watchRate: row.video50,
-          video75Rate: row.video75,
-          clickToPurchaseRate: row.clickToPurchase,
-          atcToPurchaseRate: row.atcToPurchaseRatio,
-          copyText: row.copyText ?? null,
-          copyVariants: row.copyVariants ?? [],
-          headlineVariants: row.headlineVariants ?? [],
-          descriptionVariants: row.descriptionVariants ?? [],
-          objectStoryId: row.objectStoryId ?? null,
-          effectiveObjectStoryId: row.effectiveObjectStoryId ?? null,
-          postId: row.postId ?? null,
-          accountId: row.accountId ?? null,
-          accountName: row.accountName ?? null,
-          campaignId: row.campaignId ?? null,
-          campaignName: row.campaignName ?? null,
-          adSetId: row.adSetId ?? null,
-          adSetName: row.adSetName ?? null,
-          taxonomyPrimaryLabel: row.creativePrimaryLabel ?? null,
-          taxonomySecondaryLabel: row.creativeSecondaryLabel ?? null,
-          taxonomyVisualFormat: row.creativeVisualFormat ?? null,
-          aiTags: row.aiTags ?? {},
-          historicalWindows: creativeHistoryById?.get(row.id) ?? null,
-        };
-      }),
-    [creativeHistoryById, rows]
-  );
-  const heuristicAiDecisions = useMemo((): Map<string, AiSignalAction> => {
-    if (aiDecisionInputRows.length === 0) return new Map();
-    const result = new Map<string, AiSignalAction>();
-    for (const decision of buildHeuristicCreativeDecisions(aiDecisionInputRows)) {
-      result.set(decision.creativeId, decision.action);
-    }
-    return result;
-  }, [aiDecisionInputRows]);
-  const analyzeScopeCount = aiDecisionInputRows.length;
-
-  const aiDecisionSignature = useMemo(
-    () =>
-      aiDecisionInputRows
-        .map((row) => `${row.creativeId}:${row.spend.toFixed(2)}:${row.roas.toFixed(3)}:${row.cpa.toFixed(2)}:${row.hookRate.toFixed(2)}:${row.holdRate.toFixed(2)}:${row.historicalWindows?.last30?.roas?.toFixed?.(3) ?? "na"}:${row.historicalWindows?.allHistory?.roas?.toFixed?.(3) ?? "na"}`)
-        .join("|"),
-    [aiDecisionInputRows]
-  );
-
-  // Decision signals are never auto-fired and only run on explicit operator action.
-  const aiDecisionQuery = useQuery({
-    queryKey: ["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature],
-    enabled: false,
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnWindowFocus: false,
-    retry: 1,
-    queryFn: () =>
-      getCreativeDecisions(
-        businessId as string,
-        defaultCurrency ?? "USD",
-        aiDecisionInputRows,
-        false
-      ),
-  });
-
-  // forceRefresh=false → DB cache-first for deterministic results
-  // forceRefresh=true  → recompute deterministic results immediately
-  const analyzeMutation = useMutation({
-    mutationFn: (forceRefresh: boolean) =>
-      getCreativeDecisions(
-        businessId as string,
-        defaultCurrency ?? "USD",
-        aiDecisionInputRows,
-        forceRefresh
-      ),
-    onSuccess: (data) => {
-      queryClient.setQueryData(["ai-creative-decisions", AI_DECISION_ENGINE_VERSION, businessId, aiDecisionSignature], data);
-    },
-  });
-
-  const aiDecisions = useMemo((): Map<string, AiSignalAction> => {
-    if (!aiDecisionQuery.data || aiDecisionQuery.data.decisions.length === 0) {
-      return heuristicAiDecisions;
-    }
-    const map = new Map<string, AiSignalAction>();
-    for (const decision of aiDecisionQuery.data.decisions) {
-      map.set(decision.creativeId, decision.action);
-    }
-    return map;
-  }, [aiDecisionQuery.data, heuristicAiDecisions]);
-
-  const aiLastSyncedLabel = useMemo(() => {
-    const value = aiDecisionQuery.data?.lastSyncedAt;
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return date.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }, [aiDecisionQuery.data?.lastSyncedAt]);
-
-  const aiDecisionCounts = useMemo(() => {
-    const counts: Record<AiSignalAction, number> = {
-      scale_hard: 0,
-      scale: 0,
-      watch: 0,
-      test_more: 0,
-      pause: 0,
-      kill: 0,
-    };
-    for (const d of aiDecisions.values()) counts[d]++;
-    return counts;
-  }, [aiDecisions]);
-
-  const aiFilteredRows = useMemo(() => {
-    if (!aiDecisionFilter) return sortedRows;
-    return sortedRows.filter((row) => aiDecisions.get(row.id) === aiDecisionFilter);
-  }, [aiDecisionFilter, aiDecisions, sortedRows]);
-
-  const applyAiDecisionSelection = (nextFilter: AiSignalAction | null) => {
-    if (!onReplaceSelectedRowIds) return;
-    if (!nextFilter) {
-      onReplaceSelectedRowIds([]);
-      return;
-    }
-    const matchingRowIds = sortedRows
-      .filter((row) => aiDecisions.get(row.id) === nextFilter)
-      .map((row) => row.id);
-    onReplaceSelectedRowIds(matchingRowIds);
-  };
-
-  const aiSignalsControls = aiDecisions.size > 0 ? (
-    <div className="inline-flex items-center gap-1.5" data-testid="creative-decision-signals">
-      <span className="text-[11px] font-medium text-muted-foreground">Decision Signals:</span>
-      {aiDecisionQuery.isFetching && (
-        <span className="text-[10px] text-muted-foreground/80">Running...</span>
-      )}
-      {aiDecisionQuery.data?.source === "cache" && !aiDecisionQuery.isFetching && (
-        <span className="text-[10px] text-muted-foreground/80">Cached</span>
-      )}
-      {aiDecisionQuery.data?.source === "deterministic" && !aiDecisionQuery.isFetching && (
-        <span className="text-[10px] text-emerald-700">Fresh</span>
-      )}
-      {AI_SIGNAL_SEGMENTS.map(({ key, label, inactiveCls, activeCls, dotCls }) => {
-        const count = aiDecisionCounts[key];
-        if (count === 0) return null;
-        const isActive = aiDecisionFilter === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => {
-              const nextFilter = isActive ? null : key;
-              setAiDecisionFilter(nextFilter);
-              applyAiDecisionSelection(nextFilter);
-              setPage(1);
-            }}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
-              isActive ? activeCls : inactiveCls
-            )}
-          >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                isActive ? "bg-white opacity-80" : dotCls
-              )}
-            />
-            {label}
-            <span className="opacity-70">{count}</span>
-          </button>
-        );
-      })}
-      {aiLastSyncedLabel && (
-        <span className="text-[10px] text-muted-foreground">Last sync {aiLastSyncedLabel}</span>
-      )}
-      <button
-        type="button"
-        onClick={() => analyzeMutation.mutate(Boolean(aiDecisionQuery.data))}
-        disabled={analyzeMutation.isPending || !businessId || aiDecisionInputRows.length === 0}
-        data-testid="creative-run-signals"
-        className="inline-flex items-center rounded-full border bg-background px-2.5 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-        title={analyzeScopeCount > 0 ? `Run decision signals for ${analyzeScopeCount} filtered creatives` : "No creatives available for decision signals"}
-      >
-        {analyzeMutation.isPending
-          ? `Running ${analyzeScopeCount}...`
-          : aiDecisionQuery.data
-            ? `Refresh Signals (${analyzeScopeCount})`
-            : `Run Signals (${analyzeScopeCount})`}
-      </button>
-      {aiDecisionFilter && (
-        <button
-          type="button"
-          onClick={() => {
-            setAiDecisionFilter(null);
-            applyAiDecisionSelection(null);
-            setPage(1);
-          }}
-          className="ml-0.5 text-[11px] text-muted-foreground hover:text-foreground"
-          aria-label="Clear decision filter"
-        >
-          ✕
-        </button>
-      )}
-    </div>
-  ) : null;
-
-  const allSelected = aiFilteredRows.length > 0 && aiFilteredRows.every((row) => selectedRowIdSet.has(row.id));
-
-  const totalResults = aiFilteredRows.length;
+  const totalResults = sortedRows.length;
   const pageCount = Math.max(1, Math.ceil(totalResults / tablePreset.resultsPerPage));
   const safePage = Math.min(page, pageCount);
   const startIndex = (safePage - 1) * tablePreset.resultsPerPage;
   const endIndex = Math.min(totalResults, startIndex + tablePreset.resultsPerPage);
-  const pagedRows = useMemo(() => aiFilteredRows.slice(startIndex, endIndex), [aiFilteredRows, startIndex, endIndex]);
+  const pagedRows = useMemo(() => sortedRows.slice(startIndex, endIndex), [sortedRows, startIndex, endIndex]);
   const virtualizationEnabled = false;
   const visibleRowCount = virtualizationEnabled
     ? Math.max(8, Math.ceil(620 / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2)
@@ -1231,10 +920,6 @@ export function CreativesTableSection({
     if (sortState.key !== key || !sortState.direction) return "↕";
     return sortState.direction === "asc" ? "↑" : "↓";
   };
-
-  useEffect(() => {
-    setAiSignalsHost(document.getElementById("creative-ai-signals-slot"));
-  }, []);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -1543,12 +1228,8 @@ export function CreativesTableSection({
             </span>
           </div>
 
-          {/* Decision Signals fallback if the toolbar slot is unavailable */}
-          {!aiSignalsHost && aiSignalsControls}
         </div>
       </div>
-
-      {aiSignalsHost && aiSignalsControls ? createPortal(aiSignalsControls, aiSignalsHost) : null}
 
       {/* B) selection info */}
       <div className="text-[10px] text-muted-foreground">{selectedRowIds.length} ad groups selected</div>

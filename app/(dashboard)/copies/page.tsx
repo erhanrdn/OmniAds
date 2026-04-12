@@ -394,15 +394,10 @@ export default function CopiesPage() {
       {!copiesQuery.isLoading && !copiesQuery.isError && filteredRows.length > 0 && (
         <CreativesTableSection
           rows={filteredRows}
-          businessId={businessId}
           initialPresetName="Meta Copy Performance"
           selectedMetricIds={topMetricIds}
           onSelectedMetricIdsChange={setTopMetricIds}
           selectedRowIds={selectionState.selectedRowIds}
-          onReplaceSelectedRowIds={(rowIds) => {
-            hasUserInteractedSelectionRef.current = true;
-            setSelectionState({ selectedRowIds: rowIds });
-          }}
           defaultCurrency={selectedBusinessCurrency}
           onToggleRow={toggleRowSelection}
           onToggleAll={toggleAllRows}

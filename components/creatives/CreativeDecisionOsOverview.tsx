@@ -2,9 +2,12 @@
 
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
+import type {
+  CreativeQuickFilter,
+  CreativeQuickFilterKey,
+} from "@/lib/creative-operator-surface";
 import { cn } from "@/lib/utils";
 import type {
-  CreativeDecisionOperatorQueue,
   CreativeDecisionOsFamily,
   CreativeDecisionOsPattern,
   CreativeDecisionOsV1Response,
@@ -14,11 +17,20 @@ function formatLifecycleLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function queueTone(queue: CreativeDecisionOperatorQueue["key"]) {
-  if (queue === "promotion") return "border-emerald-200 bg-emerald-50 text-emerald-900";
-  if (queue === "keep_testing") return "border-sky-200 bg-sky-50 text-sky-900";
-  if (queue === "fatigued_blocked") return "border-orange-200 bg-orange-50 text-orange-900";
-  return "border-violet-200 bg-violet-50 text-violet-900";
+function quickFilterTone(filter: CreativeQuickFilter) {
+  if (filter.tone === "act_now") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  }
+  if (filter.tone === "watch") {
+    return "border-sky-200 bg-sky-50 text-sky-900";
+  }
+  if (filter.tone === "needs_truth") {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+  if (filter.tone === "blocked") {
+    return "border-orange-200 bg-orange-50 text-orange-900";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-900";
 }
 
 function familyTone(family: CreativeDecisionOsFamily) {
@@ -110,21 +122,23 @@ function HistoricalBucketList({
 
 export function CreativeDecisionOsOverview({
   decisionOs,
+  quickFilters,
   isLoading,
   activeFamilyId,
-  activeQueueKey,
+  activeQuickFilterKey,
   onSelectFamily,
-  onSelectQueue,
+  onSelectQuickFilter,
   onClearFilters,
   showHeader = true,
   className,
 }: {
   decisionOs: CreativeDecisionOsV1Response | null;
+  quickFilters: CreativeQuickFilter[];
   isLoading: boolean;
   activeFamilyId: string | null;
-  activeQueueKey: CreativeDecisionOperatorQueue["key"] | null;
+  activeQuickFilterKey: CreativeQuickFilterKey | null;
   onSelectFamily: (familyId: string | null) => void;
-  onSelectQueue: (queueKey: CreativeDecisionOperatorQueue["key"] | null) => void;
+  onSelectQuickFilter: (key: CreativeQuickFilterKey) => void;
   onClearFilters?: () => void;
   showHeader?: boolean;
   className?: string;
@@ -402,17 +416,16 @@ export function CreativeDecisionOsOverview({
 
         <div
           className="rounded-2xl border border-slate-200 bg-white p-4"
-          data-testid="creative-operator-queues"
+          data-testid="creative-quick-filters-panel"
         >
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-950">Operator Queues</h3>
-            {(activeFamilyId || activeQueueKey) && (
+            <h3 className="text-sm font-semibold text-slate-950">Quick filters</h3>
+            {(activeFamilyId || activeQuickFilterKey) && (
               <button
                 type="button"
                 onClick={() => {
                   onClearFilters?.();
                   onSelectFamily(null);
-                  onSelectQueue(null);
                 }}
                 className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
               >
@@ -421,26 +434,26 @@ export function CreativeDecisionOsOverview({
             )}
           </div>
           <div className="space-y-2">
-            {decisionOs.operatorQueues.map((queue) => {
-              const active = activeQueueKey === queue.key;
+            {quickFilters.map((filter) => {
+              const active = activeQuickFilterKey === filter.key;
               return (
                 <button
-                  key={queue.key}
+                  key={filter.key}
                   type="button"
-                  onClick={() => onSelectQueue(active ? null : queue.key)}
+                  onClick={() => onSelectQuickFilter(filter.key)}
                   className={cn(
                     "w-full rounded-xl border p-3 text-left transition-colors",
-                    queueTone(queue.key),
+                    quickFilterTone(filter),
                     active && "ring-2 ring-slate-300",
                   )}
-                  data-testid={`creative-queue-${queue.key}`}
+                  data-testid={`creative-quick-filter-panel-${filter.key}`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold">{queue.label}</p>
-                      <p className="mt-1 text-xs opacity-80">{queue.summary}</p>
+                      <p className="text-sm font-semibold">{filter.label}</p>
+                      <p className="mt-1 text-xs opacity-80">{filter.summary}</p>
                     </div>
-                    <span className="text-2xl font-semibold">{queue.count}</span>
+                    <span className="text-2xl font-semibold">{filter.count}</span>
                   </div>
                 </button>
               );

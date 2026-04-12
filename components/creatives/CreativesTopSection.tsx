@@ -6,7 +6,11 @@ import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { OperatorSurfaceSummary } from "@/components/operator/OperatorSurfaceSummary";
-import { buildCreativeOperatorSurfaceModel } from "@/lib/creative-operator-surface";
+import {
+  buildCreativeOperatorSurfaceModel,
+  type CreativeQuickFilter,
+  type CreativeQuickFilterKey,
+} from "@/lib/creative-operator-surface";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import {
   calculateCreativeAverageOrderValue,
@@ -170,6 +174,9 @@ interface CreativesTopSectionProps {
   };
   actionsPrefix?: ReactNode;
   decisionOs?: CreativeDecisionOsV1Response | null;
+  quickFilters?: CreativeQuickFilter[];
+  activeQuickFilterKey?: CreativeQuickFilterKey | null;
+  onToggleQuickFilter?: (key: CreativeQuickFilterKey) => void;
 }
 
 const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
@@ -306,6 +313,35 @@ const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
 ];
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
+
+function quickFilterToneClasses(
+  filter: CreativeQuickFilter,
+  active: boolean,
+) {
+  if (filter.tone === "act_now") {
+    return active
+      ? "border-emerald-700 bg-emerald-700 text-white"
+      : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
+  }
+  if (filter.tone === "needs_truth") {
+    return active
+      ? "border-amber-600 bg-amber-600 text-white"
+      : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100";
+  }
+  if (filter.tone === "blocked") {
+    return active
+      ? "border-orange-600 bg-orange-600 text-white"
+      : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100";
+  }
+  if (filter.tone === "watch") {
+    return active
+      ? "border-sky-600 bg-sky-600 text-white"
+      : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100";
+  }
+  return active
+    ? "border-slate-700 bg-slate-700 text-white"
+    : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100";
+}
 
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
@@ -453,6 +489,9 @@ export function CreativesTopSection({
   previewStripSummary,
   actionsPrefix,
   decisionOs,
+  quickFilters = [],
+  activeQuickFilterKey = null,
+  onToggleQuickFilter,
 }: CreativesTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
@@ -504,8 +543,36 @@ export function CreativesTopSection({
             decisionOs={decisionOs ?? null}
             onChange={onFiltersChange}
           />
-
-          <div id="creative-ai-signals-slot" className="inline-flex items-center gap-1.5" />
+          {quickFilters.length > 0 ? (
+            <div
+              className="flex flex-wrap items-center gap-1.5"
+              data-testid="creative-quick-filters"
+            >
+              <span className="text-[11px] font-medium text-muted-foreground">
+                Quick filters
+              </span>
+              {quickFilters.map((filter) => {
+                const active = activeQuickFilterKey === filter.key;
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => onToggleQuickFilter?.(filter.key)}
+                    data-testid={`creative-quick-filter-${filter.key}`}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
+                      quickFilterToneClasses(filter, active),
+                    )}
+                  >
+                    <span>{filter.label}</span>
+                    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-white/20" : "bg-black/5")}>
+                      {filter.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           <div className="ml-auto flex items-center gap-2">
             {actionsPrefix}

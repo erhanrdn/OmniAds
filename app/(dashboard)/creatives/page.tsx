@@ -32,7 +32,7 @@ import {
 } from "@/components/creatives/CreativesTopSection";
 import { usePersistentCreativeDateRange } from "@/hooks/use-persistent-date-range";
 import type { ShareMetricKey, SharePayload } from "@/components/creatives/shareCreativeTypes";
-import { getCreativeDecisionOs, type CreativeDecisionOs, type CreativeDecisionOperatorQueue } from "@/src/services";
+import { getCreativeDecisionOs, type CreativeDecisionOs } from "@/src/services";
 import {
   CreativesTableShell,
   buildCreativeHistoryById,
@@ -59,6 +59,10 @@ import {
   dayCountInclusive,
 } from "@/lib/meta/history";
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
+import {
+  buildCreativeQuickFilters,
+  type CreativeQuickFilterKey,
+} from "@/lib/creative-operator-surface";
 
 function clampCreativeDateRangeToHistoryLimit(
   value: CreativeDateRangeValue,
@@ -161,7 +165,7 @@ export default function CreativesPage() {
   const [historyPhaseStarted, setHistoryPhaseStarted] = useState(false);
   const [tableSortedRows, setTableSortedRows] = useState<MetaCreativeRow[]>([]);
   const [decisionOsFamilyFilter, setDecisionOsFamilyFilter] = useState<string | null>(null);
-  const [decisionOsQueueFilter, setDecisionOsQueueFilter] = useState<CreativeDecisionOperatorQueue["key"] | null>(null);
+  const [activeQuickFilterKey, setActiveQuickFilterKey] = useState<CreativeQuickFilterKey | null>(null);
   const [decisionOsDrawerOpen, setDecisionOsDrawerOpen] = useState(false);
 
   const platform: "meta" = "meta";
@@ -373,29 +377,15 @@ export default function CreativesPage() {
     return rows;
   }, [activeCreativesPayload?.media_mode, activeCreativesPayload?.rows]);
 
-  const decisionOsFocusIds = useMemo(() => {
-    if (!creativeDecisionOs) return null;
-    if (decisionOsFamilyFilter) {
-      const family = creativeDecisionOs.families.find((item) => item.familyId === decisionOsFamilyFilter);
-      return family ? new Set(family.creativeIds) : null;
-    }
-    if (decisionOsQueueFilter) {
-      const queue = creativeDecisionOs.operatorQueues.find((item) => item.key === decisionOsQueueFilter);
-      return queue ? new Set(queue.creativeIds) : null;
-    }
-    return null;
-  }, [creativeDecisionOs, decisionOsFamilyFilter, decisionOsQueueFilter]);
-  const clearDecisionOsFilters = useCallback(() => {
+  const familyFocusIds = useMemo(() => {
+    if (!creativeDecisionOs || !decisionOsFamilyFilter) return null;
+    const family = creativeDecisionOs.families.find((item) => item.familyId === decisionOsFamilyFilter);
+    return family ? new Set(family.creativeIds) : null;
+  }, [creativeDecisionOs, decisionOsFamilyFilter]);
+  const clearCreativeFocusFilters = useCallback(() => {
     setDecisionOsFamilyFilter(null);
-    setDecisionOsQueueFilter(null);
+    setActiveQuickFilterKey(null);
   }, []);
-  const activeDecisionOsQueue = useMemo(
-    () =>
-      decisionOsQueueFilter
-        ? creativeDecisionOs?.operatorQueues.find((item) => item.key === decisionOsQueueFilter) ?? null
-        : null,
-    [creativeDecisionOs, decisionOsQueueFilter],
-  );
   const activeDecisionOsFamily = useMemo(
     () =>
       decisionOsFamilyFilter
@@ -403,12 +393,40 @@ export default function CreativesPage() {
         : null,
     [creativeDecisionOs, decisionOsFamilyFilter],
   );
-  const filteredRows = useMemo(() => {
+  const baseFilteredRows = useMemo(() => {
     if (platform !== "meta") return [];
     const baseRows = applyCreativeFilters(allRows, topFilters, creativeDecisionOs);
-    if (!decisionOsFocusIds || decisionOsFocusIds.size === 0) return baseRows;
-    return baseRows.filter((row) => decisionOsFocusIds.has(row.id));
-  }, [allRows, creativeDecisionOs, decisionOsFocusIds, platform, topFilters]);
+    if (!familyFocusIds || familyFocusIds.size === 0) return baseRows;
+    return baseRows.filter((row) => familyFocusIds.has(row.id));
+  }, [allRows, creativeDecisionOs, familyFocusIds, platform, topFilters]);
+  const quickFilters = useMemo(
+    () =>
+      buildCreativeQuickFilters(creativeDecisionOs, {
+        visibleIds: new Set(baseFilteredRows.map((row) => row.id)),
+      }),
+    [baseFilteredRows, creativeDecisionOs],
+  );
+  const activeQuickFilter = useMemo(
+    () =>
+      activeQuickFilterKey
+        ? quickFilters.find((filter) => filter.key === activeQuickFilterKey) ?? null
+        : null,
+    [activeQuickFilterKey, quickFilters],
+  );
+  const filteredRows = useMemo(() => {
+    if (!activeQuickFilter || activeQuickFilter.creativeIds.length === 0) return baseFilteredRows;
+    const quickFilterIds = new Set(activeQuickFilter.creativeIds);
+    return baseFilteredRows.filter((row) => quickFilterIds.has(row.id));
+  }, [activeQuickFilter, baseFilteredRows]);
+  useEffect(() => {
+    if (!activeQuickFilterKey) return;
+    const stillAvailable = quickFilters.some(
+      (filter) => filter.key === activeQuickFilterKey && filter.count > 0,
+    );
+    if (!stillAvailable) {
+      setActiveQuickFilterKey(null);
+    }
+  }, [activeQuickFilterKey, quickFilters]);
   const creativeHistoryById = useMemo(() => {
     const historyRows: Partial<Record<CreativeHistoryWindowKey, MetaCreativeRow[]>> = {};
     creativeHistoryQueries.forEach((query, index) => {
@@ -817,6 +835,11 @@ export default function CreativesPage() {
               previewStripState={previewStripState}
               previewStripSummary={previewStripSummary}
               decisionOs={creativeDecisionOs}
+              quickFilters={quickFilters}
+              activeQuickFilterKey={activeQuickFilterKey}
+              onToggleQuickFilter={(key) =>
+                setActiveQuickFilterKey((prev) => (prev === key ? null : key))
+              }
               actionsPrefix={
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button
@@ -830,11 +853,11 @@ export default function CreativesPage() {
                       : "Show why"}
                   </Button>
 
-                  {(activeDecisionOsQueue || activeDecisionOsFamily) ? (
+                  {(activeQuickFilter || activeDecisionOsFamily) ? (
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      {activeDecisionOsQueue ? (
+                      {activeQuickFilter ? (
                         <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] font-medium text-sky-800">
-                          Reasoning filter: {activeDecisionOsQueue.label}
+                          Quick filter: {activeQuickFilter.label}
                         </span>
                       ) : null}
                       {activeDecisionOsFamily ? (
@@ -844,7 +867,7 @@ export default function CreativesPage() {
                       ) : null}
                       <button
                         type="button"
-                        onClick={clearDecisionOsFilters}
+                        onClick={clearCreativeFocusFilters}
                         className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
                       >
                         Clear
@@ -901,16 +924,11 @@ export default function CreativesPage() {
                 <>
                   <CreativesTableSection
                     rows={deferredFilteredRows}
-                    businessId={businessId}
                     creativeHistoryById={creativeHistoryById}
                     decisionOs={creativeDecisionOs}
                     selectedMetricIds={topMetricIds}
                     onSelectedMetricIdsChange={setTopMetricIds}
                     selectedRowIds={selectionState.selectedRowIds}
-                    onReplaceSelectedRowIds={(rowIds) => {
-                      hasUserInteractedSelectionRef.current = true;
-                      setSelectionState({ selectedRowIds: rowIds });
-                    }}
                     highlightedRowId={highlightedRowId}
                     defaultCurrency={selectedBusinessCurrency}
                     onToggleRow={toggleRowSelection}
@@ -959,17 +977,16 @@ export default function CreativesPage() {
         isLoading={creativeDecisionOsQuery.isLoading}
         open={decisionOsDrawerOpen}
         onOpenChange={setDecisionOsDrawerOpen}
+        quickFilters={quickFilters}
         activeFamilyId={decisionOsFamilyFilter}
-        activeQueueKey={decisionOsQueueFilter}
+        activeQuickFilterKey={activeQuickFilterKey}
         onSelectFamily={(familyId) => {
-          setDecisionOsQueueFilter(null);
           setDecisionOsFamilyFilter(familyId);
         }}
-        onSelectQueue={(queueKey) => {
-          setDecisionOsFamilyFilter(null);
-          setDecisionOsQueueFilter(queueKey);
+        onSelectQuickFilter={(key) => {
+          setActiveQuickFilterKey((prev) => (prev === key ? null : key));
         }}
-        onClearFilters={clearDecisionOsFilters}
+        onClearFilters={clearCreativeFocusFilters}
       />
     </div>
     </PlanGate>

@@ -101,22 +101,21 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
-  await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+  await expect(page.getByTestId("creative-quick-filters-panel")).toBeVisible();
   await expect(page.getByTestId("creative-family-board")).toBeVisible();
   await expect(page.getByTestId("creative-pattern-board")).toBeVisible();
   await expect(page.getByTestId("creative-protected-winners")).toBeVisible();
   await expect(page.getByTestId("creative-supply-plan")).toBeVisible();
   await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
-  await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
-  await expect(page.getByTestId("creative-run-signals")).toContainText(/Run Signals|Refresh Signals/);
+  await expect(page.getByTestId("creative-quick-filters")).toBeVisible();
 
   const totalBeforeFilter = await page.locator('[data-testid^="creative-row-"]').count();
-  await page.getByTestId("creative-queue-promotion").click();
-  const totalAfterQueueFilter = await page.locator('[data-testid^="creative-row-"]').count();
-  expect(totalAfterQueueFilter).toBeGreaterThan(0);
-  expect(totalAfterQueueFilter).toBeLessThanOrEqual(totalBeforeFilter);
+  await page.locator('[data-testid^="creative-quick-filter-panel-"]').first().click();
+  const totalAfterQuickFilter = await page.locator('[data-testid^="creative-row-"]').count();
+  expect(totalAfterQuickFilter).toBeGreaterThan(0);
+  expect(totalAfterQuickFilter).toBeLessThanOrEqual(totalBeforeFilter);
   await page.getByLabel("Close Creative Decision OS").click();
-  await expect(page.getByText("Reasoning filter: Queue-ready")).toBeVisible();
+  await expect(page.getByText(/Quick filter:/)).toBeVisible();
   await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');

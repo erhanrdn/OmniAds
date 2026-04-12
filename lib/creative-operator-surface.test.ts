@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCreativeOperatorItem, buildCreativeOperatorSurfaceModel } from "@/lib/creative-operator-surface";
+import {
+  buildCreativeOperatorItem,
+  buildCreativeOperatorSurfaceModel,
+  buildCreativeQuickFilters,
+  resolveCreativeQuickFilterKey,
+} from "@/lib/creative-operator-surface";
 
 function creativeDecisionOsFixture() {
   return {
@@ -163,5 +168,90 @@ describe("creative operator surface", () => {
       authorityState: "blocked",
     });
     expect(model?.hiddenSummary).toContain("thin-signal");
+  });
+
+  it("builds quick filters from the unified Creative authority model", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives.push({
+      creativeId: "pause",
+      name: "Fatigued Winner",
+      familyLabel: "Refresh Family",
+      confidence: 0.79,
+      lifecycleState: "fatigued_winner",
+      primaryAction: "refresh_replace",
+      summary: "Fatigue is visible and replacement is safer.",
+      spend: 360,
+      roas: 1.8,
+      purchases: 7,
+      ctr: 1.4,
+      previewStatus: {
+        liveDecisionWindow: "ready",
+        reason: null,
+      },
+      trust: {
+        surfaceLane: "action_core",
+        truthState: "live_confident",
+        operatorDisposition: "standard",
+        evidence: { materiality: "material" },
+      },
+      deployment: {
+        targetLane: "Testing",
+        constraints: [],
+        compatibility: { reasons: [] },
+      },
+      economics: {
+        reasons: [],
+      },
+    });
+    fixture.creatives.push({
+      creativeId: "protected",
+      name: "Protected Winner",
+      familyLabel: "Protected Family",
+      confidence: 0.84,
+      lifecycleState: "stable_winner",
+      primaryAction: "hold_no_touch",
+      summary: "Keep this winner protected.",
+      spend: 600,
+      roas: 3.9,
+      purchases: 22,
+      ctr: 2.7,
+      previewStatus: {
+        liveDecisionWindow: "ready",
+        reason: null,
+      },
+      trust: {
+        surfaceLane: "watchlist",
+        truthState: "live_confident",
+        operatorDisposition: "protected_watchlist",
+        evidence: { materiality: "material" },
+      },
+      deployment: {
+        targetLane: "Scaling",
+        constraints: [],
+        compatibility: { reasons: [] },
+      },
+      economics: {
+        reasons: [],
+      },
+    });
+
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[1])).toBe("needs_truth");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[2])).toBe("blocked");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[3])).toBe("test_more");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("pause");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[5])).toBe("no_action");
+
+    const filters = buildCreativeQuickFilters(fixture);
+
+    expect(filters.map((filter) => [filter.key, filter.count])).toEqual([
+      ["scale", 1],
+      ["test_more", 1],
+      ["pause", 1],
+      ["needs_truth", 1],
+      ["blocked", 1],
+      ["no_action", 1],
+    ]);
+    expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("Preview");
   });
 });

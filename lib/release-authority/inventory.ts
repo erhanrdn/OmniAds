@@ -101,6 +101,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     notes: [
       "Creative Decision OS stays deterministic and read-only.",
       "The current baseline opens the surface in a dedicated resizable drawer with operator-review wording instead of a long inline page section.",
+      "Top-level quick filters now derive from the same Creative Decision OS action model, so the page keeps one operator-facing Creative authority.",
       "Additive economics floors, deployment compatibility, protected winners, and supply planning are current when the surface is enabled.",
       "Preview truth now exposes honest ready/degraded/missing review states and gates AI interpretation accordingly.",
       "A separate selected-period historical analysis panel is additive and analysis-only; it does not change Decision Signals or live decision authority.",
@@ -109,21 +110,19 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
   },
   {
     id: "decision_signals",
-    label: "Decision Signals",
-    area: "creative",
+    label: "Decision Signals Compatibility",
+    area: "legacy",
     repositoryState: "merged",
-    runtimeState: "live",
+    runtimeState: "legacy",
     docsState: "current",
     references: [
-      { kind: "page", path: "app/(dashboard)/creatives/page.tsx", label: "Creatives page" },
-      { kind: "component", path: "components/creatives/CreativeDetailExperience.tsx", label: "Creative detail experience" },
       { kind: "api", path: "app/api/creatives/decisions/route.ts", label: "Decision Signals route" },
       { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
       { kind: "doc", path: "docs/phase-04-creative-action-contract.md", label: "Phase 04 action contract" },
     ],
     notes: [
-      "Decision Signals remain the compatibility surface for deterministic creative actions.",
-      "This phase does not change wording or action semantics.",
+      "The compatibility route remains shipped for internal or backward-compatible consumers.",
+      "Decision Signals no longer ship as a separate top-level operator-facing Creative authority.",
     ],
   },
   {
