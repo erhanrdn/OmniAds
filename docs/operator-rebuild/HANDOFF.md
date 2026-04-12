@@ -6,19 +6,18 @@ Rebuild the OmniAds operator-facing Meta and Creative surfaces into a clear, ope
 
 ## Current Step
 
-Step 4 is complete on `main` at final closeout SHA `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`, with the Creative unification product implementation landing on `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Creative now has one operator-facing authority in repo, with quick filters derived from the unified Creative Decision OS action model. Live/runtime still serves the accepted Step 3 baseline on `ad3d1ac52fa7c6dec381351c45005342511077ac`. Step 5 has not started.
+Step 4 is complete on `main`. The Creative unification product implementation landed on `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`, and continuity closeout commits were pushed on top during Step 4 closure. Creative now has one operator-facing authority in repo, with quick filters derived from the unified Creative Decision OS action model. Live/runtime still serves the accepted Step 3 baseline on `ad3d1ac52fa7c6dec381351c45005342511077ac`. Step 5 has not started.
 
 ## Current Repo State
 
 * current branch: `main`
-* current repo HEAD: `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`
 * Step 4 implementation SHA: `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`
 * repo SHA before Step 4 started: `3a9144d95d41c29298902989bd9824a963189ca0`
 * previous accepted Step 3 live product SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * Step 3 implementation SHA: `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`
 * Step 2 accepted spec commit: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * current live SHA if verified: `ad3d1ac52fa7c6dec381351c45005342511077ac` verified via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority` on April 12, 2026
-* release-authority posture: post-push verification shows remote `main` at `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae` while live/runtime still serves the Step 3 baseline on `ad3d1ac52fa7c6dec381351c45005342511077ac`, so live-vs-main drift remains expected until deploy advances
+* release-authority posture: post-push verification during Step 4 closeout showed remote `main` advancing beyond the Step 4 implementation SHA while live/runtime still served the Step 3 baseline on `ad3d1ac52fa7c6dec381351c45005342511077ac`, so live-vs-main drift remains expected until deploy advances
 
 ## Current Working Model
 
@@ -99,4 +98,4 @@ Step 5 should rebuild the Meta page information architecture around the shared a
 
 ## Next Chat Bootstrap
 
-Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Check `docs/operator-rebuild-staging/STATUS.md` for the latest accepted repo baseline. Verify current repo/runtime truth before acting. Current repo HEAD is `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`; Step 4 product implementation SHA is `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Verified live SHA remains `ad3d1ac52fa7c6dec381351c45005342511077ac` as of April 12, 2026. Step 4 is complete on `main` but not yet observed live. Do not start Step 5 unless the next chat explicitly assigns it.
+Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Check `docs/operator-rebuild-staging/STATUS.md` for the latest accepted repo baseline. Re-verify current repo HEAD and current runtime truth before acting. Step 4 product implementation SHA is `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`; continuity closeout commits were pushed on top during Step 4 closure. Verified live SHA remains `ad3d1ac52fa7c6dec381351c45005342511077ac` as of April 12, 2026. Step 4 is complete on `main` but not yet observed live. Do not start Step 5 unless the next chat explicitly assigns it.

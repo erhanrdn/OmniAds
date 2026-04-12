@@ -138,12 +138,12 @@
 # 9. Deployment And Rollout
 
 * exact shipped SHA:
-  * final pushed `main` SHA `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`
   * Step 4 product implementation SHA `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`
+  * continuity closeout commits were pushed on top during Step 4 closure; re-verify current `main` HEAD at use time
 * CI / deploy summary:
   * local typecheck, focused Vitest, production build, and local reviewer Playwright smoke all passed
   * repo release-authority docs were regenerated after the inventory change
-  * both the Step 4 implementation commit and the continuity closeout commit are pushed to `main`; live promotion was not observed during this session
+  * the Step 4 implementation commit and subsequent continuity closeout commits are pushed to `main`; live promotion was not observed during this session
 * rollback target:
   * `3a9144d95d41c29298902989bd9824a963189ca0`
 * whether worktree ended clean:
@@ -178,4 +178,4 @@ Ask for review of:
 
 # 13. Copy-Paste Quick Summary
 
-Step 4 is complete on `main` at `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`, with the product implementation landing in `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Creative now has one operator-facing authority: the shared Creative authority summary plus unified quick filters derived from Creative Decision OS (`SCALE`, `TEST MORE`, `PAUSE`, `NEEDS TRUTH`, `BLOCKED`, `NO ACTION`). The standalone table `Decision Signals` strip is gone, the drawer uses the same quick-filter model, table/grid filtering is now one shared page-level pipeline, and repo release-authority docs now treat `Decision Signals` as legacy compatibility instead of a live peer surface. Local typecheck, focused Vitest, build, and reviewer Playwright smoke all passed. Live still serves Step 3 on `ad3d1ac52fa7c6dec381351c45005342511077ac` while release-authority now reports remote `main` at `ef8e24386dd5edba7c734fcdec0f455a9e9c4eae`, so Step 5 should target the Meta page rebuild next rather than starting automatically.
+Step 4 is complete on `main`, with the product implementation landing in `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a` and continuity closeout commits pushed on top during Step 4 closure. Creative now has one operator-facing authority: the shared Creative authority summary plus unified quick filters derived from Creative Decision OS (`SCALE`, `TEST MORE`, `PAUSE`, `NEEDS TRUTH`, `BLOCKED`, `NO ACTION`). The standalone table `Decision Signals` strip is gone, the drawer uses the same quick-filter model, table/grid filtering is now one shared page-level pipeline, and repo release-authority docs now treat `Decision Signals` as legacy compatibility instead of a live peer surface. Local typecheck, focused Vitest, build, and reviewer Playwright smoke all passed. Live still serves Step 3 on `ad3d1ac52fa7c6dec381351c45005342511077ac`, and Step 5 should target the Meta page rebuild next rather than starting automatically.
