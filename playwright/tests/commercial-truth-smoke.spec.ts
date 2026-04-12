@@ -99,6 +99,43 @@ function normalizeText(value: string | null | undefined) {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+function metaOperatingModeCard(page: Page) {
+  return page.locator('section[data-testid="meta-operating-mode-card"]:visible').first();
+}
+
+async function openMetaSupportingContext(page: Page) {
+  const supportingContext = page.getByTestId("meta-supporting-context");
+  await expect(supportingContext).toBeVisible();
+  const isOpen = await supportingContext.evaluate((element) =>
+    element.hasAttribute("open"),
+  );
+  if (!isOpen) {
+    await supportingContext.locator("summary").click();
+  }
+}
+
+async function openMetaOperatorDetails(page: Page) {
+  const operatorDetails = page.getByTestId("meta-operator-details");
+  await expect(operatorDetails).toBeVisible();
+  const isOpen = await operatorDetails.evaluate((element) =>
+    element.hasAttribute("open"),
+  );
+  if (!isOpen) {
+    await operatorDetails.locator("summary").click();
+  }
+}
+
+async function openMetaCampaignReasoning(page: Page) {
+  const campaignReasoning = page.getByTestId("meta-campaign-reasoning");
+  await expect(campaignReasoning).toBeVisible();
+  const isOpen = await campaignReasoning.evaluate((element) =>
+    element.hasAttribute("open"),
+  );
+  if (!isOpen) {
+    await campaignReasoning.locator("summary").click();
+  }
+}
+
 async function setStoredDateRange(
   page: Page,
   key: "metaDateRange" | "commandCenterDateRange" | "creativeDateRange",
@@ -121,7 +158,7 @@ async function captureMetaDecisionSignature(
 ) {
   return {
     operatingMode: normalizeText(
-      await page.getByTestId("meta-operating-mode-card").textContent(),
+      await metaOperatingModeCard(page).textContent(),
     ),
     decisionOs: normalizeText(
       await page.getByTestId("meta-decision-os-overview").textContent(),
@@ -253,10 +290,49 @@ async function openFirstCampaignAwareMetaCommandCenterAction(page: Page) {
   throw new Error("No campaign-aware Meta-backed Command Center action was visible in fallback views.");
 }
 
-test("commercial truth smoke covers settings edit, Meta operating mode, and Creative context", async ({ page }, testInfo) => {
-  test.slow();
+test("commercial truth navigation relocation keeps Commercial Truth under Main and out of Settings", async ({ page }) => {
+  await page.goto("/commercial-truth");
+  await expect(page).toHaveURL(/\/commercial-truth$/);
+  await expect(page.getByRole("heading", { name: "Commercial Truth", level: 1 })).toBeVisible();
+
+  const commercialTruthNavLink = page.locator('aside a[href="/commercial-truth"]').first();
+  await expect(commercialTruthNavLink).toBeVisible();
+  await expect(commercialTruthNavLink).toHaveClass(/bg-primary/);
+
+  await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
+  await page.getByTestId("commercial-target-roas").fill("3.1");
+  await page.getByTestId("commercial-break-even-roas").fill("1.9");
+  await page.getByTestId("commercial-stock-pressure").selectOption("watch");
+
+  const [saveResponse] = await Promise.all([
+    page.waitForResponse((response) =>
+      response.url().includes("/api/business-commercial-settings") &&
+      response.request().method() === "PUT",
+    ),
+    page.getByTestId("commercial-settings-save").click(),
+  ]);
+  expect(saveResponse.ok()).toBeTruthy();
+
+  await page.reload();
+  await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
+  await expect(page.getByTestId("commercial-target-roas")).toHaveValue("3.1");
+  await expect(page.getByTestId("commercial-break-even-roas")).toHaveValue("1.9");
+  await expect(page.getByTestId("commercial-stock-pressure")).toHaveValue("watch");
 
   await page.goto("/settings");
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByTestId("commercial-truth-settings")).toHaveCount(0);
+});
+
+test("commercial truth smoke covers the dedicated page, Meta operating mode, and Creative context", async ({ page }, testInfo) => {
+  test.slow();
+
+  await page.goto("/commercial-truth");
+  await expect(page).toHaveURL(/\/commercial-truth$/);
+  await expect(page.getByRole("heading", { name: "Commercial Truth", level: 1 })).toBeVisible();
+  const commercialTruthNavLink = page.locator('aside a[href="/commercial-truth"]').first();
+  await expect(commercialTruthNavLink).toBeVisible();
+  await expect(commercialTruthNavLink).toHaveClass(/bg-primary/);
 
   await expect(page.getByTestId("commercial-truth-settings")).toBeVisible();
   await page.getByTestId("commercial-target-roas").fill("3.1");
@@ -273,23 +349,30 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   ]);
   expect(saveResponse.ok()).toBeTruthy();
   await page.screenshot({
-    path: testInfo.outputPath("commercial-settings.png"),
+    path: testInfo.outputPath("commercial-truth-page.png"),
     fullPage: true,
   });
 
+  await page.goto("/settings");
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByTestId("commercial-truth-settings")).toHaveCount(0);
+
   await page.goto("/platforms/meta");
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
-  const operatingModeCard = page.getByTestId("meta-operating-mode-card");
+  await openMetaSupportingContext(page);
+  const operatingModeCard = metaOperatingModeCard(page);
   await expect(operatingModeCard).toBeVisible();
   await expect(operatingModeCard).toContainText("Operating Mode");
   await expect(operatingModeCard).toContainText(/Current Mode|Recommended Mode/);
   await expect(operatingModeCard).toContainText("Decisions use live windows");
   await expect(operatingModeCard).toContainText("Selected period affects analysis only");
   await expect(operatingModeCard).not.toContainText("Loading operating mode...");
-  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Decisions use live windows");
-  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Selected period affects analysis only");
-  await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
+  const metaOverview = page.getByTestId("meta-decision-os-overview").first();
+  await expect(metaOverview).toBeVisible();
+  await expect(metaOverview).toContainText("Meta Decision OS is operating on the live decision window");
+  await expect(metaOverview).toContainText("shared trust-kernel suppression");
+  await openMetaOperatorDetails(page);
+  await expect(page.getByTestId("meta-top-adset-actions")).toBeVisible();
   await expect(page.getByTestId("meta-winner-scale-candidates")).toBeVisible();
   await expect(page.getByTestId("meta-geo-board")).toBeVisible();
   await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
@@ -298,8 +381,10 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
     await setStoredDateRange(page, "metaDateRange", range.standard);
     await page.reload();
     await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
-    await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
-    await expect(page.getByTestId("meta-operating-mode-card")).not.toContainText("Loading operating mode...");
+    await openMetaSupportingContext(page);
+    await openMetaOperatorDetails(page);
+    await expect(page.getByTestId("meta-decision-os-overview").first()).toBeVisible();
+    await expect(metaOperatingModeCard(page)).not.toContainText("Loading operating mode...");
     const signature = await captureMetaDecisionSignature(page);
     if (!metaBaseline) {
       metaBaseline = signature;
@@ -313,6 +398,7 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
+  await openMetaCampaignReasoning(page);
   await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
   await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
   await page.screenshot({

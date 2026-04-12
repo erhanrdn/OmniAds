@@ -103,6 +103,7 @@ export const translations = {
       manage: "Manage",
       overview: "Overview",
       commandCenter: "Command Center",
+      commercialTruth: "Commercial Truth",
       meta: "Meta",
       googleAds: "Google Ads",
       tikTok: "TikTok",
