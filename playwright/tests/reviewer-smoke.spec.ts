@@ -51,9 +51,15 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
+  await page.waitForLoadState("networkidle").catch(() => {});
 
   await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
-  await page.getByTestId("meta-campaign-reasoning").locator("summary").click();
+  const metaCampaignReasoningSummary = page
+    .getByTestId("meta-campaign-reasoning")
+    .locator("summary")
+    .first();
+  await expect(metaCampaignReasoningSummary).toBeVisible();
+  await metaCampaignReasoningSummary.evaluate((node: HTMLElement) => node.click());
   await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
   await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
   await expect(page.getByTestId("meta-adsets-section")).toBeVisible();
@@ -97,10 +103,12 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
 
   await page.goto("/creatives");
+  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
 
-  await page.getByRole("button", { name: "Show why" }).click();
+  await page.getByRole("button", { name: "Decision support" }).click();
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
+  await expect(page.getByTestId("creative-preview-truth-summary")).toBeVisible();
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
   await expect(page.getByTestId("creative-quick-filters-panel")).toBeVisible();
   await expect(page.getByTestId("creative-family-board")).toBeVisible();
@@ -125,6 +133,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page).toHaveURL(/creative=/);
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-preview-truth")).toBeVisible();
   await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
   await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
   await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();

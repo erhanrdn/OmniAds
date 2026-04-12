@@ -354,6 +354,50 @@ export function CreativeDetailExperience({
   const canGenerateAiInterpretation =
     decisionOsCreative?.trust.truthState === "live_confident" &&
     previewTruth?.liveDecisionWindow === "ready";
+  const previewTruthGate = useMemo(() => {
+    if (previewTruth?.liveDecisionWindow === "ready") {
+      return {
+        panelClass: "border-emerald-200 bg-emerald-50/80",
+        badgeClass: "border-emerald-200 bg-emerald-100 text-emerald-800",
+        badgeLabel: "Preview ready",
+        headline: "Preview truth is ready for decisive review.",
+        summary:
+          "Live decision-window preview is ready, so authoritative action wording can stay active for this creative.",
+      };
+    }
+
+    if (previewTruth?.liveDecisionWindow === "metrics_only_degraded") {
+      return {
+        panelClass: "border-amber-200 bg-amber-50/80",
+        badgeClass: "border-amber-200 bg-amber-100 text-amber-800",
+        badgeLabel: "Preview degraded",
+        headline: "Preview truth is degraded, so this review stays softened.",
+        summary:
+          "The deterministic decision remains visible, but review is metrics-only until Meta returns reliable live preview HTML.",
+      };
+    }
+
+    return {
+      panelClass: "border-rose-200 bg-rose-50/80",
+      badgeClass: "border-rose-200 bg-rose-100 text-rose-800",
+      badgeLabel: "Preview missing",
+      headline: "Preview truth is missing, so authoritative action is blocked.",
+      summary:
+        "Do not treat this row as clean execute-now work until preview media becomes available for the live decision window.",
+    };
+  }, [previewTruth?.liveDecisionWindow]);
+  const aiSupportMessage = useMemo(() => {
+    if (canGenerateAiInterpretation) {
+      return "Support only. AI commentary does not change the deterministic decision.";
+    }
+    if (previewTruth?.liveDecisionWindow === "metrics_only_degraded") {
+      return "AI interpretation stays disabled because preview truth is degraded and this review is metrics-only.";
+    }
+    if (previewTruth?.liveDecisionWindow === "missing") {
+      return "AI interpretation stays disabled because preview truth is missing.";
+    }
+    return "AI interpretation stays disabled until live preview truth and shared authority are both ready.";
+  }, [canGenerateAiInterpretation, previewTruth?.liveDecisionWindow]);
 
   const commentaryQuery = useQuery({
     queryKey: [
@@ -615,6 +659,47 @@ export function CreativeDetailExperience({
           <aside className="min-h-0 overflow-y-auto border-l border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_20%,#ffffff_100%)] p-4 md:p-5">
             <div className="space-y-4">
               <section
+                className={cn("rounded-2xl border p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]", previewTruthGate.panelClass)}
+                data-testid="creative-detail-preview-truth"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Preview Truth Gate
+                    </p>
+                    <h3 className="mt-0.5 text-[15px] font-semibold leading-5 text-slate-950">{previewTruthGate.headline}</h3>
+                  </div>
+                  <span
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                      previewTruthGate.badgeClass,
+                    )}
+                  >
+                    {previewTruthGate.badgeLabel}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-700">{previewTruthGate.summary}</p>
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                  <CompactMetricCell
+                    label="Live decision window"
+                    value={(previewTruth?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
+                  />
+                  <CompactMetricCell
+                    label="Selected window"
+                    value={(previewTruth?.selectedWindow ?? "missing").replaceAll("_", " ")}
+                  />
+                  <CompactMetricCell
+                    label="Deployment compatibility"
+                    value={decisionOsCreative.deployment.compatibility.status}
+                  />
+                  <CompactMetricCell label="AI commentary" value={canGenerateAiInterpretation ? "support only" : "disabled"} />
+                </div>
+                {previewTruth?.reason ? (
+                  <p className="mt-2 text-[11px] text-slate-600">{previewTruth.reason}</p>
+                ) : null}
+              </section>
+
+              <section
                 className={cn("rounded-2xl border p-3 shadow-[0_10px_24px_rgba(15,23,42,0.08)]", decisionTheme.panelClass)}
                 data-testid="creative-detail-deterministic-decision"
               >
@@ -693,9 +778,6 @@ export function CreativeDetailExperience({
                     <CompactMetricCell label="Link clicks" value={formatInteger(row.linkClicks)} />
                   </div>
                 </div>
-                {previewTruth?.reason ? (
-                  <p className="mt-2 text-[11px] text-slate-500">{previewTruth.reason}</p>
-                ) : null}
               </section>
 
               <section
@@ -750,22 +832,28 @@ export function CreativeDetailExperience({
                     <Sparkles className="h-4 w-4 text-sky-600" />
                     <h4 className="text-sm font-semibold text-slate-900">{creativeTranslations.aiInterpretation}</h4>
                   </div>
-                  {aiInterpretationRequested && commentaryQuery.data ? (
-                    <span
-                      className={cn(
-                        "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                        commentaryQuery.data.source === "fallback"
-                          ? "border-amber-300 bg-amber-50 text-amber-700"
-                          : "border-sky-300 bg-sky-50 text-sky-700"
-                      )}
-                    >
-                      {commentaryQuery.data.source === "fallback" ? getTranslations(language).common.fallback : getTranslations(language).common.ai}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {aiInterpretationRequested && commentaryQuery.data ? (
+                      <span
+                        className={cn(
+                          "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                          commentaryQuery.data.source === "fallback"
+                            ? "border-amber-300 bg-amber-50 text-amber-700"
+                            : "border-sky-300 bg-sky-50 text-sky-700"
+                        )}
+                      >
+                        {commentaryQuery.data.source === "fallback" ? getTranslations(language).common.fallback : getTranslations(language).common.ai}
+                      </span>
+                    ) : null}
+                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                      Support only
                     </span>
-                  ) : null}
+                  </div>
                 </div>
+                <p className="mb-3 text-xs text-slate-600">{aiSupportMessage}</p>
                 {!canGenerateAiInterpretation ? (
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                    AI interpretation stays disabled until live preview truth and shared authority are both ready.
+                    {aiSupportMessage}
                   </div>
                 ) : !aiInterpretationRequested ? (
                   <button

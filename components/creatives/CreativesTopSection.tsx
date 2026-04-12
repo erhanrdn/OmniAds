@@ -8,6 +8,8 @@ import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurf
 import { OperatorSurfaceSummary } from "@/components/operator/OperatorSurfaceSummary";
 import {
   buildCreativeOperatorSurfaceModel,
+  buildCreativePreviewTruthSummary,
+  type CreativePreviewTruthSummary,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
@@ -343,6 +345,28 @@ function quickFilterToneClasses(
     : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100";
 }
 
+function previewTruthTone(summary: CreativePreviewTruthSummary | null | undefined) {
+  if (!summary || summary.state === "ready") {
+    return {
+      panel: "border-emerald-200 bg-emerald-50/70",
+      badge: "border-emerald-200 bg-emerald-100 text-emerald-900",
+      stat: "border-emerald-200 bg-white",
+    };
+  }
+  if (summary.state === "missing") {
+    return {
+      panel: "border-rose-200 bg-rose-50/70",
+      badge: "border-rose-200 bg-rose-100 text-rose-900",
+      stat: "border-rose-200 bg-white",
+    };
+  }
+  return {
+    panel: "border-amber-200 bg-amber-50/70",
+    badge: "border-amber-200 bg-amber-100 text-amber-900",
+    stat: "border-amber-200 bg-white",
+  };
+}
+
 const METRIC_DEFS: CreativeMetricDefinition[] = [
   { id: "spend", label: "Spend", direction: "neutral", format: fmtCurrency, getValue: (r) => r.spend },
   { id: "roas", label: "ROAS", direction: "high", format: (n) => n.toFixed(2), getValue: (r) => r.roas },
@@ -497,8 +521,31 @@ export function CreativesTopSection({
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
     [selectedMetricIds]
   );
-  const operatorSurface = useMemo(() => buildCreativeOperatorSurfaceModel(decisionOs ?? null), [decisionOs]);
+  const operatorSurface = useMemo(
+    () =>
+      buildCreativeOperatorSurfaceModel(decisionOs ?? null, {
+        visibleIds: new Set(allRowsForHeatmap.map((row) => row.id)),
+      }),
+    [allRowsForHeatmap, decisionOs]
+  );
   const topRows = useMemo(() => selectedRows, [selectedRows]);
+  const previewTruthSummary = useMemo(
+    () =>
+      buildCreativePreviewTruthSummary(decisionOs ?? null, {
+        creativeIds: allRowsForHeatmap.map((row) => row.id),
+      }),
+    [allRowsForHeatmap, decisionOs]
+  );
+  const selectedPreviewTruthSummary = useMemo(
+    () =>
+      topRows.length > 0
+        ? buildCreativePreviewTruthSummary(decisionOs ?? null, {
+            creativeIds: topRows.map((row) => row.id),
+          })
+        : null,
+    [decisionOs, topRows]
+  );
+  const previewTruthClasses = previewTruthTone(previewTruthSummary);
 
   return (
     <section>
@@ -543,36 +590,6 @@ export function CreativesTopSection({
             decisionOs={decisionOs ?? null}
             onChange={onFiltersChange}
           />
-          {quickFilters.length > 0 ? (
-            <div
-              className="flex flex-wrap items-center gap-1.5"
-              data-testid="creative-quick-filters"
-            >
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Quick filters
-              </span>
-              {quickFilters.map((filter) => {
-                const active = activeQuickFilterKey === filter.key;
-                return (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    onClick={() => onToggleQuickFilter?.(filter.key)}
-                    data-testid={`creative-quick-filter-${filter.key}`}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors",
-                      quickFilterToneClasses(filter, active),
-                    )}
-                  >
-                    <span>{filter.label}</span>
-                    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-white/20" : "bg-black/5")}>
-                      {filter.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
 
           <div className="ml-auto flex items-center gap-2">
             {actionsPrefix}
@@ -588,6 +605,117 @@ export function CreativesTopSection({
           </div>
         </div>
       </div>
+
+      {(previewTruthSummary || quickFilters.length > 0) ? (
+        <section
+          className={cn("mt-4 rounded-2xl border p-4 shadow-sm", previewTruthClasses.panel)}
+          data-testid="creative-preview-truth-contract"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-3xl">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                Preview Truth Contract
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                {previewTruthSummary?.headline ?? "Preview truth is still being prepared for this review scope."}
+              </h3>
+              <p className="mt-1 text-sm text-slate-700">
+                {previewTruthSummary?.summary ??
+                  "Authoritative creative action depends on preview readiness before the row can read as decisive work."}
+              </p>
+              <p className="mt-2 text-xs text-slate-600">
+                Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.
+              </p>
+            </div>
+            <span
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide",
+                previewTruthClasses.badge,
+              )}
+            >
+              {previewTruthSummary?.state === "ready"
+                ? "Preview ready"
+                : previewTruthSummary?.state === "missing"
+                  ? "Preview missing"
+                  : "Preview gated"}
+            </span>
+          </div>
+
+          {previewTruthSummary ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {[
+                ["Ready", previewTruthSummary.readyCount],
+                ["Degraded", previewTruthSummary.degradedCount],
+                ["Missing", previewTruthSummary.missingCount],
+              ].map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className={cn("rounded-2xl border px-4 py-3", previewTruthClasses.stat)}
+                >
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {selectedPreviewTruthSummary ? (
+            <div className="mt-4 rounded-2xl border border-white/60 bg-white/80 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Current workspace
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-950">
+                {selectedPreviewTruthSummary.readyCount} ready · {selectedPreviewTruthSummary.degradedCount} degraded · {selectedPreviewTruthSummary.missingCount} missing
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                The preview strip and table now follow this truth before they read as clean operator action.
+              </p>
+            </div>
+          ) : null}
+
+          {quickFilters.length > 0 ? (
+            <div className="mt-4 space-y-2" data-testid="creative-quick-filters-panel">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Decision Path
+                  </p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    Scan action first, then truth-capped, test-only, blocked, and protected rows in one order.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-5" data-testid="creative-quick-filters">
+                {quickFilters.map((filter) => {
+                  const active = activeQuickFilterKey === filter.key;
+                  return (
+                    <button
+                      key={filter.key}
+                      type="button"
+                      onClick={() => onToggleQuickFilter?.(filter.key)}
+                      data-testid={`creative-quick-filter-${filter.key}`}
+                      className={cn(
+                        "rounded-2xl border p-3 text-left transition-colors",
+                        quickFilterToneClasses(filter, active),
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">{filter.label}</p>
+                          <p className="mt-1 text-xs opacity-85">{filter.summary}</p>
+                        </div>
+                        <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", active ? "bg-white/20" : "bg-black/5")}>
+                          {filter.count}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <OperatorSurfaceSummary model={operatorSurface} className="mt-4" maxRowsPerBucket={2} />
 
@@ -650,6 +778,7 @@ export function CreativesTopSection({
           getPreviewCopyText={getPreviewCopyText}
           previewStripState={previewStripState}
           previewStripSummary={previewStripSummary}
+          previewTruthSummary={selectedPreviewTruthSummary}
         />
       </div>
     </section>
@@ -1229,6 +1358,7 @@ function PreviewStrip({
   getPreviewCopyText,
   previewStripState = "ready",
   previewStripSummary,
+  previewTruthSummary,
 }: {
   businessId?: string;
   rows: MetaCreativeRow[];
@@ -1246,6 +1376,7 @@ function PreviewStrip({
     missing: number;
     minimumReady: number;
   };
+  previewTruthSummary?: CreativePreviewTruthSummary | null;
 }) {
   const context = useMemo<CreativeMetricContext>(
     () => ({
@@ -1315,13 +1446,15 @@ function PreviewStrip({
   if (previewStripState === "missing") {
     return (
       <div className="rounded-xl border border-dashed bg-muted/10 px-4 py-5">
-        <p className="text-sm font-medium text-foreground">Preview cards unavailable for this selection</p>
+        <p className="text-sm font-medium text-foreground">Preview truth blocks clean review for this selection</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {previewStripSummary?.total === 0
-            ? "No creatives are available for the selected range yet, so preview cards cannot be prepared."
-            : previewStripSummary?.missing
-            ? `${previewStripSummary.missing} selected creatives do not have a usable preview from Meta right now.`
-            : "Meta did not return usable preview media for the current top creatives."}
+          {previewTruthSummary
+            ? `${previewTruthSummary.readyCount} ready · ${previewTruthSummary.degradedCount} degraded · ${previewTruthSummary.missingCount} missing. Missing preview truth blocks authoritative review until Meta returns usable media.`
+            : previewStripSummary?.total === 0
+              ? "No creatives are available for the selected range yet, so preview cards cannot be prepared."
+              : previewStripSummary?.missing
+                ? `${previewStripSummary.missing} selected creatives do not have a usable preview from Meta right now.`
+                : "Meta did not return usable preview media for the current top creatives."}
         </p>
       </div>
     );
@@ -1337,6 +1470,28 @@ function PreviewStrip({
 
   return (
     <div className="overflow-x-auto pb-1">
+      {previewTruthSummary ? (
+        <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Selected Preview Truth
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-900">
+                {previewTruthSummary.headline}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px] text-slate-700">
+              <span>Ready {previewTruthSummary.readyCount}</span>
+              <span>Degraded {previewTruthSummary.degradedCount}</span>
+              <span>Missing {previewTruthSummary.missingCount}</span>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-600">
+            Decisive action language only applies to ready rows. Degraded rows stay metrics-only, and missing rows stay blocked.
+          </p>
+        </div>
+      ) : null}
       <div className="flex min-w-max gap-3">
         {rows.map((row, index) => {
           const assetFallbacks = getCreativeStaticPreviewSources(row, "grid");

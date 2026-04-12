@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildCreativeOperatorItem,
   buildCreativeOperatorSurfaceModel,
+  buildCreativePreviewTruthSummary,
   buildCreativeQuickFilters,
+  creativeAuthorityStateLabel,
   resolveCreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 
@@ -154,8 +156,9 @@ describe("creative operator surface", () => {
     const blocked = model?.buckets.find((bucket) => bucket.key === "blocked");
 
     expect(buildCreativeOperatorItem(fixture.creatives[0])).toMatchObject({
-      primaryAction: "Promote",
+      primaryAction: "Promote now",
       authorityState: "act_now",
+      authorityLabel: "Act now",
     });
     expect(needsTruth?.rows[0]).toMatchObject({
       id: "truth",
@@ -164,7 +167,7 @@ describe("creative operator surface", () => {
     });
     expect(blocked?.rows[0]).toMatchObject({
       id: "preview",
-      primaryAction: "Needs preview",
+      primaryAction: "Preview missing",
       authorityState: "blocked",
     });
     expect(model?.hiddenSummary).toContain("thin-signal");
@@ -235,23 +238,43 @@ describe("creative operator surface", () => {
       },
     });
 
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("scale");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("act_now");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[1])).toBe("needs_truth");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[2])).toBe("blocked");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[3])).toBe("test_more");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("pause");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[3])).toBe("watch");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("act_now");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[5])).toBe("no_action");
 
     const filters = buildCreativeQuickFilters(fixture);
 
     expect(filters.map((filter) => [filter.key, filter.count])).toEqual([
-      ["scale", 1],
-      ["test_more", 1],
-      ["pause", 1],
+      ["act_now", 2],
       ["needs_truth", 1],
+      ["watch", 1],
       ["blocked", 1],
       ["no_action", 1],
     ]);
     expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("Preview");
+  });
+
+  it("builds explicit preview truth summaries for the current review scope", () => {
+    const fixture = creativeDecisionOsFixture();
+
+    const overall = buildCreativePreviewTruthSummary(fixture);
+    const scoped = buildCreativePreviewTruthSummary(fixture, {
+      creativeIds: ["preview"],
+    });
+
+    expect(overall).toMatchObject({
+      state: "degraded",
+      readyCount: 3,
+      missingCount: 1,
+    });
+    expect(scoped).toMatchObject({
+      state: "missing",
+      headline: "Preview truth is missing across this review scope.",
+    });
+    expect(creativeAuthorityStateLabel("watch")).toBe("Keep testing");
+    expect(creativeAuthorityStateLabel("no_action")).toBe("Protected");
   });
 });

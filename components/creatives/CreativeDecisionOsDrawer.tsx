@@ -132,14 +132,14 @@ export function CreativeDecisionOsDrawer({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Operator Review
+                Decision Support
               </p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Creative Operator Console</h2>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">Creative Decision Support</h2>
               <p className="mt-1 max-w-3xl text-sm text-slate-600">
-                {decisionOs?.summary.message ?? "Loading the live decision surface for the current creative window."}
+                {decisionOs?.summary.message ?? "Loading the deterministic support surface for the current creative window."}
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Decisions use live windows. Selected period affects analysis only.
+                The page worklist stays primary. This drawer is support for live-window decision context only.
               </p>
               {decisionOs ? (
                 <p className="mt-1 text-[11px] text-slate-500">

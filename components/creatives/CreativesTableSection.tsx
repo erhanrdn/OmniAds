@@ -19,7 +19,7 @@ import {
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
-import { buildCreativeOperatorItem } from "@/lib/creative-operator-surface";
+import { buildCreativeOperatorItem, creativeAuthorityStateLabel } from "@/lib/creative-operator-surface";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -1771,7 +1771,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
                       authorityTone,
                     )}
                   >
-                    {operatorItem.authorityState.replaceAll("_", " ")}
+                    {creativeAuthorityStateLabel(operatorItem.authorityState)}
                   </span>
                 </div>
                 {operatorItem.secondaryLabels && operatorItem.secondaryLabels.length > 0 ? (

@@ -21,6 +21,7 @@ export interface OperatorSurfaceItem {
   subtitle?: string | null;
   primaryAction: string;
   authorityState: OperatorAuthorityState;
+  authorityLabel?: string;
   reason: string;
   blocker?: string | null;
   confidence: OperatorConfidenceBand;
@@ -44,6 +45,7 @@ export interface OperatorSurfaceModel {
   headline: string;
   note: string;
   emphasis: OperatorAuthorityState;
+  authorityLabels?: Partial<Record<OperatorAuthorityState, string>>;
   blocker?: string | null;
   buckets: OperatorSurfaceBucket[];
   hiddenSummary?: string | null;

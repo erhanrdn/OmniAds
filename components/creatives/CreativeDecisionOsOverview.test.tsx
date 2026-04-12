@@ -424,6 +424,7 @@ describe("CreativeDecisionOsOverview", () => {
 
     expect(html).toContain("Operator Review");
     expect(html).toContain("Creative Operator Console");
+    expect(html).toContain("Preview Truth");
     expect(html).toContain("Creative Authority");
     expect(html).toContain("Policy Review");
     expect(html).toContain("candidate active");
@@ -432,8 +433,6 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");
-    expect(html).toContain("Quick filters");
-    expect(html).toContain("SCALE");
     expect(html).toContain("Concept Families");
     expect(html).toContain("Pattern Board");
     expect(html).toContain("Protected Winners");

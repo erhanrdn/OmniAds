@@ -13,10 +13,9 @@ import {
 } from "@/lib/operator-surface";
 
 export const CREATIVE_QUICK_FILTER_ORDER = [
-  "scale",
-  "test_more",
-  "pause",
+  "act_now",
   "needs_truth",
+  "watch",
   "blocked",
   "no_action",
 ] as const;
@@ -36,43 +35,55 @@ const CREATIVE_QUICK_FILTER_DEFS: Record<
   CreativeQuickFilterKey,
   Omit<CreativeQuickFilter, "count" | "creativeIds">
 > = {
-  scale: {
-    key: "scale",
-    label: "SCALE",
-    summary: "Promote now from the unified Creative authority.",
+  act_now: {
+    key: "act_now",
+    label: "ACT NOW",
+    summary: "Rows with ready preview truth and enough signal for a real operator move.",
     tone: "act_now",
-  },
-  test_more: {
-    key: "test_more",
-    label: "TEST MORE",
-    summary: "Keep learning without treating the row as decisive scale work.",
-    tone: "watch",
-  },
-  pause: {
-    key: "pause",
-    label: "PAUSE",
-    summary: "Refresh or hold back fatigued rows before more spend lands.",
-    tone: "blocked",
   },
   needs_truth: {
     key: "needs_truth",
     label: "NEEDS TRUTH",
-    summary: "Promising rows capped by missing commercial truth.",
+    summary: "Promising rows that cannot escalate until shared truth gaps clear.",
     tone: "needs_truth",
+  },
+  watch: {
+    key: "watch",
+    label: "KEEP TESTING",
+    summary: "Visible rows that stay in test instead of reading like immediate action work.",
+    tone: "watch",
   },
   blocked: {
     key: "blocked",
     label: "BLOCKED",
-    summary: "Preview or deployment truth blocks live action.",
+    summary: "Preview or deployment truth blocks clean operator action right now.",
     tone: "blocked",
   },
   no_action: {
     key: "no_action",
-    label: "NO ACTION",
-    summary: "Protected winners that should stay out of churn.",
+    label: "PROTECTED",
+    summary: "Protected winners that should stay out of churn and out of the default worklist.",
     tone: "no_action",
   },
 };
+
+export interface CreativePreviewTruthSummary {
+  totalCount: number;
+  readyCount: number;
+  degradedCount: number;
+  missingCount: number;
+  state: "ready" | "degraded" | "missing";
+  headline: string;
+  summary: string;
+}
+
+export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
+  if (state === "watch") return "Keep testing";
+  if (state === "no_action") return "Protected";
+  if (state === "act_now") return "Act now";
+  if (state === "needs_truth") return "Needs truth";
+  return "Blocked";
+}
 
 function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
@@ -114,7 +125,7 @@ function lifecycleLabel(value: CreativeDecisionOsCreative["lifecycleState"]) {
 }
 
 function previewLabel(creative: CreativeDecisionOsCreative) {
-  if (creative.previewStatus?.liveDecisionWindow === "missing") return "Needs preview";
+  if (creative.previewStatus?.liveDecisionWindow === "missing") return "Preview missing";
   if (creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded") return "Preview degraded";
   return "Preview ready";
 }
@@ -173,25 +184,22 @@ function creativeBlocker(creative: CreativeDecisionOsCreative, state: OperatorAu
 }
 
 function creativeActionLabel(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState) {
-  if (creative.previewStatus?.liveDecisionWindow === "missing") return "Needs preview";
+  if (creative.previewStatus?.liveDecisionWindow === "missing") return "Preview missing";
+  if (creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded") return "Preview degraded";
   if (state === "needs_truth") return "Needs truth";
   switch (creative.primaryAction) {
     case "promote_to_scaling":
-      return "Promote";
+      return "Promote now";
     case "keep_in_test":
       return "Keep testing";
     case "hold_no_touch":
-      return "Do not touch";
+      return "Protect";
     case "refresh_replace":
-      return "Replace";
+      return "Replace now";
     case "retest_comeback":
-      return "Retry";
+      return "Retest";
     case "block_deploy":
-      return creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded"
-        ? "Needs preview"
-        : creative.lifecycleState === "fatigued_winner"
-          ? "Replace"
-          : "Keep testing";
+      return "Blocked";
     default:
       return titleFromEnum(creative.primaryAction);
   }
@@ -200,6 +208,9 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
 function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState, muted: boolean, blocker: string | null) {
   if (state === "blocked" && creative.previewStatus?.liveDecisionWindow === "missing") {
     return "Preview truth is missing, so this creative cannot headline an authoritative action yet.";
+  }
+  if (state === "blocked" && creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded") {
+    return "Preview truth is degraded, so this row stays metrics-only instead of reading like clean execute-now work.";
   }
   if (state === "needs_truth" && blocker) {
     return `Promising, but ${blocker.charAt(0).toLowerCase()}${blocker.slice(1)}`;
@@ -225,12 +236,13 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     subtitle: creative.familyLabel,
     primaryAction: creativeActionLabel(creative, authorityState),
     authorityState,
+    authorityLabel: creativeAuthorityStateLabel(authorityState),
     reason: creativeReason(creative, authorityState, muted, blocker),
     blocker,
     confidence: operatorConfidenceBand(creative.confidence),
     secondaryLabels: [
-      lifecycleLabel(creative.lifecycleState),
       previewLabel(creative),
+      lifecycleLabel(creative.lifecycleState),
       creative.deployment.targetLane ?? null,
     ].filter(Boolean) as string[],
     metrics: compactMetrics([
@@ -247,19 +259,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
 export function resolveCreativeQuickFilterKey(
   creative: CreativeDecisionOsCreative,
 ): CreativeQuickFilterKey {
-  const authorityState = resolveCreativeAuthorityState(creative);
-
-  if (authorityState === "needs_truth") return "needs_truth";
-  if (authorityState === "blocked") return "blocked";
-  if (creative.primaryAction === "hold_no_touch") return "no_action";
-  if (creative.primaryAction === "promote_to_scaling") return "scale";
-  if (
-    creative.primaryAction === "keep_in_test" ||
-    creative.primaryAction === "retest_comeback"
-  ) {
-    return "test_more";
-  }
-  return "pause";
+  return resolveCreativeAuthorityState(creative);
 }
 
 export function buildCreativeQuickFilters(
@@ -292,22 +292,34 @@ export function buildCreativeQuickFilters(
 
 export function buildCreativeOperatorSurfaceModel(
   decisionOs: CreativeDecisionOsV1Response | null | undefined,
+  options?: {
+    visibleIds?: Set<string> | null;
+  },
 ): OperatorSurfaceModel | null {
   if (!decisionOs) return null;
 
-  const items = decisionOs.creatives.map(buildCreativeOperatorItem);
+  const visibleIds = options?.visibleIds ?? null;
+  const creatives = visibleIds
+    ? decisionOs.creatives.filter((creative) => visibleIds.has(creative.creativeId))
+    : decisionOs.creatives;
+  if (creatives.length === 0) return null;
+
+  const items = creatives.map(buildCreativeOperatorItem);
+  const previewTruth = buildCreativePreviewTruthSummary({ creatives });
   const buckets = buildOperatorBuckets(items, {
     labels: {
-      blocked: "Needs preview / blocked",
       watch: "Keep testing",
+      blocked: "Blocked",
       no_action: "Protected",
     },
     summaries: {
+      act_now: "Rows with enough signal and ready preview truth for a clear operator move.",
+      needs_truth: "Rows that look promising but are still capped by missing shared truth.",
+      watch: "Rows that stay in test and should not read like execute-now work.",
       blocked: "Rows held back by preview truth, deployment compatibility, or hard creative constraints.",
-      watch: "Rows that should stay visible for testing without decisive action language.",
       no_action: "Rows that should stay protected instead of being pushed back into churn.",
     },
-    order: ["act_now", "needs_truth", "blocked", "watch", "no_action"],
+    order: ["act_now", "needs_truth", "watch", "blocked", "no_action"],
   });
 
   const counts = {
@@ -318,7 +330,7 @@ export function buildCreativeOperatorSurfaceModel(
     protected: buckets.find((bucket) => bucket.key === "no_action")?.rows.length ?? 0,
   };
   const mutedCount = buckets.reduce((sum, bucket) => sum + bucket.mutedCount, 0);
-  const previewMissing = decisionOs.creatives.filter(
+  const previewMissing = creatives.filter(
     (creative) => creative.previewStatus?.liveDecisionWindow === "missing",
   ).length;
 
@@ -326,16 +338,16 @@ export function buildCreativeOperatorSurfaceModel(
   let headline = "No material creative move is ready yet.";
   if (counts.actNow > 0) {
     emphasis = "act_now";
-    headline = `${counts.actNow} creative ${counts.actNow === 1 ? "action is" : "actions are"} ready now.`;
-  } else if (counts.blocked > 0) {
-    emphasis = "blocked";
-    headline = `${counts.blocked} creative ${counts.blocked === 1 ? "row is" : "rows are"} blocked by preview or deployment truth gaps.`;
+    headline = `${counts.actNow} creative ${counts.actNow === 1 ? "action is" : "actions are"} clear now.`;
   } else if (counts.needsTruth > 0) {
     emphasis = "needs_truth";
     headline = `${counts.needsTruth} promising ${counts.needsTruth === 1 ? "creative still needs" : "creatives still need"} truth before a stronger move.`;
   } else if (counts.watch > 0) {
     emphasis = "watch";
-    headline = `${counts.watch} creative ${counts.watch === 1 ? "row stays" : "rows stay"} visible for testing, not decisive action.`;
+    headline = `${counts.watch} creative ${counts.watch === 1 ? "row stays" : "rows stay"} in test for now.`;
+  } else if (counts.blocked > 0) {
+    emphasis = "blocked";
+    headline = `${counts.blocked} creative ${counts.blocked === 1 ? "row is" : "rows are"} blocked by preview or deployment truth gaps.`;
   } else if (counts.protected > 0) {
     headline = `${counts.protected} creative ${counts.protected === 1 ? "winner stays" : "winners stay"} protected.`;
   }
@@ -344,10 +356,18 @@ export function buildCreativeOperatorSurfaceModel(
     surfaceLabel: "Creative",
     heading: "Single Action Authority",
     headline,
-    note:
-      decisionOs.summary.message ??
-      "Preview readiness gates authoritative creative action; selected range remains analysis context.",
+    note: previewTruth
+      ? `${previewTruth.summary} ${decisionOs.summary.message ?? "Selected range remains analysis context only."}`
+      : decisionOs.summary.message ??
+        "Preview readiness gates authoritative creative action; selected range remains analysis context.",
     emphasis,
+    authorityLabels: {
+      act_now: "Act now",
+      needs_truth: "Needs truth",
+      watch: "Keep testing",
+      blocked: "Blocked",
+      no_action: "Protected",
+    },
     blocker:
       emphasis === "blocked" && previewMissing > 0
         ? `${previewMissing} ${previewMissing === 1 ? "row needs" : "rows need"} trustworthy preview media.`
@@ -357,5 +377,77 @@ export function buildCreativeOperatorSurfaceModel(
       mutedCount > 0
         ? `${mutedCount} thin-signal or inactive ${mutedCount === 1 ? "creative stays" : "creatives stay"} off the headline action surface.`
         : null,
+  };
+}
+
+export function buildCreativePreviewTruthSummary(
+  decisionOs: Pick<CreativeDecisionOsV1Response, "creatives"> | null | undefined,
+  options?: { creativeIds?: Iterable<string> | null },
+): CreativePreviewTruthSummary | null {
+  if (!decisionOs?.creatives?.length) return null;
+
+  const scopedIds = options?.creativeIds ? new Set(options.creativeIds) : null;
+  const creatives = scopedIds
+    ? decisionOs.creatives.filter((creative) => scopedIds.has(creative.creativeId))
+    : decisionOs.creatives;
+
+  if (creatives.length === 0) return null;
+
+  const readyCount = creatives.filter(
+    (creative) => creative.previewStatus?.liveDecisionWindow === "ready",
+  ).length;
+  const degradedCount = creatives.filter(
+    (creative) => creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded",
+  ).length;
+  const missingCount = creatives.filter(
+    (creative) => creative.previewStatus?.liveDecisionWindow === "missing",
+  ).length;
+  const totalCount = creatives.length;
+
+  const state: CreativePreviewTruthSummary["state"] =
+    readyCount === totalCount
+      ? "ready"
+      : missingCount === totalCount
+        ? "missing"
+        : "degraded";
+
+  if (state === "ready") {
+    return {
+      totalCount,
+      readyCount,
+      degradedCount,
+      missingCount,
+      state,
+      headline: "Preview truth is ready across this review scope.",
+      summary:
+        `${readyCount} ready · ${degradedCount} degraded · ${missingCount} missing. ` +
+        "Decisive operator wording can stay active where preview truth is ready.",
+    };
+  }
+
+  if (state === "missing") {
+    return {
+      totalCount,
+      readyCount,
+      degradedCount,
+      missingCount,
+      state,
+      headline: "Preview truth is missing across this review scope.",
+      summary:
+        `${readyCount} ready · ${degradedCount} degraded · ${missingCount} missing. ` +
+        "Missing preview truth blocks authoritative action until media resolves.",
+    };
+  }
+
+  return {
+    totalCount,
+    readyCount,
+    degradedCount,
+    missingCount,
+    state,
+    headline: "Preview truth is mixed across this review scope.",
+    summary:
+      `${readyCount} ready · ${degradedCount} degraded · ${missingCount} missing. ` +
+      "Ready rows can read decisively, degraded rows stay metrics-only, and missing rows stay blocked.",
   };
 }

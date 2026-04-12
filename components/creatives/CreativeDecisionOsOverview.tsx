@@ -2,9 +2,10 @@
 
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
-import type {
-  CreativeQuickFilter,
-  CreativeQuickFilterKey,
+import {
+  buildCreativePreviewTruthSummary,
+  type CreativeQuickFilter,
+  type CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 import { cn } from "@/lib/utils";
 import type {
@@ -15,22 +16,6 @@ import type {
 
 function formatLifecycleLabel(value: string) {
   return value.replaceAll("_", " ");
-}
-
-function quickFilterTone(filter: CreativeQuickFilter) {
-  if (filter.tone === "act_now") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-900";
-  }
-  if (filter.tone === "watch") {
-    return "border-sky-200 bg-sky-50 text-sky-900";
-  }
-  if (filter.tone === "needs_truth") {
-    return "border-amber-200 bg-amber-50 text-amber-900";
-  }
-  if (filter.tone === "blocked") {
-    return "border-orange-200 bg-orange-50 text-orange-900";
-  }
-  return "border-slate-200 bg-slate-50 text-slate-900";
 }
 
 function familyTone(family: CreativeDecisionOsFamily) {
@@ -165,6 +150,7 @@ export function CreativeDecisionOsOverview({
     decisionOs.commercialTruthCoverage.configuredSections,
   ).filter(Boolean).length;
   const readiness = decisionOs.summary.readiness ?? decisionOs.authority?.readiness ?? null;
+  const previewTruthSummary = buildCreativePreviewTruthSummary(decisionOs);
   const policyCreatives = decisionOs.creatives
     .filter((creative) => creative.policy?.explanation)
     .slice(0, 4);
@@ -271,6 +257,46 @@ export function CreativeDecisionOsOverview({
             </p>
           </div>
         </div>
+      ) : null}
+
+      {previewTruthSummary ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="creative-preview-truth-summary">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">Preview Truth</h3>
+              <p className="mt-1 text-xs text-slate-600">{previewTruthSummary.headline}</p>
+            </div>
+            <span
+              className={cn(
+                "rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                previewTruthSummary.state === "ready"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : previewTruthSummary.state === "missing"
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : "border-amber-200 bg-amber-50 text-amber-800",
+              )}
+            >
+              {previewTruthSummary.state === "ready"
+                ? "Ready"
+                : previewTruthSummary.state === "missing"
+                  ? "Missing"
+                  : "Mixed / gated"}
+            </span>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {[
+              ["Ready", previewTruthSummary.readyCount],
+              ["Degraded", previewTruthSummary.degradedCount],
+              ["Missing", previewTruthSummary.missingCount],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-slate-600">{previewTruthSummary.summary}</p>
+        </section>
       ) : null}
 
       <DecisionAuthorityPanel
@@ -391,74 +417,25 @@ export function CreativeDecisionOsOverview({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-        <div
-          className="rounded-2xl border border-slate-200 bg-white p-4"
-          data-testid="creative-lifecycle-board"
-        >
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-950">Lifecycle Board</h3>
-            <span className="text-[11px] text-slate-500">
-              deterministic state only
-            </span>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {decisionOs.lifecycleBoard.map((item) => (
-              <div key={item.state} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                  {formatLifecycleLabel(item.label)}
-                </p>
-                <p className="mt-1 text-xl font-semibold text-slate-950">{item.count}</p>
-              </div>
-            ))}
-          </div>
+      <div
+        className="rounded-2xl border border-slate-200 bg-white p-4"
+        data-testid="creative-lifecycle-board"
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-950">Lifecycle Board</h3>
+          <span className="text-[11px] text-slate-500">
+            deterministic state only
+          </span>
         </div>
-
-        <div
-          className="rounded-2xl border border-slate-200 bg-white p-4"
-          data-testid="creative-quick-filters-panel"
-        >
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-950">Quick filters</h3>
-            {(activeFamilyId || activeQuickFilterKey) && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClearFilters?.();
-                  onSelectFamily(null);
-                }}
-                className="rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-          <div className="space-y-2">
-            {quickFilters.map((filter) => {
-              const active = activeQuickFilterKey === filter.key;
-              return (
-                <button
-                  key={filter.key}
-                  type="button"
-                  onClick={() => onSelectQuickFilter(filter.key)}
-                  className={cn(
-                    "w-full rounded-xl border p-3 text-left transition-colors",
-                    quickFilterTone(filter),
-                    active && "ring-2 ring-slate-300",
-                  )}
-                  data-testid={`creative-quick-filter-panel-${filter.key}`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold">{filter.label}</p>
-                      <p className="mt-1 text-xs opacity-80">{filter.summary}</p>
-                    </div>
-                    <span className="text-2xl font-semibold">{filter.count}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {decisionOs.lifecycleBoard.map((item) => (
+            <div key={item.state} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                {formatLifecycleLabel(item.label)}
+              </p>
+              <p className="mt-1 text-xl font-semibold text-slate-950">{item.count}</p>
+            </div>
+          ))}
         </div>
       </div>
 

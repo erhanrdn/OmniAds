@@ -48,8 +48,16 @@ function confidenceTone(confidence: OperatorSurfaceItem["confidence"]) {
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
-function OperatorRowCard({ item }: { item: OperatorSurfaceItem }) {
+function OperatorRowCard({
+  item,
+  authorityLabels,
+}: {
+  item: OperatorSurfaceItem;
+  authorityLabels?: Partial<Record<OperatorAuthorityState, string>>;
+}) {
   const tones = toneClasses(item.authorityState);
+  const authorityLabel =
+    item.authorityLabel ?? authorityLabels?.[item.authorityState] ?? operatorStateLabel(item.authorityState);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -73,7 +81,7 @@ function OperatorRowCard({ item }: { item: OperatorSurfaceItem }) {
               tones.pill,
             )}
           >
-            {operatorStateLabel(item.authorityState)}
+            {authorityLabel}
           </span>
           <span
             className={cn(
@@ -133,6 +141,7 @@ export function OperatorSurfaceSummary({
   if (!model) return null;
 
   const tones = toneClasses(model.emphasis);
+  const emphasisLabel = model.authorityLabels?.[model.emphasis] ?? operatorStateLabel(model.emphasis);
 
   return (
     <section className={cn("space-y-4", className)} data-testid={`${model.surfaceLabel.toLowerCase()}-operator-surface`}>
@@ -157,7 +166,7 @@ export function OperatorSurfaceSummary({
               tones.pill,
             )}
           >
-            {operatorStateLabel(model.emphasis)}
+            {emphasisLabel}
           </span>
         </div>
         {model.hiddenSummary ? (
@@ -181,7 +190,7 @@ export function OperatorSurfaceSummary({
           {bucket.rows.length > 0 ? (
             <div className="mt-3 grid gap-3 xl:grid-cols-2">
               {bucket.rows.slice(0, maxRowsPerBucket).map((item) => (
-                <OperatorRowCard key={item.id} item={item} />
+                <OperatorRowCard key={item.id} item={item} authorityLabels={model.authorityLabels} />
               ))}
             </div>
           ) : null}

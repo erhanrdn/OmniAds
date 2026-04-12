@@ -849,8 +849,8 @@ export default function CreativesPage() {
                     onClick={() => setDecisionOsDrawerOpen(true)}
                   >
                     {creativeDecisionOsQuery.isLoading && !creativeDecisionOs
-                      ? "Show why · Loading..."
-                      : "Show why"}
+                      ? "Decision support · Loading..."
+                      : "Decision support"}
                   </Button>
 
                   {(activeQuickFilter || activeDecisionOsFamily) ? (
