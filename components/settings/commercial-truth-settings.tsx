@@ -17,6 +17,9 @@ import {
   SettingsSelect,
 } from "@/components/settings/settings-section";
 import {
+  BUSINESS_DECISION_BID_REGIMES,
+  BUSINESS_DECISION_CALIBRATION_CHANNELS,
+  BUSINESS_DECISION_OBJECTIVE_FAMILIES,
   BUSINESS_COUNTRY_PRIORITY_TIERS,
   BUSINESS_COUNTRY_SCALE_OVERRIDES,
   BUSINESS_COUNTRY_SERVICEABILITY,
@@ -27,6 +30,7 @@ import {
   BUSINESS_STOCK_PRESSURE_STATUSES,
   createEmptyBusinessCommercialTruthSnapshot,
   createEmptyCountryEconomicsRow,
+  createEmptyDecisionCalibrationProfile,
   createEmptyOperatingConstraints,
   createEmptyPromoCalendarEvent,
   createEmptyTargetPack,
@@ -57,9 +61,16 @@ function SectionMeta({
     <p className="text-xs text-muted-foreground">
       Source: {meta.sourceLabel ?? "settings_manual_entry"}.
       {meta.updatedAt ? ` Updated at ${meta.updatedAt}.` : ""}{" "}
-      {meta.itemCount > 0 ? `Items: ${meta.itemCount}.` : ""}
+      {meta.itemCount > 0 ? `Items: ${meta.itemCount}.` : ""}{" "}
+      {meta.completeness ? `Completeness: ${meta.completeness}.` : ""}{" "}
+      {meta.freshness ? `Freshness: ${meta.freshness.status}.` : ""}
     </p>
   );
+}
+
+function formatThresholdValue(value: number | null, suffix = "") {
+  if (value === null || !Number.isFinite(value)) return "Unavailable";
+  return `${value}${suffix}`;
 }
 
 function TextAreaField(
@@ -185,6 +196,22 @@ export function CommercialTruthSettingsSection({
     [],
   );
 
+  const updateCalibration = useCallback(
+    (
+      index: number,
+      field: keyof NonNullable<BusinessCommercialTruthSnapshot["calibrationProfiles"]>[number],
+      value: unknown,
+    ) => {
+      setSnapshot((current) => ({
+        ...current,
+        calibrationProfiles: (current.calibrationProfiles ?? []).map((row, rowIndex) =>
+          rowIndex === index ? { ...row, [field]: value } : row,
+        ),
+      }));
+    },
+    [],
+  );
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -234,6 +261,10 @@ export function CommercialTruthSettingsSection({
     () => snapshot.promoCalendar,
     [snapshot.promoCalendar],
   );
+  const calibrationRows = useMemo(
+    () => snapshot.calibrationProfiles ?? [],
+    [snapshot.calibrationProfiles],
+  );
 
   return (
     <SettingsSection
@@ -264,6 +295,62 @@ export function CommercialTruthSettingsSection({
             {error}
           </div>
         ) : null}
+
+        <div className="rounded-2xl border bg-muted/20 p-4" data-testid="commercial-coverage-summary">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold">Decision Coverage</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Completeness {snapshot.coverage?.completeness ?? "missing"} · freshness{" "}
+                {snapshot.coverage?.freshness.status ?? "missing"} · calibration profiles{" "}
+                {snapshot.coverage?.calibration.profileCount ?? 0}
+              </p>
+            </div>
+            <div className="text-right text-xs text-muted-foreground">
+              <p>Threshold source: {snapshot.coverage?.thresholds.source ?? "conservative_fallback"}</p>
+              <p className="mt-1">
+                Risk posture {snapshot.coverage?.thresholds.defaultRiskPosture ?? "balanced"}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-xl border bg-background px-3 py-3 text-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Thresholds
+              </p>
+              <p className="mt-1 text-foreground">
+                Target ROAS {formatThresholdValue(snapshot.coverage?.thresholds.targetRoas ?? null, "x")} · Break-even ROAS{" "}
+                {formatThresholdValue(snapshot.coverage?.thresholds.breakEvenRoas ?? null, "x")}
+              </p>
+              <p className="mt-1 text-foreground">
+                Target CPA {formatThresholdValue(snapshot.coverage?.thresholds.targetCpa ?? null)} · Break-even CPA{" "}
+                {formatThresholdValue(snapshot.coverage?.thresholds.breakEvenCpa ?? null)}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-background px-3 py-3 text-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Action Ceilings
+              </p>
+              <p className="mt-1 text-foreground">
+                {(snapshot.coverage?.actionCeilings ?? []).length > 0
+                  ? (snapshot.coverage?.actionCeilings ?? [])
+                      .map((item) => item.replaceAll("_", " "))
+                      .join(", ")
+                  : "No active action ceiling"}
+              </p>
+            </div>
+          </div>
+          {(snapshot.coverage?.blockingReasons.length ?? 0) > 0 ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+                Blocking Reasons
+              </p>
+              <p className="mt-1">
+                {(snapshot.coverage?.blockingReasons ?? []).join(" · ")}
+              </p>
+            </div>
+          ) : null}
+        </div>
 
         <div className="rounded-2xl border bg-background p-4">
           <div className="space-y-1 border-b pb-4">
@@ -813,6 +900,226 @@ export function CommercialTruthSettingsSection({
                 />
               </SettingsField>
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-background p-4">
+          <div className="space-y-1 border-b pb-4">
+            <h3 className="text-base font-semibold">Decision Calibration</h3>
+            <p className="text-xs text-muted-foreground">
+              Shared, channel-level calibration. These profiles stay explicit and editable instead of hiding inside opaque JSON.
+            </p>
+          </div>
+          <div className="space-y-3 pt-4">
+            {calibrationRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No calibration profiles yet. Decision surfaces will use shared defaults until a profile is added.
+              </p>
+            ) : null}
+            {calibrationRows.map((row, index) => (
+              <div
+                key={`${row.channel}-${row.objectiveFamily}-${row.bidRegime}-${row.archetype}-${index}`}
+                className="rounded-xl border bg-muted/20 p-4"
+              >
+                <div className="grid gap-4 lg:grid-cols-4">
+                  <SettingsField label="Channel">
+                    <SettingsSelect
+                      value={row.channel}
+                      onChange={(event) =>
+                        updateCalibration(index, "channel", event.target.value)
+                      }
+                      disabled={!canEdit || loading}
+                    >
+                      {BUSINESS_DECISION_CALIBRATION_CHANNELS.map((option) => (
+                        <option key={option} value={option}>
+                          {option.replaceAll("_", " ")}
+                        </option>
+                      ))}
+                    </SettingsSelect>
+                  </SettingsField>
+                  <SettingsField label="Objective family">
+                    <SettingsSelect
+                      value={row.objectiveFamily}
+                      onChange={(event) =>
+                        updateCalibration(index, "objectiveFamily", event.target.value)
+                      }
+                      disabled={!canEdit || loading}
+                    >
+                      {BUSINESS_DECISION_OBJECTIVE_FAMILIES.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </SettingsSelect>
+                  </SettingsField>
+                  <SettingsField label="Bid regime">
+                    <SettingsSelect
+                      value={row.bidRegime}
+                      onChange={(event) =>
+                        updateCalibration(index, "bidRegime", event.target.value)
+                      }
+                      disabled={!canEdit || loading}
+                    >
+                      {BUSINESS_DECISION_BID_REGIMES.map((option) => (
+                        <option key={option} value={option}>
+                          {option.replaceAll("_", " ")}
+                        </option>
+                      ))}
+                    </SettingsSelect>
+                  </SettingsField>
+                  <SettingsField label="Archetype">
+                    <SettingsInput
+                      value={row.archetype}
+                      onChange={(event) =>
+                        updateCalibration(index, "archetype", event.target.value)
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <SettingsField label="Target ROAS multiplier">
+                    <SettingsInput
+                      type="number"
+                      step="0.01"
+                      value={row.targetRoasMultiplier ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(
+                          index,
+                          "targetRoasMultiplier",
+                          event.target.value === "" ? null : Number(event.target.value),
+                        )
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <SettingsField label="Break-even ROAS multiplier">
+                    <SettingsInput
+                      type="number"
+                      step="0.01"
+                      value={row.breakEvenRoasMultiplier ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(
+                          index,
+                          "breakEvenRoasMultiplier",
+                          event.target.value === "" ? null : Number(event.target.value),
+                        )
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <SettingsField label="Target CPA multiplier">
+                    <SettingsInput
+                      type="number"
+                      step="0.01"
+                      value={row.targetCpaMultiplier ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(
+                          index,
+                          "targetCpaMultiplier",
+                          event.target.value === "" ? null : Number(event.target.value),
+                        )
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <SettingsField label="Break-even CPA multiplier">
+                    <SettingsInput
+                      type="number"
+                      step="0.01"
+                      value={row.breakEvenCpaMultiplier ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(
+                          index,
+                          "breakEvenCpaMultiplier",
+                          event.target.value === "" ? null : Number(event.target.value),
+                        )
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <SettingsField label="Confidence cap">
+                    <SettingsInput
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="1"
+                      value={row.confidenceCap ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(
+                          index,
+                          "confidenceCap",
+                          event.target.value === "" ? null : Number(event.target.value),
+                        )
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <SettingsField label="Action ceiling">
+                    <SettingsSelect
+                      value={row.actionCeiling ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(
+                          index,
+                          "actionCeiling",
+                          event.target.value === "" ? null : event.target.value,
+                        )
+                      }
+                      disabled={!canEdit || loading}
+                    >
+                      <option value="">none</option>
+                      {["review_hold", "review_reduce", "monitor_low_truth", "degraded_no_scale"].map((option) => (
+                        <option key={option} value={option}>
+                          {option.replaceAll("_", " ")}
+                        </option>
+                      ))}
+                    </SettingsSelect>
+                  </SettingsField>
+                </div>
+                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+                  <SettingsField label="Notes">
+                    <TextAreaField
+                      value={row.notes ?? ""}
+                      onChange={(event) =>
+                        updateCalibration(index, "notes", event.target.value || null)
+                      }
+                      disabled={!canEdit || loading}
+                    />
+                  </SettingsField>
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setSnapshot((current) => ({
+                          ...current,
+                          calibrationProfiles: (current.calibrationProfiles ?? []).filter(
+                            (_, rowIndex) => rowIndex !== index,
+                          ),
+                        }))
+                      }
+                      disabled={!canEdit || loading}
+                    >
+                      Remove profile
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setSnapshot((current) => ({
+                  ...current,
+                  calibrationProfiles: [
+                    ...(current.calibrationProfiles ?? []),
+                    createEmptyDecisionCalibrationProfile(),
+                  ],
+                }))
+              }
+              disabled={!canEdit || loading}
+            >
+              Add calibration profile
+            </Button>
           </div>
         </div>
 

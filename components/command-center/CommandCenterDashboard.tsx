@@ -19,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
+import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { CommandCenterExecutionSupportMatrix } from "@/components/command-center/CommandCenterExecutionSupportMatrix";
 import { CommandCenterHistoricalIntelligencePanel } from "@/components/command-center/CommandCenterHistoricalIntelligencePanel";
 import {
@@ -1005,15 +1006,13 @@ export function CommandCenterDashboard() {
           </div>
         ) : null}
 
-        {payload && payload.summary.degradedCount > 0 ? (
-          <div
-            className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-            data-testid="command-center-degraded-banner"
-          >
-            {payload.summary.degradedCount} queue items are trust-capped because
-            commercial truth is incomplete. Default queue shows only action-core
-            actions; watchlist and archive lanes stay separate.
-          </div>
+        {payload ? (
+          <DecisionAuthorityPanel
+            authority={payload.authority}
+            commercialSummary={payload.commercialSummary}
+            title="Command Center Authority"
+            className="mt-4"
+          />
         ) : null}
 
         {payload && !payload.permissions.canEdit ? (

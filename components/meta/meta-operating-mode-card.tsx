@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { cn } from "@/lib/utils";
 import { fetchBusinessOperatingMode, getOperatingModeTone } from "@/lib/business-operating-mode-client";
 import type { AccountOperatingModePayload } from "@/src/types/business-commercial";
@@ -135,24 +136,11 @@ export function MetaOperatingModeCard({
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         <div className="space-y-4">
-          {query.data.degradedMode.active ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
-                Degraded Mode
-              </p>
-              <p className="mt-1">
-                Commercial truth is incomplete, so deterministic actions stay capped to review-safe wording.
-              </p>
-              {query.data.degradedMode.confidenceCap != null ? (
-                <p className="mt-1 text-xs text-amber-800">
-                  Confidence cap {Math.round(query.data.degradedMode.confidenceCap * 100)}%
-                </p>
-              ) : null}
-              <p className="mt-2 text-xs text-amber-800">
-                Safe labels: {query.data.degradedMode.safeActionLabels.map((label) => label.replaceAll("_", " ")).join(", ")}
-              </p>
-            </div>
-          ) : null}
+          <DecisionAuthorityPanel
+            authority={query.data.authority}
+            commercialSummary={query.data.commercialSummary}
+            title="Operating Authority"
+          />
           <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               Confidence
@@ -160,6 +148,11 @@ export function MetaOperatingModeCard({
             <p className="mt-1 text-sm font-semibold text-slate-900">
               {Math.round(query.data.confidence * 100)}%
             </p>
+            {query.data.degradedMode.confidenceCap != null ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Confidence cap {Math.round(query.data.degradedMode.confidenceCap * 100)}%
+              </p>
+            ) : null}
           </div>
           <SectionList title="Why" items={query.data.why} />
           <SectionList title="Guardrails" items={query.data.guardrails} />

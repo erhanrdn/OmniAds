@@ -392,6 +392,7 @@ export interface CommandCenterResponse {
   decisionAsOf: string;
   activeViewKey: string | null;
   permissions: CommandCenterPermissions;
+  commercialSummary?: import("@/src/types/business-commercial").BusinessCommercialCoverageSummary;
   authority?: DecisionSurfaceAuthority;
   summary: {
     totalActions: number;

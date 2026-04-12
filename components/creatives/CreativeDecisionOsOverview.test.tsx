@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
+import { createEmptyBusinessCommercialCoverageSummary } from "@/src/types/business-commercial";
 
 function payload() {
   const metadata = buildOperatorDecisionMetadata({
@@ -10,6 +11,7 @@ function payload() {
     analyticsEndDate: "2026-04-10",
     decisionAsOf: "2026-04-10",
   });
+  const commercialSummary = createEmptyBusinessCommercialCoverageSummary();
   return {
     contractVersion: "creative-decision-os.v1",
     engineVersion: "2026-04-11-phase-05-v2",
@@ -136,6 +138,24 @@ function payload() {
         promoCalendar: false,
         operatingConstraints: true,
       },
+      summary: commercialSummary,
+    },
+    authority: {
+      scope: "Creative Decision OS",
+      truthState: "degraded_missing_truth",
+      completeness: "missing",
+      freshness: {
+        status: "fresh",
+        updatedAt: null,
+        reason: null,
+      },
+      missingInputs: ["target_pack"],
+      reasons: ["Commercial truth is incomplete."],
+      actionCoreCount: 4,
+      watchlistCount: 2,
+      archiveCount: 2,
+      suppressedCount: 4,
+      note: "Creative Decision OS remains visible but caps aggressive actions until truth coverage improves.",
     },
     historicalAnalysis: {
       summary:
@@ -219,6 +239,8 @@ describe("CreativeDecisionOsOverview", () => {
 
     expect(html).toContain("Recommendations");
     expect(html).toContain("Creative Decision OS");
+    expect(html).toContain("Creative Authority");
+    expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Lifecycle Board");
     expect(html).toContain("Operator Queues");

@@ -89,6 +89,28 @@ async function ensureCommercialTruthTables(sql) {
       UNIQUE (business_id)
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS business_decision_calibration_profiles (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL,
+      objective_family TEXT NOT NULL,
+      bid_regime TEXT NOT NULL,
+      archetype TEXT NOT NULL,
+      target_roas_multiplier DOUBLE PRECISION,
+      break_even_roas_multiplier DOUBLE PRECISION,
+      target_cpa_multiplier DOUBLE PRECISION,
+      break_even_cpa_multiplier DOUBLE PRECISION,
+      confidence_cap DOUBLE PRECISION,
+      action_ceiling TEXT,
+      notes TEXT,
+      source_label TEXT,
+      updated_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (business_id, channel, objective_family, bid_regime, archetype)
+    )
+  `;
 }
 
 async function resetCommercialTruth(sql, userId) {
@@ -104,6 +126,7 @@ async function resetCommercialTruth(sql, userId) {
   await sql`DELETE FROM business_country_economics WHERE business_id = ${DEMO_BUSINESS_ID}`;
   await sql`DELETE FROM business_target_packs WHERE business_id = ${DEMO_BUSINESS_ID}`;
   await sql`DELETE FROM business_operating_constraints WHERE business_id = ${DEMO_BUSINESS_ID}`;
+  await sql`DELETE FROM business_decision_calibration_profiles WHERE business_id = ${DEMO_BUSINESS_ID}`;
 
   await sql`
     INSERT INTO business_target_packs (

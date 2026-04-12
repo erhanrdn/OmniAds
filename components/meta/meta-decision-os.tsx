@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { cn } from "@/lib/utils";
 import type {
   MetaAdSetDecision,
@@ -479,12 +480,13 @@ export function MetaDecisionOsOverview({
             </div>
           ))}
         </div>
-        {decisionOs.summary.surfaceSummary.degradedCount > 0 ? (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Commercial truth is incomplete, so aggressive actions were downgraded into review-safe dispositions.
-          </div>
-        ) : null}
       </div>
+
+      <DecisionAuthorityPanel
+        authority={decisionOs.authority}
+        commercialSummary={decisionOs.commercialTruthCoverage.summary}
+        title="Meta Authority"
+      />
 
       <DecisionListCard
         title="Budget Shift Board"

@@ -43,6 +43,56 @@ export type BusinessIssueStatus = (typeof BUSINESS_ISSUE_STATUSES)[number];
 export const BUSINESS_STOCK_PRESSURE_STATUSES = ["healthy", "watch", "blocked"] as const;
 export type BusinessStockPressureStatus = (typeof BUSINESS_STOCK_PRESSURE_STATUSES)[number];
 
+export const BUSINESS_COMMERCIAL_COMPLETENESS_STATES = [
+  "complete",
+  "partial",
+  "missing",
+] as const;
+export type BusinessCommercialCompletenessState =
+  (typeof BUSINESS_COMMERCIAL_COMPLETENESS_STATES)[number];
+
+export const BUSINESS_COMMERCIAL_FRESHNESS_STATES = [
+  "fresh",
+  "stale",
+  "missing",
+] as const;
+export type BusinessCommercialFreshnessState =
+  (typeof BUSINESS_COMMERCIAL_FRESHNESS_STATES)[number];
+
+export const BUSINESS_DECISION_CALIBRATION_CHANNELS = [
+  "meta",
+  "creative",
+  "command_center",
+] as const;
+export type BusinessDecisionCalibrationChannel =
+  (typeof BUSINESS_DECISION_CALIBRATION_CHANNELS)[number];
+
+export const BUSINESS_DECISION_OBJECTIVE_FAMILIES = [
+  "sales",
+  "catalog",
+  "leads",
+  "traffic",
+  "awareness",
+  "engagement",
+  "unknown",
+] as const;
+export type BusinessDecisionObjectiveFamily =
+  (typeof BUSINESS_DECISION_OBJECTIVE_FAMILIES)[number];
+
+export const BUSINESS_DECISION_BID_REGIMES = [
+  "open",
+  "cost_cap",
+  "bid_cap",
+  "roas_floor",
+  "unknown",
+] as const;
+export type BusinessDecisionBidRegime =
+  (typeof BUSINESS_DECISION_BID_REGIMES)[number];
+
+export type BusinessCommercialThresholdSource =
+  | "configured_targets"
+  | "conservative_fallback";
+
 export type AccountOperatingMode =
   | "Recovery"
   | "Peak / Promo"
@@ -51,12 +101,22 @@ export type AccountOperatingMode =
   | "Stabilize"
   | "Explore";
 
+export interface BusinessCommercialFreshnessMeta {
+  status: BusinessCommercialFreshnessState;
+  updatedAt: string | null;
+  ageHours: number | null;
+  reason: string | null;
+}
+
 export interface BusinessCommercialSectionMeta {
   configured: boolean;
   itemCount: number;
   sourceLabel: string | null;
   updatedAt: string | null;
   updatedByUserId: string | null;
+  completeness?: BusinessCommercialCompletenessState;
+  freshness?: BusinessCommercialFreshnessMeta;
+  blocking?: boolean;
 }
 
 export interface BusinessTargetPackData {
@@ -122,6 +182,48 @@ export interface BusinessCostModelContext {
   updatedAt: string | null;
 }
 
+export interface BusinessDecisionCalibrationProfile {
+  channel: BusinessDecisionCalibrationChannel;
+  objectiveFamily: BusinessDecisionObjectiveFamily;
+  bidRegime: BusinessDecisionBidRegime;
+  archetype: string;
+  targetRoasMultiplier: number | null;
+  breakEvenRoasMultiplier: number | null;
+  targetCpaMultiplier: number | null;
+  breakEvenCpaMultiplier: number | null;
+  confidenceCap: number | null;
+  actionCeiling: DecisionSafeActionLabel | null;
+  notes: string | null;
+  sourceLabel: string | null;
+  updatedAt: string | null;
+  updatedByUserId: string | null;
+}
+
+export interface BusinessDecisionCalibrationSummary {
+  profileCount: number;
+  channels: BusinessDecisionCalibrationChannel[];
+  updatedAt: string | null;
+}
+
+export interface BusinessCommercialThresholdSummary {
+  source: BusinessCommercialThresholdSource;
+  targetRoas: number | null;
+  breakEvenRoas: number | null;
+  targetCpa: number | null;
+  breakEvenCpa: number | null;
+  defaultRiskPosture: BusinessRiskPosture;
+}
+
+export interface BusinessCommercialCoverageSummary {
+  completeness: BusinessCommercialCompletenessState;
+  freshness: BusinessCommercialFreshnessMeta;
+  blockingReasons: string[];
+  nonBlockingReasons: string[];
+  actionCeilings: DecisionSafeActionLabel[];
+  thresholds: BusinessCommercialThresholdSummary;
+  calibration: BusinessDecisionCalibrationSummary;
+}
+
 export interface BusinessCommercialTruthSnapshot {
   businessId: string;
   targetPack: BusinessTargetPackData | null;
@@ -129,12 +231,14 @@ export interface BusinessCommercialTruthSnapshot {
   promoCalendar: BusinessPromoCalendarEvent[];
   operatingConstraints: BusinessOperatingConstraints | null;
   costModelContext: BusinessCostModelContext | null;
+  calibrationProfiles?: BusinessDecisionCalibrationProfile[];
   sectionMeta: {
     targetPack: BusinessCommercialSectionMeta;
     countryEconomics: BusinessCommercialSectionMeta;
     promoCalendar: BusinessCommercialSectionMeta;
     operatingConstraints: BusinessCommercialSectionMeta;
   };
+  coverage?: BusinessCommercialCoverageSummary;
 }
 
 export interface AccountOperatingModeLineItem {
@@ -165,6 +269,7 @@ export interface AccountOperatingModePayload {
     reasons: string[];
     safeActionLabels: DecisionSafeActionLabel[];
   };
+  commercialSummary?: BusinessCommercialCoverageSummary;
   authority?: DecisionSurfaceAuthority;
 }
 
@@ -175,6 +280,14 @@ function createSectionMeta(): BusinessCommercialSectionMeta {
     sourceLabel: null,
     updatedAt: null,
     updatedByUserId: null,
+    completeness: "missing",
+    freshness: {
+      status: "missing",
+      updatedAt: null,
+      ageHours: null,
+      reason: "This commercial section is not configured yet.",
+    },
+    blocking: false,
   };
 }
 
@@ -254,6 +367,62 @@ export function createEmptyOperatingConstraints(): BusinessOperatingConstraints 
   };
 }
 
+export function createEmptyDecisionCalibrationProfile(
+  overrides?: Partial<BusinessDecisionCalibrationProfile>,
+): BusinessDecisionCalibrationProfile {
+  return {
+    channel: "meta",
+    objectiveFamily: "sales",
+    bidRegime: "open",
+    archetype: "default",
+    targetRoasMultiplier: null,
+    breakEvenRoasMultiplier: null,
+    targetCpaMultiplier: null,
+    breakEvenCpaMultiplier: null,
+    confidenceCap: null,
+    actionCeiling: null,
+    notes: null,
+    sourceLabel: "settings_manual_entry",
+    updatedAt: null,
+    updatedByUserId: null,
+    ...overrides,
+  };
+}
+
+export function createEmptyBusinessCommercialCoverageSummary(): BusinessCommercialCoverageSummary {
+  return {
+    completeness: "missing",
+    freshness: {
+      status: "missing",
+      updatedAt: null,
+      ageHours: null,
+      reason: "Commercial truth is not configured yet.",
+    },
+    blockingReasons: [
+      "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults.",
+      "Country economics are missing, so GEO-aware scaling remains review-safe.",
+      "Operating constraints are missing, so action ceilings stay conservative.",
+    ],
+    nonBlockingReasons: [
+      "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured.",
+    ],
+    actionCeilings: ["review_hold", "monitor_low_truth", "degraded_no_scale"],
+    thresholds: {
+      source: "conservative_fallback",
+      targetRoas: 2.5,
+      breakEvenRoas: 1.8,
+      targetCpa: 40,
+      breakEvenCpa: 55,
+      defaultRiskPosture: "balanced",
+    },
+    calibration: {
+      profileCount: 0,
+      channels: [],
+      updatedAt: null,
+    },
+  };
+}
+
 export function createEmptyBusinessCommercialTruthSnapshot(
   businessId: string,
 ): BusinessCommercialTruthSnapshot {
@@ -264,11 +433,13 @@ export function createEmptyBusinessCommercialTruthSnapshot(
     promoCalendar: [],
     operatingConstraints: null,
     costModelContext: null,
+    calibrationProfiles: [],
     sectionMeta: {
       targetPack: createSectionMeta(),
       countryEconomics: createSectionMeta(),
       promoCalendar: createSectionMeta(),
       operatingConstraints: createSectionMeta(),
     },
+    coverage: createEmptyBusinessCommercialCoverageSummary(),
   };
 }

@@ -2,12 +2,14 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { createEmptyBusinessCommercialCoverageSummary } from "@/src/types/business-commercial";
 
 const metadata = buildOperatorDecisionMetadata({
   analyticsStartDate: "2026-04-01",
   analyticsEndDate: "2026-04-10",
   decisionAsOf: "2026-04-10",
 });
+const commercialSummary = createEmptyBusinessCommercialCoverageSummary();
 
 let mockQuery: Record<string, unknown> = {
   isLoading: false,
@@ -34,6 +36,24 @@ let mockQuery: Record<string, unknown> = {
       reasons: [],
       safeActionLabels: [],
     },
+    authority: {
+      scope: "Operating Mode",
+      truthState: "degraded_missing_truth",
+      completeness: "missing",
+      freshness: {
+        status: "partial",
+        updatedAt: null,
+        reason: "One or more Meta decision-window sources are incomplete.",
+      },
+      missingInputs: ["target_pack"],
+      reasons: ["Commercial truth is incomplete."],
+      actionCoreCount: 0,
+      watchlistCount: 1,
+      archiveCount: 0,
+      suppressedCount: 1,
+      note: "Operating Mode is present but trust-capped by missing truth or low-signal inputs.",
+    },
+    commercialSummary,
   },
 };
 
@@ -56,6 +76,8 @@ describe("MetaOperatingModeCard", () => {
     expect(html).toContain("Operating Mode");
     expect(html).toContain("Exploit");
     expect(html).toContain("Decisions use live windows");
+    expect(html).toContain("Operating Authority");
+    expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Commercial Drivers");
     expect(html).toContain("What changes this mode");
   });

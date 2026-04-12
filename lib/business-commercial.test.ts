@@ -1,16 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const queryLog: string[] = [];
+const tableResponses = {
+  targetPack: [] as unknown[],
+  countryEconomics: [] as unknown[],
+  promoCalendar: [] as unknown[],
+  operatingConstraints: [] as unknown[],
+  calibrationProfiles: [] as unknown[],
+};
 
 vi.mock("@/lib/db", () => {
   const sql = vi.fn(async (strings: TemplateStringsArray) => {
     const text = strings.join("?");
     queryLog.push(text);
 
-    if (text.includes("FROM business_target_packs")) return [];
-    if (text.includes("FROM business_country_economics")) return [];
-    if (text.includes("FROM business_promo_calendar_events")) return [];
-    if (text.includes("FROM business_operating_constraints")) return [];
+    if (text.includes("FROM business_target_packs")) return tableResponses.targetPack;
+    if (text.includes("FROM business_country_economics")) return tableResponses.countryEconomics;
+    if (text.includes("FROM business_promo_calendar_events")) return tableResponses.promoCalendar;
+    if (text.includes("FROM business_operating_constraints")) return tableResponses.operatingConstraints;
+    if (text.includes("FROM business_decision_calibration_profiles")) {
+      return tableResponses.calibrationProfiles;
+    }
     return [];
   }) as unknown as ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>) & {
     query?: ReturnType<typeof vi.fn>;
@@ -46,6 +56,11 @@ const businessCommercial = await import("@/lib/business-commercial");
 describe("upsertBusinessCommercialTruthSnapshot", () => {
   beforeEach(() => {
     queryLog.length = 0;
+    tableResponses.targetPack = [];
+    tableResponses.countryEconomics = [];
+    tableResponses.promoCalendar = [];
+    tableResponses.operatingConstraints = [];
+    tableResponses.calibrationProfiles = [];
     vi.clearAllMocks();
   });
 
@@ -83,6 +98,24 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
             updatedByUserId: null,
           },
         ],
+        calibrationProfiles: [
+          {
+            channel: "meta",
+            objectiveFamily: "sales",
+            bidRegime: "cost_cap",
+            archetype: "winner_scale",
+            targetRoasMultiplier: 1.1,
+            breakEvenRoasMultiplier: 1.02,
+            targetCpaMultiplier: 0.92,
+            breakEvenCpaMultiplier: 0.97,
+            confidenceCap: 0.78,
+            actionCeiling: "review_hold",
+            notes: "Retry-safe calibration row",
+            sourceLabel: "test",
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        ],
       },
     });
 
@@ -103,5 +136,90 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
           query.includes("DO UPDATE SET"),
       ),
     ).toBe(true);
+
+    expect(
+      queryLog.some(
+        (query) =>
+          query.includes("INSERT INTO business_decision_calibration_profiles") &&
+          query.includes(
+            "ON CONFLICT (business_id, channel, objective_family, bid_regime, archetype)",
+          ) &&
+          query.includes("DO UPDATE SET"),
+      ),
+    ).toBe(true);
+  });
+
+  it("normalizes database timestamps before building coverage summaries", async () => {
+    const updatedAt = new Date("2026-04-10T09:00:00.000Z");
+    tableResponses.targetPack = [
+      {
+        target_cpa: 42,
+        target_roas: 2.8,
+        break_even_cpa: 55,
+        break_even_roas: 1.9,
+        contribution_margin_assumption: 0.42,
+        aov_assumption: 110,
+        new_customer_weight: 0.35,
+        default_risk_posture: "balanced",
+        source_label: "seed",
+        updated_at: updatedAt,
+        updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+      },
+    ];
+    tableResponses.countryEconomics = [
+      {
+        country_code: "US",
+        economics_multiplier: 1.1,
+        margin_modifier: 0,
+        serviceability: "full",
+        priority_tier: "tier_1",
+        scale_override: "default",
+        notes: null,
+        source_label: "seed",
+        updated_at: updatedAt,
+        updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+      },
+    ];
+    tableResponses.operatingConstraints = [
+      {
+        site_issue_status: "none",
+        checkout_issue_status: "none",
+        conversion_tracking_issue_status: "none",
+        feed_issue_status: "none",
+        stock_pressure_status: "healthy",
+        landing_page_concern: null,
+        merchandising_concern: null,
+        manual_do_not_scale_reason: null,
+        source_label: "seed",
+        updated_at: updatedAt,
+        updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+      },
+    ];
+    tableResponses.calibrationProfiles = [
+      {
+        channel: "meta",
+        objective_family: "sales",
+        bid_regime: "cost_cap",
+        archetype: "winner_scale",
+        target_roas_multiplier: 1.08,
+        break_even_roas_multiplier: 1.01,
+        target_cpa_multiplier: 0.95,
+        break_even_cpa_multiplier: 0.99,
+        confidence_cap: 0.8,
+        action_ceiling: "review_hold",
+        notes: null,
+        source_label: "seed",
+        updated_at: updatedAt,
+        updated_by_user_id: "22222222-2222-4222-8222-222222222222",
+      },
+    ];
+
+    const snapshot = await businessCommercial.getBusinessCommercialTruthSnapshot(
+      "11111111-1111-4111-8111-111111111111",
+    );
+
+    expect(snapshot?.sectionMeta.targetPack.updatedAt).toBe(updatedAt.toISOString());
+    expect(snapshot?.coverage?.freshness.updatedAt).toBe(updatedAt.toISOString());
+    expect(snapshot?.coverage?.calibration.updatedAt).toBe(updatedAt.toISOString());
   });
 });

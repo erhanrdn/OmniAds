@@ -397,6 +397,7 @@ export interface CreativeDecisionOsCommercialTruthCoverage {
     promoCalendar: boolean;
     operatingConstraints: boolean;
   };
+  summary?: import("@/src/types/business-commercial").BusinessCommercialCoverageSummary;
 }
 
 export interface CreativeDecisionProtectedWinner {
@@ -828,6 +829,7 @@ function buildCommercialTruthCoverage(
       promoCalendar: snapshot?.sectionMeta.promoCalendar.configured ?? false,
       operatingConstraints: snapshot?.sectionMeta.operatingConstraints.configured ?? false,
     },
+    summary: snapshot?.coverage,
   };
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { cn } from "@/lib/utils";
 import type {
   CreativeDecisionOperatorQueue,
@@ -208,6 +209,12 @@ export function CreativeDecisionOsOverview({
           </div>
         ))}
       </div>
+
+      <DecisionAuthorityPanel
+        authority={decisionOs.authority}
+        commercialSummary={decisionOs.commercialTruthCoverage.summary}
+        title="Creative Authority"
+      />
 
       {(decisionOs.summary.surfaceSummary.degradedCount > 0 ||
         decisionOs.commercialTruthCoverage.missingInputs.length > 0) ? (

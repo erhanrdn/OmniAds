@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import type { CommandCenterPermissions, CommandCenterResponse } from "@/lib/command-center";
+import { getBusinessCommercialTruthSnapshot } from "@/lib/business-commercial";
 import {
   COMMAND_CENTER_CONTRACT_VERSION,
   applyCommandCenterQueueSelection,
@@ -42,6 +43,7 @@ export async function getCommandCenterSnapshot(input: {
   permissions: CommandCenterPermissions;
 }): Promise<CommandCenterResponse> {
   const [
+    commercialTruth,
     decisionContext,
     metaDecisionOs,
     creativeDecisionOs,
@@ -53,6 +55,7 @@ export async function getCommandCenterSnapshot(input: {
     assignableUsers,
     selectedPeriodCampaigns,
   ] = await Promise.all([
+    getBusinessCommercialTruthSnapshot(input.businessId).catch(() => null),
     getMetaDecisionWindowContext({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -193,6 +196,7 @@ export async function getCommandCenterSnapshot(input: {
     decisionAsOf: decisionContext.decisionAsOf,
     activeViewKey: input.activeViewKey ?? null,
     permissions: input.permissions,
+    commercialSummary: commercialTruth?.coverage,
     authority,
     summary: summarizeCommandCenterActions(allActions),
     throughput,

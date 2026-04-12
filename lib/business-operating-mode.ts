@@ -610,6 +610,7 @@ export function buildAccountOperatingMode(input: {
     platformInputs,
     missingInputs,
     degradedMode,
+    commercialSummary: input.snapshot.coverage,
     authority,
   };
 }

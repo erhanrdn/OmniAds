@@ -2,6 +2,7 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { createEmptyBusinessCommercialCoverageSummary } from "@/src/types/business-commercial";
 import {
   MetaCampaignDecisionPanel,
   MetaDecisionOsOverview,
@@ -13,6 +14,7 @@ function payload() {
     analyticsEndDate: "2026-04-05",
     decisionAsOf: "2026-04-10",
   });
+  const commercialSummary = createEmptyBusinessCommercialCoverageSummary();
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
@@ -325,7 +327,25 @@ function payload() {
       promoCalendarConfigured: false,
       operatingConstraintsConfigured: true,
       missingInputs: [],
+      summary: commercialSummary,
       notes: [],
+    },
+    authority: {
+      scope: "Meta Decision OS",
+      truthState: "degraded_missing_truth",
+      completeness: "missing",
+      freshness: {
+        status: "stale",
+        updatedAt: null,
+        reason: "Country breakdown warehouse data is still being prepared for the requested range.",
+      },
+      missingInputs: ["target_pack", "country_economics"],
+      reasons: ["Commercial truth is incomplete."],
+      actionCoreCount: 3,
+      watchlistCount: 1,
+      archiveCount: 0,
+      suppressedCount: 1,
+      note: "Meta Decision OS remains available but trust-capped by missing commercial truth.",
     },
   } as any;
 }
@@ -337,6 +357,8 @@ describe("MetaDecisionOsOverview", () => {
     );
 
     expect(html).toContain("Today plan");
+    expect(html).toContain("Meta Authority");
+    expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Budget Shift Board");
     expect(html).toContain("Winner Scale Candidates");
@@ -348,7 +370,7 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Country-only warehouse rows are serving the GEO board.");
     expect(html).toContain("Members Germany, France");
     expect(html).toContain("No-Touch List");
-    expect(html).toContain("Commercial truth is incomplete");
+    expect(html).toContain("trust-capped by missing commercial truth");
   });
 
   it("renders the selected campaign decision panel", () => {

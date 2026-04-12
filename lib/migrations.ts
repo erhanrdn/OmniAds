@@ -645,6 +645,30 @@ export async function runMigrations(options?: {
           updated_at                           TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id)
         )`,
+        sql`CREATE TABLE IF NOT EXISTS business_decision_calibration_profiles (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+          channel                    TEXT NOT NULL
+                                       CHECK (channel IN ('meta', 'creative', 'command_center')),
+          objective_family           TEXT NOT NULL
+                                       CHECK (objective_family IN ('sales', 'catalog', 'leads', 'traffic', 'awareness', 'engagement', 'unknown')),
+          bid_regime                 TEXT NOT NULL
+                                       CHECK (bid_regime IN ('open', 'cost_cap', 'bid_cap', 'roas_floor', 'unknown')),
+          archetype                  TEXT NOT NULL,
+          target_roas_multiplier     DOUBLE PRECISION,
+          break_even_roas_multiplier DOUBLE PRECISION,
+          target_cpa_multiplier      DOUBLE PRECISION,
+          break_even_cpa_multiplier  DOUBLE PRECISION,
+          confidence_cap             DOUBLE PRECISION,
+          action_ceiling             TEXT
+                                       CHECK (action_ceiling IN ('review_hold', 'review_reduce', 'monitor_low_truth', 'degraded_no_scale')),
+          notes                      TEXT,
+          source_label               TEXT,
+          updated_by_user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, channel, objective_family, bid_regime, archetype)
+        )`,
         sql`CREATE TABLE IF NOT EXISTS admin_audit_logs (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -937,6 +961,8 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_event ON business_promo_calendar_events (business_id, event_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_business_promo_calendar_events_business_dates ON business_promo_calendar_events (business_id, start_date, end_date)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_business_operating_constraints_business_id ON business_operating_constraints (business_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_decision_calibration_profiles_business ON business_decision_calibration_profiles (business_id, channel)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_decision_calibration_profiles_profile ON business_decision_calibration_profiles (business_id, objective_family, bid_regime, archetype)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_admin ON admin_audit_logs (admin_id, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created ON admin_audit_logs (created_at DESC)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_discount_codes_code ON discount_codes (lower(code))`.catch(() => {}),

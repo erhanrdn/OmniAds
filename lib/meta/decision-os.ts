@@ -310,6 +310,7 @@ export interface MetaCommercialTruthCoverage {
   operatingConstraintsConfigured: boolean;
   missingInputs: string[];
   notes: string[];
+  summary?: import("@/src/types/business-commercial").BusinessCommercialCoverageSummary;
 }
 
 export interface MetaWinnerScaleCandidate {
@@ -687,6 +688,7 @@ function collectCommercialTruthCoverage(snapshot: BusinessCommercialTruthSnapsho
     promoCalendarConfigured: snapshot.promoCalendar.length > 0,
     operatingConstraintsConfigured: Boolean(snapshot.operatingConstraints),
     missingInputs,
+    summary: snapshot.coverage,
     notes:
       thresholds.mode === "configured_targets"
         ? ["Commercial targets are configured, so decision aggressiveness can scale to business-specific thresholds."]

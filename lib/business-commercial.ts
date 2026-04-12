@@ -9,6 +9,9 @@ import {
   type BusinessCostModel,
 } from "@/lib/business-cost-model";
 import {
+  BUSINESS_DECISION_BID_REGIMES,
+  BUSINESS_DECISION_CALIBRATION_CHANNELS,
+  BUSINESS_DECISION_OBJECTIVE_FAMILIES,
   BUSINESS_COUNTRY_PRIORITY_TIERS,
   BUSINESS_COUNTRY_SCALE_OVERRIDES,
   BUSINESS_COUNTRY_SERVICEABILITY,
@@ -17,33 +20,40 @@ import {
   BUSINESS_PROMO_TYPES,
   BUSINESS_RISK_POSTURES,
   BUSINESS_STOCK_PRESSURE_STATUSES,
+  createEmptyBusinessCommercialCoverageSummary,
   createEmptyBusinessCommercialTruthSnapshot,
+  createEmptyDecisionCalibrationProfile,
   createEmptyOperatingConstraints,
   createEmptyTargetPack,
+  type BusinessCommercialCoverageSummary,
+  type BusinessCommercialFreshnessMeta,
   type BusinessCommercialSectionMeta,
   type BusinessCommercialTruthSnapshot,
   type BusinessCountryEconomicsRow,
+  type BusinessDecisionCalibrationProfile,
   type BusinessOperatingConstraints,
   type BusinessPromoCalendarEvent,
   type BusinessTargetPackData,
 } from "@/src/types/business-commercial";
+import type { DecisionSafeActionLabel } from "@/src/types/decision-trust";
 
 const COMMERCIAL_TRUTH_TABLES = [
   "business_target_packs",
   "business_country_economics",
   "business_promo_calendar_events",
   "business_operating_constraints",
+  "business_decision_calibration_profiles",
 ];
 
 type MetaRow = {
   source_label: string | null;
-  updated_at: string | null;
+  updated_at: string | Date | null;
   updated_by_user_id: string | null;
 };
 
 type SnapshotMetaRow = {
   sourceLabel: string | null;
-  updatedAt: string | null;
+  updatedAt: string | Date | null;
   updatedByUserId: string | null;
 };
 
@@ -90,10 +100,36 @@ type OperatingConstraintsRow = {
   manual_do_not_scale_reason: string | null;
 } & MetaRow;
 
+type CalibrationProfileRow = {
+  channel: string | null;
+  objective_family: string | null;
+  bid_regime: string | null;
+  archetype: string | null;
+  target_roas_multiplier: number | null;
+  break_even_roas_multiplier: number | null;
+  target_cpa_multiplier: number | null;
+  break_even_cpa_multiplier: number | null;
+  confidence_cap: number | null;
+  action_ceiling: string | null;
+  notes: string | null;
+} & MetaRow;
+
 function normalizeString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeTimestampValue(value: unknown) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? value.toISOString() : null;
+  }
+  return null;
 }
 
 function normalizeDate(value: unknown) {
@@ -108,6 +144,14 @@ function normalizeNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function normalizeUnitInterval(value: unknown) {
+  const normalized = normalizeNumber(value);
+  if (normalized === null) return null;
+  if (normalized <= 0) return 0;
+  if (normalized >= 1) return 1;
+  return normalized;
+}
+
 function normalizeEnum<T extends readonly string[]>(
   value: unknown,
   allowed: T,
@@ -116,6 +160,23 @@ function normalizeEnum<T extends readonly string[]>(
   return typeof value === "string" && allowed.includes(value as T[number])
     ? (value as T[number])
     : fallback;
+}
+
+function differenceInHours(updatedAt: string | null | undefined) {
+  if (!updatedAt) return null;
+  const parsed = Date.parse(updatedAt);
+  if (!Number.isFinite(parsed)) return null;
+  return Number((Math.max(0, Date.now() - parsed) / 3_600_000).toFixed(1));
+}
+
+function dedupeStringList(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeString(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
 }
 
 function hasTargetPackValue(targetPack: BusinessTargetPackData | null | undefined) {
@@ -163,20 +224,102 @@ function readMetaValue(
 ) {
   if ("source_label" in row) {
     if (key === "sourceLabel") return row.source_label;
-    if (key === "updatedAt") return row.updated_at;
+    if (key === "updatedAt") return normalizeTimestampValue(row.updated_at);
     return row.updated_by_user_id;
   }
   if (key === "sourceLabel") return row.sourceLabel;
-  if (key === "updatedAt") return row.updatedAt;
+  if (key === "updatedAt") return normalizeTimestampValue(row.updatedAt);
   return row.updatedByUserId;
 }
 
+const SECTION_META_RULES = {
+  targetPack: {
+    blocking: true,
+    staleAfterHours: 24 * 30,
+    missingReason:
+      "Target pack thresholds are not configured yet.",
+    staleReason:
+      "Target pack thresholds are older than 30 days and should be reviewed.",
+  },
+  countryEconomics: {
+    blocking: true,
+    staleAfterHours: 24 * 30,
+    missingReason:
+      "Country economics are not configured for deterministic GEO decisions.",
+    staleReason:
+      "Country economics are older than 30 days and should be refreshed.",
+  },
+  promoCalendar: {
+    blocking: false,
+    staleAfterHours: 24 * 45,
+    missingReason:
+      "Promo calendar is not configured, so promo-aware posture stays conservative.",
+    staleReason:
+      "Promo calendar metadata is older than 45 days and may no longer match current launches.",
+  },
+  operatingConstraints: {
+    blocking: true,
+    staleAfterHours: 24 * 7,
+    missingReason:
+      "Operating constraints are not configured, so blockers and action ceilings stay conservative.",
+    staleReason:
+      "Operating constraints are older than 7 days and may not reflect live site or stock conditions.",
+  },
+} as const;
+
+type SectionMetaKey = keyof typeof SECTION_META_RULES;
+
+function buildFreshnessMeta(input: {
+  configured: boolean;
+  updatedAt: string | null;
+  staleAfterHours: number;
+  missingReason: string;
+  staleReason: string;
+}): BusinessCommercialFreshnessMeta {
+  if (!input.configured) {
+    return {
+      status: "missing",
+      updatedAt: null,
+      ageHours: null,
+      reason: input.missingReason,
+    };
+  }
+
+  const ageHours = differenceInHours(input.updatedAt);
+  if (ageHours === null) {
+    return {
+      status: "stale",
+      updatedAt: input.updatedAt,
+      ageHours: null,
+      reason: "Configured data is missing a tracked refresh timestamp.",
+    };
+  }
+
+  if (ageHours > input.staleAfterHours) {
+    return {
+      status: "stale",
+      updatedAt: input.updatedAt,
+      ageHours,
+      reason: input.staleReason,
+    };
+  }
+
+  return {
+    status: "fresh",
+    updatedAt: input.updatedAt,
+    ageHours,
+    reason: null,
+  };
+}
+
 function buildSectionMeta(
+  section: SectionMetaKey,
   rows: Array<MetaRow | SnapshotMetaRow | null | undefined>,
 ): BusinessCommercialSectionMeta {
   const validRows = rows.filter(
     (row): row is MetaRow | SnapshotMetaRow => Boolean(row),
   );
+  const rule = SECTION_META_RULES[section];
   if (validRows.length === 0) {
     return {
       configured: false,
@@ -184,6 +327,15 @@ function buildSectionMeta(
       sourceLabel: null,
       updatedAt: null,
       updatedByUserId: null,
+      completeness: "missing",
+      freshness: buildFreshnessMeta({
+        configured: false,
+        updatedAt: null,
+        staleAfterHours: rule.staleAfterHours,
+        missingReason: rule.missingReason,
+        staleReason: rule.staleReason,
+      }),
+      blocking: rule.blocking,
     };
   }
 
@@ -211,6 +363,15 @@ function buildSectionMeta(
           : "mixed_sources",
     updatedAt: readMetaValue(latest, "updatedAt") ?? null,
     updatedByUserId: readMetaValue(latest, "updatedByUserId") ?? null,
+    completeness: "complete",
+    freshness: buildFreshnessMeta({
+      configured: true,
+      updatedAt: readMetaValue(latest, "updatedAt") ?? null,
+      staleAfterHours: rule.staleAfterHours,
+      missingReason: rule.missingReason,
+      staleReason: rule.staleReason,
+    }),
+    blocking: rule.blocking,
   };
 }
 
@@ -232,7 +393,7 @@ function mapTargetPackRow(
       "balanced",
     ),
     sourceLabel: normalizeString(row.source_label),
-    updatedAt: row.updated_at,
+    updatedAt: normalizeTimestampValue(row.updated_at),
     updatedByUserId: row.updated_by_user_id,
   };
 }
@@ -261,7 +422,7 @@ function mapCountryEconomicsRow(
     ),
     notes: normalizeString(row.notes),
     sourceLabel: normalizeString(row.source_label),
-    updatedAt: row.updated_at,
+    updatedAt: normalizeTimestampValue(row.updated_at),
     updatedByUserId: row.updated_by_user_id,
   };
 }
@@ -279,7 +440,7 @@ function mapPromoRow(
     affectedScope: normalizeString(row.affected_scope),
     notes: normalizeString(row.notes),
     sourceLabel: normalizeString(row.source_label),
-    updatedAt: row.updated_at,
+    updatedAt: normalizeTimestampValue(row.updated_at),
     updatedByUserId: row.updated_by_user_id,
   };
 }
@@ -310,7 +471,47 @@ function mapConstraintsRow(
     merchandisingConcern: normalizeString(row.merchandising_concern),
     manualDoNotScaleReason: normalizeString(row.manual_do_not_scale_reason),
     sourceLabel: normalizeString(row.source_label),
-    updatedAt: row.updated_at,
+    updatedAt: normalizeTimestampValue(row.updated_at),
+    updatedByUserId: row.updated_by_user_id,
+  };
+}
+
+function mapCalibrationProfileRow(
+  row: CalibrationProfileRow,
+): BusinessDecisionCalibrationProfile {
+  return {
+    ...createEmptyDecisionCalibrationProfile(),
+    channel: normalizeEnum(
+      row.channel,
+      BUSINESS_DECISION_CALIBRATION_CHANNELS,
+      "meta",
+    ),
+    objectiveFamily: normalizeEnum(
+      row.objective_family,
+      BUSINESS_DECISION_OBJECTIVE_FAMILIES,
+      "unknown",
+    ),
+    bidRegime: normalizeEnum(
+      row.bid_regime,
+      BUSINESS_DECISION_BID_REGIMES,
+      "unknown",
+    ),
+    archetype: normalizeString(row.archetype) ?? "default",
+    targetRoasMultiplier: normalizeNumber(row.target_roas_multiplier),
+    breakEvenRoasMultiplier: normalizeNumber(row.break_even_roas_multiplier),
+    targetCpaMultiplier: normalizeNumber(row.target_cpa_multiplier),
+    breakEvenCpaMultiplier: normalizeNumber(row.break_even_cpa_multiplier),
+    confidenceCap: normalizeUnitInterval(row.confidence_cap),
+    actionCeiling:
+      normalizeString(row.action_ceiling) &&
+      ["review_hold", "review_reduce", "monitor_low_truth", "degraded_no_scale"].includes(
+        normalizeString(row.action_ceiling) ?? "",
+      )
+        ? (normalizeString(row.action_ceiling) as BusinessDecisionCalibrationProfile["actionCeiling"])
+        : null,
+    notes: normalizeString(row.notes),
+    sourceLabel: normalizeString(row.source_label),
+    updatedAt: normalizeTimestampValue(row.updated_at),
     updatedByUserId: row.updated_by_user_id,
   };
 }
@@ -324,7 +525,174 @@ function mapCostModelContext(
     shippingPercent: row.shippingPercent,
     feePercent: row.feePercent,
     fixedCost: row.fixedCost,
-    updatedAt: row.updatedAt,
+    updatedAt: normalizeTimestampValue(row.updatedAt),
+  };
+}
+
+function buildCommercialThresholdSummary(
+  snapshot: Pick<BusinessCommercialTruthSnapshot, "targetPack">,
+): BusinessCommercialCoverageSummary["thresholds"] {
+  if (
+    snapshot.targetPack?.targetRoas != null ||
+    snapshot.targetPack?.breakEvenRoas != null ||
+    snapshot.targetPack?.targetCpa != null ||
+    snapshot.targetPack?.breakEvenCpa != null
+  ) {
+    return {
+      source: "configured_targets",
+      targetRoas: snapshot.targetPack?.targetRoas ?? 2.6,
+      breakEvenRoas: snapshot.targetPack?.breakEvenRoas ?? 1.8,
+      targetCpa: snapshot.targetPack?.targetCpa ?? 42,
+      breakEvenCpa: snapshot.targetPack?.breakEvenCpa ?? 58,
+      defaultRiskPosture: snapshot.targetPack?.defaultRiskPosture ?? "balanced",
+    };
+  }
+
+  return createEmptyBusinessCommercialCoverageSummary().thresholds;
+}
+
+function buildCalibrationSummary(
+  calibrationProfiles: BusinessDecisionCalibrationProfile[],
+): BusinessCommercialCoverageSummary["calibration"] {
+  if (calibrationProfiles.length === 0) {
+    return {
+      profileCount: 0,
+      channels: [],
+      updatedAt: null,
+    };
+  }
+
+  const latestUpdatedAt =
+    calibrationProfiles
+      .map((row) => row.updatedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+
+  return {
+    profileCount: calibrationProfiles.length,
+    channels: Array.from(new Set(calibrationProfiles.map((row) => row.channel))),
+    updatedAt: latestUpdatedAt,
+  };
+}
+
+function buildCommercialCoverageSummary(input: {
+  targetPack: BusinessCommercialTruthSnapshot["targetPack"];
+  countryEconomics: BusinessCommercialTruthSnapshot["countryEconomics"];
+  promoCalendar: BusinessCommercialTruthSnapshot["promoCalendar"];
+  operatingConstraints: BusinessCommercialTruthSnapshot["operatingConstraints"];
+  sectionMeta: BusinessCommercialTruthSnapshot["sectionMeta"];
+  calibrationProfiles: BusinessDecisionCalibrationProfile[];
+}): BusinessCommercialCoverageSummary {
+  const blockingSections = [
+    input.sectionMeta.targetPack,
+    input.sectionMeta.countryEconomics,
+    input.sectionMeta.operatingConstraints,
+  ];
+  const configuredBlockingCount = blockingSections.filter(
+    (section) => section.configured,
+  ).length;
+
+  const completeness =
+    configuredBlockingCount === blockingSections.length
+      ? "complete"
+      : configuredBlockingCount > 0
+        ? "partial"
+        : "missing";
+
+  const latestUpdatedAt =
+    [
+      input.sectionMeta.targetPack.updatedAt,
+      input.sectionMeta.countryEconomics.updatedAt,
+      input.sectionMeta.promoCalendar.updatedAt,
+      input.sectionMeta.operatingConstraints.updatedAt,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+
+  const staleBlockingSections = blockingSections.filter(
+    (section) => section.freshness?.status === "stale",
+  );
+  const freshness: BusinessCommercialFreshnessMeta =
+    completeness === "missing"
+      ? {
+          status: "missing",
+          updatedAt: latestUpdatedAt,
+          ageHours: differenceInHours(latestUpdatedAt),
+          reason:
+            "Blocking commercial truth sections are not configured yet.",
+        }
+      : staleBlockingSections.length > 0
+        ? {
+            status: "stale",
+            updatedAt: latestUpdatedAt,
+            ageHours: differenceInHours(latestUpdatedAt),
+            reason:
+              "One or more blocking commercial truth sections are stale.",
+          }
+        : {
+            status: "fresh",
+            updatedAt: latestUpdatedAt,
+            ageHours: differenceInHours(latestUpdatedAt),
+            reason: null,
+          };
+
+  const blockingReasons = dedupeStringList([
+    !input.targetPack
+      ? "Target pack is missing, so ROAS/CPA thresholds stay on conservative fallback defaults."
+      : null,
+    input.sectionMeta.targetPack.freshness?.status === "stale"
+      ? input.sectionMeta.targetPack.freshness.reason
+      : null,
+    input.countryEconomics.length === 0
+      ? "Country economics are missing, so GEO-aware scaling remains review-safe."
+      : null,
+    input.sectionMeta.countryEconomics.freshness?.status === "stale"
+      ? input.sectionMeta.countryEconomics.freshness.reason
+      : null,
+    !input.operatingConstraints
+      ? "Operating constraints are missing, so action ceilings stay conservative."
+      : null,
+    input.sectionMeta.operatingConstraints.freshness?.status === "stale"
+      ? input.sectionMeta.operatingConstraints.freshness.reason
+      : null,
+  ]);
+
+  const nonBlockingReasons = dedupeStringList([
+    input.promoCalendar.length === 0
+      ? "Promo calendar is optional, but promo-aware posture remains conservative until windows are configured."
+      : null,
+    input.sectionMeta.promoCalendar.freshness?.status === "stale"
+      ? input.sectionMeta.promoCalendar.freshness.reason
+      : null,
+  ]);
+
+  const actionCeilings = Array.from(
+    new Set([
+      ...(input.targetPack
+        ? []
+        : (["review_hold", "degraded_no_scale"] satisfies DecisionSafeActionLabel[])),
+      ...(input.countryEconomics.length > 0
+        ? []
+        : (["monitor_low_truth", "review_hold"] satisfies DecisionSafeActionLabel[])),
+      ...(!input.operatingConstraints
+        ? (["review_hold", "monitor_low_truth"] satisfies DecisionSafeActionLabel[])
+        : []),
+      ...input.calibrationProfiles
+        .map((profile) => profile.actionCeiling)
+        .filter((value): value is NonNullable<typeof value> => Boolean(value)),
+    ]),
+  );
+
+  return {
+    completeness,
+    freshness,
+    blockingReasons,
+    nonBlockingReasons,
+    actionCeilings,
+    thresholds: buildCommercialThresholdSummary({
+      targetPack: input.targetPack,
+    }),
+    calibration: buildCalibrationSummary(input.calibrationProfiles),
   };
 }
 
@@ -449,6 +817,52 @@ export function sanitizeBusinessCommercialTruthInput(
       }
     : null;
 
+  const calibrationProfiles = dedupeByKey(
+    (input?.calibrationProfiles ?? [])
+      .map((profile) => ({
+        ...createEmptyDecisionCalibrationProfile(),
+        channel: normalizeEnum(
+          profile.channel,
+          BUSINESS_DECISION_CALIBRATION_CHANNELS,
+          "meta",
+        ),
+        objectiveFamily: normalizeEnum(
+          profile.objectiveFamily,
+          BUSINESS_DECISION_OBJECTIVE_FAMILIES,
+          "unknown",
+        ),
+        bidRegime: normalizeEnum(
+          profile.bidRegime,
+          BUSINESS_DECISION_BID_REGIMES,
+          "unknown",
+        ),
+        archetype: normalizeString(profile.archetype) ?? "default",
+        targetRoasMultiplier: normalizeNumber(profile.targetRoasMultiplier),
+        breakEvenRoasMultiplier: normalizeNumber(profile.breakEvenRoasMultiplier),
+        targetCpaMultiplier: normalizeNumber(profile.targetCpaMultiplier),
+        breakEvenCpaMultiplier: normalizeNumber(profile.breakEvenCpaMultiplier),
+        confidenceCap: normalizeUnitInterval(profile.confidenceCap),
+        actionCeiling:
+          typeof profile.actionCeiling === "string"
+            ? normalizeEnum(
+                profile.actionCeiling,
+                ["review_hold", "review_reduce", "monitor_low_truth", "degraded_no_scale"] as const,
+                "review_hold",
+              )
+            : null,
+        notes: normalizeString(profile.notes),
+        sourceLabel: normalizeString(profile.sourceLabel) ?? "settings_manual_entry",
+      }))
+      .filter((profile) => profile.archetype.length > 0),
+    (profile) =>
+      [
+        profile.channel,
+        profile.objectiveFamily,
+        profile.bidRegime,
+        profile.archetype.toLowerCase(),
+      ].join(":"),
+  );
+
   return {
     businessId,
     targetPack: hasTargetPackValue(targetPack) ? targetPack : null,
@@ -457,6 +871,7 @@ export function sanitizeBusinessCommercialTruthInput(
     operatingConstraints: hasOperatingConstraintValue(operatingConstraints)
       ? operatingConstraints
       : null,
+    calibrationProfiles,
   };
 }
 
@@ -479,7 +894,7 @@ export async function getBusinessCommercialTruthSnapshot(
     }
 
     const sql = getDb();
-    const [targetRows, countryRows, promoRows, constraintRows] = await Promise.all([
+    const [targetRows, countryRows, promoRows, constraintRows, calibrationRows] = await Promise.all([
       sql`
         SELECT
           target_cpa,
@@ -547,6 +962,26 @@ export async function getBusinessCommercialTruthSnapshot(
         WHERE business_id = ${businessId}
         LIMIT 1
       `,
+      sql`
+        SELECT
+          channel,
+          objective_family,
+          bid_regime,
+          archetype,
+          target_roas_multiplier,
+          break_even_roas_multiplier,
+          target_cpa_multiplier,
+          break_even_cpa_multiplier,
+          confidence_cap,
+          action_ceiling,
+          notes,
+          source_label,
+          updated_at,
+          updated_by_user_id
+        FROM business_decision_calibration_profiles
+        WHERE business_id = ${businessId}
+        ORDER BY channel ASC, objective_family ASC, bid_regime ASC, archetype ASC
+      `,
     ]);
 
     const targetPack = mapTargetPackRow((targetRows as TargetPackRow[])[0]);
@@ -557,9 +992,22 @@ export async function getBusinessCommercialTruthSnapshot(
     const operatingConstraints = mapConstraintsRow(
       (constraintRows as OperatingConstraintsRow[])[0],
     );
+    const calibrationProfiles = (calibrationRows as CalibrationProfileRow[]).map(
+      mapCalibrationProfileRow,
+    );
     const costModelContext = mapCostModelContext(
       await getBusinessCostModel(businessId).catch(() => null),
     );
+
+    const sectionMeta = {
+      targetPack: buildSectionMeta("targetPack", targetPack ? [targetPack] : []),
+      countryEconomics: buildSectionMeta("countryEconomics", countryEconomics),
+      promoCalendar: buildSectionMeta("promoCalendar", promoCalendar),
+      operatingConstraints: buildSectionMeta(
+        "operatingConstraints",
+        operatingConstraints ? [operatingConstraints] : [],
+      ),
+    } satisfies BusinessCommercialTruthSnapshot["sectionMeta"];
 
     return {
       businessId,
@@ -568,14 +1016,16 @@ export async function getBusinessCommercialTruthSnapshot(
       promoCalendar,
       operatingConstraints,
       costModelContext,
-      sectionMeta: {
-        targetPack: buildSectionMeta(targetPack ? [targetPack] : []),
-        countryEconomics: buildSectionMeta(countryEconomics),
-        promoCalendar: buildSectionMeta(promoCalendar),
-        operatingConstraints: buildSectionMeta(
-          operatingConstraints ? [operatingConstraints] : [],
-        ),
-      },
+      calibrationProfiles,
+      sectionMeta,
+      coverage: buildCommercialCoverageSummary({
+        targetPack,
+        countryEconomics,
+        promoCalendar,
+        operatingConstraints,
+        sectionMeta,
+        calibrationProfiles,
+      }),
     };
   } catch (error) {
     if (isMissingRelationError(error, COMMERCIAL_TRUTH_TABLES)) {
@@ -788,6 +1238,61 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
     await sql`
       DELETE FROM business_operating_constraints
       WHERE business_id = ${sanitized.businessId}
+    `;
+  }
+
+  await sql`
+    DELETE FROM business_decision_calibration_profiles
+    WHERE business_id = ${sanitized.businessId}
+  `;
+  for (const profile of sanitized.calibrationProfiles ?? []) {
+    await sql`
+      INSERT INTO business_decision_calibration_profiles (
+        business_id,
+        channel,
+        objective_family,
+        bid_regime,
+        archetype,
+        target_roas_multiplier,
+        break_even_roas_multiplier,
+        target_cpa_multiplier,
+        break_even_cpa_multiplier,
+        confidence_cap,
+        action_ceiling,
+        notes,
+        source_label,
+        updated_by_user_id,
+        updated_at
+      )
+      VALUES (
+        ${sanitized.businessId},
+        ${profile.channel},
+        ${profile.objectiveFamily},
+        ${profile.bidRegime},
+        ${profile.archetype},
+        ${profile.targetRoasMultiplier},
+        ${profile.breakEvenRoasMultiplier},
+        ${profile.targetCpaMultiplier},
+        ${profile.breakEvenCpaMultiplier},
+        ${profile.confidenceCap},
+        ${profile.actionCeiling},
+        ${profile.notes},
+        ${profile.sourceLabel},
+        ${input.updatedByUserId},
+        now()
+      )
+      ON CONFLICT (business_id, channel, objective_family, bid_regime, archetype)
+      DO UPDATE SET
+        target_roas_multiplier = EXCLUDED.target_roas_multiplier,
+        break_even_roas_multiplier = EXCLUDED.break_even_roas_multiplier,
+        target_cpa_multiplier = EXCLUDED.target_cpa_multiplier,
+        break_even_cpa_multiplier = EXCLUDED.break_even_cpa_multiplier,
+        confidence_cap = EXCLUDED.confidence_cap,
+        action_ceiling = EXCLUDED.action_ceiling,
+        notes = EXCLUDED.notes,
+        source_label = EXCLUDED.source_label,
+        updated_by_user_id = EXCLUDED.updated_by_user_id,
+        updated_at = now()
     `;
   }
 
