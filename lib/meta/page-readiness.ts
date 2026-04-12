@@ -89,7 +89,8 @@ export function getMetaPageStatusReason(status: MetaStatusResponse | undefined |
 export function isMetaPageCurrentDayPreparing(status: MetaStatusResponse | undefined | null) {
   const readiness = getMetaPageReadiness(status);
   return (
-    readiness?.selectedRangeMode === "current_day_live" &&
+    (readiness?.selectedRangeMode === "current_day_live" ||
+      readiness?.selectedRangeMode === "current_day_snapshot") &&
     readiness.state !== "ready" &&
     readiness.state !== "not_connected" &&
     readiness.state !== "blocked"
@@ -104,7 +105,8 @@ export function shouldMaskMetaKpisAsPreparing(input: {
   const readiness = getMetaPageReadiness(input.status);
   if (!readiness) return false;
   return (
-    readiness.selectedRangeMode === "current_day_live" &&
+    (readiness.selectedRangeMode === "current_day_live" ||
+      readiness.selectedRangeMode === "current_day_snapshot") &&
     readiness.state !== "ready" &&
     !input.summaryLoading &&
     !input.hasCampaignSpend

@@ -5,12 +5,17 @@ import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import {
+  hasUsableCurrentDaySnapshot,
+  isMetaTodayLiveReadsEnabled,
+} from "@/lib/current-day-snapshot";
+import {
   META_PRODUCT_CORE_COVERAGE_SCOPES,
   META_RUNTIME_STATE_SCOPES,
   META_SECONDARY_REPORTING_SCOPES,
 } from "@/lib/meta/core-config";
 import { rollupMetaPageReadiness } from "@/lib/meta/page-readiness";
 import { getMetaCurrentDayLiveAvailability } from "@/lib/meta/live";
+import { resolveMetaCurrentDaySnapshot } from "@/lib/meta/current-day-snapshot";
 import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
@@ -212,6 +217,21 @@ function getHistoricalVerificationReason(input: {
     return "Historical Meta data requires repair before the selected range can be treated as finalized.";
   }
   return input.fallbackReason;
+}
+
+function getCurrentDaySnapshotReason(input: {
+  warehouseReadyThroughDate?: string | null;
+  currentDateInTimezone: string | null;
+  primaryAccountTimezone: string | null;
+  defaultReason: string;
+}) {
+  if (input.warehouseReadyThroughDate) {
+    const timezoneSuffix = input.primaryAccountTimezone
+      ? ` (${input.primaryAccountTimezone})`
+      : "";
+    return `Showing the latest warehouse snapshot ready through ${input.warehouseReadyThroughDate} while Meta prepares ${input.currentDateInTimezone ?? "the current account day"}${timezoneSuffix}.`;
+  }
+  return input.defaultReason;
 }
 
 export async function GET(request: NextRequest) {
@@ -484,6 +504,23 @@ export async function GET(request: NextRequest) {
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
     selectedStartDate === currentDateInTimezone;
+  const todayLiveReadsEnabled = isMetaTodayLiveReadsEnabled();
+  const currentDaySnapshot =
+    selectedRangeIsToday && connected && accountIds.length > 0 && selectedEndDate && !todayLiveReadsEnabled
+      ? await resolveMetaCurrentDaySnapshot({
+          businessId: businessId!,
+          requestedDate: selectedEndDate,
+          scope: "summary",
+        }).catch(() => null)
+      : null;
+  const currentDayAdsetSnapshot =
+    selectedRangeIsToday && connected && accountIds.length > 0 && selectedEndDate && !todayLiveReadsEnabled
+      ? await resolveMetaCurrentDaySnapshot({
+          businessId: businessId!,
+          requestedDate: selectedEndDate,
+          scope: "adsets",
+        }).catch(() => null)
+      : null;
   const selectedRangeTruth =
     selectedRangeRequested && selectedStartDate && selectedEndDate && !selectedRangeIsToday
       ? await getMetaSelectedRangeTruthReadiness({
@@ -511,6 +548,14 @@ export async function GET(request: NextRequest) {
     selectedRangeCoverage?.ready_through_date ?? null,
     selectedRangeCampaignCoverage?.ready_through_date ?? null,
   ]);
+  const selectedRangeLastWarehouseWriteAt =
+    [
+      selectedRangeCoverage?.latest_updated_at ?? null,
+      selectedRangeCampaignCoverage?.latest_updated_at ?? null,
+      selectedRangeAdsetCoverage?.latest_updated_at ?? null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
   const selectedRangeBreakdownReadyThroughDate =
     selectedRangeRequested
       ? META_BREAKDOWN_ENDPOINTS.map(
@@ -597,7 +642,9 @@ export async function GET(request: NextRequest) {
         : 0;
   const historicalArchiveComplete = historicalArchiveCompletedDays >= historicalTotalDays;
   const currentCoreUsable = selectedRangeRequested
-    ? Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays >= (selectedRangeTotalDays ?? 0)
+    ? selectedRangeIsToday && !todayLiveReadsEnabled
+      ? hasUsableCurrentDaySnapshot(currentDaySnapshot)
+      : Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays >= (selectedRangeTotalDays ?? 0)
     : minCompletedDays(
           [recentAccountCoverage?.completed_days ?? 0, recentCampaignCoverage?.completed_days ?? 0],
           recentWindowTotalDays
@@ -671,7 +718,9 @@ export async function GET(request: NextRequest) {
     ? selectedRangeTotalDays
     : historicalTotalDays;
   const responseReadyThroughDate = shouldReportSelectedRangeProgress
-    ? selectedRangeCoreReadyThroughDate
+    ? selectedRangeIsToday && !todayLiveReadsEnabled
+      ? currentDaySnapshot?.warehouseReadyThroughDate ?? selectedRangeCoreReadyThroughDate
+      : selectedRangeCoreReadyThroughDate
     : historicalArchiveReadyThroughDate;
   const selectedRangeReportReady = Boolean(selectedRangeRequested && !selectedRangeIncomplete);
   const breakdownSupportStartDate = selectedEndDate
@@ -731,10 +780,17 @@ export async function GET(request: NextRequest) {
         )
       : 0;
   const selectedRangeMode = selectedRangeIsToday
-    ? "current_day_live"
+    ? todayLiveReadsEnabled
+      ? "current_day_live"
+      : "current_day_snapshot"
     : "historical_warehouse";
   const currentDayLive =
-    selectedRangeIsToday && connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
+    todayLiveReadsEnabled &&
+    selectedRangeIsToday &&
+    connected &&
+    accountIds.length > 0 &&
+    selectedStartDate &&
+    selectedEndDate
       ? await getMetaCurrentDayLiveAvailability({
           businessId: businessId!,
           startDate: selectedStartDate,
@@ -749,7 +805,9 @@ export async function GET(request: NextRequest) {
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (accountCoverage?.completed_days ?? 0) > 0
       : selectedRangeIsToday
-      ? currentDayLive?.summaryAvailable === true
+      ? todayLiveReadsEnabled
+        ? currentDayLive?.summaryAvailable === true
+        : hasUsableCurrentDaySnapshot(currentDaySnapshot)
       : selectedRangeTruth
         ? selectedRangeTruth.truthReady ||
           canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
@@ -759,7 +817,9 @@ export async function GET(request: NextRequest) {
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (campaignCoverage?.completed_days ?? 0) > 0
       : selectedRangeIsToday
-      ? currentDayLive?.campaignsAvailable === true
+      ? todayLiveReadsEnabled
+        ? currentDayLive?.campaignsAvailable === true
+        : hasUsableCurrentDaySnapshot(currentDaySnapshot)
       : selectedRangeTruth
         ? selectedRangeTruth.truthReady ||
           canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
@@ -772,9 +832,17 @@ export async function GET(request: NextRequest) {
       : summaryReady
         ? null
         : !selectedRangeRequested
-          ? "Recent summary warehouse data is still being prepared for this workspace."
+        ? "Recent summary warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
-          ? "Summary data for the current Meta account day is still preparing."
+          ? todayLiveReadsEnabled
+            ? "Summary data for the current Meta account day is still preparing."
+            : getCurrentDaySnapshotReason({
+                warehouseReadyThroughDate: currentDaySnapshot?.warehouseReadyThroughDate,
+                currentDateInTimezone,
+                primaryAccountTimezone,
+                defaultReason:
+                  "Summary data for the current Meta account day is still preparing.",
+              })
           : getHistoricalVerificationReason({
               verificationState: selectedRangeVerificationState,
               fallbackReason: "Summary warehouse data is still being prepared for the selected range.",
@@ -786,9 +854,17 @@ export async function GET(request: NextRequest) {
       : campaignsReady
         ? null
         : !selectedRangeRequested
-          ? "Recent campaign warehouse data is still being prepared for this workspace."
+        ? "Recent campaign warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
-          ? "Campaign data for the current Meta account day is still preparing."
+          ? todayLiveReadsEnabled
+            ? "Campaign data for the current Meta account day is still preparing."
+            : getCurrentDaySnapshotReason({
+                warehouseReadyThroughDate: currentDaySnapshot?.warehouseReadyThroughDate,
+                currentDateInTimezone,
+                primaryAccountTimezone,
+                defaultReason:
+                  "Campaign data for the current Meta account day is still preparing.",
+              })
           : getHistoricalVerificationReason({
               verificationState: selectedRangeVerificationState,
               fallbackReason: "Campaign warehouse data is still being prepared for the selected range.",
@@ -797,7 +873,9 @@ export async function GET(request: NextRequest) {
     META_BREAKDOWN_SURFACES.map((surface) => {
       const coverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
       const ready = selectedRangeIsToday
-        ? coverage.isComplete
+        ? todayLiveReadsEnabled
+          ? coverage.isComplete
+          : hasUsableCurrentDaySnapshot(currentDaySnapshot)
         : coverage.isComplete &&
           (selectedRangeTruth
             ? selectedRangeTruth.truthReady ||
@@ -841,7 +919,10 @@ export async function GET(request: NextRequest) {
           state,
           blocking: state !== "ready",
           countsForPageCompleteness: true,
-          truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+          truthClass:
+            selectedRangeMode === "historical_warehouse"
+              ? "historical_warehouse"
+              : selectedRangeMode,
           reason,
         },
       ];
@@ -863,7 +944,10 @@ export async function GET(request: NextRequest) {
       }),
       blocking: !summaryReady,
       countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      truthClass:
+        selectedRangeMode === "historical_warehouse"
+          ? "historical_warehouse"
+          : selectedRangeMode,
       reason: summarySurfaceReason,
     },
     campaigns: {
@@ -878,14 +962,19 @@ export async function GET(request: NextRequest) {
       }),
       blocking: !campaignsReady,
       countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      truthClass:
+        selectedRangeMode === "historical_warehouse"
+          ? "historical_warehouse"
+          : selectedRangeMode,
       reason: campaignsSurfaceReason,
     },
     ...breakdownRequiredSurfaces,
   } as const;
   const adsetsReady =
     selectedRangeIsToday
-      ? connected && accountIds.length > 0
+      ? todayLiveReadsEnabled
+        ? connected && accountIds.length > 0
+        : hasUsableCurrentDaySnapshot(currentDayAdsetSnapshot)
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeAdsetCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const decisionOsEnabled = isMetaDecisionOsV1EnabledForBusiness(businessId);
@@ -1103,7 +1192,7 @@ export async function GET(request: NextRequest) {
     notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
   });
   const dataContract = {
-    todayMode: "live_overlay",
+    todayMode: todayLiveReadsEnabled ? "live_overlay" : "warehouse_snapshot",
     historicalMode: "warehouse_only",
   } as const;
   const completionBasis = {
@@ -1118,7 +1207,7 @@ export async function GET(request: NextRequest) {
     primaryAccountTimezone,
     currentDateInTimezone,
     previousDateInTimezone: addDaysToIsoDateUtc(currentDateInTimezone, -1),
-    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    selectedRangeMode,
     mixedCurrentDates:
       new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
     accounts: platformDateBoundaryAccounts,
@@ -1291,6 +1380,23 @@ export async function GET(request: NextRequest) {
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
       currentDateInTimezone,
+      requestedEndDate: selectedEndDate ?? null,
+      effectiveEndDate:
+        selectedRangeIsToday && !todayLiveReadsEnabled
+          ? currentDaySnapshot?.effectiveEndDate ?? null
+          : selectedEndDate ?? null,
+      warehouseReadyThroughDate:
+        selectedRangeIsToday && !todayLiveReadsEnabled
+          ? currentDaySnapshot?.warehouseReadyThroughDate ?? null
+          : responseReadyThroughDate,
+      lastWarehouseWriteAt:
+        selectedRangeIsToday && !todayLiveReadsEnabled
+          ? currentDaySnapshot?.lastWarehouseWriteAt ?? null
+          : selectedRangeLastWarehouseWriteAt,
+      isStaleSnapshot:
+        selectedRangeIsToday && !todayLiveReadsEnabled
+          ? currentDaySnapshot?.isStaleSnapshot ?? true
+          : false,
       currentCoreProgressPercent,
       historicalArchiveProgressPercent,
       currentCoreUsable,

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MiniTrendAreaChart } from "@/components/overview/MiniTrendAreaChart";
@@ -315,6 +315,7 @@ function buildAdvisorQueryParams(input: {
 }
 
 export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: string }) {
+  const queryClient = useQueryClient();
   const [dateRange, setDateRange] = usePersistentDateRange();
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [selectedCampaignNames, setSelectedCampaignNames] = useState<string[]>([]);
@@ -326,6 +327,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
   const [focusedAssetGroups, setFocusedAssetGroups] = useState<string[]>([]);
   const [resolvedGoogleReferenceDate, setResolvedGoogleReferenceDate] = useState<string | null>(null);
   const [resolvedGoogleTimeZoneLabel, setResolvedGoogleTimeZoneLabel] = useState<string | null>(null);
+  const [isSnapshotRefreshRunning, setIsSnapshotRefreshRunning] = useState(false);
+  const [currentDaySnapshotRequestedKey, setCurrentDaySnapshotRequestedKey] = useState<string | null>(null);
 
   const baseStatusQuery = useQuery<GoogleAdsStatusResponse>({
     queryKey: ["gads-status-base", businessId],
@@ -382,6 +385,11 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
           dateRange.customStart,
           dateRange.customEnd
         );
+  const isTodayRange = startDate === endDate && endDate === effectiveGoogleReferenceDate;
+  const currentDaySnapshotStatusKey =
+    businessId && startDate && endDate
+      ? `${businessId}:${startDate}:${endDate}`
+      : null;
   const compareMode = dateRange.comparisonPreset === "none" ? "none" : "previous_period";
   const apiDateRange = mapRangePresetToApi(dateRange.rangePreset);
   const { labelMode: trendLabelMode } = useMemo(
@@ -605,6 +613,67 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
         : false;
     },
   });
+  const isSnapshotSyncInProgress =
+    isSnapshotRefreshRunning ||
+    syncStatus?.state === "syncing" ||
+    (syncStatus?.jobHealth?.queueDepth ?? 0) > 0 ||
+    (syncStatus?.jobHealth?.leasedPartitions ?? 0) > 0;
+  const readyThroughLabel = syncStatus?.warehouseReadyThroughDate ?? null;
+  const lastWarehouseWriteLabel = syncStatus?.lastWarehouseWriteAt
+    ? new Date(syncStatus.lastWarehouseWriteAt).toLocaleString()
+    : null;
+
+  async function triggerCurrentDaySnapshotRefresh() {
+    if (!businessId || isSnapshotSyncInProgress) return;
+    try {
+      setIsSnapshotRefreshRunning(true);
+      await fetch("/api/sync/refresh", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          businessId,
+          provider: "google_ads",
+          mode: "current_day_snapshot",
+        }),
+      });
+    } finally {
+      setIsSnapshotRefreshRunning(false);
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["gads-status-base", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-status", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-campaigns", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-trends", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-asset-groups", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-audiences", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-assets", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-products", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-search-intelligence", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-geo", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["gads-devices", businessId] }),
+      ]);
+    }
+  }
+
+  useEffect(() => {
+    if (!businessId || !isTodayRange) return;
+    if (!syncStatus || syncStatus.dataContract?.todayMode !== "warehouse_snapshot") return;
+    if (!syncStatus.isStaleSnapshot) return;
+    if (isSnapshotSyncInProgress) return;
+    if (!currentDaySnapshotStatusKey || currentDaySnapshotRequestedKey === currentDaySnapshotStatusKey) return;
+
+    setCurrentDaySnapshotRequestedKey(currentDaySnapshotStatusKey);
+    void triggerCurrentDaySnapshotRefresh();
+  }, [
+    businessId,
+    currentDaySnapshotRequestedKey,
+    currentDaySnapshotStatusKey,
+    isSnapshotSyncInProgress,
+    isTodayRange,
+    syncStatus,
+  ]);
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
   const advisorCanOpen = canOpenGoogleAdsAdvisor({
     connected: Boolean(syncStatus?.connected),
@@ -1196,6 +1265,12 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                 <p className="text-xs text-muted-foreground whitespace-nowrap">
                   {campaignScopeLabel}
                 </p>
+                {readyThroughLabel || lastWarehouseWriteLabel ? (
+                  <p className="text-xs text-muted-foreground whitespace-nowrap">
+                    {readyThroughLabel ? `Ready through ${readyThroughLabel}` : "Ready through pending"}
+                    {lastWarehouseWriteLabel ? ` · Last warehouse write ${lastWarehouseWriteLabel}` : ""}
+                  </p>
+                ) : null}
                 <div className="ml-auto flex min-w-0 items-center gap-2">
                   {(() => {
                     const advisorButtonLabel = getGoogleAdsAdvisorButtonLabel({
@@ -1229,6 +1304,25 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
                       </button>
                     );
                   })()}
+                  <button
+                    type="button"
+                    onClick={() => void triggerCurrentDaySnapshotRefresh()}
+                    disabled={!isTodayRange || isSnapshotSyncInProgress}
+                    className={cn(
+                      "inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[11px] font-semibold transition-colors",
+                      !isTodayRange || isSnapshotSyncInProgress
+                        ? "cursor-not-allowed border-border bg-muted text-muted-foreground"
+                        : "border-border bg-background text-foreground hover:bg-muted/60"
+                    )}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "mr-1.5 h-3.5 w-3.5",
+                        isSnapshotSyncInProgress && "animate-spin"
+                      )}
+                    />
+                    {isSnapshotSyncInProgress ? "Sync in progress" : "Sync snapshot"}
+                  </button>
                   {isSyncStatusLoading ? (
                     <SyncStatusPillSkeleton className="w-28 shrink-0" />
                   ) : shouldShowSyncStatusPill ? (

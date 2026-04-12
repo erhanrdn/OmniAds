@@ -304,6 +304,12 @@ export interface BusinessCostModelData {
 export interface OverviewSummaryData {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
+  todayMode?: "warehouse_snapshot";
+  requestedEndDate?: string | null;
+  effectiveEndDate?: string | null;
+  warehouseReadyThroughDate?: string | null;
+  lastWarehouseWriteAt?: string | null;
+  isStaleSnapshot?: boolean;
   comparison: {
     mode: "none" | "previous_period";
     startDate: string | null;

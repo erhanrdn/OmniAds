@@ -1,7 +1,13 @@
+import {
+  hasUsableCurrentDaySnapshot,
+  isMetaTodayLiveReadsEnabled,
+  type CurrentDayWarehouseSnapshotFields,
+} from "@/lib/current-day-snapshot";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
+import { resolveMetaCurrentDaySnapshot } from "@/lib/meta/current-day-snapshot";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getMetaLiveCampaignRows } from "@/lib/meta/live";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
@@ -9,12 +15,12 @@ import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 
-export interface MetaCampaignsSourceResult {
+export type MetaCampaignsSourceResult = {
   status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
-}
+} & CurrentDayWarehouseSnapshotFields;
 
 function getHistoricalVerificationReason(input: {
   verificationState?: string | null;
@@ -37,6 +43,25 @@ function nDaysAgo(days: number) {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return date;
+}
+
+function buildCurrentDaySnapshotReason(input: {
+  warehouseReadyThroughDate?: string | null;
+  currentDateInTimezone: string | null;
+  primaryAccountTimezone: string | null;
+}) {
+  if (input.warehouseReadyThroughDate) {
+    const timezoneSuffix = input.primaryAccountTimezone
+      ? ` (${input.primaryAccountTimezone})`
+      : "";
+    return `Showing the latest warehouse snapshot ready through ${input.warehouseReadyThroughDate} while Meta prepares ${input.currentDateInTimezone ?? "the current account day"}${timezoneSuffix}.`;
+  }
+  return getMetaPartialReason({
+    isSelectedCurrentDay: true,
+    currentDateInTimezone: input.currentDateInTimezone,
+    primaryAccountTimezone: input.primaryAccountTimezone,
+    defaultReason: "Campaign warehouse data is still being prepared for the requested range.",
+  });
 }
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
@@ -113,31 +138,76 @@ export async function getMetaCampaignsForRange(input: {
   let rows: MetaCampaignRow[] = [];
   try {
     if (rangeContext.isSelectedCurrentDay && connected) {
-      rows = await getMetaLiveCampaignRows({
+      if (isMetaTodayLiveReadsEnabled()) {
+        rows = await getMetaLiveCampaignRows({
+          businessId: input.businessId,
+          startDate: resolvedStart,
+          endDate: resolvedEnd,
+          providerAccountIds: targetAccountIds,
+          includePrev: input.includePrev,
+        });
+        if (rows.length > 0) {
+          return {
+            status: "ok",
+            rows,
+            isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+            notReadyReason:
+              historicalTruth && !historicalTruth.truthReady
+                ? getHistoricalVerificationReason({
+                    verificationState:
+                      historicalTruth.verificationState ??
+                      historicalTruth.state ??
+                      null,
+                    fallbackReason:
+                      "Campaign warehouse data is still being prepared for the requested range.",
+                  })
+                : null,
+          };
+        }
+      }
+
+      const snapshot = await resolveMetaCurrentDaySnapshot({
         businessId: input.businessId,
-        startDate: resolvedStart,
-        endDate: resolvedEnd,
-        providerAccountIds: targetAccountIds,
-        includePrev: input.includePrev,
+        requestedDate: resolvedEnd,
+        scope: "campaigns",
       });
-      if (rows.length > 0) {
+      if (!hasUsableCurrentDaySnapshot(snapshot)) {
         return {
           status: "ok",
-          rows,
-          isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+          rows: [],
+          isPartial: true,
           notReadyReason:
-            historicalTruth && !historicalTruth.truthReady
-              ? getHistoricalVerificationReason({
-                  verificationState:
-                    historicalTruth.verificationState ??
-                    historicalTruth.state ??
-                    null,
-                  fallbackReason:
-                    "Campaign warehouse data is still being prepared for the requested range.",
-                })
-              : null,
+            buildCurrentDaySnapshotReason({
+              warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+            }),
+          ...snapshot,
         };
       }
+
+      const effectiveSnapshotDate = snapshot.effectiveEndDate!;
+      rows = (await getMetaWarehouseCampaignTable({
+        businessId: input.businessId,
+        startDate: effectiveSnapshotDate,
+        endDate: effectiveSnapshotDate,
+        providerAccountIds: targetAccountIds,
+        includePrev: input.includePrev,
+      })) as MetaCampaignRow[];
+      return {
+        status: "ok",
+        rows,
+        isPartial: false,
+        notReadyReason:
+          snapshot.isStaleSnapshot
+            ? buildCurrentDaySnapshotReason({
+                warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              })
+            : null,
+        ...snapshot,
+      };
     }
 
     rows = (await getMetaWarehouseCampaignTable({
@@ -196,5 +266,11 @@ export async function getMetaCampaignsForRange(input: {
               })
             : "Meta integration is not connected. Historical warehouse data will appear here once available."
           : null,
+    todayMode: undefined,
+    requestedEndDate: undefined,
+    effectiveEndDate: undefined,
+    warehouseReadyThroughDate: undefined,
+    lastWarehouseWriteAt: undefined,
+    isStaleSnapshot: undefined,
   };
 }

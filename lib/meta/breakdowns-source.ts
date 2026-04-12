@@ -1,7 +1,12 @@
+import {
+  hasUsableCurrentDaySnapshot,
+  type CurrentDayWarehouseSnapshotFields,
+} from "@/lib/current-day-snapshot";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaBreakdowns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
+import { resolveMetaCurrentDaySnapshot } from "@/lib/meta/current-day-snapshot";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
@@ -13,15 +18,16 @@ import {
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 
-export type MetaBreakdownsSourceResult = MetaBreakdownsResponse;
-export interface MetaCountryBreakdownsSourceResult {
+export type MetaBreakdownsSourceResult =
+  MetaBreakdownsResponse & CurrentDayWarehouseSnapshotFields;
+export type MetaCountryBreakdownsSourceResult = {
   status: MetaBreakdownsResponse["status"];
   rows: MetaBreakdownsResponse["location"];
   freshness: MetaWarehouseCountryBreakdownsResponse["freshness"] | null;
   verification: MetaWarehouseCountryBreakdownsResponse["verification"] | null;
   isPartial: boolean;
   notReadyReason: string | null;
-}
+} & CurrentDayWarehouseSnapshotFields;
 
 function getHistoricalVerificationReason(input: {
   verificationState?: string | null;
@@ -85,6 +91,26 @@ function emptyBreakdowns(
   };
 }
 
+function buildCurrentDaySnapshotReason(input: {
+  warehouseReadyThroughDate?: string | null;
+  currentDateInTimezone: string | null;
+  primaryAccountTimezone: string | null;
+  defaultReason: string;
+}) {
+  if (input.warehouseReadyThroughDate) {
+    const timezoneSuffix = input.primaryAccountTimezone
+      ? ` (${input.primaryAccountTimezone})`
+      : "";
+    return `Showing the latest warehouse snapshot ready through ${input.warehouseReadyThroughDate} while Meta prepares ${input.currentDateInTimezone ?? "the current account day"}${timezoneSuffix}.`;
+  }
+  return getMetaPartialReason({
+    isSelectedCurrentDay: true,
+    currentDateInTimezone: input.currentDateInTimezone,
+    primaryAccountTimezone: input.primaryAccountTimezone,
+    defaultReason: input.defaultReason,
+  });
+}
+
 export async function getMetaBreakdownsForRange(input: {
   businessId: string;
   startDate?: string | null;
@@ -144,12 +170,44 @@ export async function getMetaBreakdownsForRange(input: {
           endDate: resolvedEnd,
         }).catch(() => null)
       : null;
+  const currentDaySnapshot =
+    rangeContext.isSelectedCurrentDay
+      ? await resolveMetaCurrentDaySnapshot({
+          businessId: input.businessId,
+          requestedDate: resolvedEnd,
+          scope: "summary",
+        })
+      : null;
+  const effectiveStartDate =
+    rangeContext.isSelectedCurrentDay && currentDaySnapshot?.effectiveEndDate
+      ? currentDaySnapshot.effectiveEndDate
+      : resolvedStart;
+  const effectiveEndDate =
+    rangeContext.isSelectedCurrentDay && currentDaySnapshot?.effectiveEndDate
+      ? currentDaySnapshot.effectiveEndDate
+      : resolvedEnd;
+
+  if (rangeContext.isSelectedCurrentDay && !hasUsableCurrentDaySnapshot(currentDaySnapshot)) {
+    return {
+      ...emptyBreakdowns(
+        "ok",
+        buildCurrentDaySnapshotReason({
+          warehouseReadyThroughDate: currentDaySnapshot?.warehouseReadyThroughDate,
+          currentDateInTimezone: rangeContext.currentDateInTimezone,
+          primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+          defaultReason: "Breakdown warehouse data is still being prepared for the requested range.",
+        }),
+        true,
+      ),
+      ...(currentDaySnapshot ?? {}),
+    };
+  }
 
   try {
     const warehouse = await getMetaWarehouseBreakdowns({
       businessId: input.businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
       providerAccountIds: assignedAccountIds,
     });
     const hasWarehouseRows =
@@ -175,9 +233,22 @@ export async function getMetaBreakdownsForRange(input: {
           reason:
             "Top Products unavailable: product-level catalog breakdown is not available from current Meta insights endpoint/tokens.",
         },
-        isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+        isPartial:
+          rangeContext.isSelectedCurrentDay
+            ? false
+            : historicalTruth
+              ? !historicalTruth.truthReady
+              : false,
         notReadyReason:
-          historicalTruth && !historicalTruth.truthReady
+          rangeContext.isSelectedCurrentDay && currentDaySnapshot?.isStaleSnapshot
+            ? buildCurrentDaySnapshotReason({
+                warehouseReadyThroughDate: currentDaySnapshot.warehouseReadyThroughDate,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason:
+                  "Breakdown warehouse data is still being prepared for the requested range.",
+              })
+            : historicalTruth && !historicalTruth.truthReady
             ? getHistoricalVerificationReason({
                 verificationState:
                   historicalTruth.verificationState ?? historicalTruth.state ?? null,
@@ -185,6 +256,7 @@ export async function getMetaBreakdownsForRange(input: {
                   "Breakdown warehouse data is still being prepared for the requested range.",
               })
             : null,
+        ...(currentDaySnapshot ?? {}),
       };
     }
   } catch (error) {
@@ -301,12 +373,53 @@ export async function getMetaCountryBreakdownsForRange(input: {
           endDate: resolvedEnd,
         }).catch(() => null)
       : null;
+  const currentDaySnapshot =
+    rangeContext.isSelectedCurrentDay
+      ? await resolveMetaCurrentDaySnapshot({
+          businessId: input.businessId,
+          requestedDate: resolvedEnd,
+          scope: "summary",
+        })
+      : null;
+  const effectiveStartDate =
+    rangeContext.isSelectedCurrentDay && currentDaySnapshot?.effectiveEndDate
+      ? currentDaySnapshot.effectiveEndDate
+      : resolvedStart;
+  const effectiveEndDate =
+    rangeContext.isSelectedCurrentDay && currentDaySnapshot?.effectiveEndDate
+      ? currentDaySnapshot.effectiveEndDate
+      : resolvedEnd;
+
+  if (rangeContext.isSelectedCurrentDay && !hasUsableCurrentDaySnapshot(currentDaySnapshot)) {
+    return {
+      status: "ok",
+      rows: [],
+      freshness: {
+        dataState: "syncing",
+        lastSyncedAt: null,
+        liveRefreshedAt: null,
+        isPartial: true,
+        missingWindows: [],
+        warnings: [],
+      },
+      verification: null,
+      isPartial: true,
+      notReadyReason: buildCurrentDaySnapshotReason({
+        warehouseReadyThroughDate: currentDaySnapshot?.warehouseReadyThroughDate,
+        currentDateInTimezone: rangeContext.currentDateInTimezone,
+        primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+        defaultReason:
+          "Country breakdown warehouse data is still being prepared for the requested range.",
+      }),
+      ...(currentDaySnapshot ?? {}),
+    };
+  }
 
   try {
     const warehouse = await getMetaWarehouseCountryBreakdowns({
       businessId: input.businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
       providerAccountIds: assignedAccountIds,
     });
     if (warehouse.rows.length > 0) {
@@ -315,9 +428,22 @@ export async function getMetaCountryBreakdownsForRange(input: {
         rows: warehouse.rows,
         freshness: warehouse.freshness,
         verification: warehouse.verification ?? null,
-        isPartial: historicalTruth ? !historicalTruth.truthReady : Boolean(warehouse.isPartial),
+        isPartial:
+          rangeContext.isSelectedCurrentDay
+            ? false
+            : historicalTruth
+              ? !historicalTruth.truthReady
+              : Boolean(warehouse.isPartial),
         notReadyReason:
-          historicalTruth && !historicalTruth.truthReady
+          rangeContext.isSelectedCurrentDay && currentDaySnapshot?.isStaleSnapshot
+            ? buildCurrentDaySnapshotReason({
+                warehouseReadyThroughDate: currentDaySnapshot.warehouseReadyThroughDate,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason:
+                  "Country breakdown warehouse data is still being prepared for the requested range.",
+              })
+            : historicalTruth && !historicalTruth.truthReady
             ? getHistoricalVerificationReason({
                 verificationState:
                   historicalTruth.verificationState ?? historicalTruth.state ?? null,
@@ -325,6 +451,7 @@ export async function getMetaCountryBreakdownsForRange(input: {
                   "Country breakdown warehouse data is still being prepared for the requested range.",
               })
             : null,
+        ...(currentDaySnapshot ?? {}),
       };
     }
   } catch (error) {

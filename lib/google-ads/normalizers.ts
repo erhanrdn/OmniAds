@@ -1,7 +1,8 @@
 import { normalizeChannelType, normalizeCostMicros, normalizeStatus } from "@/lib/google-ads-gaql";
 import type { GoogleAdsReportFamilyMeta } from "@/lib/google-ads/intelligence-model";
+import type { CurrentDayWarehouseSnapshotFields } from "@/lib/current-day-snapshot";
 
-export interface GoogleAdsReportMeta {
+export interface GoogleAdsReportMeta extends CurrentDayWarehouseSnapshotFields {
   partial: boolean;
   warnings: string[];
   readSource?:
@@ -11,7 +12,8 @@ export interface GoogleAdsReportMeta {
     | "warehouse_campaign_daily_fallback"
     | "projection_fallback"
     | "provider_truth_unavailable"
-    | "live_overlay_current_day";
+    | "live_overlay_current_day"
+    | "warehouse_snapshot_current_day";
   overlayApplied?: boolean;
   warehouseSegmentEndDate?: string | null;
   liveSegmentStartDate?: string | null;

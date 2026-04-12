@@ -6,6 +6,11 @@ import { getIntegrationMetadata } from "@/lib/integrations";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
+  hasUsableCurrentDaySnapshot,
+  isGoogleAdsTodayLiveReadsEnabled,
+} from "@/lib/current-day-snapshot";
+import { resolveGoogleAdsCurrentDaySnapshot } from "@/lib/google-ads/current-day-snapshot";
+import {
   GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS,
   addDaysToIsoDate,
   dayCountInclusive,
@@ -318,7 +323,10 @@ function buildGoogleAdsStatusDomains(input: {
   coreUsable: boolean;
   selectedRangeCoreIncomplete: boolean;
   selectedRangePendingSurfaces: string[];
-  selectedRangeMode: "current_day_live" | "historical_warehouse";
+  selectedRangeMode:
+    | "current_day_live"
+    | "current_day_snapshot"
+    | "historical_warehouse";
   advisorReady: boolean;
   advisorNotReady: boolean;
   connected: boolean;
@@ -365,6 +373,16 @@ function buildGoogleAdsStatusDomains(input: {
             state: "ready" as const,
             label: "Selected range live",
             detail: "Current-day core coverage is served from the live overlay.",
+          }
+      : input.selectedRangeMode === "current_day_snapshot"
+        ? {
+            state: input.selectedRangeCoreIncomplete ? ("syncing" as const) : ("ready" as const),
+            label: input.selectedRangeCoreIncomplete
+              ? "Selected range snapshot"
+              : "Selected range ready",
+            detail: input.selectedRangeCoreIncomplete
+              ? "Current-day reads stay on the latest stable warehouse snapshot while fresh coverage prepares."
+              : "Current-day reads are served from the warehouse snapshot.",
           }
       : input.selectedRangePendingSurfaces.length > 0
         ? {
@@ -648,6 +666,16 @@ export async function GET(request: NextRequest) {
     Boolean(selectedStartDate && selectedEndDate) &&
     selectedStartDate === selectedEndDate &&
     selectedStartDate === currentDateInTimezone;
+  const todayLiveReadsEnabled = isGoogleAdsTodayLiveReadsEnabled();
+  const currentDaySnapshot =
+    selectedRangeIsToday && connected && accountIds.length > 0 && selectedEndDate && !todayLiveReadsEnabled
+      ? await resolveGoogleAdsCurrentDaySnapshot({
+          businessId: businessId!,
+          providerAccountId: accountIds.length === 1 ? accountIds[0] : null,
+          requestedDate: selectedEndDate,
+          scopes: ["account_daily", "campaign_daily"],
+        }).catch(() => null)
+      : null;
   const initialBackfillEnd = addDaysToIsoDate(currentDateInTimezone, -1);
   const initialBackfillStart = getHistoricalWindowStart(
     initialBackfillEnd,
@@ -916,9 +944,20 @@ export async function GET(request: NextRequest) {
       : null;
   const selectedRangeCompletedDays = selectedRangeCoverage?.completed_days ?? 0;
   const selectedRangeCoreIncomplete =
-    !selectedRangeIsToday &&
-    Boolean(selectedRangeTotalDays) &&
-    selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
+    selectedRangeIsToday
+      ? todayLiveReadsEnabled
+        ? false
+        : currentDaySnapshot?.isStaleSnapshot ?? true
+      : Boolean(selectedRangeTotalDays) &&
+        selectedRangeCompletedDays < (selectedRangeTotalDays ?? 0);
+  const selectedRangeSnapshotReadyThroughDate =
+    selectedRangeIsToday && !todayLiveReadsEnabled
+      ? currentDaySnapshot?.warehouseReadyThroughDate ?? null
+      : selectedRangeCoverage?.ready_through_date ?? null;
+  const selectedRangeLastWarehouseWriteAt =
+    selectedRangeIsToday && !todayLiveReadsEnabled
+      ? currentDaySnapshot?.lastWarehouseWriteAt ?? null
+      : selectedRangeCoverage?.latest_updated_at ?? null;
   const backgroundRunningJobs = Number(queueHealth?.leasedPartitions ?? 0);
   const priorityRunningJobs = 0;
   const staleBackgroundJobs = 0;
@@ -1230,7 +1269,10 @@ export async function GET(request: NextRequest) {
     missingSurfaces: surfaces.missing,
     advisorMissingSurfaces,
   });
-  const coreUsable = coreReadiness.coreUsable;
+  const coreUsable =
+    selectedRangeIsToday && !todayLiveReadsEnabled
+      ? hasUsableCurrentDaySnapshot(currentDaySnapshot)
+      : coreReadiness.coreUsable;
   const selectedCoverageByScope = {
     search_term_daily: selectedSearchTermCoverage,
     product_daily: selectedProductCoverage,
@@ -1386,20 +1428,49 @@ export async function GET(request: NextRequest) {
           summary: "Required Google Ads warehouse sync continues in the background.",
         }
       : null;
-  const currentDayLiveStatus = {
-    active: selectedRangeIsToday,
-    usingLiveOverlay: selectedRangeIsToday && coreUsable,
-    coreUsable: selectedRangeIsToday && coreUsable,
-    currentDate: selectedRangeIsToday ? currentDateInTimezone : null,
-    warehouseSegmentEndDate: selectedRangeIsToday
-      ? addDaysToIsoDateUtc(currentDateInTimezone, -1)
-      : null,
-    liveSegmentStartDate: selectedRangeIsToday ? currentDateInTimezone : null,
-  };
+  const currentDaySnapshotStatus =
+    selectedRangeIsToday && !todayLiveReadsEnabled
+      ? {
+          active: true,
+          requestedEndDate: selectedEndDate ?? null,
+          effectiveEndDate: currentDaySnapshot?.effectiveEndDate ?? null,
+          warehouseReadyThroughDate: currentDaySnapshot?.warehouseReadyThroughDate ?? null,
+          lastWarehouseWriteAt: currentDaySnapshot?.lastWarehouseWriteAt ?? null,
+          isStaleSnapshot: currentDaySnapshot?.isStaleSnapshot ?? true,
+        }
+      : null;
+  const currentDayLiveStatus =
+    selectedRangeIsToday && todayLiveReadsEnabled
+      ? {
+          active: true,
+          usingLiveOverlay: coreUsable,
+          coreUsable,
+          currentDate: currentDateInTimezone ?? selectedEndDate ?? null,
+          warehouseSegmentEndDate: currentDateInTimezone
+            ? addDaysToIsoDate(currentDateInTimezone, -1)
+            : selectedRangeCoverage?.ready_through_date ?? null,
+          liveSegmentStartDate: currentDateInTimezone ?? selectedEndDate ?? null,
+        }
+      : null;
   const selectedRangeReadinessBasis = {
-    mode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
-    warehouseCoverageIgnored: selectedRangeIsToday,
-    liveOverlayEligible: selectedRangeIsToday && coreUsable,
+    mode: selectedRangeIsToday
+      ? todayLiveReadsEnabled
+        ? "current_day_live"
+        : "current_day_snapshot"
+      : "historical_warehouse",
+    warehouseCoverageIgnored: selectedRangeIsToday && todayLiveReadsEnabled,
+    liveOverlayEligible: selectedRangeIsToday && todayLiveReadsEnabled && coreUsable,
+    usesWarehouseSnapshot: selectedRangeIsToday && !todayLiveReadsEnabled,
+    warehouseReadyThroughDate: selectedRangeSnapshotReadyThroughDate,
+    effectiveEndDate:
+      selectedRangeIsToday && !todayLiveReadsEnabled
+        ? currentDaySnapshot?.effectiveEndDate ?? null
+        : selectedEndDate ?? null,
+    lastWarehouseWriteAt: selectedRangeLastWarehouseWriteAt,
+    isStaleSnapshot:
+      selectedRangeIsToday && !todayLiveReadsEnabled
+        ? currentDaySnapshot?.isStaleSnapshot ?? true
+        : false,
   } as const;
   const historicalBackfillPercent = requiredScopeCompletion.percent;
   const historicalProgressSummary =
@@ -1441,9 +1512,13 @@ export async function GET(request: NextRequest) {
   const extendedLimited = majorSurfaceStates.some((surface) => surface.state !== "ready");
   const panelHeadline =
     coreUsable && extendedLimited
-      ? "Core metrics are live. Extended intelligence is backfilling."
+      ? todayLiveReadsEnabled
+        ? "Core metrics are live. Extended intelligence is backfilling."
+        : "Core metrics are on the latest warehouse snapshot. Extended intelligence is backfilling."
       : coreUsable
-        ? "Google Ads core metrics are live."
+        ? todayLiveReadsEnabled
+          ? "Google Ads core metrics are live."
+          : "Google Ads core metrics are served from the latest warehouse snapshot."
         : connected
           ? "Google Ads core metrics are still preparing."
           : "Connect Google Ads to start loading panel data.";
@@ -1555,7 +1630,7 @@ export async function GET(request: NextRequest) {
     coreUsable,
     selectedRangeCoreIncomplete,
     selectedRangePendingSurfaces,
-    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    selectedRangeMode: selectedRangeReadinessBasis.mode,
     advisorReady,
     advisorNotReady,
     connected,
@@ -1612,7 +1687,7 @@ export async function GET(request: NextRequest) {
     notReadyReason: summarizeStatusDegradedReason(statusDegradedReasons),
   });
   const dataContract = {
-    todayMode: "live_overlay",
+    todayMode: todayLiveReadsEnabled ? "live_overlay" : "warehouse_snapshot",
     historicalMode: "warehouse_only",
   } as const;
   const completionBasis = {
@@ -1638,7 +1713,7 @@ export async function GET(request: NextRequest) {
     primaryAccountTimezone,
     currentDateInTimezone,
     previousDateInTimezone: addDaysToIsoDateUtc(currentDateInTimezone, -1),
-    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    selectedRangeMode: selectedRangeReadinessBasis.mode,
     mixedCurrentDates:
       new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
     accounts: platformDateBoundaryAccounts,
@@ -1714,7 +1789,8 @@ export async function GET(request: NextRequest) {
     completionBasis,
     completionBlockers,
     globalSyncProgress,
-    currentDayLiveStatus,
+    currentDayLiveStatus: todayLiveReadsEnabled ? currentDayLiveStatus : null,
+    currentDaySnapshotStatus,
     selectedRangeReadinessBasis,
     requiredScopeCompletion,
     connected,
@@ -1728,6 +1804,17 @@ export async function GET(request: NextRequest) {
     assignedAccountIds: accountIds,
     primaryAccountTimezone,
     currentDateInTimezone,
+    requestedEndDate: selectedEndDate ?? null,
+    effectiveEndDate:
+      selectedRangeIsToday && !todayLiveReadsEnabled
+        ? currentDaySnapshot?.effectiveEndDate ?? null
+        : selectedEndDate ?? null,
+    warehouseReadyThroughDate: selectedRangeSnapshotReadyThroughDate,
+    lastWarehouseWriteAt: selectedRangeLastWarehouseWriteAt,
+    isStaleSnapshot:
+      selectedRangeIsToday && !todayLiveReadsEnabled
+        ? currentDaySnapshot?.isStaleSnapshot ?? true
+        : false,
     needsBootstrap,
     warehouse: {
       rowCount: Number(warehouseStats?.row_count ?? 0),
@@ -1746,7 +1833,7 @@ export async function GET(request: NextRequest) {
                 endDate: selectedEndDate,
                 completedDays: selectedRangeCompletedDays,
                 totalDays: selectedRangeTotalDays,
-                readyThroughDate: selectedRangeCoverage?.ready_through_date ?? null,
+                readyThroughDate: selectedRangeSnapshotReadyThroughDate,
                 isComplete: !selectedRangeCoreIncomplete,
               }
             : null,

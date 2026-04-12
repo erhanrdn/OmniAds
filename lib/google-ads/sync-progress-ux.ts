@@ -24,7 +24,8 @@ export function resolveGoogleAdsSyncProgress(
   if (
     status.requiredScopeCompletion &&
     !status.requiredScopeCompletion.complete &&
-    status.platformDateBoundary?.selectedRangeMode !== "current_day_live"
+    status.platformDateBoundary?.selectedRangeMode !== "current_day_live" &&
+    status.platformDateBoundary?.selectedRangeMode !== "current_day_snapshot"
   ) {
     return {
       kind: "historical",

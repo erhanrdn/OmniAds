@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { BusinessEmptyState } from "@/components/business/BusinessEmptyState";
 import { ErrorState } from "@/components/states/error-state";
 import { Badge } from "@/components/ui/badge";
@@ -155,6 +156,9 @@ export default function OverviewPage() {
   const [costModelSheetOpen, setCostModelSheetOpen] = useState(false);
   const [aiBriefRegenerating, setAiBriefRegenerating] = useState(false);
   const [aiBriefActionError, setAiBriefActionError] = useState<string | null>(null);
+  const [isSnapshotRefreshRunning, setIsSnapshotRefreshRunning] = useState(false);
+  const [currentDaySnapshotRequestedKey, setCurrentDaySnapshotRequestedKey] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const ensureBusiness = useIntegrationsStore((state) => state.ensureBusiness);
 
@@ -177,6 +181,9 @@ export default function OverviewPage() {
         );
   const compareMode: CompareMode =
     dateRange.comparisonPreset === "none" ? "none" : "previous_period";
+  const isTodayRange =
+    dateRange.rangePreset === "today" ||
+    (Boolean(startDate && endDate) && startDate === endDate && endDate === workspaceReferenceDate);
 
   const query = useQuery({
     queryKey: ["overview-summary", businessId, startDate, endDate, compareMode],
@@ -256,6 +263,121 @@ export default function OverviewPage() {
     }),
     [googleAdsStatusQuery.data, metaStatusQuery.data]
   );
+  const overviewSnapshotStatuses = useMemo(
+    () =>
+      [metaStatusQuery.data, googleAdsStatusQuery.data].filter(
+        (
+          status,
+        ): status is MetaStatusResponse | GoogleAdsStatusResponse =>
+          Boolean(status?.connected) &&
+          status?.dataContract?.todayMode === "warehouse_snapshot",
+      ),
+    [googleAdsStatusQuery.data, metaStatusQuery.data]
+  );
+  const isOverviewSnapshotMode = isTodayRange && overviewSnapshotStatuses.length > 0;
+  const overviewReadyThrough = useMemo(
+    () =>
+      overviewSnapshotStatuses
+        .map((status) => status.warehouseReadyThroughDate ?? status.effectiveEndDate ?? null)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))[0] ?? null,
+    [overviewSnapshotStatuses]
+  );
+  const overviewLastWarehouseWriteAt = useMemo(
+    () =>
+      overviewSnapshotStatuses
+        .map((status) => status.lastWarehouseWriteAt ?? null)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => right.localeCompare(left))[0] ?? null,
+    [overviewSnapshotStatuses]
+  );
+  const isOverviewSnapshotStale =
+    isOverviewSnapshotMode &&
+    overviewSnapshotStatuses.some((status) => status.isStaleSnapshot ?? false);
+  const isOverviewSnapshotSyncInProgress =
+    isOverviewSnapshotMode &&
+    (isSnapshotRefreshRunning ||
+      overviewSnapshotStatuses.some(
+        (status) =>
+          status.state === "syncing" ||
+          (("globalSyncProgress" in status ? status.globalSyncProgress?.visible : false) ??
+            false) ||
+          (status.jobHealth?.queueDepth ?? 0) > 0 ||
+          (status.jobHealth?.leasedPartitions ?? 0) > 0,
+      ));
+  const currentDaySnapshotStatusKey =
+    isOverviewSnapshotMode && startDate && endDate
+      ? `${businessId}:${startDate}:${endDate}:${overviewReadyThrough ?? "none"}`
+      : null;
+  const readyThroughLabel = overviewReadyThrough
+    ? new Date(`${overviewReadyThrough}T00:00:00.000Z`).toLocaleDateString()
+    : null;
+  const lastWarehouseWriteLabel = overviewLastWarehouseWriteAt
+    ? new Date(overviewLastWarehouseWriteAt).toLocaleString()
+    : null;
+
+  async function triggerCurrentDaySnapshotRefresh() {
+    if (!businessId || !isOverviewSnapshotMode) return;
+    setIsSnapshotRefreshRunning(true);
+    try {
+      const refreshRequests: Promise<Response>[] = [];
+      if (metaStatusQuery.data?.connected) {
+        refreshRequests.push(
+          fetch("/api/sync/refresh", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              businessId,
+              provider: "meta",
+              mode: "current_day_snapshot",
+            }),
+          }),
+        );
+      }
+      if (googleAdsStatusQuery.data?.connected) {
+        refreshRequests.push(
+          fetch("/api/sync/refresh", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              businessId,
+              provider: "google_ads",
+              mode: "current_day_snapshot",
+            }),
+          }),
+        );
+      }
+      await Promise.all(refreshRequests);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["overview-summary", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["overview-sparklines", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["overview-meta-status", businessId] }),
+        queryClient.invalidateQueries({ queryKey: ["overview-google-ads-status", businessId] }),
+      ]);
+    } finally {
+      setIsSnapshotRefreshRunning(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isOverviewSnapshotMode || !currentDaySnapshotStatusKey) return;
+    if (!isOverviewSnapshotStale || isOverviewSnapshotSyncInProgress) return;
+    if (currentDaySnapshotRequestedKey === currentDaySnapshotStatusKey) return;
+    setCurrentDaySnapshotRequestedKey(currentDaySnapshotStatusKey);
+    void triggerCurrentDaySnapshotRefresh();
+  }, [
+    currentDaySnapshotRequestedKey,
+    currentDaySnapshotStatusKey,
+    isOverviewSnapshotMode,
+    isOverviewSnapshotStale,
+    isOverviewSnapshotSyncInProgress,
+  ]);
 
   const handleRegenerateAiBrief = async () => {
     if (!businessId || aiBriefRegenerating) return;
@@ -350,6 +472,12 @@ export default function OverviewPage() {
             ...(ga4Connected ? (["ga4"] as const) : []),
           ])
         )}
+        isTodayRange={isTodayRange}
+        isWarehouseSnapshotMode={isOverviewSnapshotMode}
+        readyThroughLabel={readyThroughLabel}
+        lastWarehouseWriteLabel={lastWarehouseWriteLabel}
+        snapshotSyncInProgress={isOverviewSnapshotSyncInProgress}
+        onSyncSnapshot={() => void triggerCurrentDaySnapshotRefresh()}
       />
 
       <SummarySection
@@ -613,6 +741,12 @@ function DataStatusRow({
   referenceDate,
   timeZoneLabel,
   platformProviders = [],
+  isTodayRange,
+  isWarehouseSnapshotMode,
+  readyThroughLabel,
+  lastWarehouseWriteLabel,
+  snapshotSyncInProgress,
+  onSyncSnapshot,
 }: {
   dateRange: DateRangeValue;
   onDateRangeChange: (value: DateRangeValue) => void;
@@ -620,6 +754,12 @@ function DataStatusRow({
   referenceDate: string;
   timeZoneLabel: string;
   platformProviders?: string[];
+  isTodayRange: boolean;
+  isWarehouseSnapshotMode: boolean;
+  readyThroughLabel?: string | null;
+  lastWarehouseWriteLabel?: string | null;
+  snapshotSyncInProgress?: boolean;
+  onSyncSnapshot?: () => void;
 }) {
   const shopifyBadge = shopifyServing
     ? shopifyServing.source === "ledger"
@@ -673,6 +813,32 @@ function DataStatusRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+          {isWarehouseSnapshotMode ? (
+            <div className="flex flex-col items-end gap-1 text-right">
+              <p className="text-xs text-slate-500">
+                {readyThroughLabel ? `Ready through ${readyThroughLabel}` : "Ready through pending"}
+              </p>
+              {lastWarehouseWriteLabel ? (
+                <p className="text-xs text-slate-500">
+                  Last warehouse write {lastWarehouseWriteLabel}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {isTodayRange ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl"
+              onClick={onSyncSnapshot}
+              disabled={!isWarehouseSnapshotMode || snapshotSyncInProgress}
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${snapshotSyncInProgress ? "animate-spin" : ""}`}
+              />
+              {snapshotSyncInProgress ? "Sync in progress" : "Sync snapshot"}
+            </Button>
+          ) : null}
           <DateRangePicker
             value={dateRange}
             onChange={onDateRangeChange}

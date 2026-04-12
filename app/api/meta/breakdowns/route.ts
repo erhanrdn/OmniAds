@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import type { CurrentDayWarehouseSnapshotFields } from "@/lib/current-day-snapshot";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
@@ -39,7 +40,7 @@ interface AggregatedBreakdownRow {
   impressions: number;
 }
 
-export interface MetaBreakdownsResponse {
+export interface MetaBreakdownsResponse extends CurrentDayWarehouseSnapshotFields {
   status?:
     | "ok"
     | "no_access_token"
