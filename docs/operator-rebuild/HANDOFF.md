@@ -2,20 +2,22 @@
 
 ## Current Objective
 
-Rebuild the OmniAds operator-facing Meta and Creative surfaces into a clear, operator-first workflow. Current repo/runtime truth is authoritative. The accepted Step 2 rebuild specification remains the governing design contract, and accepted Step 3 now defines the shared authority foundation that later page rebuild work must build on.
+Rebuild the OmniAds operator-facing Meta and Creative surfaces into a clear, operator-first workflow. Current repo/runtime truth is authoritative. The accepted Step 2 rebuild specification remains the governing design contract. Step 3 established the shared authority foundation. Step 4 now completes the first real Creative page unification pass on top of that foundation.
 
 ## Current Step
 
-Continuity is repaired to accepted Step 3 truth. Step 3 is complete and its accepted product baseline is live on `ad3d1ac...`. `main` now carries docs-only continuity repair work on top of that live baseline. Step 4 has not started.
+Step 4 is complete in repo on implementation SHA `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Creative now has one operator-facing authority in repo, with quick filters derived from the unified Creative Decision OS action model. Live/runtime still serves the accepted Step 3 baseline on `ad3d1ac52fa7c6dec381351c45005342511077ac`. Step 5 has not started.
 
 ## Current Repo State
 
 * current branch: `main`
-* accepted Step 3 closure / live product SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`
+* Step 4 implementation SHA: `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`
+* repo SHA before Step 4 started: `3a9144d95d41c29298902989bd9824a963189ca0`
+* previous accepted Step 3 live product SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * Step 3 implementation SHA: `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`
 * Step 2 accepted spec commit: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * current live SHA if verified: `ad3d1ac52fa7c6dec381351c45005342511077ac` verified via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority` on April 12, 2026
-* release-authority posture: live/runtime currently serves the accepted Step 3 product baseline on `ad3d1ac...`; remote `main` is ahead only because of docs-only continuity repair commits
+* release-authority posture: live/runtime still serves the Step 3 baseline; repo `main` now carries the Step 4 Creative unification candidate and updated authority docs, so live-vs-main drift remains expected until deploy advances
 
 ## Current Working Model
 
@@ -27,6 +29,13 @@ Continuity is repaired to accepted Step 3 truth. Step 3 is complete and its acce
 * `HANDOFF.md` is durable and must reflect the latest accepted state
 * User reports completion back in chat
 * ChatGPT reads the latest repo state and defines the next step
+
+## Continuity Integrity Rule
+
+* A step is not complete until `HANDOFF.md`, `LATEST_REPORT.md`, and `STATUS.md` all reflect the latest accepted state
+* New Codex chats must read handoff first, then latest report, then verify repo/live truth
+* Temporary report content is replaced each step
+* Durable accepted continuity stays in `HANDOFF.md`
 
 ## Step Lifecycle
 
@@ -55,40 +64,38 @@ Continuity is repaired to accepted Step 3 truth. Step 3 is complete and its acce
 
 ## Latest Accepted Findings
 
-- Step 3 shipped one shared operator authority contract across Meta and Creative.
-- Meta now leads with one compressed authority summary; Command Center and account-context notes are supporting context rather than competing headline voices.
-- Creative now uses the shared authority summary and compressed row wording at the top layer; deeper Decision OS reasoning is secondary and detail-on-demand.
-- Truth-capped profitable states and preview/readiness caps are first-class operator states.
-- Thin-signal and no-materiality rows no longer headline default action surfaces.
-- Creative `Decision Signals` / legacy segmentation and `Creative Decision OS` should not survive as separate operator-facing authorities. Step 4 must collapse remaining Creative operator authority into one model.
-- Quick filters such as `TEST MORE` and `PAUSE` are still useful, but later work should re-derive them from the unified Creative action model rather than preserve them as an independent legacy authority surface.
+- Step 4 removed the standalone top-level Creative `Decision Signals` operator strip from the table flow.
+- Creative now exposes one operator-facing authority: the shared Creative authority summary backed by Creative Decision OS.
+- Quick filters now come from one unified mapping over Creative Decision OS states: `SCALE`, `TEST MORE`, `PAUSE`, `NEEDS TRUTH`, `BLOCKED`, and `NO ACTION`.
+- The preview strip/grid and the table now respond to the same page-level quick-filter state, so counts and filtered rows stay coherent.
+- The drawer now uses the same quick-filter model instead of a separate queue vocabulary.
+- Release-authority docs and repo inventory now treat `Decision Signals` as legacy compatibility rather than a live peer operator surface.
 
 ## Open Problems / Blockers
 
-- Creative drawer/detail still exposes too much legacy Decision OS structure after the Step 3 top-layer cutover.
-- Meta selected-campaign detail still mixes older supporting surfaces after the new top-level authority cutover.
 - Preview/media truth remains the primary Creative trust blocker.
-- Real-account benchmark walkthrough evidence is still missing for Step 3.
+- Creative detail and drawer surfaces are still denser than the top layer.
+- Meta selected-campaign detail still mixes older supporting surfaces after the Step 3 authority cutover.
+- Real-account benchmark walkthrough evidence is still missing for Step 4.
+- Live has not yet advanced to the Step 4 repo candidate.
 
 ## Explicitly Out Of Scope
 
-- Starting Step 4 automatically
-- Reintroducing multiple competing operator authorities
-- Preserving `Creative Decision Signals` / legacy segmentation as a separate top-level authority
-- Treating quick filters as a separate source of truth instead of a projection from the unified Creative authority model
+- Starting Step 5 automatically
+- Reintroducing multiple competing operator authorities on Creative
+- Treating quick filters as a separate decision system instead of a projection from Creative Decision OS
+- Solving preview/media truth plumbing in full during this step
 - Turning this file into a long historical log
 
 ## Next Recommended Step
 
-Step 4 should be a page-specific rebuild, not another authority proliferation step. Default recommendation:
+Step 5 should rebuild the Meta page information architecture around the shared authority contract:
 
-1. Rebuild the Meta page information architecture around the shared authority contract first.
-2. Remove any remaining Meta top-level legacy authority surfaces that still compete with the shared summary.
-3. Then rebuild the Creative page so one Creative authority owns the top layer and drawer/detail only support it.
-4. Re-derive quick filters such as `TEST MORE` and `PAUSE` from the unified Creative action model rather than preserve them as legacy segmentation.
-
-If current repo/runtime truth later shows a better ordering, GPT can choose Creative first, but the no-competing-authorities rule should hold either way.
+1. Remove any remaining Meta top-level surfaces that still compete with the shared summary.
+2. Keep Command Center and account-context panels secondary to one Meta action authority.
+3. Re-check whether Creative detail density still warrants a follow-up cleanup after the Meta rebuild.
+4. Continue to treat preview/media truth as a trust dependency, not as a reason to reintroduce duplicate Creative authorities.
 
 ## Next Chat Bootstrap
 
-Do not start Step 4 automatically. Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Check `docs/operator-rebuild-staging/STATUS.md` for the current baseline. Verify current repo/runtime truth before acting. Accepted Step 3 closure / live product SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`. Step 3 implementation SHA: `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`. Benchmark businesses: `Grandmix`, `IwaStore`, `TheSwaf`. Step 3 is done and continuity is repaired. Only start Step 4 if the next chat explicitly assigns it.
+Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Check `docs/operator-rebuild-staging/STATUS.md` for the latest accepted repo baseline. Verify current repo/runtime truth before acting. Step 4 implementation SHA is `9bd5d736c13031c14f1bc19bc48142eb6f7dbf8a`. Verified live SHA remains `ad3d1ac52fa7c6dec381351c45005342511077ac` as of April 12, 2026. Step 4 is complete in repo but not yet observed live. Do not start Step 5 unless the next chat explicitly assigns it.
