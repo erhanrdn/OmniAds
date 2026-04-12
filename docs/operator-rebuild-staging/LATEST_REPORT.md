@@ -21,6 +21,7 @@
   - local browser observation of the current Meta and Creative surfaces using the seeded smoke operator account
   - direct runtime/API/DB truth for real businesses `Grandmix`, `IwaStore`, and `TheSwaf`
   - live build verification through production build info
+  - continuity handoff captured in `docs/operator-rebuild/HANDOFF.md` so future steps can resume cleanly if chat context is lost
 - Whether browser evidence was available: yes for the current local surfaces. Direct browser access to `Grandmix`, `IwaStore`, and `TheSwaf` was not available in this pass because the smoke browser account did not have those business memberships.
 - Whether real-business evidence was available: yes. Real-business evidence came from current response payloads, current database state, and current runtime outputs for `Grandmix`, `IwaStore`, and `TheSwaf`.
 - Any important limitations:
