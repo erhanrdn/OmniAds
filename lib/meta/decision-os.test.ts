@@ -768,7 +768,7 @@ describe("buildMetaDecisionOs", () => {
       trust: {
         surfaceLane: "watchlist",
         truthState: "degraded_missing_truth",
-        operatorDisposition: "degraded_no_scale",
+        operatorDisposition: "profitable_truth_capped",
       },
     });
     expect(result.summary.geoSummary).toMatchObject({

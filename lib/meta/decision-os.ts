@@ -36,11 +36,13 @@ import type {
 import type {
   DecisionEvidenceFloor,
   DecisionOperatorDisposition,
+  DecisionOpportunityQueueVerdict,
   DecisionPolicyExplanation,
   DecisionReadReliability,
   DecisionOpportunityQueueEligibility,
   DecisionSourceHealthEntry,
   DecisionSurfaceLane,
+  DecisionSurfaceReadiness,
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
 
@@ -227,6 +229,12 @@ export interface MetaCampaignDecision {
   laneLabel: "Scaling" | "Validation" | "Test" | null;
   policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
+  creativeCandidates?: {
+    count: number;
+    labels: string[];
+    summary: string;
+  } | null;
+  missingCreativeAsk?: string[];
 }
 
 export interface MetaAdSetDecision {
@@ -261,6 +269,7 @@ export interface MetaAdSetDecision {
   noTouch: boolean;
   policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
+  missingCreativeAsk?: string[];
 }
 
 export interface MetaBudgetShift {
@@ -384,6 +393,9 @@ export interface MetaOpportunityBoardItem {
     id: string;
     label: string;
   }>;
+  creativeCandidates?: string[];
+  missingCreativeAsk?: string[];
+  queueVerdict?: DecisionOpportunityQueueVerdict;
 }
 
 export interface MetaDecisionOsSummary {
@@ -409,7 +421,9 @@ export interface MetaDecisionOsSummary {
     watchlistCount: number;
     archiveCount: number;
     degradedCount: number;
+    profitableTruthCappedCount?: number;
   };
+  readiness?: DecisionSurfaceReadiness;
   opportunitySummary: {
     totalCount: number;
     queueEligibleCount: number;
@@ -1338,7 +1352,7 @@ function buildGeoAction(input: {
           truthState: "degraded_missing_truth",
           operatorDisposition:
             action === "scale" || action === "isolate"
-              ? "degraded_no_scale"
+              ? "profitable_truth_capped"
               : action === "cut"
                 ? "review_reduce"
                 : "monitor_low_truth",
@@ -1883,7 +1897,7 @@ function buildAdSetDecision(input: {
       strategyClass = "review_hold";
       actionSize = "none";
       confidence = Math.min(confidence, 0.68);
-      fallbackDisposition = "degraded_no_scale";
+      fallbackDisposition = "profitable_truth_capped";
       winnerState = "degraded";
       secondaryDriverPool.push(primaryDriver);
       primaryDriver = "degraded_truth_cap";
@@ -2173,6 +2187,9 @@ function buildCampaignDecision(input: {
   const degradedFromAdSets = input.adSetDecisions.some(
     (decision) => decision.trust.truthState === "degraded_missing_truth",
   );
+  const profitableTruthCappedFromAdSets = input.adSetDecisions.some(
+    (decision) => decision.trust.operatorDisposition === "profitable_truth_capped",
+  );
   const archiveContext =
     isArchiveMetaCampaign(input.campaign) ||
     input.adSetDecisions.every(
@@ -2215,7 +2232,11 @@ function buildCampaignDecision(input: {
           surfaceLane: watchlistAction ? "watchlist" : "action_core",
           truthState: "degraded_missing_truth",
           operatorDisposition:
-            primaryAction === "reduce_budget" ? "review_reduce" : "review_hold",
+            primaryAction === "reduce_budget"
+              ? "review_reduce"
+              : profitableTruthCappedFromAdSets
+                ? "profitable_truth_capped"
+                : "review_hold",
           entityState,
           materiality,
           freshness: input.operatingMode?.authority?.freshness,
@@ -2304,6 +2325,8 @@ function buildCampaignDecision(input: {
         : undefined,
     },
     trust,
+    creativeCandidates: null,
+    missingCreativeAsk: [],
   };
 }
 
@@ -2926,6 +2949,8 @@ function buildSummary(input: {
   commercialTruth: BusinessCommercialTruthSnapshot;
 }): MetaDecisionOsSummary {
   const commercialCoverage = input.commercialTruth.coverage;
+  const readinessMissingInputs = input.operatingMode?.missingInputs ?? [];
+  const readinessExpectedDays = 30;
   const topAdSetActions = [...input.adSetDecisions]
     .filter((decision) => decision.trust.surfaceLane === "action_core")
     .sort(
@@ -3013,6 +3038,31 @@ function buildSummary(input: {
             detail:
               "The surface is still readable, but operators should expect board-only or trust-capped outcomes until freshness improves.",
           };
+  const readiness: DecisionSurfaceReadiness = {
+    daysExpected: readinessExpectedDays,
+    daysReady:
+      readReliability.status === "stable"
+        ? readinessExpectedDays
+        : readReliability.status === "fallback"
+          ? Math.max(
+              10,
+              readinessExpectedDays -
+                Math.max(1, readinessMissingInputs.length) * 5,
+            )
+          : Math.max(3, readinessExpectedDays - 24),
+    missingInputs: readinessMissingInputs,
+    suppressedActionClasses: Array.from(
+      new Set(
+        [
+          ...(commercialCoverage?.actionCeilings ?? []),
+          ...surfaceRows
+            .filter((row) => row.operatorDisposition === "profitable_truth_capped")
+            .map(() => "scale_budget"),
+        ].filter(Boolean),
+      ),
+    ),
+    previewCoverage: null,
+  };
 
   return {
     todayPlanHeadline:
@@ -3061,7 +3111,11 @@ function buildSummary(input: {
       degradedCount: surfaceRows.filter(
         (row) => row.truthState === "degraded_missing_truth",
       ).length,
+      profitableTruthCappedCount: surfaceRows.filter(
+        (row) => row.operatorDisposition === "profitable_truth_capped",
+      ).length,
     },
+    readiness,
     opportunitySummary: {
       totalCount: input.opportunityBoard.length,
       queueEligibleCount: input.opportunityBoard.filter(
@@ -3281,6 +3335,7 @@ export function buildMetaDecisionOs(
       commercialTruthCoverage.missingInputs.length > 0
         ? "Meta Decision OS remains available but trust-capped by missing commercial truth."
         : "Meta Decision OS is operating on the live decision window with shared trust-kernel suppression.",
+    readiness: summary.readiness,
     sourceHealth: summary.sourceHealth,
     readReliability: summary.readReliability,
   });

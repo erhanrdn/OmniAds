@@ -50,8 +50,8 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       { kind: "doc", path: "docs/phase-03-meta-decision-os.md", label: "Phase 03 Meta Decision OS" },
     ],
     notes: [
-      "Recommendations remain operator-visible and deterministic.",
-      "Decision OS supplements this surface but does not rename it.",
+      "The compatibility route remains live, but the visible panel now renders action context derived from the Meta Decision OS authority snapshot.",
+      "This surface no longer carries an independent decision voice.",
     ],
   },
   {
@@ -75,6 +75,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       "Allowlist posture remains visible without exposing business IDs.",
       "GEO V2 uses dedicated country-only serving so GEO rows can stay live even when broader breakdown surfaces are partial.",
       "Meta Strategy Engine V2 adds additive policy metadata and a read-only winner scale candidate board without changing the execution subset.",
+      "Additive creative linkage and profitable-truth-capped readiness are current when the surface is enabled.",
     ],
   },
   {
@@ -97,8 +98,9 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     ],
     notes: [
       "Creative Decision OS stays deterministic and read-only.",
-      "The current baseline opens the surface in a dedicated resizable drawer instead of a long inline page section.",
+      "The current baseline opens the surface in a dedicated resizable drawer with operator-review wording instead of a long inline page section.",
       "Additive economics floors, deployment compatibility, protected winners, and supply planning are current when the surface is enabled.",
+      "Preview truth now exposes honest ready/degraded/missing review states and gates AI interpretation accordingly.",
       "A separate selected-period historical analysis panel is additive and analysis-only; it does not change Decision Signals or live decision authority.",
       "The surface is current only when the Creative Decision OS flag posture permits it.",
     ],

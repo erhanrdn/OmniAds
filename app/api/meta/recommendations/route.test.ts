@@ -15,8 +15,47 @@ vi.mock("@/lib/request-language", () => ({
   resolveRequestLanguage: vi.fn(),
 }));
 
+vi.mock("@/lib/creative-decision-os-config", () => ({
+  isCreativeDecisionOsV1EnabledForBusiness: vi.fn(() => false),
+}));
+
+vi.mock("@/lib/creative-decision-os-source", () => ({
+  getCreativeDecisionOsForRange: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/breakdowns-source", () => ({
+  getMetaBreakdownsForRange: vi.fn(async () => ({
+    status: "ok",
+    age: [],
+    location: [],
+    placement: [],
+    budget: { campaign: [], adset: [] },
+    audience: { available: false, reason: "n/a" },
+    products: { available: false, reason: "n/a" },
+    isPartial: false,
+    notReadyReason: null,
+  })),
+}));
+
+vi.mock("@/lib/meta/campaigns-source", () => ({
+  getMetaCampaignsForRange: vi.fn(async () => ({
+    status: "ok",
+    rows: [],
+    isPartial: false,
+    notReadyReason: null,
+  })),
+}));
+
 vi.mock("@/lib/meta/config-snapshots", () => ({
   readMetaBidRegimeHistorySummaries: vi.fn(),
+}));
+
+vi.mock("@/lib/meta/decision-os-config", () => ({
+  isMetaDecisionOsV1EnabledForBusiness: vi.fn(() => false),
+}));
+
+vi.mock("@/lib/meta/decision-os-source", () => ({
+  getMetaDecisionOsForRange: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/recommendations", () => ({
@@ -62,6 +101,9 @@ vi.mock("@/lib/meta/creative-score-service", () => ({
 
 const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
+const campaignsSource = await import("@/lib/meta/campaigns-source");
+const breakdownsSource = await import("@/lib/meta/breakdowns-source");
+const decisionOsConfig = await import("@/lib/meta/decision-os-config");
 const requestLanguage = await import("@/lib/request-language");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 
@@ -74,34 +116,11 @@ describe("GET /api/meta/recommendations", () => {
     });
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
     vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
+    vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(false);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: string | URL | Request) => {
-        const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
-        const pathname = url.pathname;
-
-        if (pathname === "/api/meta/campaigns") {
-          return new Response(JSON.stringify({ rows: [] }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-
-        if (pathname === "/api/meta/breakdowns") {
-          return new Response(JSON.stringify({ rows: [], summary: null }), {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
-        }
-
-        return new Response("not found", { status: 404 });
-      })
-    );
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
   it("loads creative scoring from the score snapshot service without creative history fanout", async () => {
@@ -111,16 +130,12 @@ describe("GET /api/meta/recommendations", () => {
       )
     );
     const payload = await response.json();
-    const calls = vi.mocked(global.fetch).mock.calls.map(([input]) => {
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
-      return url.pathname;
-    });
 
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
     assertMetaRecommendationsPageContract(payload);
-    expect(calls).not.toContain("/api/meta/creatives");
-    expect(calls).not.toContain("/api/meta/creatives/history");
+    expect(campaignsSource.getMetaCampaignsForRange).toHaveBeenCalled();
+    expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalled();
   });
 
   it("keeps the intentional snapshot-backed bid regime analysis path", async () => {

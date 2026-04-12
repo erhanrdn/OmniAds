@@ -13,6 +13,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useCurrencySymbol } from "@/hooks/use-currency";
+import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
@@ -151,6 +152,103 @@ function MetaCommandCenterCard({
           Snoozed {snoozedCount}
         </span>
       </div>
+    </div>
+  );
+}
+
+function actionTone(action: string) {
+  if (action === "pause" || action === "cut" || action === "reduce_budget") {
+    return "bg-red-500/10 text-red-700";
+  }
+  if (action === "scale_budget" || action === "recover") {
+    return "bg-emerald-500/10 text-emerald-700";
+  }
+  if (action === "rebuild" || action === "review_hold") {
+    return "bg-amber-500/10 text-amber-700";
+  }
+  return "bg-slate-100 text-slate-700";
+}
+
+function trustTone(disposition: string) {
+  if (disposition === "profitable_truth_capped") return "bg-fuchsia-500/10 text-fuchsia-700";
+  if (disposition === "protected_watchlist") return "bg-blue-500/10 text-blue-700";
+  if (disposition === "review_hold" || disposition === "review_reduce") return "bg-amber-500/10 text-amber-700";
+  if (disposition === "monitor_low_truth") return "bg-sky-500/10 text-sky-700";
+  if (disposition === "archive_only") return "bg-slate-100 text-slate-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function CampaignOperatorHeadline({
+  recommendation,
+  campaignDecision,
+}: {
+  recommendation: MetaRecommendation | null;
+  campaignDecision: MetaDecisionOsV1Response["campaigns"][number] | null;
+}) {
+  if (!recommendation && !campaignDecision) return null;
+
+  return (
+    <div
+      className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm"
+      data-testid="meta-campaign-operator-headline"
+    >
+      <div className="flex flex-wrap items-center gap-2.5">
+        {campaignDecision ? (
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              actionTone(campaignDecision.primaryAction),
+            )}
+          >
+            {campaignDecision.primaryAction.replaceAll("_", " ")}
+          </span>
+        ) : recommendation ? (
+          <DecisionBadge state={recommendation.decisionState} />
+        ) : null}
+        {campaignDecision?.trust?.operatorDisposition &&
+        campaignDecision.trust.operatorDisposition !== "standard" ? (
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              trustTone(campaignDecision.trust.operatorDisposition),
+            )}
+          >
+            {campaignDecision.trust.operatorDisposition.replaceAll("_", " ")}
+          </span>
+        ) : null}
+        <p className="text-[11px] text-slate-500">
+          {campaignDecision
+            ? "Unified operator authority"
+            : recommendation?.title ?? "Derived operator guidance"}
+        </p>
+      </div>
+      <p className="mt-2.5 text-base font-semibold leading-snug text-slate-950">
+        {campaignDecision
+          ? campaignDecision.why
+          : recommendation?.recommendedAction ?? "No operator headline available."}
+      </p>
+      {campaignDecision?.creativeCandidates?.count ? (
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          {campaignDecision.creativeCandidates.summary}
+        </p>
+      ) : recommendation?.why ? (
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">{recommendation.why}</p>
+      ) : null}
+      {(recommendation?.evidence.length ?? 0) > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {recommendation?.evidence.slice(0, 3).map((ev) => (
+            <div
+              key={ev.label}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm"
+            >
+              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                {ev.label}
+              </p>
+              <p className="text-xs font-semibold text-slate-800">{ev.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -341,37 +439,63 @@ interface AccountOverviewProps {
 }
 
 function AccountOverview(props: AccountOverviewProps) {
+  const metaOperatorPreset = usePreferencesStore((state) => state.metaOperatorPreset);
+
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
       <MetaCommandCenterCard
         actions={props.commandCenterActions}
         href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
       />
-      <MetaOperatingModeCard
-        businessId={props.businessId}
-        startDate={props.since}
-        endDate={props.until}
-      />
       <MetaDecisionOsOverview
         decisionOs={props.decisionOsData}
         isLoading={props.isDecisionOsLoading}
       />
-      <MetaAccountRecs
-        recommendationsData={props.recommendationsData}
-        isRecsLoading={props.isRecsLoading}
-        lastAnalyzedAt={props.lastAnalyzedAt}
-        checkedRecIds={props.checkedRecIds}
-        onToggleCheck={props.onToggleCheck}
-        onAnalyze={props.onAnalyze}
-        analysisError={props.recommendationsError}
-        language={props.language}
-      />
-      <MetaBreakdownGrid
-        ageRows={props.ageRows}
-        placementRows={props.placementRows}
-        isLoading={props.isBreakdownLoading}
-        language={props.language}
-      />
+      {metaOperatorPreset === "creative_rich" ? (
+        <>
+          <MetaAccountRecs
+            recommendationsData={props.recommendationsData}
+            isRecsLoading={props.isRecsLoading}
+            lastAnalyzedAt={props.lastAnalyzedAt}
+            checkedRecIds={props.checkedRecIds}
+            onToggleCheck={props.onToggleCheck}
+            onAnalyze={props.onAnalyze}
+            analysisError={props.recommendationsError}
+            language={props.language}
+          />
+          <MetaOperatingModeCard
+            businessId={props.businessId}
+            startDate={props.since}
+            endDate={props.until}
+          />
+        </>
+      ) : (
+        <>
+          <MetaOperatingModeCard
+            businessId={props.businessId}
+            startDate={props.since}
+            endDate={props.until}
+          />
+          <MetaAccountRecs
+            recommendationsData={props.recommendationsData}
+            isRecsLoading={props.isRecsLoading}
+            lastAnalyzedAt={props.lastAnalyzedAt}
+            checkedRecIds={props.checkedRecIds}
+            onToggleCheck={props.onToggleCheck}
+            onAnalyze={props.onAnalyze}
+            analysisError={props.recommendationsError}
+            language={props.language}
+          />
+        </>
+      )}
+      {metaOperatorPreset !== "media_limited" ? (
+        <MetaBreakdownGrid
+          ageRows={props.ageRows}
+          placementRows={props.placementRows}
+          isLoading={props.isBreakdownLoading}
+          language={props.language}
+        />
+      ) : null}
     </div>
   );
 }
@@ -493,39 +617,10 @@ export function MetaCampaignDetail({
         href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
       />
 
-      {/* Recommendation */}
-      {rec && (
-        <div
-          className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm"
-          data-testid="meta-campaign-recommendation"
-        >
-          <div className="flex items-center gap-2.5">
-            <DecisionBadge state={rec.decisionState} />
-            <p className="text-[11px] text-slate-500">{rec.title}</p>
-          </div>
-          <p className="mt-2.5 text-base font-semibold leading-snug text-slate-950">
-            {rec.recommendedAction}
-          </p>
-          {rec.evidence.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {rec.evidence.slice(0, 3).map((ev) => (
-                <div
-                  key={ev.label}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm"
-                >
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                    {ev.label}
-                  </p>
-                  <p className="text-xs font-semibold text-slate-800">{ev.value}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {rec.why && (
-            <p className="mt-3 text-xs leading-relaxed text-slate-500">{rec.why}</p>
-          )}
-        </div>
-      )}
+      <CampaignOperatorHeadline
+        recommendation={rec}
+        campaignDecision={campaignDecision}
+      />
 
       <MetaCampaignDecisionPanel
         campaignDecision={campaignDecision}

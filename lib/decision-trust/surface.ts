@@ -21,6 +21,7 @@ export function buildDecisionSurfaceAuthority(input: {
   archiveCount: number;
   suppressedCount?: number;
   note: string;
+  readiness?: DecisionSurfaceAuthority["readiness"];
   sourceHealth?: DecisionSurfaceAuthority["sourceHealth"];
   readReliability?: DecisionSurfaceAuthority["readReliability"];
 }): DecisionSurfaceAuthority {
@@ -36,6 +37,7 @@ export function buildDecisionSurfaceAuthority(input: {
     archiveCount: input.archiveCount,
     suppressedCount: input.suppressedCount ?? input.watchlistCount + input.archiveCount,
     note: input.note,
+    readiness: input.readiness ?? null,
     sourceHealth: input.sourceHealth ?? [],
     readReliability: input.readReliability ?? null,
   };

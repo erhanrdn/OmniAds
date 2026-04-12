@@ -19,6 +19,7 @@ import {
 } from "@/lib/decision-trust/policy";
 import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
+import { resolveCreativePreviewManifest } from "@/lib/meta/creatives-preview";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
@@ -28,11 +29,13 @@ import type {
 import type {
   DecisionEvidenceFloor,
   DecisionOperatorDisposition,
+  DecisionOpportunityQueueVerdict,
   DecisionPolicyExplanation,
   DecisionReadReliability,
   DecisionOpportunityQueueEligibility,
   DecisionSourceHealthEntry,
   DecisionSurfaceLane,
+  DecisionSurfaceReadiness,
   DecisionTrustMetadata,
 } from "@/src/types/decision-trust";
 import {
@@ -153,6 +156,11 @@ export interface CreativeDecisionOsInputRow {
   creativeFormat?: "image" | "video" | "catalog";
   previewUrl?: string | null;
   imageUrl?: string | null;
+  thumbnailUrl?: string | null;
+  tableThumbnailUrl?: string | null;
+  cardPreviewUrl?: string | null;
+  cachedThumbnailUrl?: string | null;
+  previewManifest?: import("@/lib/meta/creatives-types").CreativePreviewManifest | null;
   creativeAgeDays: number;
   spendVelocity: number;
   frequency: number;
@@ -232,6 +240,7 @@ export interface CreativeDecisionDeploymentRecommendation {
   metaFamily: MetaCampaignFamily;
   metaFamilyLabel: string;
   targetLane: MetaCampaignLaneLabel | null;
+  eligibleLanes?: MetaCampaignLaneLabel[];
   targetAdSetRole: CreativeDecisionAdSetRole;
   preferredCampaignIds: string[];
   preferredCampaignNames: string[];
@@ -240,6 +249,9 @@ export interface CreativeDecisionDeploymentRecommendation {
   geoContext: CreativeDecisionGeoContext;
   constraints: string[];
   whatWouldChangeThisDecision: string[];
+  queueVerdict?: DecisionOpportunityQueueVerdict;
+  queueSummary?: string;
+  blockedReasons?: string[];
   compatibility: {
     status: CreativeDecisionDeploymentCompatibilityStatus;
     objectiveFamily: string | null;
@@ -283,6 +295,17 @@ export interface CreativeDecisionPatternReference {
   hook: string;
   angle: string;
   format: string;
+}
+
+export type CreativeDecisionPreviewReviewState =
+  | "ready"
+  | "metrics_only_degraded"
+  | "missing";
+
+export interface CreativeDecisionPreviewStatus {
+  selectedWindow: "ready" | "missing";
+  liveDecisionWindow: CreativeDecisionPreviewReviewState;
+  reason: string | null;
 }
 
 export interface CreativeRuleReportFactor {
@@ -369,6 +392,7 @@ export interface CreativeDecisionOsCreative {
   policy?: CreativeDecisionPolicy;
   familyProvenance: CreativeDecisionFamilyProvenance;
   deployment: CreativeDecisionDeploymentRecommendation;
+  previewStatus?: CreativeDecisionPreviewStatus;
   pattern: CreativeDecisionPatternReference;
   report: CreativeRuleReportPayload;
   trust: DecisionTrustMetadata;
@@ -547,7 +571,9 @@ export interface CreativeDecisionOsV1Response {
       watchlistCount: number;
       archiveCount: number;
       degradedCount: number;
+      profitableTruthCappedCount?: number;
     };
+    readiness?: DecisionSurfaceReadiness;
     opportunitySummary: {
       totalCount: number;
       queueEligibleCount: number;
@@ -1454,7 +1480,7 @@ function buildCreativeTrust(input: {
       return compileDecisionTrust({
         surfaceLane: "watchlist",
         truthState: "degraded_missing_truth",
-        operatorDisposition: "degraded_no_scale",
+        operatorDisposition: "profitable_truth_capped",
         entityState,
         materiality,
         freshness,
@@ -1467,7 +1493,7 @@ function buildCreativeTrust(input: {
         return compileDecisionTrust({
           surfaceLane: "watchlist",
           truthState: "degraded_missing_truth",
-          operatorDisposition: "degraded_no_scale",
+          operatorDisposition: "profitable_truth_capped",
           entityState,
           materiality,
           freshness,
@@ -1626,6 +1652,13 @@ function buildDeployment(
           : activeFamilyCampaigns.length > 0
             ? "limited"
             : "blocked";
+  const eligibleLanes = Array.from(
+    new Set(
+      activeFamilyCampaigns
+        .map((campaign) => resolveCampaignLane(campaign, laneSignals))
+        .filter((lane): lane is MetaCampaignLaneLabel => lane !== null),
+    ),
+  );
 
   const constraints = [...(input.operatingMode?.guardrails ?? [])];
   if (input.operatingMode?.recommendedMode === "Margin Protect") {
@@ -1647,11 +1680,37 @@ function buildDeployment(
     input.confidence < 0.62 ? "Higher signal depth would improve target precision." : "Keep monitoring efficiency drift after deployment.",
     topGeo ? `A major change in ${topGeo.label ?? topGeo.key} performance would re-rank the deployment lane.` : "Authoritative GEO context would sharpen deployment targeting.",
   ];
+  const queueVerdict: DecisionOpportunityQueueVerdict =
+    input.primaryAction === "hold_no_touch"
+      ? "protected"
+      : input.primaryAction === "promote_to_scaling" &&
+          compatibilityStatus === "compatible"
+        ? "queue_ready"
+        : input.primaryAction === "promote_to_scaling" ||
+            input.primaryAction === "keep_in_test" ||
+            input.primaryAction === "retest_comeback"
+          ? "board_only"
+          : "blocked";
+  const blockedReasons =
+    compatibilityReasons.length > 0
+      ? compatibilityReasons.slice(0, 4)
+      : queueVerdict === "blocked"
+        ? constraints.slice(0, 4)
+        : [];
+  const queueSummary =
+    queueVerdict === "queue_ready"
+      ? "Compatible lane and ad set coverage are present, so this can enter the default operator queue."
+      : queueVerdict === "protected"
+        ? "Winner stays visible for guardrails but is intentionally excluded from the active work queue."
+        : queueVerdict === "blocked"
+          ? blockedReasons[0] ?? "This creative is blocked from queue intake until deployment or truth blockers clear."
+          : "This stays visible on the board for operator context, but it should not appear as default queue work.";
 
   return {
     metaFamily: input.metaFamily,
     metaFamilyLabel: metaCampaignFamilyLabel(input.metaFamily),
     targetLane,
+    eligibleLanes,
     targetAdSetRole,
     preferredCampaignIds: input.confidence >= 0.56 ? matchedCampaigns.slice(0, 3).map((campaign) => campaign.id) : [],
     preferredCampaignNames: input.confidence >= 0.56 ? matchedCampaigns.slice(0, 3).map((campaign) => campaign.name) : [],
@@ -1660,6 +1719,9 @@ function buildDeployment(
     geoContext,
     constraints: constraints.slice(0, 4),
     whatWouldChangeThisDecision: whatWouldChangeThisDecision.slice(0, 4),
+    queueVerdict,
+    queueSummary,
+    blockedReasons,
     compatibility: {
       status: compatibilityStatus,
       objectiveFamily,
@@ -1677,6 +1739,43 @@ function buildPattern(row: CreativeDecisionOsInputRow): CreativeDecisionPatternR
     hook: row.aiTags?.hookTactic?.[0] ?? row.headlineVariants?.[0] ?? row.taxonomyPrimaryLabel ?? "unlabeled_hook",
     angle: row.aiTags?.messagingAngle?.[0] ?? row.taxonomySecondaryLabel ?? "unlabeled_angle",
     format: row.creativeFormat ?? "image",
+  };
+}
+
+function buildPreviewStatus(row: CreativeDecisionOsInputRow): CreativeDecisionPreviewStatus {
+  const manifest = resolveCreativePreviewManifest({
+    previewManifest: row.previewManifest ?? null,
+    previewUrl: row.previewUrl ?? null,
+    imageUrl: row.imageUrl ?? null,
+    thumbnailUrl: row.thumbnailUrl ?? null,
+    tableThumbnailUrl: row.tableThumbnailUrl ?? null,
+    cardPreviewUrl: row.cardPreviewUrl ?? null,
+    cachedThumbnailUrl: row.cachedThumbnailUrl ?? null,
+  });
+  const selectedWindow = manifest?.render_state && manifest.render_state !== "missing"
+    ? "ready"
+    : "missing";
+
+  if (manifest?.live_html_available) {
+    return {
+      selectedWindow,
+      liveDecisionWindow: "ready",
+      reason: "Live decision-window preview is available from Meta.",
+    };
+  }
+
+  if (selectedWindow === "ready") {
+    return {
+      selectedWindow,
+      liveDecisionWindow: "metrics_only_degraded",
+      reason: "Static media is available, but live decision-window preview is degraded to metrics-only mode.",
+    };
+  }
+
+  return {
+    selectedWindow: "missing",
+    liveDecisionWindow: "missing",
+    reason: "No renderable preview sources are available for this creative.",
   };
 }
 
@@ -2091,27 +2190,27 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
   const definitions = [
     {
       key: "promotion" as const,
-      label: "Promotion queue",
-      summary: "Scale-ready creatives that can move into scaling lanes.",
+      label: "Queue-ready",
+      summary: "Scale-ready creatives with compatible deployment lanes.",
       match: (creative: CreativeDecisionOsCreative) => creative.primaryAction === "promote_to_scaling",
     },
     {
       key: "keep_testing" as const,
-      label: "Keep testing",
-      summary: "Incubating and validating creatives that still need bounded test volume.",
+      label: "Board-only / test",
+      summary: "Incubating and validating creatives that stay visible but out of the default queue.",
       match: (creative: CreativeDecisionOsCreative) => creative.primaryAction === "keep_in_test",
     },
     {
       key: "fatigued_blocked" as const,
-      label: "Fatigued / blocked",
-      summary: "Creatives that should be refreshed or held back from deployment.",
+      label: "Watch-only / blocked",
+      summary: "Creatives that should be refreshed or held out of deployment.",
       match: (creative: CreativeDecisionOsCreative) =>
         creative.primaryAction === "refresh_replace" || creative.primaryAction === "block_deploy",
     },
     {
       key: "comeback" as const,
-      label: "Comeback",
-      summary: "Former winners worth a tightly-bounded retest.",
+      label: "Board-only / comeback",
+      summary: "Former winners worth a tightly-bounded retest, not default queue work.",
       match: (creative: CreativeDecisionOsCreative) => creative.primaryAction === "retest_comeback",
     },
   ];
@@ -2520,6 +2619,17 @@ export function buildCreativeDecisionOs(
         commercialTruthCoverage.missingInputs.length > 0
           ? "Creative Decision OS has no live rows and remains trust-capped by incomplete commercial truth."
           : "Creative Decision OS has no live rows in the current decision window.",
+      readiness: {
+        daysReady: 0,
+        daysExpected: 30,
+        missingInputs: commercialTruthCoverage.missingInputs,
+        suppressedActionClasses: commercialTruthCoverage.summary?.actionCeilings ?? [],
+        previewCoverage: {
+          readyCount: 0,
+          degradedCount: 0,
+          missingCount: 0,
+        },
+      },
       sourceHealth: emptySourceHealth,
       readReliability: emptyReadReliability,
     });
@@ -2560,6 +2670,18 @@ export function buildCreativeDecisionOs(
           watchlistCount: 0,
           archiveCount: 0,
           degradedCount: 0,
+          profitableTruthCappedCount: 0,
+        },
+        readiness: {
+          daysReady: 0,
+          daysExpected: 30,
+          missingInputs: commercialTruthCoverage.missingInputs,
+          suppressedActionClasses: commercialTruthCoverage.summary?.actionCeilings ?? [],
+          previewCoverage: {
+            readyCount: 0,
+            degradedCount: 0,
+            missingCount: 0,
+          },
         },
       },
       creatives: [],
@@ -2665,6 +2787,7 @@ export function buildCreativeDecisionOs(
       confidence,
     });
     const pattern = buildPattern(row);
+    const previewStatus = buildPreviewStatus(row);
     const summary = buildSummary(
       resolvedPrimaryAction,
       lifecycleState,
@@ -2814,6 +2937,7 @@ export function buildCreativeDecisionOs(
       policy: policyEnvelope.policy,
       familyProvenance,
       deployment,
+      previewStatus,
       pattern,
       report,
       trust,
@@ -2978,6 +3102,41 @@ export function buildCreativeDecisionOs(
     degradedCount: creatives.filter(
       (creative) => creative.trust.truthState === "degraded_missing_truth",
     ).length,
+    profitableTruthCappedCount: creatives.filter(
+      (creative) => creative.trust.operatorDisposition === "profitable_truth_capped",
+    ).length,
+  };
+  const previewCoverage = {
+    readyCount: creatives.filter(
+      (creative) => creative.previewStatus?.liveDecisionWindow === "ready",
+    ).length,
+    degradedCount: creatives.filter(
+      (creative) => creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded",
+    ).length,
+    missingCount: creatives.filter(
+      (creative) => creative.previewStatus?.liveDecisionWindow === "missing",
+    ).length,
+  };
+  const readiness: DecisionSurfaceReadiness = {
+    daysExpected: 30,
+    daysReady:
+      readReliability.status === "stable"
+        ? 30
+        : readReliability.status === "fallback"
+          ? Math.max(8, 30 - Math.max(1, commercialTruthCoverage.missingInputs.length) * 4)
+          : Math.max(0, previewCoverage.readyCount > 0 ? 7 : 0),
+    missingInputs: commercialTruthCoverage.missingInputs,
+    suppressedActionClasses: Array.from(
+      new Set(
+        [
+          ...(commercialTruthCoverage.summary?.actionCeilings ?? []),
+          ...creatives
+            .filter((creative) => creative.trust.operatorDisposition === "profitable_truth_capped")
+            .map(() => "promote_to_scaling"),
+        ].filter(Boolean),
+      ),
+    ),
+    previewCoverage,
   };
   const authority = buildDecisionSurfaceAuthority({
     scope: "Creative Decision OS",
@@ -3003,6 +3162,7 @@ export function buildCreativeDecisionOs(
       commercialTruthCoverage.missingInputs.length > 0
         ? "Creative Decision OS remains visible but caps aggressive actions until truth coverage improves."
         : "Creative Decision OS is using the shared trust kernel without active truth caps.",
+    readiness,
     sourceHealth,
     readReliability,
   });
@@ -3055,6 +3215,7 @@ export function buildCreativeDecisionOs(
       sourceHealth,
       readReliability,
       surfaceSummary,
+      readiness,
     },
     creatives,
     families: sortedFamilies,

@@ -2,12 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoMetaBreakdowns, getDemoMetaCampaigns } from "@/lib/demo-business";
-import { buildMetaRecommendations, type MetaRecommendationsResponse } from "@/lib/meta/recommendations";
+import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
+import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
+import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
+import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
+import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
+import { attachCreativeLinkage } from "@/lib/meta/decision-os-linkage";
+import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
+import {
+  buildMetaRecommendations,
+  buildMetaRecommendationsFromDecisionOs,
+  type MetaRecommendationsResponse,
+} from "@/lib/meta/recommendations";
 import { readMetaBidRegimeHistorySummaries } from "@/lib/meta/config-snapshots";
 import { buildMetaCreativeIntelligence } from "@/lib/meta/creative-intelligence";
 import { getCreativeScoreSnapshot } from "@/lib/meta/creative-score-service";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { META_WAREHOUSE_HISTORY_DAYS } from "@/lib/meta/history";
 
@@ -29,27 +41,6 @@ function dayDiffInclusive(startDate: string, endDate: string): number {
   const start = parseISODate(startDate).getTime();
   const end = parseISODate(endDate).getTime();
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
-}
-
-async function fetchInternalJson<T>(
-  request: NextRequest,
-  pathname: string,
-  params: URLSearchParams
-): Promise<T> {
-  const url = new URL(pathname, request.nextUrl.origin);
-  url.search = params.toString();
-  const res = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-      cookie: request.headers.get("cookie") ?? "",
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    const payload = await res.text().catch(() => "");
-    throw new Error(`Internal fetch failed (${pathname} ${res.status}): ${payload.slice(0, 200)}`);
-  }
-  return res.json() as Promise<T>;
 }
 
 export async function GET(request: NextRequest) {
@@ -94,6 +85,42 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  try {
+    let unifiedDecisionOs = null as MetaDecisionOsV1Response | null;
+
+    if (isMetaDecisionOsV1EnabledForBusiness(businessId)) {
+      unifiedDecisionOs = await getMetaDecisionOsForRange({
+        businessId,
+        startDate,
+        endDate,
+      });
+
+      if (isCreativeDecisionOsV1EnabledForBusiness(businessId)) {
+        try {
+          const creativeDecisionOs = await getCreativeDecisionOsForRange({
+            request,
+            businessId,
+            startDate,
+            endDate,
+          });
+          unifiedDecisionOs = attachCreativeLinkage(unifiedDecisionOs, creativeDecisionOs);
+        } catch {
+          // Creative linkage is additive only for the compatibility surface.
+        }
+      }
+    }
+
+    if (!unifiedDecisionOs) {
+      throw new Error("meta_decision_os_unavailable");
+    }
+
+    return NextResponse.json(
+      buildMetaRecommendationsFromDecisionOs(unifiedDecisionOs, language),
+    );
+  } catch {
+    // Fall back to the snapshot-backed builder when the Decision OS route is unavailable.
+  }
+
   const selectedSpanDays = dayDiffInclusive(startDate, endDate);
   const previousEnd = addDaysToISO(startDate, -1);
   const previousStart = addDaysToISO(previousEnd, -(selectedSpanDays - 1));
@@ -118,51 +145,56 @@ export async function GET(request: NextRequest) {
     breakdowns,
     creativeScoreSnapshot,
   ] = await Promise.all([
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate, endDate, includePrev: "1" })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: previousStart, endDate: previousEnd })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: last3Start, endDate })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: last7Start, endDate })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: last14Start, endDate })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: last30Start, endDate })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: last90Start, endDate })
-    ),
-    fetchInternalJson<{ rows: MetaCampaignRow[] }>(
-      request,
-      "/api/meta/campaigns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate: allHistoryStart, endDate })
-    ),
-    fetchInternalJson<MetaBreakdownsResponse>(
-      request,
-      "/api/meta/breakdowns",
-      new URLSearchParams({ ...Object.fromEntries(baseParams), startDate, endDate })
-    ),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate,
+      endDate,
+      includePrev: true,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: previousStart,
+      endDate: previousEnd,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: last3Start,
+      endDate,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: last7Start,
+      endDate,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: last14Start,
+      endDate,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: last30Start,
+      endDate,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: last90Start,
+      endDate,
+    }),
+    getMetaCampaignsForRange({
+      ...Object.fromEntries(baseParams),
+      businessId,
+      startDate: allHistoryStart,
+      endDate,
+    }),
+    getMetaBreakdownsForRange({ businessId, startDate, endDate }),
     getCreativeScoreSnapshot({
       request,
       businessId,

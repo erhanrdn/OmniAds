@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
+import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
+import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
+import { attachCreativeLinkage } from "@/lib/meta/decision-os-linkage";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
 import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
@@ -52,6 +56,31 @@ export async function GET(request: NextRequest) {
     startDate,
     endDate,
   });
+
+  if (!isCreativeDecisionOsV1EnabledForBusiness(businessId)) {
+    return NextResponse.json(payload satisfies MetaDecisionOsV1Response, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  try {
+    const creativePayload = await getCreativeDecisionOsForRange({
+      request,
+      businessId,
+      startDate,
+      endDate,
+    });
+    const linkedPayload = attachCreativeLinkage(
+      payload,
+      creativePayload satisfies CreativeDecisionOsV1Response,
+    );
+
+    return NextResponse.json(linkedPayload satisfies MetaDecisionOsV1Response, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch {
+    // Linkage is additive only; fall back to the base Meta payload when Creative OS is unavailable.
+  }
 
   return NextResponse.json(payload satisfies MetaDecisionOsV1Response, {
     headers: { "Cache-Control": "no-store" },

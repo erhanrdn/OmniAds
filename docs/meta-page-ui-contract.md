@@ -57,8 +57,8 @@ Serving split currently used by the page:
   - current page route currently serves `lib/meta/serving.ts#getMetaWarehouseBreakdowns`
   - readiness/coverage for the breakdown surfaces is tracked independently in `app/api/meta/status/route.ts`
 - Recommendations: `app/api/meta/recommendations/route.ts`
-  - deterministic decision-engine surface
-  - keeps snapshot-backed historical bid regime analysis via `lib/meta/config-snapshots.ts`
+  - compatibility route for deterministic action-context cards
+  - prefers a Meta Decision OS-derived authority snapshot when that surface is available, and falls back to snapshot-backed historical bid regime analysis otherwise
 - Meta Decision OS: `app/api/meta/decision-os/route.ts`
   - deterministic, versioned, read-only operator decision surface
   - built by `lib/meta/decision-os.ts`

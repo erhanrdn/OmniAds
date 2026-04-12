@@ -393,8 +393,8 @@ describe("CreativeDecisionOsOverview", () => {
       />,
     );
 
-    expect(html).toContain("Recommendations");
-    expect(html).toContain("Creative Decision OS");
+    expect(html).toContain("Operator Review");
+    expect(html).toContain("Creative Operator Console");
     expect(html).toContain("Creative Authority");
     expect(html).toContain("Policy Review");
     expect(html).toContain("candidate active");

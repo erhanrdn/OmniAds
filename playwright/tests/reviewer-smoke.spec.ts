@@ -34,8 +34,8 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("meta-geo-board")).toBeVisible();
   await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
   await expect(page.getByTestId("meta-recommendations-panel")).toBeVisible();
-  await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Recommendations");
-  await expect(page.getByTestId("meta-recommendations-run")).toContainText(/Run Recommendations|Refresh Recommendations/);
+  await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Action Context");
+  await expect(page.getByTestId("meta-recommendations-run")).toContainText(/Refresh Context/);
 
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
   await expect(campaignListItems.first()).toBeVisible();
@@ -105,7 +105,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   expect(totalAfterQueueFilter).toBeGreaterThan(0);
   expect(totalAfterQueueFilter).toBeLessThanOrEqual(totalBeforeFilter);
   await page.getByLabel("Close Creative Decision OS").click();
-  await expect(page.getByText("Decision OS filter: Promotion queue")).toBeVisible();
+  await expect(page.getByText("Decision OS filter: Queue-ready")).toBeVisible();
   await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');
@@ -120,9 +120,16 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
   const commentarySection = page.getByTestId("creative-detail-ai-commentary");
   await expect(commentarySection).toBeVisible();
-  await commentarySection.getByRole("button", { name: /Generate AI interpretation|Refresh interpretation/ }).click();
-  await expect(commentarySection).toContainText(/Opportunities|Next actions|Risks|AI interpretation is temporarily unavailable/, {
-    timeout: 45_000,
+  const commentaryButton = commentarySection.getByRole("button", {
+    name: /Generate AI interpretation|Refresh interpretation/,
   });
+  if (await commentaryButton.count()) {
+    await commentaryButton.click();
+    await expect(commentarySection).toContainText(/Opportunities|Next actions|Risks|AI interpretation is temporarily unavailable/, {
+      timeout: 45_000,
+    });
+  } else {
+    await expect(commentarySection).toContainText(/AI interpretation stays disabled|AI interpretation is temporarily unavailable/);
+  }
   await page.screenshot({ path: testInfo.outputPath("creatives-smoke.png"), fullPage: true });
 });

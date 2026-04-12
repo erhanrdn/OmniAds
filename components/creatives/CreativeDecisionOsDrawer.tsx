@@ -126,9 +126,9 @@ export function CreativeDecisionOsDrawer({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Recommendations
+                Operator Review
               </p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Creative Decision OS</h2>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">Creative Operator Console</h2>
               <p className="mt-1 max-w-3xl text-sm text-slate-600">
                 {decisionOs?.summary.message ?? "Loading the live decision surface for the current creative window."}
               </p>

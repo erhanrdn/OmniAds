@@ -150,6 +150,7 @@ export function CreativeDecisionOsOverview({
   const configuredSectionCount = Object.values(
     decisionOs.commercialTruthCoverage.configuredSections,
   ).filter(Boolean).length;
+  const readiness = decisionOs.summary.readiness ?? decisionOs.authority?.readiness ?? null;
   const policyCreatives = decisionOs.creatives
     .filter((creative) => creative.policy?.explanation)
     .slice(0, 4);
@@ -167,10 +168,10 @@ export function CreativeDecisionOsOverview({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Recommendations
+              Operator Review
             </p>
             <h2 className="mt-1 text-lg font-semibold text-slate-950">
-              Creative Decision OS
+              Creative Operator Console
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">
               {decisionOs.summary.message}
@@ -213,6 +214,7 @@ export function CreativeDecisionOsOverview({
           ["Watchlist", decisionOs.summary.surfaceSummary.watchlistCount],
           ["Archive", decisionOs.summary.surfaceSummary.archiveCount],
           ["Degraded", decisionOs.summary.surfaceSummary.degradedCount],
+          ["Truth-capped", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
           ["Protected winners", decisionOs.summary.protectedWinnerCount],
           ["Supply plan", decisionOs.summary.supplyPlanCount],
           ["Opportunities", decisionOs.summary.opportunitySummary.totalCount],
@@ -223,6 +225,39 @@ export function CreativeDecisionOsOverview({
           </div>
         ))}
       </div>
+
+      {readiness ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Readiness</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-950">
+              {readiness.daysReady}/{readiness.daysExpected}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">days ready for operator review</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Suppressed actions</p>
+            <p className="mt-1 text-sm font-semibold text-slate-950">
+              {readiness.suppressedActionClasses.length > 0
+                ? readiness.suppressedActionClasses.join(", ").replaceAll("_", " ")
+                : "none"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {readiness.missingInputs.length > 0
+                ? `Missing: ${readiness.missingInputs.join(", ")}`
+                : "No missing inputs"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Preview coverage</p>
+            <p className="mt-1 text-sm font-semibold text-slate-950">
+              {readiness.previewCoverage
+                ? `ready ${readiness.previewCoverage.readyCount} · degraded ${readiness.previewCoverage.degradedCount} · missing ${readiness.previewCoverage.missingCount}`
+                : "Unavailable"}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <DecisionAuthorityPanel
         authority={decisionOs.authority}

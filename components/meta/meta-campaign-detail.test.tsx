@@ -256,8 +256,9 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("Campaign One");
     expect(html).toContain("Sales");
     expect(html).toContain("ACTIVE");
-    expect(html).toContain("Raise budget");
-    expect(html).toContain("Increase budget");
+    expect(html).toContain("scale budget");
+    expect(html).toContain("Winning lane");
+    expect(html).toContain("Winning campaign");
     expect(html).toContain("campaign-decision:Prospecting Scale");
     expect(html).toContain("Budget");
     expect(html).toContain("Ad Sets");

@@ -3,9 +3,9 @@
 /**
  * components/meta/meta-account-recs.tsx
  *
- * Account-level recommendations.
- * - Before analysis: "Run Recommendations" button
- * - After analysis: compact grid cards, click to expand full detail
+ * Account-level derived operator context.
+ * - Before analysis: "Refresh context" button
+ * - After analysis: compact cards derived from the same authority snapshot
  */
 
 import { useState } from "react";
@@ -199,12 +199,12 @@ export function MetaAccountRecs({
     <div className="space-y-4" data-testid="meta-recommendations-panel">
       <div className="space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-          {language === "tr" ? "Öneriler" : "Recommendations"}
+          {language === "tr" ? "Aksiyon Bağlamı" : "Action Context"}
         </p>
         <p className="text-xs text-slate-500">
           {language === "tr"
-            ? "Seçili aralıktaki Meta performansına göre öneriler."
-            : "Recommendations based on selected-range Meta performance."}
+            ? "Meta Decision OS ile aynı authority snapshot’ından türetilen hesap seviyesi bağlam."
+            : "Account context derived from the same authority snapshot as Meta Decision OS."}
         </p>
       </div>
 
@@ -229,13 +229,13 @@ export function MetaAccountRecs({
               {language === "tr" ? "Çalıştırılıyor..." : "Running..."}
             </>
           ) : lastAnalyzedAt === null ? (
-            language === "tr" ? "Önerileri Çalıştır" : "Run Recommendations"
+            language === "tr" ? "Bağlamı Yenile" : "Refresh Context"
           ) : canReanalyze ? (
-            language === "tr" ? "Önerileri Yenile" : "Refresh Recommendations"
+            language === "tr" ? "Bağlamı Yenile" : "Refresh Context"
           ) : (
             language === "tr"
-              ? `Yeniden çalıştırmak için tüm önerileri işaretle (${checkedRecIds.size}/${accountRecs.length})`
-              : `Check all to refresh (${checkedRecIds.size}/${accountRecs.length})`
+              ? `Yenilemek için tüm maddeleri işaretle (${checkedRecIds.size}/${accountRecs.length})`
+              : `Check all items before refresh (${checkedRecIds.size}/${accountRecs.length})`
           )}
         </button>
         {lastAnalyzedAt && (

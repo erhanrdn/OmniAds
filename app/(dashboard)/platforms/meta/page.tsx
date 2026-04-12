@@ -671,6 +671,8 @@ export default function MetaPage() {
   const language = "en" as "en" | "tr";
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
+  const metaOperatorPreset = usePreferencesStore((state) => state.metaOperatorPreset);
+  const setMetaOperatorPreset = usePreferencesStore((state) => state.setMetaOperatorPreset);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1250,6 +1252,26 @@ export default function MetaPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight">Meta Ads</h1>
+            <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 text-[11px]">
+              {[
+                ["action_first", "Action-first"],
+                ["creative_rich", "Creative-rich"],
+                ["media_limited", "Media-limited"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setMetaOperatorPreset(value as typeof metaOperatorPreset)}
+                  className={
+                    metaOperatorPreset === value
+                      ? "rounded-full bg-slate-900 px-2.5 py-1 font-medium text-white"
+                      : "rounded-full px-2.5 py-1 text-slate-600 hover:bg-slate-50"
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             {metaConnected && historicalProgressStatus ? (
               <ProviderReadinessIndicator
                 readinessLevel={historicalProgressStatus.readinessLevel}
@@ -1486,6 +1508,8 @@ export default function MetaPage() {
                   primaryAction: decision.primaryAction,
                   noTouch: decision.noTouch,
                   confidence: decision.confidence,
+                  creativeCandidates: decision.creativeCandidates ?? null,
+                  trust: decision.trust,
                 },
               ])
             );

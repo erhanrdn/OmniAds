@@ -397,7 +397,7 @@ describe("buildCreativeDecisionOs", () => {
 
     const byId = new Map(payload.creatives.map((creative) => [creative.creativeId, creative]));
 
-    expect(byId.get("scale")?.trust.operatorDisposition).toBe("degraded_no_scale");
+    expect(byId.get("scale")?.trust.operatorDisposition).toBe("profitable_truth_capped");
     expect(byId.get("scale")?.trust.surfaceLane).toBe("watchlist");
     expect(byId.get("scale")?.trust.evidence).toMatchObject({
       completeness: "partial",

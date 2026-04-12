@@ -49,6 +49,13 @@ function formatRequiredSection(value: string) {
     .toLowerCase();
 }
 
+function formatPreviewCoverage(
+  previewCoverage: NonNullable<DecisionSurfaceAuthority["readiness"]>["previewCoverage"],
+) {
+  if (!previewCoverage) return "No preview coverage data";
+  return `ready ${previewCoverage.readyCount} · degraded ${previewCoverage.degradedCount} · missing ${previewCoverage.missingCount}`;
+}
+
 export function DecisionAuthorityPanel({
   authority,
   commercialSummary,
@@ -204,6 +211,44 @@ export function DecisionAuthorityPanel({
               {(commercialSummary?.calibration.channels ?? []).length > 0
                 ? commercialSummary?.calibration.channels.join(", ")
                 : "No calibration profiles"}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {authority?.readiness ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+              Readiness Window
+            </p>
+            <p className="mt-1 text-xs">
+              {authority.readiness.daysReady}/{authority.readiness.daysExpected} days ready
+            </p>
+            <p className="mt-1 text-xs">
+              {authority.readiness.missingInputs.length > 0
+                ? authority.readiness.missingInputs.join(" · ")
+                : "No missing inputs"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+              Suppressed Actions
+            </p>
+            <p className="mt-1 text-xs">
+              {authority.readiness.suppressedActionClasses.length > 0
+                ? authority.readiness.suppressedActionClasses
+                    .map((item) => formatLabel(item))
+                    .join(", ")
+                : "No action classes suppressed"}
+            </p>
+          </div>
+          <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
+              Preview Coverage
+            </p>
+            <p className="mt-1 text-xs">
+              {formatPreviewCoverage(authority.readiness.previewCoverage ?? null)}
             </p>
           </div>
         </div>

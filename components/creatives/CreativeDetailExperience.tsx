@@ -217,6 +217,7 @@ export function CreativeDetailExperience({
   onDateRangeChange,
 }: CreativeDetailExperienceProps) {
   const language = usePreferencesStore((state) => state.language);
+  const creativeOperatorPreset = usePreferencesStore((state) => state.creativeOperatorPreset);
   const creativeTranslations = getTranslations(language).creativeDetail;
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
   const livePreviewStageRef = useRef<HTMLDivElement | null>(null);
@@ -349,6 +350,10 @@ export function CreativeDetailExperience({
     } satisfies CreativeDecision;
   }, [report]);
   const decisionTheme = getDecisionTheme(decision?.action ?? "watch");
+  const previewTruth = decisionOsCreative?.previewStatus ?? null;
+  const canGenerateAiInterpretation =
+    decisionOsCreative?.trust.truthState === "live_confident" &&
+    previewTruth?.liveDecisionWindow === "ready";
 
   const commentaryQuery = useQuery({
     queryKey: [
@@ -520,7 +525,16 @@ export function CreativeDetailExperience({
           </div>
         </header>
 
-        <main className="grid h-[calc(100%-64px)] grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,460px)]">
+        <main
+          className={cn(
+            "grid h-[calc(100%-64px)] grid-cols-1",
+            creativeOperatorPreset === "creative_rich"
+              ? "lg:grid-cols-[minmax(0,1.9fr)_minmax(320px,420px)]"
+              : creativeOperatorPreset === "media_limited"
+                ? "lg:grid-cols-[minmax(0,1.25fr)_minmax(380px,560px)]"
+                : "lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,460px)]",
+          )}
+        >
           <section className="min-h-0 overflow-hidden px-3 py-3 md:px-4 md:py-4">
             <div className="mx-auto flex h-full w-full max-w-[1320px] flex-col">
               <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]">
@@ -530,6 +544,12 @@ export function CreativeDetailExperience({
                     {taxonomyPills.secondaryLabel ? <Pill value={taxonomyPills.secondaryLabel} /> : null}
                     {row.launchDate ? <Pill value={`Launched ${row.launchDate}`} /> : null}
                   </div>
+                  {previewTruth ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      <Pill value={`Selected window: ${previewTruth.selectedWindow.replaceAll("_", " ")}`} />
+                      <Pill value={`Live decision window: ${previewTruth.liveDecisionWindow.replaceAll("_", " ")}`} />
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="min-h-0 flex-1 bg-[radial-gradient(circle_at_top,_#ffffff_0%,_#eef3f8_72%,_#e7edf5_100%)] px-2 py-2 md:px-3 md:py-3">
@@ -562,17 +582,28 @@ export function CreativeDetailExperience({
                     ) : canRequestHtml && detailPreviewLoading ? (
                       <div className="flex flex-col items-center justify-center gap-3 text-slate-500">
                         <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" aria-hidden="true" />
-                        <p className="text-sm font-medium">Loading live preview...</p>
+                        <p className="text-sm font-medium">Attempting live decision-window preview...</p>
                       </div>
                     ) : imageUrl ? (
-                      <div className="relative flex max-h-[78vh] w-full max-w-[860px] items-center justify-center overflow-hidden p-2">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={imageUrl} alt={row.name} className="relative z-[1] block max-h-[74vh] w-auto max-w-full object-contain" />
+                      <div className="space-y-3">
+                        <div className="relative flex max-h-[78vh] w-full max-w-[860px] items-center justify-center overflow-hidden p-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={imageUrl} alt={row.name} className="relative z-[1] block max-h-[74vh] w-auto max-w-full object-contain" />
+                        </div>
+                        {previewTruth?.liveDecisionWindow === "metrics_only_degraded" ? (
+                          <p className="text-center text-sm text-slate-600">
+                            Live decision-window preview is degraded. Review stays metrics-only until Meta returns reliable HTML.
+                          </p>
+                        ) : null}
                       </div>
+                    ) : previewTruth?.liveDecisionWindow === "metrics_only_degraded" ? (
+                      <p className="text-sm text-slate-600">
+                        Live decision-window preview is degraded, so this review stays metrics-only.
+                      </p>
                     ) : canRequestHtml ? (
-                      <p className="text-sm text-slate-600">Live preview unavailable.</p>
+                      <p className="text-sm text-slate-600">Live decision-window preview is unavailable.</p>
                     ) : (
-                      <p className="text-sm text-slate-600">No preview available.</p>
+                      <p className="text-sm text-slate-600">No renderable preview is available for this creative.</p>
                     )}
                     </div>
                   </div>
@@ -610,12 +641,20 @@ export function CreativeDetailExperience({
                     value={decisionOsCreative.deployment.targetLane ?? "None"}
                   />
                   <CompactMetricCell
+                    label="Queue status"
+                    value={(decisionOsCreative.deployment.queueVerdict ?? "board_only").replaceAll("_", " ")}
+                  />
+                  <CompactMetricCell
                     label="Compatibility"
                     value={decisionOsCreative.deployment.compatibility.status}
                   />
                   <CompactMetricCell
                     label="Family provenance"
                     value={`${decisionOsCreative.familyProvenance.confidence} / ${decisionOsCreative.familyProvenance.overGroupingRisk}`}
+                  />
+                  <CompactMetricCell
+                    label="Preview truth"
+                    value={(decisionOsCreative.previewStatus?.liveDecisionWindow ?? "missing").replaceAll("_", " ")}
                   />
                 </div>
 
@@ -654,6 +693,9 @@ export function CreativeDetailExperience({
                     <CompactMetricCell label="Link clicks" value={formatInteger(row.linkClicks)} />
                   </div>
                 </div>
+                {previewTruth?.reason ? (
+                  <p className="mt-2 text-[11px] text-slate-500">{previewTruth.reason}</p>
+                ) : null}
               </section>
 
               <section
@@ -721,7 +763,11 @@ export function CreativeDetailExperience({
                     </span>
                   ) : null}
                 </div>
-                {!aiInterpretationRequested ? (
+                {!canGenerateAiInterpretation ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    AI interpretation stays disabled until live preview truth and shared authority are both ready.
+                  </div>
+                ) : !aiInterpretationRequested ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -796,6 +842,14 @@ export function CreativeDetailExperience({
                     <CompactMetricCell label="Meta family" value={decisionOsCreative.deployment.metaFamilyLabel} />
                     <CompactMetricCell label="Lane" value={decisionOsCreative.deployment.targetLane ?? "None"} />
                     <CompactMetricCell
+                      label="Eligible lanes"
+                      value={
+                        (decisionOsCreative.deployment.eligibleLanes?.length ?? 0) > 0
+                          ? decisionOsCreative.deployment.eligibleLanes?.join(", ") ?? "None"
+                          : "None"
+                      }
+                    />
+                    <CompactMetricCell
                       label="Ad set role"
                       value={decisionOsCreative.deployment.targetAdSetRole ?? "None"}
                     />
@@ -835,6 +889,9 @@ export function CreativeDetailExperience({
                       ))}
                     </div>
                   ) : null}
+                  <p className="mt-2 text-[11px] text-slate-600">
+                    {decisionOsCreative.deployment.queueSummary}
+                  </p>
                 </div>
 
                 <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">

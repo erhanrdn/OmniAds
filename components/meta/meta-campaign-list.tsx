@@ -59,6 +59,16 @@ function laneDot(lane: MetaCampaignTableRow["laneLabel"]) {
   return null;
 }
 
+function operatorDispositionTone(disposition: MetaCampaignDecision["trust"]["operatorDisposition"]) {
+  if (disposition === "profitable_truth_capped") return "bg-fuchsia-500/10 text-fuchsia-700";
+  if (disposition === "protected_watchlist") return "bg-blue-500/10 text-blue-700";
+  if (disposition === "review_hold" || disposition === "review_reduce") {
+    return "bg-amber-500/10 text-amber-700";
+  }
+  if (disposition === "monitor_low_truth") return "bg-sky-500/10 text-sky-700";
+  return "bg-slate-100 text-slate-700";
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface MetaCampaignListProps {
@@ -69,7 +79,10 @@ interface MetaCampaignListProps {
   campaignRecStates: Map<string, "act" | "test" | "watch">;
   campaignDecisionMeta?: Map<
     string,
-    Pick<MetaCampaignDecision, "role" | "primaryAction" | "noTouch" | "confidence">
+    Pick<MetaCampaignDecision, "role" | "primaryAction" | "noTouch" | "confidence"> & {
+      creativeCandidates?: MetaCampaignDecision["creativeCandidates"];
+      trust?: MetaCampaignDecision["trust"];
+    }
   >;
 }
 
@@ -221,6 +234,17 @@ export function MetaCampaignList({
                     <span className="text-[10px] text-slate-500">
                       {decisionMeta.primaryAction.replaceAll("_", " ")}
                     </span>
+                    {decisionMeta.trust &&
+                    decisionMeta.trust.operatorDisposition !== "standard" ? (
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide",
+                          operatorDispositionTone(decisionMeta.trust.operatorDisposition),
+                        )}
+                      >
+                        {decisionMeta.trust.operatorDisposition.replaceAll("_", " ")}
+                      </span>
+                    ) : null}
                     {decisionMeta.noTouch ? (
                       <span className="rounded-full bg-blue-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-blue-700">
                         no-touch
@@ -228,6 +252,11 @@ export function MetaCampaignList({
                     ) : null}
                   </div>
                 )}
+                {decisionMeta?.creativeCandidates?.count ? (
+                  <p className="mt-1 truncate text-[10px] text-slate-500">
+                    {decisionMeta.creativeCandidates.summary}
+                  </p>
+                ) : null}
               </div>
 
               {/* ROAS + Spend */}

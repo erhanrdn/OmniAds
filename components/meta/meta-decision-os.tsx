@@ -51,6 +51,7 @@ function trustTone(
   if (disposition === "protected_watchlist") return "bg-blue-500/10 text-blue-700";
   if (disposition === "archive_only") return "bg-slate-500/10 text-slate-700";
   if (disposition === "degraded_no_scale") return "bg-orange-500/10 text-orange-700";
+  if (disposition === "profitable_truth_capped") return "bg-fuchsia-500/10 text-fuchsia-700";
   if (disposition === "review_hold" || disposition === "review_reduce") {
     return "bg-amber-500/10 text-amber-700";
   }
@@ -187,6 +188,54 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
       </div>
       {decision.guardrails.length > 0 ? (
         <p className="mt-2 text-[11px] text-slate-500">{decision.guardrails[0]}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function CampaignDecisionRow({
+  decision,
+}: {
+  decision: MetaCampaignDecision;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-900">{decision.campaignName}</p>
+          <p className="mt-0.5 text-xs text-slate-500">{decision.role}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              actionTone(decision.primaryAction),
+            )}
+          >
+            {formatActionLabel(decision.primaryAction)}
+          </span>
+          {decision.trust.operatorDisposition !== "standard" ? (
+            <span
+              className={cn(
+                "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                trustTone(decision.trust.operatorDisposition),
+              )}
+            >
+              {formatActionLabel(decision.trust.operatorDisposition)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-600">{decision.why}</p>
+      <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
+        <span className={confidenceTone(decision.confidence)}>
+          Confidence {(decision.confidence * 100).toFixed(0)}%
+        </span>
+        <span>{decision.laneLabel ?? "No lane"}</span>
+        {decision.missingCreativeAsk?.[0] ? <span>{decision.missingCreativeAsk[0]}</span> : null}
+      </div>
+      {decision.creativeCandidates?.count ? (
+        <p className="mt-2 text-[11px] text-slate-500">{decision.creativeCandidates.summary}</p>
       ) : null}
     </div>
   );
@@ -508,6 +557,27 @@ export function MetaDecisionOsOverview({
         : "Opportunity board is empty.",
   };
   const topOpportunityRows = decisionOs.opportunityBoard.slice(0, 5);
+  const primaryCampaignActions = decisionOs.campaigns
+    .filter((decision) => decision.trust.surfaceLane === "action_core")
+    .slice(0, 3);
+  const truthCappedCampaigns = decisionOs.campaigns.filter(
+    (decision) => decision.trust.operatorDisposition === "profitable_truth_capped",
+  );
+  const truthCappedAdSets = decisionOs.adSets.filter(
+    (decision) => decision.trust.operatorDisposition === "profitable_truth_capped",
+  );
+  const profitableTruthCappedRows = [
+    ...truthCappedCampaigns.map((decision) => ({
+      kind: "campaign" as const,
+      id: decision.campaignId,
+      node: <CampaignDecisionRow decision={decision} />,
+    })),
+    ...truthCappedAdSets.map((decision) => ({
+      kind: "adset" as const,
+      id: decision.decisionId,
+      node: <AdSetDecisionRow decision={decision} />,
+    })),
+  ].slice(0, 5);
   const policyRows = actionCoreAdSets
     .filter((decision) => decision.policy.explanation)
     .slice(0, 3);
@@ -565,6 +635,9 @@ export function MetaDecisionOsOverview({
             Degraded {decisionOs.summary.surfaceSummary.degradedCount}
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
+            Truth-capped {decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0}
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-700">
             Winner candidates {winnerScaleSummary.candidateCount}
           </div>
           {decisionOs.summary.todayPlan.slice(0, 6).map((item) => (
@@ -583,6 +656,43 @@ export function MetaDecisionOsOverview({
         commercialSummary={decisionOs.commercialTruthCoverage.summary}
         title="Meta Authority"
       />
+
+      <DecisionListCard
+        title="Primary Next Actions"
+        testId="meta-primary-next-actions"
+        empty="No action-core campaign or ad set is ready."
+      >
+        <div className="space-y-3">
+          {primaryCampaignActions.length === 0 && actionCoreAdSets.length === 0 ? (
+            <p className="text-xs text-slate-500">No action-core campaign or ad set is ready.</p>
+          ) : (
+            <>
+              {primaryCampaignActions.map((decision) => (
+                <CampaignDecisionRow key={`campaign:${decision.campaignId}`} decision={decision} />
+              ))}
+              {actionCoreAdSets.slice(0, Math.max(0, 5 - primaryCampaignActions.length)).map((decision) => (
+                <AdSetDecisionRow key={decision.decisionId} decision={decision} />
+              ))}
+            </>
+          )}
+        </div>
+      </DecisionListCard>
+
+      <DecisionListCard
+        title="Profitable But Capped"
+        testId="meta-profitable-truth-capped"
+        empty="No profitable rows are currently held back by truth caps."
+      >
+        {profitableTruthCappedRows.length === 0 ? (
+          <p className="text-xs text-slate-500">No profitable rows are currently held back by truth caps.</p>
+        ) : (
+          <div className="space-y-3">
+            {profitableTruthCappedRows.map((item) => (
+              <div key={`${item.kind}:${item.id}`}>{item.node}</div>
+            ))}
+          </div>
+        )}
+      </DecisionListCard>
 
       {policyRows.length > 0 ? (
         <DecisionListCard
@@ -867,6 +977,15 @@ export function MetaCampaignDecisionPanel({
         {campaignDecision.guardrails.length > 0 ? (
           <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
             {campaignDecision.guardrails[0]}
+          </div>
+        ) : null}
+        {campaignDecision.creativeCandidates?.count ? (
+          <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
+            {campaignDecision.creativeCandidates.summary}
+          </div>
+        ) : campaignDecision.missingCreativeAsk?.[0] ? (
+          <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
+            {campaignDecision.missingCreativeAsk[0]}
           </div>
         ) : null}
       </div>

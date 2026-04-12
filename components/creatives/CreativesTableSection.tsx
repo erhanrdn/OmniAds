@@ -2017,6 +2017,23 @@ const CreativeTableRow = memo(function CreativeTableRow({
   );
   const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
+  const primaryDecisionTone =
+    decisionOsRow?.primaryAction === "promote_to_scaling"
+      ? "bg-emerald-500/10 text-emerald-700"
+      : decisionOsRow?.primaryAction === "refresh_replace" ||
+          decisionOsRow?.primaryAction === "block_deploy"
+        ? "bg-orange-500/10 text-orange-700"
+        : decisionOsRow?.primaryAction === "retest_comeback"
+          ? "bg-violet-500/10 text-violet-700"
+          : "bg-sky-500/10 text-sky-700";
+  const queueTone =
+    decisionOsRow?.deployment.queueVerdict === "queue_ready"
+      ? "bg-emerald-50 text-emerald-700"
+      : decisionOsRow?.deployment.queueVerdict === "protected"
+        ? "bg-blue-50 text-blue-700"
+        : decisionOsRow?.deployment.queueVerdict === "blocked"
+          ? "bg-orange-50 text-orange-700"
+          : "bg-slate-100 text-slate-700";
 
   return (
     <tr
@@ -2049,16 +2066,44 @@ const CreativeTableRow = memo(function CreativeTableRow({
           <div className="min-w-0 flex-1">
             <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
             {decisionOsRow ? (
-              <div className="mt-1 flex flex-wrap gap-1">
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
-                  {decisionOsRow.lifecycleState.replaceAll("_", " ")}
-                </span>
-                <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
-                  {decisionOsRow.familyLabel}
-                </span>
-                <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
-                  {decisionOsRow.deployment.targetLane ?? "No lane"}
-                </span>
+              <div className="mt-1.5 space-y-1">
+                <div className="flex flex-wrap gap-1">
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.14em]",
+                      primaryDecisionTone,
+                    )}
+                  >
+                    {decisionOsRow.primaryAction.replaceAll("_", " ")}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                    {decisionOsRow.lifecycleState.replaceAll("_", " ")}
+                  </span>
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em]",
+                      queueTone,
+                    )}
+                  >
+                    {(decisionOsRow.deployment.queueVerdict ?? "board_only").replaceAll("_", " ")}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                    {decisionOsRow.familyLabel}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600">
+                    {decisionOsRow.deployment.targetLane ?? "No lane"}
+                  </span>
+                </div>
+                <p className="truncate text-[9px] text-slate-500">
+                  {decisionOsRow.summary}
+                </p>
+                <p className="truncate text-[9px] text-slate-400">
+                  {decisionOsRow.deployment.blockedReasons?.[0] ??
+                    decisionOsRow.previewStatus?.reason ??
+                    decisionOsRow.deployment.queueSummary}
+                </p>
               </div>
             ) : null}
             <p className="mt-0.5 truncate text-[9px] text-muted-foreground">

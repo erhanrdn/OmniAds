@@ -21,6 +21,7 @@ export const DECISION_OPERATOR_DISPOSITIONS = [
   "review_reduce",
   "monitor_low_truth",
   "degraded_no_scale",
+  "profitable_truth_capped",
   "protected_watchlist",
   "archive_only",
 ] as const;
@@ -136,8 +137,23 @@ export interface DecisionSurfaceAuthority {
   archiveCount: number;
   suppressedCount: number;
   note: string;
+  readiness?: DecisionSurfaceReadiness | null;
   sourceHealth?: DecisionSourceHealthEntry[];
   readReliability?: DecisionReadReliability | null;
+}
+
+export interface DecisionPreviewCoverageSummary {
+  readyCount: number;
+  degradedCount: number;
+  missingCount: number;
+}
+
+export interface DecisionSurfaceReadiness {
+  daysReady: number;
+  daysExpected: number;
+  missingInputs: string[];
+  suppressedActionClasses: string[];
+  previewCoverage?: DecisionPreviewCoverageSummary | null;
 }
 
 export const DECISION_EVIDENCE_FLOOR_STATUSES = [
@@ -148,6 +164,16 @@ export const DECISION_EVIDENCE_FLOOR_STATUSES = [
 
 export type DecisionEvidenceFloorStatus =
   (typeof DECISION_EVIDENCE_FLOOR_STATUSES)[number];
+
+export const DECISION_OPPORTUNITY_QUEUE_VERDICTS = [
+  "queue_ready",
+  "board_only",
+  "protected",
+  "blocked",
+] as const;
+
+export type DecisionOpportunityQueueVerdict =
+  (typeof DECISION_OPPORTUNITY_QUEUE_VERDICTS)[number];
 
 export interface DecisionEvidenceFloor {
   key: string;
@@ -163,7 +189,7 @@ export interface DecisionOpportunityQueueEligibility {
   blockedReasons: string[];
   watchReasons: string[];
   eligibilityTrace: {
-    verdict: "queue_ready" | "board_only" | "protected" | "blocked";
+    verdict: DecisionOpportunityQueueVerdict;
     evidenceFloors: {
       met: string[];
       watch: string[];
