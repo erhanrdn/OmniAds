@@ -18,14 +18,16 @@
   * After Step 3 landed, the continuity docs still needed a truth-alignment repair so they matched the accepted Step 3 closure and current live/runtime state.
 * Current branch / SHA:
   * `main`
-  * accepted Step 3 closure SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
+  * repo now includes docs-only continuity repair work on top of the accepted Step 3 closure
+  * accepted Step 3 closure / live product SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * Live SHA if verified:
   * `ad3d1ac52fa7c6dec381351c45005342511077ac`
   * verified on April 12, 2026 via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority`
 * Continuity fixes applied before implementation and at acceptance closure:
   * repaired `HANDOFF.md` at Step 3 start so current repo/live truth outranked older teardown language
   * replaced the temporary Step 2 staging report with the Step 3 report
-  * repaired the continuity layer again after live advanced so `HANDOFF.md`, `LATEST_REPORT.md`, and `STATUS.md` all reflect the accepted Step 3 baseline
+  * repaired the continuity layer again after live advanced so `HANDOFF.md`, `LATEST_REPORT.md`, and `STATUS.md` reflect the accepted Step 3 baseline
+  * pushed docs-only continuity repair work on top of the accepted Step 3 closure so the next chat starts from trustworthy repo-visible continuity
   * distinguished the Step 3 implementation SHA from the later accepted closure SHA so the continuity layer stays exact
 
 # 3. Scope Delivered
@@ -119,7 +121,7 @@
 * browser evidence captured: yes
   * local Playwright reviewer smoke passed, but no manual post-alignment live browser walkthrough was captured
 * phase closure verdict: accepted
-  * repo, docs, and live runtime now align on accepted Step 3 closure SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
+  * accepted Step 3 product closure is live on `ad3d1ac52fa7c6dec381351c45005342511077ac`; the later continuity repair work on `main` is docs-only
 
 # 7. Test Evidence
 
@@ -146,8 +148,8 @@
 * build-info verification:
   * on April 12, 2026 `https://adsecute.com/api/build-info` returned live SHA `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * release-authority verification:
-  * on April 12, 2026 `https://adsecute.com/api/release-authority` reported `currentLiveSha` and `currentMainSha` both at `ad3d1ac52fa7c6dec381351c45005342511077ac`
-  * overall verdict was `aligned`
+  * on April 12, 2026 `https://adsecute.com/api/release-authority` reported `currentLiveSha` at `ad3d1ac52fa7c6dec381351c45005342511077ac`
+  * after the continuity repair push it reported `currentMainSha` ahead of live, which is expected docs-only drift
 * live smoke:
   * no manual live browser walkthrough was captured after live alignment
 * benchmark evidence:
@@ -157,6 +159,7 @@
 * exact limitations:
   * no real-account benchmark walkthrough
   * no manual live UI walkthrough after runtime alignment
+  * release-authority currently shows docs-only live-vs-main drift because the continuity repair work has not yet been observed live
   * release-authority still inventories legacy Creative surfaces even though accepted Step 3 direction is to collapse them into one operator-facing authority in later page work
 
 # 9. Deployment And Rollout
@@ -167,6 +170,7 @@
   * local typecheck, focused Vitest, production build, and local reviewer Playwright smoke all passed
   * Step 3 implementation landed in `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`
   * the accepted Step 3 closure now serves live at `ad3d1ac52fa7c6dec381351c45005342511077ac`
+  * later continuity repair work on `main` is documentation-only
 * rollback target:
   * `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * whether worktree ended clean:
@@ -193,4 +197,4 @@ Ask for review of:
 
 # 12. Copy-Paste Quick Summary
 
-Step 3 is complete and now live-aligned. The accepted Step 3 implementation introduced one shared operator authority foundation across Meta and Creative: Meta now leads with one compressed action-authority surface, Creative now uses the same shared authority summary plus compressed row wording, truth-capped and preview-missing states are explicit, thin-signal rows no longer headline the action stack, and deeper Decision OS reasoning is secondary rather than primary. Accepted live closure SHA is `ad3d1ac52fa7c6dec381351c45005342511077ac`, containing Step 3 implementation commit `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`. Step 4 should build page-specific IA on top of this layer and must not let Creative `Decision Signals` / legacy segmentation and `Creative Decision OS` survive as separate operator-facing authorities.
+Step 3 is complete and its accepted product baseline is live on `ad3d1ac52fa7c6dec381351c45005342511077ac`. That live Step 3 closure contains implementation commit `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`, which introduced one shared operator authority foundation across Meta and Creative: Meta now leads with one compressed action-authority surface, Creative now uses the same shared authority summary plus compressed row wording, truth-capped and preview-missing states are explicit, thin-signal rows no longer headline the action stack, and deeper Decision OS reasoning is secondary rather than primary. Repo `main` now also contains docs-only continuity repair work. Step 4 should build page-specific IA on top of this layer and must not let Creative `Decision Signals` / legacy segmentation and `Creative Decision OS` survive as separate operator-facing authorities.

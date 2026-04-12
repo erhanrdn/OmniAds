@@ -6,16 +6,16 @@ Rebuild the OmniAds operator-facing Meta and Creative surfaces into a clear, ope
 
 ## Current Step
 
-Continuity is repaired to accepted Step 3 truth. Step 3 is complete, live-aligned, and documented. Step 4 has not started.
+Continuity is repaired to accepted Step 3 truth. Step 3 is complete and its accepted product baseline is live on `ad3d1ac...`. `main` now carries docs-only continuity repair work on top of that live baseline. Step 4 has not started.
 
 ## Current Repo State
 
 * current branch: `main`
-* current repo HEAD / accepted Step 3 closure SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`
+* accepted Step 3 closure / live product SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`
 * Step 3 implementation SHA: `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`
 * Step 2 accepted spec commit: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * current live SHA if verified: `ad3d1ac52fa7c6dec381351c45005342511077ac` verified via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority` on April 12, 2026
-* release-authority posture: live/runtime and remote `main` are aligned; accepted Step 3 is the current live baseline
+* release-authority posture: live/runtime currently serves the accepted Step 3 product baseline on `ad3d1ac...`; remote `main` is ahead only because of docs-only continuity repair commits
 
 ## Current Working Model
 
@@ -91,4 +91,4 @@ If current repo/runtime truth later shows a better ordering, GPT can choose Crea
 
 ## Next Chat Bootstrap
 
-Do not start Step 4 automatically. Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Check `docs/operator-rebuild-staging/STATUS.md` for the current baseline. Verify current repo/runtime truth before acting. Accepted Step 3 closure SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`. Step 3 implementation SHA: `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`. Benchmark businesses: `Grandmix`, `IwaStore`, `TheSwaf`. Step 3 is done and continuity is repaired. Only start Step 4 if the next chat explicitly assigns it.
+Do not start Step 4 automatically. Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Check `docs/operator-rebuild-staging/STATUS.md` for the current baseline. Verify current repo/runtime truth before acting. Accepted Step 3 closure / live product SHA: `ad3d1ac52fa7c6dec381351c45005342511077ac`. Step 3 implementation SHA: `dd2c5e79a1cbdad3eaa0c5ae2551cf8228221346`. Benchmark businesses: `Grandmix`, `IwaStore`, `TheSwaf`. Step 3 is done and continuity is repaired. Only start Step 4 if the next chat explicitly assigns it.
