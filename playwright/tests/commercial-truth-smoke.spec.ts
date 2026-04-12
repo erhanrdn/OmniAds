@@ -188,13 +188,18 @@ async function captureCreativeHistoricalSignature(page: Page) {
   );
 }
 
+async function commandCenterViewCandidates(page: Page) {
+  const candidates = [page.getByRole("button", { name: "Default queue", exact: true })];
+  const savedViews = page.locator('[data-testid^="command-center-view-"]');
+  const savedViewCount = await savedViews.count();
+  for (let index = 0; index < savedViewCount; index += 1) {
+    candidates.push(savedViews.nth(index));
+  }
+  return candidates;
+}
+
 async function selectFirstCommandCenterViewWithActions(page: Page) {
-  const viewCandidates = [
-    page.getByRole("button", { name: "Default queue" }),
-    page.getByTestId("command-center-view-no_touch_surfaces"),
-    page.getByTestId("command-center-view-archive_context"),
-    page.getByTestId("command-center-view-today_priorities"),
-  ];
+  const viewCandidates = await commandCenterViewCandidates(page);
 
   for (const candidate of viewCandidates) {
     await candidate.click();
@@ -207,13 +212,22 @@ async function selectFirstCommandCenterViewWithActions(page: Page) {
   throw new Error("No Command Center action cards were visible in any fallback view.");
 }
 
+async function selectFirstCommandCenterViewWithBatchReadyActions(page: Page) {
+  const viewCandidates = await commandCenterViewCandidates(page);
+
+  for (const candidate of viewCandidates) {
+    await candidate.click();
+    const batchToggles = page.locator('[data-testid^="command-center-batch-toggle-"]');
+    if ((await batchToggles.count()) > 0) {
+      return batchToggles;
+    }
+  }
+
+  return null;
+}
+
 async function openFirstCampaignAwareMetaCommandCenterAction(page: Page) {
-  const viewCandidates = [
-    page.getByRole("button", { name: "Default queue" }),
-    page.getByTestId("command-center-view-no_touch_surfaces"),
-    page.getByTestId("command-center-view-archive_context"),
-    page.getByTestId("command-center-view-today_priorities"),
-  ];
+  const viewCandidates = await commandCenterViewCandidates(page);
 
   for (const candidate of viewCandidates) {
     await candidate.click();
@@ -345,19 +359,26 @@ test("commercial truth smoke covers settings edit, Meta operating mode, and Crea
   const queueActions = await selectFirstCommandCenterViewWithActions(page);
   await expect(queueActions.first()).toBeVisible();
   const batchToolbar = page.getByTestId("command-center-batch-toolbar");
-  const batchToggles = page.locator('[data-testid^="command-center-batch-toggle-"]');
-  const batchSelectionCount = Math.min(await batchToggles.count(), 2);
-  for (let index = 0; index < batchSelectionCount; index += 1) {
-    await batchToggles.nth(index).click();
+  const batchToggles = await selectFirstCommandCenterViewWithBatchReadyActions(page);
+  if (batchToggles) {
+    const batchSelectionCount = Math.min(await batchToggles.count(), 2);
+    for (let index = 0; index < batchSelectionCount; index += 1) {
+      await batchToggles.nth(index).click();
+    }
+    await expect(batchToolbar).toContainText(`${batchSelectionCount} selected`);
+    await batchToolbar.getByRole("button", { name: "Batch approve" }).click();
+    await expect(batchToolbar).toContainText("0 selected");
+    for (let index = 0; index < batchSelectionCount; index += 1) {
+      await batchToggles.nth(index).click();
+    }
+    await batchToolbar.getByRole("button", { name: "Batch reopen" }).click();
+    await expect(batchToolbar).toContainText("0 selected");
+  } else {
+    await expect(batchToolbar).toContainText("0 visible action(s) are batch-ready in this queue.");
+    await expect(
+      batchToolbar.getByRole("button", { name: "Batch approve" }),
+    ).toBeDisabled();
   }
-  await expect(batchToolbar).toContainText(`${batchSelectionCount} selected`);
-  await batchToolbar.getByRole("button", { name: "Batch approve" }).click();
-  await expect(batchToolbar).toContainText("0 selected");
-  for (let index = 0; index < batchSelectionCount; index += 1) {
-    await batchToggles.nth(index).click();
-  }
-  await batchToolbar.getByRole("button", { name: "Batch reopen" }).click();
-  await expect(batchToolbar).toContainText("0 selected");
 
   const queueGapInput = page.getByPlaceholder("What action is missing from this queue?");
   await queueGapInput.fill("Missing donor-campaign queue item for manual reallocation.");

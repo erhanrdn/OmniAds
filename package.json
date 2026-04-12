@@ -6,7 +6,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 playwright test",
+    "test:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 playwright test",
     "test:smoke:live": "PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=https://adsecute.com playwright test",
     "dev": "next dev --webpack --hostname 0.0.0.0 --port 3000",
     "dev:turbo": "next dev --turbopack --hostname 0.0.0.0 --port 3000",

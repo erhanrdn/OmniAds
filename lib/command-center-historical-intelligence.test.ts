@@ -15,6 +15,8 @@ function buildAction(
     sourceSystem: overrides.sourceSystem ?? "meta",
     sourceType: overrides.sourceType ?? "meta_adset_decision",
     surfaceLane: overrides.surfaceLane ?? "action_core",
+    queueSection: overrides.queueSection ?? "default_queue",
+    workloadClass: overrides.workloadClass ?? "scale_promotion",
     truthState: overrides.truthState ?? "live_confident",
     operatorDisposition: overrides.operatorDisposition ?? "standard",
     trustReasons: overrides.trustReasons ?? ["Strong live signal."],
@@ -29,6 +31,9 @@ function buildAction(
     relatedEntities: overrides.relatedEntities ?? [],
     tags: overrides.tags ?? [],
     watchlistOnly: overrides.watchlistOnly ?? false,
+    batchReviewClass: overrides.batchReviewClass ?? null,
+    batchReviewEligible: overrides.batchReviewEligible ?? false,
+    calibrationHint: overrides.calibrationHint ?? null,
     status: overrides.status ?? "pending",
     assigneeUserId: overrides.assigneeUserId ?? null,
     assigneeName: overrides.assigneeName ?? null,
@@ -67,6 +72,8 @@ function buildFeedbackSummary(
     badRecommendationCount: overrides.badRecommendationCount ?? 1,
     falseNegativeCount: overrides.falseNegativeCount ?? 2,
     queueGapCount: overrides.queueGapCount ?? 2,
+    calibrationCandidateCount: overrides.calibrationCandidateCount ?? 1,
+    workflowGapCount: overrides.workflowGapCount ?? 2,
     recentEntries: overrides.recentEntries ?? [],
   };
 }
@@ -74,16 +81,22 @@ function buildFeedbackSummary(
 function buildFeedback(
   overrides: Partial<CommandCenterFeedbackEntry> = {},
 ): CommandCenterFeedbackEntry {
+  const scope = overrides.scope ?? "action";
   return {
     id: overrides.id ?? "feedback_1",
     businessId: overrides.businessId ?? "biz",
     clientMutationId: overrides.clientMutationId ?? "mutation_1",
     feedbackType: overrides.feedbackType ?? "false_positive",
-    scope: overrides.scope ?? "action",
+    outcome:
+      overrides.outcome ??
+      (scope === "queue_gap" ? "workflow_gap" : "operator_note"),
+    scope,
     actionFingerprint: overrides.actionFingerprint ?? "action_1",
     actionTitle: overrides.actionTitle ?? "Scale ad set",
     sourceSystem: overrides.sourceSystem ?? "meta",
     sourceType: overrides.sourceType ?? "meta_adset_decision",
+    workloadClass: overrides.workloadClass ?? (scope === "action" ? "scale_promotion" : null),
+    calibrationHint: overrides.calibrationHint ?? null,
     viewKey: overrides.viewKey ?? null,
     actorUserId: overrides.actorUserId ?? "user_1",
     actorName: overrides.actorName ?? "Operator",

@@ -1,12 +1,17 @@
 import { expect, test } from "@playwright/test";
 
+async function commandCenterViewCandidates(page: import("@playwright/test").Page) {
+  const candidates = [page.getByRole("button", { name: "Default queue", exact: true })];
+  const savedViews = page.locator('[data-testid^="command-center-view-"]');
+  const savedViewCount = await savedViews.count();
+  for (let index = 0; index < savedViewCount; index += 1) {
+    candidates.push(savedViews.nth(index));
+  }
+  return candidates;
+}
+
 async function selectFirstReviewerCommandCenterViewWithActions(page: import("@playwright/test").Page) {
-  const viewCandidates = [
-    page.getByRole("button", { name: "Default queue" }),
-    page.getByTestId("command-center-view-no_touch_surfaces"),
-    page.getByTestId("command-center-view-archive_context"),
-    page.getByTestId("command-center-view-today_priorities"),
-  ];
+  const viewCandidates = await commandCenterViewCandidates(page);
 
   for (const candidate of viewCandidates) {
     await candidate.click();

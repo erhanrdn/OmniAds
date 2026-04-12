@@ -2,6 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
 const useWebServer = process.env.PLAYWRIGHT_USE_WEBSERVER !== "0";
+const reuseExistingServer =
+  process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"
+    ? true
+    : process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "0"
+      ? false
+      : !process.env.CI;
 
 export default defineConfig({
   testDir: "./playwright/tests",
@@ -54,7 +60,7 @@ export default defineConfig({
         command:
           "node --env-file=.env.local scripts/start-local-smoke-server.mjs",
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer,
         timeout: 180_000,
       }
     : undefined,

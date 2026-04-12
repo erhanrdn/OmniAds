@@ -8,11 +8,13 @@ import { isDemoBusinessId } from "@/lib/demo-business";
 import { isReviewerEmail } from "@/lib/reviewer-access";
 import type {
   CommandCenterAction,
+  CommandCenterActionCalibrationHint,
   CommandCenterActionMutation,
   CommandCenterActionStateRecord,
   CommandCenterActionStatus,
   CommandCenterAssignableUser,
   CommandCenterFeedbackEntry,
+  CommandCenterFeedbackOutcome,
   CommandCenterFeedbackScope,
   CommandCenterFeedbackType,
   CommandCenterHandoff,
@@ -23,6 +25,7 @@ import type {
   CommandCenterShift,
   CommandCenterSourceSystem,
   CommandCenterSourceType,
+  CommandCenterWorkloadClass,
 } from "@/lib/command-center";
 import {
   buildCommandCenterJournalMessage,
@@ -51,6 +54,25 @@ const COMMAND_CENTER_FEEDBACK_TABLES = [
   "command_center_feedback",
   "command_center_mutation_receipts",
 ] as const;
+
+const COMMAND_CENTER_FEEDBACK_OUTCOMES = new Set<CommandCenterFeedbackOutcome>([
+  "calibration_candidate",
+  "workflow_gap",
+  "operator_note",
+]);
+
+const COMMAND_CENTER_WORKLOAD_CLASSES = new Set<CommandCenterWorkloadClass>([
+  "budget_shift",
+  "scale_promotion",
+  "recovery",
+  "creative_refresh",
+  "test_backlog",
+  "geo_review",
+  "risk_triage",
+  "policy_guardrail",
+  "protected_watch",
+  "archive_context",
+]);
 
 function parseJsonArray(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -96,6 +118,48 @@ function normalizeTimestamp(value: unknown): string | null {
     return Number.isFinite(date.getTime()) ? date.toISOString() : null;
   }
   return null;
+}
+
+function normalizeNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function isMissingColumnError(error: unknown) {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : null;
+  if (code !== "42703") return false;
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return (
+    message.includes("feedback.outcome") ||
+    message.includes("feedback.workload_class") ||
+    message.includes("feedback.calibration_hint_json") ||
+    message.includes("outcome") ||
+    message.includes("workload_class") ||
+    message.includes("calibration_hint_json")
+  );
+}
+
+function parseCommandCenterCalibrationHint(
+  value: unknown,
+): CommandCenterActionCalibrationHint | null {
+  const candidate = parseJsonObject(value);
+  const channel = normalizeNullableString(candidate.channel);
+  if (channel == null) return null;
+  return {
+    channel: candidate.channel as CommandCenterActionCalibrationHint["channel"],
+    objectiveFamily:
+      (normalizeNullableString(candidate.objectiveFamily) as CommandCenterActionCalibrationHint["objectiveFamily"]) ??
+      null,
+    bidRegime:
+      (normalizeNullableString(candidate.bidRegime) as CommandCenterActionCalibrationHint["bidRegime"]) ??
+      null,
+    archetype: normalizeNullableString(candidate.archetype),
+    actionCeiling: normalizeNullableString(candidate.actionCeiling),
+    matchedProfileKey: normalizeNullableString(candidate.matchedProfileKey),
+  };
 }
 
 export async function getCommandCenterMutationReceipt<T>(input: {
@@ -722,17 +786,125 @@ export async function listCommandCenterFeedback(input: {
   if (!readiness?.ready) return [];
 
   const sql = getDb();
+  const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+  const mapRows = (
+    rows: Array<{
+      id: string;
+      business_id: string;
+      client_mutation_id: string;
+      feedback_type: CommandCenterFeedbackType;
+      outcome: string | null;
+      scope: CommandCenterFeedbackScope;
+      action_fingerprint: string | null;
+      action_title: string | null;
+      source_system: CommandCenterSourceSystem | null;
+      source_type: CommandCenterSourceType | null;
+      workload_class: string | null;
+      calibration_hint_json: unknown;
+      view_key: string | null;
+      note: string;
+      actor_user_id: string;
+      actor_name: string | null;
+      actor_email: string | null;
+      created_at: string;
+    }>,
+  ) =>
+    rows.map((row) => ({
+      id: row.id,
+      businessId: row.business_id,
+      clientMutationId: row.client_mutation_id,
+      feedbackType: row.feedback_type,
+      outcome: COMMAND_CENTER_FEEDBACK_OUTCOMES.has(
+        row.outcome as CommandCenterFeedbackOutcome,
+      )
+        ? (row.outcome as CommandCenterFeedbackOutcome)
+        : row.scope === "queue_gap"
+          ? "workflow_gap"
+          : "operator_note",
+      scope: row.scope,
+      actionFingerprint: row.action_fingerprint,
+      actionTitle: row.action_title,
+      sourceSystem: row.source_system,
+      sourceType: row.source_type,
+      workloadClass: COMMAND_CENTER_WORKLOAD_CLASSES.has(
+        row.workload_class as CommandCenterWorkloadClass,
+      )
+        ? (row.workload_class as CommandCenterWorkloadClass)
+        : null,
+      calibrationHint: parseCommandCenterCalibrationHint(row.calibration_hint_json),
+      viewKey: row.view_key,
+      actorUserId: row.actor_user_id,
+      actorName: row.actor_name,
+      actorEmail: row.actor_email,
+      note: row.note,
+      createdAt: normalizeTimestamp(row.created_at) ?? new Date().toISOString(),
+    })) satisfies CommandCenterFeedbackEntry[];
+
+  try {
+    const rows = (await sql`
+      SELECT
+        feedback.id,
+        feedback.business_id,
+        feedback.client_mutation_id,
+        feedback.feedback_type,
+        feedback.outcome,
+        feedback.scope,
+        feedback.action_fingerprint,
+        feedback.action_title,
+        feedback.source_system,
+        feedback.source_type,
+        feedback.workload_class,
+        feedback.calibration_hint_json,
+        feedback.view_key,
+        feedback.note,
+        feedback.actor_user_id,
+        actor.name AS actor_name,
+        actor.email AS actor_email,
+        feedback.created_at
+      FROM command_center_feedback feedback
+      LEFT JOIN users actor ON actor.id = feedback.actor_user_id
+      WHERE feedback.business_id = ${input.businessId}
+      ORDER BY feedback.created_at DESC
+      LIMIT ${limit}
+    `) as Array<{
+      id: string;
+      business_id: string;
+      client_mutation_id: string;
+      feedback_type: CommandCenterFeedbackType;
+      outcome: string | null;
+      scope: CommandCenterFeedbackScope;
+      action_fingerprint: string | null;
+      action_title: string | null;
+      source_system: CommandCenterSourceSystem | null;
+      source_type: CommandCenterSourceType | null;
+      workload_class: string | null;
+      calibration_hint_json: unknown;
+      view_key: string | null;
+      note: string;
+      actor_user_id: string;
+      actor_name: string | null;
+      actor_email: string | null;
+      created_at: string;
+    }>;
+    return mapRows(rows);
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+  }
+
   const rows = (await sql`
     SELECT
       feedback.id,
       feedback.business_id,
       feedback.client_mutation_id,
       feedback.feedback_type,
+      NULL::TEXT AS outcome,
       feedback.scope,
       feedback.action_fingerprint,
       feedback.action_title,
       feedback.source_system,
       feedback.source_type,
+      NULL::TEXT AS workload_class,
+      NULL::JSONB AS calibration_hint_json,
       feedback.view_key,
       feedback.note,
       feedback.actor_user_id,
@@ -743,17 +915,20 @@ export async function listCommandCenterFeedback(input: {
     LEFT JOIN users actor ON actor.id = feedback.actor_user_id
     WHERE feedback.business_id = ${input.businessId}
     ORDER BY feedback.created_at DESC
-    LIMIT ${Math.max(1, Math.min(input.limit ?? 50, 200))}
+    LIMIT ${limit}
   `) as Array<{
     id: string;
     business_id: string;
     client_mutation_id: string;
     feedback_type: CommandCenterFeedbackType;
+    outcome: string | null;
     scope: CommandCenterFeedbackScope;
     action_fingerprint: string | null;
     action_title: string | null;
     source_system: CommandCenterSourceSystem | null;
     source_type: CommandCenterSourceType | null;
+    workload_class: string | null;
+    calibration_hint_json: unknown;
     view_key: string | null;
     note: string;
     actor_user_id: string;
@@ -761,35 +936,21 @@ export async function listCommandCenterFeedback(input: {
     actor_email: string | null;
     created_at: string;
   }>;
-
-  return rows.map((row) => ({
-    id: row.id,
-    businessId: row.business_id,
-    clientMutationId: row.client_mutation_id,
-    feedbackType: row.feedback_type,
-    scope: row.scope,
-    actionFingerprint: row.action_fingerprint,
-    actionTitle: row.action_title,
-    sourceSystem: row.source_system,
-    sourceType: row.source_type,
-    viewKey: row.view_key,
-    actorUserId: row.actor_user_id,
-    actorName: row.actor_name,
-    actorEmail: row.actor_email,
-    note: row.note,
-    createdAt: normalizeTimestamp(row.created_at) ?? new Date().toISOString(),
-  })) satisfies CommandCenterFeedbackEntry[];
+  return mapRows(rows);
 }
 
 export async function createCommandCenterFeedback(input: {
   businessId: string;
   clientMutationId: string;
   feedbackType: CommandCenterFeedbackType;
+  outcome: CommandCenterFeedbackOutcome;
   scope: CommandCenterFeedbackScope;
   actionFingerprint?: string | null;
   actionTitle?: string | null;
   sourceSystem?: CommandCenterSourceSystem | null;
   sourceType?: CommandCenterSourceType | null;
+  workloadClass?: CommandCenterWorkloadClass | null;
+  calibrationHint?: CommandCenterActionCalibrationHint | null;
   viewKey?: string | null;
   note: string;
   actorUserId: string;
@@ -808,36 +969,77 @@ export async function createCommandCenterFeedback(input: {
   });
 
   const sql = getDb();
-  const rows = (await sql`
-    INSERT INTO command_center_feedback (
-      business_id,
-      client_mutation_id,
-      feedback_type,
-      scope,
-      action_fingerprint,
-      action_title,
-      source_system,
-      source_type,
-      view_key,
-      note,
-      actor_user_id
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.clientMutationId},
-      ${input.feedbackType},
-      ${input.scope},
-      ${input.actionFingerprint ?? null},
-      ${input.actionTitle ?? null},
-      ${input.sourceSystem ?? null},
-      ${input.sourceType ?? null},
-      ${input.viewKey ?? null},
-      ${input.note.trim()},
-      ${input.actorUserId}
-    )
-    ON CONFLICT (business_id, client_mutation_id) DO NOTHING
-    RETURNING id
-  `) as Array<{ id: string }>;
+  let rows: Array<{ id: string }>;
+  try {
+    rows = (await sql`
+      INSERT INTO command_center_feedback (
+        business_id,
+        client_mutation_id,
+        feedback_type,
+        outcome,
+        scope,
+        action_fingerprint,
+        action_title,
+        source_system,
+        source_type,
+        workload_class,
+        calibration_hint_json,
+        view_key,
+        note,
+        actor_user_id
+      )
+      VALUES (
+        ${input.businessId},
+        ${input.clientMutationId},
+        ${input.feedbackType},
+        ${input.outcome},
+        ${input.scope},
+        ${input.actionFingerprint ?? null},
+        ${input.actionTitle ?? null},
+        ${input.sourceSystem ?? null},
+        ${input.sourceType ?? null},
+        ${input.workloadClass ?? null},
+        ${JSON.stringify(input.calibrationHint ?? null)},
+        ${input.viewKey ?? null},
+        ${input.note.trim()},
+        ${input.actorUserId}
+      )
+      ON CONFLICT (business_id, client_mutation_id) DO NOTHING
+      RETURNING id
+    `) as Array<{ id: string }>;
+  } catch (error) {
+    if (!isMissingColumnError(error)) throw error;
+    rows = (await sql`
+      INSERT INTO command_center_feedback (
+        business_id,
+        client_mutation_id,
+        feedback_type,
+        scope,
+        action_fingerprint,
+        action_title,
+        source_system,
+        source_type,
+        view_key,
+        note,
+        actor_user_id
+      )
+      VALUES (
+        ${input.businessId},
+        ${input.clientMutationId},
+        ${input.feedbackType},
+        ${input.scope},
+        ${input.actionFingerprint ?? null},
+        ${input.actionTitle ?? null},
+        ${input.sourceSystem ?? null},
+        ${input.sourceType ?? null},
+        ${input.viewKey ?? null},
+        ${input.note.trim()},
+        ${input.actorUserId}
+      )
+      ON CONFLICT (business_id, client_mutation_id) DO NOTHING
+      RETURNING id
+    `) as Array<{ id: string }>;
+  }
 
   const entries = await listCommandCenterFeedback({
     businessId: input.businessId,

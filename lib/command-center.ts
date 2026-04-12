@@ -21,6 +21,12 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
+import type {
+  BusinessDecisionBidRegime,
+  BusinessDecisionCalibrationChannel,
+  BusinessDecisionCalibrationProfile,
+  BusinessDecisionObjectiveFamily,
+} from "@/src/types/business-commercial";
 import {
   DECISION_SURFACE_LANES,
   type DecisionEvidenceFloor,
@@ -93,6 +99,31 @@ export type CommandCenterFeedbackType =
   | "false_negative";
 export type CommandCenterFeedbackScope = "action" | "queue_gap";
 export type CommandCenterSlaStatus = "on_track" | "due_soon" | "overdue" | "n_a";
+export type CommandCenterQueueSectionKey =
+  | "default_queue"
+  | "overflow_backlog"
+  | "watchlist"
+  | "archive_context"
+  | "history_context";
+export type CommandCenterWorkloadClass =
+  | "budget_shift"
+  | "scale_promotion"
+  | "recovery"
+  | "creative_refresh"
+  | "test_backlog"
+  | "geo_review"
+  | "risk_triage"
+  | "policy_guardrail"
+  | "protected_watch"
+  | "archive_context";
+export type CommandCenterBatchReviewClass =
+  | "budget_shift"
+  | "creative_refresh"
+  | "test_backlog";
+export type CommandCenterFeedbackOutcome =
+  | "calibration_candidate"
+  | "workflow_gap"
+  | "operator_note";
 
 const COMMAND_CENTER_SOURCE_TYPES = [
   "meta_adset_decision",
@@ -102,6 +133,34 @@ const COMMAND_CENTER_SOURCE_TYPES = [
   "meta_no_touch_item",
   "creative_primary_decision",
 ] as const satisfies ReadonlyArray<CommandCenterSourceType>;
+
+const COMMAND_CENTER_SLA_STATUSES = [
+  "on_track",
+  "due_soon",
+  "overdue",
+  "n_a",
+] as const satisfies ReadonlyArray<CommandCenterSlaStatus>;
+
+const COMMAND_CENTER_QUEUE_SECTION_KEYS = [
+  "default_queue",
+  "overflow_backlog",
+  "watchlist",
+  "archive_context",
+  "history_context",
+] as const satisfies ReadonlyArray<CommandCenterQueueSectionKey>;
+
+const COMMAND_CENTER_WORKLOAD_CLASSES = [
+  "budget_shift",
+  "scale_promotion",
+  "recovery",
+  "creative_refresh",
+  "test_backlog",
+  "geo_review",
+  "risk_triage",
+  "policy_guardrail",
+  "protected_watch",
+  "archive_context",
+] as const satisfies ReadonlyArray<CommandCenterWorkloadClass>;
 
 export interface CommandCenterActionEvidence {
   label: string;
@@ -122,6 +181,15 @@ export interface CommandCenterActionSourceContext {
   sourceDecisionId: string;
 }
 
+export interface CommandCenterActionCalibrationHint {
+  channel: BusinessDecisionCalibrationChannel;
+  objectiveFamily: BusinessDecisionObjectiveFamily | null;
+  bidRegime: BusinessDecisionBidRegime | null;
+  archetype: string | null;
+  actionCeiling: string | null;
+  matchedProfileKey: string | null;
+}
+
 export interface CommandCenterActionThroughput {
   priorityScore: number;
   actionable: boolean;
@@ -139,6 +207,8 @@ export interface CommandCenterAction {
   sourceSystem: CommandCenterSourceSystem;
   sourceType: CommandCenterSourceType;
   surfaceLane: DecisionSurfaceLane;
+  queueSection: CommandCenterQueueSectionKey;
+  workloadClass: CommandCenterWorkloadClass;
   truthState: DecisionTruthState;
   operatorDisposition: DecisionOperatorDisposition;
   trustReasons: string[];
@@ -154,6 +224,9 @@ export interface CommandCenterAction {
   relatedEntities: CommandCenterActionRelatedEntity[];
   tags: string[];
   watchlistOnly: boolean;
+  batchReviewClass: CommandCenterBatchReviewClass | null;
+  batchReviewEligible: boolean;
+  calibrationHint: CommandCenterActionCalibrationHint | null;
   status: CommandCenterActionStatus;
   assigneeUserId: string | null;
   assigneeName: string | null;
@@ -217,6 +290,10 @@ export interface CommandCenterSavedViewDefinition {
   tags?: string[];
   watchlistOnly?: boolean;
   surfaceLanes?: DecisionSurfaceLane[];
+  queueSections?: CommandCenterQueueSectionKey[];
+  workloadClasses?: CommandCenterWorkloadClass[];
+  slaStatuses?: CommandCenterSlaStatus[];
+  batchReviewEligible?: boolean;
 }
 
 export interface CommandCenterSavedView {
@@ -241,11 +318,14 @@ export interface CommandCenterFeedbackEntry {
   businessId: string;
   clientMutationId: string;
   feedbackType: CommandCenterFeedbackType;
+  outcome: CommandCenterFeedbackOutcome;
   scope: CommandCenterFeedbackScope;
   actionFingerprint: string | null;
   actionTitle: string | null;
   sourceSystem: CommandCenterSourceSystem | null;
   sourceType: CommandCenterSourceType | null;
+  workloadClass: CommandCenterWorkloadClass | null;
+  calibrationHint: CommandCenterActionCalibrationHint | null;
   viewKey: string | null;
   actorUserId: string;
   actorName: string | null;
@@ -260,7 +340,17 @@ export interface CommandCenterFeedbackSummary {
   badRecommendationCount: number;
   falseNegativeCount: number;
   queueGapCount: number;
+  calibrationCandidateCount: number;
+  workflowGapCount: number;
   recentEntries: CommandCenterFeedbackEntry[];
+}
+
+export interface CommandCenterQueueSectionSummary {
+  key: CommandCenterQueueSectionKey;
+  label: string;
+  headline: string;
+  count: number;
+  actionableCount: number;
 }
 
 export interface CommandCenterHistoricalSelectedWindow {
@@ -434,6 +524,7 @@ export interface CommandCenterResponse {
     headline: string;
   };
   throughput: CommandCenterQueueBudgetSummary;
+  queueSections: CommandCenterQueueSectionSummary[];
   ownerWorkload: CommandCenterOwnerWorkloadSummary[];
   shiftDigest: CommandCenterShiftDigest;
   viewStacks: CommandCenterViewStack[];
@@ -476,49 +567,107 @@ export interface CommandCenterActionStateRecord {
   updatedAt: string;
 }
 
+export interface CommandCenterFeedbackDefaults {
+  outcome: CommandCenterFeedbackOutcome;
+  workloadClass: CommandCenterWorkloadClass | null;
+  calibrationHint: CommandCenterActionCalibrationHint | null;
+}
+
 export const COMMAND_CENTER_BUILT_IN_VIEWS = [
   {
     viewKey: "today_priorities",
     name: "Today priorities",
     definition: {
-      watchlistOnly: false,
+      queueSections: ["default_queue"] satisfies CommandCenterQueueSectionKey[],
       statuses: ["pending", "approved", "failed"] satisfies CommandCenterActionStatus[],
-      surfaceLanes: ["action_core"] satisfies DecisionSurfaceLane[],
+    },
+  },
+  {
+    viewKey: "overdue_queue",
+    name: "Overdue queue",
+    definition: {
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      slaStatuses: ["overdue"] satisfies CommandCenterSlaStatus[],
+    },
+  },
+  {
+    viewKey: "batch_review_ready",
+    name: "Batch review ready",
+    definition: {
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      batchReviewEligible: true,
     },
   },
   {
     viewKey: "budget_shifts",
     name: "Budget shifts",
     definition: {
-      sourceTypes: ["meta_budget_shift"] satisfies CommandCenterSourceType[],
-    },
-  },
-  {
-    viewKey: "test_backlog",
-    name: "Test backlog",
-    definition: {
-      tags: ["test_backlog"],
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["budget_shift"] satisfies CommandCenterWorkloadClass[],
     },
   },
   {
     viewKey: "scale_promotions",
     name: "Scale promotions",
     definition: {
-      tags: ["scale_promotions"],
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["scale_promotion"] satisfies CommandCenterWorkloadClass[],
     },
   },
   {
     viewKey: "fatigue_refresh",
     name: "Fatigue refresh",
     definition: {
-      tags: ["fatigue_refresh"],
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["creative_refresh"] satisfies CommandCenterWorkloadClass[],
+    },
+  },
+  {
+    viewKey: "test_backlog",
+    name: "Test backlog",
+    definition: {
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["test_backlog"] satisfies CommandCenterWorkloadClass[],
+    },
+  },
+  {
+    viewKey: "recovery_queue",
+    name: "Recovery queue",
+    definition: {
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["recovery"] satisfies CommandCenterWorkloadClass[],
     },
   },
   {
     viewKey: "high_risk_actions",
     name: "High-risk actions",
     definition: {
-      tags: ["high_risk_actions"],
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["risk_triage"] satisfies CommandCenterWorkloadClass[],
     },
   },
   {
@@ -526,28 +675,40 @@ export const COMMAND_CENTER_BUILT_IN_VIEWS = [
     name: "No-touch surfaces",
     definition: {
       watchlistOnly: true,
-      surfaceLanes: ["watchlist"] satisfies DecisionSurfaceLane[],
+      queueSections: ["watchlist"] satisfies CommandCenterQueueSectionKey[],
     },
   },
   {
-    viewKey: "archive_context",
-    name: "Archive context",
+    viewKey: "overflow_backlog",
+    name: "Overflow backlog",
     definition: {
-      surfaceLanes: ["archive_context"] satisfies DecisionSurfaceLane[],
+      queueSections: ["overflow_backlog"] satisfies CommandCenterQueueSectionKey[],
     },
   },
   {
     viewKey: "geo_issues",
     name: "Geo issues",
     definition: {
-      sourceTypes: ["meta_geo_decision"] satisfies CommandCenterSourceType[],
+      queueSections: [
+        "default_queue",
+        "overflow_backlog",
+      ] satisfies CommandCenterQueueSectionKey[],
+      workloadClasses: ["geo_review"] satisfies CommandCenterWorkloadClass[],
     },
   },
   {
     viewKey: "promo_mode_watchlist",
     name: "Promo mode watchlist",
     definition: {
+      queueSections: ["watchlist"] satisfies CommandCenterQueueSectionKey[],
       tags: ["promo_mode_watchlist"],
+    },
+  },
+  {
+    viewKey: "archive_context",
+    name: "Archive context",
+    definition: {
+      queueSections: ["archive_context"] satisfies CommandCenterQueueSectionKey[],
     },
   },
 ] as const satisfies ReadonlyArray<{
@@ -570,6 +731,11 @@ export const COMMAND_CENTER_PRIORITY_SCORE_WEIGHTS = {
   medium: 55,
   low: 35,
 } as const satisfies Record<CommandCenterPriority, number>;
+
+export const COMMAND_CENTER_DEFAULT_QUEUE_WORKLOAD_CAP = Math.max(
+  2,
+  Math.ceil(COMMAND_CENTER_DEFAULT_QUEUE_BUDGET / 4),
+);
 
 export const COMMAND_CENTER_SLA_TARGET_HOURS = {
   critical: 4,
@@ -677,6 +843,172 @@ function priorityFromCreative(creative: CreativeDecisionOsCreative): CommandCent
   return "medium";
 }
 
+function buildCalibrationProfileKey(
+  profile: Pick<
+    BusinessDecisionCalibrationProfile,
+    "channel" | "objectiveFamily" | "bidRegime" | "archetype"
+  >,
+) {
+  return [
+    profile.channel,
+    profile.objectiveFamily,
+    profile.bidRegime,
+    profile.archetype,
+  ].join(":");
+}
+
+function resolveCalibrationProfileMatch(input: {
+  channel: BusinessDecisionCalibrationChannel;
+  objectiveFamily: BusinessDecisionObjectiveFamily | null;
+  bidRegime: BusinessDecisionBidRegime | null;
+  archetype: string | null;
+  calibrationProfiles?: BusinessDecisionCalibrationProfile[];
+}) {
+  if (!input.objectiveFamily || !input.bidRegime || !input.archetype) {
+    return null;
+  }
+  const matchedProfile = (input.calibrationProfiles ?? []).find(
+    (profile) =>
+      profile.channel === input.channel &&
+      profile.objectiveFamily === input.objectiveFamily &&
+      profile.bidRegime === input.bidRegime &&
+      profile.archetype === input.archetype,
+  );
+  return matchedProfile ? buildCalibrationProfileKey(matchedProfile) : null;
+}
+
+function buildMetaAdSetCalibrationHint(input: {
+  decision: MetaAdSetDecision;
+  calibrationProfiles?: BusinessDecisionCalibrationProfile[];
+}): CommandCenterActionCalibrationHint {
+  return {
+    channel: "meta",
+    objectiveFamily: input.decision.policy.objectiveFamily,
+    bidRegime: input.decision.policy.bidRegime,
+    archetype: input.decision.policy.primaryDriver,
+    actionCeiling: input.decision.policy.explanation?.actionCeiling ?? null,
+    matchedProfileKey: resolveCalibrationProfileMatch({
+      channel: "meta",
+      objectiveFamily: input.decision.policy.objectiveFamily,
+      bidRegime: input.decision.policy.bidRegime,
+      archetype: input.decision.policy.primaryDriver,
+      calibrationProfiles: input.calibrationProfiles,
+    }),
+  };
+}
+
+function buildCreativeCalibrationHint(input: {
+  creative: CreativeDecisionOsCreative;
+  calibrationProfiles?: BusinessDecisionCalibrationProfile[];
+}): CommandCenterActionCalibrationHint | null {
+  if (!input.creative.policy) return null;
+  return {
+    channel: "creative",
+    objectiveFamily:
+      (input.creative.policy.objectiveFamily as BusinessDecisionObjectiveFamily | null) ??
+      null,
+    bidRegime:
+      (input.creative.policy.bidRegime as BusinessDecisionBidRegime | null) ?? null,
+    archetype: input.creative.policy.primaryDriver,
+    actionCeiling: input.creative.policy.explanation?.actionCeiling ?? null,
+    matchedProfileKey: resolveCalibrationProfileMatch({
+      channel: "creative",
+      objectiveFamily:
+        (input.creative.policy.objectiveFamily as BusinessDecisionObjectiveFamily | null) ??
+        null,
+      bidRegime:
+        (input.creative.policy.bidRegime as BusinessDecisionBidRegime | null) ?? null,
+      archetype: input.creative.policy.primaryDriver,
+      calibrationProfiles: input.calibrationProfiles,
+    }),
+  };
+}
+
+function classifyCommandCenterWorkload(input: {
+  sourceType: CommandCenterSourceType;
+  recommendedAction: string;
+  tags: string[];
+  watchlistOnly: boolean;
+  surfaceLane: DecisionSurfaceLane;
+  operatorDisposition: DecisionOperatorDisposition;
+}): CommandCenterWorkloadClass {
+  if (input.surfaceLane === "archive_context") return "archive_context";
+  if (input.watchlistOnly || input.operatorDisposition === "protected_watchlist") {
+    return "protected_watch";
+  }
+  if (input.sourceType === "meta_budget_shift") return "budget_shift";
+  if (input.sourceType === "meta_geo_decision") return "geo_review";
+  if (
+    input.recommendedAction === "recover" ||
+    input.recommendedAction === "retest_comeback"
+  ) {
+    return "recovery";
+  }
+  if (
+    input.recommendedAction === "refresh_replace" ||
+    input.recommendedAction === "creative_refresh_required" ||
+    input.tags.includes("fatigue_refresh")
+  ) {
+    return "creative_refresh";
+  }
+  if (
+    input.recommendedAction === "scale_budget" ||
+    input.recommendedAction === "promote_to_scaling" ||
+    input.tags.includes("scale_promotions")
+  ) {
+    return "scale_promotion";
+  }
+  if (
+    input.recommendedAction === "keep_in_test" ||
+    input.recommendedAction === "rebuild" ||
+    input.recommendedAction === "broaden" ||
+    input.recommendedAction === "retest_comeback" ||
+    input.tags.includes("test_backlog")
+  ) {
+    return "test_backlog";
+  }
+  if (
+    input.recommendedAction === "pause" ||
+    input.recommendedAction === "block_deploy" ||
+    input.recommendedAction === "exception_review" ||
+    input.recommendedAction === "cut" ||
+    input.recommendedAction === "isolate" ||
+    input.tags.includes("high_risk_actions")
+  ) {
+    return "risk_triage";
+  }
+  return "policy_guardrail";
+}
+
+function resolveCommandCenterBatchReviewClass(input: {
+  sourceType: CommandCenterSourceType;
+  recommendedAction: string;
+  surfaceLane: DecisionSurfaceLane;
+  truthState: DecisionTruthState;
+}): CommandCenterBatchReviewClass | null {
+  if (
+    input.surfaceLane !== "action_core" ||
+    input.truthState === "degraded_missing_truth"
+  ) {
+    return null;
+  }
+  if (input.sourceType === "meta_budget_shift") return "budget_shift";
+  if (
+    input.sourceType === "creative_primary_decision" &&
+    input.recommendedAction === "refresh_replace"
+  ) {
+    return "creative_refresh";
+  }
+  if (
+    input.sourceType === "creative_primary_decision" &&
+    (input.recommendedAction === "keep_in_test" ||
+      input.recommendedAction === "retest_comeback")
+  ) {
+    return "test_backlog";
+  }
+  return null;
+}
+
 function createActionFingerprint(base: CommandCenterActionBase) {
   const signature = JSON.stringify({
     version: COMMAND_CENTER_ACTION_FINGERPRINT_VERSION,
@@ -709,11 +1041,43 @@ function buildMetaSourceDeepLink(input: {
 }
 
 function buildMetaAction(
-  input: Omit<CommandCenterAction, "actionFingerprint" | "status" | "assigneeUserId" | "assigneeName" | "snoozeUntil" | "latestNoteExcerpt" | "noteCount" | "lastMutatedAt" | "lastMutationId" | "createdAt" | "throughput"> & {
+  input: Omit<
+    CommandCenterAction,
+    | "actionFingerprint"
+    | "queueSection"
+    | "workloadClass"
+    | "batchReviewClass"
+    | "batchReviewEligible"
+    | "status"
+    | "assigneeUserId"
+    | "assigneeName"
+    | "snoozeUntil"
+    | "latestNoteExcerpt"
+    | "noteCount"
+    | "lastMutatedAt"
+    | "lastMutationId"
+    | "createdAt"
+    | "throughput"
+  > & {
     entityType: string;
     entityId: string;
   },
 ): CommandCenterAction {
+  const workloadClass = classifyCommandCenterWorkload({
+    sourceType: input.sourceType,
+    recommendedAction: input.recommendedAction,
+    tags: input.tags,
+    watchlistOnly: input.watchlistOnly,
+    surfaceLane: input.surfaceLane,
+    operatorDisposition: input.operatorDisposition,
+  });
+  const batchReviewClass = resolveCommandCenterBatchReviewClass({
+    sourceType: input.sourceType,
+    recommendedAction: input.recommendedAction,
+    surfaceLane: input.surfaceLane,
+    truthState: input.truthState,
+  });
+
   return {
     ...input,
     actionFingerprint: createActionFingerprint({
@@ -724,6 +1088,10 @@ function buildMetaAction(
       sourceDecisionId: input.sourceContext.sourceDecisionId,
       recommendedAction: input.recommendedAction,
     }),
+    queueSection: "history_context",
+    workloadClass,
+    batchReviewClass,
+    batchReviewEligible: batchReviewClass != null,
     status: "pending",
     assigneeUserId: null,
     assigneeName: null,
@@ -921,6 +1289,7 @@ export function aggregateCommandCenterActions(input: {
   metaDecisionOs: MetaDecisionOsV1Response | null;
   creativeDecisionOs: CreativeDecisionOsV1Response | null;
   stateByFingerprint?: Map<string, CommandCenterActionStateRecord>;
+  calibrationProfiles?: BusinessDecisionCalibrationProfile[];
 }): CommandCenterAction[] {
   const generatedAt = new Date().toISOString();
   const actions: CommandCenterAction[] = [];
@@ -957,6 +1326,10 @@ export function aggregateCommandCenterActions(input: {
           ]),
           evidence: evidenceFromMetrics(decision.supportingMetrics),
           policyExplanation: decision.policy.explanation ?? null,
+          calibrationHint: buildMetaAdSetCalibrationHint({
+            decision,
+            calibrationProfiles: input.calibrationProfiles,
+          }),
           guardrails: decision.guardrails,
           relatedEntities: [
             {
@@ -1032,6 +1405,7 @@ export function aggregateCommandCenterActions(input: {
               : []),
           ],
           watchlistOnly: false,
+          calibrationHint: null,
           sourceContext: {
             sourceLabel: "Meta Decision OS",
             operatingMode,
@@ -1070,6 +1444,7 @@ export function aggregateCommandCenterActions(input: {
           summary: decision.why,
           decisionSignals: [decision.why, ...decision.whatWouldChangeThisDecision],
           evidence: metaEvidenceFromDecision(decision.evidence),
+          calibrationHint: null,
           guardrails: decision.guardrails,
           relatedEntities: [
             {
@@ -1120,6 +1495,7 @@ export function aggregateCommandCenterActions(input: {
             ...anomaly.whatWouldChangeThisDecision,
           ],
           evidence: metaEvidenceFromDecision(anomaly.evidence),
+          calibrationHint: null,
           guardrails: [],
           relatedEntities: [
             {
@@ -1199,6 +1575,10 @@ export function aggregateCommandCenterActions(input: {
             },
           ],
           policyExplanation: creative.policy?.explanation ?? null,
+          calibrationHint: buildCreativeCalibrationHint({
+            creative,
+            calibrationProfiles: input.calibrationProfiles,
+          }),
           guardrails: creative.deployment.constraints,
           relatedEntities: [
             {
@@ -1272,6 +1652,8 @@ function metaNoTouchAction(input: {
     sourceSystem: "meta",
     sourceType: "meta_no_touch_item",
     surfaceLane: "watchlist",
+    queueSection: "watchlist",
+    workloadClass: "protected_watch",
     truthState: "live_confident",
     operatorDisposition: "protected_watchlist",
     trustReasons: [input.item.reason],
@@ -1297,6 +1679,9 @@ function metaNoTouchAction(input: {
     ],
     tags: ["promo_mode_watchlist"],
     watchlistOnly: true,
+    batchReviewClass: null,
+    batchReviewEligible: false,
+    calibrationHint: null,
     status: "pending" as CommandCenterActionStatus,
     assigneeUserId: null,
     assigneeName: null,
@@ -1430,6 +1815,42 @@ function actionComparatorForBudget(
   return left.title.localeCompare(right.title);
 }
 
+function resolveCommandCenterQueueSection(
+  action: CommandCenterAction,
+): CommandCenterQueueSectionKey {
+  if (action.throughput.selectedInDefaultQueue) return "default_queue";
+  if (action.surfaceLane === "watchlist") return "watchlist";
+  if (action.surfaceLane === "archive_context") return "archive_context";
+  if (action.throughput.actionable) return "overflow_backlog";
+  return "history_context";
+}
+
+const COMMAND_CENTER_QUEUE_SECTION_META = {
+  default_queue: {
+    label: "Default queue",
+    headline: "Actions that fit the current throughput budget.",
+  },
+  overflow_backlog: {
+    label: "Overflow backlog",
+    headline: "Actionable items that missed the current queue budget.",
+  },
+  watchlist: {
+    label: "Watchlist",
+    headline: "Protected or review-only items kept out of daily execution.",
+  },
+  archive_context: {
+    label: "Archive context",
+    headline: "Historical or immaterial rows retained for context only.",
+  },
+  history_context: {
+    label: "History context",
+    headline: "Non-actionable workflow history outside the active queue.",
+  },
+} as const satisfies Record<
+  CommandCenterQueueSectionKey,
+  { label: string; headline: string }
+>;
+
 export function buildCommandCenterDefaultQueueSummary(actions: CommandCenterAction[]) {
   const actionableActions = actions
     .filter((action) => action.throughput.defaultQueueEligible)
@@ -1441,12 +1862,16 @@ export function buildCommandCenterDefaultQueueSummary(actions: CommandCenterActi
     low: COMMAND_CENTER_DEFAULT_QUEUE_QUOTAS.low,
   };
   const selectedFingerprints: string[] = [];
+  const workloadCounts = new Map<CommandCenterWorkloadClass, number>();
 
   for (const action of actionableActions) {
     if (selectedFingerprints.length >= COMMAND_CENTER_DEFAULT_QUEUE_BUDGET) break;
     if (remainingQuotas[action.priority] <= 0) continue;
+    const workloadCount = workloadCounts.get(action.workloadClass) ?? 0;
+    if (workloadCount >= COMMAND_CENTER_DEFAULT_QUEUE_WORKLOAD_CAP) continue;
     selectedFingerprints.push(action.actionFingerprint);
     remainingQuotas[action.priority] -= 1;
+    workloadCounts.set(action.workloadClass, workloadCount + 1);
   }
 
   if (selectedFingerprints.length < COMMAND_CENTER_DEFAULT_QUEUE_BUDGET) {
@@ -1477,13 +1902,36 @@ export function applyCommandCenterQueueSelection(input: {
   throughput: CommandCenterQueueBudgetSummary;
 }) {
   const selected = new Set(input.throughput.selectedActionFingerprints);
-  return input.actions.map((action) => ({
-    ...action,
-    throughput: {
-      ...action.throughput,
-      selectedInDefaultQueue: selected.has(action.actionFingerprint),
-    },
-  }));
+  return input.actions.map((action) => {
+    const selectedInDefaultQueue = selected.has(action.actionFingerprint);
+    const nextAction = {
+      ...action,
+      throughput: {
+        ...action.throughput,
+        selectedInDefaultQueue,
+      },
+    };
+    return {
+      ...nextAction,
+      queueSection: resolveCommandCenterQueueSection(nextAction),
+    };
+  });
+}
+
+export function buildCommandCenterQueueSections(
+  actions: CommandCenterAction[],
+): CommandCenterQueueSectionSummary[] {
+  return COMMAND_CENTER_QUEUE_SECTION_KEYS.map((key) => {
+    const sectionActions = actions.filter((action) => action.queueSection === key);
+    return {
+      key,
+      label: COMMAND_CENTER_QUEUE_SECTION_META[key].label,
+      headline: COMMAND_CENTER_QUEUE_SECTION_META[key].headline,
+      count: sectionActions.length,
+      actionableCount: sectionActions.filter((action) => action.throughput.actionable)
+        .length,
+    } satisfies CommandCenterQueueSectionSummary;
+  }).filter((section) => section.count > 0);
 }
 
 export function buildCommandCenterOwnerWorkload(input: {
@@ -1557,13 +2005,20 @@ const VIEW_STACK_LABELS = {
 
 function resolveCommandCenterViewStack(view: CommandCenterSavedView): CommandCenterViewStack["stackKey"] {
   if (!view.isBuiltIn) return "custom";
-  if (["today_priorities", "high_risk_actions"].includes(view.viewKey)) return "run_now";
+  if (
+    ["today_priorities", "overdue_queue", "batch_review_ready", "high_risk_actions"].includes(
+      view.viewKey,
+    )
+  ) {
+    return "run_now";
+  }
   if (
     [
       "budget_shifts",
       "test_backlog",
       "scale_promotions",
       "fatigue_refresh",
+      "recovery_queue",
       "geo_issues",
     ].includes(view.viewKey)
   ) {
@@ -1620,8 +2075,43 @@ export function summarizeCommandCenterFeedback(
     falseNegativeCount: entries.filter((entry) => entry.feedbackType === "false_negative")
       .length,
     queueGapCount: entries.filter((entry) => entry.scope === "queue_gap").length,
+    calibrationCandidateCount: entries.filter(
+      (entry) => entry.outcome === "calibration_candidate",
+    ).length,
+    workflowGapCount: entries.filter((entry) => entry.outcome === "workflow_gap").length,
     recentEntries,
   } satisfies CommandCenterFeedbackSummary;
+}
+
+export function buildCommandCenterFeedbackDefaults(input: {
+  action?: CommandCenterAction | null;
+  scope: CommandCenterFeedbackScope;
+}): CommandCenterFeedbackDefaults {
+  if (input.scope === "queue_gap") {
+    return {
+      outcome: "workflow_gap",
+      workloadClass: null,
+      calibrationHint: null,
+    };
+  }
+  const action = input.action ?? null;
+  if (!action) {
+    return {
+      outcome: "operator_note",
+      workloadClass: null,
+      calibrationHint: null,
+    };
+  }
+  const hasCalibrationSignal = Boolean(
+    action.calibrationHint?.objectiveFamily ||
+      action.calibrationHint?.bidRegime ||
+      action.calibrationHint?.archetype,
+  );
+  return {
+    outcome: hasCalibrationSignal ? "calibration_candidate" : "operator_note",
+    workloadClass: action.workloadClass,
+    calibrationHint: action.calibrationHint,
+  };
 }
 
 export function buildCommandCenterShiftDigest(input: {
@@ -1656,6 +2146,11 @@ export function buildCommandCenterShiftDigest(input: {
   if (input.feedbackSummary.queueGapCount > 0) {
     watchouts.push(
       `${input.feedbackSummary.queueGapCount} queue-gap report(s) indicate missing work outside the surfaced queue.`,
+    );
+  }
+  if (input.feedbackSummary.calibrationCandidateCount > 0) {
+    watchouts.push(
+      `${input.feedbackSummary.calibrationCandidateCount} feedback item(s) point to calibration tuning opportunities.`,
     );
   }
   const degradedCount = selectedActions.filter(
@@ -1702,9 +2197,20 @@ export function compareCommandCenterActions(
     medium: 2,
     low: 3,
   };
+  const queueSectionWeight: Record<CommandCenterQueueSectionKey, number> = {
+    default_queue: 0,
+    overflow_backlog: 1,
+    watchlist: 2,
+    archive_context: 3,
+    history_context: 4,
+  };
 
   const statusDelta = statusWeight[left.status] - statusWeight[right.status];
   if (statusDelta !== 0) return statusDelta;
+
+  const queueDelta =
+    queueSectionWeight[left.queueSection] - queueSectionWeight[right.queueSection];
+  if (queueDelta !== 0) return queueDelta;
 
   const watchlistDelta = Number(left.watchlistOnly) - Number(right.watchlistOnly);
   if (watchlistDelta !== 0) return watchlistDelta;
@@ -1831,6 +2337,33 @@ export function filterCommandCenterActionsByView(
     ) {
       return false;
     }
+    if (
+      definition.queueSections &&
+      definition.queueSections.length > 0 &&
+      !definition.queueSections.includes(action.queueSection)
+    ) {
+      return false;
+    }
+    if (
+      definition.workloadClasses &&
+      definition.workloadClasses.length > 0 &&
+      !definition.workloadClasses.includes(action.workloadClass)
+    ) {
+      return false;
+    }
+    if (
+      definition.slaStatuses &&
+      definition.slaStatuses.length > 0 &&
+      !definition.slaStatuses.includes(action.throughput.slaStatus)
+    ) {
+      return false;
+    }
+    if (
+      definition.batchReviewEligible != null &&
+      action.batchReviewEligible !== definition.batchReviewEligible
+    ) {
+      return false;
+    }
     return true;
   });
 }
@@ -1892,6 +2425,30 @@ export function sanitizeCommandCenterSavedViewDefinition(
         DECISION_SURFACE_LANES.includes(value as DecisionSurfaceLane),
       )
     : undefined;
+  const queueSections = Array.isArray(candidate.queueSections)
+    ? candidate.queueSections.filter((value): value is CommandCenterQueueSectionKey =>
+        typeof value === "string" &&
+        COMMAND_CENTER_QUEUE_SECTION_KEYS.includes(
+          value as CommandCenterQueueSectionKey,
+        ),
+      )
+    : undefined;
+  const workloadClasses = Array.isArray(candidate.workloadClasses)
+    ? candidate.workloadClasses.filter((value): value is CommandCenterWorkloadClass =>
+        typeof value === "string" &&
+        COMMAND_CENTER_WORKLOAD_CLASSES.includes(value as CommandCenterWorkloadClass),
+      )
+    : undefined;
+  const slaStatuses = Array.isArray(candidate.slaStatuses)
+    ? candidate.slaStatuses.filter((value): value is CommandCenterSlaStatus =>
+        typeof value === "string" &&
+        COMMAND_CENTER_SLA_STATUSES.includes(value as CommandCenterSlaStatus),
+      )
+    : undefined;
+  const batchReviewEligible =
+    typeof candidate.batchReviewEligible === "boolean"
+      ? candidate.batchReviewEligible
+      : undefined;
 
   return {
     ...(sourceTypes && sourceTypes.length > 0 ? { sourceTypes } : {}),
@@ -1899,6 +2456,10 @@ export function sanitizeCommandCenterSavedViewDefinition(
     ...(tags && tags.length > 0 ? { tags } : {}),
     ...(watchlistOnly != null ? { watchlistOnly } : {}),
     ...(surfaceLanes && surfaceLanes.length > 0 ? { surfaceLanes } : {}),
+    ...(queueSections && queueSections.length > 0 ? { queueSections } : {}),
+    ...(workloadClasses && workloadClasses.length > 0 ? { workloadClasses } : {}),
+    ...(slaStatuses && slaStatuses.length > 0 ? { slaStatuses } : {}),
+    ...(batchReviewEligible != null ? { batchReviewEligible } : {}),
   };
 }
 

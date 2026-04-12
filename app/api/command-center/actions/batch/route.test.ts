@@ -29,6 +29,10 @@ const actionFixture = {
   title: "Promo Hook A",
   sourceSystem: "creative",
   sourceType: "creative_primary_decision",
+  queueSection: "default_queue",
+  workloadClass: "creative_refresh",
+  batchReviewClass: "creative_refresh",
+  batchReviewEligible: true,
 } as const;
 
 describe("POST /api/command-center/actions/batch", () => {

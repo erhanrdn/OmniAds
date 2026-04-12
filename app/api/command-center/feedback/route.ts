@@ -5,6 +5,7 @@ import type {
   CommandCenterFeedbackType,
   CommandCenterSourceSystem,
 } from "@/lib/command-center";
+import { buildCommandCenterFeedbackDefaults } from "@/lib/command-center";
 import { isCommandCenterV1EnabledForBusiness } from "@/lib/command-center-config";
 import { findCommandCenterActionForRange } from "@/lib/command-center-service";
 import {
@@ -168,6 +169,10 @@ export async function POST(request: NextRequest) {
       businessId,
       clientMutationId,
       feedbackType,
+      ...buildCommandCenterFeedbackDefaults({
+        action,
+        scope,
+      }),
       scope,
       actionFingerprint: action.actionFingerprint,
       actionTitle: action.title,
@@ -195,6 +200,9 @@ export async function POST(request: NextRequest) {
     businessId,
     clientMutationId,
     feedbackType,
+    ...buildCommandCenterFeedbackDefaults({
+      scope,
+    }),
     scope,
     sourceSystem,
     viewKey,

@@ -929,6 +929,8 @@ function buildActionFixture(
     sourceSystem: "meta",
     sourceType: "meta_adset_decision",
     surfaceLane: "action_core",
+    queueSection: "history_context",
+    workloadClass: "scale_promotion",
     truthState: "live_confident",
     operatorDisposition: "standard",
     trustReasons: ["Stable queue fixture."],
@@ -949,6 +951,9 @@ function buildActionFixture(
     ],
     tags: [],
     watchlistOnly: false,
+    batchReviewClass: null,
+    batchReviewEligible: false,
+    calibrationHint: null,
     status: "pending",
     assigneeUserId: null,
     assigneeName: null,
@@ -982,17 +987,23 @@ function buildActionFixture(
 function buildFeedbackEntry(
   overrides: Partial<CommandCenterFeedbackEntry> = {},
 ): CommandCenterFeedbackEntry {
+  const scope = overrides.scope ?? "action";
   return {
     id: overrides.id ?? `feedback_${Math.random().toString(36).slice(2, 8)}`,
     businessId: "biz",
     clientMutationId:
       overrides.clientMutationId ?? `mutation_${Math.random().toString(36).slice(2, 8)}`,
     feedbackType: "false_positive",
-    scope: "action",
+    outcome:
+      overrides.outcome ??
+      (scope === "queue_gap" ? "workflow_gap" : "operator_note"),
+    scope,
     actionFingerprint: "cc_feedback",
     actionTitle: "Feedback action",
     sourceSystem: "meta",
     sourceType: "meta_adset_decision",
+    workloadClass: scope === "action" ? "policy_guardrail" : null,
+    calibrationHint: null,
     viewKey: null,
     actorUserId: "user_1",
     actorName: "Operator",

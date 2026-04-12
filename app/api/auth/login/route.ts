@@ -12,6 +12,21 @@ interface LoginBody {
   password?: string;
 }
 
+function shouldResetSessionsOnLogin(email: string) {
+  const normalized = email.trim().toLowerCase();
+  const reviewerEmail = (
+    process.env.SHOPIFY_REVIEWER_EMAIL ?? "shopify-review@adsecute.com"
+  )
+    .trim()
+    .toLowerCase();
+  const commercialSmokeEmail = (
+    process.env.COMMERCIAL_SMOKE_OPERATOR_EMAIL ?? "commercial-smoke@adsecute.com"
+  )
+    .trim()
+    .toLowerCase();
+  return normalized === reviewerEmail || normalized === commercialSmokeEmail;
+}
+
 export async function POST(request: NextRequest) {
   const language = await resolveRequestLanguage(request);
   const tr = (english: string, turkish: string) => (language === "tr" ? turkish : english);
@@ -91,6 +106,10 @@ export async function POST(request: NextRequest) {
   }
   const firstActiveBusiness =
     businesses.find((b) => b.membershipStatus === "active")?.id ?? null;
+  if (shouldResetSessionsOnLogin(user.email)) {
+    const sql = getDb();
+    await sql`DELETE FROM sessions WHERE user_id = ${user.id}`.catch(() => {});
+  }
   const { token, expiresAt } = await createSession({
     userId: user.id,
     activeBusinessId: firstActiveBusiness,

@@ -138,6 +138,14 @@ export async function POST(request: NextRequest) {
       });
       continue;
     }
+    if (!action.batchReviewEligible) {
+      results.push({
+        actionFingerprint,
+        ok: false,
+        error: "batch_review_ineligible",
+      });
+      continue;
+    }
 
     try {
       const state = await applyCommandCenterActionMutation({

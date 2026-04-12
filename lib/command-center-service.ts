@@ -9,6 +9,7 @@ import {
   buildCommandCenterDefaultQueueSummary,
   buildCommandCenterFiltersFromViewKey,
   buildCommandCenterOwnerWorkload,
+  buildCommandCenterQueueSections,
   buildCommandCenterShiftDigest,
   buildCommandCenterViewStacks,
   compareCommandCenterActions,
@@ -103,6 +104,7 @@ export async function getCommandCenterSnapshot(input: {
     metaDecisionOs,
     creativeDecisionOs,
     stateByFingerprint: actionStates,
+    calibrationProfiles: commercialTruth?.calibrationProfiles,
   });
   const opportunities = buildCommandCenterOpportunities({
     businessId: input.businessId,
@@ -122,7 +124,8 @@ export async function getCommandCenterSnapshot(input: {
   const allActions = applyCommandCenterQueueSelection({
     actions: throughputDecoratedActions,
     throughput,
-  });
+  }).sort(compareCommandCenterActions);
+  const queueSections = buildCommandCenterQueueSections(allActions);
   const ownerWorkload = buildCommandCenterOwnerWorkload({
     actions: allActions,
     throughput,
@@ -157,14 +160,12 @@ export async function getCommandCenterSnapshot(input: {
       ...(creativeDecisionOs?.commercialTruthCoverage.guardrails ?? []),
     ]),
   );
+  const hasMissingTruth = missingInputs.length > 0;
   const authority = buildDecisionSurfaceAuthority({
     scope: "Command Center",
-    truthState:
-      missingInputs.length > 0 || throughput.selectedCount < throughput.actionableCount
-        ? "degraded_missing_truth"
-        : "live_confident",
+    truthState: hasMissingTruth ? "degraded_missing_truth" : "live_confident",
     completeness:
-      missingInputs.length === 0
+      !hasMissingTruth
         ? "complete"
         : missingInputs.length >= 3
           ? "missing"
@@ -179,8 +180,10 @@ export async function getCommandCenterSnapshot(input: {
       summarizeCommandCenterActions(allActions).watchlistCount +
       summarizeCommandCenterActions(allActions).archiveCount,
     note:
-      missingInputs.length > 0
+      hasMissingTruth
         ? "Command Center is compiling from upstream surfaces with active trust caps."
+        : throughput.overflowCount > 0
+          ? "Command Center is healthy; excess actionable rows stay in overflow backlog until queue capacity opens."
         : "Command Center is compiling action-core, watchlist, and archive lanes from the shared trust kernel.",
   });
   const viewStacks = buildCommandCenterViewStacks(savedViews);
@@ -211,6 +214,7 @@ export async function getCommandCenterSnapshot(input: {
     summary: summarizeCommandCenterActions(allActions),
     opportunitySummary,
     throughput,
+    queueSections,
     ownerWorkload,
     shiftDigest,
     viewStacks,

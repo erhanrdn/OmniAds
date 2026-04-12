@@ -833,17 +833,30 @@ export async function runMigrations(options?: {
           client_mutation_id TEXT NOT NULL,
           feedback_type      TEXT NOT NULL
                               CHECK (feedback_type IN ('false_positive', 'bad_recommendation', 'false_negative')),
+          outcome            TEXT NOT NULL DEFAULT 'operator_note'
+                              CHECK (outcome IN ('calibration_candidate', 'workflow_gap', 'operator_note')),
           scope              TEXT NOT NULL CHECK (scope IN ('action', 'queue_gap')),
           action_fingerprint TEXT,
           action_title       TEXT,
           source_system      TEXT CHECK (source_system IN ('meta', 'creative')),
           source_type        TEXT,
+          workload_class     TEXT
+                              CHECK (workload_class IN ('budget_shift', 'scale_promotion', 'recovery', 'creative_refresh', 'test_backlog', 'geo_review', 'risk_triage', 'policy_guardrail', 'protected_watch', 'archive_context')),
+          calibration_hint_json JSONB NOT NULL DEFAULT 'null'::jsonb,
           view_key           TEXT,
           note               TEXT NOT NULL,
           actor_user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, client_mutation_id)
         )`.catch(() => {}),
+        sql`ALTER TABLE command_center_feedback
+          ADD COLUMN IF NOT EXISTS outcome TEXT NOT NULL DEFAULT 'operator_note'
+            CHECK (outcome IN ('calibration_candidate', 'workflow_gap', 'operator_note'))`.catch(() => {}),
+        sql`ALTER TABLE command_center_feedback
+          ADD COLUMN IF NOT EXISTS workload_class TEXT
+            CHECK (workload_class IN ('budget_shift', 'scale_promotion', 'recovery', 'creative_refresh', 'test_backlog', 'geo_review', 'risk_triage', 'policy_guardrail', 'protected_watch', 'archive_context'))`.catch(() => {}),
+        sql`ALTER TABLE command_center_feedback
+          ADD COLUMN IF NOT EXISTS calibration_hint_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_feedback_business_created
           ON command_center_feedback (business_id, created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_feedback_business_action

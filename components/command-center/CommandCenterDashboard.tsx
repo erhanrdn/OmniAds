@@ -103,11 +103,32 @@ function formatSurfaceLane(value: CommandCenterAction["surfaceLane"]) {
   return value.replaceAll("_", " ");
 }
 
+function formatQueueSection(value: CommandCenterAction["queueSection"]) {
+  return value.replaceAll("_", " ");
+}
+
+function formatWorkloadClass(value: CommandCenterAction["workloadClass"]) {
+  return value.replaceAll("_", " ");
+}
+
 function resolveSurfaceLaneTone(lane: CommandCenterAction["surfaceLane"]) {
   if (lane === "action_core") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (lane === "watchlist") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function resolveQueueSectionTone(section: CommandCenterAction["queueSection"]) {
+  if (section === "default_queue") {
+    return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+  if (section === "overflow_backlog") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  if (section === "watchlist") {
     return "border-blue-200 bg-blue-50 text-blue-700";
   }
   return "border-slate-200 bg-slate-100 text-slate-700";
@@ -312,7 +333,7 @@ function ActionCard({
           <div className="flex flex-wrap items-center gap-2">
             {action.throughput.selectedInDefaultQueue ? (
               <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
-                shift budget
+                default queue
               </Badge>
             ) : null}
             <Badge
@@ -328,6 +349,15 @@ function ActionCard({
             >
               {formatSurfaceLane(action.surfaceLane)}
             </Badge>
+            <Badge
+              variant="outline"
+              className={cn("capitalize", resolveQueueSectionTone(action.queueSection))}
+            >
+              {formatQueueSection(action.queueSection)}
+            </Badge>
+            <Badge variant="outline" className="capitalize">
+              {formatWorkloadClass(action.workloadClass)}
+            </Badge>
             {action.operatorDisposition !== "standard" ? (
               <Badge
                 variant="outline"
@@ -342,6 +372,11 @@ function ActionCard({
             {action.truthState === "degraded_missing_truth" ? (
               <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
                 degraded truth
+              </Badge>
+            ) : null}
+            {action.batchReviewEligible ? (
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                batch ready
               </Badge>
             ) : null}
           </div>
@@ -466,20 +501,15 @@ export function CommandCenterDashboard() {
     return query.data.savedViews.find((view) => view.viewKey === activeViewKey) ?? null;
   }, [activeViewKey, query.data]);
 
-  const budgetedActionFingerprints = useMemo(
-    () => new Set(query.data?.throughput.selectedActionFingerprints ?? []),
-    [query.data?.throughput.selectedActionFingerprints],
-  );
-
   const baseActions = useMemo(() => {
     if (!query.data) return [];
     if (!selectedView) {
-      return query.data.actions.filter((action) =>
-        budgetedActionFingerprints.has(action.actionFingerprint),
+      return query.data.actions.filter(
+        (action) => action.queueSection === "default_queue",
       );
     }
     return filterCommandCenterActionsByView(query.data.actions, selectedView.definition);
-  }, [budgetedActionFingerprints, query.data, selectedView]);
+  }, [query.data, selectedView]);
 
   const filteredActions = useMemo(
     () =>
@@ -504,7 +534,10 @@ export function CommandCenterDashboard() {
   useEffect(() => {
     setBatchSelection((current) =>
       current.filter((fingerprint) =>
-        filteredActions.some((action) => action.actionFingerprint === fingerprint),
+        filteredActions.some(
+          (action) =>
+            action.actionFingerprint === fingerprint && action.batchReviewEligible,
+        ),
       ),
     );
   }, [filteredActions]);
@@ -528,6 +561,17 @@ export function CommandCenterDashboard() {
         .filter((action) => action.surfaceLane === "archive_context")
         .slice(0, 6) ?? [],
     [query.data],
+  );
+  const overflowBacklogActions = useMemo(
+    () =>
+      query.data?.actions
+        .filter((action) => action.queueSection === "overflow_backlog")
+        .slice(0, 6) ?? [],
+    [query.data],
+  );
+  const batchEligibleVisibleCount = useMemo(
+    () => filteredActions.filter((action) => action.batchReviewEligible).length,
+    [filteredActions],
   );
 
   const canEdit = query.data?.permissions.canEdit ?? false;
@@ -627,6 +671,14 @@ export function CommandCenterDashboard() {
   }
 
   function toggleBatchSelection(actionFingerprint: string) {
+    if (
+      !filteredActions.some(
+        (action) =>
+          action.actionFingerprint === actionFingerprint && action.batchReviewEligible,
+      )
+    ) {
+      return;
+    }
     setBatchSelection((current) =>
       current.includes(actionFingerprint)
         ? current.filter((item) => item !== actionFingerprint)
@@ -910,7 +962,7 @@ export function CommandCenterDashboard() {
         {payload ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <SummaryCard
-              label="Shift Budget"
+              label="Default Queue"
               value={payload.throughput.selectedCount}
               icon={<ArrowRight className="h-4 w-4" />}
             />
@@ -934,6 +986,30 @@ export function CommandCenterDashboard() {
               value={payload.opportunitySummary.totalCount}
               icon={<Lightbulb className="h-4 w-4" />}
             />
+          </div>
+        ) : null}
+
+        {payload?.queueSections?.length ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {payload.queueSections.map((section) => (
+              <Badge
+                key={section.key}
+                variant="outline"
+                className={cn(
+                  "capitalize",
+                  section.key === "default_queue"
+                    ? "border-sky-200 bg-sky-50 text-sky-700"
+                    : section.key === "overflow_backlog"
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : section.key === "watchlist"
+                        ? "border-blue-200 bg-blue-50 text-blue-700"
+                        : "border-slate-200 bg-slate-50 text-slate-700",
+                )}
+              >
+                {section.label}: {section.count}
+                {section.actionableCount > 0 ? ` · ${section.actionableCount} actionable` : ""}
+              </Badge>
+            ))}
           </div>
         ) : null}
 
@@ -1016,7 +1092,9 @@ export function CommandCenterDashboard() {
                 <MessageSquareWarning className="h-4 w-4 text-slate-500" />
               </div>
               <p className="mt-2 text-xs text-slate-600">
-                {payload.feedbackSummary.queueGapCount} queue-gap report(s) are currently open.
+                {payload.feedbackSummary.queueGapCount} queue-gap report(s) ·{" "}
+                {payload.feedbackSummary.calibrationCandidateCount} calibration candidate(s) ·{" "}
+                {payload.feedbackSummary.workflowGapCount} workflow gap(s)
               </p>
             </div>
           </div>
@@ -1274,14 +1352,14 @@ export function CommandCenterDashboard() {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-slate-950">
-                  {selectedView ? "Action queue" : "Action core queue"}
+                  {selectedView ? "Action queue" : "Default queue"}
                 </h2>
                 <p className="text-xs text-slate-500">
                   {filteredActions.length} visible actions
                 </p>
               </div>
               <Badge variant="outline">
-                {selectedView ? "deterministic queue only" : "action core only"}
+                {selectedView ? "saved-view filter" : "throughput-capped default"}
               </Badge>
             </div>
 
@@ -1296,11 +1374,14 @@ export function CommandCenterDashboard() {
                       Batch review
                     </p>
                     <p className="mt-1 text-xs text-slate-600">
-                      Status-only batch actions stay within the retry-safe workflow subset.
+                      Only eligible workload classes stay inside the retry-safe batch subset.
                     </p>
                   </div>
                   <Badge variant="outline">{batchSelection.length} selected</Badge>
                 </div>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  {batchEligibleVisibleCount} visible action(s) are batch-ready in this queue.
+                </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     size="sm"
@@ -1390,7 +1471,7 @@ export function CommandCenterDashboard() {
                     action={action}
                     active={action.actionFingerprint === selectedActionFingerprint}
                     selectedForBatch={batchSelection.includes(action.actionFingerprint)}
-                    canBatchEdit={canEdit}
+                    canBatchEdit={canEdit && action.batchReviewEligible}
                     onToggleBatchSelection={() =>
                       toggleBatchSelection(action.actionFingerprint)
                     }
@@ -1614,6 +1695,40 @@ export function CommandCenterDashboard() {
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
+                <h2 className="text-sm font-semibold text-slate-950">Overflow backlog</h2>
+                <p className="text-xs text-slate-500">
+                  Actionable items waiting behind today&apos;s default queue budget.
+                </p>
+              </div>
+              <Badge variant="outline">{overflowBacklogActions.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {overflowBacklogActions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+                  No overflow items are waiting behind the current queue budget.
+                </div>
+              ) : (
+                overflowBacklogActions.map((action) => (
+                  <div key={action.actionFingerprint} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-900">{action.title}</p>
+                      <Badge
+                        variant="outline"
+                        className="border-amber-200 bg-amber-50 text-amber-700"
+                      >
+                        {formatWorkloadClass(action.workloadClass)}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">{action.summary}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
                 <h2 className="text-sm font-semibold text-slate-950">Watchlist</h2>
                 <p className="text-xs text-slate-500">
                   Deterministic surfaces kept out of the default queue.
@@ -1729,6 +1844,18 @@ export function CommandCenterDashboard() {
                       Operating Mode: {selectedAction.sourceContext.operatingMode}
                     </Badge>
                   ) : null}
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "capitalize",
+                      resolveQueueSectionTone(selectedAction.queueSection),
+                    )}
+                  >
+                    {formatQueueSection(selectedAction.queueSection)}
+                  </Badge>
+                  <Badge variant="outline" className="capitalize">
+                    {formatWorkloadClass(selectedAction.workloadClass)}
+                  </Badge>
                 </div>
                 <SheetTitle className="mt-2 text-xl">{selectedAction.title}</SheetTitle>
                 <SheetDescription className="text-sm">
@@ -1764,12 +1891,43 @@ export function CommandCenterDashboard() {
                     </div>
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="outline" className="capitalize">
+                      queue: {formatQueueSection(selectedAction.queueSection)}
+                    </Badge>
+                    <Badge variant="outline" className="capitalize">
+                      workload: {formatWorkloadClass(selectedAction.workloadClass)}
+                    </Badge>
+                    {selectedAction.batchReviewEligible ? (
+                      <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                        batch-ready
+                        {selectedAction.batchReviewClass
+                          ? ` · ${formatActionLabel(selectedAction.batchReviewClass)}`
+                          : ""}
+                      </Badge>
+                    ) : null}
                     {selectedAction.relatedEntities.map((entity) => (
                       <Badge key={`${entity.type}:${entity.id}`} variant="outline">
                         {entity.type}: {entity.label}
                       </Badge>
                     ))}
                   </div>
+                  {selectedAction.calibrationHint ? (
+                    <p className="mt-3 text-xs text-slate-600">
+                      Calibration hint: {selectedAction.calibrationHint.channel}
+                      {selectedAction.calibrationHint.objectiveFamily
+                        ? ` · ${selectedAction.calibrationHint.objectiveFamily}`
+                        : ""}
+                      {selectedAction.calibrationHint.bidRegime
+                        ? ` · ${selectedAction.calibrationHint.bidRegime}`
+                        : ""}
+                      {selectedAction.calibrationHint.archetype
+                        ? ` · ${selectedAction.calibrationHint.archetype}`
+                        : ""}
+                      {selectedAction.calibrationHint.matchedProfileKey
+                        ? ` · matched ${selectedAction.calibrationHint.matchedProfileKey}`
+                        : ""}
+                    </p>
+                  ) : null}
                 </section>
 
                 <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -2234,15 +2392,33 @@ export function CommandCenterDashboard() {
                           className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
-                            <Badge variant="outline">
-                              {formatActionLabel(entry.feedbackType)}
-                            </Badge>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="outline">
+                                {formatActionLabel(entry.feedbackType)}
+                              </Badge>
+                              <Badge variant="outline">
+                                {formatActionLabel(entry.outcome)}
+                              </Badge>
+                              {entry.workloadClass ? (
+                                <Badge variant="outline" className="capitalize">
+                                  {formatWorkloadClass(entry.workloadClass)}
+                                </Badge>
+                              ) : null}
+                            </div>
                             <p className="text-[11px] text-slate-500">
                               {entry.actorName ?? entry.actorEmail ?? "Operator"} ·{" "}
                               {entry.createdAt}
                             </p>
                           </div>
                           <p className="mt-2 text-sm text-slate-700">{entry.note}</p>
+                          {entry.calibrationHint ? (
+                            <p className="mt-2 text-[11px] text-slate-500">
+                              Calibration: {entry.calibrationHint.channel}
+                              {entry.calibrationHint.matchedProfileKey
+                                ? ` · ${entry.calibrationHint.matchedProfileKey}`
+                                : ""}
+                            </p>
+                          ) : null}
                         </div>
                       ))
                     )}
