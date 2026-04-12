@@ -2,109 +2,150 @@
 
 ## Current Objective
 
-Step 6 is complete in repo. The Creative surface now treats preview/media truth as the visible gating contract for authoritative action, and the default scan path is decision-first instead of diagnostics-first. No new step is active yet. Do not start Step 7 unless the next chat explicitly assigns it.
+Step 7 is the latest completed step. Production now serves the Step 6 Creative runtime, and live verification has been captured. No new step is active. Do not start Step 8 unless a later chat explicitly assigns it.
 
 ## Current Step
 
-Step 6, `Creative Preview Truth Gate And Decision-First Review`, implemented on `main` at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`.
+Step 7, `Deploy Step 6 Candidate And Capture Live Verification`.
 
-What changed:
+Verdict:
 
-* Creative top-level framing now leads with a visible preview-truth contract and one operator worklist vocabulary.
-* Quick filters now follow the operator scan path: `Act now`, `Needs truth`, `Keep testing`, `Blocked`, `Protected`.
-* Row actions, row state pills, and row reasons now soften or block when preview truth is degraded or missing.
-* Creative detail now leads with a preview-truth gate, keeps the deterministic decision explicit, and keeps AI commentary support-only when preview truth is not ready.
-* The Creative drawer is now explicitly decision support instead of a competing primary authority.
-* No Meta product surface was rebuilt in this step. Meta cleanup was intentionally skipped because no removal was clearly low-risk enough to justify reopening Step 5 structure.
+* `shipped-not-complete`
+
+Why:
+
+* the Step 6 runtime SHA is now live in production
+* focused live `/creatives` verification proved the preview-truth gate, blocked authority language, deterministic decision, support-only AI framing, and support-only drawer framing
+* proof quality is still limited because the safe live operator session only exposed `Adsecute Demo`, not `Grandmix`, `IwaStore`, or `TheSwaf`
+* the shared live reviewer smoke still failed in the Meta segment before reaching Creative
 
 ## Current Repo State
 
 * current branch: `main`
-* repo SHA before Step 6 started: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* Step 6 implementation SHA: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* Step 5 implementation SHA: `14ff6f80288563bdc2d29b563733c262a8201c54`
+* current local `HEAD`: `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* current `origin/main`: `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* local `HEAD` matches `origin/main`
+* Step 7 repo start SHA: `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* Step 6 runtime implementation SHA: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
 * Step 5 continuity closeout SHA: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* actual current repo/local `HEAD` must still be re-verified at the start of the next chat
-* `origin/main` matched the Step 6 implementation SHA at closeout: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+
+Important interpretation:
+
+* `eeea595f685d852acf82c744fea0a2715d76c7b0` is the current repo/main head, but it is a docs-only continuity commit
+* the runtime/product candidate that Step 7 needed to deploy was still the Step 6 runtime SHA `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* do not collapse those two facts into one story
 
 ## Current Live / Release Truth
 
-Verified after the Step 6 push on April 12, 2026:
+Verified at Step 7 start on April 12, 2026:
 
-* `https://adsecute.com/api/build-info` returned build id `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* `https://adsecute.com/api/release-authority` returned:
+* `https://adsecute.com/api/build-info`
+  * `buildId` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* `https://adsecute.com/api/release-authority`
   * `currentLiveSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-  * `currentMainSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-  * overall posture `aligned`
-* local repo and `origin/main` were already on `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `currentMainSha` `eeea595f685d852acf82c744fea0a2715d76c7b0`
+  * `currentMainShaSource` `github_branch_head`
+  * overall posture `drifted`
+
+Verified after the Step 7 manual deploy completed on April 12, 2026:
+
+* `https://adsecute.com/api/build-info`
+  * `buildId` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* `https://adsecute.com/api/release-authority`
+  * `currentLiveSha` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `currentMainSha` `eeea595f685d852acf82c744fea0a2715d76c7b0`
+  * `currentMainShaSource` `github_branch_head`
+  * `liveVsMain.status` `drifted`
+  * `overall.status` `drifted`
 
 Interpretation:
 
-* repo candidate truth: Step 6 is pushed on `main` at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* live-verified truth: production is still serving `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* release-authority posture: internally `aligned`, but stale versus actual repo/remote `main` because its `currentMainSha` still reports `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* Step 6 is now live in production at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* the server is no longer behind the Step 6 runtime candidate
+* `release-authority currentMainSha` is no longer stale; it correctly reports the docs-only repo/main head `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* the remaining drift is explainable `live runtime != current docs-only main head`
+* that repo/live divergence is not, by itself, a product bug
 
-Do not collapse repo truth and live truth into one story.
+## Deployment Record
 
-## Current Working Model
+What happened:
 
-* ChatGPT defines the next step and writes the step prompt
-* Codex executes only the assigned step
-* Codex reads `docs/operator-rebuild/HANDOFF.md` first, then `docs/operator-rebuild-staging/LATEST_REPORT.md`, then `docs/operator-rebuild-staging/STATUS.md`
-* Codex verifies repo HEAD, branch, and live/runtime truth before implementation
-* Codex updates `HANDOFF.md`, `LATEST_REPORT.md`, and `STATUS.md`
-* `LATEST_REPORT.md` is step-local and replaced each step
-* `HANDOFF.md` is durable and should reflect the latest accepted repo-side state plus the last verified live posture
+* Step 6 CI rerun was requested on workflow run `24312358343`
+* rerun attempt `2` succeeded and published the exact Step 6 runtime images
+* the automatic deploy workflow run `24312785888` was created by CI but skipped itself because:
+  * input SHA was `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `require_current_main_head` was `true`
+  * current `main` had already moved to docs-only `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* the real deploy attempt was then manually dispatched through the existing `deploy-hetzner.yml` workflow with:
+  * `sha` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `require_current_main_head` `false`
+* manual deploy workflow run `24312805013`:
+  * `Deploy over SSH` succeeded
+  * production `build-info` moved to `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * workflow conclusion still showed failure only because `Verify public release authority` treated `live != main` as blocking
 
-## Continuity Integrity Rule
-
-* A step is not complete until `HANDOFF.md`, `LATEST_REPORT.md`, and `STATUS.md` all reflect the accepted repo result and the last verified live truth
-* New Codex chats must re-verify current repo HEAD and live truth even when these docs look fresh
-* Repo candidate truth, live build truth, and release-authority truth must stay distinct when they differ
-
-## Current Authority Order
-
-1. Current repo truth and exact local/remote commit state
-2. Current live build and release-authority endpoint truth when freshly verified
-3. Local build, targeted tests, and focused browser smoke
-4. Accepted continuity docs and the underlying phase contracts
-5. Older plans only when they do not conflict with the verified repo/live state
+Do not misread the red workflow as a failed server deploy. The server deploy succeeded; the post-deploy verifier failed on release-identity drift semantics.
 
 ## Latest Accepted Findings
 
-* Preview/media truth is now first-class on the Creative page and in Creative detail.
-* The top Creative scan path is now action-first and truth-first rather than drawer-first or commentary-first.
-* Degraded preview rows no longer read like clean execute-now work.
-* AI commentary is now explicitly bounded as support and does not present as a peer decision authority when preview truth is degraded or missing.
-* The Creative drawer remains available, but it now reads as decision support instead of the primary decision surface.
-* Meta was not regressed in repo because this step did not add or reopen Meta top-level authority layers.
+Focused live `/creatives` proof on April 12, 2026:
+
+* page-level contract is live and explicit:
+  * `Preview truth is missing across this review scope.`
+  * `0 ready · 0 degraded · 8 missing. Missing preview truth blocks authoritative action until media resolves.`
+* row-level blocked language is live and honest:
+  * `Preview truth is missing, so this creative cannot headline an authoritative action yet.`
+* detail view now leads with the preview-truth gate:
+  * `Preview truth is missing, so authoritative action is blocked.`
+  * `AI commentary disabled`
+* deterministic decision remains explicit in detail even when preview truth blocks authority:
+  * `Decision + key metrics`
+  * `Monitor before committing more budget`
+* AI commentary is live as secondary support only:
+  * badge `Support only`
+  * `AI interpretation stays disabled because preview truth is missing.`
+* drawer framing is live as support/secondary authority:
+  * `The page worklist stays primary. This drawer is support for live-window decision context only.`
+
+Supporting artifacts captured during Step 7:
+
+* focused live Creative screenshots saved under `/tmp/adsecute-step7-1776016872015/`
+* live reviewer smoke failure artifacts saved under `test-results/reviewer-smoke-reviewer-sm-76c4a--creative-decision-surfaces-smoke-chromium/`
 
 ## Open Problems / Blockers
 
-* Production is still on pre-Step-6 SHA `8eae2d713a78ac7ca500427e0bee05ddf6afa464`.
-* `release-authority` currently reports `currentMainSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`, which is stale relative to actual repo/remote `main` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`.
-* Full reviewer smoke is still unstable in the Meta segment before it reaches Creative; Step 6 proof relies on focused `/creatives` browser smoke instead.
-* No low-risk Meta reasoning surface was clean enough to remove outright in this step.
+* shared live reviewer smoke still fails in the Meta segment before it reaches Creative
+  * live failure point: `playwright/tests/reviewer-smoke.spec.ts` timed out waiting for `meta-campaign-detail` after the campaign click
+* safe live operator access only exposed `Adsecute Demo`
+  * no safe live proof was captured for `Grandmix`, `IwaStore`, or `TheSwaf`
+* the deploy workflow’s post-deploy verifier still marks the run red whenever live intentionally differs from the current repo/main head
+  * current example: live `8f0f0b74047c0ce05c8a74b02890e0e104d75484` vs main `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* full five-lane Creative order was not fully observable from the available live demo dataset
+  * live page-level quick filters only exposed the blocked lane because preview truth was missing across the demo review scope
 
 ## Explicitly Out Of Scope
 
-* Starting Step 7 automatically
-* Rebuilding Meta again
-* Adding write-back or action queue persistence for Creative
-* Inventing new AI-authored decision objects
-* Claiming Step 6 is live in production without fresh deployment proof
+* starting Step 8 automatically
+* new product feature work
+* a new Meta rebuild
+* forcing benchmark-business access by mutating live memberships
+* treating explainable repo/live SHA divergence as the primary bug story
 
 ## Next Recommended Step
 
-No next step is authorized by default. If a later prompt assigns follow-up work, it should begin by reconciling:
+No next step is authorized by default. If a later prompt assigns follow-up work, start by re-verifying:
 
-1. actual current repo/local `HEAD`
-2. actual `origin/main`
-3. current live `build-info`
-4. current `release-authority` posture
+1. `git branch --show-current`
+2. `git rev-parse HEAD`
+3. `git ls-remote origin refs/heads/main`
+4. `https://adsecute.com/api/build-info`
+5. `https://adsecute.com/api/release-authority`
 
-Only after that reconciliation should a Step 7 or release-authority follow-up be scoped.
+Then decide whether the next task is:
+
+* stronger live proof collection on a real connected benchmark business
+* or a release-authority / deploy-verifier policy fix so explainable `live != main` drift stops reading like a failed deploy
 
 ## Next Chat Bootstrap
 
-Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next. Read `docs/operator-rebuild-staging/STATUS.md` third. Re-verify `git rev-parse HEAD`, `git branch --show-current`, `git ls-remote origin refs/heads/main`, `https://adsecute.com/api/build-info`, and `https://adsecute.com/api/release-authority` before touching code. Step 6 implementation SHA is `8f0f0b74047c0ce05c8a74b02890e0e104d75484`; last verified live SHA is `8eae2d713a78ac7ca500427e0bee05ddf6afa464`. Do not assume `release-authority currentMainSha` is current until you verify it again.
+Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` second. Read `docs/operator-rebuild-staging/STATUS.md` third. Re-verify branch, local `HEAD`, `origin/main`, `https://adsecute.com/api/build-info`, and `https://adsecute.com/api/release-authority` before touching code. Current repo/main head is `eeea595f685d852acf82c744fea0a2715d76c7b0`; current live SHA is `8f0f0b74047c0ce05c8a74b02890e0e104d75484`; current release-authority `currentMainSha` is `eeea595f685d852acf82c744fea0a2715d76c7b0`. Do not start Step 8 unless explicitly assigned.

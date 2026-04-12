@@ -1,220 +1,246 @@
-# Step 6 — Creative Preview Truth Gate And Decision-First Review
+# Step 7 — Deploy Step 6 Candidate And Capture Live Verification
 
 ## 1. Executive Summary
 
-* Step 6 made preview/media truth the visible gating contract for Creative action instead of leaving it as background metadata.
-* The Creative page now leads with one operator-first decision order: `Act now`, `Needs truth`, `Keep testing`, `Blocked`, `Protected`.
-* Preview truth now changes action honesty at page level, row level, detail level, and drawer-support level.
-* AI commentary remains available only as bounded support and no longer reads like peer authority when preview truth is degraded or missing.
-* No Meta product surface was removed in this step because no remaining reasoning layer looked low-risk enough to delete without reopening Step 5 architecture.
-* Repo implementation is pushed on `main`, but production is still verified on the previous Step 5 SHA.
+* Step 7 deployed the Step 6 Creative runtime to production.
+* Production `build-info` moved from `8eae2d713a78ac7ca500427e0bee05ddf6afa464` to `8f0f0b74047c0ce05c8a74b02890e0e104d75484`.
+* `release-authority` now reflects deployed reality correctly:
+  * `currentLiveSha` is the live Step 6 runtime
+  * `currentMainSha` is the current docs-only `main` head `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* focused live `/creatives` proof confirmed the Step 6 preview-truth gate and support-only authority framing on production.
+* the shared live reviewer smoke still failed in Meta before it reached Creative.
+* verdict: `shipped-not-complete`
 
 ## 2. Truth Reconciliation
 
-Read order used before implementation:
+Read order used before work:
 
 1. `docs/operator-rebuild/HANDOFF.md`
 2. `docs/operator-rebuild-staging/LATEST_REPORT.md`
 3. `docs/operator-rebuild-staging/STATUS.md`
 
-Verified repo truth at step start:
+Preflight verification on April 12, 2026:
 
-* branch: `main`
-* repo start SHA: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* repo start summary: `docs: finalize step 5 continuity`
+* current branch
+  * `main`
+* current local repo `HEAD`
+  * `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* current remote `origin/main`
+  * `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* local `HEAD` matches `origin/main`
+  * yes
+* current live runtime/build truth before deployment
+  * `build-info buildId` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+  * `release-authority currentLiveSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+  * `release-authority currentMainSha` `eeea595f685d852acf82c744fea0a2715d76c7b0`
+  * `release-authority currentMainShaSource` `github_branch_head`
+  * `release-authority liveVsMain.status` `drifted`
 
-Continuity drift found before implementation:
+Interpretation before deployment:
 
-* continuity docs still treated `release-authority` as if `currentLiveSha/currentMainSha` were `9addb96bedfbaf5067584418c1c3e139543f92fd`
-* current verification at step start no longer matched that older story
-* continuity was repaired before product changes started
+* current repo candidate SHA on `main`: `eeea595f685d852acf82c744fea0a2715d76c7b0`
+* current Step 6 runtime candidate to deploy: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* current served live SHA before deployment: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+* the server was behind the Step 6 runtime candidate before deployment
+* that pre-deploy lag was not treated as an error by default
 
-Verified live/runtime truth after the Step 6 push on April 12, 2026:
+## 3. Deployment Record
+
+Intended deployment SHA:
+
+* `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+
+Why that was the correct runtime target:
+
+* current repo/main `HEAD` `eeea595f685d852acf82c744fea0a2715d76c7b0` was a docs-only continuity commit
+* the actual Step 6 runtime/product change remained `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+
+Deploy requested / attempted / completed chronology:
+
+* deploy requested
+  * Step 6 CI run `24312358343` was rerun
+* exact-SHA image publish
+  * rerun attempt `2` succeeded
+  * `publish-images` completed successfully at `2026-04-12T17:55:00Z`
+* automatic deploy request
+  * deploy workflow run `24312785888` was auto-created by CI
+  * it skipped itself because `require_current_main_head=true` and `8f0f0b74047c0ce05c8a74b02890e0e104d75484 != eeea595f685d852acf82c744fea0a2715d76c7b0`
+* manual deploy attempt
+  * manual `deploy-hetzner.yml` dispatch was sent with:
+    * `sha` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+    * `require_current_main_head=false`
+  * workflow run `24312805013`
+* deployment completion
+  * `Deploy over SSH` succeeded
+  * production moved to the target SHA
+
+Important post-deploy nuance:
+
+* workflow run `24312805013` ended red, but not because SSH deploy failed
+* the only failing step was `Verify public release authority`
+* exact verifier failure detail:
+  * `Current live SHA 8f0f0b74047c0ce05c8a74b02890e0e104d75484 differs from remote main eeea595f685d852acf82c744fea0a2715d76c7b0.`
+* this is a post-deploy release-identity policy failure, not a failed server deploy
+
+## 4. Live Truth After Deployment
+
+Post-deploy verification on April 12, 2026:
 
 * `https://adsecute.com/api/build-info`
-  * build id `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
+  * `buildId` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
 * `https://adsecute.com/api/release-authority`
-  * `currentLiveSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-  * `currentMainSha` `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-  * overall posture `aligned`
-* actual repo/local `HEAD` after Step 6 product changes
-  * `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* actual `origin/main`
-  * `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `currentLiveSha` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `currentMainSha` `eeea595f685d852acf82c744fea0a2715d76c7b0`
+  * `currentMainShaSource` `github_branch_head`
+  * `liveVsMain.status` `drifted`
+  * `overall.status` `drifted`
 
-Repo-vs-live posture at closeout:
+Explicit conclusions:
 
-* repo candidate truth: Step 6 is pushed on `main` at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* live-verified truth: production is still serving `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* release-authority posture: internally `aligned`, but stale about `currentMainSha` because it still reports `8eae2d713a78ac7ca500427e0bee05ddf6afa464` while actual remote `main` is `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* live SHA after deploy: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* live now matches the deployed Step 6 runtime candidate
+* Step 6 is now live
+* `release-authority currentMainSha` is now correct, not stale
+* `release-authority` still reports explainable drift because current live runtime differs from the current docs-only `main` head
 
-Do not collapse repo candidate truth and live-verified truth.
+## 5. Live `/creatives` Verification
 
-## 3. Scope Delivered
+Safe live auth method used:
 
-What changed in Creative hierarchy:
+* seeded a fresh commercial smoke operator against the connected database
+* signed in directly through `https://adsecute.com/login`
 
-* the top Creative surface now opens with a dedicated `Preview Truth Contract`
-* quick filters moved under that contract instead of competing with the header controls
-* operator authority order now consistently reads:
-  * `Act now`
-  * `Needs truth`
-  * `Keep testing`
-  * `Blocked`
-  * `Protected`
-* the drawer header now explicitly frames itself as `Decision Support`
+Business reach:
 
-What changed in preview/media truth visibility:
+* available live businesses from that safe session:
+  * `Adsecute Demo`
+* benchmark businesses matched:
+  * none
 
-* page-level ready/degraded/missing counts and summary headline now sit above the worklist
-* selected-preview strip now shows a scoped preview-truth summary instead of treating preview state as incidental
-* row-level action chips now switch to `Preview degraded` or `Preview missing` when preview truth cannot support decisive wording
-* row authority pills now use the same vocabulary as the top operator buckets
-* detail view now leads with a `Preview Truth Gate` card that states whether action is ready, softened, or blocked
-* drawer overview now includes preview-truth summary support and no longer duplicates page-level quick filters
+Why benchmark-business proof was not captured:
 
-What diagnostics were demoted or removed:
+* the safe live operator session did not expose `Grandmix`, `IwaStore`, or `TheSwaf`
+* no live membership or auth state was widened just to force benchmark proof
 
-* Creative drawer framing is now explicitly secondary support
-* drawer-level duplicate quick filters were removed
-* AI commentary in detail is explicitly marked `Support only`
-* degraded/missing preview truth now disables or softens AI instead of letting it sound authoritative
-* row-level secondary labels now lead with preview truth instead of burying it after other tags
+Focused live Creative evidence captured on production:
 
-What changed in row-level action honesty:
+1. Page-level Creative preview truth contract is visible
+   * exact live text:
+     * `Preview truth is missing across this review scope.`
+     * `0 ready · 0 degraded · 8 missing. Missing preview truth blocks authoritative action until media resolves.`
+     * `Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.`
 
-* `promote_to_scaling` no longer renders as `Promote now` when preview truth is degraded or missing
-* degraded preview rows render `Preview degraded` and `Blocked`
-* missing preview rows render `Preview missing` and `Blocked`
-* truth-capped rows route into `Needs truth` instead of reading like clean queue-ready work
+2. Operator order / lane vocabulary evidence
+   * page-level live quick filter evidence on the available demo dataset only exposed:
+     * `BLOCKED`
+     * `Preview or deployment truth blocks clean operator action right now.`
+   * limitation:
+     * the safe live dataset did not expose `Act now`, `Needs truth`, `Keep testing`, and `Protected` as page-level live lanes in the same review scope
 
-What changed in detail/drawer discipline:
+3. Degraded/missing preview states visibly soften or block authority
+   * exact row-level live evidence:
+     * `Preview missing`
+     * `Blocked`
+     * `Preview truth is missing, so this creative cannot headline an authoritative action yet.`
 
-* deterministic decision stays visible and explicit
-* preview truth and deployment compatibility read as gating inputs
-* AI commentary is bounded support, not peer authority
-* the `Decision support` path remains available, but the page worklist stays primary
+4. Row-level language is honest when preview truth is missing
+   * exact blocker text on the live row:
+     * `No renderable preview sources are available for this creative.`
 
-Meta cleanup:
+5. Creative detail leads with the preview-truth gate
+   * exact live detail text:
+     * `Preview Truth Gate`
+     * `Preview truth is missing, so authoritative action is blocked.`
+     * `Do not treat this row as clean execute-now work until preview media becomes available for the live decision window.`
 
-* no Meta product file was changed
-* no Meta surface was fully removed in this step
-* this was intentional to avoid reopening Step 5 architecture without a clearly safe deletion
+6. Deterministic decision remains explicit
+   * exact live detail text:
+     * `Decision + key metrics`
+     * `Monitor before committing more budget`
+     * `Deterministic engine marks this as a shipped winner that should stay protected.`
 
-## 4. Implementation Notes
+7. AI commentary is support-only and does not read like peer authority
+   * exact live detail text:
+     * `Support only`
+     * `AI interpretation stays disabled because preview truth is missing.`
 
-Key repo files changed:
+8. Drawer wording reflects support / secondary authority
+   * exact live drawer header text:
+     * `Decision Support`
+     * `Creative Decision Support`
+     * `The page worklist stays primary. This drawer is support for live-window decision context only.`
 
-* `lib/creative-operator-surface.ts`
-* `lib/operator-surface.ts`
-* `components/operator/OperatorSurfaceSummary.tsx`
-* `components/creatives/CreativesTopSection.tsx`
-* `components/creatives/CreativesTableSection.tsx`
-* `components/creatives/CreativeDecisionOsOverview.tsx`
-* `components/creatives/CreativeDecisionOsDrawer.tsx`
-* `components/creatives/CreativeDetailExperience.tsx`
-* `app/(dashboard)/creatives/page.tsx`
-* `components/creatives/CreativesTableSection.test.tsx`
-* `components/creatives/CreativeDetailExperience.test.tsx`
-* `playwright/tests/reviewer-smoke.spec.ts`
+Evidence artifacts captured:
 
-Shared truth-model reuse:
+* focused live screenshots
+  * `/tmp/adsecute-step7-1776016872015/creatives-page.png`
+  * `/tmp/adsecute-step7-1776016872015/creatives-drawer.png`
+  * `/tmp/adsecute-step7-1776016872015/creative-detail.png`
 
-* existing Creative Decision OS preview status
-* existing authority-state mapping
-* existing deployment compatibility fields
-* existing preview strip and preview helper infrastructure
-* existing deterministic Decision OS objects
+## 6. Reviewer Smoke
 
-No new shadow decision system was introduced.
+Live reviewer smoke command:
 
-## 5. Acceptance Check
+* `PLAYWRIGHT_BASE_URL='https://adsecute.com' PLAYWRIGHT_USE_WEBSERVER=0 node --env-file=.env.local node_modules/playwright/cli.js test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium`
 
-1. Preview/media truth is visibly first-class
-   * accepted in repo
-2. Decision-first review is clearer
-   * accepted in repo
-3. One Creative operator authority remains
-   * accepted in repo
-4. Blocked/degraded rows are honest
-   * accepted in repo
-5. Meta is not regressed
-   * accepted in repo
-6. Continuity is fully current
-   * accepted for repo-side continuity at closeout, with explicit live/runtime limits recorded
+Result:
 
-Phase closure verdict:
+* reviewer auth setup passed on live
+* shared smoke failed before reaching Creative
+
+Exact live failure point:
+
+* test timed out at `120000ms`
+* failure location:
+  * `playwright/tests/reviewer-smoke.spec.ts:56`
+* exact checkpoint:
+  * timeout while waiting for `meta-campaign-detail` to become visible after the campaign click
+
+Artifacts:
+
+* screenshot:
+  * `test-results/reviewer-smoke-reviewer-sm-76c4a--creative-decision-surfaces-smoke-chromium/test-failed-1.png`
+* error context:
+  * `test-results/reviewer-smoke-reviewer-sm-76c4a--creative-decision-surfaces-smoke-chromium/error-context.md`
+* trace:
+  * `test-results/reviewer-smoke-reviewer-sm-76c4a--creative-decision-surfaces-smoke-chromium/trace.zip`
+
+Meaning:
+
+* shared reviewer smoke is still not stable enough to serve as the primary Step 7 proof path
+* focused live `/creatives` proof remains the primary Step 7 evidence
+
+## 7. Acceptance Check
+
+1. Deploy first
+   * completed
+2. Verify live after deploy
+   * completed
+3. Capture proof
+   * completed, but proof quality is limited to the safe demo business
+4. Update continuity docs
+   * completed
+
+Step 7 verdict:
 
 * `shipped-not-complete`
 
 Why not `accepted`:
 
-* repo implementation, tests, build, and focused `/creatives` browser smoke all passed
-* production is still verified on pre-Step-6 SHA `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* full reviewer smoke remains unstable in the Meta segment before it reaches the Creative path
-
-## 6. Test Evidence
-
-Exact commands run:
-
-* `npx tsc --noEmit`
-  * passed
-* `npx vitest run lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts components/creatives/CreativesTableSection.test.tsx components/creatives/CreativeDetailExperience.test.tsx components/creatives/CreativeDecisionOsOverview.test.tsx components/creatives/CreativeDecisionOsDrawer.test.ts components/creatives/creatives-top-section-support.test.ts app/(dashboard)/creatives/page-support.test.ts lib/meta/__tests__/creatives-preview.test.ts app/api/meta/creatives/route.test.ts app/api/meta/creatives/history/route.test.ts app/api/meta/creatives/detail/route.test.ts app/api/creatives/decision-os/route.test.ts app/api/ai/creatives/commentary/route.test.ts app/api/ai/creatives/decisions/route.test.ts`
-  * passed
-  * `15` test files passed
-  * `65` tests passed
-* `npm run build`
-  * passed
-
-Focused browser/local smoke:
-
-* local production-build browser smoke for `/creatives`
-  * started local smoke server from built output
-  * opened `/creatives` with reviewer auth
-  * verified:
-    * `creative-preview-truth-contract`
-    * `creative-quick-filters-panel`
-    * `Decision support` entry point
-    * `creative-decision-os-drawer`
-    * `creative-preview-truth-summary`
-    * row open -> `creative-detail-preview-truth`
-    * `creative-detail-deterministic-decision`
-    * `creative-detail-ai-commentary`
-  * result: passed
-
-Reviewer smoke status:
-
-* updated `playwright/tests/reviewer-smoke.spec.ts` for:
-  * Creative button rename `Show why` -> `Decision support`
-  * Creative preview-truth surface assertions
-  * Creative detail preview-truth assertion
-* local reviewer smoke run:
-  * failed before the Creative segment completed
-  * failure remained in the Meta segment during campaign-detail expansion
-  * exact limitation: reviewer smoke is not primary proof for Step 6 because Meta smoke instability still blocks the shared end-to-end script
-
-`/platforms/meta` smoke:
-
-* not required for Step 6 because Meta product code was not changed
-
-## 7. Deployment / Rollout
-
-* repo start SHA: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* exact implementation SHA: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* current repo HEAD after product changes: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* current live SHA if verified: `8eae2d713a78ac7ca500427e0bee05ddf6afa464`
-* repo candidate vs live posture:
-  * repo/origin main are ahead on Step 6
-  * live build-info and release-authority still point to Step 5 closeout SHA
-  * release-authority `currentMainSha` is stale relative to actual `origin/main`
+* Step 6 is genuinely live
+* focused live Creative proof is real
+* but the proof is not yet strong enough for `accepted` because:
+  * no benchmark-business proof was safely available
+  * the available live dataset only exposed the blocked path, not the full five-lane page-level order
+  * the shared reviewer smoke still fails in Meta before Creative
 
 ## 8. Limitations
 
-* no live deployment proof for Step 6
-* no Meta browser smoke required or claimed for Step 6 product behavior
-* full reviewer smoke still unstable in Meta before the Creative segment finishes
-* no Meta surface was deleted in this step
+* benchmark-business proof was not feasible from the available safe live session
+* full five-lane Creative order was not fully observable from the live demo business
+* the deploy workflow still treats explainable `live != main` drift as a blocking verification failure
+* reviewer smoke still times out in Meta before Creative
 
 ## 9. Copy-Paste Summary
 
-Step 6 is implemented and pushed on `main` at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`. Creative now leads with a visible preview-truth contract, one operator decision vocabulary, honest degraded/missing preview states, and support-only AI framing when preview truth is not ready. Typecheck, the targeted 15-file Vitest subset, build, and focused local `/creatives` browser smoke all passed. Production is still verified on `8eae2d713a78ac7ca500427e0bee05ddf6afa464`, and `release-authority` is currently stale about `currentMainSha`, so repo candidate truth and live truth must stay separate in the next chat.
+Step 7 deployed the Step 6 Creative runtime to production. Before deployment, repo/main was `eeea595f685d852acf82c744fea0a2715d76c7b0`, the Step 6 runtime candidate was `8f0f0b74047c0ce05c8a74b02890e0e104d75484`, and live production was still serving `8eae2d713a78ac7ca500427e0bee05ddf6afa464`. CI rerun published the exact Step 6 images, the automatic deploy skipped because `require_current_main_head=true` no longer matched the docs-only `main` head, and a manual `deploy-hetzner.yml` run then successfully deployed `8f0f0b74047c0ce05c8a74b02890e0e104d75484`. After deploy, `build-info` and `release-authority currentLiveSha` both showed `8f0f0b74047c0ce05c8a74b02890e0e104d75484`, while `release-authority currentMainSha` correctly stayed `eeea595f685d852acf82c744fea0a2715d76c7b0`. Focused live `/creatives` proof confirmed the preview-truth gate, blocked authority language, deterministic decision panel, support-only AI framing, and support-only drawer framing on production. Reviewer smoke still timed out in Meta before Creative, and benchmark-business proof was not safely reachable from the available live operator session, so the honest Step 7 verdict is `shipped-not-complete`.
