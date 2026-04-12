@@ -24,17 +24,28 @@ async function selectFirstReviewerCommandCenterViewWithActions(page: import("@pl
   throw new Error("No Command Center actions were visible for the reviewer smoke flow.");
 }
 
+async function expectVisibleIfPresent(locator: import("@playwright/test").Locator) {
+  if ((await locator.count()) > 0) {
+    await expect(locator).toBeVisible();
+  }
+}
+
 test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
 
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("meta-budget-shift-board")).toBeVisible();
-  await expect(page.getByTestId("meta-winner-scale-candidates")).toBeVisible();
-  await expect(page.getByTestId("meta-geo-board")).toBeVisible();
-  await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
+  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Single Action Authority");
+  await page.getByText("Show why").first().click();
+  await expectVisibleIfPresent(page.getByTestId("meta-policy-review"));
+  await expectVisibleIfPresent(page.getByTestId("meta-budget-shift-board"));
+  await expectVisibleIfPresent(page.getByTestId("meta-winner-scale-candidates"));
+  await expectVisibleIfPresent(page.getByTestId("meta-geo-board"));
+  await expectVisibleIfPresent(page.getByTestId("meta-no-touch-list"));
+  await expect(page.getByTestId("meta-supporting-context")).toBeVisible();
+  await page.getByTestId("meta-supporting-context").locator("summary").click();
   await expect(page.getByTestId("meta-recommendations-panel")).toBeVisible();
-  await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Action Context");
+  await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Supporting Context");
   await expect(page.getByTestId("meta-recommendations-run")).toContainText(/Refresh Context/);
 
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
@@ -86,7 +97,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
 
   await page.goto("/creatives");
 
-  await page.getByRole("button", { name: "Creative Decision OS" }).click();
+  await page.getByRole("button", { name: "Show why" }).click();
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
@@ -105,7 +116,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   expect(totalAfterQueueFilter).toBeGreaterThan(0);
   expect(totalAfterQueueFilter).toBeLessThanOrEqual(totalBeforeFilter);
   await page.getByLabel("Close Creative Decision OS").click();
-  await expect(page.getByText("Decision OS filter: Queue-ready")).toBeVisible();
+  await expect(page.getByText("Reasoning filter: Queue-ready")).toBeVisible();
   await page.getByRole("button", { name: "Clear" }).click();
 
   const creativeRows = page.locator('[data-testid^="creative-row-"]');

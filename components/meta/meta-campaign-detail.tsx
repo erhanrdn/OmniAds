@@ -13,7 +13,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useCurrencySymbol } from "@/hooks/use-currency";
-import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
@@ -439,20 +438,22 @@ interface AccountOverviewProps {
 }
 
 function AccountOverview(props: AccountOverviewProps) {
-  const metaOperatorPreset = usePreferencesStore((state) => state.metaOperatorPreset);
-
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
-      <MetaCommandCenterCard
-        actions={props.commandCenterActions}
-        href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
-      />
       <MetaDecisionOsOverview
         decisionOs={props.decisionOsData}
         isLoading={props.isDecisionOsLoading}
       />
-      {metaOperatorPreset === "creative_rich" ? (
-        <>
+      <MetaOperatingModeCard
+        businessId={props.businessId}
+        startDate={props.since}
+        endDate={props.until}
+      />
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-supporting-context">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
+          Supporting context
+        </summary>
+        <div className="border-t border-slate-200 px-4 py-4">
           <MetaAccountRecs
             recommendationsData={props.recommendationsData}
             isRecsLoading={props.isRecsLoading}
@@ -463,39 +464,18 @@ function AccountOverview(props: AccountOverviewProps) {
             analysisError={props.recommendationsError}
             language={props.language}
           />
-          <MetaOperatingModeCard
-            businessId={props.businessId}
-            startDate={props.since}
-            endDate={props.until}
-          />
-        </>
-      ) : (
-        <>
-          <MetaOperatingModeCard
-            businessId={props.businessId}
-            startDate={props.since}
-            endDate={props.until}
-          />
-          <MetaAccountRecs
-            recommendationsData={props.recommendationsData}
-            isRecsLoading={props.isRecsLoading}
-            lastAnalyzedAt={props.lastAnalyzedAt}
-            checkedRecIds={props.checkedRecIds}
-            onToggleCheck={props.onToggleCheck}
-            onAnalyze={props.onAnalyze}
-            analysisError={props.recommendationsError}
-            language={props.language}
-          />
-        </>
-      )}
-      {metaOperatorPreset !== "media_limited" ? (
-        <MetaBreakdownGrid
-          ageRows={props.ageRows}
-          placementRows={props.placementRows}
-          isLoading={props.isBreakdownLoading}
-          language={props.language}
-        />
-      ) : null}
+        </div>
+      </details>
+      <MetaCommandCenterCard
+        actions={props.commandCenterActions}
+        href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
+      />
+      <MetaBreakdownGrid
+        ageRows={props.ageRows}
+        placementRows={props.placementRows}
+        isLoading={props.isBreakdownLoading}
+        language={props.language}
+      />
     </div>
   );
 }

@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
+import { OperatorSurfaceSummary } from "@/components/operator/OperatorSurfaceSummary";
+import { buildMetaOperatorSurfaceModel } from "@/lib/meta/operator-surface";
 import { cn } from "@/lib/utils";
 import type {
   MetaAdSetDecision,
@@ -506,6 +508,174 @@ export function MetaDecisionOsOverview({
 
   if (!decisionOs) return null;
 
+  const operatorSurface = buildMetaOperatorSurfaceModel(decisionOs);
+  const detailPolicyRows = decisionOs.adSets
+    .filter((decision) => decision.policy.explanation)
+    .slice(0, 3);
+  const detailActionCoreAdSets = decisionOs.adSets
+    .filter((decision) => decision.trust.surfaceLane === "action_core")
+    .slice(0, 5);
+  const detailGeoRows = decisionOs.geoDecisions
+    .filter((decision) => decision.trust.surfaceLane !== "archive_context")
+    .slice(0, 5);
+  const detailOpportunityRows = decisionOs.opportunityBoard.slice(0, 4);
+  const detailBudgetShifts = decisionOs.budgetShifts.slice(0, 4);
+  const detailWinnerScaleRows = decisionOs.winnerScaleCandidates.slice(0, 4);
+  const detailPlacementRows = decisionOs.placementAnomalies.slice(0, 3);
+  const detailNoTouchRows = decisionOs.noTouchList.slice(0, 4);
+
+  return (
+    <div className="space-y-4" data-testid="meta-decision-os-overview">
+      <OperatorSurfaceSummary model={operatorSurface} />
+
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-operator-details">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
+          Show why
+        </summary>
+        <div className="border-t border-slate-200 px-4 py-4">
+          <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Decision as of {decisionOs.decisionAsOf} · primary window {decisionOs.decisionWindows.primary30d.startDate} to {decisionOs.decisionWindows.primary30d.endDate}
+          </div>
+
+          <div className="space-y-4">
+            <DecisionAuthorityPanel
+              authority={decisionOs.authority}
+              commercialSummary={decisionOs.commercialTruthCoverage.summary}
+              title="Meta detail authority"
+            />
+
+            {detailPolicyRows.length > 0 ? (
+              <DecisionListCard
+                title="Policy Review"
+                testId="meta-policy-review"
+                empty="No policy review is available."
+              >
+                <div className="space-y-3">
+                  {detailPolicyRows.map((decision) => (
+                    <DecisionPolicyExplanationPanel
+                      key={`policy:${decision.decisionId}`}
+                      explanation={decision.policy.explanation}
+                      title={decision.adSetName}
+                    />
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+
+            {detailActionCoreAdSets.length > 0 ? (
+              <DecisionListCard
+                title="Action-Core Ad Set Detail"
+                testId="meta-top-adset-actions"
+                empty="No action-core ad sets are available."
+              >
+                <div className="space-y-3">
+                  {detailActionCoreAdSets.map((decision) => (
+                    <AdSetDecisionRow key={decision.decisionId} decision={decision} />
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+
+            {detailWinnerScaleRows.length > 0 ? (
+              <DecisionListCard
+                title="Winner Scale Detail"
+                testId="meta-winner-scale-candidates"
+                empty="No clean winner scale candidate is ready."
+              >
+                <div className="space-y-3">
+                  {detailWinnerScaleRows.map((candidate) => (
+                    <WinnerScaleCandidateRow key={candidate.candidateId} candidate={candidate} />
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+
+            {detailOpportunityRows.length > 0 ? (
+              <DecisionListCard
+                title="Secondary Workflow Context"
+                testId="meta-opportunity-board"
+                empty="No workflow context is available."
+              >
+                <div className="space-y-3">
+                  {detailOpportunityRows.map((item) => (
+                    <OpportunityBoardRow key={item.opportunityId} item={item} />
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+
+            {detailBudgetShifts.length > 0 ? (
+              <DecisionListCard
+                title="Budget Shift Detail"
+                testId="meta-budget-shift-board"
+                empty="No clean budget shift pair is ready."
+              >
+                <div className="space-y-3">
+                  {detailBudgetShifts.map((shift) => (
+                    <div
+                      key={`${shift.fromCampaignId}:${shift.toCampaignId}`}
+                      className="rounded-xl border border-slate-100 bg-slate-50/70 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {shift.from} -&gt; {shift.to}
+                          </p>
+                          <p className="text-xs text-slate-500">{shift.whyNow}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                            Move band
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900">{shift.suggestedMoveBand}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+
+            {detailGeoRows.length > 0 || detailPlacementRows.length > 0 ? (
+              <DecisionListCard title="Meta Detail Context" testId="meta-geo-board" empty="No detail context is available.">
+                <div className="space-y-3">
+                  {detailGeoRows.map((decision) => (
+                    <GeoDecisionRow key={decision.geoKey} decision={decision} />
+                  ))}
+                  {detailPlacementRows.map((anomaly) => (
+                    <PlacementAnomalyRow key={anomaly.placementKey} anomaly={anomaly} />
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+
+            {detailNoTouchRows.length > 0 ? (
+              <DecisionListCard title="Protected Context" testId="meta-no-touch-list" empty="No protected rows are active.">
+                <div className="space-y-3">
+                  {detailNoTouchRows.map((item) => (
+                    <div key={`${item.entityType}:${item.entityId}`} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{item.label}</p>
+                          <p className="text-xs text-slate-500">{item.entityType}</p>
+                        </div>
+                        <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                          protected
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">{item.reason}</p>
+                    </div>
+                  ))}
+                </div>
+              </DecisionListCard>
+            ) : null}
+          </div>
+        </div>
+      </details>
+    </div>
+  );
+
+  /*
   const actionCoreAdSets = decisionOs.adSets.filter(
     (decision) => decision.trust.surfaceLane === "action_core",
   );
@@ -916,6 +1086,7 @@ export function MetaDecisionOsOverview({
       </DecisionListCard>
     </div>
   );
+  */
 }
 
 export function MetaCampaignDecisionPanel({

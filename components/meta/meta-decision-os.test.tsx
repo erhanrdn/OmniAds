@@ -554,24 +554,17 @@ describe("MetaDecisionOsOverview", () => {
       <MetaDecisionOsOverview decisionOs={payload()} isLoading={false} />,
     );
 
-    expect(html).toContain("Today plan");
-    expect(html).toContain("Meta Authority");
-    expect(html).toContain("Target ROAS 2.5x");
-    expect(html).toContain("Decisions use live windows");
-    expect(html).toContain("Opportunity Board");
+    expect(html).toContain("Meta Single Action Authority");
+    expect(html).toContain("Show why");
+    expect(html).toContain("Act now");
+    expect(html).toContain("Protected");
     expect(html).toContain("Policy Review");
-    expect(html).toContain("baseline locked");
-    expect(html).toContain("queue-ready");
-    expect(html).toContain("Budget Shift Board");
-    expect(html).toContain("Winner Scale Candidates");
-    expect(html).toContain("winner scale candidate");
-    expect(html).toContain("Top Ad Set Actions");
-    expect(html).toContain("GEO OS");
-    expect(html).toContain("Action Core GEOs");
-    expect(html).toContain("Watchlist / Pooled Validation");
-    expect(html).toContain("Country-only warehouse rows are serving the GEO board.");
-    expect(html).toContain("Members Germany, France");
-    expect(html).toContain("No-Touch List");
+    expect(html).toContain("Meta detail authority");
+    expect(html).toContain("Secondary Workflow Context");
+    expect(html).toContain("Budget Shift Detail");
+    expect(html).toContain("Winner Scale Detail");
+    expect(html).toContain("Meta Detail Context");
+    expect(html).toContain("Protected Context");
     expect(html).toContain("trust-capped by missing commercial truth");
   });
 

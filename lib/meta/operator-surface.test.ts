@@ -1,0 +1,183 @@
+import { describe, expect, it } from "vitest";
+import { buildMetaOperatorSurfaceModel } from "@/lib/meta/operator-surface";
+
+function metaDecisionOsFixture() {
+  return {
+    authority: {
+      missingInputs: ["target_pack"],
+      note: "Meta decisions remain available, but truth caps still matter.",
+    },
+    commercialTruthCoverage: {
+      missingInputs: ["target_pack"],
+      summary: null,
+    },
+    summary: {
+      todayPlanHeadline: "Today plan",
+    },
+    campaigns: [
+      {
+        campaignId: "cmp_scale",
+        campaignName: "Scale Campaign",
+        role: "Prospecting Scale",
+        primaryAction: "scale_budget",
+        confidence: 0.82,
+        why: "Campaign-level wrapper.",
+        evidence: [{ label: "ROAS", value: "2.80x" }],
+        guardrails: ["Keep winners stable."],
+        noTouch: false,
+        whatWouldChangeThisDecision: ["Something changes."],
+        laneLabel: "Scaling",
+        missingCreativeAsk: [],
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          evidence: { materiality: "material" },
+        },
+        policy: {
+          bidRegime: "open",
+          objectiveFamily: "sales",
+        },
+      },
+      {
+        campaignId: "cmp_hold",
+        campaignName: "Hold Campaign",
+        role: "Prospecting Validation",
+        primaryAction: "hold",
+        confidence: 0.74,
+        why: "Thin-signal wrapper.",
+        evidence: [{ label: "ROAS", value: "1.90x" }],
+        guardrails: ["Wait for more signal."],
+        noTouch: false,
+        whatWouldChangeThisDecision: ["More spend."],
+        laneLabel: "Validation",
+        missingCreativeAsk: [],
+        trust: {
+          surfaceLane: "watchlist",
+          truthState: "live_confident",
+          operatorDisposition: "review_hold",
+          evidence: { materiality: "thin_signal" },
+        },
+        policy: {
+          bidRegime: "cost_cap",
+          objectiveFamily: "sales",
+        },
+      },
+    ],
+    adSets: [
+      {
+        decisionId: "adset_scale",
+        adSetId: "adset_1",
+        adSetName: "Scale Ad Set",
+        campaignId: "cmp_scale",
+        campaignName: "Scale Campaign",
+        actionType: "scale_budget",
+        confidence: 0.86,
+        reasons: ["Winning ad set."],
+        guardrails: ["Increase budget carefully."],
+        noTouch: false,
+        missingCreativeAsk: [],
+        trust: {
+          surfaceLane: "action_core",
+          truthState: "live_confident",
+          operatorDisposition: "standard",
+          evidence: { materiality: "material" },
+        },
+        policy: {
+          bidRegime: "open",
+          objectiveFamily: "sales",
+        },
+        supportingMetrics: {
+          spend: 420,
+          roas: 3.1,
+          purchases: 14,
+          cpa: 24,
+          dailyBudget: 15000,
+        },
+      },
+      {
+        decisionId: "adset_truth",
+        adSetId: "adset_2",
+        adSetName: "Truth-Capped Ad Set",
+        campaignId: "cmp_truth",
+        campaignName: "Truth Campaign",
+        actionType: "scale_budget",
+        confidence: 0.78,
+        reasons: ["Winner is constrained."],
+        guardrails: ["Truth is missing."],
+        noTouch: false,
+        missingCreativeAsk: [],
+        trust: {
+          surfaceLane: "watchlist",
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "profitable_truth_capped",
+          reasons: ["Commercial truth is incomplete."],
+          evidence: {
+            materiality: "material",
+            aggressiveActionBlockReasons: ["Commercial truth is incomplete."],
+          },
+        },
+        policy: {
+          bidRegime: "cost_cap",
+          objectiveFamily: "sales",
+        },
+        supportingMetrics: {
+          spend: 310,
+          roas: 2.9,
+          purchases: 9,
+          cpa: 28,
+          dailyBudget: 12000,
+        },
+      },
+      {
+        decisionId: "adset_thin",
+        adSetId: "adset_3",
+        adSetName: "Thin Ad Set",
+        campaignId: "cmp_hold",
+        campaignName: "Hold Campaign",
+        actionType: "monitor_only",
+        confidence: 0.58,
+        reasons: ["Low-signal lane."],
+        guardrails: ["Wait for more signal."],
+        noTouch: false,
+        missingCreativeAsk: [],
+        trust: {
+          surfaceLane: "watchlist",
+          truthState: "live_confident",
+          operatorDisposition: "review_hold",
+          evidence: { materiality: "thin_signal" },
+        },
+        policy: {
+          bidRegime: "cost_cap",
+          objectiveFamily: "sales",
+        },
+        supportingMetrics: {
+          spend: 55,
+          roas: 1.7,
+          purchases: 1,
+          cpa: 40,
+          dailyBudget: 5000,
+        },
+      },
+    ],
+  } as any;
+}
+
+describe("buildMetaOperatorSurfaceModel", () => {
+  it("uses one visible action owner per campaign and surfaces truth-capped rows explicitly", () => {
+    const model = buildMetaOperatorSurfaceModel(metaDecisionOsFixture());
+    expect(model).not.toBeNull();
+
+    const actNow = model?.buckets.find((bucket) => bucket.key === "act_now");
+    const needsTruth = model?.buckets.find((bucket) => bucket.key === "needs_truth");
+
+    expect(actNow?.rows.map((row) => row.id)).toContain("adset:adset_scale");
+    expect(actNow?.rows.map((row) => row.id)).not.toContain("campaign:cmp_scale");
+    expect(needsTruth?.rows[0]).toMatchObject({
+      id: "adset:adset_truth",
+      primaryAction: "Needs truth",
+      authorityState: "needs_truth",
+    });
+    expect(model?.hiddenSummary).toContain("thin-signal");
+  });
+});

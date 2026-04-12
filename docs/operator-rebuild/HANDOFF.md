@@ -6,14 +6,38 @@ Rebuild the OmniAds operator-facing Meta and Creative surfaces into a clear, ope
 
 ## Current Step
 
-Step 2 is complete. This step defined the rebuild specification and product contract for Meta and Creative. It did not start implementation.
+Step 3 is now active. Step 2 defined the rebuild specification and product contract for Meta and Creative. Step 3 is the first implementation pass for the shared operator-facing authority layer.
 
 ## Current Repo State
 
 * current branch: `main`
-* repo baseline SHA used for Step 2: `4d27ad800513bacd0f756a9bdb874ebee0dad4da`
+* current repo SHA: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
+* local `main` and `origin/main` both resolve to `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
+* Step 2 accepted spec commit: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`
 * current live SHA if verified: `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8` verified via `https://adsecute.com/api/build-info` and `https://adsecute.com/api/release-authority` on `2026-04-12`
-* release-authority posture during Step 2: live/runtime still drifted from remote `main`, but the drift is continuity-doc-only above the live product baseline
+* release-authority posture: live/runtime still drifts from remote `main`; release authority reports `79ea776...` live versus `2a43df0...` main
+
+## Current Working Model
+
+* ChatGPT defines the next step and writes the step prompt
+* Codex executes the step in a new chat
+* Codex reads `docs/operator-rebuild/HANDOFF.md` first, then `docs/operator-rebuild-staging/LATEST_REPORT.md`, then verifies current repo/live truth
+* Codex updates `docs/operator-rebuild/HANDOFF.md`, `docs/operator-rebuild-staging/LATEST_REPORT.md`, and `docs/operator-rebuild-staging/STATUS.md`
+* `LATEST_REPORT.md` is temporary and replaced each step
+* `HANDOFF.md` is durable and must reflect the latest accepted state
+* User reports completion back in chat
+* ChatGPT reads the latest repo state and defines the next step
+
+## Step Lifecycle
+
+1. New Codex chat starts
+2. Handoff and latest report are read first
+3. Current repo/live truth is verified
+4. Only the current step is executed
+5. Reports are updated
+6. Changes are committed and pushed
+7. Worktree ends clean
+8. Next step is not started automatically
 
 ## Current Authority Order
 
@@ -54,21 +78,21 @@ Step 2 is complete. This step defined the rebuild specification and product cont
 
 ## Next Recommended Step
 
-Step 3 should implement the shared operator contract first, then rebuild the Meta surface on top of it, then rebuild Creative with preview/media gating on the same authority model. The order should be:
+Step 3 should deliver the shared operator contract first. The next execution order inside this step should be:
 
 1. shared action-authority schema and vocabulary
-2. Meta compression layer and page rebuild
-3. Creative compression layer with preview gating and page rebuild
-4. detail/debug reintroduction only after the primary operator flow is clean
+2. Meta top-layer compression and action-surface reconciliation
+3. Creative top-layer compression with preview/media gating on the same authority model
+4. detail/debug retention only behind secondary or explicit reasoning surfaces
 
 ## Next Chat Bootstrap
 
-Continue the OmniAds Operator Rebuild from Step 2.
+Continue the OmniAds Operator Rebuild from Step 3.
 Read `docs/operator-rebuild/HANDOFF.md` first.
 Read `docs/operator-rebuild-staging/LATEST_REPORT.md` next.
 Check `docs/operator-rebuild-staging/STATUS.md` for the latest baseline.
 Use current repo/runtime truth over older docs or plans.
-Repo baseline used for Step 2: `4d27ad800513bacd0f756a9bdb874ebee0dad4da`.
+Current repo SHA: `2a43df0a37d2a3c16604c97bd10639df7abe9ef1`.
 Last verified live SHA: `79ea77643f7dbfbdc5d3c3345b7bbc67a00b53b8`.
 Benchmark businesses: `Grandmix`, `IwaStore`, `TheSwaf`.
-Step 3 should implement the shared operator contract and Meta-first rebuild described in the Step 2 specification.
+Step 3 should implement the shared operator authority foundation described in the accepted Step 2 specification and stop after reports, commit, push, and a clean worktree.

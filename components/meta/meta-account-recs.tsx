@@ -199,12 +199,12 @@ export function MetaAccountRecs({
     <div className="space-y-4" data-testid="meta-recommendations-panel">
       <div className="space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-          {language === "tr" ? "Aksiyon Bağlamı" : "Action Context"}
+          {language === "tr" ? "Destekleyici Bağlam" : "Supporting Context"}
         </p>
         <p className="text-xs text-slate-500">
           {language === "tr"
-            ? "Meta Decision OS ile aynı authority snapshot’ından türetilen hesap seviyesi bağlam."
-            : "Account context derived from the same authority snapshot as Meta Decision OS."}
+            ? "Birincil aksiyon otoritesini destekleyen, yenileme tabanlı ikincil hesap notları."
+            : "Refresh-driven secondary notes that support the primary action authority above."}
         </p>
       </div>
 

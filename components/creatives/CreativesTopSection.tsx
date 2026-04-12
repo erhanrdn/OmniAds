@@ -5,6 +5,8 @@ import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, 
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
+import { OperatorSurfaceSummary } from "@/components/operator/OperatorSurfaceSummary";
+import { buildCreativeOperatorSurfaceModel } from "@/lib/creative-operator-surface";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import {
   calculateCreativeAverageOrderValue,
@@ -456,7 +458,7 @@ export function CreativesTopSection({
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
     [selectedMetricIds]
   );
-
+  const operatorSurface = useMemo(() => buildCreativeOperatorSurfaceModel(decisionOs ?? null), [decisionOs]);
   const topRows = useMemo(() => selectedRows, [selectedRows]);
 
   return (
@@ -519,6 +521,8 @@ export function CreativesTopSection({
           </div>
         </div>
       </div>
+
+      <OperatorSurfaceSummary model={operatorSurface} className="mt-4" maxRowsPerBucket={2} />
 
       {showAiActionsRow && (
         <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">

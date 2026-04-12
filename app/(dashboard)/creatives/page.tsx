@@ -826,15 +826,15 @@ export default function CreativesPage() {
                     onClick={() => setDecisionOsDrawerOpen(true)}
                   >
                     {creativeDecisionOsQuery.isLoading && !creativeDecisionOs
-                      ? "Creative Decision OS · Loading..."
-                      : "Creative Decision OS"}
+                      ? "Show why · Loading..."
+                      : "Show why"}
                   </Button>
 
                   {(activeDecisionOsQueue || activeDecisionOsFamily) ? (
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       {activeDecisionOsQueue ? (
                         <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] font-medium text-sky-800">
-                          Decision OS filter: {activeDecisionOsQueue.label}
+                          Reasoning filter: {activeDecisionOsQueue.label}
                         </span>
                       ) : null}
                       {activeDecisionOsFamily ? (

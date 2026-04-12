@@ -1,0 +1,306 @@
+import type {
+  MetaAdSetDecision,
+  MetaCampaignDecision,
+  MetaDecisionOsV1Response,
+} from "@/lib/meta/decision-os";
+import {
+  buildOperatorBuckets,
+  operatorConfidenceBand,
+  titleFromEnum,
+  type OperatorAuthorityState,
+  type OperatorSurfaceItem,
+  type OperatorSurfaceMetric,
+  type OperatorSurfaceModel,
+} from "@/lib/operator-surface";
+
+type MetaOperatorItem = OperatorSurfaceItem & {
+  campaignId: string;
+};
+
+function formatMoney(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: value >= 100 ? 0 : 2,
+    maximumFractionDigits: value >= 100 ? 0 : 2,
+  })}`;
+}
+
+function formatRatio(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  return `${value.toFixed(2)}x`;
+}
+
+function formatInteger(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  return value.toLocaleString();
+}
+
+function metaRegimeLabel(value: string | null | undefined) {
+  if (!value) return null;
+  if (value === "open") return "Lowest Cost";
+  if (value === "cost_cap") return "Cost Cap";
+  if (value === "bid_cap") return "Bid Cap";
+  if (value === "roas_floor") return "Target ROAS";
+  return titleFromEnum(value);
+}
+
+function isMetaMuted(decision: { trust: MetaAdSetDecision["trust"] | MetaCampaignDecision["trust"] }) {
+  const materiality = decision.trust.evidence?.materiality;
+  return materiality === "thin_signal" || materiality === "immaterial" || decision.trust.operatorDisposition === "archive_only";
+}
+
+function metaAuthorityState(
+  decision: Pick<MetaAdSetDecision, "actionType" | "noTouch" | "trust"> | Pick<MetaCampaignDecision, "primaryAction" | "noTouch" | "trust">,
+) {
+  if (decision.trust.operatorDisposition === "profitable_truth_capped") {
+    return "needs_truth" satisfies OperatorAuthorityState;
+  }
+  if (decision.noTouch || decision.trust.operatorDisposition === "protected_watchlist") {
+    return "no_action" satisfies OperatorAuthorityState;
+  }
+
+  const action = "actionType" in decision ? decision.actionType : decision.primaryAction;
+  if (action === "monitor_only" || action === "hold") {
+    return "watch" satisfies OperatorAuthorityState;
+  }
+  if (decision.trust.surfaceLane === "action_core") {
+    return "act_now" satisfies OperatorAuthorityState;
+  }
+  return "watch" satisfies OperatorAuthorityState;
+}
+
+function metaReasonOverride(
+  reason: string,
+  state: OperatorAuthorityState,
+  muted: boolean,
+  blocker: string | null,
+) {
+  if (state === "needs_truth" && blocker) {
+    return `Profitable, but ${blocker.charAt(0).toLowerCase()}${blocker.slice(1)}`;
+  }
+  if (muted) {
+    return "Signal is still too thin for a headline action.";
+  }
+  return reason;
+}
+
+function metaActionLabel(
+  input: {
+    state: OperatorAuthorityState;
+    action: string;
+    bidRegime: string | null | undefined;
+    noTouch: boolean;
+    missingCreativeAsk?: string[] | null;
+  },
+) {
+  if (input.state === "needs_truth") return "Needs truth";
+  if (input.noTouch) return "Do not touch";
+  if (input.missingCreativeAsk?.length && input.action !== "scale_budget" && input.action !== "reduce_budget") {
+    return "Refresh creative";
+  }
+  if (input.action === "scale_budget" || input.action === "recover") return "Increase budget";
+  if (input.action === "reduce_budget" || input.action === "pause") return "Reduce budget";
+  if (input.action === "tighten_bid") {
+    if (input.bidRegime === "cost_cap") return "Lower cost cap";
+    if (input.bidRegime === "bid_cap") return "Lower bid cap";
+    return "Lower bid control";
+  }
+  if (input.action === "monitor_only" || input.action === "hold") return "Wait";
+  if (
+    input.action === "rebuild" ||
+    input.action === "duplicate_to_new_geo_cluster" ||
+    input.action === "merge_into_pooled_geo" ||
+    input.action === "switch_optimization" ||
+    input.action === "broaden"
+  ) {
+    return "Change structure";
+  }
+  return titleFromEnum(input.action);
+}
+
+function metaBlockerFromTrust(
+  trust: MetaAdSetDecision["trust"] | MetaCampaignDecision["trust"],
+  fallback: string | null | undefined,
+  state: OperatorAuthorityState,
+) {
+  if (state === "needs_truth") {
+    return (
+      trust.evidence?.aggressiveActionBlockReasons?.[0] ??
+      trust.reasons.find((reason) => reason.toLowerCase().includes("truth")) ??
+      trust.reasons.find((reason) => reason.toLowerCase().includes("commercial")) ??
+      fallback ??
+      "Missing commercial truth is capping a stronger move."
+    );
+  }
+  if (trust.evidence?.materiality === "thin_signal") {
+    return "Wait for more spend and conversion signal before changing the lever.";
+  }
+  return fallback ?? null;
+}
+
+function compactMetrics(metrics: OperatorSurfaceMetric[]) {
+  return metrics.filter((metric) => Boolean(metric.value) && metric.value !== "n/a").slice(0, 5);
+}
+
+export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): OperatorSurfaceItem {
+  const authorityState = metaAuthorityState(decision);
+  const muted = isMetaMuted(decision);
+  const blocker = metaBlockerFromTrust(decision.trust, decision.guardrails[0], authorityState);
+  const reason = metaReasonOverride(decision.reasons[0] ?? "Operator review required.", authorityState, muted, blocker);
+
+  return {
+    id: `adset:${decision.decisionId}`,
+    title: decision.adSetName,
+    subtitle: decision.campaignName,
+    primaryAction: metaActionLabel({
+      state: authorityState,
+      action: decision.actionType,
+      bidRegime: decision.policy.bidRegime,
+      noTouch: decision.noTouch,
+      missingCreativeAsk: decision.missingCreativeAsk,
+    }),
+    authorityState,
+    reason,
+    blocker,
+    confidence: operatorConfidenceBand(decision.confidence),
+    secondaryLabels: [metaRegimeLabel(decision.policy.bidRegime), decision.policy.objectiveFamily ? titleFromEnum(decision.policy.objectiveFamily) : null].filter(Boolean) as string[],
+    metrics: compactMetrics([
+      { label: "Spend", value: formatMoney(decision.supportingMetrics.spend) },
+      { label: "ROAS", value: formatRatio(decision.supportingMetrics.roas) },
+      { label: "Purchases", value: formatInteger(decision.supportingMetrics.purchases) },
+      { label: "CPA", value: formatMoney(decision.supportingMetrics.cpa) },
+      decision.supportingMetrics.dailyBudget
+        ? { label: "Budget", value: formatMoney(decision.supportingMetrics.dailyBudget / 100) }
+        : { label: "Budget", value: "n/a" },
+    ]),
+    muted,
+    mutedReason: muted ? "Thin-signal or inactive ad sets stay out of the headline action stack." : null,
+  };
+}
+
+function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision): OperatorSurfaceItem {
+  const authorityState = metaAuthorityState(decision);
+  const muted = isMetaMuted(decision);
+  const blocker = metaBlockerFromTrust(
+    decision.trust,
+    decision.guardrails[0] ?? decision.whatWouldChangeThisDecision[0],
+    authorityState,
+  );
+  const reason = metaReasonOverride(decision.why, authorityState, muted, blocker);
+
+  return {
+    id: `campaign:${decision.campaignId}`,
+    title: decision.campaignName,
+    subtitle: decision.role,
+    primaryAction: metaActionLabel({
+      state: authorityState,
+      action: decision.primaryAction,
+      bidRegime: decision.policy.bidRegime,
+      noTouch: decision.noTouch,
+      missingCreativeAsk: decision.missingCreativeAsk,
+    }),
+    authorityState,
+    reason,
+    blocker,
+    confidence: operatorConfidenceBand(decision.confidence),
+    secondaryLabels: [metaRegimeLabel(decision.policy.bidRegime), decision.laneLabel].filter(Boolean) as string[],
+    metrics: compactMetrics(
+      decision.evidence
+        .filter((item) => item.label === "ROAS" || item.label === "Spend" || item.label === "Role confidence")
+        .map((item) => ({ label: item.label, value: item.value })),
+    ),
+    muted,
+    mutedReason: muted ? "Thin-signal or inactive campaigns stay out of the headline action stack." : null,
+  };
+}
+
+export function buildMetaOperatorSurfaceModel(
+  decisionOs: MetaDecisionOsV1Response | null | undefined,
+): OperatorSurfaceModel | null {
+  if (!decisionOs) return null;
+
+  const adSetItems = decisionOs.adSets.map((decision) => ({
+    campaignId: decision.campaignId,
+    ...buildMetaOperatorItemFromAdSet(decision),
+  })) satisfies MetaOperatorItem[];
+  const campaignIdsWithVisibleAdSets = new Set(
+    adSetItems.filter((item) => !item.muted).map((item) => item.campaignId),
+  );
+  const campaignItems = decisionOs.campaigns
+    .filter((decision) => !campaignIdsWithVisibleAdSets.has(decision.campaignId))
+    .map((decision) => ({
+      campaignId: decision.campaignId,
+      ...buildMetaOperatorItemFromCampaign(decision),
+    })) satisfies MetaOperatorItem[];
+
+  const items = [...adSetItems, ...campaignItems]
+    .sort((left, right) => {
+      const stateOrder: Record<OperatorAuthorityState, number> = {
+        act_now: 0,
+        needs_truth: 1,
+        blocked: 2,
+        watch: 3,
+        no_action: 4,
+      };
+      return stateOrder[left.authorityState] - stateOrder[right.authorityState];
+    })
+    .map(({ campaignId: _campaignId, ...item }) => item);
+
+  const buckets = buildOperatorBuckets(items, {
+    labels: {
+      needs_truth: "Profitable but blocked",
+      watch: "Wait",
+      no_action: "Protected",
+    },
+    summaries: {
+      needs_truth: "Profitable rows that still need truth or regime clearance before a stronger move.",
+      watch: "Material rows that should stay visible but should not be pushed yet.",
+      no_action: "Stable or protected rows where leaving them alone is the correct move.",
+    },
+    order: ["act_now", "needs_truth", "watch", "no_action"],
+  });
+
+  const visibleCounts = {
+    actNow: buckets.find((bucket) => bucket.key === "act_now")?.rows.length ?? 0,
+    needsTruth: buckets.find((bucket) => bucket.key === "needs_truth")?.rows.length ?? 0,
+    watch: buckets.find((bucket) => bucket.key === "watch")?.rows.length ?? 0,
+    protected: buckets.find((bucket) => bucket.key === "no_action")?.rows.length ?? 0,
+  };
+  const mutedCount = buckets.reduce((sum, bucket) => sum + bucket.mutedCount, 0);
+  const firstMissingInput = decisionOs.authority?.missingInputs[0] ?? decisionOs.commercialTruthCoverage.missingInputs[0] ?? null;
+
+  let emphasis: OperatorAuthorityState = "no_action";
+  let headline = "No material Meta change is recommended right now.";
+  if (visibleCounts.actNow > 0) {
+    emphasis = "act_now";
+    headline = `${visibleCounts.actNow} material Meta ${visibleCounts.actNow === 1 ? "move needs" : "moves need"} action now.`;
+  } else if (visibleCounts.needsTruth > 0) {
+    emphasis = "needs_truth";
+    headline = `${visibleCounts.needsTruth} profitable Meta ${visibleCounts.needsTruth === 1 ? "lane is" : "lanes are"} capped by missing truth or regime clearance.`;
+  } else if (visibleCounts.watch > 0) {
+    emphasis = "watch";
+    headline = `${visibleCounts.watch} Meta ${visibleCounts.watch === 1 ? "lane stays" : "lanes stay"} visible, but the next move is still signal-capped.`;
+  } else if (visibleCounts.protected > 0) {
+    headline = `${visibleCounts.protected} Meta ${visibleCounts.protected === 1 ? "winner stays" : "winners stay"} protected with no change recommended.`;
+  }
+
+  return {
+    surfaceLabel: "Meta",
+    heading: "Single Action Authority",
+    headline,
+    note:
+      decisionOs.authority?.note ??
+      decisionOs.summary.todayPlanHeadline ??
+      "Meta decisions use live windows. Selected range remains analysis-only context.",
+    emphasis,
+    blocker:
+      emphasis === "needs_truth" && firstMissingInput
+        ? `Missing input: ${titleFromEnum(firstMissingInput)}`
+        : null,
+    buckets,
+    hiddenSummary:
+      mutedCount > 0
+        ? `${mutedCount} thin-signal or inactive ${mutedCount === 1 ? "row stays" : "rows stay"} off the headline action surface.`
+        : null,
+  };
+}
