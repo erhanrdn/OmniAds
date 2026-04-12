@@ -8,7 +8,7 @@ Current accepted authority contract for this layer:
 - runtime release authority source: `https://adsecute.com/api/release-authority`
 - repository authority: `erhanrdn/OmniAds` `main`
 - canonical doc path: `docs/v3-01-release-authority.md`
-- rollback target before the next release: `6fc971574946f65f4c7217eb4a51b6e8ed66fefb`
+- rollback target before the next release: `fe3e23f5df5e9dd7f90cc2318ea7b66920e189d2`
 
 ## Literal parity
 
@@ -28,8 +28,8 @@ Current accepted authority contract for this layer:
 | `Decision Signals` | `live` | `current` | n/a | Decision Signals remain the compatibility surface for deterministic creative actions. This phase does not change wording or action semantics. |
 | `AI Commentary` | `live` | `current` | n/a | AI commentary remains bounded interpretation only. This authority layer only inventories the surface; it does not change provenance rules. |
 | `Command Center Workflow` | `live` | `current` | enabled: COMMAND_CENTER_V1, COMMAND_CENTER_CANARY_BUSINESSES | Workflow state remains additive on top of deterministic decision sources. Current posture is resolved from the Command Center config helpers. Meta GEO intake only queues material queue-eligible GEO rows; pooled/watchlist GEOs stay out of the default queue. The default queue is bounded server-side and exposes overflow, owner workload, and shift digest summaries. Structured feedback and status-only batch actions are current workflow surfaces and remain retry-safe. A separate historical intelligence panel now summarizes selected-period campaign families, queue quality, degraded guidance, and deterministic calibration suggestions. |
-| `Command Center Execution Preview` | `live` | `current` | enabled: COMMAND_CENTER_EXECUTION_V1 | Preview-first execution posture is tracked separately from apply/rollback authority. This surface is operator-visible only when the execution preview flag is enabled. The current preview baseline exposes an explicit per-family support matrix and rollback-truth copy without widening provider-backed scope. |
-| `Command Center Apply & Rollback` | `flagged` | `current` | disabled: COMMAND_CENTER_EXECUTION_V1, META_EXECUTION_APPLY_ENABLED, META_EXECUTION_CANARY_BUSINESSES | Apply and rollback authority stay explicit and canary-gated. A disabled or allowlist-only apply posture is intentional and not treated as hidden. Duplicate client mutation IDs now replay terminal results or stop with a non-dispatching conflict instead of issuing a second provider write. |
+| `Command Center Execution Preview` | `live` | `current` | enabled: COMMAND_CENTER_EXECUTION_V1 | Preview-first execution posture is tracked separately from apply/rollback authority. This surface is operator-visible only when the execution preview flag is enabled. The current preview baseline exposes an explicit capability registry, preflight drift checks, post-apply validation status, and rollback-truth copy without widening provider-backed scope. |
+| `Command Center Apply & Rollback` | `flagged` | `current` | disabled: COMMAND_CENTER_EXECUTION_V1, META_EXECUTION_APPLY_ENABLED, META_EXECUTION_KILL_SWITCH, META_EXECUTION_CANARY_BUSINESSES | Apply and rollback authority stay explicit and canary-gated. A disabled or allowlist-only apply posture is intentional and not treated as hidden. The apply subset stays kill-switch-aware, post-validated, and backed by immutable provider diff evidence. Duplicate client mutation IDs now replay terminal results or stop with a non-dispatching conflict instead of issuing a second provider write. |
 | `/copies` | `live` | `current` | n/a | The surface remains live and intentionally unchanged in this phase. Authority coverage is explicit so /copies cannot disappear into baseline ambiguity. |
 | `Legacy Meta Alias` | `legacy` | `current` | n/a | The legacy alias remains intentionally shipped as a redirect. It is marked legacy rather than hidden so drift stays explicit. |
 

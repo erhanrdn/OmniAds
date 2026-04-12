@@ -23,21 +23,26 @@ All other Command Center execution families remain explicit `manual_only` or `un
 
 ## Support Matrix
 
-The canonical family-level support matrix now lives in:
+The canonical family-level capability registry and support matrix now live in:
 
+- `lib/command-center-execution-capabilities.ts`
 - `lib/command-center-execution-support.ts`
 
-It enumerates every current Command Center execution family and records:
+They enumerate every current Command Center execution family and record:
 
+- capability key
 - `supportMode`
 - apply gate posture
 - rollback truth
+- validation plan
 - operator guidance
 
 The execution preview exposes that matrix additively so the operator can see:
 
 - current preview status
 - selected family capability
+- preflight drift checks
+- latest validation status
 - family-level rollback truth
 - unsupported and manual-only families without hidden write-back assumptions
 
@@ -48,6 +53,8 @@ The execution preview exposes that matrix additively so the operator can see:
 - if a duplicate arrives while a prior mutation is still `applying`, the service re-reads live provider state
 - if live state proves the original mutation already committed, execution finalizes without a second provider write
 - if live state does not prove that commit, the duplicate request returns a non-dispatching conflict and must not auto-retry
+- post-apply and post-rollback validation must observe the requested live state before execution is recorded as successful
+- immutable provider diff evidence is written for apply and rollback attempts
 - rollback is only presented as available when the preview has a truthful provider-backed restore path
 
 ## Canary Proof Rule

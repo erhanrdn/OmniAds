@@ -122,6 +122,87 @@ export interface CommandCenterExecutionPermission {
   rollbackReason: string | null;
 }
 
+export const COMMAND_CENTER_EXECUTION_CHECK_STATUSES = [
+  "pass",
+  "warn",
+  "fail",
+] as const;
+
+export type CommandCenterExecutionCheckStatus =
+  (typeof COMMAND_CENTER_EXECUTION_CHECK_STATUSES)[number];
+
+export const COMMAND_CENTER_EXECUTION_VALIDATION_STATUSES = [
+  "passed",
+  "failed",
+  "not_run",
+] as const;
+
+export type CommandCenterExecutionValidationStatus =
+  (typeof COMMAND_CENTER_EXECUTION_VALIDATION_STATUSES)[number];
+
+export interface CommandCenterExecutionCapability {
+  registryVersion: "command-center-execution-capabilities.v1";
+  capabilityKey: string;
+  provider: "meta" | "none";
+  targetType: "adset" | "campaign" | "creative" | "geo" | "placement" | "unknown";
+  sourceSystem: CommandCenterSourceSystem;
+  sourceType: CommandCenterSourceType;
+  recommendedAction: string | null;
+  supportMode: CommandCenterExecutionSupportMode;
+  applyGate: {
+    posture: CommandCenterExecutionApplyGatePosture;
+    note: string;
+    requiresApproval: boolean;
+    requiresCanary: boolean;
+    killSwitchAware: boolean;
+  };
+  rollback: {
+    kind: MetaExecutionRollbackKind;
+    note: string | null;
+  };
+  verifiedApply: boolean;
+  verifiedRollback: boolean;
+  supportReason: string;
+  operatorGuidance: string[];
+  validationPlan: string[];
+}
+
+export interface CommandCenterExecutionPreflightCheck {
+  key: string;
+  label: string;
+  required: boolean;
+  status: CommandCenterExecutionCheckStatus;
+  detail: string;
+}
+
+export interface CommandCenterExecutionPreflightReport {
+  generatedAt: string;
+  readyForApply: boolean;
+  blockingChecks: string[];
+  checks: CommandCenterExecutionPreflightCheck[];
+}
+
+export interface CommandCenterExecutionValidationReport {
+  operation: CommandCenterExecutionOperation;
+  status: CommandCenterExecutionValidationStatus;
+  checkedAt: string;
+  matchedRequestedState: boolean;
+  mismatchReasons: string[];
+}
+
+export interface CommandCenterExecutionProviderDiffEvidence {
+  provider: "meta";
+  targetId: string | null;
+  observedAt: string;
+  baselineState: CommandCenterExecutionStateSummary | null;
+  requestedState: CommandCenterExecutionStateSummary | null;
+  observedState: CommandCenterExecutionStateSummary | null;
+  providerChangeDiff: CommandCenterExecutionDiffItem[];
+  remainingDriftDiff: CommandCenterExecutionDiffItem[];
+  matchedRequestedState: boolean;
+  mismatchReasons: string[];
+}
+
 export interface CommandCenterExecutionSupportMatrixEntry {
   familyKey: string;
   label: string;
@@ -161,11 +242,15 @@ export interface CommandCenterExecutionAuditEntry {
   approvalActorEmail: string | null;
   approvedAt: string | null;
   previewHash: string | null;
+  capabilityKey: string | null;
   rollbackKind: MetaExecutionRollbackKind;
   rollbackNote: string | null;
   currentState: CommandCenterExecutionStateSummary | null;
   requestedState: CommandCenterExecutionStateSummary | null;
   capturedPreApplyState: CommandCenterExecutionStateSummary | null;
+  preflight: CommandCenterExecutionPreflightReport | null;
+  validation: CommandCenterExecutionValidationReport | null;
+  providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence | null;
   providerResponse: Record<string, unknown>;
   failureReason: string | null;
   externalRefs: CommandCenterExecutionExternalRefs | null;
@@ -181,6 +266,7 @@ export interface CommandCenterExecutionStateRecord {
   sourceType: CommandCenterSourceType;
   requestedAction: string;
   previewHash: string | null;
+  capabilityKey: string | null;
   workflowStatusSnapshot: CommandCenterActionStatus;
   approvalActorUserId: string | null;
   approvalActorName: string | null;
@@ -198,6 +284,9 @@ export interface CommandCenterExecutionStateRecord {
   currentState: CommandCenterExecutionStateSummary | null;
   requestedState: CommandCenterExecutionStateSummary | null;
   capturedPreApplyState: CommandCenterExecutionStateSummary | null;
+  preflight: CommandCenterExecutionPreflightReport | null;
+  latestValidation: CommandCenterExecutionValidationReport | null;
+  providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence | null;
   providerResponse: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -215,6 +304,7 @@ export interface CommandCenterExecutionPreview {
   supportMode: CommandCenterExecutionSupportMode;
   status: CommandCenterExecutionStatus;
   previewHash: string;
+  capability: CommandCenterExecutionCapability;
   supportMatrix: CommandCenterExecutionSupportMatrix;
   approval: CommandCenterExecutionApprovalSnapshot;
   permission: CommandCenterExecutionPermission;
@@ -228,9 +318,12 @@ export interface CommandCenterExecutionPreview {
   currentState: CommandCenterExecutionStateSummary | null;
   requestedState: CommandCenterExecutionStateSummary | null;
   diff: CommandCenterExecutionDiffItem[];
+  preflight: CommandCenterExecutionPreflightReport;
   prerequisites: string[];
   risks: string[];
   manualInstructions: string[];
+  latestValidation: CommandCenterExecutionValidationReport | null;
+  providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence | null;
   auditTrail: CommandCenterExecutionAuditEntry[];
   latestState: CommandCenterExecutionStateRecord | null;
   plan: MetaExecutionMutationPlan | null;

@@ -873,6 +873,7 @@ export async function runMigrations(options?: {
           source_type                  TEXT NOT NULL,
           requested_action             TEXT NOT NULL,
           preview_hash                 TEXT,
+          capability_key               TEXT,
           workflow_status_snapshot     TEXT NOT NULL DEFAULT 'pending'
                                         CHECK (workflow_status_snapshot IN ('pending', 'approved', 'rejected', 'snoozed', 'completed_manual', 'executed', 'failed', 'canceled')),
           approval_actor_user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -892,11 +893,22 @@ export async function runMigrations(options?: {
           current_state_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
           requested_state_json         JSONB NOT NULL DEFAULT 'null'::jsonb,
           captured_pre_apply_state_json JSONB NOT NULL DEFAULT 'null'::jsonb,
+          preflight_json               JSONB NOT NULL DEFAULT 'null'::jsonb,
+          validation_json              JSONB NOT NULL DEFAULT 'null'::jsonb,
+          provider_diff_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
           provider_response_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, action_fingerprint)
         )`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_state
+          ADD COLUMN IF NOT EXISTS capability_key TEXT`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_state
+          ADD COLUMN IF NOT EXISTS preflight_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_state
+          ADD COLUMN IF NOT EXISTS validation_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_state
+          ADD COLUMN IF NOT EXISTS provider_diff_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_execution_state_business_status
           ON command_center_action_execution_state (business_id, execution_status, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS command_center_action_execution_audit (
@@ -917,18 +929,30 @@ export async function runMigrations(options?: {
           approval_actor_email         TEXT,
           approved_at                  TIMESTAMPTZ,
           preview_hash                 TEXT,
+          capability_key               TEXT,
           rollback_kind                TEXT NOT NULL DEFAULT 'not_available'
                                         CHECK (rollback_kind IN ('provider_rollback', 'recovery_note_only', 'not_available')),
           rollback_note                TEXT,
           current_state_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
           requested_state_json         JSONB NOT NULL DEFAULT 'null'::jsonb,
           captured_pre_apply_state_json JSONB NOT NULL DEFAULT 'null'::jsonb,
+          preflight_json               JSONB NOT NULL DEFAULT 'null'::jsonb,
+          validation_json              JSONB NOT NULL DEFAULT 'null'::jsonb,
+          provider_diff_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
           provider_response_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
           failure_reason               TEXT,
           external_refs_json           JSONB NOT NULL DEFAULT 'null'::jsonb,
           created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, client_mutation_id)
         )`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_audit
+          ADD COLUMN IF NOT EXISTS capability_key TEXT`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_audit
+          ADD COLUMN IF NOT EXISTS preflight_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_audit
+          ADD COLUMN IF NOT EXISTS validation_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
+        sql`ALTER TABLE command_center_action_execution_audit
+          ADD COLUMN IF NOT EXISTS provider_diff_json JSONB NOT NULL DEFAULT 'null'::jsonb`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_command_center_action_execution_audit_business_action
           ON command_center_action_execution_audit (business_id, action_fingerprint, created_at DESC)`.catch(() => {}),
       ]);

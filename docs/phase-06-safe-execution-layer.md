@@ -8,6 +8,9 @@ Phase 06 extends Command Center from a deterministic decision queue into a human
 ## V1 scope
 
 - Preview-first, human-approved execution on top of existing Command Center workflow state.
+- Explicit capability registry and support matrix for every execution family.
+- Preflight drift checks before apply and post-apply validation before success is recorded.
+- Immutable provider diff evidence for apply and rollback audit entries.
 - Supported provider subset:
   - `meta_adset_decision.pause`
   - `meta_adset_decision.recover`
@@ -28,6 +31,7 @@ Phase 06 extends Command Center from a deterministic decision queue into a human
 - Apply never runs without explicit human approval.
 - Unsupported and manual-only actions never present as successful execution.
 - Rollback is only exposed when a real provider rollback path exists.
+- Apply remains kill-switch-aware and canary-gated.
 
 ## Safety rules for Meta apply
 
@@ -52,22 +56,28 @@ Phase 06 extends Command Center from a deterministic decision queue into a human
 4. Apply only proceeds when:
    - workflow status is `approved`
    - preview hash still matches
+   - preflight checks still pass
    - execution is supported
-   - apply gate and canary gate allow the business
-5. Execution state and immutable execution audit are written.
-6. Rollback restores the captured pre-apply `status` and `dailyBudget` when available.
+   - apply gate, kill switch, and canary gate allow the business
+5. Provider mutation runs only for the supported subset.
+6. Live provider state is re-read and must match the requested target before execution is marked successful.
+7. Execution state and immutable execution audit are written with preflight, validation, and provider diff evidence.
+8. Rollback restores the captured pre-apply `status` and `dailyBudget` when available and is also post-validated.
 
 ## New persistence
 
 - `command_center_action_execution_state`
   - latest execution posture per `(business_id, action_fingerprint)`
+  - latest preflight report, validation status, and provider diff evidence
 - `command_center_action_execution_audit`
   - immutable apply and rollback trail
   - unique `(business_id, client_mutation_id)`
+  - immutable preflight, validation, and provider diff evidence per mutation
 
 ## Rollout flags
 
 - `COMMAND_CENTER_EXECUTION_V1`
 - `META_EXECUTION_APPLY_ENABLED`
+- `META_EXECUTION_KILL_SWITCH`
 - `META_EXECUTION_CANARY_BUSINESSES`
 - `COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID`

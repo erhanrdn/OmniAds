@@ -195,7 +195,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     notes: [
       "Preview-first execution posture is tracked separately from apply/rollback authority.",
       "This surface is operator-visible only when the execution preview flag is enabled.",
-      "The current preview baseline exposes an explicit per-family support matrix and rollback-truth copy without widening provider-backed scope.",
+      "The current preview baseline exposes an explicit capability registry, preflight drift checks, post-apply validation status, and rollback-truth copy without widening provider-backed scope.",
     ],
   },
   {
@@ -221,6 +221,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
     notes: [
       "Apply and rollback authority stay explicit and canary-gated.",
       "A disabled or allowlist-only apply posture is intentional and not treated as hidden.",
+      "The apply subset stays kill-switch-aware, post-validated, and backed by immutable provider diff evidence.",
       "Duplicate client mutation IDs now replay terminal results or stop with a non-dispatching conflict instead of issuing a second provider write.",
     ],
   },

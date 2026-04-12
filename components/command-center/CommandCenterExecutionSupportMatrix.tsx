@@ -52,7 +52,10 @@ function resolveRollbackTone(
 export function CommandCenterExecutionSupportMatrix({
   preview,
 }: {
-  preview: Pick<CommandCenterExecutionPreview, "supportMode" | "supportMatrix" | "rollback">;
+  preview: Pick<
+    CommandCenterExecutionPreview,
+    "supportMode" | "supportMatrix" | "rollback" | "capability" | "preflight"
+  >;
 }) {
   const selectedEntry = preview.supportMatrix.selectedEntry;
 
@@ -85,6 +88,9 @@ export function CommandCenterExecutionSupportMatrix({
           >
             rollback: {formatLabel(preview.rollback.kind)}
           </Badge>
+          <Badge variant="outline" className="border-slate-200 bg-white text-slate-700">
+            preflight: {preview.preflight.readyForApply ? "ready" : "blocked"}
+          </Badge>
         </div>
       </div>
 
@@ -103,6 +109,13 @@ export function CommandCenterExecutionSupportMatrix({
         <p className="mt-2 text-sm text-slate-700">{selectedEntry.supportReason}</p>
         <p className="mt-2 text-xs text-slate-600">
           Rollback truth: {selectedEntry.rollback.note ?? "No rollback note is available."}
+        </p>
+        <p className="mt-2 text-xs text-slate-600">
+          Capability key: {preview.capability.capabilityKey}
+        </p>
+        <p className="mt-1 text-xs text-slate-600">
+          Verified apply/rollback: {preview.capability.verifiedApply ? "yes" : "no"} /{" "}
+          {preview.capability.verifiedRollback ? "yes" : "no"}
         </p>
       </div>
 

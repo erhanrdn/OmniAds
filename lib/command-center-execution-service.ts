@@ -14,19 +14,25 @@ import {
   buildCommandCenterExecutionPreviewHash,
   COMMAND_CENTER_EXECUTION_CONTRACT_VERSION,
   type CommandCenterExecutionApprovalSnapshot,
+  type CommandCenterExecutionCapability,
   type CommandCenterExecutionDiffItem,
+  type CommandCenterExecutionOperation,
+  type CommandCenterExecutionPreflightCheck,
+  type CommandCenterExecutionPreflightReport,
   type CommandCenterExecutionPreview,
+  type CommandCenterExecutionProviderDiffEvidence,
   type CommandCenterExecutionStateSummary,
   type CommandCenterExecutionSupportMatrix,
   type CommandCenterExecutionSupportMode,
+  type CommandCenterExecutionValidationReport,
   type MetaExecutionMutationPlan,
   META_EXECUTION_SUPPORTED_ACTIONS,
   normalizeMetaExecutionStatus,
   summarizeExecutionStateValue,
 } from "@/lib/command-center-execution";
+import { resolveCommandCenterExecutionCapability } from "@/lib/command-center-execution-capabilities";
 import {
   buildCommandCenterExecutionSupportMatrix,
-  resolveCommandCenterExecutionSupportEntry,
 } from "@/lib/command-center-execution-support";
 import {
   appendCommandCenterExecutionAudit,
@@ -35,7 +41,7 @@ import {
   upsertCommandCenterExecutionState,
 } from "@/lib/command-center-execution-store";
 import {
-  canApplyMetaExecutionForBusiness,
+  getMetaExecutionApplyBoundaryState,
   isCommandCenterExecutionV1Enabled,
 } from "@/lib/command-center-execution-config";
 import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
@@ -243,6 +249,245 @@ function buildDiff(input: {
   return diff;
 }
 
+function buildExecutionMismatchReasons(input: {
+  currentState: CommandCenterExecutionStateSummary | null;
+  requestedState: CommandCenterExecutionStateSummary | null;
+}) {
+  const reasons: string[] = [];
+  if (!input.currentState) {
+    reasons.push("Observed live state could not be resolved after provider execution.");
+    return reasons;
+  }
+  if (!input.requestedState) {
+    reasons.push("Requested execution state is unavailable.");
+    return reasons;
+  }
+  if (
+    normalizeMetaExecutionStatus(input.currentState.status) !==
+    normalizeMetaExecutionStatus(input.requestedState.status)
+  ) {
+    reasons.push(
+      `Observed status ${summarizeExecutionStateValue(input.currentState.status)} did not match requested status ${summarizeExecutionStateValue(input.requestedState.status)}.`,
+    );
+  }
+  if (
+    (input.currentState.dailyBudget ?? null) !==
+    (input.requestedState.dailyBudget ?? null)
+  ) {
+    reasons.push(
+      `Observed daily budget ${formatCurrencyValue(input.currentState.dailyBudget ?? null)} did not match requested daily budget ${formatCurrencyValue(input.requestedState.dailyBudget ?? null)}.`,
+    );
+  }
+  return reasons;
+}
+
+function buildProviderDiffEvidence(input: {
+  targetId: string | null;
+  baselineState: CommandCenterExecutionStateSummary | null;
+  requestedState: CommandCenterExecutionStateSummary | null;
+  observedState: CommandCenterExecutionStateSummary | null;
+}) {
+  const mismatchReasons = buildExecutionMismatchReasons({
+    currentState: input.observedState,
+    requestedState: input.requestedState,
+  });
+  return {
+    provider: "meta",
+    targetId: input.targetId,
+    observedAt: new Date().toISOString(),
+    baselineState: input.baselineState,
+    requestedState: input.requestedState,
+    observedState: input.observedState,
+    providerChangeDiff: buildDiff({
+      currentState: input.baselineState,
+      requestedState: input.observedState,
+    }),
+    remainingDriftDiff: buildDiff({
+      currentState: input.observedState,
+      requestedState: input.requestedState,
+    }),
+    matchedRequestedState: mismatchReasons.length === 0,
+    mismatchReasons,
+  } satisfies CommandCenterExecutionProviderDiffEvidence;
+}
+
+function buildValidationReport(input: {
+  operation: CommandCenterExecutionOperation;
+  providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence | null;
+}) {
+  return {
+    operation: input.operation,
+    status:
+      !input.providerDiffEvidence
+        ? "not_run"
+        : input.providerDiffEvidence.matchedRequestedState
+          ? "passed"
+          : "failed",
+    checkedAt: new Date().toISOString(),
+    matchedRequestedState:
+      input.providerDiffEvidence?.matchedRequestedState ?? false,
+    mismatchReasons: input.providerDiffEvidence?.mismatchReasons ?? [],
+  } satisfies CommandCenterExecutionValidationReport;
+}
+
+function buildPreflightCheck(input: {
+  key: string;
+  label: string;
+  required: boolean;
+  passing: boolean;
+  detail: string;
+  warning?: boolean;
+}) {
+  return {
+    key: input.key,
+    label: input.label,
+    required: input.required,
+    status: input.passing ? "pass" : input.warning ? "warn" : "fail",
+    detail: input.detail,
+  } satisfies CommandCenterExecutionPreflightCheck;
+}
+
+function buildPreflightReport(input: {
+  capability: CommandCenterExecutionCapability;
+  permissions: CommandCenterPermissions;
+  approval: CommandCenterExecutionApprovalSnapshot;
+  boundaryState: ReturnType<typeof getMetaExecutionApplyBoundaryState>;
+  decisionResolved: boolean;
+  liveStateResolved: boolean;
+  providerAccessible: boolean;
+  safeSubset: boolean;
+  alreadyAtTarget: boolean;
+}) {
+  const checks = [
+    buildPreflightCheck({
+      key: "capability_supported",
+      label: "Capability registry subset",
+      required: true,
+      passing: input.capability.supportMode === "supported",
+      detail:
+        input.capability.supportMode === "supported"
+          ? "The selected action is inside the provider-backed capability registry."
+          : input.capability.supportReason,
+    }),
+    buildPreflightCheck({
+      key: "operator_permissions",
+      label: "Operator edit access",
+      required: true,
+      passing: input.permissions.canEdit,
+      detail: input.permissions.canEdit
+        ? "Current operator has edit permission for this workspace."
+        : input.permissions.reason ?? "This workspace is read-only.",
+    }),
+    buildPreflightCheck({
+      key: "workflow_approved",
+      label: "Workflow approval",
+      required: true,
+      passing: input.approval.workflowStatus === "approved",
+      detail:
+        input.approval.workflowStatus === "approved"
+          ? "Workflow approval is present."
+          : "Approve the workflow action before apply.",
+    }),
+    buildPreflightCheck({
+      key: "decision_resolved",
+      label: "Decision linkage",
+      required: true,
+      passing: input.decisionResolved,
+      detail: input.decisionResolved
+        ? "Source decision is still linked to a live command-center action."
+        : "The source decision drifted and could not be matched safely.",
+    }),
+    buildPreflightCheck({
+      key: "provider_state_resolved",
+      label: "Live provider state",
+      required: true,
+      passing: input.liveStateResolved,
+      detail: input.liveStateResolved
+        ? "Live provider state resolved successfully."
+        : "Live provider state could not be resolved.",
+    }),
+    buildPreflightCheck({
+      key: "provider_scope_accessible",
+      label: "Provider scope access",
+      required: true,
+      passing: input.providerAccessible,
+      detail: input.providerAccessible
+        ? "The provider target is inside an accessible assigned scope."
+        : "Demo or inaccessible provider scopes remain manual-only.",
+    }),
+    buildPreflightCheck({
+      key: "safe_subset",
+      label: "Safe mutation subset",
+      required: true,
+      passing: input.safeSubset,
+      detail: input.safeSubset
+        ? "The target stays inside the verified ad-set-only safe mutation subset."
+        : "The target does not satisfy the verified safe subset requirements.",
+    }),
+    buildPreflightCheck({
+      key: "already_at_target",
+      label: "Material live change",
+      required: true,
+      passing: !input.alreadyAtTarget,
+      detail: input.alreadyAtTarget
+        ? "The live state already matches the requested target."
+        : "A material provider-side delta remains.",
+    }),
+    buildPreflightCheck({
+      key: "apply_gate_enabled",
+      label: "Apply gate",
+      required: true,
+      passing: input.boundaryState.applyEnabled,
+      detail: input.boundaryState.applyEnabled
+        ? "Meta execution apply gate is enabled."
+        : "Meta execution apply is disabled.",
+    }),
+    buildPreflightCheck({
+      key: "kill_switch",
+      label: "Kill switch",
+      required: true,
+      passing: !input.boundaryState.killSwitchActive,
+      detail: input.boundaryState.killSwitchActive
+        ? "Meta execution kill switch is active."
+        : "Meta execution kill switch is inactive.",
+    }),
+    buildPreflightCheck({
+      key: "canary_allowlist",
+      label: "Canary allowlist",
+      required: true,
+      passing: input.boundaryState.businessAllowlisted,
+      detail: input.boundaryState.businessAllowlisted
+        ? "Business is in the Meta execution canary allowlist."
+        : input.boundaryState.canaryScoped
+          ? "Business is not in the Meta execution canary allowlist."
+          : "No Meta execution canary allowlist is configured.",
+    }),
+  ];
+
+  const blockingChecks = checks
+    .filter((check) => check.required && check.status !== "pass")
+    .map((check) => check.label);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    readyForApply: blockingChecks.length === 0,
+    blockingChecks,
+    checks,
+  } satisfies CommandCenterExecutionPreflightReport;
+}
+
+function getFirstBlockingPreflightDetail(
+  preflight: CommandCenterExecutionPreflightReport,
+) {
+  return (
+    preflight.checks.find(
+      (check) => check.required && check.status !== "pass",
+    )?.detail ??
+    preflight.blockingChecks[0] ??
+    null
+  );
+}
+
 function buildApprovalSnapshot(
   action: CommandCenterAction,
   journal: CommandCenterJournalEntry[],
@@ -298,6 +543,8 @@ function buildManualOnlyPreview(input: {
   auditTrail: Awaited<ReturnType<typeof listCommandCenterExecutionAudit>>;
   currentState: CommandCenterExecutionStateSummary | null;
   requestedState: CommandCenterExecutionStateSummary | null;
+  capability: CommandCenterExecutionCapability;
+  preflight: CommandCenterExecutionPreflightReport;
   supportMatrix: CommandCenterExecutionSupportMatrix;
   manualInstructions: string[];
   prerequisites: string[];
@@ -334,6 +581,7 @@ function buildManualOnlyPreview(input: {
     supportMode: input.supportMode,
     status: input.supportMode === "unsupported" ? "unsupported" : "manual_only",
     previewHash,
+    capability: input.capability,
     supportMatrix: input.supportMatrix,
     approval: input.approval,
     permission: {
@@ -341,7 +589,7 @@ function buildManualOnlyPreview(input: {
       reason:
         input.applyReason ??
         (input.supportMode === "unsupported"
-          ? "This action is outside the V2-07 execution subset."
+          ? "This action is outside the V3-06 execution subset."
           : "This action requires manual execution."),
       canRollback: false,
       rollbackReason:
@@ -364,9 +612,12 @@ function buildManualOnlyPreview(input: {
     currentState: input.currentState,
     requestedState: input.requestedState,
     diff,
+    preflight: input.preflight,
     prerequisites: input.prerequisites,
     risks: input.risks,
     manualInstructions: input.manualInstructions,
+    latestValidation: input.latestState?.latestValidation ?? null,
+    providerDiffEvidence: input.latestState?.providerDiffEvidence ?? null,
     auditTrail: input.auditTrail,
     latestState: input.latestState,
     plan: null,
@@ -441,6 +692,16 @@ async function finalizeObservedExecutionCommit(input: {
   workflowStatus: "executed" | "approved";
   reconciliationReason: string;
 }) {
+  const providerDiffEvidence = buildProviderDiffEvidence({
+    targetId: input.preview.plan?.targetId ?? null,
+    baselineState: input.capturedPreApplyState,
+    requestedState: input.requestedState,
+    observedState: input.currentState,
+  });
+  const validation = buildValidationReport({
+    operation: input.operation,
+    providerDiffEvidence,
+  });
   await finalizeExecutionSuccess({
     businessId: input.businessId,
     action: input.action,
@@ -454,6 +715,8 @@ async function finalizeObservedExecutionCommit(input: {
     currentState: input.currentState,
     requestedState: input.requestedState,
     capturedPreApplyState: input.capturedPreApplyState,
+    validation,
+    providerDiffEvidence,
     workflowStatus: input.workflowStatus,
   });
 
@@ -583,6 +846,26 @@ async function resolveMetaExecutionPreview(input: {
   const approval = buildApprovalSnapshot(input.action, journal);
   const supportMatrix = buildCommandCenterExecutionSupportMatrix(input.action);
   const selectedSupportEntry = supportMatrix.selectedEntry;
+  const capability = resolveCommandCenterExecutionCapability(input.action);
+  const boundaryState = getMetaExecutionApplyBoundaryState(input.businessId);
+  const buildPreviewPreflight = (options: {
+    decisionResolved: boolean;
+    liveStateResolved: boolean;
+    providerAccessible: boolean;
+    safeSubset: boolean;
+    alreadyAtTarget: boolean;
+  }) =>
+    buildPreflightReport({
+      capability,
+      permissions: input.permissions,
+      approval,
+      boundaryState,
+      decisionResolved: options.decisionResolved,
+      liveStateResolved: options.liveStateResolved,
+      providerAccessible: options.providerAccessible,
+      safeSubset: options.safeSubset,
+      alreadyAtTarget: options.alreadyAtTarget,
+    });
 
   if (input.action.sourceSystem !== "meta") {
     return buildManualOnlyPreview({
@@ -595,9 +878,17 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: false,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
-      risks: ["Execution is intentionally limited to Meta ad set actions in V2-07."],
+      risks: ["Execution is intentionally limited to the verified Meta ad set subset in V3-06."],
       manualInstructions: selectedSupportEntry.operatorGuidance,
       supportMode: selectedSupportEntry.supportMode,
       applyReason: selectedSupportEntry.supportReason,
@@ -616,6 +907,14 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: false,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
       risks: [selectedSupportEntry.supportReason],
@@ -650,6 +949,14 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: false,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
       risks: ["The decision source drifted and could not be matched to a live Meta ad set decision."],
@@ -679,6 +986,14 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: Boolean(currentState),
+        providerAccessible: Boolean(liveState?.providerAccessible),
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
       risks: [selectedSupportEntry.supportReason],
@@ -700,6 +1015,14 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
       risks: ["The current live ad set configuration could not be resolved."],
@@ -723,6 +1046,14 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState: null,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
       risks: ["The current execution state could not be summarized safely."],
@@ -746,9 +1077,17 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: true,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
-      risks: ["Demo and unassigned provider scopes remain manual-only in V1."],
+      risks: ["Demo and unassigned provider scopes remain manual-only in V3-06."],
       manualInstructions: [
         "Execution preview is informational only on demo or non-assigned scopes.",
       ],
@@ -769,9 +1108,17 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: true,
+        providerAccessible: true,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
-      risks: ["Campaign-owned ad set budgets are not executed automatically in V1."],
+      risks: ["Campaign-owned ad set budgets are not executed automatically in V3-06."],
       manualInstructions: [
         "Update the campaign budget manually if you want to follow this recommendation.",
       ],
@@ -792,9 +1139,17 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: true,
+        providerAccessible: true,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
       supportMatrix,
       prerequisites: [],
-      risks: ["Lifetime or mixed-budget ad sets are outside the safe V1 execution subset."],
+      risks: ["Lifetime or mixed-budget ad sets are outside the safe V3-06 execution subset."],
       manualInstructions: [
         "Review this ad set manually before changing budget configuration.",
       ],
@@ -822,6 +1177,14 @@ async function resolveMetaExecutionPreview(input: {
         auditTrail,
         currentState,
         requestedState: null,
+        capability,
+        preflight: buildPreviewPreflight({
+          decisionResolved: true,
+          liveStateResolved: true,
+          providerAccessible: true,
+          safeSubset: true,
+          alreadyAtTarget: false,
+        }),
         supportMatrix,
         prerequisites: [],
         risks: ["A live ad set daily budget was not available for this mutation."],
@@ -852,6 +1215,14 @@ async function resolveMetaExecutionPreview(input: {
         auditTrail,
         currentState,
         requestedState: null,
+        capability,
+        preflight: buildPreviewPreflight({
+          decisionResolved: true,
+          liveStateResolved: true,
+          providerAccessible: true,
+          safeSubset: true,
+          alreadyAtTarget: true,
+        }),
         supportMatrix,
         prerequisites: [],
         risks: ["The exact requested daily budget is either invalid or already live."],
@@ -877,6 +1248,14 @@ async function resolveMetaExecutionPreview(input: {
       auditTrail,
       currentState,
       requestedState,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: true,
+        providerAccessible: true,
+        safeSubset: true,
+        alreadyAtTarget: true,
+      }),
       supportMatrix,
       prerequisites: [],
       risks: ["The live state already matches the requested target."],
@@ -944,15 +1323,20 @@ async function resolveMetaExecutionPreview(input: {
     approvalWorkflowStatus: approval.workflowStatus,
     latestState,
   });
-  const canApply =
-    input.permissions.canEdit &&
-    approval.workflowStatus === "approved" &&
-    canApplyMetaExecutionForBusiness(input.businessId);
+  const preflight = buildPreviewPreflight({
+    decisionResolved: true,
+    liveStateResolved: true,
+    providerAccessible: true,
+    safeSubset: true,
+    alreadyAtTarget: false,
+  });
+  const canApply = preflight.readyForApply;
   const canRollback =
     input.permissions.canEdit &&
     latestState?.executionStatus === "executed" &&
     latestState.rollbackKind === "provider_rollback" &&
-    latestState.capturedPreApplyState != null;
+    latestState.capturedPreApplyState != null &&
+    latestState.latestValidation?.status === "passed";
 
   return {
     contractVersion: COMMAND_CENTER_EXECUTION_CONTRACT_VERSION,
@@ -966,17 +1350,16 @@ async function resolveMetaExecutionPreview(input: {
     supportMode: "supported",
     status,
     previewHash,
+    capability,
     supportMatrix,
     approval,
     permission: {
       canApply,
-      reason: !input.permissions.canEdit
-        ? input.permissions.reason ?? "This workspace is read-only."
-        : approval.workflowStatus !== "approved"
-          ? "Approve the workflow action before apply."
-          : canApplyMetaExecutionForBusiness(input.businessId)
-            ? null
-            : "Apply is disabled outside the Meta execution canary allowlist.",
+      reason:
+        canApply
+          ? null
+          : getFirstBlockingPreflightDetail(preflight) ??
+            "Apply is not available for this action.",
       canRollback,
       rollbackReason: canRollback
         ? null
@@ -984,7 +1367,9 @@ async function resolveMetaExecutionPreview(input: {
           ? "Rollback is only available after a successful apply."
           : latestState.rollbackKind !== "provider_rollback"
             ? latestState.rollbackNote ?? "Only recovery notes are available."
-            : "A captured pre-apply snapshot is required for rollback.",
+            : latestState.latestValidation?.status !== "passed"
+              ? "Rollback requires a validated provider-backed apply artifact."
+              : "A captured pre-apply snapshot is required for rollback.",
     },
     target: {
       entityType: "adset",
@@ -996,12 +1381,16 @@ async function resolveMetaExecutionPreview(input: {
     currentState,
     requestedState,
     diff,
+    preflight,
     prerequisites: [
       "Preview hash must still match live state at apply time.",
       "Explicit human approval is required before apply.",
+      "Post-apply validation must observe the requested live status or budget before execution is marked successful.",
     ],
     risks: decision.guardrails,
     manualInstructions: [],
+    latestValidation: latestState?.latestValidation ?? null,
+    providerDiffEvidence: latestState?.providerDiffEvidence ?? null,
     auditTrail,
     latestState,
     plan,
@@ -1050,6 +1439,8 @@ async function finalizeExecutionSuccess(input: {
   currentState: CommandCenterExecutionStateSummary | null;
   requestedState: CommandCenterExecutionStateSummary | null;
   capturedPreApplyState: CommandCenterExecutionStateSummary | null;
+  validation: CommandCenterExecutionValidationReport;
+  providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence | null;
   workflowStatus: "executed" | "approved";
 }) {
   await appendCommandCenterExecutionAudit({
@@ -1067,11 +1458,15 @@ async function finalizeExecutionSuccess(input: {
     approvalActorEmail: input.preview.approval.approvedByEmail,
     approvedAt: input.preview.approval.approvedAt,
     previewHash: input.preview.previewHash,
+    capabilityKey: input.preview.capability.capabilityKey,
     rollbackKind: input.preview.rollback.kind,
     rollbackNote: input.preview.rollback.note,
     currentState: input.currentState,
     requestedState: input.requestedState,
     capturedPreApplyState: input.capturedPreApplyState,
+    preflight: input.preview.preflight,
+    validation: input.validation,
+    providerDiffEvidence: input.providerDiffEvidence,
     providerResponse: {
       statusCode: input.providerResult.statusCode,
       ok: input.providerResult.ok,
@@ -1090,6 +1485,7 @@ async function finalizeExecutionSuccess(input: {
     sourceType: input.action.sourceType,
     requestedAction: input.action.recommendedAction,
     previewHash: input.preview.previewHash,
+    capabilityKey: input.preview.capability.capabilityKey,
     workflowStatusSnapshot:
       input.operation === "apply" ? "executed" : "approved",
     approvalActorUserId: input.preview.approval.approvedByUserId,
@@ -1106,6 +1502,9 @@ async function finalizeExecutionSuccess(input: {
     currentState: input.currentState,
     requestedState: input.requestedState,
     capturedPreApplyState: input.capturedPreApplyState,
+    preflight: input.preview.preflight,
+    latestValidation: input.validation,
+    providerDiffEvidence: input.providerDiffEvidence,
     providerResponse: {
       statusCode: input.providerResult.statusCode,
       ok: input.providerResult.ok,
@@ -1128,6 +1527,8 @@ async function finalizeExecutionSuccess(input: {
     metadata: {
       executionOperation: input.operation,
       previewHash: input.preview.previewHash,
+      capabilityKey: input.preview.capability.capabilityKey,
+      validationStatus: input.validation.status,
     },
   });
 }
@@ -1146,6 +1547,8 @@ async function finalizeExecutionFailure(input: {
   requestedState?: CommandCenterExecutionStateSummary | null;
   capturedPreApplyState?: CommandCenterExecutionStateSummary | null;
   providerResult?: MetaExecutionMutationResult | null;
+  validation?: CommandCenterExecutionValidationReport | null;
+  providerDiffEvidence?: CommandCenterExecutionProviderDiffEvidence | null;
 }) {
   await appendCommandCenterExecutionAudit({
     businessId: input.businessId,
@@ -1162,12 +1565,16 @@ async function finalizeExecutionFailure(input: {
     approvalActorEmail: input.preview.approval.approvedByEmail,
     approvedAt: input.preview.approval.approvedAt,
     previewHash: input.preview.previewHash,
+    capabilityKey: input.preview.capability.capabilityKey,
     rollbackKind: input.preview.rollback.kind,
     rollbackNote: input.preview.rollback.note,
     currentState: input.currentState ?? input.preview.currentState,
     requestedState: input.requestedState ?? input.preview.requestedState,
     capturedPreApplyState:
       input.capturedPreApplyState ?? input.preview.currentState,
+    preflight: input.preview.preflight,
+    validation: input.validation ?? null,
+    providerDiffEvidence: input.providerDiffEvidence ?? null,
     providerResponse: input.providerResult
       ? {
           statusCode: input.providerResult.statusCode,
@@ -1189,6 +1596,7 @@ async function finalizeExecutionFailure(input: {
     sourceType: input.action.sourceType,
     requestedAction: input.action.recommendedAction,
     previewHash: input.preview.previewHash,
+    capabilityKey: input.preview.capability.capabilityKey,
     workflowStatusSnapshot: "failed",
     approvalActorUserId: input.preview.approval.approvedByUserId,
     approvalActorName: input.preview.approval.approvedByName,
@@ -1202,14 +1610,21 @@ async function finalizeExecutionFailure(input: {
     rollbackNote: input.preview.rollback.note,
     lastClientMutationId: input.clientMutationId,
     lastErrorCode:
-      input.operation === "apply"
-        ? "provider_apply_failed"
-        : "provider_rollback_failed",
+      input.validation?.status === "failed"
+        ? input.operation === "apply"
+          ? "post_apply_validation_failed"
+          : "post_rollback_validation_failed"
+        : input.operation === "apply"
+          ? "provider_apply_failed"
+          : "provider_rollback_failed",
     lastErrorMessage: input.failureReason,
     currentState: input.currentState ?? input.preview.currentState,
     requestedState: input.requestedState ?? input.preview.requestedState,
     capturedPreApplyState:
       input.capturedPreApplyState ?? input.preview.currentState,
+    preflight: input.preview.preflight,
+    latestValidation: input.validation ?? null,
+    providerDiffEvidence: input.providerDiffEvidence ?? null,
     providerResponse: input.providerResult
       ? {
           statusCode: input.providerResult.statusCode,
@@ -1235,6 +1650,8 @@ async function finalizeExecutionFailure(input: {
       executionOperation: input.operation,
       previewHash: input.preview.previewHash,
       failureReason: input.failureReason,
+      capabilityKey: input.preview.capability.capabilityKey,
+      validationStatus: input.validation?.status ?? "not_run",
     },
   });
 }
@@ -1284,6 +1701,17 @@ export async function applyCommandCenterExecution(input: {
       code: "execution_apply_forbidden",
       status: 403,
       message: preview.permission.reason ?? "Apply is not available for this action.",
+      details: { preview },
+    });
+  }
+
+  if (!preview.preflight.readyForApply) {
+    throw new CommandCenterExecutionError({
+      code: "execution_preflight_failed",
+      status: 409,
+      message:
+        getFirstBlockingPreflightDetail(preview.preflight) ??
+        "Execution preflight checks failed. Refresh before apply.",
       details: { preview },
     });
   }
@@ -1377,6 +1805,7 @@ export async function applyCommandCenterExecution(input: {
     sourceType: input.action.sourceType,
     requestedAction: input.action.recommendedAction,
     previewHash: preview.previewHash,
+    capabilityKey: preview.capability.capabilityKey,
     workflowStatusSnapshot: input.action.status,
     approvalActorUserId: preview.approval.approvedByUserId,
     approvalActorName: preview.approval.approvedByName,
@@ -1392,6 +1821,15 @@ export async function applyCommandCenterExecution(input: {
     currentState: preview.currentState,
     requestedState: preview.requestedState,
     capturedPreApplyState: preview.currentState,
+    preflight: preview.preflight,
+    latestValidation: {
+      operation: "apply",
+      status: "not_run",
+      checkedAt: new Date().toISOString(),
+      matchedRequestedState: false,
+      mismatchReasons: [],
+    },
+    providerDiffEvidence: null,
   });
 
   try {
@@ -1405,6 +1843,37 @@ export async function applyCommandCenterExecution(input: {
       businessId: input.businessId,
       adSetId: preview.plan.targetId,
     }).then(toExecutionStateSummary);
+    const providerDiffEvidence = buildProviderDiffEvidence({
+      targetId: preview.plan.targetId,
+      baselineState: preview.currentState,
+      requestedState: preview.requestedState,
+      observedState: currentState,
+    });
+    const validation = buildValidationReport({
+      operation: "apply",
+      providerDiffEvidence,
+    });
+
+    if (validation.status !== "passed") {
+      const error = new Error(
+        validation.mismatchReasons[0] ??
+          "Post-apply validation did not observe the requested live state.",
+      ) as Error & {
+        code?: string;
+        status?: number;
+        providerResult?: MetaExecutionMutationResult;
+        validation?: CommandCenterExecutionValidationReport;
+        providerDiffEvidence?: CommandCenterExecutionProviderDiffEvidence;
+        currentState?: CommandCenterExecutionStateSummary | null;
+      };
+      error.code = "execution_apply_validation_failed";
+      error.status = 502;
+      error.providerResult = providerResult;
+      error.validation = validation;
+      error.providerDiffEvidence = providerDiffEvidence;
+      error.currentState = currentState;
+      throw error;
+    }
 
     await finalizeExecutionSuccess({
       businessId: input.businessId,
@@ -1419,6 +1888,8 @@ export async function applyCommandCenterExecution(input: {
       currentState,
       requestedState: preview.requestedState,
       capturedPreApplyState: preview.currentState,
+      validation,
+      providerDiffEvidence,
       workflowStatus: "executed",
     });
 
@@ -1446,6 +1917,33 @@ export async function applyCommandCenterExecution(input: {
       (error as { providerResult?: MetaExecutionMutationResult }).providerResult
         ? (error as { providerResult: MetaExecutionMutationResult }).providerResult
         : null;
+    const validation =
+      error &&
+      typeof error === "object" &&
+      "validation" in error &&
+      (error as { validation?: CommandCenterExecutionValidationReport }).validation
+        ? (error as { validation: CommandCenterExecutionValidationReport }).validation
+        : null;
+    const providerDiffEvidence =
+      error &&
+      typeof error === "object" &&
+      "providerDiffEvidence" in error &&
+      (error as {
+        providerDiffEvidence?: CommandCenterExecutionProviderDiffEvidence;
+      }).providerDiffEvidence
+        ? (error as {
+            providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence;
+          }).providerDiffEvidence
+        : null;
+    const currentState =
+      error &&
+      typeof error === "object" &&
+      "currentState" in error &&
+      (error as { currentState?: CommandCenterExecutionStateSummary | null })
+        .currentState !== undefined
+        ? (error as { currentState?: CommandCenterExecutionStateSummary | null })
+            .currentState
+        : undefined;
     const message =
       error instanceof Error ? error.message : "Execution apply failed.";
     await finalizeExecutionFailure({
@@ -1458,7 +1956,12 @@ export async function applyCommandCenterExecution(input: {
       actorEmail: input.actorEmail,
       operation: "apply",
       failureReason: message,
+      currentState,
+      requestedState: preview.requestedState,
+      capturedPreApplyState: preview.currentState,
       providerResult,
+      validation,
+      providerDiffEvidence,
     });
     const failedPreview = await getCommandCenterExecutionPreview({
       request: input.request,
@@ -1469,8 +1972,20 @@ export async function applyCommandCenterExecution(input: {
       permissions: input.permissions,
     });
     const receiptError = {
-      code: "execution_apply_failed",
-      status: 502,
+      code:
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof (error as { code?: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : "execution_apply_failed",
+      status:
+        error &&
+        typeof error === "object" &&
+        "status" in error &&
+        typeof (error as { status?: unknown }).status === "number"
+          ? (error as { status: number }).status
+          : 502,
       message,
     } as const;
     await writeExecutionMutationReceipt({
@@ -1607,6 +2122,7 @@ export async function rollbackCommandCenterExecution(input: {
     sourceType: input.action.sourceType,
     requestedAction: input.action.recommendedAction,
     previewHash: preview.previewHash,
+    capabilityKey: preview.capability.capabilityKey,
     workflowStatusSnapshot: input.action.status,
     approvalActorUserId: preview.approval.approvedByUserId,
     approvalActorName: preview.approval.approvedByName,
@@ -1622,6 +2138,15 @@ export async function rollbackCommandCenterExecution(input: {
     currentState: preview.currentState,
     requestedState: rollbackState,
     capturedPreApplyState: latestState?.capturedPreApplyState ?? rollbackState,
+    preflight: preview.preflight,
+    latestValidation: {
+      operation: "rollback",
+      status: "not_run",
+      checkedAt: new Date().toISOString(),
+      matchedRequestedState: false,
+      mismatchReasons: [],
+    },
+    providerDiffEvidence: null,
   });
 
   try {
@@ -1636,6 +2161,37 @@ export async function rollbackCommandCenterExecution(input: {
       businessId: input.businessId,
       adSetId: preview.plan.targetId,
     }).then(toExecutionStateSummary);
+    const providerDiffEvidence = buildProviderDiffEvidence({
+      targetId: preview.plan.targetId,
+      baselineState: preview.currentState,
+      requestedState: rollbackState,
+      observedState: currentState,
+    });
+    const validation = buildValidationReport({
+      operation: "rollback",
+      providerDiffEvidence,
+    });
+
+    if (validation.status !== "passed") {
+      const error = new Error(
+        validation.mismatchReasons[0] ??
+          "Post-rollback validation did not observe the captured pre-apply live state.",
+      ) as Error & {
+        code?: string;
+        status?: number;
+        providerResult?: MetaExecutionMutationResult;
+        validation?: CommandCenterExecutionValidationReport;
+        providerDiffEvidence?: CommandCenterExecutionProviderDiffEvidence;
+        currentState?: CommandCenterExecutionStateSummary | null;
+      };
+      error.code = "execution_rollback_validation_failed";
+      error.status = 502;
+      error.providerResult = providerResult;
+      error.validation = validation;
+      error.providerDiffEvidence = providerDiffEvidence;
+      error.currentState = currentState;
+      throw error;
+    }
 
     await finalizeExecutionSuccess({
       businessId: input.businessId,
@@ -1650,6 +2206,8 @@ export async function rollbackCommandCenterExecution(input: {
       currentState,
       requestedState: rollbackState,
       capturedPreApplyState: latestState?.capturedPreApplyState ?? rollbackState,
+      validation,
+      providerDiffEvidence,
       workflowStatus: "approved",
     });
 
@@ -1677,6 +2235,33 @@ export async function rollbackCommandCenterExecution(input: {
       (error as { providerResult?: MetaExecutionMutationResult }).providerResult
         ? (error as { providerResult: MetaExecutionMutationResult }).providerResult
         : null;
+    const validation =
+      error &&
+      typeof error === "object" &&
+      "validation" in error &&
+      (error as { validation?: CommandCenterExecutionValidationReport }).validation
+        ? (error as { validation: CommandCenterExecutionValidationReport }).validation
+        : null;
+    const providerDiffEvidence =
+      error &&
+      typeof error === "object" &&
+      "providerDiffEvidence" in error &&
+      (error as {
+        providerDiffEvidence?: CommandCenterExecutionProviderDiffEvidence;
+      }).providerDiffEvidence
+        ? (error as {
+            providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence;
+          }).providerDiffEvidence
+        : null;
+    const currentState =
+      error &&
+      typeof error === "object" &&
+      "currentState" in error &&
+      (error as { currentState?: CommandCenterExecutionStateSummary | null })
+        .currentState !== undefined
+        ? (error as { currentState?: CommandCenterExecutionStateSummary | null })
+            .currentState
+        : preview.currentState;
     const message = error instanceof Error ? error.message : "Rollback failed.";
     await finalizeExecutionFailure({
       businessId: input.businessId,
@@ -1688,10 +2273,12 @@ export async function rollbackCommandCenterExecution(input: {
       actorEmail: input.actorEmail,
       operation: "rollback",
       failureReason: message,
-      currentState: preview.currentState,
+      currentState,
       requestedState: rollbackState,
       capturedPreApplyState: latestState?.capturedPreApplyState ?? rollbackState,
       providerResult,
+      validation,
+      providerDiffEvidence,
     });
     const failedPreview = await getCommandCenterExecutionPreview({
       request: input.request,
@@ -1702,8 +2289,20 @@ export async function rollbackCommandCenterExecution(input: {
       permissions: input.permissions,
     });
     const receiptError = {
-      code: "rollback_failed",
-      status: 502,
+      code:
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof (error as { code?: unknown }).code === "string"
+          ? (error as { code: string }).code
+          : "rollback_failed",
+      status:
+        error &&
+        typeof error === "object" &&
+        "status" in error &&
+        typeof (error as { status?: unknown }).status === "number"
+          ? (error as { status: number }).status
+          : 502,
       message,
     } as const;
     await writeExecutionMutationReceipt({

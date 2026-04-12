@@ -6,6 +6,7 @@ import {
   getMetaExecutionCanaryBusinesses,
   isCommandCenterExecutionV1Enabled,
   isMetaExecutionApplyEnabled,
+  isMetaExecutionKillSwitchActive,
 } from "@/lib/command-center-execution-config";
 import {
   getCreativeDecisionOsCanaryBusinesses,
@@ -48,7 +49,7 @@ function summarizeFlagPosture(input: {
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SHA?.trim() ||
-  "6fc971574946f65f4c7217eb4a51b6e8ed66fefb";
+  "fe3e23f5df5e9dd7f90cc2318ea7b66920e189d2";
 
 export const RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE =
   process.env.RELEASE_AUTHORITY_PREVIOUS_KNOWN_GOOD_SOURCE?.trim() ||
@@ -110,18 +111,22 @@ export function resolveCommandCenterExecutionPreviewFlagPosture() {
 export function resolveCommandCenterExecutionApplyFlagPosture() {
   const executionEnabled = isCommandCenterExecutionV1Enabled();
   const applyEnabled = isMetaExecutionApplyEnabled();
+  const killSwitchActive = isMetaExecutionKillSwitchActive();
   const canaryCount = getMetaExecutionCanaryBusinesses().length;
 
-  if (!executionEnabled || !applyEnabled) {
+  if (!executionEnabled || !applyEnabled || killSwitchActive) {
     return {
       mode: "disabled",
       flagKeys: [
         "COMMAND_CENTER_EXECUTION_V1",
         "META_EXECUTION_APPLY_ENABLED",
+        "META_EXECUTION_KILL_SWITCH",
         "META_EXECUTION_CANARY_BUSINESSES",
       ],
       summary:
-        "Apply and rollback remain disabled until the explicit Meta apply gate is enabled.",
+        killSwitchActive
+          ? "Apply remains disabled while the explicit Meta execution kill switch is active."
+          : "Apply and rollback remain disabled until the explicit Meta apply gate is enabled.",
     } satisfies ReleaseAuthorityFlagPosture;
   }
 
@@ -131,6 +136,7 @@ export function resolveCommandCenterExecutionApplyFlagPosture() {
       flagKeys: [
         "COMMAND_CENTER_EXECUTION_V1",
         "META_EXECUTION_APPLY_ENABLED",
+        "META_EXECUTION_KILL_SWITCH",
         "META_EXECUTION_CANARY_BUSINESSES",
       ],
       summary:
@@ -143,6 +149,7 @@ export function resolveCommandCenterExecutionApplyFlagPosture() {
     flagKeys: [
       "COMMAND_CENTER_EXECUTION_V1",
       "META_EXECUTION_APPLY_ENABLED",
+      "META_EXECUTION_KILL_SWITCH",
       "META_EXECUTION_CANARY_BUSINESSES",
     ],
     summary:

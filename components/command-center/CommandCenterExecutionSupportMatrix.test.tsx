@@ -6,6 +6,52 @@ import type { CommandCenterExecutionPreview } from "@/lib/command-center-executi
 
 const preview = {
   supportMode: "manual_only",
+  capability: {
+    registryVersion: "command-center-execution-capabilities.v1",
+    capabilityKey: "meta_adset_decision:scale_budget",
+    provider: "meta",
+    targetType: "adset",
+    sourceSystem: "meta",
+    sourceType: "meta_adset_decision",
+    recommendedAction: "scale_budget",
+    supportMode: "supported",
+    applyGate: {
+      posture: "allowlist_only",
+      note: "Provider-backed apply is available only when the execution flag is enabled, the kill switch is inactive, and the business is in the Meta execution canary allowlist.",
+      requiresApproval: true,
+      requiresCanary: true,
+      killSwitchAware: true,
+    },
+    rollback: {
+      kind: "provider_rollback",
+      note: "Rollback restores the captured pre-apply ad set status and daily budget snapshot.",
+    },
+    verifiedApply: true,
+    verifiedRollback: true,
+    supportReason:
+      "Exact-target Meta ad set write-back exists for this action when the ad set stays inside the safe daily-budget subset.",
+    operatorGuidance: [
+      "Review the preview diff and guardrails before apply.",
+      "Use canary-gated apply only after workflow approval.",
+    ],
+    validationPlan: [
+      "Re-read the live Meta ad set before apply and block if the preview target drifted.",
+    ],
+  },
+  preflight: {
+    generatedAt: "2026-04-12T00:00:00.000Z",
+    readyForApply: false,
+    blockingChecks: ["Workflow approval"],
+    checks: [
+      {
+        key: "workflow_approved",
+        label: "Workflow approval",
+        required: true,
+        status: "fail" as const,
+        detail: "Approve the workflow action before apply.",
+      },
+    ],
+  },
   rollback: {
     kind: "not_available",
     note: "Rollback is unavailable because the current preview has no provider-backed apply path.",
@@ -81,7 +127,7 @@ const preview = {
   },
 } satisfies Pick<
   CommandCenterExecutionPreview,
-  "supportMode" | "rollback" | "supportMatrix"
+  "supportMode" | "rollback" | "supportMatrix" | "capability" | "preflight"
 >;
 
 describe("CommandCenterExecutionSupportMatrix", () => {
@@ -95,6 +141,8 @@ describe("CommandCenterExecutionSupportMatrix", () => {
     expect(html).toContain("Meta ad set: scale budget");
     expect(html).toContain("current preview: manual only");
     expect(html).toContain("rollback: not available");
+    expect(html).toContain("Capability key: meta_adset_decision:scale_budget");
+    expect(html).toContain("preflight: blocked");
     expect(html).toContain("Meta budget shift: budget shift");
   });
 });

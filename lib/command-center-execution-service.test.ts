@@ -18,7 +18,7 @@ vi.mock("@/lib/command-center-execution-store", () => ({
 }));
 
 vi.mock("@/lib/command-center-execution-config", () => ({
-  canApplyMetaExecutionForBusiness: vi.fn(),
+  getMetaExecutionApplyBoundaryState: vi.fn(),
   isCommandCenterExecutionV1Enabled: vi.fn(),
 }));
 
@@ -264,6 +264,7 @@ function buildExecutionStateRecord(
     sourceType: "meta_adset_decision",
     requestedAction: "scale_budget",
     previewHash: "preview_hash",
+    capabilityKey: "meta_adset_decision:scale_budget",
     workflowStatusSnapshot: "executed",
     approvalActorUserId: "user_1",
     approvalActorName: "Operator",
@@ -303,6 +304,52 @@ function buildExecutionStateRecord(
       optimizationGoal: "PURCHASE",
       bidStrategyLabel: "Cost Cap",
     },
+    preflight: {
+      generatedAt: "2026-04-11T10:04:00.000Z",
+      readyForApply: true,
+      blockingChecks: [],
+      checks: [],
+    },
+    latestValidation: {
+      operation: "apply",
+      status: "passed",
+      checkedAt: "2026-04-11T10:05:30.000Z",
+      matchedRequestedState: true,
+      mismatchReasons: [],
+    },
+    providerDiffEvidence: {
+      provider: "meta",
+      targetId: "adset_1",
+      observedAt: "2026-04-11T10:05:30.000Z",
+      baselineState: {
+        status: "ACTIVE",
+        budgetLevel: "adset",
+        dailyBudget: 100,
+        lifetimeBudget: null,
+        optimizationGoal: "PURCHASE",
+        bidStrategyLabel: "Cost Cap",
+      },
+      requestedState: {
+        status: "ACTIVE",
+        budgetLevel: "adset",
+        dailyBudget: 115,
+        lifetimeBudget: null,
+        optimizationGoal: "PURCHASE",
+        bidStrategyLabel: "Cost Cap",
+      },
+      observedState: {
+        status: "ACTIVE",
+        budgetLevel: "adset",
+        dailyBudget: 115,
+        lifetimeBudget: null,
+        optimizationGoal: "PURCHASE",
+        bidStrategyLabel: "Cost Cap",
+      },
+      providerChangeDiff: [],
+      remainingDriftDiff: [],
+      matchedRequestedState: true,
+      mismatchReasons: [],
+    },
     providerResponse: {},
     createdAt: "2026-04-11T10:05:00.000Z",
     updatedAt: "2026-04-11T10:05:00.000Z",
@@ -316,7 +363,15 @@ describe("command center execution service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(executionConfig.isCommandCenterExecutionV1Enabled).mockReturnValue(true);
-    vi.mocked(executionConfig.canApplyMetaExecutionForBusiness).mockReturnValue(true);
+    vi.mocked(executionConfig.getMetaExecutionApplyBoundaryState).mockReturnValue({
+      executionPreviewEnabled: true,
+      applyEnabled: true,
+      killSwitchActive: false,
+      canaryScoped: true,
+      businessAllowlisted: true,
+      eligible: true,
+      blockedReasons: [],
+    });
     vi.mocked(commandCenterStore.getCommandCenterMutationReceipt).mockResolvedValue(null);
     vi.mocked(commandCenterStore.writeCommandCenterMutationReceipt).mockResolvedValue(
       undefined,
@@ -382,6 +437,10 @@ describe("command center execution service", () => {
     expect(preview.requestedState?.dailyBudget).toBe(115);
     expect(preview.plan?.requestedDailyBudget).toBe(115);
     expect(preview.permission.canApply).toBe(true);
+    expect(preview.capability.capabilityKey).toBe(
+      "meta_adset_decision:scale_budget",
+    );
+    expect(preview.preflight.readyForApply).toBe(true);
     expect(preview.supportMatrix.selectedEntry.familyKey).toBe(
       "meta_adset_decision:scale_budget",
     );
@@ -430,6 +489,33 @@ describe("command center execution service", () => {
     expect(preview.status).toBe("manual_only");
     expect(preview.permission.canApply).toBe(false);
     expect(preview.supportMatrix.selectedEntry.supportMode).toBe("supported");
+  });
+
+  it("keeps apply blocked when the execution kill switch is active", async () => {
+    vi.mocked(executionConfig.getMetaExecutionApplyBoundaryState).mockReturnValue({
+      executionPreviewEnabled: true,
+      applyEnabled: true,
+      killSwitchActive: true,
+      canaryScoped: true,
+      businessAllowlisted: true,
+      eligible: false,
+      blockedReasons: ["Meta execution kill switch is active."],
+    });
+
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+
+    expect(preview.permission.canApply).toBe(false);
+    expect(preview.preflight.readyForApply).toBe(false);
+    expect(
+      preview.preflight.checks.find((check) => check.key === "kill_switch")?.status,
+    ).toBe("fail");
   });
 
   it("rejects apply when the preview hash is stale", async () => {
@@ -554,6 +640,42 @@ describe("command center execution service", () => {
     ).rejects.toThrow("Apply is already in progress");
 
     expect(metaExecution.mutateMetaAdSetExecution).not.toHaveBeenCalled();
+  });
+
+  it("fails apply when post-apply validation does not observe the requested state", async () => {
+    vi.mocked(metaExecution.mutateMetaAdSetExecution).mockResolvedValue({
+      statusCode: 200,
+      ok: true,
+      traceId: "trace_1",
+      body: { success: true },
+    } as never);
+
+    await expect(
+      executionService.applyCommandCenterExecution({
+        request: new NextRequest("http://localhost/api/command-center/execution/apply", {
+          method: "POST",
+        }),
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        action: buildActionFixture(),
+        permissions,
+        actorUserId: "user_1",
+        actorName: "Operator",
+        actorEmail: "operator@adsecute.com",
+        clientMutationId: "apply_validation_1",
+        previewHash: (
+          await executionService.getCommandCenterExecutionPreview({
+            request: new NextRequest("http://localhost/api/command-center/execution"),
+            businessId: "biz",
+            startDate: "2026-04-01",
+            endDate: "2026-04-10",
+            action: buildActionFixture(),
+            permissions,
+          })
+        ).previewHash,
+      }),
+    ).rejects.toThrow("Observed daily budget");
   });
 
   it("replays a stored terminal rollback receipt without issuing a second provider write", async () => {

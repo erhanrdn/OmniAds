@@ -2205,9 +2205,142 @@ export function CommandCenterDashboard() {
                         </div>
                       </div>
 
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Capability registry
+                          </p>
+                          <div className="mt-2 space-y-1">
+                            <p>Capability: {executionQuery.data.capability.capabilityKey}</p>
+                            <p>Provider: {executionQuery.data.capability.provider}</p>
+                            <p>Target: {executionQuery.data.capability.targetType}</p>
+                            <p>
+                              Verified apply / rollback:{" "}
+                              {executionQuery.data.capability.verifiedApply ? "yes" : "no"} /{" "}
+                              {executionQuery.data.capability.verifiedRollback ? "yes" : "no"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Latest validation
+                          </p>
+                          <div className="mt-2 space-y-1">
+                            <p>
+                              Status:{" "}
+                              {executionQuery.data.latestValidation
+                                ? formatActionLabel(executionQuery.data.latestValidation.status)
+                                : "not run"}
+                            </p>
+                            <p>
+                              Checked at:{" "}
+                              {executionQuery.data.latestValidation?.checkedAt ?? "Not available"}
+                            </p>
+                            {executionQuery.data.latestValidation?.mismatchReasons?.length ? (
+                              <p className="text-rose-700">
+                                {executionQuery.data.latestValidation.mismatchReasons[0]}
+                              </p>
+                            ) : (
+                              <p className="text-slate-600">
+                                The latest validated apply or rollback artifact is shown here when available.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Preflight checks
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {executionQuery.data.preflight.checks.map((check) => (
+                            <div
+                              key={check.key}
+                              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="font-medium text-slate-900">{check.label}</p>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    check.status === "pass"
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : check.status === "warn"
+                                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                                        : "border-rose-200 bg-rose-50 text-rose-700",
+                                  )}
+                                >
+                                  {check.status}
+                                </Badge>
+                              </div>
+                              <p className="mt-1 text-xs text-slate-500">{check.detail}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       <CommandCenterExecutionSupportMatrix
                         preview={executionQuery.data}
                       />
+
+                      {executionQuery.data.providerDiffEvidence ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            Provider diff evidence
+                          </p>
+                          <div className="mt-2 space-y-1 text-sm text-slate-700">
+                            <p>Observed at: {executionQuery.data.providerDiffEvidence.observedAt}</p>
+                            <p>
+                              Target: {executionQuery.data.providerDiffEvidence.targetId ?? "Unavailable"}
+                            </p>
+                            <p>
+                              Requested state matched:{" "}
+                              {executionQuery.data.providerDiffEvidence.matchedRequestedState
+                                ? "yes"
+                                : "no"}
+                            </p>
+                          </div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+                                Provider change
+                              </p>
+                              <div className="mt-2 space-y-2">
+                                {executionQuery.data.providerDiffEvidence.providerChangeDiff.map((item) => (
+                                  <div
+                                    key={`provider-${item.key}-${item.currentValue}-${item.requestedValue}`}
+                                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                                  >
+                                    <p className="font-medium text-slate-900">{item.label}</p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {item.currentValue} → {item.requestedValue}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+                                Remaining drift
+                              </p>
+                              <div className="mt-2 space-y-2">
+                                {executionQuery.data.providerDiffEvidence.remainingDriftDiff.map((item) => (
+                                  <div
+                                    key={`drift-${item.key}-${item.currentValue}-${item.requestedValue}`}
+                                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                                  >
+                                    <p className="font-medium text-slate-900">{item.label}</p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {item.currentValue} → {item.requestedValue}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
 
                       {executionQuery.data.prerequisites.length > 0 ? (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
@@ -2302,6 +2435,16 @@ export function CommandCenterDashboard() {
                                 {entry.failureReason ? (
                                   <p className="mt-1 text-xs text-rose-700">
                                     {entry.failureReason}
+                                  </p>
+                                ) : null}
+                                {entry.validation ? (
+                                  <p className="mt-1 text-xs text-slate-600">
+                                    Validation: {formatActionLabel(entry.validation.status)}
+                                  </p>
+                                ) : null}
+                                {entry.providerDiffEvidence?.mismatchReasons?.length ? (
+                                  <p className="mt-1 text-xs text-rose-700">
+                                    {entry.providerDiffEvidence.mismatchReasons[0]}
                                   </p>
                                 ) : null}
                                 <p className="mt-1 text-xs text-slate-500">
