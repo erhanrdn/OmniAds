@@ -2,193 +2,182 @@
 
 ## Current Objective
 
-Step 8 is the latest completed step. Production still serves the Step 6 Creative runtime, the shared reviewer smoke is no longer blocked before Creative, and the remaining gap is stronger live proof on a real connected non-demo business.
+Step 9 is the latest executed step. The remaining program gate is no longer deploy reachability or Creative authority clarity. The real blocker is approved safe access to at least one connected non-demo business for live proof.
 
 ## Current Step
 
-Step 8, `Strong Live Proof Collection And Reviewer Smoke Stabilization`.
+Step 9, `Safe Non-Demo Benchmark Proof Path And Live Evidence Upgrade`.
 
 Verdict:
 
-* `shipped-not-complete`
+* `blocked`
 
 Why:
 
-* Step 6 runtime is still live in production at `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-* `release-authority` correctly reports live `8f0f0b74047c0ce05c8a74b02890e0e104d75484` and main `6db568b3defab4fd13e19514669c09d42c796911`
-* current runtime/main drift remains explainable because `6db568b3defab4fd13e19514669c09d42c796911` is a docs-only continuity head
-* the shared live reviewer smoke now passes through Meta, Command Center, and Creative on production
-* stronger live proof on `Grandmix`, `IwaStore`, or `TheSwaf` was still not safely reachable from the approved commercial smoke path
+* preflight repo `HEAD`, `origin/main`, live runtime, and `release-authority` were all aligned at `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+* the latest operator-rebuild continuity state in docs was stale relative to actual repo truth
+* there is a standalone non-program product commit after the latest Step 8 continuity commit:
+  * latest continuity commit before Step 9: `1e9e359e8616e3f87fa0a744c3f8048f1843f5ae` `step8: stabilize reviewer smoke and record proof status`
+  * current actual repo/live commit at Step 9 start: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878` `feat: move commercial truth from settings to main navigation`
+* no approved safe session path reached `Grandmix`, `IwaStore`, or `TheSwaf`
+* fresh commercial smoke access still exposed only `Adsecute Demo`
+* all benchmark-business switch attempts still returned `403 No access to this business.`
+* no strong live page/row/detail/drawer proof was captured on a real connected non-demo business
+* reviewer smoke did regress narrowly on current live, but the regression was smoke-only and is now fixed
 
 ## Current Repo State
 
+Preflight truth verified on April 12, 2026 before any Step 9 edits:
+
 * current branch: `main`
-* current local `HEAD`: `6db568b3defab4fd13e19514669c09d42c796911`
-* current `origin/main`: `6db568b3defab4fd13e19514669c09d42c796911`
-* local `HEAD` matches `origin/main`
-* Step 8 repo start SHA: `6db568b3defab4fd13e19514669c09d42c796911`
-* Step 6 runtime implementation SHA still live: `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+* current actual repo `HEAD`: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+* current actual `origin/main`: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+* local `HEAD` matched `origin/main`: yes
+* current live runtime SHA: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+* current release-authority live SHA: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+* current release-authority main SHA: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
 
-Why current `main` is explainable drift:
+Continuity classification:
 
-* `git show --stat --name-only 6db568b3defab4fd13e19514669c09d42c796911` only touches:
-  * `docs/operator-rebuild-staging/LATEST_REPORT.md`
-  * `docs/operator-rebuild-staging/STATUS.md`
-  * `docs/operator-rebuild/HANDOFF.md`
-* do not treat `live runtime != current main head` as a release-authority bug by default in this state
+* latest operator-rebuild continuity commit before Step 9:
+  * `1e9e359e8616e3f87fa0a744c3f8048f1843f5ae`
+  * `step8: stabilize reviewer smoke and record proof status`
+* standalone non-program commit after that continuity commit:
+  * `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `feat: move commercial truth from settings to main navigation`
+* current runtime/main drift explainable or suspicious:
+  * no runtime/main drift was present at Step 9 start; live and main were aligned at the same product commit
+  * do not treat the existence of the standalone product commit after the last continuity commit as a continuity bug by default
 
 ## Current Live / Release Truth
 
-Verified at Step 8 start on April 12, 2026:
+Verified at Step 9 start on April 12, 2026:
 
 * `https://adsecute.com/api/build-info`
-  * `buildId` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
+  * `buildId` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
 * `https://adsecute.com/api/release-authority`
-  * `currentLiveSha` `8f0f0b74047c0ce05c8a74b02890e0e104d75484`
-  * `currentMainSha` `6db568b3defab4fd13e19514669c09d42c796911`
+  * `currentLiveSha` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `currentMainSha` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
   * `currentMainShaSource` `github_branch_head`
-  * `liveVsMain.status` `drifted`
-  * `overall.status` `drifted`
+  * `liveVsMain.status` `aligned`
+  * `overall.status` `aligned`
 
 Interpretation:
 
-* Step 6 runtime is still live
-* `release-authority` is reporting the real current repo/main head
-* the current live/main drift is explainable, not suspicious, because `main` moved only for docs continuity
+* the live runtime was already serving the current `main` product head at Step 9 start
+* `release-authority` was current and not stale
+* the Step 8 continuity docs lagged the actual repo/runtime state, but the system itself was behaving as designed
 
 ## Latest Accepted Findings
 
-### Benchmark-business access attempt
+### Safe benchmark-business access attempts
 
-Safe live access method used on April 12, 2026:
+Approved safe paths used on April 12, 2026:
 
-* seeded the existing commercial smoke operator against production and inspected `/api/businesses`
-* attempted `/api/auth/switch-business` for:
-  * `Grandmix`
-  * `IwaStore`
-  * `TheSwaf`
+* existing saved reviewer session against production
+* existing saved commercial storage state against production
+* fresh approved commercial smoke operator seed plus `/login`
+* authenticated reads of `/api/businesses`
+* authenticated switch attempts through `/api/auth/switch-business`
 
 Observed access truth:
 
-* reachable businesses from the approved safe session:
-  * `Adsecute Demo`
-* benchmark-business access:
-  * `Grandmix`: `403 No access to this business.`
-  * `IwaStore`: `403 No access to this business.`
-  * `TheSwaf`: `403 No access to this business.`
+* existing commercial storage state:
+  * `/api/auth/me` returned `401 {"authenticated":false}`
+  * failure mode: session-scoping / expired session
+* existing reviewer storage state:
+  * `/api/businesses` exposed only `Adsecute Demo`
+  * benchmark switch attempts for `Grandmix`, `IwaStore`, and `TheSwaf` all returned `403 {"error":"forbidden","message":"No access to this business."}`
+  * failure mode: access-control
+* fresh seeded commercial smoke operator:
+  * login succeeded
+  * `executionBusinessId` was `null`
+  * `/api/businesses` exposed only `Adsecute Demo`
+  * benchmark switch attempts for `Grandmix`, `IwaStore`, and `TheSwaf` all returned `403 {"error":"forbidden","message":"No access to this business."}`
+  * failure mode: access-control
+
+Per target business:
+
+* `Grandmix`
+  * reachable: no
+  * safe path attempted: reviewer session, fresh commercial smoke session
+  * exact failure mode: `403 No access to this business.`
+  * classification: access-control
+* `IwaStore`
+  * reachable: no
+  * safe path attempted: reviewer session, fresh commercial smoke session
+  * exact failure mode: `403 No access to this business.`
+  * classification: access-control
+* `TheSwaf`
+  * reachable: no
+  * safe path attempted: reviewer session, fresh commercial smoke session
+  * exact failure mode: `403 No access to this business.`
+  * classification: access-control
 
 Conclusion:
 
-* no safe non-demo business proof path was reachable in Step 8
-* no live membership or access-control widening was done to force proof
+* no approved safe non-demo proof path was reachable in Step 9
+* this is now the real blocker to advancing the program honestly
+* no live membership, access-control, or privileged shortcut was added to force proof
 
-### Focused live `/creatives` proof on the reachable dataset
+### Strong live proof status
 
-Selected business:
+Strong non-demo proof captured in Step 9:
 
-* `Adsecute Demo`
+* none
 
-Current live page-level preview-truth contract:
+Why no proof upgrade occurred:
 
-* `Preview truth is missing across this review scope.`
-* `0 ready · 0 degraded · 8 missing. Missing preview truth blocks authoritative action until media resolves.`
+* page-level non-demo proof: not captured
+* row-level non-demo proof: not captured
+* detail-level non-demo proof: not captured
+* drawer-level non-demo proof: not captured
+* the strongest new artifact was the access-truth record itself, which does not justify upgrading beyond demo-only proof
 
-Current live lane / order visibility:
+### Reviewer smoke stability
 
-* page-level quick filters currently expose only:
-  * `BLOCKED`
-  * `Preview or deployment truth blocks clean operator action right now.`
-  * count `8`
-* the current reachable page-level dataset still does not visibly expose `Act now`, `Needs truth`, `Keep testing`, or `Protected` as page quick filters
-* the drawer summary still reports broader deterministic population:
-  * `Scale-ready 3`
-  * `Keep testing 4`
-  * `Blocked 1`
-  * `Protected winners 3`
-* treat that as drawer/support evidence, not as page-level lane visibility proof
+Current live reviewer smoke command:
 
-Current live row-level authority wording:
+* `PLAYWRIGHT_BASE_URL='https://adsecute.com' PLAYWRIGHT_USE_WEBSERVER=0 node --env-file=.env.local node_modules/playwright/cli.js test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium`
 
-* first visible row: `UrbanTrail Explorer Backpack Creative 1`
-* visible row state:
-  * `Preview missing`
-  * `Blocked`
-  * `Protected winner`
-* exact row authority wording:
-  * `Preview truth is missing, so this creative cannot headline an authoritative action yet.`
-  * `No renderable preview sources are available for this creative.`
+Exact regression found during Step 9:
 
-Current live detail preview-truth gate:
+* the smoke failed before Creative on current live
+* `meta-campaign-adset-actions` still existed with real content, but the current layout left it below the fold inside a scrollable Meta detail panel
+* this was not a product data or release-authority regression
 
-* `Preview Truth Gate`
-* `Preview truth is missing, so authoritative action is blocked.`
-* `Do not treat this row as clean execute-now work until preview media becomes available for the live decision window.`
+Exact safe fix made:
 
-Current live deterministic decision language:
+* `playwright/tests/reviewer-smoke.spec.ts`
+  * scroll `meta-campaign-adset-actions` and `meta-adsets-section` into view with DOM `scrollIntoView(...)` before visibility assertions
+* `playwright/tests/commercial-truth-smoke.spec.ts`
+  * mirror the same DOM scroll for `meta-campaign-adset-actions`
 
-* `Decision + key metrics`
-* `Monitor before committing more budget`
-* `Deterministic engine marks this as a shipped winner that should stay protected.`
+Final smoke result:
 
-Current live AI commentary framing:
-
-* badge `Support only`
-* `AI interpretation stays disabled because preview truth is missing.`
-
-Current live drawer framing:
-
-* `Decision Support`
-* `Creative Decision Support`
-* `The page worklist stays primary. This drawer is support for live-window decision context only.`
-
-### Reviewer smoke stabilization
-
-Exact failing smoke before the fix:
-
-* command:
-  * `PLAYWRIGHT_BASE_URL='https://adsecute.com' PLAYWRIGHT_USE_WEBSERVER=0 node --env-file=.env.local node_modules/playwright/cli.js test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium`
-* failure:
-  * `playwright/tests/reviewer-smoke.spec.ts:56`
-  * timed out at `120000ms` while still pinned to the old Meta checkpoint
-
-Root cause actually found:
-
-* not a broad Meta regression
-* `page.waitForLoadState("networkidle")` after the Meta campaign click was burning about 30 seconds on the live SPA even though `meta-campaign-detail` became visible almost immediately once waited for directly
-* after removing that dead wait, the next honest blocker was Creative:
-  * stale quick-filter selector shape
-  * pointer-click brittleness inside the oversized Decision Support drawer
-
-Exact safe smoke-only change made in `playwright/tests/reviewer-smoke.spec.ts`:
-
-* removed the Meta `networkidle` wait after the campaign click
-* updated the Creative quick-filter selector from the stale `creative-quick-filter-panel-*` prefix to the current `creative-quick-filter-*` prefix
-* activated the first quick filter through scroll + focus + `Enter` instead of a brittle pointer click inside the drawer
-
-Final live smoke result:
-
-* same command now passes
+* reviewer smoke now passes again on live production
 * result:
-  * `2 passed (17.0s)`
+  * `2 passed (18.4s)`
 
 Meaning:
 
-* shared reviewer smoke no longer blocks before Creative
-* Creative verification is now reachable through the shared reviewer smoke
+* reviewer smoke remains healthy through Creative after the smoke-only fix
+* Step 9 did not require any product-runtime change
 
 ## Open Problems / Blockers
 
-* no safe live proof has been captured yet for `Grandmix`, `IwaStore`, or `TheSwaf`
-* `accepted` is still not justified because Step 8 did not obtain at least one strong real connected non-demo business proof path
-* current release-authority drift remains explainable background, not the main Step 8 story
+* approved safe sessions still cannot reach `Grandmix`, `IwaStore`, or `TheSwaf`
+* `COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID` is unset, so there is no preconfigured safe commercial canary business path
+* no strong real connected non-demo Creative proof can be captured until access truth changes through an approved channel
 
 ## Explicitly Out Of Scope
 
-* starting Step 9
-* new deployment work
+* Step 10
+* deployment work by default
 * release-authority redesign without a real defect
 * widening live memberships or access control to force benchmark-business proof
-* turning Step 8 into feature work
+* creating a new privileged shortcut just to make Step 9 pass
+* broad auth-system changes
 
 ## Next Recommended Step
 
@@ -200,8 +189,8 @@ No next step is authorized by default. If a later prompt assigns follow-up work,
 4. `https://adsecute.com/api/build-info`
 5. `https://adsecute.com/api/release-authority`
 
-Then focus only on securing a safe non-demo benchmark-business proof path without mutating live access scope.
+Then only continue if there is an explicitly approved non-demo access path for `Grandmix`, `IwaStore`, or `TheSwaf`, or an explicitly approved canary business configuration that does not widen permissions ad hoc.
 
 ## Next Chat Bootstrap
 
-Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` second. Read `docs/operator-rebuild-staging/STATUS.md` third. Re-verify branch, local `HEAD`, `origin/main`, `https://adsecute.com/api/build-info`, and `https://adsecute.com/api/release-authority` before touching code. Current repo/main head is `6db568b3defab4fd13e19514669c09d42c796911`; current live SHA is `8f0f0b74047c0ce05c8a74b02890e0e104d75484`; current release-authority `currentMainSha` is `6db568b3defab4fd13e19514669c09d42c796911`. Step 8 improved smoke stability, but the honest program verdict remains `shipped-not-complete` until a real non-demo live proof path is safely captured.
+Read `docs/operator-rebuild/HANDOFF.md` first. Read `docs/operator-rebuild-staging/LATEST_REPORT.md` second. Read `docs/operator-rebuild-staging/STATUS.md` third. Re-verify branch, local `HEAD`, `origin/main`, `https://adsecute.com/api/build-info`, and `https://adsecute.com/api/release-authority` before touching code. Step 9 found that actual repo/live truth had already moved to `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`, which is a standalone product commit after the last Step 8 continuity commit `1e9e359e8616e3f87fa0a744c3f8048f1843f5ae`, and that this was not a continuity bug by default. The real blocker is still approved safe access to a real connected non-demo business: reviewer and commercial smoke flows only expose `Adsecute Demo`, and switch attempts to `Grandmix`, `IwaStore`, and `TheSwaf` still return `403 No access to this business.` Reviewer smoke is healthy again after a smoke-only Meta scroll fix. Do not start Step 10 without an explicit follow-up prompt.

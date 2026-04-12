@@ -60,8 +60,16 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(metaCampaignReasoningSummary).toBeVisible();
   await metaCampaignReasoningSummary.evaluate((node: HTMLElement) => node.click());
   await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
-  await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
-  await expect(page.getByTestId("meta-adsets-section")).toBeVisible();
+  const metaCampaignAdsetActions = page.getByTestId("meta-campaign-adset-actions");
+  await metaCampaignAdsetActions.evaluate((node: HTMLElement) =>
+    node.scrollIntoView({ block: "center", inline: "nearest" }),
+  );
+  await expect(metaCampaignAdsetActions).toBeVisible();
+  const metaAdsetsSection = page.getByTestId("meta-adsets-section");
+  await metaAdsetsSection.evaluate((node: HTMLElement) =>
+    node.scrollIntoView({ block: "center", inline: "nearest" }),
+  );
+  await expect(metaAdsetsSection).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("meta-smoke.png"), fullPage: true });
 
   await page.goto("/command-center");

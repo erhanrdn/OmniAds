@@ -1,26 +1,36 @@
-Current step name: Step 8 - Strong Live Proof Collection And Reviewer Smoke Stabilization
+Current step name: Step 9 - Safe Non-Demo Benchmark Proof Path And Live Evidence Upgrade
 Current branch: main
-Current repo HEAD at Step 8 closeout: 6db568b3defab4fd13e19514669c09d42c796911
-Current origin/main at Step 8 closeout: 6db568b3defab4fd13e19514669c09d42c796911
-Local HEAD matches origin/main: yes
-Repo SHA before Step 8 started: 6db568b3defab4fd13e19514669c09d42c796911
-Current live build SHA: 8f0f0b74047c0ce05c8a74b02890e0e104d75484
-Release-authority live SHA: 8f0f0b74047c0ce05c8a74b02890e0e104d75484
-Release-authority main SHA: 6db568b3defab4fd13e19514669c09d42c796911
-Step 6 runtime still live: yes
-Current runtime/main drift explainable or suspicious: explainable; current main is a docs-only continuity head and release-authority matches it
+Preflight repo HEAD for Step 9: df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878
+Preflight origin/main for Step 9: df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878
+Local HEAD matched origin/main at Step 9 start: yes
+Latest Step 8 continuity commit before Step 9: 1e9e359e8616e3f87fa0a744c3f8048f1843f5ae
+Standalone non-program commit after the latest continuity commit: yes; df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878 feat: move commercial truth from settings to main navigation
+Current live build SHA at Step 9 start: df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878
+Release-authority live SHA at Step 9 start: df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878
+Release-authority main SHA at Step 9 start: df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878
+Current release-authority posture at Step 9 start: aligned; live and main both reported df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878
+Current runtime/main drift explainable or suspicious: no drift present at Step 9 start; continuity docs were stale, but runtime/main alignment was correct
 Benchmark businesses attempted: Grandmix, IwaStore, TheSwaf
-Benchmark businesses reachable from the safe commercial smoke session: none
-Reachable live business during Step 8: Adsecute Demo
-Strongest live proof captured in Step 8: current production /creatives on Adsecute Demo re-confirmed the preview-truth contract, blocked page-level lane subset, blocked row wording, Preview Truth Gate, deterministic decision panel, support-only AI commentary, and support-only drawer framing
-Page-level visible quick-filter subset on the reachable dataset: BLOCKED only
-Reviewer smoke root cause hypothesis: smoke fragility, not a broad Meta product regression; the old Meta networkidle wait burned ~30 seconds, then Creative quick-filter interaction used a stale selector plus brittle pointer clicking inside the drawer
-Reviewer smoke change made: removed the Meta networkidle wait after campaign click; updated the Creative quick-filter selector to creative-quick-filter-*; activated the first quick filter via scroll + focus + Enter
+Approved safe paths attempted: saved reviewer session, saved commercial storage state, fresh seeded commercial smoke session, /api/businesses, /api/auth/switch-business
+Saved commercial storage state status: /api/auth/me returned 401 {"authenticated":false}; session-scoping / expired session
+Saved reviewer session reachable businesses: Adsecute Demo only
+Fresh commercial smoke reachable businesses: Adsecute Demo only
+Grandmix reachable through approved safe path: no; 403 {"error":"forbidden","message":"No access to this business."}; access-control
+IwaStore reachable through approved safe path: no; 403 {"error":"forbidden","message":"No access to this business."}; access-control
+TheSwaf reachable through approved safe path: no; 403 {"error":"forbidden","message":"No access to this business."}; access-control
+Strongest live proof captured in Step 9: none on a benchmark business; Step 9 produced only an access-truth record, not non-demo Creative runtime proof
+Non-demo page-level proof captured: no
+Non-demo row-level proof captured: no
+Non-demo detail-level proof captured: no
+Non-demo drawer-level proof captured: no
 Reviewer smoke command: PLAYWRIGHT_BASE_URL='https://adsecute.com' PLAYWRIGHT_USE_WEBSERVER=0 node --env-file=.env.local node_modules/playwright/cli.js test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium
-Reviewer smoke final result: passed, 2 passed (17.0s)
-Reviewer smoke still blocks Creative verification: no
-Typecheck result: npx tsc --noEmit passed
-Targeted Vitest result: none applicable; only Playwright smoke code and continuity docs changed
-Remaining blockers / limitations: no safe non-demo business proof path was reachable; strongest live proof still comes from Adsecute Demo; accepted is still not justified without at least one real connected non-demo proof path
-Report last updated timestamp: 2026-04-12T21:54:28+0300
-Completion status: shipped-not-complete
+Reviewer smoke regression found during Step 9: yes; meta-campaign-adset-actions existed but was below the fold inside the scrollable Meta detail panel
+Reviewer smoke / commercial smoke change made: smoke-only DOM scrollIntoView on meta-campaign-adset-actions; reviewer smoke also scrolls meta-adsets-section before visibility assertion
+Reviewer smoke final result: passed, 2 passed (18.4s)
+Commercial Meta recheck result: one-off Playwright probe confirmed meta-campaign-adset-actions and meta-adsets-section were visible and in viewport after the mirrored DOM scroll used in the smoke
+Code changes required: yes; Playwright smoke-only fixes in playwright/tests/reviewer-smoke.spec.ts and playwright/tests/commercial-truth-smoke.spec.ts
+Typecheck result: first npx tsc --noEmit failed because stale .next/types entries were missing before build regeneration; rerun after build passed
+Build result: npm run build passed
+Remaining blocker / limitations: approved safe sessions still do not reach Grandmix, IwaStore, or TheSwaf; all switch attempts return 403 No access to this business; COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID is unset
+Report last updated timestamp: 2026-04-12T22:59:33+0300
+Completion status: blocked

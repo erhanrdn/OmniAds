@@ -400,7 +400,11 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   await campaignListItems.first().click();
   await openMetaCampaignReasoning(page);
   await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
-  await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
+  const metaCampaignAdsetActions = page.getByTestId("meta-campaign-adset-actions");
+  await metaCampaignAdsetActions.evaluate((node: HTMLElement) =>
+    node.scrollIntoView({ block: "center", inline: "nearest" }),
+  );
+  await expect(metaCampaignAdsetActions).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("commercial-meta-mode.png"),
     fullPage: true,
