@@ -22,10 +22,9 @@ import type { PlacementChartRow } from "@/components/meta/placement-breakdown-ch
 import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
 import type { CommandCenterAction, CommandCenterResponse } from "@/lib/command-center";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
-import {
-  MetaCampaignDecisionPanel,
-  MetaDecisionOsOverview,
-} from "@/components/meta/meta-decision-os";
+import { MetaCampaignDecisionPanel } from "@/components/meta/meta-decision-os";
+import { buildMetaOperatorItemFromCampaign } from "@/lib/meta/operator-surface";
+import { operatorStateLabel } from "@/lib/operator-surface";
 import { getCommandCenter } from "@/src/services";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -184,6 +183,8 @@ function CampaignOperatorHeadline({
   recommendation: MetaRecommendation | null;
   campaignDecision: MetaDecisionOsV1Response["campaigns"][number] | null;
 }) {
+  const operatorItem = campaignDecision ? buildMetaOperatorItemFromCampaign(campaignDecision) : null;
+
   if (!recommendation && !campaignDecision) return null;
 
   return (
@@ -199,10 +200,15 @@ function CampaignOperatorHeadline({
               actionTone(campaignDecision.primaryAction),
             )}
           >
-            {campaignDecision.primaryAction.replaceAll("_", " ")}
+            {operatorItem?.primaryAction ?? campaignDecision.primaryAction.replaceAll("_", " ")}
           </span>
         ) : recommendation ? (
           <DecisionBadge state={recommendation.decisionState} />
+        ) : null}
+        {operatorItem ? (
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+            {operatorStateLabel(operatorItem.authorityState)}
+          </span>
         ) : null}
         {campaignDecision?.trust?.operatorDisposition &&
         campaignDecision.trust.operatorDisposition !== "standard" ? (
@@ -217,21 +223,38 @@ function CampaignOperatorHeadline({
         ) : null}
         <p className="text-[11px] text-slate-500">
           {campaignDecision
-            ? "Unified operator authority"
+            ? "Primary action owner"
             : recommendation?.title ?? "Derived operator guidance"}
         </p>
       </div>
       <p className="mt-2.5 text-base font-semibold leading-snug text-slate-950">
         {campaignDecision
-          ? campaignDecision.why
+          ? operatorItem?.reason ?? campaignDecision.why
           : recommendation?.recommendedAction ?? "No operator headline available."}
       </p>
+      {operatorItem?.secondaryLabels?.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {operatorItem.secondaryLabels.slice(0, 2).map((label) => (
+            <span
+              key={label}
+              className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-slate-700"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {campaignDecision?.creativeCandidates?.count ? (
         <p className="mt-3 text-xs leading-relaxed text-slate-500">
           {campaignDecision.creativeCandidates.summary}
         </p>
       ) : recommendation?.why ? (
         <p className="mt-3 text-xs leading-relaxed text-slate-500">{recommendation.why}</p>
+      ) : null}
+      {operatorItem?.blocker ? (
+        <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          Blocker: {operatorItem.blocker}
+        </p>
       ) : null}
       {(recommendation?.evidence.length ?? 0) > 0 ? (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -440,20 +463,32 @@ interface AccountOverviewProps {
 function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
-      <MetaDecisionOsOverview
-        decisionOs={props.decisionOsData}
-        isLoading={props.isDecisionOsLoading}
-      />
-      <MetaOperatingModeCard
-        businessId={props.businessId}
-        startDate={props.since}
-        endDate={props.until}
-      />
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          Account Drilldown
+        </p>
+        <p className="mt-1 text-sm font-semibold text-slate-950">
+          Use the action surface above to pick the campaign that needs review next.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
+          Workflow links, operating context, and supporting diagnostics stay secondary here so
+          the page-level Meta authority remains the first thing you read.
+        </p>
+      </div>
       <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-supporting-context">
         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
-          Supporting context
+          Workflow and context
         </summary>
-        <div className="border-t border-slate-200 px-4 py-4">
+        <div className="space-y-4 border-t border-slate-200 px-4 py-4">
+          <MetaOperatingModeCard
+            businessId={props.businessId}
+            startDate={props.since}
+            endDate={props.until}
+          />
+          <MetaCommandCenterCard
+            actions={props.commandCenterActions}
+            href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
+          />
           <MetaAccountRecs
             recommendationsData={props.recommendationsData}
             isRecsLoading={props.isRecsLoading}
@@ -464,18 +499,14 @@ function AccountOverview(props: AccountOverviewProps) {
             analysisError={props.recommendationsError}
             language={props.language}
           />
+          <MetaBreakdownGrid
+            ageRows={props.ageRows}
+            placementRows={props.placementRows}
+            isLoading={props.isBreakdownLoading}
+            language={props.language}
+          />
         </div>
       </details>
-      <MetaCommandCenterCard
-        actions={props.commandCenterActions}
-        href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
-      />
-      <MetaBreakdownGrid
-        ageRows={props.ageRows}
-        placementRows={props.placementRows}
-        isLoading={props.isBreakdownLoading}
-        language={props.language}
-      />
     </div>
   );
 }
@@ -592,20 +623,24 @@ export function MetaCampaignDetail({
         </div>
       </div>
 
-      <MetaCommandCenterCard
-        actions={campaignCommandCenterActions}
-        href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
-      />
-
       <CampaignOperatorHeadline
         recommendation={rec}
         campaignDecision={campaignDecision}
       />
 
-      <MetaCampaignDecisionPanel
-        campaignDecision={campaignDecision}
-        adSetDecisions={campaignAdSetDecisions}
-      />
+      {campaignDecision || campaignAdSetDecisions.length > 0 ? (
+        <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-campaign-reasoning">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
+            Show campaign reasoning
+          </summary>
+          <div className="border-t border-slate-200 px-4 py-4">
+            <MetaCampaignDecisionPanel
+              campaignDecision={campaignDecision}
+              adSetDecisions={campaignAdSetDecisions}
+            />
+          </div>
+        </details>
+      ) : null}
 
       {/* Metric grid — Spend / Revenue / ROAS / CPA / Budget */}
       <div className="grid grid-cols-5 gap-1.5">
@@ -627,6 +662,18 @@ export function MetaCampaignDetail({
           />
         )}
       </div>
+
+      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-campaign-secondary-context">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
+          Workflow context
+        </summary>
+        <div className="border-t border-slate-200 px-4 py-4">
+          <MetaCommandCenterCard
+            actions={campaignCommandCenterActions}
+            href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
+          />
+        </div>
+      </details>
 
       {/* Ad sets */}
       <div className="space-y-2" data-testid="meta-adsets-section">

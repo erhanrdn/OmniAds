@@ -2,11 +2,6 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-vi.mock("@/store/preferences-store", () => ({
-  usePreferencesStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ language: "en" }),
-}));
-
 vi.mock("@/hooks/use-currency", () => ({
   useCurrencySymbol: () => "$",
 }));
@@ -33,15 +28,39 @@ describe("MetaCampaignList render contract", () => {
         campaigns={[campaign() as any]}
         selectedId={null}
         onSelect={vi.fn()}
-        campaignRecStates={new Map([["cmp_1", "act"]])}
+        campaignOperatorSummaries={
+          new Map([
+            [
+              "cmp_1",
+              {
+                campaignId: "cmp_1",
+                ownerType: "ad_set",
+                ownerLabel: "Winner Ad Set",
+                item: {
+                  id: "adset:1",
+                  title: "Winner Ad Set",
+                  primaryAction: "Increase budget",
+                  authorityState: "act_now",
+                  reason: "Strong signal.",
+                  blocker: null,
+                  confidence: "High",
+                  secondaryLabels: ["Lowest Cost"],
+                  metrics: [],
+                },
+              },
+            ],
+          ])
+        }
       />
     );
 
     expect(html).toContain("Account Overview");
     expect(html).toContain("Campaign One");
     expect(html).toContain("Sales");
-    expect(html).toContain("act");
+    expect(html).toContain("Increase budget");
+    expect(html).toContain("Act now");
     expect(html).toContain("spend");
+    expect(html).toContain("Winner Ad Set");
   });
 
   it("reflects the selected campaign row in the rendered active-row semantics", () => {
@@ -50,7 +69,6 @@ describe("MetaCampaignList render contract", () => {
         campaigns={[campaign() as any]}
         selectedId="cmp_1"
         onSelect={vi.fn()}
-        campaignRecStates={new Map()}
       />
     );
     const unselectedHtml = renderToStaticMarkup(
@@ -58,7 +76,6 @@ describe("MetaCampaignList render contract", () => {
         campaigns={[campaign() as any]}
         selectedId={null}
         onSelect={vi.fn()}
-        campaignRecStates={new Map()}
       />
     );
 
@@ -67,45 +84,108 @@ describe("MetaCampaignList render contract", () => {
     expect(unselectedHtml).toContain("text-slate-700");
   });
 
-  it("renders recommendation badge states that are visible on the current page", () => {
+  it("renders operator authority states that are visible on the current page", () => {
     const html = renderToStaticMarkup(
       <MetaCampaignList
         campaigns={[
           campaign({ id: "cmp_act", name: "Act Campaign" }) as any,
-          campaign({ id: "cmp_test", name: "Test Campaign" }) as any,
+          campaign({ id: "cmp_truth", name: "Truth Campaign" }) as any,
           campaign({ id: "cmp_watch", name: "Watch Campaign" }) as any,
         ]}
         selectedId={null}
         onSelect={vi.fn()}
-        campaignRecStates={new Map([
-          ["cmp_act", "act"],
-          ["cmp_test", "test"],
-          ["cmp_watch", "watch"],
+        campaignOperatorSummaries={new Map([
+          [
+            "cmp_act",
+            {
+              campaignId: "cmp_act",
+              ownerType: "campaign",
+              ownerLabel: "Prospecting Scale",
+              item: {
+                id: "campaign:cmp_act",
+                title: "Act Campaign",
+                primaryAction: "Increase budget",
+                authorityState: "act_now",
+                reason: "Strong signal.",
+                blocker: null,
+                confidence: "High",
+                secondaryLabels: [],
+                metrics: [],
+              },
+            },
+          ],
+          [
+            "cmp_truth",
+            {
+              campaignId: "cmp_truth",
+              ownerType: "campaign",
+              ownerLabel: "Prospecting Scale",
+              item: {
+                id: "campaign:cmp_truth",
+                title: "Truth Campaign",
+                primaryAction: "Needs truth",
+                authorityState: "needs_truth",
+                reason: "Profitable, but capped.",
+                blocker: "Missing target pack.",
+                confidence: "Medium",
+                secondaryLabels: [],
+                metrics: [],
+              },
+            },
+          ],
+          [
+            "cmp_watch",
+            {
+              campaignId: "cmp_watch",
+              ownerType: "campaign",
+              ownerLabel: "Prospecting Scale",
+              item: {
+                id: "campaign:cmp_watch",
+                title: "Watch Campaign",
+                primaryAction: "Wait",
+                authorityState: "watch",
+                reason: "Still learning.",
+                blocker: null,
+                confidence: "Limited",
+                secondaryLabels: [],
+                metrics: [],
+              },
+            },
+          ],
         ])}
       />
     );
 
-    expect(html).toContain("act");
-    expect(html).toContain("test");
-    expect(html).toContain("watch");
+    expect(html).toContain("Act now");
+    expect(html).toContain("Needs truth");
+    expect(html).toContain("Watch");
   });
 
-  it("renders campaign role, primary action, and no-touch hints when Decision OS data exists", () => {
+  it("renders the action owner and blocker when operator summary data exists", () => {
     const html = renderToStaticMarkup(
       <MetaCampaignList
         campaigns={[campaign() as any]}
         selectedId={null}
         onSelect={vi.fn()}
-        campaignRecStates={new Map()}
-        campaignDecisionMeta={
+        campaignOperatorSummaries={
           new Map([
             [
               "cmp_1",
               {
-                role: "Prospecting Scale",
-                primaryAction: "scale_budget",
-                noTouch: true,
-                confidence: 0.84,
+                campaignId: "cmp_1",
+                ownerType: "campaign",
+                ownerLabel: "Prospecting Scale",
+                item: {
+                  id: "campaign:cmp_1",
+                  title: "Campaign One",
+                  primaryAction: "Review cost cap",
+                  authorityState: "needs_truth",
+                  reason: "Profitable, but capped.",
+                  blocker: "Missing target pack.",
+                  confidence: "Medium",
+                  secondaryLabels: ["Cost Cap"],
+                  metrics: [],
+                },
               },
             ],
           ])
@@ -114,7 +194,8 @@ describe("MetaCampaignList render contract", () => {
     );
 
     expect(html).toContain("Prospecting Scale");
-    expect(html).toContain("scale budget");
-    expect(html).toContain("no-touch");
+    expect(html).toContain("Review cost cap");
+    expect(html).toContain("Missing target pack");
+    expect(html).toContain("Cost Cap");
   });
 });

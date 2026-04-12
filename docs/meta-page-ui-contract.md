@@ -9,6 +9,13 @@ This document describes the current user-visible Meta page at `app/(dashboard)/p
 - Route payload fields that are not rendered on the current page are not part of this contract.
 - Provider readiness and selected-range page readiness are separate concerns on this page.
 - Generic shell controls such as the date picker and refresh button are out of scope unless they surface Meta data truth directly.
+- Current top-level operator order is:
+  - page status and scope controls
+  - Meta Decision OS daily operator surface
+  - KPI row
+  - campaign drilldown
+  - collapsed workflow/context details for operating mode, recommendations, and breakdowns
+- Supporting diagnostics are intentionally secondary after the Step 5 Meta daily-operator rebuild.
 
 ## Exact code path
 
@@ -93,18 +100,24 @@ Scope labels used in this document:
 | Meta account day label | Page-scoped | Required page context surface | No |
 | Page status banner | Page-scoped | Required page status surface | No |
 | KPI row | Page-scoped | Required | Yes |
-| Campaign list | Page-scoped | Required | Yes |
+| Campaign drilldown list | Page-scoped | Required | Yes |
 | Campaign detail | Page-scoped | Conditional | No |
-| Breakdown age card | Page-scoped | Required | Yes |
-| Breakdown location card | Page-scoped | Required | Yes |
-| Breakdown placement card | Page-scoped | Required | Yes |
-| Operating mode card | Page-scoped | Optional | No |
-| Decision OS overview | Page-scoped | Optional | No |
+| Breakdown age card | Page-scoped | Optional secondary context | No |
+| Breakdown location card | Page-scoped | Optional secondary context | No |
+| Breakdown placement card | Page-scoped | Optional secondary context | No |
+| Operating mode card | Page-scoped | Optional secondary context | No |
+| Decision OS overview | Page-scoped | Primary operator surface when available | No |
 | Winner scale candidates board | Page-scoped | Optional | No |
 | Campaign decision panel | Page-scoped | Optional | No |
 | Ad set drilldown | Page-scoped | Optional | No |
-| Recommendations panel / recommendation-aware campaign detail | Page-scoped | Optional | No |
+| Recommendations panel / recommendation-aware campaign detail | Page-scoped | Optional secondary context | No |
 | Empty-state / preparing-state messaging | Page-scoped | Required page status surface | No |
+
+The UI contract matrix below still lists the rendered fields, but Step 5 changed their hierarchy:
+
+- `MetaDecisionOsOverview` is now the primary page-level operator surface instead of a right-panel-only account-overview card.
+- `MetaAccountRecs`, `MetaOperatingModeCard`, `MetaBreakdownGrid`, and Command Center linkage are now collapsed supporting context.
+- Campaign drilldown remains available, but it no longer acts as a competing top-level authority surface.
 
 ## UI Contract Matrix
 

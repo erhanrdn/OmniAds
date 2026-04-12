@@ -554,10 +554,10 @@ describe("MetaDecisionOsOverview", () => {
       <MetaDecisionOsOverview decisionOs={payload()} isLoading={false} />,
     );
 
-    expect(html).toContain("Meta Single Action Authority");
+    expect(html).toContain("Meta Daily Operator Surface");
     expect(html).toContain("Show why");
     expect(html).toContain("Act now");
-    expect(html).toContain("Protected");
+    expect(html).toContain("Increase budget");
     expect(html).toContain("Policy Review");
     expect(html).toContain("Meta detail authority");
     expect(html).toContain("Secondary Workflow Context");

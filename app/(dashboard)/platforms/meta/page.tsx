@@ -37,7 +37,6 @@ import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { Button } from "@/components/ui/button";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { usePreferencesStore } from "@/store/preferences-store";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow, MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
 import type { MetaSummaryRouteResponse } from "@/app/api/meta/summary/route";
@@ -55,8 +54,10 @@ import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrati
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
 import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
+import { MetaDecisionOsOverview } from "@/components/meta/meta-decision-os";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
+import { buildMetaCampaignOperatorLookup } from "@/lib/meta/operator-surface";
 import { ProviderReadinessIndicator } from "@/components/sync/provider-readiness-indicator";
 import {
   SyncStatusPill,
@@ -508,171 +509,12 @@ function NoAccountsAssigned() {
   );
 }
 
-// ── Age breakdown — performance badge grid ────────────────────────────────────
-// Each age cohort is a card showing ROAS with the shared green/amber/red
-// threshold colour system. Gives instant cohort scanning without a table.
-
-interface AggregatedBreakdownRow {
-  key: string;
-  label: string;
-  spend: number;
-  purchases: number;
-  revenue: number;
-  clicks: number;
-  impressions: number;
-}
-
-function AgeBreakdownBadges({
-  rows,
-}: {
-  rows: AggregatedBreakdownRow[];
-}) {
-  const sym = useCurrencySymbol();
-  if (rows.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        No age breakdown data available.
-      </p>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {rows.map((row) => {
-        const roas = row.spend > 0 ? row.revenue / row.spend : 0;
-        const { bg, border, text } =
-          roas > 2.5
-            ? {
-                bg: "bg-emerald-500/10",
-                border: "border-emerald-500/20",
-                text: "text-emerald-600",
-              }
-            : roas >= 1.5
-            ? {
-                bg: "bg-amber-500/10",
-                border: "border-amber-500/20",
-                text: "text-amber-600",
-              }
-            : {
-                bg: "bg-red-500/10",
-                border: "border-red-500/15",
-                text: "text-red-500",
-              };
-
-        return (
-          <div
-            key={row.key}
-            className={`rounded-lg border ${border} ${bg} p-2`}
-          >
-            <p className="text-[10px] font-medium text-muted-foreground leading-none">
-              {row.label}
-            </p>
-            <p className={`mt-1 font-mono text-base font-bold leading-none ${text}`}>
-              {roas.toFixed(2)}
-              <span className="ml-0.5 text-xs font-normal opacity-70">×</span>
-            </p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {fmtK(row.spend, sym)}
-            </p>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Location breakdown — compact ranked list ──────────────────────────────────
-
-function LocationBreakdownList({
-  rows,
-}: {
-  rows: AggregatedBreakdownRow[];
-}) {
-  const sym = useCurrencySymbol();
-  const total = rows.reduce((a, r) => a + r.spend, 0);
-  const top = rows.slice(0, 7);
-
-  if (top.length === 0) {
-    return <p className="text-xs text-muted-foreground">No location data.</p>;
-  }
-
-  return (
-    <div className="space-y-1.5">
-      {top.map((row) => {
-        const share = total > 0 ? (row.spend / total) * 100 : 0;
-        const roas = row.spend > 0 ? row.revenue / row.spend : 0;
-        const roasCls =
-          roas > 2.5
-            ? "text-emerald-600"
-            : roas >= 1.5
-            ? "text-amber-500"
-            : "text-red-500";
-
-        return (
-          <div key={row.key} className="flex items-center gap-2">
-            {/* Country code pill */}
-            <span className="w-7 shrink-0 rounded bg-muted px-1 py-0.5 text-center text-[10px] font-semibold uppercase text-muted-foreground">
-              {row.label.slice(0, 2)}
-            </span>
-
-            {/* Spend bar */}
-            <div className="min-w-0 flex-1 space-y-0.5">
-              <div className="flex items-center justify-between gap-1">
-                <span className="truncate text-[11px] font-medium">
-                  {row.label}
-                </span>
-                <span
-                  className={`shrink-0 text-[10px] font-semibold tabular-nums ${roasCls}`}
-                >
-                  {roas.toFixed(2)}×
-                </span>
-              </div>
-              <div className="relative h-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-blue-500/50"
-                  style={{ width: `${share.toFixed(1)}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Spend value */}
-            <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
-              {fmtK(row.spend, sym)}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Sidebar card wrapper ──────────────────────────────────────────────────────
-
-function SidebarCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border bg-card p-3 shadow-sm">
-      <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-        {title}
-      </h3>
-      {children}
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MetaPage() {
   const language = "en" as "en" | "tr";
   const businesses = useAppStore((s) => s.businesses);
   const selectedBusinessId = useAppStore((s) => s.selectedBusinessId);
-  const metaOperatorPreset = usePreferencesStore((state) => state.metaOperatorPreset);
-  const setMetaOperatorPreset = usePreferencesStore((state) => state.setMetaOperatorPreset);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1243,6 +1085,10 @@ export default function MetaPage() {
     selectedCampaignId,
     recommendationsQuery.data?.recommendations,
   ]);
+  const campaignOperatorSummaries = useMemo(
+    () => buildMetaCampaignOperatorLookup(decisionOsQuery.data),
+    [decisionOsQuery.data],
+  );
 
   return (
     <PlanGate requiredPlan="growth">
@@ -1252,26 +1098,6 @@ export default function MetaPage() {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight">Meta Ads</h1>
-            <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 text-[11px]">
-              {[
-                ["action_first", "Action-first"],
-                ["creative_rich", "Creative-rich"],
-                ["media_limited", "Media-limited"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setMetaOperatorPreset(value as typeof metaOperatorPreset)}
-                  className={
-                    metaOperatorPreset === value
-                      ? "rounded-full bg-slate-900 px-2.5 py-1 font-medium text-white"
-                      : "rounded-full px-2.5 py-1 text-slate-600 hover:bg-slate-50"
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
             {metaConnected && historicalProgressStatus ? (
               <ProviderReadinessIndicator
                 readinessLevel={historicalProgressStatus.readinessLevel}
@@ -1280,7 +1106,8 @@ export default function MetaPage() {
             ) : null}
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Campaign performance, demographic breakdowns, and ad set drill-down.
+            Daily operator surface for what needs action now, what is profitable but capped,
+            what should stay untouched, and what still needs truth before a stronger move.
           </p>
           {metaConnected && metaAccountDayLabel ? (
             <p className="mt-1 text-xs text-muted-foreground">{metaAccountDayLabel}</p>
@@ -1356,7 +1183,11 @@ export default function MetaPage() {
       {metaConnected && (
         <>
           <MetaStatusBanner status={effectiveStatus} language={language} />
-          {/* ── KPI Row — unchanged ──────────────────────────────────────── */}
+          <MetaDecisionOsOverview
+            decisionOs={decisionOsQuery.data}
+            isLoading={decisionOsQuery.isLoading}
+          />
+          {/* ── KPI Row ──────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
                 label="Total Spend"
@@ -1487,32 +1318,8 @@ export default function MetaPage() {
                 />
               );
 
-            // Map of campaign ID → highest-priority decision state (act > test > watch)
-            const ORDER = { act: 0, test: 1, watch: 2 } as const;
-            const campaignRecStates = new Map<string, "act" | "test" | "watch">();
-            for (const r of recommendationsQuery.data?.recommendations ?? []) {
-              if (!r.campaignId) continue;
-              const existing = campaignRecStates.get(r.campaignId);
-              if (!existing || ORDER[r.decisionState] < ORDER[existing]) {
-                campaignRecStates.set(r.campaignId, r.decisionState);
-              }
-            }
-
             const selectedCampaign =
               campaignRowsForTable.find((c) => c.id === selectedCampaignId) ?? null;
-            const campaignDecisionMeta = new Map(
-              (decisionOsQuery.data?.campaigns ?? []).map((decision) => [
-                decision.campaignId,
-                {
-                  role: decision.role,
-                  primaryAction: decision.primaryAction,
-                  noTouch: decision.noTouch,
-                  confidence: decision.confidence,
-                  creativeCandidates: decision.creativeCandidates ?? null,
-                  trust: decision.trust,
-                },
-              ])
-            );
 
             const placementRows = (breakdownsQuery.data?.placement ?? []).map((row) => ({
               key: row.key,
@@ -1523,49 +1330,25 @@ export default function MetaPage() {
 
             return (
               <div className="flex gap-4" style={{ minHeight: "520px" }}>
-                {/* ── Left panel: campaign list + country breakdown ─────── */}
-                <div className="flex w-64 shrink-0 flex-col gap-3 xl:w-72">
-                  {/* Campaign list — takes maximum available space */}
+                <div className="flex w-72 shrink-0 flex-col gap-3 xl:w-80">
                   <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="border-b border-slate-100 px-3 py-2.5">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Campaigns
+                        Campaign Drilldown
                         <span className="ml-1.5 text-slate-300">{campaignRowsForTable.length}</span>
                       </p>
                     </div>
-                    <div className="max-h-[480px] overflow-y-auto p-1.5">
+                    <div className="max-h-[620px] overflow-y-auto p-1.5">
                       <MetaCampaignList
                         campaigns={campaignRowsForTable}
                         selectedId={selectedCampaignId}
                         onSelect={setSelectedCampaignId}
-                        campaignRecStates={campaignRecStates}
-                        campaignDecisionMeta={campaignDecisionMeta}
+                        campaignOperatorSummaries={campaignOperatorSummaries}
                       />
-                    </div>
-                  </div>
-
-                  {/* Country breakdown — compact, always visible, scrollable */}
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <div className="border-b border-slate-100 px-3 py-2.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Countries
-                      </p>
-                    </div>
-                    <div className="max-h-[108px] overflow-y-auto p-3">
-                      {breakdownsQuery.isLoading ? (
-                        <div className="space-y-1.5">
-                          {[0, 1, 2].map((i) => (
-                            <div key={i} className="h-6 animate-pulse rounded bg-slate-100" />
-                          ))}
-                        </div>
-                      ) : (
-                        <LocationBreakdownList rows={breakdownsQuery.data?.location ?? []} />
-                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* ── Right panel: campaign detail ──────────────────────── */}
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/60 shadow-sm">
                   <MetaCampaignDetail
                     campaign={selectedCampaign}

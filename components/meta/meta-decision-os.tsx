@@ -4,7 +4,11 @@ import type { ReactNode } from "react";
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
 import { OperatorSurfaceSummary } from "@/components/operator/OperatorSurfaceSummary";
-import { buildMetaOperatorSurfaceModel } from "@/lib/meta/operator-surface";
+import {
+  buildMetaOperatorItemFromAdSet,
+  buildMetaOperatorItemFromCampaign,
+  buildMetaOperatorSurfaceModel,
+} from "@/lib/meta/operator-surface";
 import { cn } from "@/lib/utils";
 import type {
   MetaAdSetDecision,
@@ -138,6 +142,8 @@ function DecisionListCard({
 }
 
 function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
+  const operatorItem = buildMetaOperatorItemFromAdSet(decision);
+
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -152,7 +158,7 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
               actionTone(decision.actionType),
             )}
           >
-            {formatActionLabel(decision.actionType)}
+            {operatorItem.primaryAction}
           </span>
           {decision.noTouch ? (
             <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
@@ -171,7 +177,7 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
           ) : null}
         </div>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-slate-600">{decision.reasons[0]}</p>
+      <p className="mt-2 text-xs leading-relaxed text-slate-600">{operatorItem.reason}</p>
       <PolicyChips policy={decision.policy} />
       <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
         <span>ROAS {decision.supportingMetrics.roas.toFixed(2)}x</span>
@@ -191,6 +197,9 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
       {decision.guardrails.length > 0 ? (
         <p className="mt-2 text-[11px] text-slate-500">{decision.guardrails[0]}</p>
       ) : null}
+      {operatorItem.blocker ? (
+        <p className="mt-2 text-[11px] text-slate-500">Blocker: {operatorItem.blocker}</p>
+      ) : null}
     </div>
   );
 }
@@ -200,6 +209,8 @@ function CampaignDecisionRow({
 }: {
   decision: MetaCampaignDecision;
 }) {
+  const operatorItem = buildMetaOperatorItemFromCampaign(decision);
+
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -214,7 +225,7 @@ function CampaignDecisionRow({
               actionTone(decision.primaryAction),
             )}
           >
-            {formatActionLabel(decision.primaryAction)}
+            {operatorItem.primaryAction}
           </span>
           {decision.trust.operatorDisposition !== "standard" ? (
             <span
@@ -228,7 +239,7 @@ function CampaignDecisionRow({
           ) : null}
         </div>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-slate-600">{decision.why}</p>
+      <p className="mt-2 text-xs leading-relaxed text-slate-600">{operatorItem.reason}</p>
       <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
         <span className={confidenceTone(decision.confidence)}>
           Confidence {(decision.confidence * 100).toFixed(0)}%
@@ -238,6 +249,9 @@ function CampaignDecisionRow({
       </div>
       {decision.creativeCandidates?.count ? (
         <p className="mt-2 text-[11px] text-slate-500">{decision.creativeCandidates.summary}</p>
+      ) : null}
+      {operatorItem.blocker ? (
+        <p className="mt-2 text-[11px] text-slate-500">Blocker: {operatorItem.blocker}</p>
       ) : null}
     </div>
   );
@@ -526,7 +540,7 @@ export function MetaDecisionOsOverview({
 
   return (
     <div className="space-y-4" data-testid="meta-decision-os-overview">
-      <OperatorSurfaceSummary model={operatorSurface} />
+      <OperatorSurfaceSummary model={operatorSurface} maxRowsPerBucket={2} />
 
       <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-operator-details">
         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
@@ -1097,6 +1111,7 @@ export function MetaCampaignDecisionPanel({
   adSetDecisions: MetaAdSetDecision[];
 }) {
   if (!campaignDecision) return null;
+  const operatorItem = buildMetaOperatorItemFromCampaign(campaignDecision);
 
   return (
     <div className="space-y-4" data-testid="meta-campaign-decision-panel">
@@ -1116,7 +1131,7 @@ export function MetaCampaignDecisionPanel({
                 actionTone(campaignDecision.primaryAction),
               )}
             >
-              {formatActionLabel(campaignDecision.primaryAction)}
+              {operatorItem.primaryAction}
             </span>
             {campaignDecision.noTouch ? (
               <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
@@ -1138,6 +1153,11 @@ export function MetaCampaignDecisionPanel({
         <div className="mt-3 text-[11px] text-slate-500">
           Confidence {(campaignDecision.confidence * 100).toFixed(0)}%
         </div>
+        {operatorItem.blocker ? (
+          <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
+            Blocker: {operatorItem.blocker}
+          </div>
+        ) : null}
         <PolicyChips policy={campaignDecision.policy} />
         <EvidenceChips evidence={campaignDecision.evidence} />
         <DecisionPolicyExplanationPanel

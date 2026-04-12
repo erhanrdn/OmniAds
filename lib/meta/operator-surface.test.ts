@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildMetaOperatorSurfaceModel } from "@/lib/meta/operator-surface";
+import {
+  buildMetaCampaignOperatorLookup,
+  buildMetaOperatorSurfaceModel,
+} from "@/lib/meta/operator-surface";
 
 function metaDecisionOsFixture() {
   return {
@@ -179,5 +182,58 @@ describe("buildMetaOperatorSurfaceModel", () => {
       authorityState: "needs_truth",
     });
     expect(model?.hiddenSummary).toContain("thin-signal");
+  });
+
+  it("maps capped bid-regime review into operator wording instead of generic bid edits", () => {
+    const fixture = metaDecisionOsFixture();
+    fixture.adSets.push({
+      decisionId: "adset_cap",
+      adSetId: "adset_cap",
+      adSetName: "Cap Review Ad Set",
+      campaignId: "cmp_cap",
+      campaignName: "Cap Review Campaign",
+      actionType: "tighten_bid",
+      confidence: 0.72,
+      reasons: ["Cap is the first lever."],
+      guardrails: ["Review the guardrail before budget changes."],
+      noTouch: false,
+      missingCreativeAsk: [],
+      trust: {
+        surfaceLane: "action_core",
+        truthState: "live_confident",
+        operatorDisposition: "standard",
+        evidence: { materiality: "material" },
+      },
+      policy: {
+        bidRegime: "cost_cap",
+        objectiveFamily: "sales",
+        primaryDriver: "bid_regime_pressure",
+      },
+      supportingMetrics: {
+        spend: 180,
+        roas: 2.1,
+        purchases: 5,
+        cpa: 36,
+        dailyBudget: 9000,
+      },
+    });
+
+    const model = buildMetaOperatorSurfaceModel(fixture);
+    const actNow = model?.buckets.find((bucket) => bucket.key === "act_now");
+
+    expect(actNow?.rows.map((row) => row.primaryAction)).toContain("Review cost cap");
+  });
+
+  it("builds a campaign drilldown lookup from the highest-priority visible action owner", () => {
+    const lookup = buildMetaCampaignOperatorLookup(metaDecisionOsFixture());
+    const scaleSummary = lookup.get("cmp_scale");
+    const truthSummary = lookup.get("cmp_truth");
+
+    expect(scaleSummary).toMatchObject({
+      ownerType: "ad_set",
+      ownerLabel: "Scale Ad Set",
+    });
+    expect(scaleSummary?.item.primaryAction).toBe("Increase budget");
+    expect(truthSummary?.item.primaryAction).toBe("Needs truth");
   });
 });

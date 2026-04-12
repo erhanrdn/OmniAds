@@ -52,7 +52,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       { kind: "doc", path: "docs/phase-03-meta-decision-os.md", label: "Phase 03 Meta Decision OS" },
     ],
     notes: [
-      "The compatibility route remains live, but the visible panel now renders action context derived from the Meta Decision OS authority snapshot.",
+      "The compatibility route remains live, but the visible panel now renders secondary workflow/context notes derived from the Meta Decision OS authority snapshot.",
       "This surface no longer carries an independent decision voice.",
     ],
   },
@@ -78,6 +78,7 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       "GEO V2 uses dedicated country-only serving so GEO rows can stay live even when broader breakdown surfaces are partial.",
       "Meta Strategy Engine V2 adds additive policy metadata and a read-only winner scale candidate board without changing the execution subset.",
       "Additive creative linkage and profitable-truth-capped readiness are current when the surface is enabled.",
+      "The page now leads with this action-first daily operator surface, while workflow and breakdown context stay secondary.",
     ],
   },
   {

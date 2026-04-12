@@ -35,7 +35,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
 
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Single Action Authority");
+  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Daily Operator Surface");
   await page.getByText("Show why").first().click();
   await expectVisibleIfPresent(page.getByTestId("meta-policy-review"));
   await expectVisibleIfPresent(page.getByTestId("meta-budget-shift-board"));
@@ -53,6 +53,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await campaignListItems.first().click();
 
   await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
+  await page.getByTestId("meta-campaign-reasoning").locator("summary").click();
   await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
   await expect(page.getByTestId("meta-campaign-adset-actions")).toBeVisible();
   await expect(page.getByTestId("meta-adsets-section")).toBeVisible();

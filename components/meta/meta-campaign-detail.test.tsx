@@ -34,8 +34,6 @@ vi.mock("@/components/meta/meta-operating-mode-card", () => ({
 }));
 
 vi.mock("@/components/meta/meta-decision-os", () => ({
-  MetaDecisionOsOverview: (props: { decisionOs: { summary?: { todayPlanHeadline?: string } } | null }) =>
-    React.createElement("div", null, props.decisionOs?.summary?.todayPlanHeadline ?? "decision-os-overview"),
   MetaCampaignDecisionPanel: (props: { campaignDecision: { role: string } | null }) =>
     React.createElement("div", null, props.campaignDecision ? `campaign-decision:${props.campaignDecision.role}` : "campaign-decision:none"),
 }));
@@ -118,6 +116,17 @@ function decisionOsData(withCampaignDecision = true) {
             whatWouldChangeThisDecision: [],
             adSetDecisionIds: ["decision_1"],
             laneLabel: "Scaling",
+            policy: {
+              bidRegime: "open",
+              objectiveFamily: "sales",
+              primaryDriver: "roas_outperforming",
+            },
+            trust: {
+              surfaceLane: "action_core",
+              operatorDisposition: "standard",
+              reasons: ["Winning lane"],
+              evidence: { materiality: "material" },
+            },
           },
         ],
         adSets: [
@@ -151,6 +160,17 @@ function decisionOsData(withCampaignDecision = true) {
             },
             whatWouldChangeThisDecision: [],
             noTouch: false,
+            policy: {
+              bidRegime: "open",
+              objectiveFamily: "sales",
+              primaryDriver: "roas_outperforming",
+            },
+            trust: {
+              surfaceLane: "action_core",
+              operatorDisposition: "standard",
+              reasons: ["Winning ad set"],
+              evidence: { materiality: "material" },
+            },
           },
         ],
         budgetShifts: [],
@@ -224,8 +244,8 @@ describe("MetaCampaignDetail render contract", () => {
       />
     );
 
+    expect(html).toContain("Account Drilldown");
     expect(html).toContain("operating-mode-card");
-    expect(html).toContain("decision-os-overview");
     expect(html).toContain("account-recommendations");
     expect(html).toContain("performance-breakdown");
   });
@@ -256,10 +276,12 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("Campaign One");
     expect(html).toContain("Sales");
     expect(html).toContain("ACTIVE");
-    expect(html).toContain("scale budget");
+    expect(html).toContain("Increase budget");
     expect(html).toContain("Winning lane");
     expect(html).toContain("Winning campaign");
     expect(html).toContain("campaign-decision:Prospecting Scale");
+    expect(html).toContain("Show campaign reasoning");
+    expect(html).toContain("Workflow context");
     expect(html).toContain("Budget");
     expect(html).toContain("Ad Sets");
     expect(html).toContain("Adset One");

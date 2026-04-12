@@ -17,6 +17,21 @@ type MetaOperatorItem = OperatorSurfaceItem & {
   campaignId: string;
 };
 
+export interface MetaCampaignOperatorSummary {
+  campaignId: string;
+  ownerType: "campaign" | "ad_set";
+  ownerLabel: string;
+  item: OperatorSurfaceItem;
+}
+
+const META_OPERATOR_STATE_ORDER: Record<OperatorAuthorityState, number> = {
+  act_now: 0,
+  needs_truth: 1,
+  blocked: 2,
+  watch: 3,
+  no_action: 4,
+};
+
 function formatMoney(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
   return `$${value.toLocaleString(undefined, {
@@ -79,7 +94,7 @@ function metaReasonOverride(
     return `Profitable, but ${blocker.charAt(0).toLowerCase()}${blocker.slice(1)}`;
   }
   if (muted) {
-    return "Signal is still too thin for a headline action.";
+    return "Signal is still too thin for a headline move, so the right call is to wait.";
   }
   return reason;
 }
@@ -91,19 +106,27 @@ function metaActionLabel(
     bidRegime: string | null | undefined;
     noTouch: boolean;
     missingCreativeAsk?: string[] | null;
+    primaryDriver?: string | null;
   },
 ) {
   if (input.state === "needs_truth") return "Needs truth";
   if (input.noTouch) return "Do not touch";
-  if (input.missingCreativeAsk?.length && input.action !== "scale_budget" && input.action !== "reduce_budget") {
+  if (
+    input.primaryDriver === "creative_fatigue" ||
+    (input.missingCreativeAsk?.length &&
+      input.action !== "scale_budget" &&
+      input.action !== "reduce_budget")
+  ) {
     return "Refresh creative";
   }
+  if (input.action === "pause") return "Pause";
   if (input.action === "scale_budget" || input.action === "recover") return "Increase budget";
-  if (input.action === "reduce_budget" || input.action === "pause") return "Reduce budget";
+  if (input.action === "reduce_budget") return "Reduce budget";
   if (input.action === "tighten_bid") {
-    if (input.bidRegime === "cost_cap") return "Lower cost cap";
-    if (input.bidRegime === "bid_cap") return "Lower bid cap";
-    return "Lower bid control";
+    if (input.bidRegime === "cost_cap") return "Review cost cap";
+    if (input.bidRegime === "bid_cap") return "Review bid cap";
+    if (input.bidRegime === "roas_floor") return "Review target ROAS";
+    return "Review bid control";
   }
   if (input.action === "monitor_only" || input.action === "hold") return "Wait";
   if (
@@ -158,6 +181,7 @@ export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): Ope
       bidRegime: decision.policy.bidRegime,
       noTouch: decision.noTouch,
       missingCreativeAsk: decision.missingCreativeAsk,
+      primaryDriver: decision.policy.primaryDriver,
     }),
     authorityState,
     reason,
@@ -178,7 +202,7 @@ export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): Ope
   };
 }
 
-function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision): OperatorSurfaceItem {
+export function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision): OperatorSurfaceItem {
   const authorityState = metaAuthorityState(decision);
   const muted = isMetaMuted(decision);
   const blocker = metaBlockerFromTrust(
@@ -198,6 +222,7 @@ function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision): Oper
       bidRegime: decision.policy.bidRegime,
       noTouch: decision.noTouch,
       missingCreativeAsk: decision.missingCreativeAsk,
+      primaryDriver: decision.policy.primaryDriver,
     }),
     authorityState,
     reason,
@@ -212,6 +237,57 @@ function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision): Oper
     muted,
     mutedReason: muted ? "Thin-signal or inactive campaigns stay out of the headline action stack." : null,
   };
+}
+
+function compareMetaOperatorItems(left: MetaOperatorItem, right: MetaOperatorItem) {
+  return META_OPERATOR_STATE_ORDER[left.authorityState] - META_OPERATOR_STATE_ORDER[right.authorityState];
+}
+
+export function buildMetaCampaignOperatorLookup(
+  decisionOs: MetaDecisionOsV1Response | null | undefined,
+) {
+  const lookup = new Map<string, MetaCampaignOperatorSummary>();
+  if (!decisionOs) return lookup;
+
+  const adSetItems = decisionOs.adSets.map((decision) => ({
+    campaignId: decision.campaignId,
+    ownerType: "ad_set" as const,
+    ownerLabel: decision.adSetName,
+    item: buildMetaOperatorItemFromAdSet(decision),
+  }));
+  const campaignItems = decisionOs.campaigns.map((decision) => ({
+    campaignId: decision.campaignId,
+    ownerType: "campaign" as const,
+    ownerLabel: decision.role,
+    item: buildMetaOperatorItemFromCampaign(decision),
+  }));
+  const campaignIds = new Set<string>([
+    ...adSetItems.map((entry) => entry.campaignId),
+    ...campaignItems.map((entry) => entry.campaignId),
+  ]);
+
+  for (const campaignId of campaignIds) {
+    const visibleAdSet = adSetItems
+      .filter((entry) => entry.campaignId === campaignId && !entry.item.muted)
+      .sort((left, right) =>
+        compareMetaOperatorItems(
+          { campaignId: left.campaignId, ...left.item },
+          { campaignId: right.campaignId, ...right.item },
+        ),
+      )[0];
+    const campaignItem = campaignItems.find((entry) => entry.campaignId === campaignId);
+    const mutedAdSet = adSetItems.find((entry) => entry.campaignId === campaignId);
+    const selected = visibleAdSet ?? campaignItem ?? mutedAdSet;
+    if (!selected) continue;
+    lookup.set(campaignId, {
+      campaignId,
+      ownerType: selected.ownerType,
+      ownerLabel: selected.ownerLabel,
+      item: selected.item,
+    });
+  }
+
+  return lookup;
 }
 
 export function buildMetaOperatorSurfaceModel(
@@ -234,28 +310,21 @@ export function buildMetaOperatorSurfaceModel(
     })) satisfies MetaOperatorItem[];
 
   const items = [...adSetItems, ...campaignItems]
-    .sort((left, right) => {
-      const stateOrder: Record<OperatorAuthorityState, number> = {
-        act_now: 0,
-        needs_truth: 1,
-        blocked: 2,
-        watch: 3,
-        no_action: 4,
-      };
-      return stateOrder[left.authorityState] - stateOrder[right.authorityState];
-    })
+    .sort(compareMetaOperatorItems)
     .map(({ campaignId: _campaignId, ...item }) => item);
 
   const buckets = buildOperatorBuckets(items, {
     labels: {
-      needs_truth: "Profitable but blocked",
-      watch: "Wait",
-      no_action: "Protected",
+      act_now: "Act now",
+      needs_truth: "Profitable but capped",
+      watch: "Watch / wait",
+      no_action: "Do not touch",
     },
     summaries: {
+      act_now: "The first lever is explicit enough to move on today.",
       needs_truth: "Profitable rows that still need truth or regime clearance before a stronger move.",
-      watch: "Material rows that should stay visible but should not be pushed yet.",
-      no_action: "Stable or protected rows where leaving them alone is the correct move.",
+      watch: "Visible rows where the right action is restraint until signal, cooldown, or readiness changes.",
+      no_action: "Stable or protected rows where touching them would create unnecessary risk.",
     },
     order: ["act_now", "needs_truth", "watch", "no_action"],
   });
@@ -286,7 +355,7 @@ export function buildMetaOperatorSurfaceModel(
 
   return {
     surfaceLabel: "Meta",
-    heading: "Single Action Authority",
+    heading: "Daily Operator Surface",
     headline,
     note:
       decisionOs.authority?.note ??
