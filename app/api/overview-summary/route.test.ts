@@ -158,13 +158,18 @@ describe("GET /api/overview-summary", () => {
         "costModel",
         "customMetrics",
         "dateRange",
+        "effectiveEndDate",
         "expenses",
         "insights",
+        "isStaleSnapshot",
+        "lastWarehouseWriteAt",
         "ltv",
         "pins",
         "platforms",
+        "requestedEndDate",
         "shopifyServing",
         "storeMetrics",
+        "warehouseReadyThroughDate",
         "webAnalytics",
       ].sort()
     );

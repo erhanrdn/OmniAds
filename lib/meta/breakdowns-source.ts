@@ -1,5 +1,6 @@
 import {
   hasUsableCurrentDaySnapshot,
+  isMetaTodayLiveReadsEnabled,
   type CurrentDayWarehouseSnapshotFields,
 } from "@/lib/current-day-snapshot";
 import { isDemoBusiness } from "@/lib/business-mode.server";
@@ -171,7 +172,7 @@ export async function getMetaBreakdownsForRange(input: {
         }).catch(() => null)
       : null;
   const currentDaySnapshot =
-    rangeContext.isSelectedCurrentDay
+    rangeContext.isSelectedCurrentDay && !isMetaTodayLiveReadsEnabled()
       ? await resolveMetaCurrentDaySnapshot({
           businessId: input.businessId,
           requestedDate: resolvedEnd,
@@ -187,7 +188,11 @@ export async function getMetaBreakdownsForRange(input: {
       ? currentDaySnapshot.effectiveEndDate
       : resolvedEnd;
 
-  if (rangeContext.isSelectedCurrentDay && !hasUsableCurrentDaySnapshot(currentDaySnapshot)) {
+  if (
+    rangeContext.isSelectedCurrentDay &&
+    currentDaySnapshot != null &&
+    !hasUsableCurrentDaySnapshot(currentDaySnapshot)
+  ) {
     return {
       ...emptyBreakdowns(
         "ok",
@@ -374,7 +379,7 @@ export async function getMetaCountryBreakdownsForRange(input: {
         }).catch(() => null)
       : null;
   const currentDaySnapshot =
-    rangeContext.isSelectedCurrentDay
+    rangeContext.isSelectedCurrentDay && !isMetaTodayLiveReadsEnabled()
       ? await resolveMetaCurrentDaySnapshot({
           businessId: input.businessId,
           requestedDate: resolvedEnd,
@@ -390,7 +395,11 @@ export async function getMetaCountryBreakdownsForRange(input: {
       ? currentDaySnapshot.effectiveEndDate
       : resolvedEnd;
 
-  if (rangeContext.isSelectedCurrentDay && !hasUsableCurrentDaySnapshot(currentDaySnapshot)) {
+  if (
+    rangeContext.isSelectedCurrentDay &&
+    currentDaySnapshot != null &&
+    !hasUsableCurrentDaySnapshot(currentDaySnapshot)
+  ) {
     return {
       status: "ok",
       rows: [],

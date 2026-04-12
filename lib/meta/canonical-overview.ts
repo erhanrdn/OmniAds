@@ -139,64 +139,64 @@ export async function getMetaCanonicalOverviewSummary(input: {
           message: error instanceof Error ? error.message : String(error),
         });
       }
-    }
+    } else {
+      const snapshot = await resolveMetaCurrentDaySnapshot({
+        businessId: input.businessId,
+        requestedDate: input.endDate,
+        scope: "summary",
+      });
+      if (!hasUsableCurrentDaySnapshot(snapshot)) {
+        return {
+          ...warehouseSummary,
+          totals: {
+            spend: 0,
+            revenue: 0,
+            conversions: 0,
+            roas: 0,
+            cpa: null,
+            ctr: null,
+            cpc: null,
+            impressions: 0,
+            clicks: 0,
+            reach: 0,
+          },
+          accounts: [],
+          isPartial: true,
+          notReadyReason: buildCurrentDaySnapshotReason({
+            warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+            currentDateInTimezone: rangeContext.currentDateInTimezone,
+            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+          }),
+          readSource: "warehouse_snapshot_current_day",
+          ...snapshot,
+        };
+      }
 
-    const snapshot = await resolveMetaCurrentDaySnapshot({
-      businessId: input.businessId,
-      requestedDate: input.endDate,
-      scope: "summary",
-    });
-    if (!hasUsableCurrentDaySnapshot(snapshot)) {
+      const effectiveSnapshotDate = snapshot.effectiveEndDate!;
+      const snapshotSummary =
+        effectiveSnapshotDate === input.endDate
+          ? warehouseSummary
+          : await getMetaWarehouseSummary({
+              businessId: input.businessId,
+              startDate: effectiveSnapshotDate,
+              endDate: effectiveSnapshotDate,
+              providerAccountIds,
+            });
       return {
-        ...warehouseSummary,
-        totals: {
-          spend: 0,
-          revenue: 0,
-          conversions: 0,
-          roas: 0,
-          cpa: null,
-          ctr: null,
-          cpc: null,
-          impressions: 0,
-          clicks: 0,
-          reach: 0,
-        },
-        accounts: [],
-        isPartial: true,
-        notReadyReason: buildCurrentDaySnapshotReason({
-          warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-          currentDateInTimezone: rangeContext.currentDateInTimezone,
-          primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-        }),
+        ...snapshotSummary,
+        isPartial: false,
+        notReadyReason:
+          snapshot.isStaleSnapshot
+            ? buildCurrentDaySnapshotReason({
+                warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              })
+            : null,
         readSource: "warehouse_snapshot_current_day",
         ...snapshot,
       };
     }
-
-    const effectiveSnapshotDate = snapshot.effectiveEndDate!;
-    const snapshotSummary =
-      effectiveSnapshotDate === input.endDate
-        ? warehouseSummary
-        : await getMetaWarehouseSummary({
-            businessId: input.businessId,
-            startDate: effectiveSnapshotDate,
-            endDate: effectiveSnapshotDate,
-            providerAccountIds,
-          });
-    return {
-      ...snapshotSummary,
-      isPartial: false,
-      notReadyReason:
-        snapshot.isStaleSnapshot
-          ? buildCurrentDaySnapshotReason({
-              warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-              currentDateInTimezone: rangeContext.currentDateInTimezone,
-              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-            })
-          : null,
-      readSource: "warehouse_snapshot_current_day",
-      ...snapshot,
-    };
   }
 
   const historicalServeableWhileFinalizePending =

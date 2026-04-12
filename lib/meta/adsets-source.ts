@@ -110,50 +110,50 @@ export async function getMetaAdSetsForRange(input: {
             notReadyReason: null,
           };
         }
-      }
+      } else {
+        const snapshot = await resolveMetaCurrentDaySnapshot({
+          businessId: input.businessId,
+          requestedDate: resolvedEnd,
+          scope: "adsets",
+        });
+        if (!hasUsableCurrentDaySnapshot(snapshot)) {
+          return {
+            status: "ok",
+            rows: [],
+            isPartial: true,
+            notReadyReason: buildCurrentDaySnapshotReason({
+              warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+            }),
+            ...snapshot,
+          };
+        }
 
-      const snapshot = await resolveMetaCurrentDaySnapshot({
-        businessId: input.businessId,
-        requestedDate: resolvedEnd,
-        scope: "adsets",
-      });
-      if (!hasUsableCurrentDaySnapshot(snapshot)) {
+        const effectiveSnapshotDate = snapshot.effectiveEndDate!;
+        const warehouseRows = await getMetaWarehouseAdSets({
+          businessId: input.businessId,
+          startDate: effectiveSnapshotDate,
+          endDate: effectiveSnapshotDate,
+          campaignId: input.campaignId,
+          providerAccountIds,
+          includePrev: input.includePrev,
+        });
         return {
           status: "ok",
-          rows: [],
-          isPartial: true,
-          notReadyReason: buildCurrentDaySnapshotReason({
-            warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-            currentDateInTimezone: rangeContext.currentDateInTimezone,
-            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-          }),
+          rows: warehouseRows,
+          isPartial: false,
+          notReadyReason:
+            snapshot.isStaleSnapshot
+              ? buildCurrentDaySnapshotReason({
+                  warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+                  currentDateInTimezone: rangeContext.currentDateInTimezone,
+                  primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                })
+              : null,
           ...snapshot,
         };
       }
-
-      const effectiveSnapshotDate = snapshot.effectiveEndDate!;
-      const warehouseRows = await getMetaWarehouseAdSets({
-        businessId: input.businessId,
-        startDate: effectiveSnapshotDate,
-        endDate: effectiveSnapshotDate,
-        campaignId: input.campaignId,
-        providerAccountIds,
-        includePrev: input.includePrev,
-      });
-      return {
-        status: "ok",
-        rows: warehouseRows,
-        isPartial: false,
-        notReadyReason:
-          snapshot.isStaleSnapshot
-            ? buildCurrentDaySnapshotReason({
-                warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-                currentDateInTimezone: rangeContext.currentDateInTimezone,
-                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-              })
-            : null,
-        ...snapshot,
-      };
     }
 
     const warehouseRows = await getMetaWarehouseAdSets({

@@ -164,50 +164,50 @@ export async function getMetaCampaignsForRange(input: {
                 : null,
           };
         }
-      }
-
-      const snapshot = await resolveMetaCurrentDaySnapshot({
-        businessId: input.businessId,
-        requestedDate: resolvedEnd,
-        scope: "campaigns",
-      });
-      if (!hasUsableCurrentDaySnapshot(snapshot)) {
-        return {
-          status: "ok",
-          rows: [],
-          isPartial: true,
-          notReadyReason:
-            buildCurrentDaySnapshotReason({
-              warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-              currentDateInTimezone: rangeContext.currentDateInTimezone,
-              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-            }),
-          ...snapshot,
-        };
-      }
-
-      const effectiveSnapshotDate = snapshot.effectiveEndDate!;
-      rows = (await getMetaWarehouseCampaignTable({
-        businessId: input.businessId,
-        startDate: effectiveSnapshotDate,
-        endDate: effectiveSnapshotDate,
-        providerAccountIds: targetAccountIds,
-        includePrev: input.includePrev,
-      })) as MetaCampaignRow[];
-      return {
-        status: "ok",
-        rows,
-        isPartial: false,
-        notReadyReason:
-          snapshot.isStaleSnapshot
-            ? buildCurrentDaySnapshotReason({
+      } else {
+        const snapshot = await resolveMetaCurrentDaySnapshot({
+          businessId: input.businessId,
+          requestedDate: resolvedEnd,
+          scope: "campaigns",
+        });
+        if (!hasUsableCurrentDaySnapshot(snapshot)) {
+          return {
+            status: "ok",
+            rows: [],
+            isPartial: true,
+            notReadyReason:
+              buildCurrentDaySnapshotReason({
                 warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
                 currentDateInTimezone: rangeContext.currentDateInTimezone,
                 primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-              })
-            : null,
-        ...snapshot,
-      };
+              }),
+            ...snapshot,
+          };
+        }
+
+        const effectiveSnapshotDate = snapshot.effectiveEndDate!;
+        rows = (await getMetaWarehouseCampaignTable({
+          businessId: input.businessId,
+          startDate: effectiveSnapshotDate,
+          endDate: effectiveSnapshotDate,
+          providerAccountIds: targetAccountIds,
+          includePrev: input.includePrev,
+        })) as MetaCampaignRow[];
+        return {
+          status: "ok",
+          rows,
+          isPartial: false,
+          notReadyReason:
+            snapshot.isStaleSnapshot
+              ? buildCurrentDaySnapshotReason({
+                  warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
+                  currentDateInTimezone: rangeContext.currentDateInTimezone,
+                  primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                })
+              : null,
+          ...snapshot,
+        };
+      }
     }
 
     rows = (await getMetaWarehouseCampaignTable({
