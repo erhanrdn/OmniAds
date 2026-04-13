@@ -112,6 +112,7 @@ export type MetaAuthoritativeReconciliationResult =
 
 export type MetaHistoricalVerificationState =
   | "processing"
+  | "blocked"
   | "finalized_verified"
   | "failed"
   | "repair_required";
@@ -157,6 +158,7 @@ export interface MetaSelectedRangeTruthReadiness {
   completedCoreDays: number;
   blockingReasons: MetaDirtyRecentReason[];
   reasonCounts: Record<string, number>;
+  detectorReasonCodes?: string[];
   sourceFetchedAt?: string | null;
   publishedAt?: string | null;
   verificationState?: MetaHistoricalVerificationState;
@@ -658,12 +660,18 @@ export interface MetaAuthoritativeBusinessOpsSnapshot {
 export interface MetaAuthoritativeDaySurfaceState {
   surface: MetaWarehouseScope;
   manifest: MetaAuthoritativeSourceManifestRecord | null;
+  latestSlice?: MetaAuthoritativeSliceVersionRecord | null;
   publication:
     | {
         publication: MetaAuthoritativePublicationPointerRecord;
         sliceVersion: MetaAuthoritativeSliceVersionRecord;
       }
     | null;
+  latestFailure?: MetaAuthoritativeRecentFailureRecord | null;
+  plannerState?: MetaAuthoritativeDayStateRecord | null;
+  detectorState?: MetaAuthoritativeDayStateStatus;
+  detectorReasonCode?: string | null;
+  contractMismatch?: boolean;
 }
 
 export interface MetaAuthoritativeDayVerification {
@@ -680,6 +688,7 @@ export interface MetaAuthoritativeDayVerification {
   } | null;
   surfaces: MetaAuthoritativeDaySurfaceState[];
   lastFailure: MetaAuthoritativeRecentFailureRecord | null;
+  detectorReasonCodes?: string[];
   repairBacklog: number;
   deadLetters: number;
   staleLeases: number;

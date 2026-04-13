@@ -28,6 +28,7 @@ vi.mock("@/lib/provider-account-snapshots", () => ({
 }));
 
 vi.mock("@/lib/meta/warehouse", () => ({
+  getMetaAuthoritativeDayVerification: vi.fn(),
   getLatestMetaSyncHealth: vi.fn(),
   getMetaAccountDailyCoverage: vi.fn(),
   getMetaCampaignDailyCoverage: vi.fn(),
@@ -217,6 +218,27 @@ describe("GET /api/meta/status", () => {
     vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncState).mockResolvedValue([]);
+    vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockResolvedValue({
+      businessId: "biz",
+      providerAccountId: "act_1",
+      day: "2026-04-12",
+      verificationState: "finalized_verified",
+      sourceManifestState: "completed",
+      validationState: "finalized_verified",
+      activePublication: {
+        publishedAt: "2026-04-13T00:05:00.000Z",
+        publicationReason: "finalize_day",
+        activeSliceVersionId: "slice-1",
+      },
+      surfaces: [],
+      lastFailure: null,
+      detectorReasonCodes: [],
+      repairBacklog: 0,
+      deadLetters: 0,
+      staleLeases: 0,
+      queuedPartitions: 0,
+      leasedPartitions: 0,
+    } as never);
     const sql = vi.fn(async () => [
       {
         has_account_row: false,
@@ -619,6 +641,98 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("surfaces blocked publication mismatches as action-required selected-range truth", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue({
+      workerHealthy: true,
+      heartbeatAgeMs: 5_000,
+      runnerLeaseActive: true,
+      ownerWorkerId: "worker-1",
+      consumeStage: "consuming",
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "blocked",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: {
+        blocked: 1,
+        publication_pointer_missing_after_finalize: 1,
+      },
+      detectorReasonCodes: ["publication_pointer_missing_after_finalize"],
+      verificationState: "blocked",
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: null,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: null,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-10&endDate=2026-04-10"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("action_required");
+    expect(payload.selectedRangeTruth).toMatchObject({
+      verificationState: "blocked",
+      detectorReasonCodes: ["publication_pointer_missing_after_finalize"],
+    });
+    expect(payload.pageReadiness.requiredSurfaces.summary).toMatchObject({
+      state: "blocked",
+      reason:
+        "Historical Meta publication is blocked because finalized work does not match the required published truth.",
+    });
+    expect(payload.operations).not.toBeNull();
+    expect(payload.operations.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "blocked_publication_mismatch",
+        }),
+      ]),
+    );
+  });
+
   it("does not mark current-day summary or campaigns ready when live availability is missing", async () => {
     const today = getUtcTodayIso();
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
@@ -890,15 +1004,23 @@ describe("GET /api/meta/status", () => {
         ],
       ]) as never
     );
-    vi.mocked(db.getDb).mockReturnValue(
-      vi.fn(async () => [
-        {
-          has_account_row: true,
-          has_campaign_row: true,
-          active_finalize_count: 1,
-        },
-      ]) as never,
-    );
+    vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockResolvedValue({
+      businessId: "biz",
+      providerAccountId: "act_1",
+      day: "2026-04-12",
+      verificationState: "processing",
+      sourceManifestState: "running",
+      validationState: "processing",
+      activePublication: null,
+      surfaces: [],
+      lastFailure: null,
+      detectorReasonCodes: [],
+      repairBacklog: 0,
+      deadLetters: 0,
+      staleLeases: 0,
+      queuedPartitions: 0,
+      leasedPartitions: 1,
+    } as never);
 
     const response = await GET(
       new NextRequest(

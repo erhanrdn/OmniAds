@@ -485,6 +485,8 @@ async function getMetaRefreshCompletionStatus(input: {
   return {
     status: truthReadiness.truthReady
       ? ("finalized_verified" as const)
+      : historicalStatus === "blocked"
+        ? ("blocked" as const)
       : historicalStatus === "failed"
         ? ("failed" as const)
         : historicalStatus === "repair_required"

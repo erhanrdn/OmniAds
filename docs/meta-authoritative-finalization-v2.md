@@ -301,6 +301,48 @@ For `today`:
 - manual refresh may still run today-observe/live-biased work
 - it must not claim historical finalization semantics for the current day
 
+## Phase 8 Detector Hardening Addendum
+
+Phase 8 is now complete.
+
+What changed:
+
+- missing publication after finalize-like work is now explicit detector truth
+- planner/worker/publication mismatch is now surfaced as a first-class non-success outcome
+- operator tooling now distinguishes `blocked`, `repair_required`, and retryable non-terminal states
+- stale leases require proof of no progress before they are treated as hard terminal
+- published-truth serving semantics remain unchanged
+
+Detector state meanings:
+
+- `blocked`
+  - finalize-like completion exists, but the required publication pointer is missing
+  - planner says `published` while publication truth disagrees
+  - worker/planner/web/publication contract mismatch makes retry unsafe without diagnosis
+- `repair_required`
+  - validation or reconciliation shows that a fresh authoritative retry is the correct next action
+  - current published truth remains active until the replacement is verified and published
+- retryable non-terminal
+  - `queued`, `running`, or `pending` remain non-terminal when queue, lease, or manifest evidence still supports progress
+  - stale leases stay non-terminal until cleanup/reconciliation proves no progress
+
+First operator commands:
+
+1. `npm run meta:state-check -- <businessId>`
+2. `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
+3. `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
+
+Posture locks:
+
+- `today` remains live-only
+- non-today inside the horizon still serves published verified truth only
+- horizon-outside fallback semantics are unchanged
+- `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
+
+Next recommended step:
+
+- Meta Phase 9 retention enforcement preparation without enabling retention execution by default
+
 ## Compatibility Strategy
 
 Compatibility with the current tables and page contracts is mandatory.
@@ -347,7 +389,7 @@ rather than the only proof of authoritative finalization.
 
 ## Exact File Touchpoints For Implementation
 
-Primary implementation touchpoints for upcoming phases:
+Primary implementation touchpoints for the active rollout:
 
 - `lib/sync/meta-sync.ts`
   - enqueue state transitions
@@ -371,6 +413,10 @@ Primary implementation touchpoints for upcoming phases:
 - `app/api/meta/status/route.ts`
   - surface finalization/repair truth without conflating it with provider
     readiness
+- `lib/sync/provider-repair-engine.ts`
+  - auto-heal classification for blocked, repair-required, retryable, and stale-lease-proof states
+- `lib/sync/provider-status-truth.ts`
+  - operator/admin truth projection for detector outcomes
 - `lib/meta/page-readiness.ts`
   - ensure selected-range readiness messaging remains truthful
 - `lib/migrations.ts`

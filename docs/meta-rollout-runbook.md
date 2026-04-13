@@ -52,6 +52,29 @@ Historical Meta executor success now has a strict meaning:
 6. Near the rollover boundary, `D-2` historical advancement must wait for a fully published `D-1`.
 7. Breakdown publication is only required inside the `394` day breakdown horizon.
 
+## Phase 8 Detector And Auto-Heal Contract
+
+The detector and reconciliation path now treat publication mismatches as
+first-class operator states.
+
+1. `blocked`
+   - finalize-like completion exists, but required publication is missing
+   - planner says `published` while the publication pointer is absent
+   - worker/planner/web/publication truth disagrees in a way that makes retry unsafe without diagnosis
+2. `repair_required`
+   - a fresh authoritative retry is the correct next step after validation or reconciliation evidence
+   - current published truth remains active until the replacement is verified and published
+3. Retryable non-terminal states
+   - `queued`, `running`, or `pending` remain non-terminal when authoritative progress is still justified by queue, lease, or manifest evidence
+   - stale leases remain non-terminal until cleanup/reconciliation proves no progress
+4. First operator checks for any suspected mismatch
+   - `npm run meta:state-check -- <businessId>`
+   - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
+   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
+5. Retention posture remains unchanged
+   - `META_RETENTION_EXECUTION_ENABLED` is still disabled by default
+   - this runbook does not authorize retention rollout
+
 ## Preflight
 
 1. Confirm migrations are additive and rollout-safe
@@ -187,16 +210,18 @@ Use these commands before considering manual database work:
 
 1. Business-wide state snapshot
    - `npm run meta:state-check -- <businessId>`
-2. Force sync-state refresh without deleting data
-   - `npm run meta:refresh-state -- <businessId>`
-3. Reschedule Meta work safely
-   - `npm run meta:reschedule -- <businessId>`
-4. Cleanup stale leases / orchestration state
-   - `npm run meta:cleanup -- <businessId>`
-5. Replay dead-letter work and immediately re-plan
-   - `npm run meta:replay-dead-letter -- <businessId> [scope]`
-6. Verify one business/account/day end-to-end
+2. Verify one business/account/day end-to-end
    - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
+3. Verify required publication pointers
+   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
+4. Force sync-state refresh without deleting data
+   - `npm run meta:refresh-state -- <businessId>`
+5. Reschedule Meta work safely
+   - `npm run meta:reschedule -- <businessId>`
+6. Cleanup stale leases / orchestration state
+   - `npm run meta:cleanup -- <businessId>`
+7. Replay dead-letter work and immediately re-plan
+   - `npm run meta:replay-dead-letter -- <businessId> [scope]`
 
 ## Verify-Day Procedure
 
@@ -221,20 +246,23 @@ Interpretation:
    - check queue vs leased counts
    - if leased is positive, wait for worker or inspect worker heartbeat
    - if queued is positive and leased is zero, run `meta:refresh-state` then `meta:reschedule`
-   - if `meta:state-check` still shows `pending`, `queued`, or `running` planner rows with no publication, treat this as non-terminal and prefer requeue/reschedule semantics over dead-letter assumptions
+   - if detector output says `queued`, `running`, or `stale_lease_pending_proof`, treat this as non-terminal and prefer requeue/reschedule/cleanup semantics over dead-letter assumptions
 3. planner or verify output indicates `blocked`
    - treat this as an explicit publication or contract mismatch, not a soft success
    - inspect manifest completion vs publication absence
-   - confirm worker/web/planner contract alignment before replaying work
+   - confirm worker/planner/publication alignment before replaying work
+   - use `meta:verify-publish` before attempting a fresh authoritative retry
 4. `verificationState=failed` or `repair_required`
    - keep current published truth active
    - inspect `lastFailure`
    - follow the recommended recovery action from the command output
+   - prefer a fresh authoritative retry only after the detector recommends `repair_required`
 5. `deadLetters > 0`
    - run `meta:replay-dead-letter`
 6. `staleLeases > 0`
    - run `meta:cleanup`
-   - then `meta:reschedule`
+   - then `meta:verify-day`
+   - only reschedule after there is proof the stale lease is no longer making progress
 
 ## Recovery Procedure
 
@@ -246,13 +274,15 @@ Recovery must remain product-safe:
 
 Preferred order:
 
-1. `meta:verify-day`
-2. `meta:refresh-state`
-3. `meta:reschedule`
-4. `meta:cleanup` if stale leases exist
-5. `meta:replay-dead-letter` if dead letters exist
-6. Re-run `meta:verify-day`
-7. Do not treat a normal worker completion without publish verification as recovery success
+1. `meta:state-check`
+2. `meta:verify-day`
+3. `meta:verify-publish`
+4. `meta:cleanup` if stale leases exist and proof of no progress is needed
+5. `meta:refresh-state`
+6. `meta:reschedule`
+7. `meta:replay-dead-letter` if dead letters exist
+8. Re-run `meta:verify-day`
+9. Do not treat a normal worker completion without publish verification as recovery success
 
 ## Failure Handling
 

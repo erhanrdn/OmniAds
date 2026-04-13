@@ -116,7 +116,13 @@ async function reconcileMetaAuthoritativeRecentWindow(input: {
   const repairDates = new Set<string>();
   let daysScanned = 0;
   let pendingDays = 0;
+  let blockedDays = 0;
+  let failedDays = 0;
   let repairRequiredDays = 0;
+  let retryableQueuedDays = 0;
+  let retryableRunningDays = 0;
+  let staleLeaseProofDays = 0;
+  let idlePendingDays = 0;
 
   for (const providerAccountId of providerAccountIds) {
     const timezone = timezoneById.get(providerAccountId) ?? "UTC";
@@ -156,12 +162,46 @@ async function reconcileMetaAuthoritativeRecentWindow(input: {
       if (verification.verificationState === "finalized_verified") {
         continue;
       }
+      const activeDetectorStates = new Set(
+        verification.surfaces.map((surface) => surface.detectorState),
+      );
+
+      if (verification.verificationState === "blocked") {
+        blockedDays += 1;
+        continue;
+      }
       if (verification.verificationState === "repair_required") {
         repairRequiredDays += 1;
+      } else if (verification.verificationState === "failed") {
+        failedDays += 1;
       } else {
         pendingDays += 1;
       }
-      if (verification.queuedPartitions > 0 || verification.leasedPartitions > 0) {
+
+      if (verification.staleLeases > 0) {
+        staleLeaseProofDays += 1;
+        continue;
+      }
+      if (
+        verification.leasedPartitions > 0 ||
+        activeDetectorStates.has("running")
+      ) {
+        retryableRunningDays += 1;
+        continue;
+      }
+      if (
+        verification.queuedPartitions > 0 ||
+        verification.repairBacklog > 0 ||
+        activeDetectorStates.has("queued")
+      ) {
+        retryableQueuedDays += 1;
+        continue;
+      }
+      if (
+        verification.verificationState !== "repair_required" &&
+        verification.verificationState !== "failed"
+      ) {
+        idlePendingDays += 1;
         continue;
       }
       repairDates.add(day);
@@ -172,7 +212,13 @@ async function reconcileMetaAuthoritativeRecentWindow(input: {
     providerAccountCount: providerAccountIds.length,
     daysScanned,
     pendingDays,
+    blockedDays,
+    failedDays,
     repairRequiredDays,
+    retryableQueuedDays,
+    retryableRunningDays,
+    staleLeaseProofDays,
+    idlePendingDays,
     repairDates: Array.from(repairDates).sort(),
   };
 }
@@ -537,7 +583,13 @@ export async function runMetaRepairCycle(
     providerAccountCount: 0,
     daysScanned: 0,
     pendingDays: 0,
+    blockedDays: 0,
+    failedDays: 0,
     repairRequiredDays: 0,
+    retryableQueuedDays: 0,
+    retryableRunningDays: 0,
+    staleLeaseProofDays: 0,
+    idlePendingDays: 0,
     repairDates: [] as string[],
   }));
   const repeatedCanonicalDriftIncidents = canonicalDriftIncidents.filter(
@@ -591,7 +643,7 @@ export async function runMetaRepairCycle(
     cleanupError != null ||
     (replayedDeadLetters?.manualTruthDefectCount ?? 0) > 0 ||
     repeatedCanonicalDriftIncidents.length > 0 ||
-    recentAuthoritativeWindow.repairRequiredDays > 0 ||
+    recentAuthoritativeWindow.blockedDays > 0 ||
     persistentIntegrityMismatch ||
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
       (replayedDeadLetters?.changedCount ?? 0) <= 0) ||
@@ -619,11 +671,11 @@ export async function runMetaRepairCycle(
           { repairable: false }
         )
       : null,
-    recentAuthoritativeWindow.repairRequiredDays > 0
+    recentAuthoritativeWindow.blockedDays > 0
       ? buildBlockingReason(
-          "repair_required_days",
-          `${recentAuthoritativeWindow.repairRequiredDays} Meta authoritative day(s) still require repair in the recent 30-day window.`,
-          { repairable: true }
+          "blocked_authoritative_publication_mismatch",
+          `${recentAuthoritativeWindow.blockedDays} Meta authoritative day(s) are blocked by publication or planner contract mismatch in the recent 30-day window.`,
+          { repairable: false }
         )
       : null,
     persistentIntegrityMismatch
@@ -667,8 +719,33 @@ export async function runMetaRepairCycle(
     ),
     buildRepairableAction(
       "repair_recent_authoritative_days",
-      "Repair recent Meta authoritative days missing finalized publication.",
-      { available: authoritativeRepairRanges.length > 0 }
+      "Queue a fresh authoritative retry for recent Meta days marked repair_required or failed.",
+      {
+        available:
+          authoritativeRepairRanges.length > 0 ||
+          recentAuthoritativeWindow.repairRequiredDays > 0 ||
+          recentAuthoritativeWindow.failedDays > 0,
+      }
+    ),
+    buildRepairableAction(
+      "inspect_blocked_authoritative_days",
+      "Inspect blocked Meta publication mismatches before retrying authoritative work.",
+      { available: recentAuthoritativeWindow.blockedDays > 0 }
+    ),
+    buildRepairableAction(
+      "prove_stale_leases_before_cleanup",
+      "Confirm no authoritative progress exists before treating stale Meta leases as reclaimable.",
+      { available: recentAuthoritativeWindow.staleLeaseProofDays > 0 }
+    ),
+    buildRepairableAction(
+      "monitor_retryable_authoritative_work",
+      "Leave queued or running Meta authoritative work non-terminal until publish evidence or failure proof appears.",
+      {
+        available:
+          recentAuthoritativeWindow.retryableQueuedDays > 0 ||
+          recentAuthoritativeWindow.retryableRunningDays > 0 ||
+          recentAuthoritativeWindow.idlePendingDays > 0,
+      }
     ),
   ]);
 

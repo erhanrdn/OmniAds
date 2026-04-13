@@ -57,6 +57,24 @@ Use a real Meta business and at least one real assigned Meta ad account.
 8. `npm run meta:cleanup -- <businessId>`
 9. If needed: `npm run meta:replay-dead-letter -- <businessId> [scope]`
 
+## Phase 8 Detector Posture
+
+Use these interpretations during rollout and release approval:
+
+1. `blocked`
+   - finalize-like work completed, but required publication is missing
+   - planner/publication truth disagrees
+   - operator must diagnose with `meta:state-check`, `meta:verify-day`, and `meta:verify-publish` before retrying
+2. `repair_required`
+   - a fresh authoritative retry is the correct next action
+   - current published truth must remain active until replacement publication succeeds
+3. Retryable non-terminal
+   - `queued`, `running`, and evidence-backed `pending` states remain non-terminal
+   - stale leases are not hard-failed until cleanup/reconciliation proves no progress
+4. Retention posture
+   - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
+   - retention rollout is not part of Phase 8 completion
+
 ## T0 Validation
 
 Run this shortly before or during the account-timezone rollover window.
@@ -100,7 +118,7 @@ This is the critical backend gate.
 Go/no-go:
 
 - `GO` only if autonomous `D-1` finalization reaches `finalized_verified` without a manual reschedule.
-- `NO-GO` if queue movement occurs without verified publication, if planner state becomes `blocked`, or if manual intervention is required for normal rollover success.
+- `NO-GO` if queue movement occurs without verified publication, if planner state becomes `blocked`, if stale leases are hard-failed without proof, or if manual intervention is required for normal rollover success.
 
 ## Manual Refresh Publish Verification
 
@@ -178,7 +196,8 @@ Go/no-go:
    - recovery required no manual SQL
    - old published truth stayed readable until replacement was verified
    - queue resumed draining appropriately
-   - publish verification eventually returns pass or a truthful failure state
+   - publish verification eventually returns pass or a truthful `blocked` / `repair_required` / retryable non-terminal state
+   - stale leases required proof before terminal treatment
 
 Go/no-go:
 
@@ -198,6 +217,8 @@ Meta is product-ready only when all of the following are true:
 - Admin sync health exposes enough authoritative truth for routine operations.
 - Dead-letter and stale-lease recovery work without manual SQL.
 - Rollback can disable `META_AUTHORITATIVE_FINALIZATION_V2` without deleting current published truth.
+- Phase 8 detector outcomes are explicit enough that blocked publication mismatch, repair-required retry, and retryable non-terminal states are distinguishable without manual SQL.
+- `META_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
 - Production rollout succeeded in shadow mode, allowlisted canary, and full rollout order.
 
 Any single failed criterion is a `NO-GO`.

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueueMetaScheduledWork = vi.fn();
 const syncMetaRepairRange = vi.fn();
@@ -9,6 +9,8 @@ const syncGoogleAdsRange = vi.fn();
 const refreshGoogleAdsSyncStateForBusiness = vi.fn();
 const getDb = vi.fn();
 const runMigrations = vi.fn();
+const getProviderAccountAssignments = vi.fn();
+const readProviderAccountSnapshot = vi.fn();
 
 vi.mock("@/lib/sync/meta-sync", () => ({
   enqueueMetaScheduledWork,
@@ -25,11 +27,22 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 
 vi.mock("@/lib/meta/warehouse", () => ({
   cleanupMetaPartitionOrchestration: vi.fn(),
+  getMetaAuthoritativeDayVerification: vi.fn(),
+  reconcileMetaAuthoritativeDayStateFromVerification: vi.fn(),
+  upsertMetaAuthoritativeDayState: vi.fn(),
   replayMetaDeadLetterPartitions: vi.fn(),
   requeueMetaRetryableFailedPartitions: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaCanonicalDriftIncidents: vi.fn(),
   getMetaWarehouseIntegrityIncidents: vi.fn(),
+}));
+
+vi.mock("@/lib/provider-account-assignments", () => ({
+  getProviderAccountAssignments,
+}));
+
+vi.mock("@/lib/provider-account-snapshots", () => ({
+  readProviderAccountSnapshot,
 }));
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
@@ -56,6 +69,8 @@ vi.mock("@/lib/migrations", () => ({
 
 describe("provider repair engine", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-13T12:00:00Z"));
     vi.resetAllMocks();
     runMigrations.mockResolvedValue(undefined);
     getDb.mockReturnValue(
@@ -75,6 +90,12 @@ describe("provider repair engine", () => {
     refreshMetaSyncStateForBusiness.mockResolvedValue(undefined);
     refreshGoogleAdsSyncStateForBusiness.mockResolvedValue(undefined);
     syncGoogleAdsRange.mockResolvedValue(undefined);
+    getProviderAccountAssignments.mockResolvedValue(null);
+    readProviderAccountSnapshot.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("surfaces Meta cleanup summary on successful repair", async () => {
@@ -179,6 +200,213 @@ describe("provider repair engine", () => {
         cleanupError: "cleanup blew up",
       })
     );
+  });
+
+  it("treats blocked publication mismatches as blocked auto-heal outcomes", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    getProviderAccountAssignments.mockResolvedValue({
+      account_ids: ["act_1"],
+    });
+    readProviderAccountSnapshot.mockResolvedValue({
+      accounts: [{ id: "act_1", timezone: "UTC" }],
+    });
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaAuthoritativeDayVerification).mockImplementation(
+      async ({ day }) =>
+        day === "2026-04-05"
+          ? ({
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day: "2026-04-05",
+              verificationState: "blocked",
+              sourceManifestState: "completed",
+              validationState: "blocked",
+              activePublication: null,
+              surfaces: [
+                {
+                  surface: "account_daily",
+                  manifest: null,
+                  publication: null,
+                  detectorState: "blocked",
+                  detectorReasonCode: "publication_pointer_missing_after_finalize",
+                },
+              ],
+              lastFailure: null,
+              detectorReasonCodes: ["publication_pointer_missing_after_finalize"],
+              repairBacklog: 0,
+              deadLetters: 0,
+              staleLeases: 0,
+              queuedPartitions: 0,
+              leasedPartitions: 0,
+            } as never)
+          : (null as never),
+    );
+    vi.mocked(
+      metaWarehouse.reconcileMetaAuthoritativeDayStateFromVerification,
+    ).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.upsertMetaAuthoritativeDayState).mockResolvedValue(
+      null as never,
+    );
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(result.repair.blocked).toBe(true);
+    expect(result.repair.blockingReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "blocked_authoritative_publication_mismatch",
+          repairable: false,
+        }),
+      ]),
+    );
+    expect(result.repair.repairableActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "inspect_blocked_authoritative_days",
+          available: true,
+        }),
+      ]),
+    );
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        recentAuthoritativeWindow: expect.objectContaining({
+          blockedDays: 1,
+        }),
+        queuedRecentAuthoritativeRepairs: 0,
+      }),
+    );
+    expect(syncMetaRepairRange).not.toHaveBeenCalled();
+  });
+
+  it("keeps stale-lease proof cases non-terminal until no-progress evidence exists", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    getProviderAccountAssignments.mockResolvedValue({
+      account_ids: ["act_1"],
+    });
+    readProviderAccountSnapshot.mockResolvedValue({
+      accounts: [{ id: "act_1", timezone: "UTC" }],
+    });
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 1,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: { recentCheckpointProgress: 1 },
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaAuthoritativeDayVerification).mockImplementation(
+      async ({ day }) =>
+        day === "2026-04-05"
+          ? ({
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day: "2026-04-05",
+              verificationState: "processing",
+              sourceManifestState: "completed",
+              validationState: "processing",
+              activePublication: null,
+              surfaces: [
+                {
+                  surface: "account_daily",
+                  manifest: null,
+                  publication: null,
+                  detectorState: "pending",
+                  detectorReasonCode: "stale_lease_pending_proof",
+                },
+              ],
+              lastFailure: null,
+              detectorReasonCodes: ["stale_lease_pending_proof"],
+              repairBacklog: 0,
+              deadLetters: 0,
+              staleLeases: 1,
+              queuedPartitions: 0,
+              leasedPartitions: 0,
+            } as never)
+          : (null as never),
+    );
+    vi.mocked(
+      metaWarehouse.reconcileMetaAuthoritativeDayStateFromVerification,
+    ).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.upsertMetaAuthoritativeDayState).mockResolvedValue(
+      null as never,
+    );
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(result.repair.blocked).toBe(false);
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        recentAuthoritativeWindow: expect.objectContaining({
+          staleLeaseProofDays: 1,
+          blockedDays: 0,
+        }),
+        queuedRecentAuthoritativeRepairs: 0,
+      }),
+    );
+    expect(result.repair.repairableActions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "prove_stale_leases_before_cleanup",
+          available: true,
+        }),
+      ]),
+    );
+    expect(syncMetaRepairRange).not.toHaveBeenCalled();
   });
 
   it("queues integrity repair windows when warehouse incidents are found", async () => {

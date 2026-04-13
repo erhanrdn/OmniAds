@@ -2761,6 +2761,83 @@ describe("meta warehouse ownership safety", () => {
     }
   });
 
+  it("classifies completed manifests without publication as blocked in published verification", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH latest_slice AS")) {
+        return [];
+      }
+      if (query.includes("WITH latest_manifests AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "account_daily",
+            id: "manifest-1",
+            fetch_status: "completed",
+            completed_at: "2026-04-08T00:01:00.000Z",
+            run_id: "run-1",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "campaign_daily",
+            id: "manifest-2",
+            fetch_status: "completed",
+            completed_at: "2026-04-08T00:02:00.000Z",
+            run_id: "run-1",
+          },
+        ];
+      }
+      if (query.includes("WITH latest_failures AS")) {
+        return [];
+      }
+      if (
+        query.includes("FROM meta_authoritative_day_state") &&
+        query.includes("diagnosis_code")
+      ) {
+        return [];
+      }
+      if (query.includes("partition_date AS day")) {
+        return [];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            account_timezone: "UTC",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    try {
+      const summary = await getMetaPublishedVerificationSummary({
+        businessId: "biz-1",
+        providerAccountIds: ["act_1"],
+        startDate: "2026-04-07",
+        endDate: "2026-04-07",
+        surfaces: ["account_daily", "campaign_daily"],
+      });
+
+      expect(summary.verificationState).toBe("blocked");
+      expect(summary.truthReady).toBe(false);
+      expect(summary.reasonCounts.blocked).toBe(2);
+      expect(summary.reasonCounts.publication_pointer_missing_after_finalize).toBe(
+        2,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not require breakdown publication beyond the breakdown horizon", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));

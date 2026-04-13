@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import { getDb } from "@/lib/db";
 import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
@@ -21,6 +20,7 @@ import {
   getMetaAdSetDailyCoverage,
   getMetaCheckpointHealth,
   getMetaCreativeDailyCoverage,
+  getMetaAuthoritativeDayVerification,
   getMetaQueueComposition,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
@@ -29,6 +29,10 @@ import {
 } from "@/lib/meta/warehouse";
 import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive } from "@/lib/meta/history";
 import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
+import {
+  getMetaHistoricalVerificationReason,
+  isMetaHistoricalVerificationActionRequired,
+} from "@/lib/meta/historical-verification";
 import {
   isMetaRangeWithinAuthoritativeHistory,
   isMetaRangeWithinBreakdownHistory,
@@ -198,19 +202,6 @@ function buildPageSurfaceState(input: {
   return "partial";
 }
 
-function getHistoricalVerificationReason(input: {
-  verificationState?: string | null;
-  fallbackReason: string;
-}) {
-  if (input.verificationState === "failed") {
-    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
-  }
-  if (input.verificationState === "repair_required") {
-    return "Historical Meta data requires repair before the selected range can be treated as finalized.";
-  }
-  return input.fallbackReason;
-}
-
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
@@ -223,9 +214,6 @@ export async function GET(request: NextRequest) {
   if (isDemoBusinessId(businessId)) {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
-
-  const sql = getDb();
-
   const [
     integration,
     assignments,
@@ -677,6 +665,10 @@ export async function GET(request: NextRequest) {
   });
   const selectedRangeVerificationState =
     selectedRangeTruth?.verificationState ?? selectedRangeTruth?.state ?? null;
+  const selectedRangeActionRequired =
+    !selectedRangeIsToday &&
+    selectedRangeRequested &&
+    isMetaHistoricalVerificationActionRequired(selectedRangeVerificationState);
 
   const selectedRangeStillPreparing = Boolean(selectedRangeRequested && selectedRangeIncomplete);
   const overallSyncActive =
@@ -685,8 +677,7 @@ export async function GET(request: NextRequest) {
     (
       (!selectedRangeIsToday &&
         selectedRangeRequested &&
-        (selectedRangeVerificationState === "processing" ||
-          selectedRangeVerificationState === "repair_required")) ||
+        selectedRangeVerificationState === "processing") ||
       historicalArchiveCompletedDays < historicalTotalDays ||
       (queueHealth?.leasedPartitions ?? 0) > 0 ||
       (queueHealth?.queueDepth ?? 0) > 0 ||
@@ -812,10 +803,13 @@ export async function GET(request: NextRequest) {
           ? "Recent summary warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
           ? "Summary data for the current Meta account day is still preparing."
-          : getHistoricalVerificationReason({
+          : getMetaHistoricalVerificationReason({
               verificationState: selectedRangeVerificationState,
               fallbackReason: "Summary warehouse data is still being prepared for the selected range.",
             });
+  const summarySurfaceBlockedReason = selectedRangeActionRequired
+    ? summarySurfaceReason
+    : null;
   const campaignsSurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -826,10 +820,13 @@ export async function GET(request: NextRequest) {
           ? "Recent campaign warehouse data is still being prepared for this workspace."
         : selectedRangeIsToday
           ? "Campaign data for the current Meta account day is still preparing."
-          : getHistoricalVerificationReason({
+          : getMetaHistoricalVerificationReason({
               verificationState: selectedRangeVerificationState,
               fallbackReason: "Campaign warehouse data is still being prepared for the selected range.",
             });
+  const campaignsSurfaceBlockedReason = selectedRangeActionRequired
+    ? campaignsSurfaceReason
+    : null;
   const breakdownRequiredSurfaces = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
       const coverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
@@ -842,10 +839,8 @@ export async function GET(request: NextRequest) {
       const blockedReason =
         coverage.isBlocked && coverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${coverage.supportStartDate} onward for the selected range.`
-          : !selectedRangeIsToday &&
-              (selectedRangeVerificationState === "failed" ||
-                selectedRangeVerificationState === "repair_required")
-            ? getHistoricalVerificationReason({
+          : selectedRangeActionRequired
+            ? getMetaHistoricalVerificationReason({
                 verificationState: selectedRangeVerificationState,
                 fallbackReason: `${surface.label} breakdown data is still being prepared for the selected range.`,
               })
@@ -895,7 +890,7 @@ export async function GET(request: NextRequest) {
         hasAssignedAccounts: accountIds.length > 0,
         ready: summaryReady,
         activeProgress: overallSyncActive,
-        blockedReason: null,
+        blockedReason: summarySurfaceBlockedReason,
         syncingReason: summarySurfaceReason ?? "Summary data is still preparing.",
         blockedFallbackReason: summarySurfaceReason ?? "Summary data is unavailable.",
       }),
@@ -914,7 +909,7 @@ export async function GET(request: NextRequest) {
         hasAssignedAccounts: accountIds.length > 0,
         ready: campaignsReady,
         activeProgress: overallSyncActive,
-        blockedReason: null,
+        blockedReason: campaignsSurfaceBlockedReason,
         syncingReason: campaignsSurfaceReason ?? "Campaign data is still preparing.",
         blockedFallbackReason: campaignsSurfaceReason ?? "Campaign data is unavailable.",
       }),
@@ -1031,10 +1026,7 @@ export async function GET(request: NextRequest) {
     ? "not_connected"
     : accountIds.length === 0
       ? "connected_no_assignment"
-      : !selectedRangeIsToday &&
-          selectedRangeRequested &&
-          (selectedRangeVerificationState === "failed" ||
-            selectedRangeVerificationState === "repair_required")
+      : selectedRangeActionRequired
         ? "action_required"
         : (queueHealth?.deadLetterPartitions ?? 0) > 0
           ? "action_required"
@@ -1078,6 +1070,21 @@ export async function GET(request: NextRequest) {
     progressEvidence: metaProgressEvidence,
   });
   const metaBlockingReasons = compactBlockingReasons([
+    selectedRangeActionRequired
+      ? buildBlockingReason(
+          selectedRangeVerificationState === "blocked"
+            ? "blocked_publication_mismatch"
+            : selectedRangeVerificationState === "repair_required"
+              ? "repair_required_authoritative_retry"
+              : "historical_verification_failed",
+          getMetaHistoricalVerificationReason({
+            verificationState: selectedRangeVerificationState,
+            fallbackReason:
+              "Historical Meta selected-range truth is not yet published.",
+          }),
+          { repairable: selectedRangeVerificationState !== "blocked" }
+        )
+      : null,
     (queueHealth?.deadLetterPartitions ?? 0) > 0
       ? buildBlockingReason(
           "required_dead_letter_partitions",
@@ -1105,6 +1112,25 @@ export async function GET(request: NextRequest) {
       "Run targeted queue repair and re-plan missing Meta partitions.",
       { available: (queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0 }
     ),
+    selectedRangeVerificationState === "blocked"
+      ? buildRepairableAction(
+          "inspect_blocked_publication_mismatch",
+          "Inspect Meta verify-day and publish verification output before replaying blocked publication mismatches."
+        )
+      : null,
+    selectedRangeVerificationState === "failed" ||
+    selectedRangeVerificationState === "repair_required"
+      ? buildRepairableAction(
+          "retry_authoritative_refresh",
+          "Queue a fresh authoritative Meta retry once state is refreshed."
+        )
+      : null,
+    staleLeasedQueue
+      ? buildRepairableAction(
+          "inspect_stale_leases",
+          "Confirm stale Meta leases show no progress before cleanup or reclaim."
+        )
+      : null,
     (queueHealth?.deadLetterPartitions ?? 0) > 0
       ? buildRepairableAction(
           "replay_dead_letters",
@@ -1176,64 +1202,45 @@ export async function GET(request: NextRequest) {
     platformDateBoundaryAccounts[0] ??
     null;
   const d1TargetDate = primaryBoundary?.previousDate ?? null;
-  const d1RowsRaw =
-    primaryBoundary && primaryBoundary.providerAccountId
-      ? await sql`
-          SELECT
-            EXISTS (
-              SELECT 1
-              FROM meta_account_daily
-              WHERE business_id = ${businessId!}
-                AND provider_account_id = ${primaryBoundary.providerAccountId}
-                AND date = ${primaryBoundary.previousDate}::date
-            ) AS has_account_row,
-            EXISTS (
-              SELECT 1
-              FROM meta_campaign_daily
-              WHERE business_id = ${businessId!}
-                AND provider_account_id = ${primaryBoundary.providerAccountId}
-                AND date = ${primaryBoundary.previousDate}::date
-            ) AS has_campaign_row,
-            (
-              SELECT COUNT(*)::int
-              FROM meta_sync_partitions
-              WHERE business_id = ${businessId!}
-                AND provider_account_id = ${primaryBoundary.providerAccountId}
-                AND partition_date = ${primaryBoundary.previousDate}::date
-                AND lane = 'maintenance'
-                AND source = 'finalize_day'
-                AND scope = 'account_daily'
-                AND status IN ('queued', 'leased', 'running')
-            ) AS active_finalize_count
-        `.catch(() => [
-          { has_account_row: false, has_campaign_row: false, active_finalize_count: 0 },
-        ])
-      : [{ has_account_row: false, has_campaign_row: false, active_finalize_count: 0 }];
-  const d1Rows = d1RowsRaw as Array<{
-    has_account_row: boolean;
-    has_campaign_row: boolean;
-    active_finalize_count: number | string | null;
-  }>;
-  const d1Row = d1Rows[0] ?? {
-    has_account_row: false,
-    has_campaign_row: false,
-    active_finalize_count: 0,
-  };
-  const d1Covered = Boolean(d1Row.has_account_row) && Boolean(d1Row.has_campaign_row);
-  const d1ActiveCount = Number(d1Row.active_finalize_count ?? 0);
+  const d1Verification =
+    primaryBoundary?.providerAccountId && d1TargetDate
+      ? await getMetaAuthoritativeDayVerification({
+          businessId: businessId!,
+          providerAccountId: primaryBoundary.providerAccountId,
+          day: d1TargetDate,
+        }).catch(() => null)
+      : null;
   const d1FinalizeState =
     d1TargetDate == null
       ? null
-      : d1Covered && d1ActiveCount === 0
+      : d1Verification?.verificationState === "finalized_verified"
         ? "ready"
-        : d1ActiveCount > 0
-          ? "processing"
-          : "blocked";
+        : d1Verification
+          ? d1Verification.verificationState === "blocked" ||
+              d1Verification.verificationState === "failed" ||
+              d1Verification.verificationState === "repair_required"
+            ? "blocked"
+            : "processing"
+          : null;
   const d1BlockedReason =
-    d1FinalizeState === "processing"
-      ? "active_finalize_day_partition"
-      : d1FinalizeState === "blocked"
-        ? "missing_warehouse_publication"
+    d1FinalizeState !== "ready" && d1Verification
+      ? d1Verification.verificationState === "blocked"
+        ? d1Verification.detectorReasonCodes?.[0] ??
+          "publication_pointer_missing_after_finalize"
+        : d1Verification.verificationState === "repair_required"
+          ? "repair_required_authoritative_retry"
+          : d1Verification.verificationState === "failed"
+            ? "authoritative_finalize_failed"
+            : d1Verification.staleLeases > 0
+              ? "stale_lease_pending_proof"
+              : d1Verification.leasedPartitions > 0
+                ? "active_finalize_day_partition"
+                : d1Verification.queuedPartitions > 0 ||
+                    d1Verification.repairBacklog > 0
+                  ? "queued_finalize_day_partition"
+                  : "awaiting_authoritative_publication"
+      : d1FinalizeState === "processing"
+        ? "awaiting_authoritative_publication"
         : null;
 
   const accountSurfaceReady = (accountCoverage?.completed_days ?? 0) >= historicalTotalDays;

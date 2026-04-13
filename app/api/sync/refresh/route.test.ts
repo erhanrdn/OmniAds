@@ -549,6 +549,60 @@ describe("POST /api/sync/refresh", () => {
     });
   });
 
+  it("returns blocked when Meta finalize_range truth is explicitly blocked", async () => {
+    vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
+      kind: "internal",
+    });
+    vi.mocked(metaSync.syncMetaRepairRange).mockResolvedValue({
+      businessId: "biz",
+      attempted: 1,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "blocked",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: {
+        blocked: 1,
+        publication_pointer_missing_after_finalize: 1,
+      },
+      detectorReasonCodes: ["publication_pointer_missing_after_finalize"],
+      verificationState: "blocked",
+    } as never);
+
+    const response = await POST(
+      buildRequest({
+        businessId: "biz",
+        provider: "meta",
+        mode: "finalize_range",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      ok: true,
+      status: "blocked",
+      provider: "meta",
+      result: {
+        businessId: "biz",
+        attempted: 1,
+        succeeded: 0,
+        failed: 0,
+        skipped: true,
+      },
+      truthReadiness: expect.objectContaining({
+        verificationState: "blocked",
+        detectorReasonCodes: ["publication_pointer_missing_after_finalize"],
+      }),
+    });
+  });
+
   it("returns already_running when Google Ads enqueue finds existing backlog without new work", async () => {
     vi.mocked(internalAuth.requireInternalOrAdminSyncAccess).mockResolvedValue({
       kind: "internal",

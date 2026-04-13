@@ -1418,6 +1418,20 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
       surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
     }).catch(() => null);
     if (verification) {
+      const detectorReasonCodes = Object.entries(verification.reasonCounts)
+        .filter(
+          ([code, count]) =>
+            count > 0 &&
+            ![
+              "blocked",
+              "failed",
+              "processing",
+              "queued",
+              "repair_required",
+              "running",
+            ].includes(code),
+        )
+        .map(([code]) => code);
       return {
         truthReady: verification.truthReady,
         state: verification.verificationState,
@@ -1430,6 +1444,7 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
               ? ["non_finalized"]
               : [],
         reasonCounts: verification.reasonCounts,
+        detectorReasonCodes,
         sourceFetchedAt: verification.sourceFetchedAt,
         publishedAt: verification.publishedAt,
         verificationState: verification.verificationState,

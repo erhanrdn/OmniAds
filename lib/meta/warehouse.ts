@@ -786,6 +786,179 @@ export async function listMetaAuthoritativeDayStates(input: {
   return rows.map(mapMetaAuthoritativeDayStateRow);
 }
 
+function hasMetaPublishedAuthoritativeSurface(input: {
+  publication?:
+    | {
+        publication: MetaAuthoritativePublicationPointerRecord;
+        sliceVersion: MetaAuthoritativeSliceVersionRecord;
+      }
+    | null;
+}) {
+  return Boolean(
+    input.publication?.publication.activeSliceVersionId &&
+      input.publication?.publication.publishedAt &&
+      input.publication?.sliceVersion.status === "published" &&
+      input.publication?.sliceVersion.validationStatus === "passed",
+  );
+}
+
+function classifyMetaAuthoritativeSurfaceState(input: {
+  manifestStatus?: MetaAuthoritativeSourceManifestRecord["fetchStatus"] | "missing" | null;
+  latestFailureResult?: MetaAuthoritativeRecentFailureRecord["result"] | null;
+  latestSliceState?: MetaAuthoritativeSliceVersionRecord["state"] | null;
+  latestSliceStatus?: MetaAuthoritativeSliceVersionRecord["status"] | null;
+  latestSliceValidationStatus?: MetaAuthoritativeSliceVersionRecord["validationStatus"] | null;
+  plannerState?: MetaAuthoritativeDayStateStatus | null;
+  plannerDiagnosisCode?: string | null;
+  hasPublishedPublication?: boolean;
+  publication:
+    | {
+        publication: MetaAuthoritativePublicationPointerRecord;
+        sliceVersion: MetaAuthoritativeSliceVersionRecord;
+      }
+    | null;
+  queuedPartitions?: number;
+  leasedPartitions?: number;
+  staleLeases?: number;
+  repairBacklog?: number;
+}) {
+  const isPublished =
+    input.hasPublishedPublication ??
+    hasMetaPublishedAuthoritativeSurface({
+      publication: input.publication,
+    });
+  if (isPublished) {
+    return {
+      state: "published" as const,
+      diagnosisCode: null,
+      contractMismatch: false,
+    };
+  }
+
+  const queuedPartitions = Math.max(0, input.queuedPartitions ?? 0);
+  const leasedPartitions = Math.max(0, input.leasedPartitions ?? 0);
+  const staleLeases = Math.max(0, input.staleLeases ?? 0);
+  const repairBacklog = Math.max(0, input.repairBacklog ?? 0);
+  const hasRunningWork =
+    input.manifestStatus === "running" || leasedPartitions > 0;
+  const hasQueuedWork =
+    input.manifestStatus === "pending" ||
+    queuedPartitions > 0 ||
+    repairBacklog > 0;
+  const finalizeLikeWithoutPublication =
+    input.manifestStatus === "completed" ||
+    input.latestSliceState === "finalized_verified" ||
+    input.latestSliceStatus === "published";
+
+  if (input.plannerState === "published") {
+    return {
+      state: "blocked" as const,
+      diagnosisCode: "planner_publication_mismatch",
+      contractMismatch: true,
+    };
+  }
+
+  if (input.plannerState === "blocked") {
+    return {
+      state: "blocked" as const,
+      diagnosisCode:
+        input.plannerDiagnosisCode ??
+        (finalizeLikeWithoutPublication
+          ? "publication_pointer_missing_after_finalize"
+          : "authoritative_contract_mismatch"),
+      contractMismatch: true,
+    };
+  }
+
+  if (input.latestFailureResult === "repair_required") {
+    return {
+      state: "repair_required" as const,
+      diagnosisCode: "authoritative_retry_required",
+      contractMismatch: false,
+    };
+  }
+
+  if (input.latestFailureResult === "failed") {
+    return {
+      state: "failed" as const,
+      diagnosisCode: "authoritative_finalize_failed",
+      contractMismatch: false,
+    };
+  }
+
+  if (input.manifestStatus === "failed") {
+    return {
+      state: "failed" as const,
+      diagnosisCode: "source_manifest_failed",
+      contractMismatch: false,
+    };
+  }
+
+  if (finalizeLikeWithoutPublication) {
+    if (hasRunningWork) {
+      return {
+        state: "running" as const,
+        diagnosisCode: "publication_pending_while_running",
+        contractMismatch: false,
+      };
+    }
+    if (hasQueuedWork) {
+      return {
+        state: "queued" as const,
+        diagnosisCode: "publication_pending_while_queued",
+        contractMismatch: false,
+      };
+    }
+    if (staleLeases > 0) {
+      return {
+        state: "pending" as const,
+        diagnosisCode: "stale_lease_pending_proof",
+        contractMismatch: false,
+      };
+    }
+    return {
+      state: "blocked" as const,
+      diagnosisCode:
+        input.latestSliceStatus === "published" ||
+        input.latestSliceState === "finalized_verified"
+          ? "published_slice_pointer_missing"
+          : "publication_pointer_missing_after_finalize",
+      contractMismatch: true,
+    };
+  }
+
+  if (hasRunningWork) {
+    return {
+      state: "running" as const,
+      diagnosisCode: "authoritative_in_progress",
+      contractMismatch: false,
+    };
+  }
+
+  if (hasQueuedWork) {
+    return {
+      state: "queued" as const,
+      diagnosisCode: "authoritative_retry_pending",
+      contractMismatch: false,
+    };
+  }
+
+  if (staleLeases > 0) {
+    return {
+      state: "pending" as const,
+      diagnosisCode: "stale_lease_pending_proof",
+      contractMismatch: false,
+    };
+  }
+
+  return {
+    state: "pending" as const,
+    diagnosisCode:
+      input.manifestStatus === "missing" ? "awaiting_authoritative_work" : null,
+    contractMismatch: false,
+  };
+}
+
 export async function reconcileMetaAuthoritativeDayStateFromVerification(input: {
   verification: MetaAuthoritativeDayVerification;
   accountTimezone?: string | null;
@@ -807,39 +980,33 @@ export async function reconcileMetaAuthoritativeDayStateFromVerification(input: 
   for (const [index, surfaceState] of input.verification.surfaces.entries()) {
     const existing = existingStates[index] ?? null;
     const publication = surfaceState.publication?.publication ?? null;
-    const sliceVersion = surfaceState.publication?.sliceVersion ?? null;
     const lastFailure =
-      input.verification.lastFailure?.surface === surfaceState.surface
+      surfaceState.latestFailure ??
+      (input.verification.lastFailure?.surface === surfaceState.surface
         ? input.verification.lastFailure
-        : null;
-    const manifestStatus = surfaceState.manifest?.fetchStatus ?? null;
-    const isPublished =
-      Boolean(publication?.activeSliceVersionId) &&
-      Boolean(publication?.publishedAt) &&
-      sliceVersion?.status === "published" &&
-      sliceVersion?.validationStatus === "passed";
-    const derivedState: MetaAuthoritativeDayStateStatus = isPublished
-      ? "published"
-      : manifestStatus === "failed" ||
-          lastFailure?.result === "failed" ||
-          input.verification.verificationState === "failed"
-        ? "failed"
-        : input.verification.verificationState === "repair_required" ||
-            lastFailure?.result === "repair_required"
-          ? "repair_required"
-          : manifestStatus === "completed"
-            ? "blocked"
-            : manifestStatus === "running" ||
-                input.verification.leasedPartitions > 0
-              ? "running"
-              : manifestStatus === "pending" ||
-                  input.verification.queuedPartitions > 0 ||
-                  input.verification.repairBacklog > 0 ||
-                  Boolean(
-                    input.activePartitionIdBySurface?.[surfaceState.surface],
-                  )
-                ? "queued"
-                : "pending";
+        : null);
+    const manifestStatus = surfaceState.manifest?.fetchStatus ?? "missing";
+    const classification = classifyMetaAuthoritativeSurfaceState({
+      manifestStatus,
+      latestFailureResult: lastFailure?.result ?? null,
+      latestSliceState: surfaceState.latestSlice?.state ?? null,
+      latestSliceStatus: surfaceState.latestSlice?.status ?? null,
+      latestSliceValidationStatus:
+        surfaceState.latestSlice?.validationStatus ?? null,
+      plannerState: surfaceState.plannerState?.state ?? existing?.state ?? null,
+      plannerDiagnosisCode:
+        surfaceState.plannerState?.diagnosisCode ??
+        existing?.diagnosisCode ??
+        null,
+      publication: surfaceState.publication,
+      queuedPartitions:
+        input.verification.queuedPartitions +
+        (input.activePartitionIdBySurface?.[surfaceState.surface] ? 1 : 0),
+      leasedPartitions: input.verification.leasedPartitions,
+      staleLeases: input.verification.staleLeases,
+      repairBacklog: input.verification.repairBacklog,
+    });
+    const derivedState: MetaAuthoritativeDayStateStatus = classification.state;
     const terminalFailureState =
       derivedState === "failed" ||
       derivedState === "repair_required" ||
@@ -882,11 +1049,10 @@ export async function reconcileMetaAuthoritativeDayStateFromVerification(input: 
       diagnosisCode:
         derivedState === "published"
           ? null
-          : derivedState === "blocked"
-            ? "publication_pointer_missing"
-            : lastFailure?.reason ??
-              manifestStatus ??
-              input.verification.sourceManifestState,
+          : classification.diagnosisCode ??
+            lastFailure?.reason ??
+            manifestStatus ??
+            input.verification.sourceManifestState,
       diagnosisDetailJson: {
         verificationState: input.verification.verificationState,
         validationState: input.verification.validationState,
@@ -894,9 +1060,16 @@ export async function reconcileMetaAuthoritativeDayStateFromVerification(input: 
         surface: surfaceState.surface,
         plannerState: derivedState,
         manifestFetchStatus: manifestStatus,
+        detectorReasonCode: classification.diagnosisCode,
+        contractMismatch: classification.contractMismatch,
         publishedAt: publication?.publishedAt ?? null,
         publicationReason: publication?.publicationReason ?? null,
         activeSliceVersionId: publication?.activeSliceVersionId ?? null,
+        latestSliceId: surfaceState.latestSlice?.id ?? null,
+        latestSliceStatus: surfaceState.latestSlice?.status ?? null,
+        latestSliceState: surfaceState.latestSlice?.state ?? null,
+        latestSliceValidationStatus:
+          surfaceState.latestSlice?.validationStatus ?? null,
       },
       lastStartedAt: surfaceState.manifest?.startedAt ?? existing?.lastStartedAt ?? null,
       lastFinishedAt: surfaceState.manifest?.completedAt ?? existing?.lastFinishedAt ?? null,
@@ -1914,12 +2087,23 @@ export async function getMetaPublishedVerificationSummary(input: {
   await assertMetaRequestReadTablesReady(
     [
       "meta_authoritative_slice_versions",
+      "meta_authoritative_source_manifests",
+      "meta_authoritative_reconciliation_events",
+      "meta_authoritative_day_state",
       "meta_authoritative_publication_pointers",
+      "meta_sync_partitions",
     ],
     "meta_published_verification_summary",
   );
   const sql = getDb();
-  const [rows, accountTimezoneRows] = await Promise.all([
+  const [
+    latestSliceRows,
+    latestManifestRows,
+    latestFailureRows,
+    latestPlannerRows,
+    partitionRows,
+    accountTimezoneRows,
+  ] = await Promise.all([
     sql`
       WITH latest_slice AS (
         SELECT *
@@ -1949,14 +2133,11 @@ export async function getMetaPublishedVerificationSummary(input: {
         latest_slice.status AS latest_status,
         latest_slice.validation_status AS latest_validation_status,
         latest_slice.published_at AS latest_slice_published_at,
-        manifest.completed_at AS source_fetched_at,
         pointer.active_slice_version_id,
         pointer.published_at,
         published_slice.state AS published_state,
         published_slice.status AS published_status
       FROM latest_slice
-      LEFT JOIN meta_authoritative_source_manifests manifest
-        ON manifest.id = latest_slice.manifest_id
       LEFT JOIN meta_authoritative_publication_pointers pointer
         ON pointer.business_id = latest_slice.business_id
         AND pointer.provider_account_id = latest_slice.provider_account_id
@@ -1974,11 +2155,138 @@ export async function getMetaPublishedVerificationSummary(input: {
       latest_status: string | null;
       latest_validation_status: string | null;
       latest_slice_published_at: string | null;
-      source_fetched_at: string | null;
       active_slice_version_id: string | null;
       published_at: string | null;
       published_state: string | null;
       published_status: string | null;
+    }>,
+    sql`
+      WITH latest_manifests AS (
+        SELECT *
+        FROM (
+          SELECT
+            manifest.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY manifest.business_id, manifest.provider_account_id, manifest.day, manifest.surface
+              ORDER BY manifest.updated_at DESC, manifest.id DESC
+            ) AS row_num
+          FROM meta_authoritative_source_manifests manifest
+          WHERE manifest.business_id = ${input.businessId}
+            AND manifest.provider_account_id = ANY(${providerAccountIds}::text[])
+            AND manifest.day >= ${normalizeDate(input.startDate)}
+            AND manifest.day <= ${normalizeDate(input.endDate)}
+            AND manifest.surface = ANY(${surfaces}::text[])
+        ) ranked
+        WHERE row_num = 1
+      )
+      SELECT
+        business_id,
+        provider_account_id,
+        day,
+        surface,
+        id,
+        fetch_status,
+        completed_at,
+        run_id
+      FROM latest_manifests
+    ` as unknown as Array<{
+      business_id: string;
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      id: string;
+      fetch_status: MetaAuthoritativeSourceManifestRecord["fetchStatus"];
+      completed_at: string | null;
+      run_id: string | null;
+    }>,
+    sql`
+      WITH latest_failures AS (
+        SELECT *
+        FROM (
+          SELECT
+            event.provider_account_id,
+            event.day,
+            event.surface,
+            event.result,
+            event.event_kind,
+            event.created_at,
+            ROW_NUMBER() OVER (
+              PARTITION BY event.provider_account_id, event.day, event.surface
+              ORDER BY event.created_at DESC, event.id DESC
+            ) AS row_num
+          FROM meta_authoritative_reconciliation_events event
+          WHERE event.business_id = ${input.businessId}
+            AND event.provider_account_id = ANY(${providerAccountIds}::text[])
+            AND event.day >= ${normalizeDate(input.startDate)}
+            AND event.day <= ${normalizeDate(input.endDate)}
+            AND event.surface = ANY(${surfaces}::text[])
+            AND event.result IN ('failed', 'repair_required')
+        ) ranked
+        WHERE row_num = 1
+      )
+      SELECT
+        provider_account_id,
+        day,
+        surface,
+        result,
+        event_kind,
+        created_at
+      FROM latest_failures
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      result: "failed" | "repair_required";
+      event_kind: string;
+      created_at: string;
+    }>,
+    sql`
+      SELECT
+        provider_account_id,
+        day,
+        surface,
+        state,
+        diagnosis_code
+      FROM meta_authoritative_day_state
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ANY(${providerAccountIds}::text[])
+        AND day >= ${normalizeDate(input.startDate)}
+        AND day <= ${normalizeDate(input.endDate)}
+        AND surface = ANY(${surfaces}::text[])
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      state: MetaAuthoritativeDayStateStatus;
+      diagnosis_code: string | null;
+    }>,
+    sql`
+      SELECT
+        provider_account_id,
+        partition_date AS day,
+        COUNT(*) FILTER (WHERE status = 'queued')::int AS queued_partitions,
+        COUNT(*) FILTER (WHERE status IN ('leased', 'running'))::int AS leased_partitions,
+        COUNT(*) FILTER (
+          WHERE status IN ('leased', 'running')
+            AND updated_at < now() - interval '15 minutes'
+        )::int AS stale_leases,
+        COUNT(*) FILTER (
+          WHERE source IN ('finalize_day', 'finalize_range', 'manual_refresh', 'repair_recent_day')
+            AND status IN ('queued', 'leased', 'running', 'failed', 'dead_letter')
+        )::int AS repair_backlog
+      FROM meta_sync_partitions
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ANY(${providerAccountIds}::text[])
+        AND partition_date >= ${normalizeDate(input.startDate)}
+        AND partition_date <= ${normalizeDate(input.endDate)}
+      GROUP BY provider_account_id, partition_date
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      queued_partitions: number | string | null;
+      leased_partitions: number | string | null;
+      stale_leases: number | string | null;
+      repair_backlog: number | string | null;
     }>,
     sql`
       WITH manifest_accounts AS (
@@ -2018,9 +2326,33 @@ export async function getMetaPublishedVerificationSummary(input: {
     ]),
   );
 
-  const rowByKey = new Map(
-    rows.map((row) => [
+  const sliceByKey = new Map(
+    latestSliceRows.map((row) => [
       `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
+  const manifestByKey = new Map(
+    latestManifestRows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
+  const failureByKey = new Map(
+    latestFailureRows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
+  const plannerByKey = new Map(
+    latestPlannerRows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
+  const partitionByDayKey = new Map(
+    partitionRows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}`,
       row,
     ]),
   );
@@ -2031,9 +2363,9 @@ export async function getMetaPublishedVerificationSummary(input: {
   let completedCoreDays = 0;
   let sourceFetchedAt: string | null = null;
   let publishedAt: string | null = null;
+  let blocked = false;
   let failed = false;
   let repairRequired = false;
-  let processing = false;
   let totalExpectedSlices = 0;
 
   for (const day of days) {
@@ -2048,7 +2380,12 @@ export async function getMetaPublishedVerificationSummary(input: {
       totalExpectedSlices += requiredSurfaces.length;
       for (const surface of requiredSurfaces) {
         const key = `${providerAccountId}:${day}:${surface}`;
-        const row = rowByKey.get(key);
+        const row = sliceByKey.get(key);
+        const manifestRow = manifestByKey.get(key);
+        const failureRow = failureByKey.get(key);
+        const plannerRow = plannerByKey.get(key);
+        const partitionRow =
+          partitionByDayKey.get(`${providerAccountId}:${day}`) ?? null;
         const isCurrentDay = isMetaCurrentAccountDay({
           day,
           providerAccountId,
@@ -2065,28 +2402,76 @@ export async function getMetaPublishedVerificationSummary(input: {
             ...(publishedKeysBySurface[surface] ?? []),
             `${providerAccountId}:${day}`,
           ];
-          if (!sourceFetchedAt || (row?.source_fetched_at ?? "") > sourceFetchedAt) {
-            sourceFetchedAt = row?.source_fetched_at ?? sourceFetchedAt;
+          const normalizedFetchedAt =
+            normalizeTimestamp(manifestRow?.completed_at) ?? null;
+          if (
+            normalizedFetchedAt &&
+            (!sourceFetchedAt || normalizedFetchedAt > sourceFetchedAt)
+          ) {
+            sourceFetchedAt = normalizedFetchedAt;
           }
-          if (!publishedAt || (row?.published_at ?? "") > publishedAt) {
-            publishedAt = row?.published_at ?? publishedAt;
+          const normalizedPublishedAt =
+            normalizeTimestamp(row?.published_at) ?? null;
+          if (
+            normalizedPublishedAt &&
+            (!publishedAt || normalizedPublishedAt > publishedAt)
+          ) {
+            publishedAt = normalizedPublishedAt;
           }
           continue;
         }
         dayComplete = false;
-        if (row?.latest_state === "repair_required") {
-          repairRequired = true;
-          reasonCounts.repair_required = (reasonCounts.repair_required ?? 0) + 1;
-        } else if (
-          row?.latest_state === "failed" ||
-          row?.latest_status === "failed" ||
-          row?.latest_validation_status === "failed"
-        ) {
-          failed = true;
-          reasonCounts.failed = (reasonCounts.failed ?? 0) + 1;
-        } else {
-          processing = true;
+        if (isCurrentDay) {
           reasonCounts.processing = (reasonCounts.processing ?? 0) + 1;
+          reasonCounts.current_day_live = (reasonCounts.current_day_live ?? 0) + 1;
+          continue;
+        }
+        const classification = classifyMetaAuthoritativeSurfaceState({
+          manifestStatus: manifestRow?.fetch_status ?? "missing",
+          latestFailureResult: failureRow?.result ?? null,
+          latestSliceState:
+            row?.latest_state == null
+              ? null
+              : (String(row.latest_state) as MetaAuthoritativeSliceVersionRecord["state"]),
+          latestSliceStatus:
+            row?.latest_status == null
+              ? null
+              : (String(row.latest_status) as MetaAuthoritativeSliceVersionRecord["status"]),
+          latestSliceValidationStatus:
+            row?.latest_validation_status == null
+              ? null
+              : (String(row.latest_validation_status) as MetaAuthoritativeSliceVersionRecord["validationStatus"]),
+          plannerState: plannerRow?.state ?? null,
+          plannerDiagnosisCode: plannerRow?.diagnosis_code ?? null,
+          hasPublishedPublication: isPublished,
+          publication: null,
+          queuedPartitions: toNumber(partitionRow?.queued_partitions),
+          leasedPartitions: toNumber(partitionRow?.leased_partitions),
+          staleLeases: toNumber(partitionRow?.stale_leases),
+          repairBacklog: toNumber(partitionRow?.repair_backlog),
+        });
+
+        const bumpReason = (code: string | null | undefined) => {
+          if (!code) return;
+          reasonCounts[code] = (reasonCounts[code] ?? 0) + 1;
+        };
+
+        if (classification.state === "blocked") {
+          blocked = true;
+          bumpReason("blocked");
+          bumpReason(classification.diagnosisCode);
+        } else if (classification.state === "repair_required") {
+          repairRequired = true;
+          bumpReason("repair_required");
+          bumpReason(classification.diagnosisCode);
+        } else if (classification.state === "failed") {
+          failed = true;
+          bumpReason("failed");
+          bumpReason(classification.diagnosisCode);
+        } else {
+          bumpReason("processing");
+          bumpReason(classification.state);
+          bumpReason(classification.diagnosisCode);
         }
       }
     }
@@ -2098,6 +2483,8 @@ export async function getMetaPublishedVerificationSummary(input: {
   const verificationState =
     totalExpectedSlices > 0 && publishedSlices === totalExpectedSlices
       ? "finalized_verified"
+      : blocked
+        ? "blocked"
       : failed
         ? "failed"
         : repairRequired
@@ -2137,6 +2524,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
     failureRows,
     accountRows,
     recentCoreRows,
+    recentPlannerRows,
   ] = await Promise.all([
     sql`
       SELECT fetch_status, COUNT(*)::int AS count
@@ -2306,6 +2694,24 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
       validation_status: string | null;
       latest_failure_result: string | null;
     }>,
+    sql`
+      SELECT
+        provider_account_id,
+        day,
+        surface,
+        state,
+        published_at
+      FROM meta_authoritative_day_state
+      WHERE business_id = ${input.businessId}
+        AND surface IN ('account_daily', 'campaign_daily')
+        AND day >= ${addIsoDays(new Date().toISOString().slice(0, 10), -5)}
+    ` as unknown as Array<{
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      state: MetaAuthoritativeDayStateStatus;
+      published_at: string | null;
+    }>,
   ]);
 
   const manifestCounts = {
@@ -2337,28 +2743,56 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
       row,
     ]),
   );
+  const recentPlannerByKey = new Map(
+    recentPlannerRows.map((row) => [
+      `${row.provider_account_id}:${normalizeDate(row.day)}:${row.surface}`,
+      row,
+    ]),
+  );
 
   const d1Accounts = accountRows.map((row) => {
     const expectedDay = addIsoDays(getTodayIsoForTimeZone(row.account_timezone || "UTC"), -1);
     const accountRow = recentCoreByKey.get(`${row.provider_account_id}:${expectedDay}:account_daily`);
     const campaignRow = recentCoreByKey.get(`${row.provider_account_id}:${expectedDay}:campaign_daily`);
+    const accountPlanner = recentPlannerByKey.get(
+      `${row.provider_account_id}:${expectedDay}:account_daily`,
+    );
+    const campaignPlanner = recentPlannerByKey.get(
+      `${row.provider_account_id}:${expectedDay}:campaign_daily`,
+    );
     const finalized =
-      accountRow?.validation_status === "passed" &&
-      campaignRow?.validation_status === "passed";
+      (accountPlanner?.state === "published" &&
+        campaignPlanner?.state === "published") ||
+      (accountRow?.validation_status === "passed" &&
+        campaignRow?.validation_status === "passed");
     const failureResult =
+      accountPlanner?.state === "failed" ||
+      campaignPlanner?.state === "failed" ||
       accountRow?.latest_failure_result === "failed" ||
       campaignRow?.latest_failure_result === "failed"
         ? "failed"
-        : accountRow?.latest_failure_result === "repair_required" ||
+        : accountPlanner?.state === "repair_required" ||
+            campaignPlanner?.state === "repair_required" ||
+            accountPlanner?.state === "blocked" ||
+            campaignPlanner?.state === "blocked"
+          ? "blocked"
+          : accountRow?.latest_failure_result === "repair_required" ||
             campaignRow?.latest_failure_result === "repair_required"
           ? "repair_required"
           : null;
-    const publishedAtCandidates = [accountRow?.published_at, campaignRow?.published_at]
+    const publishedAtCandidates = [
+      accountPlanner?.published_at,
+      campaignPlanner?.published_at,
+      accountRow?.published_at,
+      campaignRow?.published_at,
+    ]
       .map((value) => normalizeTimestamp(value))
       .filter((value): value is string => Boolean(value));
     const verificationState =
       finalized
         ? "finalized_verified"
+        : failureResult === "blocked"
+          ? "blocked"
         : failureResult === "failed"
           ? "failed"
           : failureResult === "repair_required"
@@ -2470,7 +2904,14 @@ export async function getMetaAuthoritativeDayVerification(input: {
   )
     .filter((requirement) => requirement.state !== "not_applicable")
     .map((requirement) => requirement.surface);
-  const [manifestRows, latestFailureRows, partitionRows, verification] = await Promise.all([
+  const [
+    manifestRows,
+    latestFailureRows,
+    plannerRows,
+    latestSliceRows,
+    partitionRows,
+    verification,
+  ] = await Promise.all([
     sql`
       WITH latest_manifests AS (
         SELECT *
@@ -2528,13 +2969,21 @@ export async function getMetaAuthoritativeDayVerification(input: {
           details_json ->> 'failureReason'
         ) AS reason,
         created_at
-      FROM meta_authoritative_reconciliation_events
-      WHERE business_id = ${input.businessId}
-        AND provider_account_id = ${input.providerAccountId}
-        AND day = ${day}
-        AND result IN ('failed', 'repair_required')
+      FROM (
+        SELECT
+          event.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY event.surface
+            ORDER BY event.created_at DESC, event.id DESC
+          ) AS row_num
+        FROM meta_authoritative_reconciliation_events event
+        WHERE business_id = ${input.businessId}
+          AND provider_account_id = ${input.providerAccountId}
+          AND day = ${day}
+          AND result IN ('failed', 'repair_required')
+      ) ranked
+      WHERE row_num = 1
       ORDER BY created_at DESC
-      LIMIT 1
     ` as unknown as Array<{
       provider_account_id: string;
       day: string;
@@ -2544,6 +2993,79 @@ export async function getMetaAuthoritativeDayVerification(input: {
       severity: "info" | "warning" | "error";
       reason: string | null;
       created_at: string;
+    }>,
+    sql`
+      SELECT *
+      FROM meta_authoritative_day_state
+      WHERE business_id = ${input.businessId}
+        AND provider_account_id = ${input.providerAccountId}
+        AND day = ${day}
+        AND surface = ANY(${surfaces}::text[])
+    ` as unknown as Array<{
+      business_id: string;
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      state: MetaAuthoritativeDayStateStatus;
+      account_timezone: string;
+      active_partition_id: string | null;
+      last_run_id: string | null;
+      last_manifest_id: string | null;
+      last_publication_pointer_id: string | null;
+      published_at: string | null;
+      retry_after_at: string | null;
+      failure_streak: number;
+      diagnosis_code: string | null;
+      diagnosis_detail_json: Record<string, unknown> | null;
+      last_started_at: string | null;
+      last_finished_at: string | null;
+      last_autoheal_at: string | null;
+      autoheal_count: number;
+      created_at: string;
+      updated_at: string;
+    }>,
+    sql`
+      WITH latest_slice AS (
+        SELECT *
+        FROM (
+          SELECT
+            slice.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY slice.surface
+              ORDER BY slice.candidate_version DESC, slice.created_at DESC, slice.id DESC
+            ) AS row_num
+          FROM meta_authoritative_slice_versions slice
+          WHERE slice.business_id = ${input.businessId}
+            AND slice.provider_account_id = ${input.providerAccountId}
+            AND slice.day = ${day}
+            AND slice.surface = ANY(${surfaces}::text[])
+        ) ranked
+        WHERE row_num = 1
+      )
+      SELECT *
+      FROM latest_slice
+    ` as unknown as Array<{
+      id: string;
+      business_id: string;
+      provider_account_id: string;
+      day: string;
+      surface: MetaWarehouseScope;
+      manifest_id: string | null;
+      candidate_version: number;
+      state: MetaAuthoritativeSliceVersionRecord["state"];
+      truth_state: MetaAuthoritativeSliceVersionRecord["truthState"];
+      validation_status: MetaAuthoritativeSliceVersionRecord["validationStatus"];
+      status: MetaAuthoritativeSliceVersionRecord["status"];
+      staged_row_count: number | null;
+      aggregated_spend: number | null;
+      validation_summary: Record<string, unknown> | null;
+      source_run_id: string | null;
+      stage_started_at: string | null;
+      stage_completed_at: string | null;
+      published_at: string | null;
+      superseded_at: string | null;
+      created_at: string;
+      updated_at: string;
     }>,
     sql`
       SELECT
@@ -2575,17 +3097,66 @@ export async function getMetaAuthoritativeDayVerification(input: {
   const manifestsBySurface = new Map(
     manifestRows.map((row) => [row.surface, mapMetaAuthoritativeSourceManifestRow(row)]),
   );
+  const plannerStateBySurface = new Map(
+    plannerRows.map((row) => [row.surface, mapMetaAuthoritativeDayStateRow(row)]),
+  );
+  const latestFailureBySurface = new Map(
+    latestFailureRows.map((row) => [
+      row.surface,
+      {
+        providerAccountId: row.provider_account_id,
+        day: normalizeDate(row.day),
+        surface: row.surface,
+        result: row.result,
+        eventKind: row.event_kind,
+        severity: row.severity,
+        reason: row.reason,
+        createdAt: normalizeTimestamp(row.created_at) ?? row.created_at,
+      } satisfies MetaAuthoritativeRecentFailureRecord,
+    ]),
+  );
+  const latestSliceBySurface = new Map(
+    latestSliceRows.map((row) => [row.surface, mapMetaAuthoritativeSliceVersionRow(row)]),
+  );
+  const partitionRow = partitionRows[0] ?? {};
   const surfacesState = await Promise.all(
-    surfaces.map(async (surface) => ({
-      surface,
-      manifest: manifestsBySurface.get(surface) ?? null,
-      publication: await getMetaActivePublishedSliceVersion({
+    surfaces.map(async (surface) => {
+      const publication = await getMetaActivePublishedSliceVersion({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         day,
         surface,
-      }),
-    })),
+      });
+      const latestFailure = latestFailureBySurface.get(surface) ?? null;
+      const plannerState = plannerStateBySurface.get(surface) ?? null;
+      const latestSlice = latestSliceBySurface.get(surface) ?? null;
+      const classification = classifyMetaAuthoritativeSurfaceState({
+        manifestStatus: manifestsBySurface.get(surface)?.fetchStatus ?? "missing",
+        latestFailureResult: latestFailure?.result ?? null,
+        latestSliceState: latestSlice?.state ?? null,
+        latestSliceStatus: latestSlice?.status ?? null,
+        latestSliceValidationStatus: latestSlice?.validationStatus ?? null,
+        plannerState: plannerState?.state ?? null,
+        plannerDiagnosisCode: plannerState?.diagnosisCode ?? null,
+        publication,
+        queuedPartitions: toNumber(partitionRow.queued_partitions),
+        leasedPartitions: toNumber(partitionRow.leased_partitions),
+        staleLeases: toNumber(partitionRow.stale_leases),
+        repairBacklog: toNumber(partitionRow.repair_backlog),
+      });
+
+      return {
+        surface,
+        manifest: manifestsBySurface.get(surface) ?? null,
+        latestSlice,
+        publication,
+        latestFailure,
+        plannerState,
+        detectorState: classification.state,
+        detectorReasonCode: classification.diagnosisCode,
+        contractMismatch: classification.contractMismatch,
+      };
+    }),
   );
 
   const allManifests = surfacesState.map((row) => row.manifest).filter(Boolean);
@@ -2614,7 +3185,6 @@ export async function getMetaAuthoritativeDayVerification(input: {
         createdAt: normalizeTimestamp(latestFailureRows[0].created_at) ?? latestFailureRows[0].created_at,
       }
     : null;
-  const partitionRow = partitionRows[0] ?? {};
 
   return {
     businessId: input.businessId,
@@ -2632,6 +3202,13 @@ export async function getMetaAuthoritativeDayVerification(input: {
       : null,
     surfaces: surfacesState,
     lastFailure,
+    detectorReasonCodes: Array.from(
+      new Set(
+        surfacesState
+          .map((surfaceState) => surfaceState.detectorReasonCode)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ),
     repairBacklog: toNumber(partitionRow.repair_backlog),
     deadLetters: toNumber(partitionRow.dead_letters),
     staleLeases: toNumber(partitionRow.stale_leases),

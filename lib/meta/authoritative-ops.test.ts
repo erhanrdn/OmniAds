@@ -141,7 +141,7 @@ describe("meta authoritative ops helpers", () => {
         leasedPartitions: 1,
         sourceManifestState: "running",
       }),
-    ).toBe("cleanup_then_reschedule");
+    ).toBe("inspect_stale_lease_then_cleanup");
   });
 
   it("builds publish verification output with explicit go/no-go reasons", () => {
@@ -182,6 +182,68 @@ describe("meta authoritative ops helpers", () => {
         "last failure: source mismatch",
       ]),
     );
+  });
+
+  it("surfaces blocked publication mismatch guidance in verify-day output", () => {
+    const report = buildMetaVerifyDayReport({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      day: "2026-04-04",
+      verificationState: "blocked",
+      sourceManifestState: "completed",
+      validationState: "blocked",
+      activePublication: null,
+      surfaces: [
+        {
+          surface: "account_daily",
+          manifest: {
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            day: "2026-04-04",
+            surface: "account_daily",
+            accountTimezone: "UTC",
+            sourceKind: "finalize_day",
+            sourceWindowKind: "d_minus_1",
+            fetchStatus: "completed",
+          },
+          latestSlice: null,
+          publication: null,
+          latestFailure: null,
+          plannerState: {
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            day: "2026-04-04",
+            surface: "account_daily",
+            state: "blocked",
+            accountTimezone: "UTC",
+            diagnosisCode: "publication_pointer_missing_after_finalize",
+          },
+          detectorState: "blocked",
+          detectorReasonCode: "publication_pointer_missing_after_finalize",
+          contractMismatch: true,
+        },
+      ],
+      lastFailure: null,
+      detectorReasonCodes: ["publication_pointer_missing_after_finalize"],
+      repairBacklog: 0,
+      deadLetters: 0,
+      staleLeases: 0,
+      queuedPartitions: 0,
+      leasedPartitions: 0,
+    });
+
+    expect(report.refreshRecommendation).toBe(
+      "inspect_blocked_publication_mismatch",
+    );
+    expect(report.operatorGuidance).toMatchObject({
+      category: "blocked_publication_mismatch",
+      commands: ["meta:verify-publish", "meta:verify-day", "meta:refresh-state"],
+    });
+    expect(report.surfaces[0]).toMatchObject({
+      plannerState: "blocked",
+      detectorReasonCode: "publication_pointer_missing_after_finalize",
+      contractMismatch: true,
+    });
   });
 
   it("builds soak snapshot output with authoritative soak signals", () => {
