@@ -1,18 +1,41 @@
-# Step 9 — Safe Non-Demo Benchmark Proof Path And Live Evidence Upgrade
+# Step 10 — Temporary Admin Proof Session, Non-Demo Live Verification, And Full Teardown
 
 ## 1. Executive Summary
 
-* Step 9 started by reconciling actual repo/runtime truth, not by assuming a release-authority defect.
-* preflight repo `HEAD`, `origin/main`, live runtime, and `release-authority` were all aligned at `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`.
-* there is a standalone non-program product commit after the latest Step 8 continuity commit:
-  * continuity commit: `1e9e359e8616e3f87fa0a744c3f8048f1843f5ae`
-  * actual product head at Step 9 start: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
-* no approved safe path reached `Grandmix`, `IwaStore`, or `TheSwaf`.
-* the saved commercial storage state had simply expired, but the healthy reviewer session and a fresh seeded commercial smoke session both still exposed only `Adsecute Demo`.
-* all benchmark-business switch attempts still returned `403 No access to this business.`
-* no non-demo page-level, row-level, detail-level, or drawer-level Creative proof was captured.
-* reviewer smoke regressed narrowly on current live because Meta ad-set action content had moved below the fold inside a scrollable panel; a smoke-only Playwright fix restored it.
-* verdict: `blocked`
+* Step 10 started by reconciling actual repo/runtime truth again, not by assuming a deploy or `release-authority` defect.
+* preflight repo `HEAD`, `origin/main`, live runtime, and `release-authority` were all aligned at `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`.
+* Step 9's health diagnosis remained correct in substance:
+  * runtime healthy
+  * `release-authority` healthy
+  * reviewer smoke did not need to be reopened
+* the exact live/product SHA had advanced since Step 9:
+  * Step 9 start SHA: `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * Step 10 start SHA: `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
+* all three benchmark businesses (`Grandmix`, `IwaStore`, `TheSwaf`) were still effective plan `starter`.
+* the minimum temporary proof path that actually unlocked real non-demo Creative verification was:
+  * one temporary non-reviewer user
+  * one active `guest` membership to `IwaStore` only
+  * one temporary direct session
+  * one temporary user-level `plan_override = 'growth'`
+* no superadmin was granted
+* no extra benchmark-business memberships were granted
+* `/api/auth/me` and `/api/businesses` exposed only `IwaStore`
+* switch attempts to `Grandmix` and `TheSwaf` still returned `403 No access to this business.`
+* strong live proof was captured on `IwaStore` across:
+  * page-level preview-truth contract
+  * page-visible lane set
+  * row-level state / authority / blocker wording
+  * detail-level preview-truth gate
+  * deterministic decision panel wording
+  * AI commentary support-only behavior
+  * drawer support framing
+* teardown completed fully:
+  * temp session access removed
+  * temp membership removed
+  * temp user removed
+  * temp local auth files removed
+  * old cookie no longer authenticated on live production
+* verdict: `accepted`
 
 ## 2. Truth Reconciliation
 
@@ -22,267 +45,377 @@ Read order used before work:
 2. `docs/operator-rebuild-staging/LATEST_REPORT.md`
 3. `docs/operator-rebuild-staging/STATUS.md`
 
-Preflight verification on April 12, 2026:
+Preflight verification on April 13, 2026:
 
 * current branch
   * `main`
 * current actual repo `HEAD`
-  * `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * current actual `origin/main`
-  * `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * local `HEAD` matched `origin/main`
   * yes
 * current live runtime/build truth
-  * `build-info buildId` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
-  * `release-authority currentLiveSha` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
-  * `release-authority currentMainSha` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `build-info buildId` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
+  * `release-authority currentLiveSha` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
+  * `release-authority currentMainSha` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
   * `release-authority currentMainShaSource` `github_branch_head`
   * `release-authority liveVsMain.status` `aligned`
   * `release-authority overall.status` `aligned`
 
 Continuity classification:
 
-* latest operator-rebuild continuity commit before Step 9
-  * `1e9e359e8616e3f87fa0a744c3f8048f1843f5ae`
-  * `step8: stabilize reviewer smoke and record proof status`
-* standalone non-program commit after that continuity commit
-  * `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
-  * `feat: move commercial truth from settings to main navigation`
-* whether standalone non-program commits exist after the latest operator-rebuild continuity commit
-  * yes
+* latest Step 9 continuity commit before Step 10
+  * `b7c6a98`
+  * `step9: record blocked non-demo proof path`
+* current actual product head at Step 10 start
+  * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
+  * `Revert warehouse-only current-day stabilization`
 * whether current runtime/main drift was explainable
-  * there was no runtime/main drift at Step 9 start
+  * there was no runtime/main drift at Step 10 start
   * live and main were aligned at the current product head
-  * the continuity docs were stale, but the system itself was not drifting suspiciously
+  * Step 9 docs were stale on exact SHA, but the system remained healthy
 
-## 3. Benchmark-Business Access Attempt
+Step 9 understanding re-check:
 
-Goal:
+* still true:
+  * remaining blocker was not deploy reachability
+  * remaining blocker was not `release-authority`
+  * remaining blocker was not reviewer-smoke reachability
+* new Step 10 refinement:
+  * approved temporary proof access also needed a temporary billing/plan unlock on the temporary proof user, because all benchmark businesses were effective plan `starter` and `/creatives` is Growth-gated
+  * this remained a proof-access scope issue, not a live product defect
 
-* reach `Grandmix`, `IwaStore`, or `TheSwaf` through approved safe paths only
+## 3. Benchmark-Business Selection And Access Shape
 
-Safe paths used:
-
-* existing saved reviewer session against production
-* existing saved commercial storage state against production
-* fresh approved commercial smoke operator seed plus production `/login`
-* authenticated reads of `/api/auth/me`
-* authenticated reads of `/api/businesses`
-* authenticated switch attempts through `/api/auth/switch-business`
-
-Observed access truth by path:
-
-* saved commercial storage state
-  * `/api/auth/me`
-    * `401`
-    * `{"authenticated":false}`
-  * classification
-    * session-scoping / expired session
-* saved reviewer storage state
-  * `/api/businesses`
-    * `Adsecute Demo` only
-  * `/api/auth/switch-business`
-    * `Grandmix` `403 {"error":"forbidden","message":"No access to this business."}`
-    * `IwaStore` `403 {"error":"forbidden","message":"No access to this business."}`
-    * `TheSwaf` `403 {"error":"forbidden","message":"No access to this business."}`
-  * classification
-    * access-control
-* fresh seeded commercial smoke operator
-  * login
-    * succeeded
-  * seeded execution business
-    * `null`
-  * `/api/businesses`
-    * `Adsecute Demo` only
-  * `/api/auth/switch-business`
-    * `Grandmix` `403 {"error":"forbidden","message":"No access to this business."}`
-    * `IwaStore` `403 {"error":"forbidden","message":"No access to this business."}`
-    * `TheSwaf` `403 {"error":"forbidden","message":"No access to this business."}`
-  * classification
-    * access-control
-
-Per target business:
+Benchmark businesses checked:
 
 * `Grandmix`
-  * reachable
-    * no
-  * safe path used
-    * saved reviewer session
-    * fresh commercial smoke session
-  * exact failure mode
-    * `403 No access to this business.`
-  * class
-    * access-control
+  * effective plan: `starter`
+  * Meta creative footprint: present
 * `IwaStore`
-  * reachable
-    * no
-  * safe path used
-    * saved reviewer session
-    * fresh commercial smoke session
-  * exact failure mode
-    * `403 No access to this business.`
-  * class
-    * access-control
+  * effective plan: `starter`
+  * strongest available Creative footprint among the three:
+    * `meta_creatives_snapshots` `528`
+    * `ai_creative_decisions_cache` `113`
+    * `meta_creative_daily` `21760`
+    * `creative_media_cache.cached` `515`
 * `TheSwaf`
-  * reachable
-    * no
-  * safe path used
-    * saved reviewer session
-    * fresh commercial smoke session
-  * exact failure mode
-    * `403 No access to this business.`
-  * class
-    * access-control
+  * effective plan: `starter`
+  * Creative footprint weaker for this step:
+    * `meta_creative_daily` `0`
 
-Conclusions:
+Selection outcome:
 
-* no safely reachable non-demo benchmark business was available in Step 9
-* the blocker is approved access scope, not release-authority, deploy state, or a broken business-switch route
-* no membership or access-control mutation was done to force proof
+* chosen benchmark business: `IwaStore`
+* reason:
+  * strongest real non-demo Creative footprint
+  * best chance of strong page/row/detail/drawer proof with the least granted scope
 
-## 4. Strong Live Proof Status
+Minimum proof-path design used:
 
-Required benchmark-business proof:
+* proof-path type
+  * user-based temporary account plus direct temporary session
+* business scope
+  * `IwaStore` only
+* business role
+  * `guest`
+* temporary plan scope
+  * temp user's `users.plan_override = 'growth'`
+  * no business-level plan override
+* why this was minimum
+  * Creative read endpoints are guarded at `minRole: "guest"`
+  * no team-management or business-admin actions were needed inside the business
+  * all benchmark businesses were effective plan `starter`
+  * `/creatives` legitimately showed `Growth plan required` until the temporary user override was applied
+  * user-level override was narrower and easier to fully remove than changing benchmark-business plan state
 
-* not achieved
+## 4. Provisioning Evidence
 
-Non-demo proof actually captured in Step 9:
+Created:
 
-* page-level
-  * none
-* row-level
-  * none
-* detail-level
-  * none
-* drawer-level
-  * none
+* temporary user
+  * email: `step10-proof-2026-04-13t06-29-29-989z@example.invalid`
+  * name: `Step 10 Temporary Proof User`
+* temporary membership
+  * business: `IwaStore`
+  * role: `guest`
+  * status: `active`
+* temporary session
+  * created directly in the standard `sessions` table and used as an `omniads_session` cookie
+* temporary user plan override
+  * `growth`
 
-Strongest evidence captured this step:
+Live scope verification after provisioning:
 
-* access-truth evidence only
-* approved reviewer and commercial paths still do not reach any of the three benchmark businesses
+* `/api/auth/me`
+  * authenticated: yes
+  * user:
+    * `step10-proof-2026-04-13t06-29-29-989z@example.invalid`
+  * visible businesses:
+    * `IwaStore` only
+  * active business:
+    * `IwaStore`
+  * role:
+    * `guest`
+* `/api/businesses`
+  * visible businesses:
+    * `IwaStore` only
+* `/api/auth/switch-business`
+  * `Grandmix` -> `403 {"error":"forbidden","message":"No access to this business."}`
+  * `TheSwaf` -> `403 {"error":"forbidden","message":"No access to this business."}`
+* `/api/billing?businessId=<IwaStore>`
+  * `planId` `growth`
+  * `source` `user_override`
 
-Why proof state was not upgraded:
+Not granted:
 
-* no real connected non-demo business was safely reachable
-* Step 8 demo-only proof remains the strongest Creative runtime proof, and Step 9 did not improve it
+* no superadmin
+* no membership to `Grandmix`
+* no membership to `TheSwaf`
+* no permanent business plan change
 
-## 5. Reviewer Smoke Stability
+## 5. Strong Live Proof On `IwaStore`
 
-Exact live smoke command:
+Artifacts captured locally:
 
-* `PLAYWRIGHT_BASE_URL='https://adsecute.com' PLAYWRIGHT_USE_WEBSERVER=0 node --env-file=.env.local node_modules/playwright/cli.js test playwright/tests/reviewer-smoke.spec.ts --project=smoke-chromium`
+* `playwright-report/step10-iwastore-page.png`
+* `playwright-report/step10-iwastore-blocked-row.png`
+* `playwright-report/step10-iwastore-detail.png`
+* `playwright-report/step10-iwastore-drawer.png`
 
-Initial regression on current live:
+### 5.1 Page-level proof
 
-* failure:
-  * `playwright/tests/reviewer-smoke.spec.ts:65`
-  * `meta-campaign-adset-actions` existed but remained hidden to Playwright
-* actual cause:
-  * not a Meta data regression
-  * the current layout left the ad-set action card below the fold inside the scrollable Meta detail panel
+Exact page-level preview-truth contract text:
 
-Exact safe smoke-only change made:
+* `Preview truth is ready across this review scope.`
+* `34 ready · 0 degraded · 0 missing.`
+* `Decisive operator wording can stay active where preview truth is ready.`
+* `Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.`
 
-* `playwright/tests/reviewer-smoke.spec.ts`
-  * after opening campaign reasoning, use DOM `scrollIntoView({ block: "center", inline: "nearest" })` on:
-    * `meta-campaign-adset-actions`
-    * `meta-adsets-section`
-* `playwright/tests/commercial-truth-smoke.spec.ts`
-  * mirror the same DOM scroll for `meta-campaign-adset-actions`
+Exact page-visible lane/filter text:
 
-Final verification:
+* `ACT NOW Rows with ready preview truth and enough signal for a real operator move. 7`
+* `KEEP TESTING Visible rows that stay in test instead of reading like immediate action work. 19`
+* `BLOCKED Preview or deployment truth blocks clean operator action right now. 4`
+* `PROTECTED Protected winners that should stay out of churn and out of the default worklist. 4`
 
-* reviewer smoke rerun
-  * passed
-  * `2 passed (18.4s)`
-* commercial Meta recheck
-  * the long commercial smoke spec did not return promptly after producing the relevant Meta/Command Center artifacts
-  * final targeted verification therefore used a one-off Playwright probe against the seeded commercial smoke operator
-  * result:
-    * `meta-campaign-adset-actions` visible and in viewport after the same DOM scroll used in the smoke
-    * `meta-adsets-section` visible and in viewport after the same DOM scroll used in the smoke
+Lane-visibility conclusion:
+
+* visible on the page:
+  * `Act now`
+  * `Keep testing`
+  * `Blocked`
+  * `Protected`
+* not visibly shown on the page in this live run:
+  * `Needs truth`
+* result:
+  * all five page lanes were **not** visible
+  * only a four-lane subset was visible on-page
+
+### 5.2 Row-level proof
+
+Row-level blocked proof captured from the page:
+
+* `Start with`
+* `Blocked`
+* `Preview ready`
+* `Blocked`
+* reason wording:
+  * `Signal is still too thin for a headline creative action.`
+* blocker wording:
+  * `Scale in controlled steps and keep the winning GEO mix intact.`
+
+Additional row-level state / authority proof from the selected detail row:
+
+* `Our hearts are`
+* `Replace now`
+* `Act now`
+* `Preview ready`
+* `Fatigued`
+* row summary wording:
+  * `Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.`
+* row blocker wording:
+  * `Scale in controlled steps and keep the winning GEO mix intact.`
+
+### 5.3 Detail-level proof
+
+Exact detail-level preview-truth gate text:
+
+* `Preview truth is ready for decisive review.`
+* `Preview ready`
+* `Live decision-window preview is ready, so authoritative action wording can stay active for this creative.`
+* `Live decision window ready`
+* `Selected window missing`
+* `Deployment compatibility compatible`
+* `AI commentary support only`
+* supporting reason:
+  * `Live decision-window preview is available from Meta.`
+
+Exact deterministic decision panel text:
+
+* headline:
+  * `Loss prevention recommended`
+* decision badge:
+  * `Pause`
+* summary:
+  * `Deterministic engine treats this as fatigue-driven decay that needs replacement, not more budget.`
+* visible state / authority fields:
+  * `Decision score 44/100`
+  * `Confidence 72%`
+  * `Lifecycle Fatigued winner`
+  * `Primary decision refresh replace`
+  * `Family Our hearts are`
+  * `Target lane None`
+  * `Queue status blocked`
+  * `Compatibility compatible`
+  * `Family provenance high / low`
+  * `Preview truth ready`
+* visible decision-model wording:
+  * `Core verdict Live decision window is 1.66x ROAS on 5 purchases against the format + age benchmark.`
+  * `Selected range note Live decision window says ROAS is worse and click-to-purchase is worse.`
+  * `Historical support 2/4 historical windows look like winner memory. Fatigue engine sees meaningful decay versus prior winner windows.`
+
+### 5.4 AI commentary support-only proof
+
+Exact AI commentary wording visible in detail:
+
+* section title:
+  * `AI strategy interpretation`
+* badge:
+  * `Support only`
+* explanatory copy:
+  * `Support only. AI commentary does not change the deterministic decision.`
+* action button visible:
+  * `Generate AI interpretation`
+
+Interpretation:
+
+* AI commentary remained explicitly support-only
+* the deterministic decision panel remained the authority surface
+
+### 5.5 Drawer/support proof
+
+Exact drawer support framing:
+
+* `Creative Decision Support`
+* `Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.`
+* `The page worklist stays primary. This drawer is support for live-window decision context only.`
+* `Decision as of 2026-04-11 · primary window 2026-03-13 to 2026-04-11`
+* `Operating Mode Exploit`
+
+Exact drawer preview-truth summary text:
+
+* `Preview truth is ready across this review scope.`
+* `86 ready · 0 degraded · 0 missing.`
+* `Decisive operator wording can stay active where preview truth is ready.`
+
+## 6. Reviewer Smoke
+
+* reviewer smoke was **not** rerun in Step 10
+* reason:
+  * Step 9 already proved reviewer smoke health on current live
+  * Step 10 needed temporary-path non-demo proof value, not duplicate reviewer-path smoke evidence
+
+## 7. Teardown
+
+Exact teardown steps executed after proof:
+
+1. deleted temp sessions for the temp user
+2. deleted temp memberships for the temp user
+3. deleted the temp user row
+4. removed local temp auth files:
+   * `/tmp/operator-rebuild-step10-proof-secret.json`
+   * `playwright/.auth/step10-temp-iwastore.json`
+
+Teardown verification:
+
+* post-delete database counts
+  * temp user sessions: `0`
+  * temp user memberships: `0`
+  * temp user row: `0`
+  * remaining `step10-proof-*` temp users: `0`
+* old cookie after teardown
+  * `/api/auth/me` -> `401 {"authenticated":false}`
+  * `/api/businesses` -> `401 {"error":"auth_error","message":"Authentication required."}`
 
 Meaning:
 
-* reviewer smoke is healthy again through Creative
-* no product-runtime change was required
-* the Step 9 blocker remains non-demo access, not smoke reachability
+* the temporary proof path no longer works
+* no lingering privileged business access remained
+* no lingering temp auth material remained on disk
 
-## 6. Commands Run And Results
+## 8. Commands Run And Results
 
 Truth reconciliation:
 
 * `git branch --show-current`
   * `main`
 * `git rev-parse HEAD`
-  * `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * `git ls-remote origin refs/heads/main`
-  * `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * `curl -fsSL https://adsecute.com/api/build-info`
-  * `buildId` `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * `buildId` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * `curl -fsSL https://adsecute.com/api/release-authority`
-  * live/main aligned at `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`
+  * live/main aligned at `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 
-Access-truth verification:
+Benchmark-business selection:
 
-* one-off Playwright probes were used to:
-  * inspect saved reviewer and commercial storage states
-  * seed and log in the approved commercial smoke operator
-  * read `/api/businesses`
-  * attempt `/api/auth/switch-business`
+* DB probes against `Grandmix`, `IwaStore`, `TheSwaf`
+  * confirmed all effective plans were `starter`
+  * confirmed `IwaStore` had the strongest Creative footprint
 
-Smoke verification:
+Provisioning / live-scope checks:
 
-* reviewer smoke command above
-  * first run: failed at `meta-campaign-adset-actions` visibility
-  * final run: passed, `2 passed (18.4s)`
-* targeted commercial Meta probe
-  * confirmed the mirrored Meta smoke interaction stays valid after the DOM scroll adjustment
+* one-off DB provisioning of temp user, `guest` membership, session, and user-level `growth` override
+* live API verification of:
+  * `/api/auth/me`
+  * `/api/businesses`
+  * `/api/auth/switch-business`
+  * `/api/billing`
 
-Build / typecheck:
+Proof capture:
 
-* `npx tsc --noEmit`
-  * first run failed because the workspace had stale `.next/types` include references before build regeneration
-* `npm run build`
-  * passed
-* `npx tsc --noEmit`
-  * rerun after build
-  * passed
+* targeted Playwright probes against `https://adsecute.com/creatives`
+* saved local artifacts under `playwright-report/step10-iwastore-*.png`
 
-## 7. Acceptance Check
+Teardown:
 
-Required for strong Step 9 success:
+* one-off DB deletes for temp sessions / memberships / user
+* live API verification that the old cookie no longer authenticated
+* local temp auth files removed
 
-1. at least one real connected non-demo business safely reachable
-2. strong live Creative proof captured there
-3. overall proof state materially upgraded beyond Step 8 demo-only evidence
+Build / typecheck / tests:
 
-Current Step 9 state:
+* no code changes were made in Step 10
+* `npm run build` not run
+* `npx tsc --noEmit` not run
+* targeted automated test reruns not needed
 
-1. safe non-demo business reachable
-   * not achieved
-2. strong non-demo Creative proof captured
-   * not achieved
-3. smoke health preserved
-   * achieved after a smoke-only fix
+## 9. Acceptance Check
 
-Step 9 verdict:
+Required for Step 10 acceptance:
 
-* `blocked`
+1. temporary proof path created cleanly
+2. at least one real connected non-demo benchmark business verified live
+3. strong page / row / detail / drawer proof captured there
+4. temporary proof path fully removed and verified dead
 
-Why not `shipped-not-complete`:
+Actual Step 10 outcome:
 
-* Step 9’s assigned objective was to secure an approved non-demo proof path
-* the real reason the program cannot advance now is a hard operational/access blocker
-* no honest non-demo proof upgrade is possible until that blocker changes
+1. yes
+2. yes, `IwaStore`
+3. yes
+4. yes
 
-## 8. Remaining Blocker
+Verdict:
 
-* approved safe reviewer and commercial sessions still do not have access to `Grandmix`, `IwaStore`, or `TheSwaf`
-* all three switch attempts still fail with exact `403 No access to this business.`
-* there is no configured `COMMERCIAL_SMOKE_OPERATOR_EXECUTION_BUSINESS_ID` to provide an already-approved real-business proof path
+* `accepted`
 
-## 9. Copy-Paste Summary
+## 10. Remaining Limitations
 
-Step 9 began by reconciling actual repo/runtime truth and found that the system was already aligned at `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878`, not at the older Step 8 continuity SHA. That shift was explainable: a standalone product commit `df9e7a515c74afc5cb36a2eaa3e02dc90bb1e878 feat: move commercial truth from settings to main navigation` had landed after the last Step 8 continuity commit `1e9e359e8616e3f87fa0a744c3f8048f1843f5ae`, and `release-authority` correctly reported live/main alignment there. Step 9 then re-attempted benchmark-business access through approved safe paths only. The saved commercial storage state had simply expired with `401 {"authenticated":false}`, but the healthy saved reviewer session and a fresh seeded commercial smoke session both exposed only `Adsecute Demo`; switch attempts to `Grandmix`, `IwaStore`, and `TheSwaf` all still returned `403 {"error":"forbidden","message":"No access to this business."}`. No non-demo page, row, detail, or drawer Creative proof was captured, so the proof state was not upgraded. While rechecking smoke health, reviewer smoke regressed narrowly on Meta because `meta-campaign-adset-actions` was now below the fold inside the scrollable detail panel. A smoke-only Playwright fix that uses DOM `scrollIntoView(...)` restored the flow, and the final reviewer smoke rerun passed in `18.4s`. `npm run build` passed, and `npx tsc --noEmit` passed after rerunning on the regenerated `.next/types`. The honest Step 9 verdict is `blocked` because approved access scope is now the real reason the program cannot advance.
+* all benchmark businesses were effective plan `starter`
+* real non-demo Creative proof therefore required a temporary user-level `growth` override on the temporary proof user
+* this override was removed at teardown
+* Step 10 did not redesign or permanently widen auth, billing, or benchmark access posture
