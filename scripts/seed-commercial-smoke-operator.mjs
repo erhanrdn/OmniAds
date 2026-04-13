@@ -1,5 +1,4 @@
 import bcrypt from "bcryptjs";
-import { neon } from "@neondatabase/serverless";
 import {
   DEMO_BUSINESS_ID,
   ensureCoreTables,
@@ -7,6 +6,7 @@ import {
   getEnv,
 } from "./seed-shared.mjs";
 import { resolveCommercialSmokeOperatorConfig } from "./seed-commercial-smoke-operator-support.mjs";
+import { createSqlClient } from "./sql-client.mjs";
 
 const OPERATOR = resolveCommercialSmokeOperatorConfig(process.env);
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -290,88 +290,92 @@ async function resetCommercialTruth(sql, userId) {
 
 async function main() {
   const databaseUrl = getEnv("DATABASE_URL");
-  const sql = neon(databaseUrl);
+  const sql = createSqlClient(databaseUrl);
 
-  await ensureCoreTables(sql);
-  await sql`
-    CREATE TABLE IF NOT EXISTS sessions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      token_hash TEXT NOT NULL UNIQUE,
-      active_business_id UUID REFERENCES businesses(id) ON DELETE SET NULL,
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `;
-  await ensureDemoBusiness(sql);
-  await ensureCommercialTruthTables(sql);
+  try {
+    await ensureCoreTables(sql);
+    await sql`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        active_business_id UUID REFERENCES businesses(id) ON DELETE SET NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+    await ensureDemoBusiness(sql);
+    await ensureCommercialTruthTables(sql);
 
-  const passwordHash = await bcrypt.hash(OPERATOR.password, 12);
-  const operatorRows = await sql`
-    INSERT INTO users (name, email, password_hash)
-    VALUES (${OPERATOR.name}, ${OPERATOR.email}, ${passwordHash})
-    ON CONFLICT (email)
-    DO UPDATE SET
-      name = EXCLUDED.name,
-      password_hash = EXCLUDED.password_hash
-    RETURNING id, email
-  `;
-  const operator = operatorRows[0];
+    const passwordHash = await bcrypt.hash(OPERATOR.password, 12);
+    const operatorRows = await sql`
+      INSERT INTO users (name, email, password_hash)
+      VALUES (${OPERATOR.name}, ${OPERATOR.email}, ${passwordHash})
+      ON CONFLICT (email)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        password_hash = EXCLUDED.password_hash
+      RETURNING id, email
+    `;
+    const operator = operatorRows[0];
 
-  await sql`
-    INSERT INTO memberships (user_id, business_id, role, status)
-    VALUES (${operator.id}, ${DEMO_BUSINESS_ID}, 'collaborator', 'active')
-    ON CONFLICT (user_id, business_id)
-    DO UPDATE SET role = 'collaborator', status = 'active'
-  `;
-
-  if (EXECUTION_BUSINESS_ID && EXECUTION_BUSINESS_ID !== DEMO_BUSINESS_ID) {
     await sql`
       INSERT INTO memberships (user_id, business_id, role, status)
-      VALUES (${operator.id}, ${EXECUTION_BUSINESS_ID}, 'collaborator', 'active')
+      VALUES (${operator.id}, ${DEMO_BUSINESS_ID}, 'collaborator', 'active')
       ON CONFLICT (user_id, business_id)
       DO UPDATE SET role = 'collaborator', status = 'active'
     `;
+
+    if (EXECUTION_BUSINESS_ID && EXECUTION_BUSINESS_ID !== DEMO_BUSINESS_ID) {
+      await sql`
+        INSERT INTO memberships (user_id, business_id, role, status)
+        VALUES (${operator.id}, ${EXECUTION_BUSINESS_ID}, 'collaborator', 'active')
+        ON CONFLICT (user_id, business_id)
+        DO UPDATE SET role = 'collaborator', status = 'active'
+      `;
+      await sql`
+        DELETE FROM memberships
+        WHERE user_id = ${operator.id}
+          AND business_id <> ${DEMO_BUSINESS_ID}
+          AND business_id <> ${EXECUTION_BUSINESS_ID}
+      `;
+    } else {
+      await sql`
+        DELETE FROM memberships
+        WHERE user_id = ${operator.id}
+          AND business_id <> ${DEMO_BUSINESS_ID}
+      `;
+    }
+
     await sql`
-      DELETE FROM memberships
+      UPDATE sessions
+      SET active_business_id = ${DEMO_BUSINESS_ID}
       WHERE user_id = ${operator.id}
-        AND business_id <> ${DEMO_BUSINESS_ID}
-        AND business_id <> ${EXECUTION_BUSINESS_ID}
     `;
-  } else {
-    await sql`
-      DELETE FROM memberships
-      WHERE user_id = ${operator.id}
-        AND business_id <> ${DEMO_BUSINESS_ID}
-    `;
-  }
 
-  await sql`
-    UPDATE sessions
-    SET active_business_id = ${DEMO_BUSINESS_ID}
-    WHERE user_id = ${operator.id}
-  `;
+    await resetCommercialTruth(sql, operator.id);
 
-  await resetCommercialTruth(sql, operator.id);
-
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        operator: {
-          email: OPERATOR.email,
-          password: OPERATOR.password,
-          passwordSource: OPERATOR.passwordSource,
-          role: "collaborator",
+    console.log(
+      JSON.stringify(
+        {
+          ok: true,
+          operator: {
+            email: OPERATOR.email,
+            password: OPERATOR.password,
+            passwordSource: OPERATOR.passwordSource,
+            role: "collaborator",
+          },
+          loginUrl: `${APP_URL.replace(/\/$/, "")}/login`,
+          businessId: DEMO_BUSINESS_ID,
+          executionBusinessId: EXECUTION_BUSINESS_ID,
         },
-        loginUrl: `${APP_URL.replace(/\/$/, "")}/login`,
-        businessId: DEMO_BUSINESS_ID,
-        executionBusinessId: EXECUTION_BUSINESS_ID,
-      },
-      null,
-      2,
-    ),
-  );
+        null,
+        2,
+      ),
+    );
+  } finally {
+    await sql.end();
+  }
 }
 
 main().catch((error) => {

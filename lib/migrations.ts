@@ -139,6 +139,8 @@ export async function runMigrations(options?: {
         options?.timeoutMs != null ? getDbWithTimeout(options.timeoutMs) : getDb()
       );
 
+      await sql.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+
       // ── PHASE 1: Tables with no FK dependencies (ordered batch) ───────────
       await runMigrationBatchSequentially([
         sql`CREATE TABLE IF NOT EXISTS users (

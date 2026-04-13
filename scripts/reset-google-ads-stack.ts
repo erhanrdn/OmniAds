@@ -1,7 +1,7 @@
-import { neon } from "@neondatabase/serverless";
+import { getDb } from "@/lib/db";
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = getDb();
   await sql.query("DELETE FROM provider_reporting_snapshots WHERE provider IN ('google_ads','google_ads_gaql')");
   await sql.query("DELETE FROM provider_sync_jobs WHERE provider = 'google_ads'");
   await sql.query("DELETE FROM provider_account_assignments WHERE provider = 'google'");
