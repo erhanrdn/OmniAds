@@ -207,13 +207,13 @@ describe("overview-service canonical orchestration", () => {
     expect(overview.kpis.purchases).toBe(9);
   });
 
-  it("keeps Meta visible in overview when current-day live override has totals but no warehouse account rows yet", async () => {
+  it("keeps Meta visible in overview when current-day live totals have no account rows yet", async () => {
     vi.mocked(metaCanonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
       totals: { spend: 23.22, revenue: 0, conversions: 0, roas: 0 },
       accounts: [],
       isPartial: false,
       notReadyReason: null,
-      readSource: "warehouse_plus_live_override",
+      readSource: "current_day_live",
     } as never);
     vi.mocked(googleServing.getGoogleCanonicalOverviewSummary).mockResolvedValue({
       kpis: {

@@ -51,6 +51,12 @@ export interface GoogleAdsSearchQueryHotDailyRow {
   sourceSnapshotId: string | null;
 }
 
+export interface GoogleAdsSearchQueryHotDailySupportReadRow
+  extends GoogleAdsSearchQueryHotDailyRow {
+  normalizedQuery: string | null;
+  displayQuery: string | null;
+}
+
 export interface GoogleAdsTopQueryWeeklyRow {
   businessId: string;
   providerAccountId: string;
@@ -124,6 +130,12 @@ type GoogleAdsSearchQueryHotDailyPersistedRow = {
   clicks: number | string;
   source_snapshot_id: string | null;
 };
+
+type GoogleAdsSearchQueryHotDailySupportPersistedRow =
+  GoogleAdsSearchQueryHotDailyPersistedRow & {
+    normalized_query: string | null;
+    display_query: string | null;
+  };
 
 type GoogleAdsTopQueryWeeklyPersistedRow = {
   business_id: string;
@@ -384,6 +396,16 @@ function mapPersistedHotDailyRow(
   };
 }
 
+function mapPersistedHotDailySupportRow(
+  row: GoogleAdsSearchQueryHotDailySupportPersistedRow
+): GoogleAdsSearchQueryHotDailySupportReadRow {
+  return {
+    ...mapPersistedHotDailyRow(row),
+    normalizedQuery: row.normalized_query ? String(row.normalized_query) : null,
+    displayQuery: row.display_query ? String(row.display_query) : null,
+  };
+}
+
 function mapPersistedTopQueryWeeklyRow(
   row: GoogleAdsTopQueryWeeklyPersistedRow
 ): GoogleAdsTopQueryWeeklySupportReadRow {
@@ -445,6 +467,31 @@ export async function readGoogleAdsSearchQueryHotDailyRows(input: {
     ORDER BY date ASC, query_hash ASC
   `) as GoogleAdsSearchQueryHotDailyPersistedRow[];
   return rows.map(mapPersistedHotDailyRow);
+}
+
+export async function readGoogleAdsSearchQueryHotDailySupportRows(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}) {
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
+  const sql = getDb();
+  const rows = (await sql`
+    SELECT
+      daily.*,
+      dictionary.normalized_query,
+      dictionary.display_query
+    FROM google_ads_search_query_hot_daily AS daily
+    LEFT JOIN google_ads_query_dictionary AS dictionary
+      ON dictionary.query_hash = daily.query_hash
+    WHERE daily.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR daily.provider_account_id = ${input.providerAccountId ?? null})
+      AND daily.date >= ${input.startDate}
+      AND daily.date <= ${input.endDate}
+    ORDER BY daily.date ASC, daily.spend DESC, daily.query_hash ASC
+  `) as GoogleAdsSearchQueryHotDailySupportPersistedRow[];
+  return rows.map(mapPersistedHotDailySupportRow);
 }
 
 export async function upsertGoogleAdsQueryDictionaryEntries(entries: GoogleAdsQueryDictionaryEntry[]) {

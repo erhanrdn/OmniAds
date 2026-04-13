@@ -837,7 +837,7 @@ describe("GET /api/meta/status", () => {
     });
   });
 
-  it("keeps historical surfaces ready while finalize is pending for secondary blockers only", async () => {
+  it("keeps historical surfaces syncing while finalize is pending", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -908,11 +908,11 @@ describe("GET /api/meta/status", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
     expect(payload.d1FinalizeState).toBe("processing");
     expect(payload.d1BlockedReason).toBe("active_finalize_day_partition");
   });

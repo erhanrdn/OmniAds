@@ -52,6 +52,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAdDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaAdSetDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaAccountDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
+  getMetaAuthoritativeDayVerification: vi.fn(),
   getMetaAuthoritativeRequiredSurfacesForDayAge: vi.fn((dayAge: number) =>
     dayAge > 394
       ? [
@@ -72,6 +73,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaCampaignDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaCreativeDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaDirtyRecentDates: vi.fn().mockResolvedValue([]),
+  listMetaAuthoritativeDayStates: vi.fn().mockResolvedValue([]),
   getMetaPartitionStatesForDate: vi.fn().mockResolvedValue(new Map()),
   getMetaPublishedVerificationSummary: vi.fn().mockResolvedValue({
     verificationState: "processing",
@@ -113,6 +115,8 @@ vi.mock("@/lib/meta/warehouse", () => ({
   requeueMetaRetryableFailedPartitions: vi.fn(),
   updateMetaSyncJob: vi.fn(),
   updateMetaSyncRun: vi.fn(),
+  upsertMetaAuthoritativeDayState: vi.fn(async (row) => row),
+  reconcileMetaAuthoritativeDayStateFromVerification: vi.fn(),
   upsertMetaSyncState: vi.fn(),
   upsertMetaSyncCheckpoint: vi.fn(),
 }));
@@ -125,6 +129,21 @@ const { enqueueMetaScheduledWork } = await import("@/lib/sync/meta-sync");
 type QueueMetaPartitionInput = Parameters<typeof warehouse.queueMetaSyncPartition>[0];
 type RecentAuthoritativeSliceGuardInput =
   Parameters<typeof warehouse.getMetaRecentAuthoritativeSliceGuard>[0];
+
+function buildPublishedPlannerRows(providerAccountId: string, days: string[]) {
+  return days.flatMap((day) =>
+    ["account_daily", "campaign_daily", "adset_daily", "ad_daily", "breakdown_daily"].map(
+      (surface) => ({
+        businessId: "biz-1",
+        providerAccountId,
+        day,
+        surface,
+        state: "published",
+        accountTimezone: "UTC",
+      }),
+    ),
+  );
+}
 
 describe("enqueueMetaScheduledWork", () => {
   beforeEach(() => {
@@ -148,6 +167,7 @@ describe("enqueueMetaScheduledWork", () => {
       maintenanceLeasedPartitions: 0,
     } as never);
     vi.mocked(warehouse.getMetaDirtyRecentDates).mockResolvedValue([] as never);
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue([] as never);
     vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard).mockResolvedValue({
       activeAuthoritativeSource: null,
       activeAuthoritativePriority: 0,
@@ -155,6 +175,9 @@ describe("enqueueMetaScheduledWork", () => {
       lastSameSourceSuccessAt: null,
       repeatedFailures24h: 0,
     } as never);
+    vi.mocked(warehouse.upsertMetaAuthoritativeDayState).mockImplementation(
+      async (row) => row as never,
+    );
     vi.mocked(warehouse.getMetaPartitionStatesForDate).mockResolvedValue(new Map());
     vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
       verificationState: "processing",
@@ -246,6 +269,9 @@ describe("enqueueMetaScheduledWork", () => {
   it("chooses finalize_day vs repair_recent_day by age and severity", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
+      buildPublishedPlannerRows("act_1", ["2026-04-05", "2026-04-04", "2026-04-03"]) as never,
+    );
     vi.mocked(warehouse.getMetaDirtyRecentDates)
       .mockResolvedValueOnce([
         {
@@ -384,6 +410,10 @@ describe("enqueueMetaScheduledWork", () => {
         },
       ] as never)
       .mockResolvedValueOnce([] as never);
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockImplementation(
+      async ({ providerAccountId }) =>
+        buildPublishedPlannerRows(String(providerAccountId), ["2026-04-05"]) as never,
+    );
     vi.mocked(warehouse.getMetaRecentAuthoritativeSliceGuard)
       .mockImplementation(async ({ providerAccountId, date, source }: RecentAuthoritativeSliceGuardInput) => {
         if (providerAccountId === "act_1" && date === "2026-04-05" && source === "finalize_day") {
@@ -445,6 +475,9 @@ describe("enqueueMetaScheduledWork", () => {
   it("does not let recent success skip critical dirty slices", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
+      buildPublishedPlannerRows("act_1", ["2026-04-05"]) as never,
+    );
     vi.mocked(warehouse.getMetaDirtyRecentDates)
       .mockResolvedValueOnce([
         {
@@ -557,6 +590,9 @@ describe("enqueueMetaScheduledWork", () => {
   it("includes tiny_stale_spend in recent auto-heal reason counts", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
+      buildPublishedPlannerRows("act_1", ["2026-04-05"]) as never,
+    );
     vi.mocked(warehouse.getMetaDirtyRecentDates)
       .mockResolvedValueOnce([
         {
@@ -607,25 +643,9 @@ describe("enqueueMetaScheduledWork", () => {
   it("moves historical backfill to the next older day only after D-2 is already published", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
-    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
-      verificationState: "processing",
-      truthReady: false,
-      totalDays: 365,
-      completedCoreDays: 1,
-      sourceFetchedAt: null,
-      publishedAt: null,
-      asOf: null,
-      publishedSlices: 5,
-      totalExpectedSlices: 1825,
-      reasonCounts: {},
-      publishedKeysBySurface: {
-        account_daily: ["act_1:2026-04-04"],
-        campaign_daily: ["act_1:2026-04-04"],
-        adset_daily: ["act_1:2026-04-04"],
-        ad_daily: ["act_1:2026-04-04"],
-        breakdown_daily: ["act_1:2026-04-04"],
-      },
-    } as never);
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
+      buildPublishedPlannerRows("act_1", ["2026-04-04"]) as never,
+    );
 
     await enqueueMetaScheduledWork("biz-1");
 

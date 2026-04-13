@@ -408,7 +408,7 @@ describe("meta historical serving", () => {
     });
   });
 
-  it("serves warehouse summary while finalize is still pending when only secondary blockers remain", async () => {
+  it("keeps warehouse summary partial until published truth exists", async () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
     vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
       accountIds: ["act_1"],
@@ -540,9 +540,9 @@ describe("meta historical serving", () => {
       providerAccountIds: ["act_1"],
     });
 
-    expect(summary.isPartial).toBe(false);
+    expect(summary.isPartial).toBe(true);
     expect(summary.totals.spend).toBe(0);
-    expect(summary.accounts).toHaveLength(1);
+    expect(summary.accounts).toHaveLength(0);
   });
 
   it("filters historical breakdown rows to published verified account-days when v2 is enabled", async () => {

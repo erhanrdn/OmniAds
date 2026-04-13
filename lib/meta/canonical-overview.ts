@@ -9,7 +9,6 @@ import {
   getMetaWarehouseTrends,
 } from "@/lib/meta/serving";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 
 function getHistoricalVerificationReason(input: {
   verificationState?: string | null;
@@ -30,8 +29,8 @@ export type MetaCanonicalOverviewSummary = Awaited<
   isPartial: boolean;
   notReadyReason?: string | null;
   readSource:
-    | "warehouse"
-    | "warehouse_plus_live_override"
+    | "warehouse_published"
+    | "current_day_live"
     | "live_historical_fallback";
 };
 
@@ -42,21 +41,6 @@ export type MetaCanonicalOverviewTrends = Awaited<
   notReadyReason?: string | null;
   readSource: "warehouse_published";
 };
-
-function canServeMetaHistoricalSummaryWhileFinalizePending(
-  selectedRangeTruth:
-    | Awaited<ReturnType<typeof getMetaSelectedRangeTruthReadiness>>
-    | null
-    | undefined,
-) {
-  if (!selectedRangeTruth) return false;
-  if (selectedRangeTruth.completedCoreDays < selectedRangeTruth.totalDays) {
-    return false;
-  }
-  return selectedRangeTruth.blockingReasons.every(
-    (reason) => reason === "non_finalized",
-  );
-}
 
 export async function getMetaCanonicalOverviewSummary(input: {
   businessId: string;
@@ -69,19 +53,10 @@ export async function getMetaCanonicalOverviewSummary(input: {
     getIntegration(input.businessId, "meta").catch(() => null),
   ]);
   const providerAccountIds = assignment?.account_ids ?? [];
-  const [warehouseSummary, selectedRangeTruth] = await Promise.all([
-    getMetaWarehouseSummary({
-      ...input,
-      providerAccountIds,
-    }),
-    providerAccountIds.length > 0 && rangeContext.withinAuthoritativeHistory
-      ? getMetaSelectedRangeTruthReadiness({
-          businessId: input.businessId,
-          startDate: input.startDate,
-          endDate: input.endDate,
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const warehouseSummary = await getMetaWarehouseSummary({
+    ...input,
+    providerAccountIds,
+  });
 
   const connected = integration?.status === "connected";
   if (rangeContext.isSelectedCurrentDay && connected) {
@@ -90,28 +65,68 @@ export async function getMetaCanonicalOverviewSummary(input: {
         ...input,
         providerAccountIds,
       });
-      if (liveTotals.spend > 0 || liveTotals.impressions > 0) {
-        console.info("[meta-canonical] summary_read", {
-          businessId: input.businessId,
-          startDate: input.startDate,
-          endDate: input.endDate,
-          readSource: "warehouse_plus_live_override",
-          isPartial: false,
-          accountCount: warehouseSummary.accounts.length,
-        });
-        return {
-          ...warehouseSummary,
-          totals: liveTotals,
-          isPartial: false,
-          notReadyReason: null,
-          readSource: "warehouse_plus_live_override",
-        };
-      }
+      console.info("[meta-canonical] summary_read", {
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        readSource: "current_day_live",
+        isPartial: liveTotals.spend <= 0 && liveTotals.impressions <= 0,
+        accountCount: 0,
+      });
+      return {
+        ...warehouseSummary,
+        totals: liveTotals,
+        accounts: [],
+        isPartial: liveTotals.spend <= 0 && liveTotals.impressions <= 0,
+        notReadyReason:
+          liveTotals.spend <= 0 && liveTotals.impressions <= 0
+            ? getMetaPartialReason({
+                isSelectedCurrentDay: true,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason:
+                  "Current-day live Meta totals are still being prepared.",
+              })
+            : null,
+        readSource: "current_day_live",
+      };
     } catch (error: unknown) {
       console.warn("[meta-canonical] live_totals_failed", {
         businessId: input.businessId,
         message: error instanceof Error ? error.message : String(error),
       });
+      console.info("[meta-canonical] summary_read", {
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        readSource: "current_day_live",
+        isPartial: true,
+        accountCount: 0,
+      });
+      return {
+        ...warehouseSummary,
+        totals: {
+          spend: 0,
+          revenue: 0,
+          conversions: 0,
+          roas: 0,
+          cpa: null,
+          ctr: null,
+          cpc: null,
+          impressions: 0,
+          clicks: 0,
+          reach: 0,
+        },
+        accounts: [],
+        isPartial: true,
+        notReadyReason: getMetaPartialReason({
+          isSelectedCurrentDay: true,
+          currentDateInTimezone: rangeContext.currentDateInTimezone,
+          primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+          defaultReason: "Current-day live Meta totals are still being prepared.",
+        }),
+        readSource: "current_day_live",
+      };
     }
   }
   if (
@@ -147,20 +162,11 @@ export async function getMetaCanonicalOverviewSummary(input: {
     }
   }
 
-  const historicalServeableWhileFinalizePending =
-    !rangeContext.isSelectedCurrentDay &&
-    canServeMetaHistoricalSummaryWhileFinalizePending(selectedRangeTruth);
-
   const result = {
     ...warehouseSummary,
-    isPartial:
-      historicalServeableWhileFinalizePending
-        ? false
-        : Boolean(warehouseSummary.isPartial),
+    isPartial: Boolean(warehouseSummary.isPartial),
     notReadyReason:
-      historicalServeableWhileFinalizePending
-        ? null
-        : warehouseSummary.isPartial
+      warehouseSummary.isPartial
       ? getHistoricalVerificationReason({
           verificationState: warehouseSummary.verification?.verificationState ?? null,
           fallbackReason: getMetaPartialReason({
@@ -172,7 +178,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
           }),
         })
         : null,
-    readSource: "warehouse" as const,
+    readSource: "warehouse_published" as const,
   };
   console.info("[meta-canonical] summary_read", {
     businessId: input.businessId,

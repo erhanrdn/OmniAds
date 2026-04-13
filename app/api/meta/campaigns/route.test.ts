@@ -80,6 +80,9 @@ describe("GET /api/meta/campaigns", () => {
       historicalReadMode: "historical_authoritative",
       breakdownReadMode: "historical_authoritative",
     });
+    vi.mocked(readiness.getMetaPartialReason).mockReturnValue(
+      "Current-day live Meta campaign data is still being prepared.",
+    );
   });
 
   it("serves warehouse-backed historical data even without a live access token", async () => {
@@ -187,7 +190,7 @@ describe("GET /api/meta/campaigns", () => {
     expect(serving.getMetaWarehouseCampaignTable).not.toHaveBeenCalled();
   });
 
-  it("falls back to warehouse data when the current-day live path returns no campaigns", async () => {
+  it("returns a partial current-day payload when the live path returns no campaigns", async () => {
     vi.mocked(integrations.getIntegration).mockResolvedValue({
       status: "connected",
     } as never);
@@ -201,24 +204,6 @@ describe("GET /api/meta/campaigns", () => {
       breakdownReadMode: "current_day_live",
     });
     vi.mocked(live.getMetaLiveCampaignRows).mockResolvedValue([] as never);
-    vi.mocked(serving.getMetaWarehouseCampaignTable).mockResolvedValue([
-      {
-        id: "cmp_wh",
-        name: "Warehouse Campaign",
-        status: "ACTIVE",
-        objective: "Sales",
-        spend: 32,
-        revenue: 96,
-        roas: 3,
-        cpa: 16,
-        dailyBudget: 2000,
-        lifetimeBudget: null,
-        previousDailyBudget: null,
-        previousLifetimeBudget: null,
-        previousBudgetCapturedAt: null,
-      },
-    ] as never);
-
     const response = await GET(
       new NextRequest(
         "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-31&endDate=2026-03-31"
@@ -227,10 +212,11 @@ describe("GET /api/meta/campaigns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.rows).toHaveLength(1);
-    expect(payload.rows[0]?.id).toBe("cmp_wh");
+    expect(payload.rows).toHaveLength(0);
+    expect(payload.isPartial).toBe(true);
+    expect(payload.notReadyReason).toContain("Current-day live Meta campaign data");
     expect(live.getMetaLiveCampaignRows).toHaveBeenCalledTimes(1);
-    expect(serving.getMetaWarehouseCampaignTable).toHaveBeenCalledTimes(1);
+    expect(serving.getMetaWarehouseCampaignTable).not.toHaveBeenCalled();
   });
 
   it("forwards includePrev for the current page budget-change contract", async () => {

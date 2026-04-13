@@ -30,6 +30,7 @@ import {
   getMetaAdDailyCoverage,
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
+  getMetaAuthoritativeDayVerification,
   getMetaAuthoritativeRequiredSurfacesForDayAge,
   getMetaCampaignDailyCoverage,
   getMetaCreativeDailyCoverage,
@@ -37,6 +38,7 @@ import {
   getMetaPartitionStatesForDate,
   getMetaPublishedVerificationSummary,
   getMetaRecentAuthoritativeSliceGuard,
+  listMetaAuthoritativeDayStates,
   getMetaQueueComposition,
   getMetaPartitionHealth,
   getMetaQueueHealth,
@@ -51,6 +53,8 @@ import {
   requeueMetaRetryableFailedPartitions,
   updateMetaSyncJob,
   updateMetaSyncRun,
+  upsertMetaAuthoritativeDayState,
+  reconcileMetaAuthoritativeDayStateFromVerification,
   upsertMetaSyncState,
   upsertMetaSyncCheckpoint,
 } from "@/lib/meta/warehouse";
@@ -915,6 +919,15 @@ function getMetaPlannerRequiredPublishedSurfacesForDay(input: {
     );
 }
 
+function getMetaPlannerSurfaceRequirementsForDay(input: {
+  day: string;
+  referenceToday: string;
+}) {
+  return getMetaAuthoritativeRequiredSurfacesForDayAge(
+    getMetaHistoricalDayAge(input),
+  );
+}
+
 function shouldSyncMetaBreakdownsForDay(input: {
   day: string;
   referenceToday: string;
@@ -933,14 +946,62 @@ function shouldSyncMetaBreakdownsForDay(input: {
   );
 }
 
-function buildMetaPublishedKeySets(
-  publishedKeysBySurface: Partial<Record<MetaWarehouseScope, string[]>>,
+function buildMetaAuthoritativeDayStateMap(
+  rows: Awaited<ReturnType<typeof listMetaAuthoritativeDayStates>>,
 ) {
-  return new Map<MetaWarehouseScope, Set<string>>(
-    META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES.map((surface) => [
-      surface,
-      new Set(publishedKeysBySurface[surface] ?? []),
-    ]),
+  const byDay = new Map<string, Map<MetaWarehouseScope, string>>();
+  for (const row of rows) {
+    const states = byDay.get(row.day) ?? new Map<MetaWarehouseScope, string>();
+    states.set(row.surface, row.state);
+    byDay.set(row.day, states);
+  }
+  return byDay;
+}
+
+async function seedMetaAuthoritativePlannerDayStates(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  referenceToday: string;
+  accountTimezone: string;
+  existingStates?: Map<MetaWarehouseScope, string> | null;
+}) {
+  const requirements = getMetaPlannerSurfaceRequirementsForDay({
+    day: input.day,
+    referenceToday: input.referenceToday,
+  });
+  if (requirements.length === 0) return [];
+  const existingStates = input.existingStates ?? new Map<MetaWarehouseScope, string>();
+  const missingRequirements = requirements.filter(
+    (requirement) => !existingStates.has(requirement.surface),
+  );
+  if (missingRequirements.length === 0) return [];
+  return Promise.all(
+    missingRequirements.map((requirement) =>
+      upsertMetaAuthoritativeDayState({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        day: input.day,
+        surface: requirement.surface,
+        state: requirement.state,
+        accountTimezone: input.accountTimezone,
+      }),
+    ),
+  );
+}
+
+function isMetaPlannerDayPublished(input: {
+  day: string;
+  referenceToday: string;
+  statesBySurface?: Map<MetaWarehouseScope, string> | null;
+}) {
+  const requiredSurfaces = getMetaPlannerRequiredPublishedSurfacesForDay({
+    day: input.day,
+    referenceToday: input.referenceToday,
+  });
+  if (requiredSurfaces.length === 0) return true;
+  return requiredSurfaces.every(
+    (surface) => input.statesBySurface?.get(surface) === "published",
   );
 }
 
@@ -949,32 +1010,33 @@ async function getNextMetaHistoricalAuthoritativeDay(input: {
   providerAccountId: string;
   startDate: string;
   referenceToday: string;
+  accountTimezone: string;
 }) {
   const endDate = addUtcDays(input.referenceToday, -2);
   if (endDate < input.startDate) return null;
-  const verification = await getMetaPublishedVerificationSummary({
+  const dayStateRows = await listMetaAuthoritativeDayStates({
     businessId: input.businessId,
-    startDate: input.startDate,
-    endDate,
-    providerAccountIds: [input.providerAccountId],
-    surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
-  }).catch(() => null);
-  if (!verification) return null;
-  const publishedBySurface = buildMetaPublishedKeySets(
-    verification.publishedKeysBySurface,
-  );
+    providerAccountId: input.providerAccountId,
+    startDay: input.startDate,
+    endDay: endDate,
+  }).catch(() => []);
+  const statesByDay = buildMetaAuthoritativeDayStateMap(dayStateRows);
   for (const day of enumerateDays(input.startDate, endDate, true)) {
-    const requiredSurfaces = getMetaPlannerRequiredPublishedSurfacesForDay({
+    const existingStates = statesByDay.get(day) ?? null;
+    await seedMetaAuthoritativePlannerDayStates({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
       day,
       referenceToday: input.referenceToday,
+      accountTimezone: input.accountTimezone,
+      existingStates,
     });
     if (
-      requiredSurfaces.length === 0 ||
-      requiredSurfaces.every((surface) =>
-        publishedBySurface
-          .get(surface)
-          ?.has(`${input.providerAccountId}:${day}`),
-      )
+      isMetaPlannerDayPublished({
+        day,
+        referenceToday: input.referenceToday,
+        statesBySurface: statesByDay.get(day) ?? existingStates,
+      })
     ) {
       continue;
     }
@@ -1680,6 +1742,31 @@ async function syncMetaPartitionDay(input: {
     referenceToday: getMetaReferenceToday(credentials),
   });
 
+  if (
+    truthState === "finalized" &&
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)
+  ) {
+    const verification = await getMetaAuthoritativeDayVerification({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      day: normalizedDay,
+    }).catch(() => null);
+    if (verification) {
+      await reconcileMetaAuthoritativeDayStateFromVerification({
+        verification,
+        accountTimezone:
+          credentials.accountProfiles?.[input.providerAccountId]?.timezone ??
+          "UTC",
+        activePartitionIdBySurface: Object.fromEntries(
+          getMetaPlannerRequiredPublishedSurfacesForDay({
+            day: normalizedDay,
+            referenceToday: getMetaReferenceToday(credentials),
+          }).map((surface) => [surface, input.partitionId]),
+        ),
+      }).catch(() => null);
+    }
+  }
+
   console.info("[meta-sync] partition_day_result", {
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
@@ -1823,6 +1910,8 @@ async function enqueueMetaHistoricalCorePartitions(
       providerAccountId,
       startDate,
       referenceToday,
+      accountTimezone:
+        credentials.accountProfiles?.[providerAccountId]?.timezone ?? "UTC",
     }).catch(() => null);
     const incompleteDates = nextIncompleteDate ? [nextIncompleteDate] : [];
 
@@ -2008,7 +2097,43 @@ async function enqueueMetaMaintenancePartitions(
   }
 
   for (const target of targets) {
+    const plannerRows = await listMetaAuthoritativeDayStates({
+      businessId,
+      providerAccountId: target.providerAccountId,
+      startDay: target.d3,
+      endDay: target.d1,
+    }).catch(() => []);
+    const plannerStatesByDay = buildMetaAuthoritativeDayStateMap(plannerRows);
+    for (const date of [target.d1, target.d2, target.d3]) {
+      await seedMetaAuthoritativePlannerDayStates({
+        businessId,
+        providerAccountId: target.providerAccountId,
+        day: date,
+        referenceToday: target.today,
+        accountTimezone:
+          credentials.accountProfiles?.[target.providerAccountId]?.timezone ??
+          "UTC",
+        existingStates: plannerStatesByDay.get(date) ?? null,
+      }).catch(() => []);
+    }
+    const d1Published = isMetaPlannerDayPublished({
+      day: target.d1,
+      referenceToday: target.today,
+      statesBySurface: plannerStatesByDay.get(target.d1) ?? null,
+    });
+    const d2Published = isMetaPlannerDayPublished({
+      day: target.d2,
+      referenceToday: target.today,
+      statesBySurface: plannerStatesByDay.get(target.d2) ?? null,
+    });
+    const d3Published = isMetaPlannerDayPublished({
+      day: target.d3,
+      referenceToday: target.today,
+      statesBySurface: plannerStatesByDay.get(target.d3) ?? null,
+    });
     for (const date of [target.d2, target.d3]) {
+      if (date === target.d2 && !d1Published) continue;
+      if (date === target.d3 && !d2Published) continue;
       const dirty = dirtyBySlice.get(`${target.providerAccountId}:${date}`);
       if (!dirty) continue;
       const action = classifyMetaRecentAction({ target, dirty });
@@ -2020,6 +2145,7 @@ async function enqueueMetaMaintenancePartitions(
         dirty,
       );
     }
+    if (!d3Published) continue;
     for (const date of enumerateDays(target.d7Start, target.d1, false)) {
       if (date === target.d1 || date === target.d2 || date === target.d3) continue;
       const dirty = dirtyBySlice.get(`${target.providerAccountId}:${date}`);
@@ -3819,12 +3945,50 @@ export async function syncMetaRepairRange(input: {
 export async function syncMetaInitial(
   businessId: string,
 ): Promise<MetaSyncResult> {
-  const scheduled = await enqueueMetaScheduledWork(businessId).catch(() => null);
-  if (canUseInProcessBackgroundScheduling()) {
-    scheduleMetaBackgroundSync({ businessId, delayMs: 0 });
+  const credentials = await resolveMetaCredentials(businessId).catch(() => null);
+  if (!credentials?.accountIds?.length) {
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+    };
   }
-  const queued =
-    (scheduled?.queuedCore ?? 0) + (scheduled?.queuedMaintenance ?? 0);
+
+  let queued = 0;
+  for (const providerAccountId of credentials.accountIds) {
+    const accountTimezone =
+      credentials.accountProfiles?.[providerAccountId]?.timezone ?? "UTC";
+    const today = getTodayIsoForTimeZoneServer(accountTimezone);
+    const d1 = toIsoDate(addDays(new Date(`${today}T00:00:00Z`), -1));
+    const existingDayStates = buildMetaAuthoritativeDayStateMap(
+      await listMetaAuthoritativeDayStates({
+        businessId,
+        providerAccountId,
+        startDay: d1,
+        endDay: d1,
+      }).catch(() => []),
+    );
+    await seedMetaAuthoritativePlannerDayStates({
+      businessId,
+      providerAccountId,
+      day: d1,
+      referenceToday: today,
+      accountTimezone,
+      existingStates: existingDayStates.get(d1) ?? null,
+    }).catch(() => []);
+    queued += await enqueueMetaDates({
+      businessId,
+      accountIds: [providerAccountId],
+      dates: [d1],
+      triggerSource: "yesterday",
+      lane: "maintenance",
+      scopes: META_CORE_PARTITION_QUEUE_SCOPES,
+      priority: 70,
+    });
+  }
+
   return {
     businessId,
     attempted: queued,

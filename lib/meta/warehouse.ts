@@ -694,8 +694,50 @@ export async function getMetaAuthoritativeDayState(input: {
     autoheal_count: number;
     created_at: string;
     updated_at: string;
-  }>;
+}>;
   return rows[0] ? mapMetaAuthoritativeDayStateRow(rows[0]) : null;
+}
+
+export async function listMetaAuthoritativeDayStates(input: {
+  businessId: string;
+  providerAccountId: string;
+  startDay: string;
+  endDay: string;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT *
+    FROM meta_authoritative_day_state
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day >= ${normalizeDate(input.startDay)}
+      AND day <= ${normalizeDate(input.endDay)}
+    ORDER BY day DESC, surface ASC
+  ` as Array<{
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    state: MetaAuthoritativeDayStateStatus;
+    account_timezone: string;
+    active_partition_id: string | null;
+    last_run_id: string | null;
+    last_manifest_id: string | null;
+    last_publication_pointer_id: string | null;
+    published_at: string | null;
+    retry_after_at: string | null;
+    failure_streak: number;
+    diagnosis_code: string | null;
+    diagnosis_detail_json: Record<string, unknown> | null;
+    last_started_at: string | null;
+    last_finished_at: string | null;
+    last_autoheal_at: string | null;
+    autoheal_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows.map(mapMetaAuthoritativeDayStateRow);
 }
 
 export async function reconcileMetaAuthoritativeDayStateFromVerification(input: {

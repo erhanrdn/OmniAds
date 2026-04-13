@@ -250,7 +250,7 @@ async function getMetaOverviewFragment(input: {
       return payload;
     }
     if (
-      canonicalSummary.readSource === "warehouse_plus_live_override" &&
+      canonicalSummary.readSource === "current_day_live" &&
       (
         canonicalSummary.totals.spend > 0 ||
         canonicalSummary.totals.revenue > 0 ||

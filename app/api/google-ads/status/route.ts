@@ -47,6 +47,7 @@ import {
   GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES,
   isGoogleAdsAdvisorWindowReady,
 } from "@/lib/google-ads/advisor-readiness";
+import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 import {
   buildProviderStateContract,
   buildProviderSurfaces,
@@ -162,6 +163,43 @@ function toRangeCompletion(input: {
     totalDays,
     readyThroughDate: input.readyThroughDate,
     ready: totalDays > 0 && completedDays >= totalDays,
+  };
+}
+
+function clampGoogleAdsCoverageToHotWindow<
+  T extends {
+    completed_days?: number | null;
+    ready_through_date?: string | null;
+    latest_updated_at?: string | null;
+    total_rows?: number | null;
+  } | null
+>(input: {
+  coverage: T;
+  startDate: string;
+  endDate: string;
+  supportStartDate: string;
+}) {
+  if (!input.coverage) return input.coverage;
+  const supportedTotalDays =
+    input.endDate < input.supportStartDate
+      ? 0
+      : dayCountInclusive(
+          input.startDate < input.supportStartDate
+            ? input.supportStartDate
+            : input.startDate,
+          input.endDate,
+        );
+  return {
+    ...input.coverage,
+    completed_days: Math.min(
+      Math.max(0, Number(input.coverage.completed_days ?? 0)),
+      supportedTotalDays,
+    ),
+    ready_through_date:
+      input.coverage.ready_through_date &&
+      String(input.coverage.ready_through_date) >= input.supportStartDate
+        ? String(input.coverage.ready_through_date).slice(0, 10)
+        : null,
   };
 }
 
@@ -638,6 +676,10 @@ export async function GET(request: NextRequest) {
     warehouseStats?.primary_account_timezone ??
     "UTC";
   const currentDateInTimezone = getTodayIsoForTimeZoneServer(primaryAccountTimezone);
+  const googleAdsSearchHotWindowStart = addDaysToIsoDate(
+    currentDateInTimezone,
+    -(GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS - 1),
+  );
   const platformDateBoundaryAccounts = await getProviderPlatformDateBoundaries({
     provider: "google",
     businessId: businessId!,
@@ -675,7 +717,7 @@ export async function GET(request: NextRequest) {
           }),
         ]);
   const [
-    selectedSearchTermCoverage,
+    rawSelectedSearchTermCoverage,
     selectedProductCoverage,
     selectedAssetCoverage,
     selectedAssetGroupCoverage,
@@ -743,6 +785,15 @@ export async function GET(request: NextRequest) {
           }),
         ])
       : [null, null, null, null, null, null, null];
+  const selectedSearchTermCoverage =
+    selectedStartDate && selectedEndDate
+      ? clampGoogleAdsCoverageToHotWindow({
+          coverage: rawSelectedSearchTermCoverage,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+          supportStartDate: googleAdsSearchHotWindowStart,
+        })
+      : rawSelectedSearchTermCoverage;
   const allStateScopes = [
     "account_daily",
     "campaign_daily",
@@ -867,7 +918,7 @@ export async function GET(request: NextRequest) {
         accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId)
       );
       const warehouseCoverage = extendedCoverageByScope.get(scope);
-      const totalDaysForScope =
+      const unclampedTotalDaysForScope =
         relevantStates.length > 0
           ? Math.max(
               1,
@@ -878,21 +929,41 @@ export async function GET(request: NextRequest) {
               )
             )
           : effectiveHistoricalTotalDays;
+      const totalDaysForScope =
+        scope === "search_term_daily"
+          ? Math.min(
+              unclampedTotalDaysForScope,
+              dayCountInclusive(
+                googleAdsSearchHotWindowStart,
+                currentDateInTimezone,
+              ),
+            )
+          : unclampedTotalDaysForScope;
+      const completedDays = Number(
+        warehouseCoverage?.completed_days ??
+          (relevantStates.length > 0
+            ? Math.min(...relevantStates.map((row) => row.completedDays))
+            : 0)
+      );
+      const readyThroughDate = warehouseCoverage?.ready_through_date
+        ? String(warehouseCoverage.ready_through_date).slice(0, 10)
+        : relevantStates
+            .map((row) => row.readyThroughDate)
+            .filter((value): value is string => Boolean(value))
+            .sort((a, b) => a.localeCompare(b))[0] ?? null;
       return {
         scope,
-        completedDays: Number(
-          warehouseCoverage?.completed_days ??
-            (relevantStates.length > 0
-              ? Math.min(...relevantStates.map((row) => row.completedDays))
-              : 0)
-        ),
+        completedDays:
+          scope === "search_term_daily"
+            ? Math.min(completedDays, totalDaysForScope)
+            : completedDays,
         totalDays: totalDaysForScope,
-        readyThroughDate: warehouseCoverage?.ready_through_date
-          ? String(warehouseCoverage.ready_through_date).slice(0, 10)
-          : relevantStates
-              .map((row) => row.readyThroughDate)
-              .filter((value): value is string => Boolean(value))
-              .sort((a, b) => a.localeCompare(b))[0] ?? null,
+        readyThroughDate:
+          scope === "search_term_daily" &&
+          readyThroughDate &&
+          readyThroughDate < googleAdsSearchHotWindowStart
+            ? null
+            : readyThroughDate,
         latestBackgroundActivityAt:
           relevantStates
             .map((row) => row.latestBackgroundActivityAt)

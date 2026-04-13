@@ -70,11 +70,16 @@ export async function getMetaAdSetsForRange(input: {
       : null;
 
   try {
-    if (
-      (rangeContext.isSelectedCurrentDay ||
-        rangeContext.historicalReadMode === "historical_live_fallback") &&
-      connected
-    ) {
+    if (rangeContext.historicalReadMode === "historical_live_fallback") {
+      if (!connected) {
+        return {
+          status: "not_connected",
+          rows: [],
+          isPartial: true,
+          notReadyReason:
+            "Meta integration is not connected. Historical live fallback is unavailable.",
+        };
+      }
       const liveRows = await getMetaLiveAdSets({
         businessId: input.businessId,
         campaignId: input.campaignId ?? null,
@@ -82,22 +87,46 @@ export async function getMetaAdSetsForRange(input: {
         endDate: resolvedEnd,
         includePrev: input.includePrev,
       });
-      if (rangeContext.historicalReadMode === "historical_live_fallback") {
+      return {
+        status: "ok",
+        rows: liveRows,
+        isPartial: false,
+        notReadyReason: null,
+      };
+    }
+
+    if (rangeContext.isSelectedCurrentDay) {
+      if (!connected) {
         return {
-          status: "ok",
-          rows: liveRows,
-          isPartial: false,
-          notReadyReason: null,
+          status: "not_connected",
+          rows: [],
+          isPartial: true,
+          notReadyReason:
+            "Meta integration is not connected. Current-day ad set data is only available from the live provider.",
         };
       }
-      if (liveRows.length > 0) {
-        return {
-          status: "ok",
-          rows: liveRows,
-          isPartial: false,
-          notReadyReason: null,
-        };
-      }
+      const liveRows = await getMetaLiveAdSets({
+        businessId: input.businessId,
+        campaignId: input.campaignId ?? null,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        includePrev: input.includePrev,
+      });
+      return {
+        status: "ok",
+        rows: liveRows,
+        isPartial: liveRows.length === 0,
+        notReadyReason:
+          liveRows.length === 0
+            ? getMetaPartialReason({
+                isSelectedCurrentDay: true,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason:
+                  "Current-day live Meta ad set data is still being prepared.",
+              })
+            : null,
+      };
     }
 
     const warehouseRows = await getMetaWarehouseAdSets({
@@ -129,6 +158,32 @@ export async function getMetaAdSetsForRange(input: {
       live: rangeContext.isSelectedCurrentDay,
       message: error instanceof Error ? error.message : String(error),
     });
+    if (rangeContext.historicalReadMode === "historical_live_fallback") {
+      return {
+        status: connected ? "ok" : "not_connected",
+        rows: [],
+        isPartial: true,
+        notReadyReason: connected
+          ? "Historical live Meta ad set data is temporarily unavailable for the selected range."
+          : "Meta integration is not connected. Historical live fallback is unavailable.",
+      };
+    }
+    if (rangeContext.isSelectedCurrentDay) {
+      return {
+        status: connected ? "ok" : "not_connected",
+        rows: [],
+        isPartial: true,
+        notReadyReason: connected
+          ? getMetaPartialReason({
+              isSelectedCurrentDay: true,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              defaultReason:
+                "Current-day live Meta ad set data is still being prepared.",
+            })
+          : "Meta integration is not connected. Current-day ad set data is only available from the live provider.",
+      };
+    }
     try {
       const warehouseRows = await getMetaWarehouseAdSets({
         businessId: input.businessId,

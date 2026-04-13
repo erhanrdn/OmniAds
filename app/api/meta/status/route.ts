@@ -86,17 +86,6 @@ function buildMetaDomainReadiness(input: {
   };
 }
 
-function canServeHistoricalCoreWhileFinalizePending(
-  selectedRangeTruth:
-    | Awaited<ReturnType<typeof getMetaSelectedRangeTruthReadiness>>
-    | null
-    | undefined,
-) {
-  if (!selectedRangeTruth) return false;
-  if (selectedRangeTruth.completedCoreDays < selectedRangeTruth.totalDays) return false;
-  return selectedRangeTruth.blockingReasons.every((reason) => reason === "non_finalized");
-}
-
 const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_age",
   "breakdown_country",
@@ -799,8 +788,7 @@ export async function GET(request: NextRequest) {
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
       : selectedRangeTruth
-        ? selectedRangeTruth.truthReady ||
-          canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
+        ? selectedRangeTruth.truthReady
         : Boolean(selectedRangeTotalDays) &&
           (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const campaignsReady =
@@ -811,8 +799,7 @@ export async function GET(request: NextRequest) {
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
       : selectedRangeTruth
-        ? selectedRangeTruth.truthReady ||
-          canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
+        ? selectedRangeTruth.truthReady
         : Boolean(selectedRangeTotalDays) &&
           (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const summarySurfaceReason = !connected
@@ -850,8 +837,7 @@ export async function GET(request: NextRequest) {
         ? coverage.isComplete
         : coverage.isComplete &&
           (selectedRangeTruth
-            ? selectedRangeTruth.truthReady ||
-              canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
+            ? selectedRangeTruth.truthReady
             : true);
       const blockedReason =
         coverage.isBlocked && coverage.supportStartDate

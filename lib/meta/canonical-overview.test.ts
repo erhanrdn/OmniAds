@@ -69,7 +69,7 @@ describe("meta canonical overview summary", () => {
     } as never);
   });
 
-  it("treats historical non-finalized-only ranges as ready", async () => {
+  it("keeps historical non-finalized-only ranges partial until published truth exists", async () => {
     vi.mocked(serving.getMetaWarehouseSummary).mockResolvedValue({
       freshness: {
         dataState: "ready",
@@ -117,8 +117,8 @@ describe("meta canonical overview summary", () => {
       endDate: "2026-04-07",
     });
 
-    expect(result.isPartial).toBe(false);
-    expect(result.notReadyReason).toBeNull();
-    expect(result.readSource).toBe("warehouse");
+    expect(result.isPartial).toBe(true);
+    expect(result.notReadyReason).toContain("being prepared");
+    expect(result.readSource).toBe("warehouse_published");
   });
 });

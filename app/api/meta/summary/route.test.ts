@@ -71,7 +71,7 @@ describe("GET /api/meta/summary", () => {
       },
       isPartial: false,
       notReadyReason: null,
-      readSource: "warehouse_plus_live_override",
+      readSource: "current_day_live",
     } as never);
 
     const response = await GET(
@@ -93,17 +93,17 @@ describe("GET /api/meta/summary", () => {
     );
   });
 
-  it("keeps the current-day KPI subset on the warehouse payload when live totals are not yet available", async () => {
+  it("keeps the current-day payload partial instead of falling back to warehouse totals", async () => {
     vi.mocked(canonical.getMetaCanonicalOverviewSummary).mockResolvedValue({
       totals: {
-        spend: 1200,
-        revenue: 3600,
-        cpa: 24,
-        roas: 3,
+        spend: 0,
+        revenue: 0,
+        cpa: null,
+        roas: 0,
       },
-      isPartial: false,
-      notReadyReason: null,
-      readSource: "warehouse",
+      isPartial: true,
+      notReadyReason: "Current-day live Meta totals are still being prepared.",
+      readSource: "current_day_live",
     } as never);
 
     const response = await GET(
@@ -117,10 +117,10 @@ describe("GET /api/meta/summary", () => {
     assertMetaSummaryPageContract(payload);
     expect(payload.totals).toEqual(
       expect.objectContaining({
-        spend: 1200,
-        revenue: 3600,
-        cpa: 24,
-        roas: 3,
+        spend: 0,
+        revenue: 0,
+        cpa: null,
+        roas: 0,
       })
     );
   });

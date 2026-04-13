@@ -22,9 +22,7 @@ import {
   getMetaAccountDailyRange,
   getMetaAdSetDailyRange,
   getMetaBreakdownDailyRange,
-  getMetaCampaignDailyCoverage,
   getMetaCampaignDailyRange,
-  getMetaDirtyRecentDates,
   getMetaPublishedVerificationSummary,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
@@ -34,7 +32,6 @@ import {
   type MetaAdSetDailyRow,
   type MetaBreakdownDailyRow,
   type MetaCampaignDailyRow,
-  type MetaDirtyRecentDateRow,
   type MetaHistoricalVerificationState,
   type MetaPublishedVerificationSummary,
   type MetaWarehouseFreshness,
@@ -524,56 +521,6 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
   };
 }
 
-async function canServeMetaCoreWarehouseWhileFinalizePending(input: {
-  businessId: string;
-  startDate: string;
-  endDate: string;
-}) {
-  const totalDays = dayCountInclusive(input.startDate, input.endDate);
-  if (totalDays <= 0) return false;
-  const [accountCoverage, campaignCoverage, dirtyRows] = await Promise.all([
-    getMetaAccountDailyCoverage({
-      businessId: input.businessId,
-      providerAccountId: null,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    }).catch(() => null),
-    getMetaCampaignDailyCoverage({
-      businessId: input.businessId,
-      providerAccountId: null,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    }).catch(() => null),
-    getMetaDirtyRecentDates({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      slowPathDates: enumerateMetaServingDays(input.startDate, input.endDate),
-    }).catch(() => []),
-  ]);
-
-  const completedCoreDays = Math.min(
-    accountCoverage?.completed_days ?? 0,
-    campaignCoverage?.completed_days ?? 0,
-  );
-  if (completedCoreDays < totalDays) return false;
-
-  return (dirtyRows as MetaDirtyRecentDateRow[]).every((row) => {
-    const hasCoreValidationFailure =
-      row.validationFailed &&
-      !row.breakdownOnly &&
-      !row.coverageMissing &&
-      !row.reasons.includes("missing_adset") &&
-      !row.reasons.includes("missing_breakdown");
-    return !(
-      row.reasons.includes("missing_campaign") ||
-      row.reasons.includes("spend_drift") ||
-      row.reasons.includes("tiny_stale_spend") ||
-      hasCoreValidationFailure
-    );
-  });
-}
-
 export async function getMetaWarehouseSummary(input: {
   businessId: string;
   startDate: string;
@@ -597,25 +544,11 @@ export async function getMetaWarehouseSummary(input: {
         }).catch(() => null)
       : Promise.resolve(null),
   ]);
-  const serveablePendingFinalize =
-    v2Enabled &&
-    !verification?.truthReady &&
-    rawRows.length > 0 &&
-    rawCampaignRows.length > 0 &&
-    (await canServeMetaCoreWarehouseWhileFinalizePending({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    }));
   const rows = v2Enabled
-    ? serveablePendingFinalize
-      ? rawRows
-      : filterRowsToPublishedKeys(rawRows, verification, "account_daily")
+    ? filterRowsToPublishedKeys(rawRows, verification, "account_daily")
     : rawRows;
   const campaignRows = v2Enabled
-    ? serveablePendingFinalize
-      ? rawCampaignRows
-      : filterRowsToPublishedKeys(rawCampaignRows, verification, "campaign_daily")
+    ? filterRowsToPublishedKeys(rawCampaignRows, verification, "campaign_daily")
     : rawCampaignRows;
   const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
   const empty = emptyMetaWarehouseMetrics();
@@ -787,9 +720,7 @@ export async function getMetaWarehouseSummary(input: {
       readyThroughDate: historicalCoverage?.ready_through_date ?? null,
       state: historicalState,
     },
-    isPartial: v2Enabled
-      ? !verification?.truthReady && !serveablePendingFinalize
-      : summaryRows.length === 0,
+    isPartial: v2Enabled ? !verification?.truthReady : summaryRows.length === 0,
     verification: buildVerificationMetadata(verification),
     totals: {
       spend: r2(totals.spend),
@@ -889,19 +820,8 @@ export async function getMetaWarehouseTrends(input: {
         }).catch(() => null)
       : Promise.resolve(null),
   ]);
-  const serveablePendingFinalize =
-    v2Enabled &&
-    !verification?.truthReady &&
-    rawRows.length > 0 &&
-    (await canServeMetaCoreWarehouseWhileFinalizePending({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    }));
   const rows = v2Enabled
-    ? serveablePendingFinalize
-      ? rawRows
-      : filterRowsToPublishedKeys(rawRows, verification, "account_daily")
+    ? filterRowsToPublishedKeys(rawRows, verification, "account_daily")
     : rawRows;
   const byDate = new Map<string, MetaAccountDailyRow[]>();
   for (const row of rows) {
@@ -937,7 +857,7 @@ export async function getMetaWarehouseTrends(input: {
     freshness: {
       ...buildFreshnessFromRows(points.map((point) => ({ updatedAt: point.date })), rows.length > 0 ? "ready" : "stale"),
     },
-    isPartial: v2Enabled ? !verification?.truthReady && !serveablePendingFinalize : rows.length === 0,
+    isPartial: v2Enabled ? !verification?.truthReady : rows.length === 0,
     verification: buildVerificationMetadata(verification),
     points,
   };
@@ -965,19 +885,8 @@ export async function getMetaWarehouseCampaigns(input: {
         }).catch(() => null)
       : Promise.resolve(null),
   ]);
-  const serveablePendingFinalize =
-    v2Enabled &&
-    !verification?.truthReady &&
-    rawRows.length > 0 &&
-    (await canServeMetaCoreWarehouseWhileFinalizePending({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-    }));
   const rows = v2Enabled
-    ? serveablePendingFinalize
-      ? rawRows
-      : filterRowsToPublishedKeys(rawRows, verification, "campaign_daily")
+    ? filterRowsToPublishedKeys(rawRows, verification, "campaign_daily")
     : rawRows;
   const byCampaign = new Map<string, MetaCampaignDailyRow[]>();
   for (const row of rows) {
@@ -1017,7 +926,7 @@ export async function getMetaWarehouseCampaigns(input: {
     freshness: {
       ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "stale"),
     },
-    isPartial: v2Enabled ? !verification?.truthReady && !serveablePendingFinalize : rows.length === 0,
+    isPartial: v2Enabled ? !verification?.truthReady : rows.length === 0,
     verification: buildVerificationMetadata(verification),
     rows: aggregated.sort((a, b) => b.spend - a.spend),
   };

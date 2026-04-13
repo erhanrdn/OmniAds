@@ -114,11 +114,16 @@ export async function getMetaCampaignsForRange(input: {
 
   let rows: MetaCampaignRow[] = [];
   try {
-    if (
-      (rangeContext.isSelectedCurrentDay ||
-        rangeContext.historicalReadMode === "historical_live_fallback") &&
-      connected
-    ) {
+    if (rangeContext.historicalReadMode === "historical_live_fallback") {
+      if (!connected) {
+        return {
+          status: "not_connected",
+          rows: [],
+          isPartial: true,
+          notReadyReason:
+            "Meta integration is not connected. Historical live fallback is unavailable.",
+        };
+      }
       rows = await getMetaLiveCampaignRows({
         businessId: input.businessId,
         startDate: resolvedStart,
@@ -126,32 +131,46 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
-      if (rangeContext.historicalReadMode === "historical_live_fallback") {
+      return {
+        status: "ok",
+        rows,
+        isPartial: false,
+        notReadyReason: null,
+      };
+    }
+
+    if (rangeContext.isSelectedCurrentDay) {
+      if (!connected) {
         return {
-          status: "ok",
-          rows,
-          isPartial: false,
-          notReadyReason: null,
-        };
-      }
-      if (rows.length > 0) {
-        return {
-          status: "ok",
-          rows,
-          isPartial: historicalTruth ? !historicalTruth.truthReady : false,
+          status: "not_connected",
+          rows: [],
+          isPartial: true,
           notReadyReason:
-            historicalTruth && !historicalTruth.truthReady
-              ? getHistoricalVerificationReason({
-                  verificationState:
-                    historicalTruth.verificationState ??
-                    historicalTruth.state ??
-                    null,
-                  fallbackReason:
-                    "Campaign warehouse data is still being prepared for the requested range.",
-                })
-              : null,
+            "Meta integration is not connected. Current-day campaign data is only available from the live provider.",
         };
       }
+      rows = await getMetaLiveCampaignRows({
+        businessId: input.businessId,
+        startDate: resolvedStart,
+        endDate: resolvedEnd,
+        providerAccountIds: targetAccountIds,
+        includePrev: input.includePrev,
+      });
+      return {
+        status: "ok",
+        rows,
+        isPartial: rows.length === 0,
+        notReadyReason:
+          rows.length === 0
+            ? getMetaPartialReason({
+                isSelectedCurrentDay: true,
+                currentDateInTimezone: rangeContext.currentDateInTimezone,
+                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+                defaultReason:
+                  "Current-day live Meta campaign data is still being prepared.",
+              })
+            : null,
+      };
     }
 
     rows = (await getMetaWarehouseCampaignTable({
@@ -167,6 +186,32 @@ export async function getMetaCampaignsForRange(input: {
       live: rangeContext.isSelectedCurrentDay,
       message: error instanceof Error ? error.message : String(error),
     });
+    if (rangeContext.historicalReadMode === "historical_live_fallback") {
+      return {
+        status: connected ? "ok" : "not_connected",
+        rows: [],
+        isPartial: true,
+        notReadyReason: connected
+          ? "Historical live Meta campaign data is temporarily unavailable for the selected range."
+          : "Meta integration is not connected. Historical live fallback is unavailable.",
+      };
+    }
+    if (rangeContext.isSelectedCurrentDay) {
+      return {
+        status: connected ? "ok" : "not_connected",
+        rows: [],
+        isPartial: true,
+        notReadyReason: connected
+          ? getMetaPartialReason({
+              isSelectedCurrentDay: true,
+              currentDateInTimezone: rangeContext.currentDateInTimezone,
+              primaryAccountTimezone: rangeContext.primaryAccountTimezone,
+              defaultReason:
+                "Current-day live Meta campaign data is still being prepared.",
+            })
+          : "Meta integration is not connected. Current-day campaign data is only available from the live provider.",
+      };
+    }
     try {
       rows = (await getMetaWarehouseCampaignTable({
         businessId: input.businessId,

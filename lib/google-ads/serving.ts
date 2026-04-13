@@ -12,7 +12,12 @@ import {
   buildGoogleAdsDecisionSummaryTotals,
   normalizeGoogleAdsDecisionSnapshotPayload,
 } from "@/lib/google-ads/decision-snapshot";
-import { getCampaignBadges, generateOverviewInsights, type GadsCampaignRow } from "@/lib/google-ads-intelligence";
+import {
+  classifySearchIntent,
+  getCampaignBadges,
+  generateOverviewInsights,
+  type GadsCampaignRow,
+} from "@/lib/google-ads-intelligence";
 import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
 import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
 import { buildActionClusters } from "@/lib/google-ads/action-clusters";
@@ -51,7 +56,14 @@ import {
 import {
   getGoogleAdsCampaignsReport as getLiveGoogleAdsCampaignsReport,
   getGoogleAdsOverviewReport as getLiveGoogleAdsOverviewReport,
+  classifySearchAction,
 } from "@/lib/google-ads/reporting";
+import {
+  normalizeGoogleAdsQueryText,
+  readGoogleAdsSearchClusterDailyRows,
+  readGoogleAdsSearchQueryHotDailySupportRows,
+} from "@/lib/google-ads/search-intelligence-storage";
+import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 import type {
   GoogleAdsWarehouseDataState,
   GoogleAdsWarehouseDailyRow,
@@ -740,8 +752,10 @@ async function buildGoogleAdsHistoricalSupport(input: {
   const historicalStart = getHistoricalWindowStart(input.asOfDate);
   const providerAccountIds =
     input.accountId && input.accountId !== "all" ? [input.accountId] : null;
+  const providerAccountId =
+    input.accountId && input.accountId !== "all" ? input.accountId : null;
 
-  const [campaigns, searchTerms, products] = await Promise.all([
+  const [campaigns, searchClusters, products] = await Promise.all([
     readGoogleAdsAggregatedRange({
       scope: "campaign_daily",
       businessId: input.businessId,
@@ -749,10 +763,9 @@ async function buildGoogleAdsHistoricalSupport(input: {
       startDate: historicalStart,
       endDate: input.asOfDate,
     }).catch(() => []),
-    readGoogleAdsAggregatedRange({
-      scope: "search_term_daily",
+    readGoogleAdsSearchClusterDailyRows({
       businessId: input.businessId,
-      providerAccountIds,
+      providerAccountId,
       startDate: historicalStart,
       endDate: input.asOfDate,
     }).catch(() => []),
@@ -767,7 +780,7 @@ async function buildGoogleAdsHistoricalSupport(input: {
 
   return {
     source: "warehouse_aggregate",
-    available: campaigns.length > 0 || searchTerms.length > 0 || products.length > 0,
+    available: campaigns.length > 0 || searchClusters.length > 0 || products.length > 0,
     coverageDays: Math.max(
       0,
       Math.round(
@@ -777,7 +790,7 @@ async function buildGoogleAdsHistoricalSupport(input: {
       )
     ),
     campaigns: summarizeAdvisorAggregateRows(campaigns as Array<Record<string, unknown>>),
-    searchTerms: summarizeAdvisorAggregateRows(searchTerms as Array<Record<string, unknown>>),
+    searchTerms: summarizeAdvisorAggregateRows(searchClusters as Array<Record<string, unknown>>),
     products: summarizeAdvisorAggregateRows(products as Array<Record<string, unknown>>),
   };
 }
@@ -1592,10 +1605,348 @@ async function buildSimpleEntityReport(
   };
 }
 
+function deriveGoogleAdsBrandTermsFromSearchRows(
+  rows: Array<{ campaignName?: string | null }>
+) {
+  return Array.from(
+    new Set(
+      rows
+        .filter((row) => String(row.campaignName ?? "").toLowerCase().includes("brand"))
+        .flatMap((row) =>
+          String(row.campaignName ?? "")
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]+/g, " ")
+            .split(/\s+/)
+            .filter(
+              (token) =>
+                token.length >= 4 &&
+                token !== "brand" &&
+                token !== "search"
+            )
+        )
+    )
+  );
+}
+
+function resolveGoogleAdsSearchHotWindow(input: {
+  providerCurrentDate: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const supportStart = addDaysToIsoDate(
+    input.providerCurrentDate,
+    -(GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS - 1)
+  );
+  const effectiveStart =
+    input.startDate < supportStart ? supportStart : input.startDate;
+  const effectiveEnd =
+    input.endDate > input.providerCurrentDate
+      ? input.providerCurrentDate
+      : input.endDate;
+  return {
+    supportStart,
+    effectiveStart,
+    effectiveEnd,
+    withinHotWindow: effectiveStart <= effectiveEnd,
+    requestExtendsOutsideWindow:
+      input.startDate < supportStart || input.endDate > input.providerCurrentDate,
+  };
+}
+
+async function buildGoogleAdsSearchTermsHotReport(
+  params: BaseReportParams
+): Promise<ReportResult<Record<string, unknown>>> {
+  const context = await resolveWarehouseContext({
+    businessId: params.businessId,
+    accountId: params.accountId,
+    dateRange: params.dateRange,
+    customStart: params.customStart,
+    customEnd: params.customEnd,
+  });
+  const hotWindow = resolveGoogleAdsSearchHotWindow({
+    providerCurrentDate: context.providerCurrentDate,
+    startDate: context.startDate,
+    endDate: context.endDate,
+  });
+
+  if (context.providerAccountIds.length === 0 || !hotWindow.withinHotWindow) {
+    const freshness = createGoogleAdsWarehouseFreshness({
+      dataState:
+        context.providerAccountIds.length === 0
+          ? context.dataState
+          : "stale",
+      isPartial: hotWindow.requestExtendsOutsideWindow,
+      warnings: hotWindow.requestExtendsOutsideWindow
+        ? [
+            `Search intelligence is only retained for the most recent ${GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS} days starting ${hotWindow.supportStart}.`,
+          ]
+        : [],
+    });
+    return {
+      rows: [],
+      summary: { total: 0 },
+      meta: buildMeta({
+        freshness,
+        rowCounts: { search_term_daily: 0 },
+      }),
+    };
+  }
+
+  const providerAccountId =
+    context.providerAccountIds.length === 1 ? context.providerAccountIds[0] : null;
+  const [hotRows, keywordRows, productRows, latestSync] = await Promise.all([
+    readGoogleAdsSearchQueryHotDailySupportRows({
+      businessId: params.businessId,
+      providerAccountId,
+      startDate: hotWindow.effectiveStart,
+      endDate: hotWindow.effectiveEnd,
+    }).catch(() => []),
+    readGoogleAdsAggregatedRange({
+      scope: "keyword_daily",
+      businessId: params.businessId,
+      providerAccountIds: context.providerAccountIds,
+      startDate: hotWindow.effectiveStart,
+      endDate: hotWindow.effectiveEnd,
+    }).catch(() => []),
+    readGoogleAdsAggregatedRange({
+      scope: "product_daily",
+      businessId: params.businessId,
+      providerAccountIds: context.providerAccountIds,
+      startDate: hotWindow.effectiveStart,
+      endDate: hotWindow.effectiveEnd,
+    }).catch(() => []),
+    getLatestGoogleAdsSyncHealth({
+      businessId: params.businessId,
+      providerAccountId,
+    }).catch(() => null),
+  ]);
+
+  const keywordSet = new Set(
+    keywordRows
+      .map((row) =>
+        normalizeGoogleAdsQueryText(
+          String(
+            row.keywordText ??
+              row.keyword ??
+              row.entityLabel ??
+              row.name ??
+              ""
+          )
+        )
+      )
+      .filter(Boolean)
+  );
+  const productTerms = Array.from(
+    new Set(
+      productRows
+        .map((row) =>
+          String(
+            row.productTitle ??
+              row.title ??
+              row.entityLabel ??
+              row.name ??
+              ""
+          ).trim()
+        )
+        .filter((value) => value.length >= 4)
+    )
+  );
+  const brandTerms = deriveGoogleAdsBrandTermsFromSearchRows(
+    hotRows.map((row) => ({ campaignName: row.campaignName }))
+  );
+
+  const coveredDates = new Set(hotRows.map((row) => row.date));
+  const missingWindows = enumerateDays(
+    hotWindow.effectiveStart,
+    hotWindow.effectiveEnd
+  ).filter((date) => !coveredDates.has(date));
+  const warnings = [
+    ...(hotWindow.requestExtendsOutsideWindow
+      ? [
+          `Search intelligence is only retained for the most recent ${GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS} days starting ${hotWindow.supportStart}.`,
+        ]
+      : []),
+    ...(latestSync?.last_error ? [String(latestSync.last_error)] : []),
+  ];
+
+  const byTerm = new Map<
+    string,
+    {
+      key: string;
+      searchTerm: string;
+      campaignId: string | null;
+      campaignName: string | null;
+      adGroupId: string | null;
+      adGroupName: string | null;
+      clusterId: string;
+      intentClass: string;
+      ownershipClass: string | null;
+      spend: number;
+      revenue: number;
+      conversions: number;
+      impressions: number;
+      clicks: number;
+      sourceSnapshotId: string | null;
+    }
+  >();
+
+  for (const row of hotRows) {
+    const searchTerm = String(
+      row.displayQuery ?? row.normalizedQuery ?? row.queryHash
+    ).trim();
+    if (!searchTerm) continue;
+    const normalizedQuery = normalizeGoogleAdsQueryText(searchTerm);
+    if (!normalizedQuery) continue;
+    const key = [
+      row.providerAccountId,
+      row.campaignId ?? "",
+      row.adGroupId ?? "",
+      normalizedQuery,
+    ].join(":");
+    const current = byTerm.get(key);
+    if (!current) {
+      byTerm.set(key, {
+        key,
+        searchTerm,
+        campaignId: row.campaignId,
+        campaignName: row.campaignName,
+        adGroupId: row.adGroupId,
+        adGroupName: row.adGroupName,
+        clusterId: row.clusterKey || row.clusterLabel || normalizedQuery,
+        intentClass:
+          row.intentClass ?? classifySearchIntent(searchTerm),
+        ownershipClass: row.ownershipClass ?? null,
+        spend: row.spend,
+        revenue: row.revenue,
+        conversions: row.conversions,
+        impressions: row.impressions,
+        clicks: row.clicks,
+        sourceSnapshotId: row.sourceSnapshotId,
+      });
+      continue;
+    }
+    current.spend += row.spend;
+    current.revenue += row.revenue;
+    current.conversions += row.conversions;
+    current.impressions += row.impressions;
+    current.clicks += row.clicks;
+    if (row.campaignName) current.campaignName = row.campaignName;
+    if (row.adGroupName) current.adGroupName = row.adGroupName;
+    if (!current.sourceSnapshotId && row.sourceSnapshotId) {
+      current.sourceSnapshotId = row.sourceSnapshotId;
+    }
+  }
+
+  const rows = Array.from(byTerm.values())
+    .map((row) => {
+      const normalizedQuery = normalizeGoogleAdsQueryText(row.searchTerm);
+      const isKeyword = keywordSet.has(normalizedQuery);
+      const spend = Number(row.spend.toFixed(2));
+      const revenue = Number(row.revenue.toFixed(2));
+      const conversions = Number(row.conversions.toFixed(2));
+      const impressions = Math.round(row.impressions);
+      const clicks = Math.round(row.clicks);
+      const roas = spend > 0 ? Number((revenue / spend).toFixed(2)) : 0;
+      const cpa =
+        conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0;
+      const ctr =
+        impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0;
+      const cpc =
+        clicks > 0 ? Number((spend / clicks).toFixed(2)) : null;
+      const conversionRate =
+        clicks > 0
+          ? Number(((conversions / clicks) * 100).toFixed(2))
+          : null;
+      const wasteFlag = spend > 20 && conversions === 0;
+      const keywordOpportunityFlag = !isKeyword && conversions >= 2;
+      const negativeKeywordFlag =
+        clicks >= 20 && conversions === 0 && spend > 10;
+      const recommendation = classifySearchAction(
+        {
+          searchTerm: row.searchTerm,
+          campaign: row.campaignName ?? "",
+          isKeyword,
+          conversions,
+          spend,
+          clicks,
+          roas,
+          conversionRate,
+        },
+        brandTerms,
+        productTerms,
+      );
+      return {
+        key: row.key,
+        searchTerm: row.searchTerm,
+        status: "HOT_WINDOW",
+        campaignId: row.campaignId,
+        campaign: row.campaignName ?? "",
+        campaignName: row.campaignName ?? "",
+        adGroupId: row.adGroupId,
+        adGroup: row.adGroupName ?? "",
+        adGroupName: row.adGroupName ?? "",
+        matchSource: "SEARCH",
+        source: "search_query_hot_daily",
+        impressions,
+        clicks,
+        spend,
+        conversions,
+        revenue,
+        roas,
+        cpa,
+        ctr,
+        cpc,
+        conversionRate,
+        intent: row.intentClass,
+        intentClass: row.intentClass,
+        classification: row.intentClass,
+        isKeyword,
+        wasteFlag,
+        keywordOpportunityFlag,
+        negativeKeywordFlag,
+        clusterId: row.clusterId,
+        ownershipClass: row.ownershipClass,
+        recommendation,
+        sourceSnapshotId: row.sourceSnapshotId,
+      };
+    })
+    .sort((left, right) => right.spend - left.spend);
+
+  const freshness = createGoogleAdsWarehouseFreshness({
+    dataState:
+      missingWindows.length > 0 || hotWindow.requestExtendsOutsideWindow
+        ? "partial"
+        : "ready",
+    lastSyncedAt:
+      (typeof latestSync?.updated_at === "string"
+        ? latestSync.updated_at
+        : null) ??
+      (typeof latestSync?.finished_at === "string"
+        ? latestSync.finished_at
+        : null) ??
+      (typeof latestSync?.started_at === "string"
+        ? latestSync.started_at
+        : null),
+    isPartial:
+      missingWindows.length > 0 || hotWindow.requestExtendsOutsideWindow,
+    missingWindows,
+    warnings,
+  });
+
+  return {
+    rows,
+    summary: { total: rows.length },
+    meta: buildMeta({
+      freshness,
+      rowCounts: { search_term_daily: rows.length },
+    }),
+  };
+}
+
 export async function getGoogleAdsSearchTermsReport(
   params: BaseReportParams & { filter?: string }
 ): Promise<ReportResult<Record<string, unknown>>> {
-  const report = await buildSimpleEntityReport(params, "search_term_daily");
+  const report = await buildGoogleAdsSearchTermsHotReport(params);
   const filter = params.filter?.toLowerCase().trim();
   const rows = filter
     ? report.rows.filter((row) => String(row.searchTerm ?? "").toLowerCase().includes(filter))
