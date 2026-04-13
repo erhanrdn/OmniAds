@@ -59,7 +59,9 @@ export async function getMetaAdSetsForRange(input: {
     endDate: resolvedEnd,
   });
   const historicalTruth =
-    !rangeContext.isSelectedCurrentDay && connected
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.withinAuthoritativeHistory &&
+    connected
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
@@ -68,7 +70,11 @@ export async function getMetaAdSetsForRange(input: {
       : null;
 
   try {
-    if (rangeContext.isSelectedCurrentDay && connected) {
+    if (
+      (rangeContext.isSelectedCurrentDay ||
+        rangeContext.historicalReadMode === "historical_live_fallback") &&
+      connected
+    ) {
       const liveRows = await getMetaLiveAdSets({
         businessId: input.businessId,
         campaignId: input.campaignId ?? null,
@@ -76,6 +82,14 @@ export async function getMetaAdSetsForRange(input: {
         endDate: resolvedEnd,
         includePrev: input.includePrev,
       });
+      if (rangeContext.historicalReadMode === "historical_live_fallback") {
+        return {
+          status: "ok",
+          rows: liveRows,
+          isPartial: false,
+          notReadyReason: null,
+        };
+      }
       if (liveRows.length > 0) {
         return {
           status: "ok",

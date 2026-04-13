@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { GET } from "@/app/api/meta/status/route";
 import { assertMetaStatusPageContract } from "@/lib/meta/page-route-contract.test-helpers";
@@ -44,14 +44,18 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaSyncState: vi.fn(),
 }));
 
-vi.mock("@/lib/meta/history", () => ({
-  META_WAREHOUSE_HISTORY_DAYS: 365,
-  dayCountInclusive: vi.fn((start: string, end: string) => {
-    const startDate = new Date(`${start}T00:00:00Z`);
-    const endDate = new Date(`${end}T00:00:00Z`);
-    return Math.floor((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
-  }),
-}));
+vi.mock("@/lib/meta/history", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meta/history")>();
+  return {
+    ...actual,
+    META_WAREHOUSE_HISTORY_DAYS: 365,
+    dayCountInclusive: vi.fn((start: string, end: string) => {
+      const startDate = new Date(`${start}T00:00:00Z`);
+      const endDate = new Date(`${end}T00:00:00Z`);
+      return Math.floor((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
+    }),
+  };
+});
 
 vi.mock("@/lib/meta/constraints", () => ({
   getMetaBreakdownSupportedStart: vi.fn(() => "2000-01-01"),
@@ -79,6 +83,16 @@ vi.mock("@/lib/sync/meta-sync", () => ({
   getMetaSelectedRangeTruthReadiness: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/warehouse-retention", () => ({
+  getLatestMetaRetentionRun: vi.fn(),
+  getMetaRetentionRuntimeStatus: vi.fn(() => ({
+    runtimeAvailable: false,
+    executionEnabled: false,
+    mode: "dry_run",
+    gateReason: "Meta retention execution is disabled by default. Dry-run remains available.",
+  })),
+}));
+
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const integrations = await import("@/lib/integrations");
@@ -89,6 +103,7 @@ const workerHealth = await import("@/lib/sync/worker-health");
 const live = await import("@/lib/meta/live");
 const constraints = await import("@/lib/meta/constraints");
 const metaSync = await import("@/lib/sync/meta-sync");
+const metaRetention = await import("@/lib/meta/warehouse-retention");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -105,6 +120,8 @@ function getUtcTodayIso() {
 
 describe("GET /api/meta/status", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-13T12:00:00Z"));
     vi.clearAllMocks();
     vi.mocked(access.requireBusinessAccess).mockResolvedValue({
       session: {} as never,
@@ -209,6 +226,7 @@ describe("GET /api/meta/status", () => {
     ]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null as never);
+    vi.mocked(metaRetention.getLatestMetaRetentionRun).mockResolvedValue(null as never);
     vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
       summaryAvailable: true,
       campaignsAvailable: true,
@@ -221,6 +239,10 @@ describe("GET /api/meta/status", () => {
       blockingReasons: [],
       reasonCounts: {},
     } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("reports warehouse readiness even when the provider is disconnected", async () => {
@@ -1260,7 +1282,7 @@ describe("GET /api/meta/status", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-02"
+        "http://localhost/api/meta/status?businessId=biz&startDate=2020-04-01&endDate=2020-04-02"
       )
     );
     const payload = await response.json();
@@ -1278,10 +1300,6 @@ describe("GET /api/meta/status", () => {
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].reason).toBe(
       "Placement breakdown data is only supported from 2026-04-10 onward for the selected range."
     );
-    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([
-      "breakdowns.age",
-      "breakdowns.location",
-      "breakdowns.placement",
-    ]);
+    expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([]);
   });
 });

@@ -56,12 +56,12 @@ export function buildGoogleAdsAdvisorProgress(input: {
         );
 
   const summary = !input.coreUsable
-    ? "Campaign history is still being prepared for the 90-day decision snapshot."
+    ? `Campaign history is still being prepared for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot.`
     : coverageUnavailableCount > 0
-      ? "Finalizing 90-day decision snapshot support."
-    : !missingCoverage
-      ? "Finalizing 90-day decision snapshot support."
-      : "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot.";
+      ? `Finalizing ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot support.`
+      : !missingCoverage
+      ? `Finalizing ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot support.`
+      : `Campaign, search term, and product history are still being prepared for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot.`;
 
   return {
     percent,

@@ -1552,6 +1552,10 @@ export async function runMigrations(options?: {
           cpc                 DOUBLE PRECISION,
           link_clicks         BIGINT NOT NULL DEFAULT 0,
           source_snapshot_id  UUID REFERENCES meta_raw_snapshots(id) ON DELETE SET NULL,
+          truth_state         TEXT NOT NULL DEFAULT 'finalized',
+          truth_version       INTEGER NOT NULL DEFAULT 1,
+          finalized_at        TIMESTAMPTZ,
+          validation_status   TEXT NOT NULL DEFAULT 'passed',
           source_run_id       TEXT,
           metric_schema_version INTEGER NOT NULL DEFAULT 1,
           created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1560,6 +1564,10 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS payload_json JSONB`.catch(() => {}),
         sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS link_clicks BIGINT NOT NULL DEFAULT 0`.catch(() => {}),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS truth_state TEXT NOT NULL DEFAULT 'finalized'`.catch(() => {}),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS truth_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.catch(() => {}),
+        sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'passed'`.catch(() => {}),
         sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS source_run_id TEXT`.catch(() => {}),
         sql`ALTER TABLE meta_ad_daily ADD COLUMN IF NOT EXISTS metric_schema_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_daily_business_date ON meta_ad_daily (business_id, date DESC)`.catch(() => {}),
@@ -1732,6 +1740,50 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_reconciliation_events_lookup
           ON meta_authoritative_reconciliation_events (business_id, provider_account_id, day DESC, surface, created_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_authoritative_day_state (
+          business_id                TEXT NOT NULL,
+          provider_account_id        TEXT NOT NULL,
+          day                        DATE NOT NULL,
+          surface                    TEXT NOT NULL CHECK (surface IN ('account_daily', 'campaign_daily', 'adset_daily', 'ad_daily', 'breakdown_daily')),
+          state                      TEXT NOT NULL DEFAULT 'pending'
+                                    CHECK (state IN ('pending', 'queued', 'running', 'published', 'repair_required', 'failed', 'blocked', 'not_applicable')),
+          account_timezone           TEXT NOT NULL DEFAULT 'UTC',
+          active_partition_id        UUID,
+          last_run_id                TEXT,
+          last_manifest_id           UUID,
+          last_publication_pointer_id UUID,
+          published_at               TIMESTAMPTZ,
+          retry_after_at             TIMESTAMPTZ,
+          failure_streak             INTEGER NOT NULL DEFAULT 0,
+          diagnosis_code             TEXT,
+          diagnosis_detail_json      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          last_started_at            TIMESTAMPTZ,
+          last_finished_at           TIMESTAMPTZ,
+          last_autoheal_at           TIMESTAMPTZ,
+          autoheal_count             INTEGER NOT NULL DEFAULT 0,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (business_id, provider_account_id, day, surface)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_day_state_business_day
+          ON meta_authoritative_day_state (business_id, provider_account_id, day DESC, surface)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_day_state_status
+          ON meta_authoritative_day_state (business_id, state, day DESC, surface)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_retention_runs (
+          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          execution_mode           TEXT NOT NULL CHECK (execution_mode IN ('dry_run', 'execute')),
+          execution_enabled        BOOLEAN NOT NULL DEFAULT FALSE,
+          skipped_due_to_active_lease BOOLEAN NOT NULL DEFAULT FALSE,
+          total_deleted_rows       INTEGER NOT NULL DEFAULT 0,
+          summary_json             JSONB NOT NULL DEFAULT '{}'::jsonb,
+          error_message            TEXT,
+          started_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at              TIMESTAMPTZ,
+          created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_retention_runs_finished
+          ON meta_retention_runs (finished_at DESC NULLS LAST, created_at DESC)`.catch(() => {}),
         // ── Google Ads warehouse-first tables ──────────────────────────────
         sql`CREATE TABLE IF NOT EXISTS google_ads_sync_jobs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

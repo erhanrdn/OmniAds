@@ -66,6 +66,7 @@ describe("meta page contract", () => {
   it("keeps the truth-class legend explicit", () => {
     expect(META_PAGE_TRUTH_CLASSES).toEqual([
       "historical_warehouse",
+      "historical_live_fallback",
       "current_day_live",
       "conditional_drilldown",
       "deterministic_decision_engine",

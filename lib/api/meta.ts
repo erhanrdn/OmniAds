@@ -39,6 +39,7 @@ import {
   createMetaSyncJob,
   persistMetaRawSnapshot,
   replaceMetaAccountDailySlice,
+  replaceMetaAdDailySlice,
   replaceMetaAdSetDailySlice,
   replaceMetaBreakdownDailySlice,
   replaceMetaCampaignDailySlice,
@@ -759,6 +760,32 @@ function isSingleDayWindow(since: string, until: string) {
 
 function isCurrentDayForTimezone(date: string, timeZone?: string | null) {
   return normalizeMetaApiDate(date) === getTodayIsoForTimeZone(timeZone);
+}
+
+function resolveMetaAuthoritativeSourceWindowKind(input: {
+  day: string;
+  referenceToday: string;
+  source?: string | null;
+}) {
+  const normalizedDay = normalizeMetaApiDate(input.day);
+  const normalizedReferenceToday = normalizeMetaApiDate(input.referenceToday);
+  if (normalizedDay === normalizedReferenceToday) {
+    return "today" as const;
+  }
+  const yesterday = new Date(`${normalizedReferenceToday}T00:00:00.000Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const normalizedYesterday = yesterday.toISOString().slice(0, 10);
+  if (normalizedDay === normalizedYesterday) {
+    return "d_minus_1" as const;
+  }
+  if (
+    (input.source ?? "").includes("historical") ||
+    (input.source ?? "") === "initial_connect" ||
+    (input.source ?? "") === "manual_refresh"
+  ) {
+    return "historical" as const;
+  }
+  return "recent_repair" as const;
 }
 
 async function withMetaSyncJob<T>(input: {
@@ -1823,11 +1850,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     truthState === "finalized" && sourceAccountSpend != null
       ? withinMetaTruthTolerance(sourceAccountSpend, 0)
       : false;
-  const accountYesterday = (() => {
-    const date = new Date(`${accountToday}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() - 1);
-    return date.toISOString().slice(0, 10);
-  })();
   const sourceManifest =
     authoritativeFinalizationV2Enabled
       ? await createMetaAuthoritativeSourceManifest({
@@ -1839,8 +1861,11 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           sourceKind:
             input.source ??
             (input.freshStart ? "finalize_day" : "recent"),
-          sourceWindowKind:
-            normalizedDay === accountYesterday ? "d_minus_1" : "recent_repair",
+          sourceWindowKind: resolveMetaAuthoritativeSourceWindowKind({
+            day: normalizedDay,
+            referenceToday: accountToday,
+            source: input.source,
+          }),
           runId: sourceRunId,
           fetchStatus: "completed",
           freshStartApplied: Boolean(input.freshStart),
@@ -1915,6 +1940,25 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
           stageStartedAt: new Date().toISOString(),
         })
       : null;
+  const adSliceVersion =
+    authoritativeFinalizationV2Enabled
+      ? await createMetaAuthoritativeSliceVersion({
+          businessId: input.credentials.businessId,
+          providerAccountId: input.accountId,
+          day: normalizedDay,
+          surface: "ad_daily",
+          manifestId: sourceManifest?.id ?? null,
+          state: "finalizing",
+          truthState,
+          validationStatus: "pending",
+          status: "staging",
+          stagedRowCount: adRows.length,
+          aggregatedSpend: sumRowSpend(adRows),
+          validationSummary: {},
+          sourceRunId,
+          stageStartedAt: new Date().toISOString(),
+        })
+      : null;
   let canonicalSourceDrift:
     | {
         sourceSpend: number;
@@ -1984,6 +2028,17 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         validationStatus,
       })
     : null;
+  const adProof = truthState === "finalized"
+    ? createMetaFinalizationCompletenessProof({
+        businessId: input.credentials.businessId,
+        providerAccountId: input.accountId,
+        date: normalizedDay,
+        scope: "ad",
+        sourceRunId,
+        complete: adRows.length > 0 || zeroSpendFinalizedDay,
+        validationStatus,
+      })
+    : null;
 
   const incompleteCampaignTruth = collectIncompleteCampaignTruth({
     rows: campaignRows,
@@ -2022,6 +2077,14 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         adsetSliceVersion?.id
           ? updateMetaAuthoritativeSliceVersion({
               sliceVersionId: adsetSliceVersion.id,
+              state: "failed",
+              validationStatus: "failed",
+              status: "failed",
+            })
+          : Promise.resolve(null),
+        adSliceVersion?.id
+          ? updateMetaAuthoritativeSliceVersion({
+              sliceVersionId: adSliceVersion.id,
               state: "failed",
               validationStatus: "failed",
               status: "failed",
@@ -2090,10 +2153,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
   });
   try {
-    if (truthState === "finalized" && accountProof) {
-      await replaceMetaAccountDailySlice({ rows: accountRows, proof: accountProof });
-    } else {
-      await upsertMetaAccountDailyRows(accountRows);
+    if (truthState === "finalized") {
+      if (accountProof) {
+        await replaceMetaAccountDailySlice({ rows: accountRows, proof: accountProof });
+      } else {
+        await upsertMetaAccountDailyRows(accountRows);
+      }
     }
     await heartbeatOwnedMetaPartitionLeaseOrThrow({
       partitionId: input.partitionId,
@@ -2101,10 +2166,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
-    if (truthState === "finalized" && campaignProof) {
-      await replaceMetaCampaignDailySlice({ rows: campaignRows, proof: campaignProof });
-    } else {
-      await upsertMetaCampaignDailyRows(campaignRows);
+    if (truthState === "finalized") {
+      if (campaignProof) {
+        await replaceMetaCampaignDailySlice({ rows: campaignRows, proof: campaignProof });
+      } else {
+        await upsertMetaCampaignDailyRows(campaignRows);
+      }
     }
     await heartbeatOwnedMetaPartitionLeaseOrThrow({
       partitionId: input.partitionId,
@@ -2112,10 +2179,12 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
-    if (truthState === "finalized" && adsetProof) {
-      await replaceMetaAdSetDailySlice({ rows: adsetRows, proof: adsetProof });
-    } else {
-      await upsertMetaAdSetDailyRows(adsetRows);
+    if (truthState === "finalized") {
+      if (adsetProof) {
+        await replaceMetaAdSetDailySlice({ rows: adsetRows, proof: adsetProof });
+      } else if (adsetRows.length > 0) {
+        await upsertMetaAdSetDailyRows(adsetRows);
+      }
     }
     await heartbeatOwnedMetaPartitionLeaseOrThrow({
       partitionId: input.partitionId,
@@ -2123,7 +2192,13 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       leaseEpoch: input.leaseEpoch,
       leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
     });
-    await upsertMetaAdDailyRows(adRows);
+    if (truthState === "finalized") {
+      if (adProof) {
+        await replaceMetaAdDailySlice({ rows: adRows, proof: adProof });
+      } else if (adRows.length > 0) {
+        await upsertMetaAdDailyRows(adRows);
+      }
+    }
   } catch (error) {
     if (authoritativeFinalizationV2Enabled) {
       await Promise.all([
@@ -2157,6 +2232,14 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
               status: "failed",
             })
           : Promise.resolve(null),
+        adSliceVersion?.id
+          ? updateMetaAuthoritativeSliceVersion({
+              sliceVersionId: adSliceVersion.id,
+              state: "failed",
+              validationStatus: "failed",
+              status: "failed",
+            })
+          : Promise.resolve(null),
         createMetaAuthoritativeReconciliationEvent({
           businessId: input.credentials.businessId,
           providerAccountId: input.accountId,
@@ -2185,13 +2268,16 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseEpoch: input.leaseEpoch,
     leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
   });
-  const persistedCampaignConfigCount = await persistMetaCampaignConfigSnapshots({
-    businessId: input.credentials.businessId,
-    accountId: input.accountId,
-    campaignConfigs,
-    entityIds: campaignRows.map((row) => row.campaignId),
-  });
-  if (campaignRows.length > 0 && persistedCampaignConfigCount === 0) {
+  const persistedCampaignConfigCount =
+    truthState === "finalized"
+      ? await persistMetaCampaignConfigSnapshots({
+          businessId: input.credentials.businessId,
+          accountId: input.accountId,
+          campaignConfigs,
+          entityIds: campaignRows.map((row) => row.campaignId),
+        })
+      : 0;
+  if (truthState === "finalized" && campaignRows.length > 0 && persistedCampaignConfigCount === 0) {
     console.warn("[meta-config-snapshots] campaign_config_snapshots_missing", {
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
@@ -2219,7 +2305,9 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       };
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
-  await appendMetaConfigSnapshots(adsetSnapshotRows);
+  if (truthState === "finalized" && adsetSnapshotRows.length > 0) {
+    await appendMetaConfigSnapshots(adsetSnapshotRows);
+  }
   await heartbeatOwnedMetaPartitionLeaseOrThrow({
     partitionId: input.partitionId,
     workerId: input.workerId,
@@ -2278,6 +2366,21 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
             validationSummary: {
               sourceSpend: sourceAccountSpend,
               rebuiltAdsetSpend: sumRowSpend(adsetRows),
+              sourceDriftDetected: Boolean(canonicalSourceDrift),
+              sourceDrift: canonicalSourceDrift,
+            },
+          })
+        : Promise.resolve(null),
+      adSliceVersion?.id
+        ? updateMetaAuthoritativeSliceVersion({
+            sliceVersionId: adSliceVersion.id,
+            state: "finalized_verified",
+            validationStatus: "passed",
+            status: "validated",
+            stageCompletedAt: new Date().toISOString(),
+            validationSummary: {
+              sourceSpend: sourceAccountSpend,
+              rebuiltAdSpend: sumRowSpend(adRows),
               sourceDriftDetected: Boolean(canonicalSourceDrift),
               sourceDrift: canonicalSourceDrift,
             },
@@ -2362,6 +2465,17 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
       });
     }
+    if (adSliceVersion?.id) {
+      await publishMetaAuthoritativeSliceVersion({
+        businessId: input.credentials.businessId,
+        providerAccountId: input.accountId,
+        day: normalizedDay,
+        surface: "ad_daily",
+        sliceVersionId: adSliceVersion.id,
+        publishedByRunId: sourceRunId,
+        publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
+      });
+    }
   }
 
   const [accountDailyCheckpoint, adsetDailyCheckpoint, adDailyCheckpoint] = await Promise.all([
@@ -2401,7 +2515,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       nextPageUrl: null,
       providerCursor: null,
       rowsFetched: rowsFetchedTotal,
-      rowsWritten: accountRows.length,
+      rowsWritten: truthState === "finalized" ? accountRows.length : 0,
       lastSuccessfulEntityKey: null,
       lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
       attemptCount: input.attemptCount,
@@ -2422,7 +2536,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       nextPageUrl: null,
       providerCursor: null,
       rowsFetched: rowsFetchedTotal,
-      rowsWritten: adRows.length,
+      rowsWritten: truthState === "finalized" ? adRows.length : 0,
       lastSuccessfulEntityKey: adRows.at(-1)?.adId ?? null,
       lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
       attemptCount: input.attemptCount,
@@ -2443,7 +2557,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       nextPageUrl: null,
       providerCursor: null,
       rowsFetched: rowsFetchedTotal,
-      rowsWritten: adsetRows.length,
+      rowsWritten: truthState === "finalized" ? adsetRows.length : 0,
       lastSuccessfulEntityKey: adsetRows.at(-1)?.adsetId ?? null,
       lastResponseHeaders: checkpoint?.lastResponseHeaders ?? {},
       attemptCount: input.attemptCount,
@@ -2649,12 +2763,24 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
   breakdowns: string;
   endpointName: string;
   positiveSpendAdIds: string[];
+  source?: string;
+  publishAuthoritativeSurface?: boolean;
+  referenceToday?: string | null;
   leaseMinutes?: number;
 }) {
   const normalizedDay = normalizeMetaApiDate(input.day);
   const checkpointScope = `breakdown:${input.breakdowns}`;
   const sourceRunId = input.partitionId;
   const profile = input.credentials.accountProfiles[input.accountId];
+  const authoritativeFinalizationV2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(
+      input.credentials.businessId,
+    );
+  const referenceToday =
+    normalizeMetaApiDate(
+      input.referenceToday ??
+        getTodayIsoForTimeZone(profile?.timezone ?? null),
+    );
   const restoredRows: RawBreakdownInsight[] = [];
   const checkpoint = await getMetaSyncCheckpoint({
     partitionId: input.partitionId,
@@ -2808,6 +2934,80 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
     finishedAt: new Date().toISOString(),
   });
+
+  if (
+    authoritativeFinalizationV2Enabled &&
+    input.publishAuthoritativeSurface &&
+    normalizedDay < referenceToday
+  ) {
+    const sourceManifest = await createMetaAuthoritativeSourceManifest({
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      day: normalizedDay,
+      surface: "breakdown_daily",
+      accountTimezone: profile?.timezone ?? "UTC",
+      sourceKind: input.source ?? "repair_recent_day",
+      sourceWindowKind: resolveMetaAuthoritativeSourceWindowKind({
+        day: normalizedDay,
+        referenceToday,
+        source: input.source,
+      }),
+      runId: sourceRunId,
+      fetchStatus: "completed",
+      freshStartApplied: false,
+      checkpointResetApplied: false,
+      rawSnapshotWatermark: sourceRunId,
+      sourceSpend: null,
+      validationBasisVersion: "meta-authoritative-finalization-v2",
+      metaJson: {
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        endpointName: input.endpointName,
+        breakdownSurface: "full",
+      },
+      startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    });
+    const totalBreakdownRows = (
+      await getDb()`
+        SELECT COUNT(*)::int AS count
+        FROM meta_breakdown_daily
+        WHERE business_id = ${input.credentials.businessId}
+          AND provider_account_id = ${input.accountId}
+          AND date = ${normalizedDay}
+      `
+    ) as Array<{ count: number | string }>;
+    const breakdownSliceVersion = await createMetaAuthoritativeSliceVersion({
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      day: normalizedDay,
+      surface: "breakdown_daily",
+      manifestId: sourceManifest?.id ?? null,
+      state: "finalizing",
+      truthState: "finalized",
+      validationStatus: "pending",
+      status: "staging",
+      stagedRowCount: Number(totalBreakdownRows[0]?.count ?? 0),
+      aggregatedSpend: null,
+      validationSummary: {
+        publishedAsSurface: true,
+        breakdownTypes: ["age", "country", "placement"],
+      },
+      sourceRunId,
+      stageStartedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    });
+    if (breakdownSliceVersion?.id) {
+      await publishMetaAuthoritativeSliceVersion({
+        businessId: input.credentials.businessId,
+        providerAccountId: input.accountId,
+        day: normalizedDay,
+        surface: "breakdown_daily",
+        sliceVersionId: breakdownSliceVersion.id,
+        publishedByRunId: sourceRunId,
+        publicationReason: "authoritative_finalize",
+      });
+    }
+  }
 }
 
 // ── Time breakdown (for reports) ──────────────────────────────────────────────

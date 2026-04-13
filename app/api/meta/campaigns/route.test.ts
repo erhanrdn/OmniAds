@@ -75,6 +75,10 @@ describe("GET /api/meta/campaigns", () => {
       isSelectedCurrentDay: false,
       currentDateInTimezone: "2026-03-31",
       primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
     });
   });
 
@@ -146,6 +150,10 @@ describe("GET /api/meta/campaigns", () => {
       isSelectedCurrentDay: true,
       currentDateInTimezone: "2026-03-31",
       primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "current_day_live",
+      breakdownReadMode: "current_day_live",
     });
     vi.mocked(live.getMetaLiveCampaignRows).mockResolvedValue([
       {
@@ -187,6 +195,10 @@ describe("GET /api/meta/campaigns", () => {
       isSelectedCurrentDay: true,
       currentDateInTimezone: "2026-03-31",
       primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "current_day_live",
+      breakdownReadMode: "current_day_live",
     });
     vi.mocked(live.getMetaLiveCampaignRows).mockResolvedValue([] as never);
     vi.mocked(serving.getMetaWarehouseCampaignTable).mockResolvedValue([

@@ -137,13 +137,23 @@ export async function getMetaBreakdownsForRange(input: {
     referenceToday: rangeContext.currentDateInTimezone,
   });
   const historicalTruth =
-    !rangeContext.isSelectedCurrentDay
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.withinBreakdownHistory
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
           endDate: resolvedEnd,
         }).catch(() => null)
       : null;
+
+  if (rangeContext.breakdownReadMode === "historical_breakdown_unsupported") {
+    return emptyBreakdowns(
+      "ok",
+      breakdownGuardrail.message ??
+        "Meta breakdown data is outside the supported historical horizon.",
+      true,
+    );
+  }
 
   try {
     const warehouse = await getMetaWarehouseBreakdowns({

@@ -17,7 +17,7 @@ Google Ads data does not have one uniform storage value across all grains.
 - Core daily: 25 months
 - Breakdown daily (geo/device/audience/adgroup/asset-group): 13 months
 - Creative/ad/asset daily: 180 days
-- Raw search terms daily hot: 120 days
+- Raw search terms daily hot: 120 days (`google_ads_search_query_hot_daily`, `google_ads_search_term_daily`)
 - Top queries weekly: 365 days
 - Search cluster/theme aggregate: 25 months
 - Change/action/outcome log: 25 months
@@ -43,14 +43,14 @@ That preserves the intelligence layer while reducing repeated raw-text pressure.
 ## Hot / warm / cold strategy
 
 - Hot:
-  raw search-term daily hot table for the recent 120-day operating horizon
-  creative/ad/asset daily for recent optimization cycles
+  - raw search-term daily hot table for the recent 120-day operating horizon (`google_ads_search_query_hot_daily`, `google_ads_search_term_daily`)
+  - creative/ad/asset daily for recent optimization cycles
 - Warm:
-  core daily
-  breakdown daily
-  top-query weekly
-  search cluster/theme aggregate
-  decision action/outcome log
+  - core daily
+  - breakdown daily
+  - top-query weekly
+  - search cluster/theme aggregate
+  - decision action/outcome log
 - Cold:
   future archival or external export strategy for raw payloads and long-tail historical search detail
 
@@ -84,7 +84,7 @@ This preserves compatibility while building the future storage model.
 
 Until serving and advisor logic move onto the newer aggregate intelligence surfaces, advisor readiness remains intentionally conservative.
 
-- Decision Snapshot readiness is still gated by recent 90-day support coverage.
+- Decision Snapshot readiness is still gated by recent 84-day support coverage.
 - The required surfaces are `campaign_daily`, `search_term_daily`, and `product_daily`.
 - The retention policy defined in this document does not yet drive advisor/button readiness.
 - The selected range remains contextual for the operator UI and does not redefine decision readiness.

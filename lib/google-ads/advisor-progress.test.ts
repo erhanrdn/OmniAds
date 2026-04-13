@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
 
 describe("buildGoogleAdsAdvisorProgress", () => {
-  it("uses recent-90 day coverage instead of surface count", () => {
+  it("uses recent-84 day coverage instead of surface count", () => {
     const result = buildGoogleAdsAdvisorProgress({
       connected: true,
       assignedAccountCount: 1,
       coreUsable: true,
       advisorReady: false,
       coverages: [
-        { completedDays: 90 },
-        { completedDays: 89 },
-        { completedDays: 89 },
+        { completedDays: 84 },
+        { completedDays: 83 },
+        { completedDays: 83 },
       ],
     });
 
@@ -19,7 +19,7 @@ describe("buildGoogleAdsAdvisorProgress", () => {
       percent: 99,
       visible: true,
       summary:
-        "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot.",
+        "Campaign, search term, and product history are still being prepared for the 84-day decision snapshot.",
     });
   });
 
@@ -30,9 +30,9 @@ describe("buildGoogleAdsAdvisorProgress", () => {
       coreUsable: true,
       advisorReady: false,
       coverages: [
-        { completedDays: 90 },
-        { completedDays: 90 },
-        { completedDays: 89 },
+        { completedDays: 84 },
+        { completedDays: 84 },
+        { completedDays: 83 },
       ],
     });
 
@@ -47,9 +47,9 @@ describe("buildGoogleAdsAdvisorProgress", () => {
       coreUsable: true,
       advisorReady: false,
       coverages: [
-        { completedDays: 90 },
-        { completedDays: 90 },
-        { completedDays: 90 },
+        { completedDays: 84 },
+        { completedDays: 84 },
+        { completedDays: 84 },
       ],
     });
 
@@ -64,16 +64,16 @@ describe("buildGoogleAdsAdvisorProgress", () => {
       coreUsable: true,
       advisorReady: true,
       coverages: [
-        { completedDays: 90 },
-        { completedDays: 90 },
-        { completedDays: 90 },
+        { completedDays: 84 },
+        { completedDays: 84 },
+        { completedDays: 84 },
       ],
     });
 
     expect(result).toEqual({
       percent: 100,
       visible: false,
-      summary: "Finalizing 90-day decision snapshot support.",
+      summary: "Finalizing 84-day decision snapshot support.",
     });
   });
 
@@ -84,8 +84,8 @@ describe("buildGoogleAdsAdvisorProgress", () => {
       coreUsable: true,
       advisorReady: false,
       coverages: [
-        { completedDays: 90 },
-        { completedDays: 89 },
+        { completedDays: 84 },
+        { completedDays: 83 },
         { completedDays: null },
       ],
     });
@@ -93,7 +93,7 @@ describe("buildGoogleAdsAdvisorProgress", () => {
     expect(result).toEqual({
       percent: 99,
       visible: true,
-      summary: "Finalizing 90-day decision snapshot support.",
+      summary: "Finalizing 84-day decision snapshot support.",
     });
   });
 
@@ -104,16 +104,16 @@ describe("buildGoogleAdsAdvisorProgress", () => {
       coreUsable: true,
       advisorReady: false,
       coverages: [
-        { completedDays: 90 },
-        { completedDays: 90 },
-        { completedDays: 90 },
+        { completedDays: 84 },
+        { completedDays: 84 },
+        { completedDays: 84 },
       ],
     });
 
     expect(result).toEqual({
       percent: 100,
       visible: false,
-      summary: "Finalizing 90-day decision snapshot support.",
+      summary: "Finalizing 84-day decision snapshot support.",
     });
   });
 });

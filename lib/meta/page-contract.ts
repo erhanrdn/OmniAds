@@ -46,6 +46,7 @@ export const META_PAGE_PAGE_SCOPED_SURFACES = [
 
 export const META_PAGE_TRUTH_CLASSES = [
   "historical_warehouse",
+  "historical_live_fallback",
   "current_day_live",
   "conditional_drilldown",
   "deterministic_decision_engine",

@@ -52,11 +52,40 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAdDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaAdSetDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaAccountDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
+  getMetaAuthoritativeRequiredSurfacesForDayAge: vi.fn((dayAge: number) =>
+    dayAge > 394
+      ? [
+          { surface: "account_daily", state: "pending" },
+          { surface: "campaign_daily", state: "pending" },
+          { surface: "adset_daily", state: "pending" },
+          { surface: "ad_daily", state: "pending" },
+          { surface: "breakdown_daily", state: "not_applicable" },
+        ]
+      : [
+          { surface: "account_daily", state: "pending" },
+          { surface: "campaign_daily", state: "pending" },
+          { surface: "adset_daily", state: "pending" },
+          { surface: "ad_daily", state: "pending" },
+          { surface: "breakdown_daily", state: "pending" },
+        ],
+  ),
   getMetaCampaignDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaCreativeDailyCoverage: vi.fn().mockResolvedValue({ completed_days: 0, ready_through_date: null, latest_updated_at: null }),
   getMetaDirtyRecentDates: vi.fn().mockResolvedValue([]),
-  getMetaIncompleteCoreDates: vi.fn().mockResolvedValue([]),
   getMetaPartitionStatesForDate: vi.fn().mockResolvedValue(new Map()),
+  getMetaPublishedVerificationSummary: vi.fn().mockResolvedValue({
+    verificationState: "processing",
+    truthReady: false,
+    totalDays: 365,
+    completedCoreDays: 0,
+    sourceFetchedAt: null,
+    publishedAt: null,
+    asOf: null,
+    publishedSlices: 0,
+    totalExpectedSlices: 0,
+    reasonCounts: {},
+    publishedKeysBySurface: {},
+  }),
   getMetaRecentAuthoritativeSliceGuard: vi.fn().mockResolvedValue({
     activeAuthoritativeSource: null,
     activeAuthoritativePriority: 0,
@@ -126,8 +155,20 @@ describe("enqueueMetaScheduledWork", () => {
       lastSameSourceSuccessAt: null,
       repeatedFailures24h: 0,
     } as never);
-    vi.mocked(warehouse.getMetaIncompleteCoreDates).mockResolvedValue([]);
     vi.mocked(warehouse.getMetaPartitionStatesForDate).mockResolvedValue(new Map());
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "processing",
+      truthReady: false,
+      totalDays: 365,
+      completedCoreDays: 0,
+      sourceFetchedAt: null,
+      publishedAt: null,
+      asOf: null,
+      publishedSlices: 0,
+      totalExpectedSlices: 0,
+      reasonCounts: {},
+      publishedKeysBySurface: {},
+    } as never);
     vi.mocked(warehouse.queueMetaSyncPartition).mockImplementation(async (input: QueueMetaPartitionInput) => ({
       id: `${input.providerAccountId}:${input.partitionDate}:${input.scope}`,
       status: "queued",
@@ -537,6 +578,69 @@ describe("enqueueMetaScheduledWork", () => {
         tiny_stale_spend: 1,
       }),
     );
+
+    vi.useRealTimers();
+  });
+
+  it("starts historical backfill from D-2 instead of queueing the full range", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    const historicalCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter((input) => input.source === "historical" && input.scope === "account_daily");
+
+    expect(historicalCalls).toEqual([
+      expect.objectContaining({
+        providerAccountId: "act_1",
+        partitionDate: "2026-04-04",
+        source: "historical",
+      }),
+    ]);
+
+    vi.useRealTimers();
+  });
+
+  it("moves historical backfill to the next older day only after D-2 is already published", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "processing",
+      truthReady: false,
+      totalDays: 365,
+      completedCoreDays: 1,
+      sourceFetchedAt: null,
+      publishedAt: null,
+      asOf: null,
+      publishedSlices: 5,
+      totalExpectedSlices: 1825,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        account_daily: ["act_1:2026-04-04"],
+        campaign_daily: ["act_1:2026-04-04"],
+        adset_daily: ["act_1:2026-04-04"],
+        ad_daily: ["act_1:2026-04-04"],
+        breakdown_daily: ["act_1:2026-04-04"],
+      },
+    } as never);
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    const historicalCalls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter((input) => input.source === "historical" && input.scope === "account_daily");
+
+    expect(historicalCalls).toEqual([
+      expect.objectContaining({
+        providerAccountId: "act_1",
+        partitionDate: "2026-04-03",
+        source: "historical",
+      }),
+    ]);
 
     vi.useRealTimers();
   });

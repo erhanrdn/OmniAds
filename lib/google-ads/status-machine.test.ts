@@ -18,7 +18,7 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
     ).toEqual({
       ready: true,
       notReady: false,
-      readinessModel: "recent_90d_required_support",
+      readinessModel: "recent_84d_required_support",
     });
 
     expect(
@@ -32,7 +32,7 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
     ).toEqual({
       ready: true,
       notReady: false,
-      readinessModel: "recent_90d_required_support",
+      readinessModel: "recent_84d_required_support",
     });
   });
 
@@ -48,7 +48,7 @@ describe("decideGoogleAdsAdvisorReadiness", () => {
     ).toEqual({
       ready: false,
       notReady: true,
-      readinessModel: "recent_90d_required_support",
+      readinessModel: "recent_84d_required_support",
     });
   });
 });

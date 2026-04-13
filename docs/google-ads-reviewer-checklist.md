@@ -18,7 +18,7 @@
 
 - [ ] Review [`app/api/google-ads/status/route.ts`](/Users/harmelek/Adsecute/app/api/google-ads/status/route.ts)
 - [ ] Confirm status copy aligns to decision snapshot / multi-window wording
-- [ ] Confirm it does not imply canonical 90-day decisioning
+- [ ] Confirm it does not imply canonical 84-day decisioning
 - [ ] Confirm write-back posture is not overstated
 
 ## Operator-First UI Surface

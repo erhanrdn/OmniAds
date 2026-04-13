@@ -44,10 +44,12 @@ export type MetaPageReadinessState =
 
 export type MetaPageSelectedRangeMode =
   | "current_day_live"
-  | "historical_warehouse";
+  | "historical_warehouse"
+  | "historical_live_fallback";
 
 export type MetaPageSurfaceTruthClass =
   | "historical_warehouse"
+  | "historical_live_fallback"
   | "current_day_live"
   | "conditional_drilldown"
   | "deterministic_decision_engine";
@@ -111,14 +113,17 @@ export interface MetaStatusResponse {
   d1BlockedReason?: string | null;
   dataContract?: {
     todayMode: "live_overlay";
-    historicalMode: "warehouse_only";
+    historicalMode: "warehouse_only" | "warehouse_plus_live_fallback";
   };
   platformDateBoundary?: {
     primaryAccountId: string | null;
     primaryAccountTimezone: string | null;
     currentDateInTimezone: string | null;
     previousDateInTimezone: string | null;
-    selectedRangeMode: "current_day_live" | "historical_warehouse";
+    selectedRangeMode:
+      | "current_day_live"
+      | "historical_warehouse"
+      | "historical_live_fallback";
     mixedCurrentDates: boolean;
     accounts: Array<{
       provider: "meta";

@@ -1,4 +1,8 @@
 import { addDaysToIsoDateUtc, getProviderPlatformPreviousDate } from "@/lib/provider-platform-date";
+import {
+  META_DECISION_ENGINE_READY_WINDOW_DAYS,
+  META_DECISION_ENGINE_SUPPORT_WINDOW_DAYS,
+} from "@/lib/meta/contract";
 import type {
   OperatorAnalyticsWindow,
   OperatorDecisionWindow,
@@ -47,14 +51,14 @@ export function buildOperatorDecisionWindows(
     ),
     primary30d: buildDecisionWindow(
       decisionAsOf,
-      30,
+      META_DECISION_ENGINE_READY_WINDOW_DAYS,
       "primary30d",
       "primary 30d",
       "decision_authority",
     ),
     baseline90d: buildDecisionWindow(
       decisionAsOf,
-      90,
+      META_DECISION_ENGINE_SUPPORT_WINDOW_DAYS,
       "baseline90d",
       "baseline 90d",
       "historical_memory",

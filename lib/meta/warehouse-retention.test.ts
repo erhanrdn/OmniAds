@@ -22,56 +22,74 @@ vi.mock("@/lib/sync/worker-health", () => ({
   releaseSyncRunnerLease,
 }));
 
-const retention = await import("@/lib/google-ads/warehouse-retention");
+const retention = await import("@/lib/meta/warehouse-retention");
 
-describe("Google Ads warehouse retention policy", () => {
+describe("Meta warehouse retention policy", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     delete process.env.DATABASE_URL;
-    delete process.env.GOOGLE_ADS_RETENTION_EXECUTION_ENABLED;
-    delete process.env.GOOGLE_ADS_RETENTION_BATCH_SIZE;
-    delete process.env.GOOGLE_ADS_RETENTION_LEASE_MINUTES;
-    delete process.env.GOOGLE_ADS_RETENTION_QUERY_TIMEOUT_MS;
+    delete process.env.META_RETENTION_EXECUTION_ENABLED;
+    delete process.env.META_RETENTION_BATCH_SIZE;
+    delete process.env.META_RETENTION_LEASE_MINUTES;
+    delete process.env.META_RETENTION_QUERY_TIMEOUT_MS;
     vi.mocked(assertDbSchemaReady).mockResolvedValue({
       ready: true,
       missingTables: [],
-      checkedAt: "2026-04-10T00:00:00.000Z",
+      checkedAt: "2026-04-13T00:00:00.000Z",
     });
     vi.mocked(getDbSchemaReadiness).mockResolvedValue({
       ready: false,
       missingTables: [],
-      checkedAt: "2026-04-10T00:00:00.000Z",
+      checkedAt: "2026-04-13T00:00:00.000Z",
     });
     vi.mocked(acquireSyncRunnerLease).mockResolvedValue(true);
     vi.mocked(releaseSyncRunnerLease).mockResolvedValue(undefined);
   });
 
-  it("uses the approved retention tiers", () => {
-    expect(retention.GOOGLE_ADS_RETENTION_POLICY.core_daily.retentionDays).toBeGreaterThan(700);
-    expect(retention.GOOGLE_ADS_RETENTION_POLICY.breakdown_daily.retentionDays).toBeGreaterThan(390);
-    expect(retention.GOOGLE_ADS_RETENTION_POLICY.creative_daily.retentionDays).toBe(180);
-    expect(retention.GOOGLE_ADS_RETENTION_POLICY.raw_search_terms_hot.retentionDays).toBe(120);
-    expect(retention.GOOGLE_ADS_RETENTION_POLICY.top_queries_weekly.retentionDays).toBe(365);
-    expect(retention.GOOGLE_ADS_RETENTION_POLICY.raw_search_terms_hot.tableNames).toEqual(
+  it("uses the approved authoritative retention tiers", () => {
+    const policy = retention.META_RETENTION_POLICY;
+    expect(
+      policy.filter((entry) => entry.tier === "core_authoritative"),
+    ).toEqual(
       expect.arrayContaining([
-        "google_ads_search_query_hot_daily",
-        "google_ads_search_term_daily",
-      ])
+        expect.objectContaining({
+          tableName: "meta_account_daily",
+          retentionDays: 761,
+        }),
+        expect.objectContaining({
+          tableName: "meta_authoritative_day_state",
+          summaryKey: "meta_authoritative_day_state:core",
+        }),
+      ]),
+    );
+    expect(
+      policy.filter((entry) => entry.tier === "breakdown_authoritative"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_breakdown_daily",
+          retentionDays: 394,
+        }),
+        expect.objectContaining({
+          tableName: "meta_authoritative_publication_pointers",
+          summaryKey: "meta_authoritative_publication_pointers:breakdown",
+        }),
+      ]),
     );
   });
 
   it("keeps retention execution disabled by default and produces a dry run", async () => {
-    expect(retention.isGoogleAdsRetentionExecutionEnabled({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(retention.isMetaRetentionExecutionEnabled({} as NodeJS.ProcessEnv)).toBe(false);
     expect(
-      retention.getGoogleAdsRetentionRuntimeStatus({} as NodeJS.ProcessEnv)
+      retention.getMetaRetentionRuntimeStatus({} as NodeJS.ProcessEnv),
     ).toMatchObject({
       runtimeAvailable: false,
       executionEnabled: false,
       mode: "dry_run",
     });
 
-    const result = await retention.executeGoogleAdsRetentionPolicyDryRunOnly({
-      asOfDate: "2026-04-08",
+    const result = await retention.executeMetaRetentionPolicyDryRunOnly({
+      asOfDate: "2026-04-13",
       env: {} as NodeJS.ProcessEnv,
     });
 
@@ -79,32 +97,15 @@ describe("Google Ads warehouse retention policy", () => {
     expect(result.dryRun).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          tier: "raw_search_terms_hot",
-          tableName: "google_ads_search_query_hot_daily",
+          tableName: "meta_breakdown_daily",
+          cutoffDate: "2025-03-15",
           executionEnabled: false,
         }),
-      ])
-    );
-  });
-
-  it("builds cutoff dates for every retention table", () => {
-    const rows = retention.buildGoogleAdsRetentionDryRun("2026-04-08");
-
-    expect(rows).toEqual(
-      expect.arrayContaining([
         expect.objectContaining({
-          tableName: "google_ads_top_query_weekly",
-          cutoffDate: "2025-04-08",
+          summaryKey: "meta_authoritative_day_state:core",
+          cutoffDate: "2024-03-13",
         }),
-        expect.objectContaining({
-          tableName: "google_ads_search_term_daily",
-          cutoffDate: "2025-12-09",
-        }),
-        expect.objectContaining({
-          tableName: "google_ads_decision_action_outcome_logs",
-          executionEnabled: false,
-        }),
-      ])
+      ]),
     );
   });
 
@@ -113,8 +114,8 @@ describe("Google Ads warehouse retention policy", () => {
     vi.mocked(acquireSyncRunnerLease).mockResolvedValue(false);
     getDbWithTimeout.mockReturnValue({ query: vi.fn() } as never);
 
-    const result = await retention.executeGoogleAdsRetentionPolicy({
-      asOfDate: "2026-04-10",
+    const result = await retention.executeMetaRetentionPolicy({
+      asOfDate: "2026-04-13",
     });
 
     expect(result).toMatchObject({
@@ -128,33 +129,33 @@ describe("Google Ads warehouse retention policy", () => {
 
   it("deletes retained rows in batches when execution is enabled and records a run", async () => {
     process.env.DATABASE_URL = "postgres://example";
-    process.env.GOOGLE_ADS_RETENTION_EXECUTION_ENABLED = "true";
-    process.env.GOOGLE_ADS_RETENTION_BATCH_SIZE = "2";
+    process.env.META_RETENTION_EXECUTION_ENABLED = "true";
+    process.env.META_RETENTION_BATCH_SIZE = "2";
     vi.mocked(getDbSchemaReadiness).mockResolvedValue({
       ready: true,
       missingTables: [],
-      checkedAt: "2026-04-10T00:00:00.000Z",
+      checkedAt: "2026-04-13T00:00:00.000Z",
     });
 
     const sqlQuery = vi
       .fn()
       .mockResolvedValueOnce([{ count: 2 }])
       .mockResolvedValueOnce([{ count: 1 }])
-      .mockResolvedValue(Array.from({ length: 20 }, () => [{ count: 0 }])[0]);
+      .mockResolvedValue([{ count: 0 }]);
     getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
     getDb.mockReturnValue(
       Object.assign(
-        vi.fn(async () => [{ id: "run_1" }]),
-        { query: vi.fn(async () => []) }
-      ) as never
+        vi.fn(async () => [{ id: "meta_retention_run_1" }]),
+        { query: vi.fn(async () => []) },
+      ) as never,
     );
 
-    const result = await retention.executeGoogleAdsRetentionPolicy({
-      asOfDate: "2026-04-10",
+    const result = await retention.executeMetaRetentionPolicy({
+      asOfDate: "2026-04-13",
     });
 
     expect(result).toMatchObject({
-      runId: "run_1",
+      runId: "meta_retention_run_1",
       mode: "execute",
       executionEnabled: true,
       skippedDueToActiveLease: false,
@@ -163,11 +164,11 @@ describe("Google Ads warehouse retention policy", () => {
     expect(result.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          tableName: "google_ads_account_daily",
+          tableName: "meta_account_daily",
           deletedRows: 3,
           mode: "execute",
         }),
-      ])
+      ]),
     );
     expect(sqlQuery).toHaveBeenCalled();
     expect(releaseSyncRunnerLease).toHaveBeenCalledTimes(1);

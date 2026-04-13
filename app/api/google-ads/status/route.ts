@@ -288,7 +288,7 @@ function buildAdvisorBlockingMessage(input: {
   advisorRelevantDeadLetterPartitions: number;
   advisorRelevantFailedPartitions: number;
   advisorRelevantUnhealthyLeases: number;
-  recent90MissingSurfaces: string[];
+  recent84MissingSurfaces: string[];
   snapshotAvailable: boolean;
   snapshotFresh: boolean;
 }) {
@@ -308,8 +308,8 @@ function buildAdvisorBlockingMessage(input: {
   if (input.advisorRelevantUnhealthyLeases > 0) {
     return "Recent Google Ads recovery work is still active. Analysis will unlock automatically once it settles.";
   }
-  if (input.recent90MissingSurfaces.length > 0) {
-    return `Waiting for recent analysis coverage in ${input.recent90MissingSurfaces.join(", ")} before generating the decision snapshot.`;
+  if (input.recent84MissingSurfaces.length > 0) {
+    return `Waiting for recent analysis coverage in ${input.recent84MissingSurfaces.join(", ")} before generating the decision snapshot.`;
   }
   return "Decision snapshot can be generated as soon as you request a refresh.";
 }
@@ -965,14 +965,14 @@ export async function GET(request: NextRequest) {
         : "Ready";
   const latestError = effectiveLatestSync?.last_error ? String(effectiveLatestSync.last_error) : null;
 
-  const recent90Start = addDaysToIsoDate(initialBackfillEnd, -89);
-  const [recent90CampaignCoverage, recent90SearchTermCoverage, recent90ProductCoverage, latestAdvisorSnapshot, advisorQueueHealth] =
+  const recent84Start = addDaysToIsoDate(initialBackfillEnd, -(GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS - 1));
+  const [recent84CampaignCoverage, recent84SearchTermCoverage, recent84ProductCoverage, latestAdvisorSnapshot, advisorQueueHealth] =
       await Promise.all([
           readGoogleAdsStatusCoverage({
             scope: "campaign_daily",
             businessId: businessId!,
             providerAccountId: null,
-            startDate: recent90Start,
+            startDate: recent84Start,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
@@ -980,7 +980,7 @@ export async function GET(request: NextRequest) {
             scope: "search_term_daily",
             businessId: businessId!,
             providerAccountId: null,
-            startDate: recent90Start,
+            startDate: recent84Start,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
@@ -988,7 +988,7 @@ export async function GET(request: NextRequest) {
             scope: "product_daily",
             businessId: businessId!,
             providerAccountId: null,
-            startDate: recent90Start,
+            startDate: recent84Start,
             endDate: initialBackfillEnd,
             timeoutMs: 30_000,
           }),
@@ -1004,7 +1004,7 @@ export async function GET(request: NextRequest) {
             "advisor_queue_health",
             getGoogleAdsAdvisorQueueHealth({
               businessId: businessId!,
-              startDate: recent90Start,
+              startDate: recent84Start,
               endDate: initialBackfillEnd,
             }),
             null
@@ -1013,15 +1013,15 @@ export async function GET(request: NextRequest) {
   const advisorRequiredSurfaces = [
     {
       name: GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES[0],
-      coverage: recent90CampaignCoverage,
+      coverage: recent84CampaignCoverage,
     },
     {
       name: GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES[1],
-      coverage: recent90SearchTermCoverage,
+      coverage: recent84SearchTermCoverage,
     },
     {
       name: GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES[2],
-      coverage: recent90ProductCoverage,
+      coverage: recent84ProductCoverage,
     },
   ];
   const advisorOptionalSurfaces = [
@@ -1170,24 +1170,24 @@ export async function GET(request: NextRequest) {
   ]);
   const googleRequiredCoverage = buildRequiredCoverage({
     completedDays: Math.min(
-      Number(recent90CampaignCoverage?.completed_days ?? 0),
-      Number(recent90SearchTermCoverage?.completed_days ?? 0),
-      Number(recent90ProductCoverage?.completed_days ?? 0)
+      Number(recent84CampaignCoverage?.completed_days ?? 0),
+      Number(recent84SearchTermCoverage?.completed_days ?? 0),
+      Number(recent84ProductCoverage?.completed_days ?? 0)
     ),
-    totalDays: 90,
+    totalDays: GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS,
     readyThroughDate: [
-      recent90CampaignCoverage?.ready_through_date ?? null,
-      recent90SearchTermCoverage?.ready_through_date ?? null,
-      recent90ProductCoverage?.ready_through_date ?? null,
+      recent84CampaignCoverage?.ready_through_date ?? null,
+      recent84SearchTermCoverage?.ready_through_date ?? null,
+      recent84ProductCoverage?.ready_through_date ?? null,
     ]
       .filter((value): value is string => Boolean(value))
       .sort((left, right) => left.localeCompare(right))[0] ?? null,
   });
   console.info("[google-ads-status] advisor-snapshot-gate", {
     businessId: businessId!,
-    advisorWindowStart: recent90Start,
+    advisorWindowStart: recent84Start,
     advisorWindowEnd: initialBackfillEnd,
-    recent90MissingSurfaces: advisorMissingSurfaces,
+    recent84MissingSurfaces: advisorMissingSurfaces,
     advisorRelevantDeadLetterPartitions,
     advisorRelevantFailedPartitions,
     advisorRelevantUnhealthyLeases,
@@ -1371,7 +1371,7 @@ export async function GET(request: NextRequest) {
         kind: "advisor" as const,
         percent: advisorProgress.percent,
         visible: advisorProgress.visible,
-        label: "Preparing 90-day support",
+        label: `Preparing ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day support`,
         summary: advisorProgress.summary,
       }
     : connected &&
@@ -1779,7 +1779,7 @@ export async function GET(request: NextRequest) {
       requiredSurfaces: advisorRequiredSurfaces.map((entry) => entry.name),
       availableSurfaces: advisorAvailableSurfaces,
       missingSurfaces: advisorMissingSurfaces,
-      readyRangeStart: advisorReady ? recent90Start : null,
+      readyRangeStart: advisorReady ? recent84Start : null,
       readyRangeEnd: advisorReady ? initialBackfillEnd : null,
       blockingMessage:
         fullSyncPriority.reason ??
@@ -1789,7 +1789,7 @@ export async function GET(request: NextRequest) {
           advisorRelevantDeadLetterPartitions,
           advisorRelevantFailedPartitions,
           advisorRelevantUnhealthyLeases,
-          recent90MissingSurfaces: advisorMissingSurfaces,
+          recent84MissingSurfaces: advisorMissingSurfaces,
           snapshotAvailable,
           snapshotFresh,
         }),

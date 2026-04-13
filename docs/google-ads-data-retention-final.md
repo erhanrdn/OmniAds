@@ -7,7 +7,7 @@ This document is the canonical final retention model and current runtime posture
 - Core daily tables: 25 months
 - Breakdown daily tables: 13 months
 - Creative daily tables: 180 days
-- Raw search query hot daily: 120 days
+- Raw search query hot daily: 120 days (`google_ads_search_query_hot_daily`, `google_ads_search_term_daily`)
 - Top queries weekly: 365 days
 - Search cluster aggregate daily: 25 months
 - Decision action and outcome logs: 25 months
@@ -38,6 +38,7 @@ Current implemented posture:
 - `google_ads_ad_daily`
 - `google_ads_asset_daily`
 - `google_ads_search_query_hot_daily`
+- `google_ads_search_term_daily`
 - `google_ads_top_query_weekly`
 - `google_ads_search_cluster_daily`
 - `google_ads_decision_action_outcome_logs`
@@ -52,6 +53,7 @@ Deletion is batched by `id` and keyed by the retention cutoff column for that ta
 
 - Hot:
   - `google_ads_search_query_hot_daily`
+  - `google_ads_search_term_daily`
   - `google_ads_ad_daily`
   - `google_ads_asset_daily`
 - Warm:

@@ -6,6 +6,7 @@ import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
+import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 
 export type GoogleAdsRetentionTier =
   | "core_daily"
@@ -189,8 +190,11 @@ export const GOOGLE_ADS_RETENTION_POLICY: Record<
   raw_search_terms_hot: {
     tier: "raw_search_terms_hot",
     label: "Raw search terms daily hot",
-    retentionDays: 120,
-    tableNames: ["google_ads_search_query_hot_daily"],
+    retentionDays: GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS,
+    tableNames: [
+      "google_ads_search_query_hot_daily",
+      "google_ads_search_term_daily",
+    ],
     grain: "daily",
     storageTemperature: "hot",
   },

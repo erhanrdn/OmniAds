@@ -7,6 +7,7 @@ const renewSyncRunnerLease = vi.fn();
 const releaseSyncRunnerLease = vi.fn();
 const pruneSyncLifecycleData = vi.fn();
 const executeGoogleAdsRetentionPolicy = vi.fn();
+const executeMetaRetentionPolicy = vi.fn();
 
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses,
@@ -27,6 +28,10 @@ vi.mock("@/lib/google-ads/warehouse-retention", () => ({
   executeGoogleAdsRetentionPolicy,
 }));
 
+vi.mock("@/lib/meta/warehouse-retention", () => ({
+  executeMetaRetentionPolicy,
+}));
+
 describe("worker runtime heartbeat repair metadata", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -36,6 +41,10 @@ describe("worker runtime heartbeat repair metadata", () => {
     releaseSyncRunnerLease.mockResolvedValue(undefined);
     pruneSyncLifecycleData.mockResolvedValue({ pruned: 0 });
     executeGoogleAdsRetentionPolicy.mockResolvedValue({
+      mode: "dry_run",
+      skippedDueToActiveLease: false,
+    });
+    executeMetaRetentionPolicy.mockResolvedValue({
       mode: "dry_run",
       skippedDueToActiveLease: false,
     });
@@ -131,6 +140,9 @@ describe("worker runtime heartbeat repair metadata", () => {
       })
     ).toBe(true);
     expect(executeGoogleAdsRetentionPolicy).toHaveBeenCalledWith({
+      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
+    expect(executeMetaRetentionPolicy).toHaveBeenCalledWith({
       asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
   });

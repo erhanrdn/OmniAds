@@ -24,6 +24,7 @@ export type MetaSyncPartitionSource =
   | "historical_recovery"
   | "recent"
   | "recent_recovery"
+  | "yesterday"
   | "today"
   | "today_observe"
   | "finalize_day"
@@ -31,6 +32,7 @@ export type MetaSyncPartitionSource =
   | "priority_window"
   | "request_runtime"
   | "initial_connect"
+  | "core_success"
   | "manual_refresh";
 
 export type MetaWarehouseTruthState =
@@ -371,6 +373,45 @@ export interface MetaAuthoritativePublicationPointerRecord {
   publishedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export type MetaAuthoritativeDayStateStatus =
+  | "pending"
+  | "queued"
+  | "running"
+  | "published"
+  | "repair_required"
+  | "failed"
+  | "blocked"
+  | "not_applicable";
+
+export interface MetaAuthoritativeDayStateRecord {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  state: MetaAuthoritativeDayStateStatus;
+  accountTimezone: string;
+  activePartitionId?: string | null;
+  lastRunId?: string | null;
+  lastManifestId?: string | null;
+  lastPublicationPointerId?: string | null;
+  publishedAt?: string | null;
+  retryAfterAt?: string | null;
+  failureStreak?: number;
+  diagnosisCode?: string | null;
+  diagnosisDetailJson?: Record<string, unknown>;
+  lastStartedAt?: string | null;
+  lastFinishedAt?: string | null;
+  lastAutohealAt?: string | null;
+  autohealCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaAuthoritativeDaySurfaceRequirement {
+  surface: MetaWarehouseScope;
+  state: MetaAuthoritativeDayStateStatus;
 }
 
 export interface MetaAuthoritativeReconciliationEventRecord {

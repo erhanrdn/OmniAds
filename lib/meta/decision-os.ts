@@ -2,6 +2,7 @@ import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { META_DECISION_ENGINE_READY_WINDOW_DAYS } from "@/lib/meta/contract";
 import {
   buildDecisionFreshness,
   classifyDecisionEntityState,
@@ -2950,7 +2951,7 @@ function buildSummary(input: {
 }): MetaDecisionOsSummary {
   const commercialCoverage = input.commercialTruth.coverage;
   const readinessMissingInputs = input.operatingMode?.missingInputs ?? [];
-  const readinessExpectedDays = 30;
+  const readinessExpectedDays = META_DECISION_ENGINE_READY_WINDOW_DAYS;
   const topAdSetActions = [...input.adSetDecisions]
     .filter((decision) => decision.trust.surfaceLane === "action_core")
     .sort(

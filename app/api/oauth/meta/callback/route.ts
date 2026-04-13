@@ -3,7 +3,9 @@ import { META_CONFIG } from "@/lib/oauth/meta-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { fetchMetaAdAccounts, getMetaApiErrorMessage } from "@/lib/meta-ad-accounts";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
+import { syncMetaInitial } from "@/lib/sync/meta-sync";
 
 async function exchangeMetaLongLivedToken(shortLivedToken: string) {
   const params = new URLSearchParams({
@@ -194,6 +196,13 @@ export async function GET(request: NextRequest) {
         }));
       },
     }).catch(() => null);
+
+    const assignments = await getProviderAccountAssignments(businessId, "meta").catch(
+      () => null,
+    );
+    if ((assignments?.account_ids?.length ?? 0) > 0) {
+      await syncMetaInitial(businessId).catch(() => null);
+    }
 
     // ── Redirect to frontend callback with success ──────────────
     const redirectUrl = new URL(`/integrations/callback/meta`, baseUrl);

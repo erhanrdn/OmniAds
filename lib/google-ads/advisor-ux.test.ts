@@ -104,14 +104,14 @@ describe("google ads advisor ux helpers", () => {
     expect(
       getGoogleAdsAdvisorHelperText({
         status: buildStatus({
-          operations: buildOperations({ advisorSnapshotBlockedReason: "recent90_incomplete" }),
+          operations: buildOperations({ advisorSnapshotBlockedReason: "recent84_incomplete" }),
         }),
         ctaState: "blocked",
         advisorIsStale: false,
         lastAnalyzedLabel: null,
       })
     ).toBe(
-      "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot."
+      "Campaign, search term, and product history are still being prepared for the 84-day decision snapshot."
     );
 
     expect(
@@ -137,7 +137,7 @@ describe("google ads advisor ux helpers", () => {
         lastAnalyzedLabel: null,
       })
     ).toBe(
-      "Uses a multi-window decision snapshot backed by recent 90-day support. The date picker only changes contextual dashboard views."
+      "Uses a multi-window decision snapshot backed by recent 84-day support. The date picker only changes contextual dashboard views."
     );
 
     expect(
@@ -199,7 +199,7 @@ describe("google ads advisor ux helpers", () => {
     ).toEqual({
       title: "Deeper analysis is still syncing",
       description:
-        "Core campaign reporting is live. Campaign, search term, and product history are still syncing for the 90-day decision snapshot.",
+        "Core campaign reporting is live. Campaign, search term, and product history are still syncing for the 84-day decision snapshot.",
     });
   });
 
@@ -246,7 +246,7 @@ describe("google ads advisor ux helpers", () => {
     ).toEqual({
       title: "Decision snapshot can be prepared",
       description:
-        "Campaign, search term, and product history are ready for the 90-day decision snapshot. Generate it when you want to review it.",
+        "Campaign, search term, and product history are ready for the 84-day decision snapshot. Generate it when you want to review it.",
     });
   });
 
@@ -269,7 +269,7 @@ describe("google ads advisor ux helpers", () => {
         connected: true,
         assignedAccountCount: 1,
         advisorSnapshotReady: false,
-        advisorSnapshotBlockedReason: "recent90_incomplete",
+        advisorSnapshotBlockedReason: "recent84_incomplete",
         fullSyncPriorityRequired: true,
         advisorMissingSurfaces: ["search_term_daily"],
       })

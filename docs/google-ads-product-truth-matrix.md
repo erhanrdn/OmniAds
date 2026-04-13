@@ -162,6 +162,7 @@ Approved policy today:
 - breakdown daily: 13 months
 - creative daily: 180 days
 - raw search query hot daily: 120 days
+- search term daily: 120 days
 - top queries weekly: 365 days
 - search cluster aggregate daily: 25 months
 - decision action / outcome logs: 25 months

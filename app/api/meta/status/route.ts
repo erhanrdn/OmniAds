@@ -30,6 +30,10 @@ import {
 import { META_WAREHOUSE_HISTORY_DAYS, dayCountInclusive } from "@/lib/meta/history";
 import { getMetaBreakdownSupportedStart, META_BREAKDOWN_MAX_HISTORY_DAYS } from "@/lib/meta/constraints";
 import {
+  isMetaRangeWithinAuthoritativeHistory,
+  isMetaRangeWithinBreakdownHistory,
+} from "@/lib/meta/contract";
+import {
   buildProviderStateContract,
   buildProviderSurfaces,
 } from "@/lib/provider-readiness";
@@ -37,6 +41,10 @@ import { addDaysToIsoDateUtc, getProviderPlatformDateBoundaries } from "@/lib/pr
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
+import {
+  getLatestMetaRetentionRun,
+  getMetaRetentionRuntimeStatus,
+} from "@/lib/meta/warehouse-retention";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
 import {
@@ -229,7 +237,16 @@ export async function GET(request: NextRequest) {
 
   const sql = getDb();
 
-  const [integration, assignments, latestSync, accountStats, accountSnapshot, legacyJobHealth, workerHealth] =
+  const [
+    integration,
+    assignments,
+    latestSync,
+    accountStats,
+    accountSnapshot,
+    legacyJobHealth,
+    workerHealth,
+    latestRetentionRun,
+  ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
       getProviderAccountAssignments(businessId!, "meta").catch(() => null),
@@ -242,7 +259,9 @@ export async function GET(request: NextRequest) {
         providerScope: "meta",
         staleThresholdMs: 3 * 60_000,
       }).catch(() => null),
+      getLatestMetaRetentionRun().catch(() => null),
     ]);
+  const retentionRuntime = getMetaRetentionRuntimeStatus();
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected");
@@ -480,36 +499,63 @@ export async function GET(request: NextRequest) {
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
+  const selectedRangeWithinAuthoritativeHistory =
+    selectedRangeRequested && selectedStartDate
+      ? isMetaRangeWithinAuthoritativeHistory({
+          startDate: selectedStartDate,
+          referenceToday: currentDateInTimezone,
+        })
+      : true;
+  const selectedRangeWithinBreakdownHistory =
+    selectedRangeRequested && selectedStartDate
+      ? isMetaRangeWithinBreakdownHistory({
+          startDate: selectedStartDate,
+          referenceToday: currentDateInTimezone,
+        })
+      : true;
   const selectedRangeIsToday =
     Boolean(selectedStartDate && selectedEndDate && currentDateInTimezone) &&
     selectedStartDate === selectedEndDate &&
     selectedStartDate === currentDateInTimezone;
   const selectedRangeTruth =
-    selectedRangeRequested && selectedStartDate && selectedEndDate && !selectedRangeIsToday
+    selectedRangeRequested &&
+    selectedStartDate &&
+    selectedEndDate &&
+    !selectedRangeIsToday &&
+    selectedRangeWithinAuthoritativeHistory
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: businessId!,
           startDate: selectedStartDate,
           endDate: selectedEndDate,
         }).catch(() => null)
       : null;
+  const selectedRangeUsesLiveFallback = Boolean(
+    selectedRangeRequested &&
+      !selectedRangeIsToday &&
+      !selectedRangeWithinAuthoritativeHistory
+  );
   const selectedRangeCoreCompletedDays = minCompletedDays(
-    [
-      selectedRangeTruth && !selectedRangeIsToday
-        ? selectedRangeTruth.completedCoreDays
-        : selectedRangeCoverage?.completed_days ?? 0,
-      selectedRangeTruth && !selectedRangeIsToday
-        ? selectedRangeTruth.completedCoreDays
-        : selectedRangeCampaignCoverage?.completed_days ?? 0,
-    ],
-    selectedRangeTotalDays
+    selectedRangeUsesLiveFallback
+      ? [selectedRangeTotalDays ?? 0]
+      : [
+          selectedRangeTruth && !selectedRangeIsToday
+            ? selectedRangeTruth.completedCoreDays
+            : selectedRangeCoverage?.completed_days ?? 0,
+          selectedRangeTruth && !selectedRangeIsToday
+            ? selectedRangeTruth.completedCoreDays
+            : selectedRangeCampaignCoverage?.completed_days ?? 0,
+        ],
+    selectedRangeTotalDays,
   );
   const selectedRangeIncomplete =
-    selectedRangeTruth && !selectedRangeIsToday
-      ? !selectedRangeTruth.truthReady
-      : Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
+    selectedRangeUsesLiveFallback
+      ? false
+      : selectedRangeTruth && !selectedRangeIsToday
+        ? !selectedRangeTruth.truthReady
+        : Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
   const selectedRangeCoreReadyThroughDate = earliestReadyThroughDate([
-    selectedRangeCoverage?.ready_through_date ?? null,
-    selectedRangeCampaignCoverage?.ready_through_date ?? null,
+    selectedRangeUsesLiveFallback ? selectedEndDate ?? null : selectedRangeCoverage?.ready_through_date ?? null,
+    selectedRangeUsesLiveFallback ? selectedEndDate ?? null : selectedRangeCampaignCoverage?.ready_through_date ?? null,
   ]);
   const selectedRangeBreakdownReadyThroughDate =
     selectedRangeRequested
@@ -520,9 +566,7 @@ export async function GET(request: NextRequest) {
           .sort((a, b) => a.localeCompare(b))[0] ?? null
       : null;
   const selectedRangeBreakdownGuardrailBlocked =
-    selectedRangeRequested && selectedEndDate && selectedStartDate
-      ? selectedStartDate < getMetaBreakdownSupportedStart(selectedEndDate)
-      : false;
+    selectedRangeRequested && !selectedRangeWithinBreakdownHistory;
   const scopeSummaries = [
     {
       scope: "account_daily",
@@ -674,8 +718,8 @@ export async function GET(request: NextRequest) {
     ? selectedRangeCoreReadyThroughDate
     : historicalArchiveReadyThroughDate;
   const selectedRangeReportReady = Boolean(selectedRangeRequested && !selectedRangeIncomplete);
-  const breakdownSupportStartDate = selectedEndDate
-    ? getMetaBreakdownSupportedStart(selectedEndDate)
+  const breakdownSupportStartDate = currentDateInTimezone
+    ? getMetaBreakdownSupportedStart(currentDateInTimezone)
     : null;
   const selectedRangeBreakdownsBySurface = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
@@ -732,7 +776,9 @@ export async function GET(request: NextRequest) {
       : 0;
   const selectedRangeMode = selectedRangeIsToday
     ? "current_day_live"
-    : "historical_warehouse";
+    : selectedRangeUsesLiveFallback
+      ? "historical_live_fallback"
+      : "historical_warehouse";
   const currentDayLive =
     selectedRangeIsToday && connected && accountIds.length > 0 && selectedStartDate && selectedEndDate
       ? await getMetaCurrentDayLiveAvailability({
@@ -750,6 +796,8 @@ export async function GET(request: NextRequest) {
       ? connected && accountIds.length > 0 && (accountCoverage?.completed_days ?? 0) > 0
       : selectedRangeIsToday
       ? currentDayLive?.summaryAvailable === true
+      : selectedRangeUsesLiveFallback
+        ? connected && accountIds.length > 0
       : selectedRangeTruth
         ? selectedRangeTruth.truthReady ||
           canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
@@ -760,6 +808,8 @@ export async function GET(request: NextRequest) {
       ? connected && accountIds.length > 0 && (campaignCoverage?.completed_days ?? 0) > 0
       : selectedRangeIsToday
       ? currentDayLive?.campaignsAvailable === true
+      : selectedRangeUsesLiveFallback
+        ? connected && accountIds.length > 0
       : selectedRangeTruth
         ? selectedRangeTruth.truthReady ||
           canServeHistoricalCoreWhileFinalizePending(selectedRangeTruth)
@@ -839,9 +889,11 @@ export async function GET(request: NextRequest) {
         surface.surfaceKey,
         {
           state,
-          blocking: state !== "ready",
-          countsForPageCompleteness: true,
-          truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+          blocking: !coverage.isBlocked && state !== "ready",
+          countsForPageCompleteness: !coverage.isBlocked,
+          truthClass: selectedRangeIsToday
+            ? "current_day_live"
+            : "historical_warehouse",
           reason,
         },
       ];
@@ -863,7 +915,11 @@ export async function GET(request: NextRequest) {
       }),
       blocking: !summaryReady,
       countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      truthClass: selectedRangeIsToday
+        ? "current_day_live"
+        : selectedRangeUsesLiveFallback
+          ? "historical_live_fallback"
+          : "historical_warehouse",
       reason: summarySurfaceReason,
     },
     campaigns: {
@@ -878,7 +934,11 @@ export async function GET(request: NextRequest) {
       }),
       blocking: !campaignsReady,
       countsForPageCompleteness: true,
-      truthClass: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+      truthClass: selectedRangeIsToday
+        ? "current_day_live"
+        : selectedRangeUsesLiveFallback
+          ? "historical_live_fallback"
+          : "historical_warehouse",
       reason: campaignsSurfaceReason,
     },
     ...breakdownRequiredSurfaces,
@@ -886,6 +946,8 @@ export async function GET(request: NextRequest) {
   const adsetsReady =
     selectedRangeIsToday
       ? connected && accountIds.length > 0
+      : selectedRangeUsesLiveFallback
+        ? connected && accountIds.length > 0
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeAdsetCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
   const decisionOsEnabled = isMetaDecisionOsV1EnabledForBusiness(businessId);
@@ -1104,7 +1166,7 @@ export async function GET(request: NextRequest) {
   });
   const dataContract = {
     todayMode: "live_overlay",
-    historicalMode: "warehouse_only",
+    historicalMode: "warehouse_plus_live_fallback",
   } as const;
   const completionBasis = {
     requiredScopes: ["account_daily", "campaign_daily"],
@@ -1118,7 +1180,7 @@ export async function GET(request: NextRequest) {
     primaryAccountTimezone,
     currentDateInTimezone,
     previousDateInTimezone: addDaysToIsoDateUtc(currentDateInTimezone, -1),
-    selectedRangeMode: selectedRangeIsToday ? "current_day_live" : "historical_warehouse",
+    selectedRangeMode,
     mixedCurrentDates:
       new Set(platformDateBoundaryAccounts.map((account) => account.currentDate)).size > 1,
     accounts: platformDateBoundaryAccounts,
@@ -1411,6 +1473,12 @@ export async function GET(request: NextRequest) {
               },
             ],
             queueSummary: queueComposition?.summary ?? null,
+            retentionRuntimeAvailable: retentionRuntime.runtimeAvailable,
+            retentionExecutionEnabled: retentionRuntime.executionEnabled,
+            retentionMode: retentionRuntime.mode,
+            retentionGateReason: retentionRuntime.gateReason,
+            latestRetentionRunAt: latestRetentionRun?.finishedAt ?? null,
+            latestRetentionRunMode: latestRetentionRun?.executionMode ?? null,
           }
         : null,
       extendedRecoveryState,

@@ -10,6 +10,9 @@ import type {
 } from "@/lib/sync/provider-orchestration";
 import type {
   MetaAuthoritativeBusinessOpsSnapshot,
+  MetaAuthoritativeDayStateRecord,
+  MetaAuthoritativeDayStateStatus,
+  MetaAuthoritativeDaySurfaceRequirement,
   MetaAuthoritativeDayVerification,
   MetaAuthoritativeLatestPublishRecord,
   MetaAuthoritativeRecentFailureRecord,
@@ -74,6 +77,7 @@ const META_MUTATION_TABLES = [
   "meta_authoritative_source_manifests",
   "meta_authoritative_slice_versions",
   "meta_authoritative_reconciliation_events",
+  "meta_authoritative_day_state",
   "meta_sync_jobs",
   "meta_sync_partitions",
   "meta_sync_runs",
@@ -465,6 +469,324 @@ export function buildMetaAuthoritativePublicationLookup(input: {
     day: normalizeDate(input.day),
     surface: input.surface,
   };
+}
+
+export function getMetaAuthoritativeRequiredSurfacesForDayAge(
+  dayAge: number,
+): MetaAuthoritativeDaySurfaceRequirement[] {
+  if (!Number.isFinite(dayAge) || dayAge < 0) return [];
+  if (dayAge > 761) return [];
+
+  const baseSurfaces: MetaAuthoritativeDaySurfaceRequirement[] = [
+    { surface: "account_daily", state: "pending" },
+    { surface: "campaign_daily", state: "pending" },
+    { surface: "adset_daily", state: "pending" },
+    { surface: "ad_daily", state: "pending" },
+  ];
+
+  if (dayAge >= 394) {
+    return [
+      ...baseSurfaces,
+      { surface: "breakdown_daily", state: "not_applicable" },
+    ];
+  }
+
+  return [
+    ...baseSurfaces,
+    { surface: "breakdown_daily", state: "pending" },
+  ];
+}
+
+export function buildMetaAuthoritativeDayStateLookup(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    day: normalizeDate(input.day),
+    surface: input.surface,
+  };
+}
+
+function mapMetaAuthoritativeDayStateRow(row: {
+  business_id: string;
+  provider_account_id: string;
+  day: string;
+  surface: MetaWarehouseScope;
+  state: MetaAuthoritativeDayStateStatus;
+  account_timezone: string;
+  active_partition_id: string | null;
+  last_run_id: string | null;
+  last_manifest_id: string | null;
+  last_publication_pointer_id: string | null;
+  published_at: string | null;
+  retry_after_at: string | null;
+  failure_streak: number;
+  diagnosis_code: string | null;
+  diagnosis_detail_json: Record<string, unknown> | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_autoheal_at: string | null;
+  autoheal_count: number;
+  created_at: string;
+  updated_at: string;
+}): MetaAuthoritativeDayStateRecord {
+  return {
+    businessId: row.business_id,
+    providerAccountId: row.provider_account_id,
+    day: normalizeDate(row.day),
+    surface: row.surface,
+    state: row.state,
+    accountTimezone: row.account_timezone,
+    activePartitionId: row.active_partition_id,
+    lastRunId: row.last_run_id,
+    lastManifestId: row.last_manifest_id,
+    lastPublicationPointerId: row.last_publication_pointer_id,
+    publishedAt: row.published_at,
+    retryAfterAt: row.retry_after_at,
+    failureStreak: toNumber(row.failure_streak),
+    diagnosisCode: row.diagnosis_code,
+    diagnosisDetailJson: row.diagnosis_detail_json ?? {},
+    lastStartedAt: row.last_started_at,
+    lastFinishedAt: row.last_finished_at,
+    lastAutohealAt: row.last_autoheal_at,
+    autohealCount: toNumber(row.autoheal_count),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function upsertMetaAuthoritativeDayState(
+  input: MetaAuthoritativeDayStateRecord,
+) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO meta_authoritative_day_state (
+      business_id,
+      provider_account_id,
+      day,
+      surface,
+      state,
+      account_timezone,
+      active_partition_id,
+      last_run_id,
+      last_manifest_id,
+      last_publication_pointer_id,
+      published_at,
+      retry_after_at,
+      failure_streak,
+      diagnosis_code,
+      diagnosis_detail_json,
+      last_started_at,
+      last_finished_at,
+      last_autoheal_at,
+      autoheal_count,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${normalizeDate(input.day)},
+      ${input.surface},
+      ${input.state},
+      ${input.accountTimezone},
+      ${input.activePartitionId ?? null},
+      ${input.lastRunId ?? null},
+      ${input.lastManifestId ?? null},
+      ${input.lastPublicationPointerId ?? null},
+      ${input.publishedAt ?? null},
+      ${input.retryAfterAt ?? null},
+      ${Math.max(0, Math.trunc(input.failureStreak ?? 0))},
+      ${input.diagnosisCode ?? null},
+      ${JSON.stringify(input.diagnosisDetailJson ?? {})}::jsonb,
+      ${input.lastStartedAt ?? null},
+      ${input.lastFinishedAt ?? null},
+      ${input.lastAutohealAt ?? null},
+      ${Math.max(0, Math.trunc(input.autohealCount ?? 0))},
+      COALESCE(${input.createdAt ?? null}, now()),
+      COALESCE(${input.updatedAt ?? null}, now())
+    )
+    ON CONFLICT (business_id, provider_account_id, day, surface)
+    DO UPDATE SET
+      state = EXCLUDED.state,
+      account_timezone = EXCLUDED.account_timezone,
+      active_partition_id = EXCLUDED.active_partition_id,
+      last_run_id = EXCLUDED.last_run_id,
+      last_manifest_id = EXCLUDED.last_manifest_id,
+      last_publication_pointer_id = EXCLUDED.last_publication_pointer_id,
+      published_at = EXCLUDED.published_at,
+      retry_after_at = EXCLUDED.retry_after_at,
+      failure_streak = EXCLUDED.failure_streak,
+      diagnosis_code = EXCLUDED.diagnosis_code,
+      diagnosis_detail_json = EXCLUDED.diagnosis_detail_json,
+      last_started_at = EXCLUDED.last_started_at,
+      last_finished_at = EXCLUDED.last_finished_at,
+      last_autoheal_at = EXCLUDED.last_autoheal_at,
+      autoheal_count = EXCLUDED.autoheal_count,
+      updated_at = now()
+    RETURNING *
+  ` as Array<{
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    state: MetaAuthoritativeDayStateStatus;
+    account_timezone: string;
+    active_partition_id: string | null;
+    last_run_id: string | null;
+    last_manifest_id: string | null;
+    last_publication_pointer_id: string | null;
+    published_at: string | null;
+    retry_after_at: string | null;
+    failure_streak: number;
+    diagnosis_code: string | null;
+    diagnosis_detail_json: Record<string, unknown> | null;
+    last_started_at: string | null;
+    last_finished_at: string | null;
+    last_autoheal_at: string | null;
+    autoheal_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeDayStateRow(rows[0]) : null;
+}
+
+export async function getMetaAuthoritativeDayState(input: {
+  businessId: string;
+  providerAccountId: string;
+  day: string;
+  surface: MetaWarehouseScope;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT *
+    FROM meta_authoritative_day_state
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND day = ${normalizeDate(input.day)}
+      AND surface = ${input.surface}
+    LIMIT 1
+  ` as Array<{
+    business_id: string;
+    provider_account_id: string;
+    day: string;
+    surface: MetaWarehouseScope;
+    state: MetaAuthoritativeDayStateStatus;
+    account_timezone: string;
+    active_partition_id: string | null;
+    last_run_id: string | null;
+    last_manifest_id: string | null;
+    last_publication_pointer_id: string | null;
+    published_at: string | null;
+    retry_after_at: string | null;
+    failure_streak: number;
+    diagnosis_code: string | null;
+    diagnosis_detail_json: Record<string, unknown> | null;
+    last_started_at: string | null;
+    last_finished_at: string | null;
+    last_autoheal_at: string | null;
+    autoheal_count: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  return rows[0] ? mapMetaAuthoritativeDayStateRow(rows[0]) : null;
+}
+
+export async function reconcileMetaAuthoritativeDayStateFromVerification(input: {
+  verification: MetaAuthoritativeDayVerification;
+  accountTimezone?: string | null;
+  activePartitionIdBySurface?: Partial<Record<MetaWarehouseScope, string | null>>;
+}) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const existingStates = await Promise.all(
+    input.verification.surfaces.map((surfaceState) =>
+      getMetaAuthoritativeDayState({
+        businessId: input.verification.businessId,
+        providerAccountId: input.verification.providerAccountId,
+        day: input.verification.day,
+        surface: surfaceState.surface,
+      }),
+    ),
+  );
+  const updates: MetaAuthoritativeDayStateRecord[] = [];
+
+  for (const [index, surfaceState] of input.verification.surfaces.entries()) {
+    const existing = existingStates[index] ?? null;
+    const publication = surfaceState.publication?.publication ?? null;
+    const sliceVersion = surfaceState.publication?.sliceVersion ?? null;
+    const isPublished =
+      input.verification.verificationState === "finalized_verified" &&
+      Boolean(publication?.activeSliceVersionId) &&
+      Boolean(publication?.publishedAt);
+    const derivedState: MetaAuthoritativeDayStateStatus = isPublished
+      ? "published"
+      : input.verification.verificationState === "failed" ||
+          input.verification.lastFailure?.result === "failed"
+        ? "failed"
+        : input.verification.verificationState === "repair_required" ||
+            input.verification.lastFailure?.result === "repair_required"
+          ? "repair_required"
+          : sliceVersion?.status === "published"
+            ? "queued"
+            : "pending";
+
+    updates.push({
+      businessId: input.verification.businessId,
+      providerAccountId: input.verification.providerAccountId,
+      day: input.verification.day,
+      surface: surfaceState.surface,
+      state: derivedState,
+      accountTimezone:
+        surfaceState.manifest?.accountTimezone ??
+        input.accountTimezone ??
+        existing?.accountTimezone ??
+        "UTC",
+      activePartitionId:
+        input.activePartitionIdBySurface?.[surfaceState.surface] ?? existing?.activePartitionId ?? null,
+      lastRunId: surfaceState.manifest?.runId ?? existing?.lastRunId ?? null,
+      lastManifestId: surfaceState.manifest?.id ?? existing?.lastManifestId ?? null,
+      lastPublicationPointerId:
+        publication?.id ?? existing?.lastPublicationPointerId ?? null,
+      publishedAt: publication?.publishedAt ?? null,
+      retryAfterAt:
+        derivedState === "published"
+          ? null
+          : surfaceState.manifest?.completedAt ?? existing?.retryAfterAt ?? null,
+      failureStreak:
+        derivedState === "published"
+          ? 0
+          : Math.max(0, (existing?.failureStreak ?? 0) + 1),
+      diagnosisCode:
+        derivedState === "published"
+          ? null
+          : input.verification.lastFailure?.reason ??
+            surfaceState.manifest?.fetchStatus ??
+            input.verification.sourceManifestState,
+      diagnosisDetailJson: {
+        verificationState: input.verification.verificationState,
+        validationState: input.verification.validationState,
+        sourceManifestState: input.verification.sourceManifestState,
+        surface: surfaceState.surface,
+        publishedAt: publication?.publishedAt ?? null,
+        publicationReason: publication?.publicationReason ?? null,
+        activeSliceVersionId: publication?.activeSliceVersionId ?? null,
+      },
+      lastStartedAt: surfaceState.manifest?.startedAt ?? existing?.lastStartedAt ?? null,
+      lastFinishedAt: surfaceState.manifest?.completedAt ?? existing?.lastFinishedAt ?? null,
+      lastAutohealAt: existing?.lastAutohealAt ?? null,
+      autohealCount: existing?.autohealCount ?? 0,
+    });
+  }
+
+  if (updates.length === 0) return [];
+  const rows = await Promise.all(updates.map((row) => upsertMetaAuthoritativeDayState(row)));
+  return rows.filter((row): row is MetaAuthoritativeDayStateRecord => Boolean(row));
 }
 
 function mapMetaAuthoritativeSourceManifestRow(row: {
@@ -2004,7 +2326,20 @@ export async function getMetaAuthoritativeDayVerification(input: {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   const day = normalizeDate(input.day);
-  const surfaces: MetaWarehouseScope[] = ["account_daily", "campaign_daily", "adset_daily"];
+  const referenceToday = new Date().toISOString().slice(0, 10);
+  const dayAge = Math.max(
+    0,
+    Math.floor(
+      (new Date(`${referenceToday}T00:00:00.000Z`).getTime() -
+        new Date(`${day}T00:00:00.000Z`).getTime()) /
+        86_400_000,
+    ),
+  );
+  const surfaces: MetaWarehouseScope[] = getMetaAuthoritativeRequiredSurfacesForDayAge(
+    dayAge,
+  )
+    .filter((requirement) => requirement.state !== "not_applicable")
+    .map((requirement) => requirement.surface);
   const [manifestRows, latestFailureRows, partitionRows, verification] = await Promise.all([
     sql`
       WITH latest_manifests AS (
@@ -2103,7 +2438,7 @@ export async function getMetaAuthoritativeDayVerification(input: {
       startDate: day,
       endDate: day,
       providerAccountIds: [input.providerAccountId],
-      surfaces: ["account_daily", "campaign_daily"],
+      surfaces,
     }),
   ]);
 
@@ -4089,10 +4424,10 @@ export async function releaseMetaLeasedPartitionsForWorker(input: {
   const rows = await sql`
     UPDATE meta_sync_partitions partition
     SET
-      status = 'failed',
+      status = 'queued',
       lease_owner = NULL,
       lease_expires_at = NULL,
-      next_retry_at = now() + (${input.retryDelayMinutes ?? 3} || ' minutes')::interval,
+      next_retry_at = now(),
       last_error = COALESCE(
         ${input.lastError ?? null}::text,
         partition.last_error,
@@ -5928,6 +6263,32 @@ export async function replaceMetaAdSetDailySlice(input: {
   });
 }
 
+export async function replaceMetaAdDailySlice(input: {
+  rows: MetaAdDailyRow[];
+  proof: MetaFinalizationCompletenessProof;
+}) {
+  if (input.rows.length === 0) return;
+  const slice = {
+    businessId: input.rows[0]!.businessId,
+    providerAccountId: input.rows[0]!.providerAccountId,
+    date: normalizeDate(input.rows[0]!.date),
+    scope: "ad",
+  } as const;
+  assertMetaFinalizationCompletenessProof(input.proof, slice);
+  await runInTransaction(async () => {
+    const sql = getDb();
+    await upsertMetaAdDailyRows(input.rows);
+    const adIds = input.rows.map((row) => row.adId);
+    await sql`
+      DELETE FROM meta_ad_daily
+      WHERE business_id = ${slice.businessId}
+        AND provider_account_id = ${slice.providerAccountId}
+        AND date = ${slice.date}::date
+        AND NOT (ad_id = ANY(${adIds}::text[]))
+    `;
+  });
+}
+
 export async function replaceMetaBreakdownDailySlice(input: {
   slice: {
     businessId: string;
@@ -6050,7 +6411,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 27;
+        const offset = index * 31;
         values.push(
           row.businessId,
           row.providerAccountId,
@@ -6076,11 +6437,15 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.cpc,
           row.linkClicks ?? 0,
           row.sourceSnapshotId,
+          row.truthState ?? "finalized",
+          row.truthVersion ?? 1,
+          row.finalizedAt ?? null,
+          row.validationStatus ?? "passed",
           row.sourceRunId ?? null,
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
           JSON.stringify(row.payloadJson ?? null)
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27}::jsonb,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31}::jsonb,now())`;
       })
       .join(", ");
     await sql.query(
@@ -6110,6 +6475,10 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         cpc,
         link_clicks,
         source_snapshot_id,
+        truth_state,
+        truth_version,
+        finalized_at,
+        validation_status,
         source_run_id,
         metric_schema_version,
         payload_json,
@@ -6137,6 +6506,15 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
         cpc = EXCLUDED.cpc,
         link_clicks = COALESCE(EXCLUDED.link_clicks, 0, meta_ad_daily.link_clicks),
         source_snapshot_id = EXCLUDED.source_snapshot_id,
+        truth_state = EXCLUDED.truth_state,
+        truth_version = CASE
+          WHEN meta_ad_daily.truth_state = EXCLUDED.truth_state
+            AND COALESCE(meta_ad_daily.validation_status, 'passed') = COALESCE(EXCLUDED.validation_status, 'passed')
+            THEN GREATEST(COALESCE(meta_ad_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1))
+          ELSE GREATEST(COALESCE(meta_ad_daily.truth_version, 1), COALESCE(EXCLUDED.truth_version, 1)) + 1
+        END,
+        finalized_at = EXCLUDED.finalized_at,
+        validation_status = EXCLUDED.validation_status,
         source_run_id = COALESCE(EXCLUDED.source_run_id, meta_ad_daily.source_run_id),
         metric_schema_version = EXCLUDED.metric_schema_version,
         payload_json = EXCLUDED.payload_json,
@@ -7775,6 +8153,10 @@ export async function getMetaAdDailyRange(input: {
       cpc,
       link_clicks,
       source_snapshot_id,
+      truth_state,
+      truth_version,
+      finalized_at,
+      validation_status,
       source_run_id,
       metric_schema_version,
       payload_json,
@@ -7814,6 +8196,10 @@ export async function getMetaAdDailyRange(input: {
     cpc: number | null;
     link_clicks: number | null;
     source_snapshot_id: string | null;
+    truth_state?: string | null;
+    truth_version?: number | null;
+    finalized_at?: string | null;
+    validation_status?: string | null;
     source_run_id: string | null;
     metric_schema_version: number | null;
     payload_json: unknown;
@@ -7846,6 +8232,17 @@ export async function getMetaAdDailyRange(input: {
     cpc: row.cpc == null ? null : Number(row.cpc),
     linkClicks: row.link_clicks == null ? null : Number(row.link_clicks),
     sourceSnapshotId: row.source_snapshot_id,
+    truthState:
+      row.truth_state == null
+        ? undefined
+        : (String(row.truth_state) as MetaAdDailyRow["truthState"]),
+    truthVersion:
+      row.truth_version == null ? undefined : Number(row.truth_version),
+    finalizedAt: normalizeTimestamp(row.finalized_at),
+    validationStatus:
+      row.validation_status == null
+        ? undefined
+        : (String(row.validation_status) as MetaAdDailyRow["validationStatus"]),
     sourceRunId: row.source_run_id,
     metricSchemaVersion:
       row.metric_schema_version == null

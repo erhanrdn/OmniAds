@@ -9,6 +9,7 @@ import {
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
 import { executeGoogleAdsRetentionPolicy } from "@/lib/google-ads/warehouse-retention";
+import { executeMetaRetentionPolicy } from "@/lib/meta/warehouse-retention";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
 
 function envNumber(name: string, fallback: number) {
@@ -202,6 +203,14 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
     "GOOGLE_ADS_RETENTION_RETRY_INTERVAL_MS",
     15 * 60_000
   );
+  const metaRetentionIntervalMs = envNumber(
+    "META_RETENTION_INTERVAL_MS",
+    6 * 60 * 60_000
+  );
+  const metaRetentionRetryIntervalMs = envNumber(
+    "META_RETENTION_RETRY_INTERVAL_MS",
+    15 * 60_000
+  );
   const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getCurrentRuntimeBuildId();
@@ -211,6 +220,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   let lastHeartbeatAt = 0;
   let nextPruneAt = 0;
   let nextGoogleAdsRetentionAt = 0;
+  let nextMetaRetentionAt = 0;
 
   async function heartbeat(input: {
     providerScope: string;
@@ -283,6 +293,25 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
         .catch((error) => {
           nextGoogleAdsRetentionAt = Date.now() + googleAdsRetentionRetryIntervalMs;
           console.error("[durable-worker] google_ads_retention_failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
+    if (Date.now() >= nextMetaRetentionAt) {
+      await executeMetaRetentionPolicy({
+        asOfDate: new Date().toISOString().slice(0, 10),
+      })
+        .then((result) => {
+          nextMetaRetentionAt =
+            Date.now() +
+            (result.skippedDueToActiveLease
+              ? metaRetentionRetryIntervalMs
+              : metaRetentionIntervalMs);
+          console.log("[durable-worker] meta_retention", result);
+        })
+        .catch((error) => {
+          nextMetaRetentionAt = Date.now() + metaRetentionRetryIntervalMs;
+          console.error("[durable-worker] meta_retention_failed", {
             message: error instanceof Error ? error.message : String(error),
           });
         });

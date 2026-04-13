@@ -29,7 +29,10 @@ export type MetaCanonicalOverviewSummary = Awaited<
 > & {
   isPartial: boolean;
   notReadyReason?: string | null;
-  readSource: "warehouse" | "warehouse_plus_live_override";
+  readSource:
+    | "warehouse"
+    | "warehouse_plus_live_override"
+    | "live_historical_fallback";
 };
 
 export type MetaCanonicalOverviewTrends = Awaited<
@@ -60,18 +63,18 @@ export async function getMetaCanonicalOverviewSummary(input: {
   startDate: string;
   endDate: string;
 }): Promise<MetaCanonicalOverviewSummary> {
-  const assignment = await getProviderAccountAssignments(input.businessId, "meta").catch(
-    () => null,
-  );
-  const providerAccountIds = assignment?.account_ids ?? [];
-  const [rangeContext, integration, warehouseSummary, selectedRangeTruth] = await Promise.all([
+  const [assignment, rangeContext, integration] = await Promise.all([
+    getProviderAccountAssignments(input.businessId, "meta").catch(() => null),
     getMetaRangePreparationContext(input),
     getIntegration(input.businessId, "meta").catch(() => null),
+  ]);
+  const providerAccountIds = assignment?.account_ids ?? [];
+  const [warehouseSummary, selectedRangeTruth] = await Promise.all([
     getMetaWarehouseSummary({
       ...input,
       providerAccountIds,
     }),
-    providerAccountIds.length > 0
+    providerAccountIds.length > 0 && rangeContext.withinAuthoritativeHistory
       ? getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: input.startDate,
@@ -106,6 +109,38 @@ export async function getMetaCanonicalOverviewSummary(input: {
       }
     } catch (error: unknown) {
       console.warn("[meta-canonical] live_totals_failed", {
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (
+    rangeContext.historicalReadMode === "historical_live_fallback" &&
+    connected &&
+    providerAccountIds.length > 0
+  ) {
+    try {
+      const liveTotals = await getMetaLiveSummaryTotals({
+        ...input,
+        providerAccountIds,
+      });
+      console.info("[meta-canonical] summary_read", {
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        readSource: "live_historical_fallback",
+        isPartial: false,
+        accountCount: warehouseSummary.accounts.length,
+      });
+      return {
+        ...warehouseSummary,
+        totals: liveTotals,
+        isPartial: false,
+        notReadyReason: null,
+        readSource: "live_historical_fallback",
+      };
+    } catch (error: unknown) {
+      console.warn("[meta-canonical] live_historical_totals_failed", {
         businessId: input.businessId,
         message: error instanceof Error ? error.message : String(error),
       });

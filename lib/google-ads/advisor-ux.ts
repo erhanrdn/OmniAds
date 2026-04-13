@@ -1,4 +1,5 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import { GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS } from "@/lib/google-ads/advisor-readiness";
 
 export type GoogleAdsAdvisorCtaState = "open" | "prepare" | "refreshable" | "blocked";
 
@@ -57,24 +58,24 @@ function getAdvisorBlockedCopy(
   }
 
   if (status.operations?.fullSyncPriorityRequired) {
-    return "Core metrics are live. Campaign, search term, and product history are still syncing for the 90-day decision snapshot.";
+    return `Core metrics are live. Campaign, search term, and product history are still syncing for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot.`;
   }
 
   switch (status.operations?.advisorSnapshotBlockedReason) {
-    case "recent90_incomplete":
+    case "recent84_incomplete":
     case "missing_recent_required_surfaces":
-      return "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot.";
+      return `Campaign, search term, and product history are still being prepared for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot.`;
     case "dead_letter_partitions":
     case "recent_required_dead_letter_partitions":
     case "recent_required_failed_partitions":
     case "recent_required_unhealthy_leases":
       return "Some analysis inputs need recovery before insights can open.";
     case "snapshot_missing":
-      return "Recent 90-day support is ready. Prepare the decision snapshot when you want to review it.";
+      return `Recent ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day support is ready. Prepare the decision snapshot when you want to review it.`;
     default:
       return (
         status.advisor?.blockingMessage ??
-        "Campaign, search term, and product history are still being prepared for the 90-day decision snapshot."
+        `Campaign, search term, and product history are still being prepared for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot.`
       );
   }
 }
@@ -94,7 +95,7 @@ export function getGoogleAdsAdvisorButtonLabel(input: {
   isLoading: boolean;
   ctaState: GoogleAdsAdvisorCtaState;
 }): string {
-  if (input.isLoading) return "Refreshing 90-day decision snapshot...";
+  if (input.isLoading) return `Refreshing ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot...`;
   switch (input.ctaState) {
     case "prepare":
       return "Prepare Decision Snapshot";
@@ -131,7 +132,7 @@ export function getGoogleAdsAdvisorHelperText(input: {
     return `Decision snapshot updated ${input.lastAnalyzedLabel}`;
   }
 
-  return "Uses a multi-window decision snapshot backed by recent 90-day support. The date picker only changes contextual dashboard views.";
+  return `Uses a multi-window decision snapshot backed by recent ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day support. The date picker only changes contextual dashboard views.`;
 }
 
 export function getGoogleAdsAdvisorIdleState(
@@ -181,7 +182,7 @@ export function getGoogleAdsAdvisorIdleState(
       return {
         title: "Decision snapshot can be prepared",
         description:
-          "Campaign, search term, and product history are ready for the 90-day decision snapshot. Generate it when you want to review it.",
+          `Campaign, search term, and product history are ready for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot. Generate it when you want to review it.`,
       };
     }
     return {
@@ -196,7 +197,7 @@ export function getGoogleAdsAdvisorIdleState(
     return {
       title: "Deeper analysis is still syncing",
       description:
-        "Core campaign reporting is live. Campaign, search term, and product history are still syncing for the 90-day decision snapshot.",
+        `Core campaign reporting is live. Campaign, search term, and product history are still syncing for the ${GOOGLE_ADS_ADVISOR_READY_WINDOW_DAYS}-day decision snapshot.`,
     };
   }
   return {

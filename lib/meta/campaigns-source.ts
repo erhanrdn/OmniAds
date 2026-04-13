@@ -102,7 +102,9 @@ export async function getMetaCampaignsForRange(input: {
     endDate: resolvedEnd,
   });
   const historicalTruth =
-    !rangeContext.isSelectedCurrentDay && connected
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.withinAuthoritativeHistory &&
+    connected
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
@@ -112,7 +114,11 @@ export async function getMetaCampaignsForRange(input: {
 
   let rows: MetaCampaignRow[] = [];
   try {
-    if (rangeContext.isSelectedCurrentDay && connected) {
+    if (
+      (rangeContext.isSelectedCurrentDay ||
+        rangeContext.historicalReadMode === "historical_live_fallback") &&
+      connected
+    ) {
       rows = await getMetaLiveCampaignRows({
         businessId: input.businessId,
         startDate: resolvedStart,
@@ -120,6 +126,14 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
+      if (rangeContext.historicalReadMode === "historical_live_fallback") {
+        return {
+          status: "ok",
+          rows,
+          isPartial: false,
+          notReadyReason: null,
+        };
+      }
       if (rows.length > 0) {
         return {
           status: "ok",

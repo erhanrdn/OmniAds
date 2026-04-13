@@ -1,6 +1,11 @@
 const META_FINALIZATION_PROOF_BRAND: unique symbol = Symbol("meta_finalization_proof");
 
-type MetaFinalizationScope = "account" | "campaign" | "adset" | "breakdown";
+type MetaFinalizationScope =
+  | "account"
+  | "campaign"
+  | "adset"
+  | "ad"
+  | "breakdown";
 
 export type MetaFinalizationCompletenessProof = Readonly<{
   businessId: string;

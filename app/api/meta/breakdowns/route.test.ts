@@ -76,6 +76,10 @@ describe("GET /api/meta/breakdowns", () => {
       isSelectedCurrentDay: false,
       currentDateInTimezone: "2026-04-05",
       primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
     });
     vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
       truthReady: true,
@@ -183,6 +187,10 @@ describe("GET /api/meta/breakdowns", () => {
       isSelectedCurrentDay: true,
       currentDateInTimezone: "2026-04-05",
       primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "current_day_live",
+      breakdownReadMode: "current_day_live",
     });
     vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
       age: [{ key: "18-24", label: "18-24", spend: 10, purchases: 1, revenue: 20, clicks: 4, impressions: 80 }],

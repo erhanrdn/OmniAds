@@ -1,4 +1,6 @@
-export const GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS = 730;
+import { GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS } from "@/lib/google-ads/google-contract";
+
+export { GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS };
 
 export function addDaysToIsoDate(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00Z`);

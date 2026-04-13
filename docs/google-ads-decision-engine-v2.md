@@ -24,9 +24,9 @@ Before Phase 1 was explicitly authorized, isolated pre-phase drift introduced pa
 
 That drift was useful context, but it was not treated as approved Phase 1 work by itself. Phase 1 deliberately formalizes the approved artifacts, flags, types, and gates.
 
-## Why we are moving away from the single 90-day brain
+## Why we are moving away from the single 84-day readiness brain
 
-The single 90-day operating model over-compresses different decision types into one window. That causes several failures:
+The single 84-day operating model over-compresses different decision types into one window. That causes several failures:
 
 - short-term alarms are diluted by longer periods
 - operational decisions can be driven by overly stale context

@@ -13,6 +13,8 @@ import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getProviderPlatformPreviousDate } from "@/lib/provider-platform-date";
 import {
   buildBlockingReason,
@@ -56,6 +58,19 @@ function addUtcDays(date: string, delta: number) {
   return next.toISOString().slice(0, 10);
 }
 
+function getTodayIsoForTimeZoneServer(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
 function enumerateUtcDays(startDate: string, endDate: string) {
   const dates: string[] = [];
   let cursor = new Date(`${startDate}T00:00:00Z`);
@@ -78,6 +93,88 @@ function buildIntegritySignature(
     ),
   ).sort();
   return normalized.length > 0 ? normalized.join("|") : null;
+}
+
+async function reconcileMetaAuthoritativeRecentWindow(input: {
+  businessId: string;
+  recentWindowDays: number;
+}) {
+  const [assignments, snapshot] = await Promise.all([
+    getProviderAccountAssignments(input.businessId, "meta").catch(() => null),
+    readProviderAccountSnapshot({
+      businessId: input.businessId,
+      provider: "meta",
+    }).catch(() => null),
+  ]);
+  const providerAccountIds = assignments?.account_ids ?? [];
+  const timezoneById = new Map(
+    (snapshot?.accounts ?? []).map((account) => [
+      account.id,
+      account.timezone || "UTC",
+    ]),
+  );
+  const repairDates = new Set<string>();
+  let daysScanned = 0;
+  let pendingDays = 0;
+  let repairRequiredDays = 0;
+
+  for (const providerAccountId of providerAccountIds) {
+    const timezone = timezoneById.get(providerAccountId) ?? "UTC";
+    const today = getTodayIsoForTimeZoneServer(timezone);
+    const yesterday = addUtcDays(today, -1);
+    const startDate = addUtcDays(yesterday, -(Math.max(1, input.recentWindowDays) - 1));
+    for (const day of enumerateUtcDays(startDate, yesterday)) {
+      daysScanned += 1;
+      const verification = await metaWarehouse
+        .getMetaAuthoritativeDayVerification({
+          businessId: input.businessId,
+          providerAccountId,
+          day,
+        })
+        .catch(() => null);
+      if (!verification) continue;
+
+      const reconciledRows = await metaWarehouse
+        .reconcileMetaAuthoritativeDayStateFromVerification({
+          verification,
+          accountTimezone: timezone,
+        })
+        .catch(() => []);
+      if (reconciledRows.length > 0) {
+        const autoHealedAt = new Date().toISOString();
+        await Promise.all(
+          reconciledRows.map((row) =>
+            metaWarehouse.upsertMetaAuthoritativeDayState({
+              ...row,
+              lastAutohealAt: autoHealedAt,
+              autohealCount: (row.autohealCount ?? 0) + 1,
+            }),
+          ),
+        ).catch(() => null);
+      }
+
+      if (verification.verificationState === "finalized_verified") {
+        continue;
+      }
+      if (verification.verificationState === "repair_required") {
+        repairRequiredDays += 1;
+      } else {
+        pendingDays += 1;
+      }
+      if (verification.queuedPartitions > 0 || verification.leasedPartitions > 0) {
+        continue;
+      }
+      repairDates.add(day);
+    }
+  }
+
+  return {
+    providerAccountCount: providerAccountIds.length,
+    daysScanned,
+    pendingDays,
+    repairRequiredDays,
+    repairDates: Array.from(repairDates).sort(),
+  };
 }
 
 async function countRecentRepairAttempts(input: {
@@ -433,9 +530,35 @@ export async function runMetaRepairCycle(
       sinceHours: 24,
     })
     .catch(() => []);
+  const recentAuthoritativeWindow = await reconcileMetaAuthoritativeRecentWindow({
+    businessId,
+    recentWindowDays: 30,
+  }).catch(() => ({
+    providerAccountCount: 0,
+    daysScanned: 0,
+    pendingDays: 0,
+    repairRequiredDays: 0,
+    repairDates: [] as string[],
+  }));
   const repeatedCanonicalDriftIncidents = canonicalDriftIncidents.filter(
     (incident) => incident.occurrenceCount >= 2,
   );
+  const authoritativeRepairRanges = buildContiguousDateRanges(
+    recentAuthoritativeWindow.repairDates,
+  );
+  const queuedAuthoritativeRepairs = queueWarehouseRepairs
+    ? await Promise.all(
+        authoritativeRepairRanges.map((range) =>
+          syncMetaRepairRange({
+            businessId,
+            startDate: range.startDate,
+            endDate: range.endDate,
+            triggerSource:
+              range.startDate === range.endDate ? "repair_recent_day" : "priority_window",
+          }).catch(() => null),
+        ),
+      )
+    : [];
   const integritySignature = buildIntegritySignature(
     integrityIncidents
       .filter((incident) => incident.repairRecommended)
@@ -468,6 +591,7 @@ export async function runMetaRepairCycle(
     cleanupError != null ||
     (replayedDeadLetters?.manualTruthDefectCount ?? 0) > 0 ||
     repeatedCanonicalDriftIncidents.length > 0 ||
+    recentAuthoritativeWindow.repairRequiredDays > 0 ||
     persistentIntegrityMismatch ||
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
       (replayedDeadLetters?.changedCount ?? 0) <= 0) ||
@@ -493,6 +617,13 @@ export async function runMetaRepairCycle(
           "manual_truth_defect",
           `${repeatedCanonicalDriftIncidents.length} Meta canonical drift incident(s) repeated with the same finalized totals within 24 hours.`,
           { repairable: false }
+        )
+      : null,
+    recentAuthoritativeWindow.repairRequiredDays > 0
+      ? buildBlockingReason(
+          "repair_required_days",
+          `${recentAuthoritativeWindow.repairRequiredDays} Meta authoritative day(s) still require repair in the recent 30-day window.`,
+          { repairable: true }
         )
       : null,
     persistentIntegrityMismatch
@@ -534,6 +665,11 @@ export async function runMetaRepairCycle(
       "Queue authoritative repair windows for integrity incidents.",
       { available: repairRanges.length > 0 }
     ),
+    buildRepairableAction(
+      "repair_recent_authoritative_days",
+      "Repair recent Meta authoritative days missing finalized publication.",
+      { available: authoritativeRepairRanges.length > 0 }
+    ),
   ]);
 
   return {
@@ -555,6 +691,10 @@ export async function runMetaRepairCycle(
         integrityAttemptCount,
         integrityRepairRanges: repairRanges,
         queuedWarehouseRepairs: queuedWarehouseRepairs.filter(Boolean).length,
+        recentAuthoritativeWindow,
+        recentAuthoritativeRepairRanges: authoritativeRepairRanges,
+        queuedRecentAuthoritativeRepairs:
+          queuedAuthoritativeRepairs.filter(Boolean).length,
         manualTruthDefectCount: replayedDeadLetters?.manualTruthDefectCount ?? 0,
         manualTruthDefectPartitions:
           replayedDeadLetters?.manualTruthDefectPartitions ?? [],

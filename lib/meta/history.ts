@@ -1,4 +1,4 @@
-export const META_WAREHOUSE_HISTORY_DAYS = 730;
+export const META_WAREHOUSE_HISTORY_DAYS = 761;
 export const META_CREATIVE_MEDIA_RETENTION_DAYS = 90;
 
 export function addDaysToIsoDate(value: string, days: number): string {

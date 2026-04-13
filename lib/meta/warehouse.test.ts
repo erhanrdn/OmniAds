@@ -16,6 +16,7 @@ const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
   buildMetaAuthoritativePublicationLookup,
+  buildMetaAuthoritativeDayStateLookup,
   cleanupMetaPartitionOrchestration,
   completeMetaPartition,
   completeMetaPartitionAttempt,
@@ -25,6 +26,8 @@ const {
   createMetaSyncRun,
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaAuthoritativeDayVerification,
+  getMetaAuthoritativeDayState,
+  getMetaAuthoritativeRequiredSurfacesForDayAge,
   getMetaActivePublishedSliceVersion,
   getMetaPublishedVerificationSummary,
   upsertMetaAdDailyRows,
@@ -39,10 +42,12 @@ const {
   replayMetaDeadLetterPartitions,
   releaseMetaLeasedPartitionsForWorker,
   reserveNextMetaAuthoritativeCandidateVersion,
+  reconcileMetaAuthoritativeDayStateFromVerification,
   supersedeMetaAuthoritativeSliceVersions,
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
   upsertMetaCreativeDailyRows,
+  upsertMetaAuthoritativeDayState,
   upsertMetaSyncCheckpoint,
 } = await import(
   "@/lib/meta/warehouse"
@@ -70,6 +75,262 @@ describe("meta warehouse ownership safety", () => {
       day: "2026-04-06",
       surface: "campaign_daily",
     });
+  });
+
+  it("builds a normalized authoritative day-state lookup key and required surface buckets", () => {
+    expect(
+      buildMetaAuthoritativeDayStateLookup({
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        day: "2026-04-06T14:15:16.000Z",
+        surface: "breakdown_daily",
+      }),
+    ).toEqual({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-06",
+      surface: "breakdown_daily",
+    });
+
+    expect(
+      getMetaAuthoritativeRequiredSurfacesForDayAge(120),
+    ).toEqual([
+      { surface: "account_daily", state: "pending" },
+      { surface: "campaign_daily", state: "pending" },
+      { surface: "adset_daily", state: "pending" },
+      { surface: "ad_daily", state: "pending" },
+      { surface: "breakdown_daily", state: "pending" },
+    ]);
+    expect(
+      getMetaAuthoritativeRequiredSurfacesForDayAge(394),
+    ).toEqual([
+      { surface: "account_daily", state: "pending" },
+      { surface: "campaign_daily", state: "pending" },
+      { surface: "adset_daily", state: "pending" },
+      { surface: "ad_daily", state: "pending" },
+      { surface: "breakdown_daily", state: "not_applicable" },
+    ]);
+    expect(getMetaAuthoritativeRequiredSurfacesForDayAge(762)).toEqual([]);
+  });
+
+  it("round-trips meta authoritative day-state rows", async () => {
+    const row = {
+      business_id: "biz-1",
+      provider_account_id: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      state: "published",
+      account_timezone: "UTC",
+      active_partition_id: "partition-1",
+      last_run_id: "run-1",
+      last_manifest_id: "manifest-1",
+      last_publication_pointer_id: "pointer-1",
+      published_at: "2026-04-08T00:00:00.000Z",
+      retry_after_at: null,
+      failure_streak: 0,
+      diagnosis_code: null,
+      diagnosis_detail_json: { source: "verification" },
+      last_started_at: "2026-04-07T00:01:00.000Z",
+      last_finished_at: "2026-04-07T00:02:00.000Z",
+      last_autoheal_at: null,
+      autoheal_count: 1,
+      created_at: "2026-04-08T00:05:00.000Z",
+      updated_at: "2026-04-08T00:05:00.000Z",
+    };
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("INSERT INTO meta_authoritative_day_state")) {
+        return [row];
+      }
+      if (query.includes("FROM meta_authoritative_day_state")) {
+        return [row];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const created = await upsertMetaAuthoritativeDayState({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07T12:00:00.000Z",
+      surface: "campaign_daily",
+      state: "published",
+      accountTimezone: "UTC",
+      activePartitionId: "partition-1",
+      lastRunId: "run-1",
+      lastManifestId: "manifest-1",
+      lastPublicationPointerId: "pointer-1",
+      publishedAt: "2026-04-08T00:00:00.000Z",
+      retryAfterAt: null,
+      failureStreak: 0,
+      diagnosisCode: null,
+      diagnosisDetailJson: { source: "verification" },
+      lastStartedAt: "2026-04-07T00:01:00.000Z",
+      lastFinishedAt: "2026-04-07T00:02:00.000Z",
+      lastAutohealAt: null,
+      autohealCount: 1,
+    });
+
+    const readBack = await getMetaAuthoritativeDayState({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07T12:00:00.000Z",
+      surface: "campaign_daily",
+    });
+
+    expect(created).toMatchObject({
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      state: "published",
+      diagnosisDetailJson: { source: "verification" },
+    });
+    expect(readBack).toMatchObject({
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      state: "published",
+      lastPublicationPointerId: "pointer-1",
+    });
+  });
+
+  it("reconciles published verification inputs into day-state rows", async () => {
+    const existingRow = {
+      business_id: "biz-1",
+      provider_account_id: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      state: "repair_required",
+      account_timezone: "UTC",
+      active_partition_id: null,
+      last_run_id: "run-old",
+      last_manifest_id: "manifest-old",
+      last_publication_pointer_id: null,
+      published_at: null,
+      retry_after_at: "2026-04-07T00:15:00.000Z",
+      failure_streak: 2,
+      diagnosis_code: "stale_data",
+      diagnosis_detail_json: { stale: true },
+      last_started_at: "2026-04-07T00:01:00.000Z",
+      last_finished_at: "2026-04-07T00:02:00.000Z",
+      last_autoheal_at: null,
+      autoheal_count: 1,
+      created_at: "2026-04-07T00:00:00.000Z",
+      updated_at: "2026-04-07T00:10:00.000Z",
+    };
+    const updatedRow = {
+      ...existingRow,
+      state: "published",
+      last_run_id: "run-1",
+      last_manifest_id: "manifest-1",
+      last_publication_pointer_id: "pointer-1",
+      published_at: "2026-04-08T00:00:00.000Z",
+      retry_after_at: null,
+      failure_streak: 0,
+      diagnosis_code: null,
+      diagnosis_detail_json: { verificationState: "finalized_verified" },
+      autoheal_count: 1,
+      updated_at: "2026-04-08T00:05:00.000Z",
+    };
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      queries.push(query);
+      if (query.includes("FROM meta_authoritative_day_state")) {
+        return [existingRow];
+      }
+      if (query.includes("INSERT INTO meta_authoritative_day_state")) {
+        return [updatedRow];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await reconcileMetaAuthoritativeDayStateFromVerification({
+      verification: {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        day: "2026-04-07",
+        verificationState: "finalized_verified",
+        sourceManifestState: "completed",
+        validationState: "finalized_verified",
+        activePublication: {
+          publishedAt: "2026-04-08T00:00:00.000Z",
+          publicationReason: "finalize_day",
+          activeSliceVersionId: "slice-1",
+        },
+        surfaces: [
+          {
+            surface: "campaign_daily",
+            manifest: {
+              id: "manifest-1",
+              businessId: "biz-1",
+              providerAccountId: "acct-1",
+              day: "2026-04-07",
+              surface: "campaign_daily",
+              accountTimezone: "UTC",
+              sourceKind: "finalize_day",
+              sourceWindowKind: "historical",
+              runId: "run-1",
+              fetchStatus: "completed",
+              freshStartApplied: false,
+              checkpointResetApplied: false,
+              rawSnapshotWatermark: null,
+              sourceSpend: null,
+              validationBasisVersion: null,
+              metaJson: {},
+              startedAt: "2026-04-07T00:01:00.000Z",
+              completedAt: "2026-04-07T00:02:00.000Z",
+              createdAt: "2026-04-07T00:00:00.000Z",
+              updatedAt: "2026-04-07T00:10:00.000Z",
+            },
+            publication: {
+              publication: {
+                id: "pointer-1",
+                businessId: "biz-1",
+                providerAccountId: "acct-1",
+                day: "2026-04-07",
+                surface: "campaign_daily",
+                activeSliceVersionId: "slice-1",
+                publishedByRunId: "run-1",
+                publicationReason: "finalize_day",
+                publishedAt: "2026-04-08T00:00:00.000Z",
+                createdAt: "2026-04-08T00:00:00.000Z",
+                updatedAt: "2026-04-08T00:00:00.000Z",
+              },
+              sliceVersion: {
+                id: "slice-1",
+                businessId: "biz-1",
+                providerAccountId: "acct-1",
+                day: "2026-04-07",
+                surface: "campaign_daily",
+                manifestId: "manifest-1",
+                candidateVersion: 1,
+                state: "finalized_verified",
+                truthState: "finalized",
+                validationStatus: "passed",
+                status: "published",
+                stagedRowCount: 1,
+                aggregatedSpend: 10,
+                validationSummary: {},
+                sourceRunId: "run-1",
+                stageStartedAt: "2026-04-07T00:01:00.000Z",
+                stageCompletedAt: "2026-04-07T00:02:00.000Z",
+                publishedAt: "2026-04-08T00:00:00.000Z",
+                supersededAt: null,
+                createdAt: "2026-04-07T00:10:00.000Z",
+                updatedAt: "2026-04-08T00:05:00.000Z",
+              },
+            },
+          } as never,
+        ],
+      } as never,
+    });
+
+    expect(rows[0]).toMatchObject({
+      state: "published",
+      failureStreak: 0,
+      lastPublicationPointerId: "pointer-1",
+    });
+    expect(queries.some((query) => query.includes("meta_authoritative_day_state"))).toBe(true);
   });
 
   it("returns null when checkpoint upsert loses partition ownership", async () => {
@@ -136,7 +397,7 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("lease.provider_scope = 'meta'"))).toBe(true);
   });
 
-  it("releases leased partitions owned by a worker after the worker exits", async () => {
+  it("requeues leased partitions owned by a worker after the worker exits", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       queries.push(strings.join(" "));
@@ -152,7 +413,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(released).toBe(2);
     const query = queries.join("\n");
-    expect(query).toContain("status = 'failed'");
+    expect(query).toContain("status = 'queued'");
     expect(query).toContain("AND partition.lease_owner =");
     expect(query).toContain("AND partition.status = 'leased'");
   });
@@ -538,7 +799,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($28,$29,$30");
+    expect(queries.join("\n")).toContain("), ($32,$33,$34");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET");
   });
 

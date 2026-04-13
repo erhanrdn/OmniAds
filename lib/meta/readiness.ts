@@ -1,4 +1,9 @@
 import { resolveMetaCredentials } from "@/lib/api/meta";
+import {
+  isMetaRangeWithinAuthoritativeHistory,
+  isMetaRangeWithinBreakdownHistory,
+  type MetaHistoricalRangeMode,
+} from "@/lib/meta/contract";
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -31,11 +36,33 @@ export async function getMetaRangePreparationContext(input: {
     Boolean(currentDateInTimezone) &&
     input.startDate === input.endDate &&
     input.startDate === currentDateInTimezone;
+  const withinAuthoritativeHistory = isMetaRangeWithinAuthoritativeHistory({
+    startDate: input.startDate,
+    referenceToday: currentDateInTimezone,
+  });
+  const withinBreakdownHistory = isMetaRangeWithinBreakdownHistory({
+    startDate: input.startDate,
+    referenceToday: currentDateInTimezone,
+  });
+  const historicalReadMode: MetaHistoricalRangeMode = isSelectedCurrentDay
+    ? "current_day_live"
+    : currentDateInTimezone && !withinAuthoritativeHistory
+      ? "historical_live_fallback"
+      : "historical_authoritative";
+  const breakdownReadMode: MetaHistoricalRangeMode = isSelectedCurrentDay
+    ? "current_day_live"
+    : currentDateInTimezone && !withinBreakdownHistory
+      ? "historical_breakdown_unsupported"
+      : "historical_authoritative";
 
   return {
     primaryAccountTimezone,
     currentDateInTimezone,
     isSelectedCurrentDay,
+    withinAuthoritativeHistory,
+    withinBreakdownHistory,
+    historicalReadMode,
+    breakdownReadMode,
   };
 }
 

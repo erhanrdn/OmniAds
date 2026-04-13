@@ -30,9 +30,9 @@ import {
   getMetaAdDailyCoverage,
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
+  getMetaAuthoritativeRequiredSurfacesForDayAge,
   getMetaCampaignDailyCoverage,
   getMetaCreativeDailyCoverage,
-  getMetaIncompleteCoreDates,
   getMetaDirtyRecentDates,
   getMetaPartitionStatesForDate,
   getMetaPublishedVerificationSummary,
@@ -85,6 +85,7 @@ import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
+  markProviderDayRolloverFinalizeStarted,
   markProviderDayRolloverFinalizeCompleted,
   syncProviderDayRolloverState,
 } from "@/lib/sync/provider-day-rollover";
@@ -94,6 +95,18 @@ const META_BREAKDOWN_ENDPOINTS = [
   "breakdown_country",
   "breakdown_publisher_platform,platform_position,impression_device",
 ] as const;
+
+const META_AUTHORITATIVE_CORE_PUBLISHED_SURFACES: MetaWarehouseScope[] = [
+  "account_daily",
+  "campaign_daily",
+  "adset_daily",
+  "ad_daily",
+];
+
+const META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES: MetaWarehouseScope[] = [
+  ...META_AUTHORITATIVE_CORE_PUBLISHED_SURFACES,
+  "breakdown_daily",
+];
 
 async function upsertMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
   const checkpointId = await upsertMetaSyncCheckpoint(input);
@@ -879,6 +892,97 @@ function getMetaHistoricalWindow(
   };
 }
 
+function getMetaHistoricalDayAge(input: {
+  day: string;
+  referenceToday: string;
+}) {
+  const historicalEnd = addUtcDays(input.referenceToday, -1);
+  if (input.day > historicalEnd) return 0;
+  return Math.max(0, dayCountInclusive(input.day, historicalEnd) - 1);
+}
+
+function getMetaPlannerRequiredPublishedSurfacesForDay(input: {
+  day: string;
+  referenceToday: string;
+}) {
+  return getMetaAuthoritativeRequiredSurfacesForDayAge(
+    getMetaHistoricalDayAge(input),
+  )
+    .filter((requirement) => requirement.state !== "not_applicable")
+    .map((requirement) => requirement.surface)
+    .filter((surface): surface is MetaWarehouseScope =>
+      META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES.includes(surface),
+    );
+}
+
+function shouldSyncMetaBreakdownsForDay(input: {
+  day: string;
+  referenceToday: string;
+  truthState: "provisional" | "finalized";
+}) {
+  if (input.truthState !== "finalized") return false;
+  return getMetaAuthoritativeRequiredSurfacesForDayAge(
+    getMetaHistoricalDayAge({
+      day: input.day,
+      referenceToday: input.referenceToday,
+    }),
+  ).some(
+    (requirement) =>
+      requirement.surface === "breakdown_daily" &&
+      requirement.state !== "not_applicable",
+  );
+}
+
+function buildMetaPublishedKeySets(
+  publishedKeysBySurface: Partial<Record<MetaWarehouseScope, string[]>>,
+) {
+  return new Map<MetaWarehouseScope, Set<string>>(
+    META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES.map((surface) => [
+      surface,
+      new Set(publishedKeysBySurface[surface] ?? []),
+    ]),
+  );
+}
+
+async function getNextMetaHistoricalAuthoritativeDay(input: {
+  businessId: string;
+  providerAccountId: string;
+  startDate: string;
+  referenceToday: string;
+}) {
+  const endDate = addUtcDays(input.referenceToday, -2);
+  if (endDate < input.startDate) return null;
+  const verification = await getMetaPublishedVerificationSummary({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate,
+    providerAccountIds: [input.providerAccountId],
+    surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
+  }).catch(() => null);
+  if (!verification) return null;
+  const publishedBySurface = buildMetaPublishedKeySets(
+    verification.publishedKeysBySurface,
+  );
+  for (const day of enumerateDays(input.startDate, endDate, true)) {
+    const requiredSurfaces = getMetaPlannerRequiredPublishedSurfacesForDay({
+      day,
+      referenceToday: input.referenceToday,
+    });
+    if (
+      requiredSurfaces.length === 0 ||
+      requiredSurfaces.every((surface) =>
+        publishedBySurface
+          .get(surface)
+          ?.has(`${input.providerAccountId}:${day}`),
+      )
+    ) {
+      continue;
+    }
+    return day;
+  }
+  return null;
+}
+
 type MetaRecentTargetWindow = {
   providerAccountId: string;
   today: string;
@@ -1109,6 +1213,29 @@ async function getMetaWarehouseWindowCompletion(input: {
   startDate: string;
   endDate: string;
 }) {
+  if (isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)) {
+    const assignments = await getProviderAccountAssignments(
+      input.businessId,
+      "meta",
+    ).catch(() => null);
+    const providerAccountIds = assignments?.account_ids ?? [];
+    if (providerAccountIds.length > 0) {
+      const verification = await getMetaPublishedVerificationSummary({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds,
+        surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
+      }).catch(() => null);
+      if (verification) {
+        return {
+          totalDays: verification.totalDays,
+          completedDays: verification.completedCoreDays,
+          complete: verification.truthReady,
+        };
+      }
+    }
+  }
   const totalDays = dayCountInclusive(input.startDate, input.endDate);
   const [accountCoverage, campaignCoverage] = await Promise.all([
     getMetaAccountDailyCoverage({
@@ -1261,8 +1388,34 @@ async function getMetaDailyCoverageState(input: {
   businessId: string;
   providerAccountId: string;
   day: string;
+  referenceToday?: string | null;
 }) {
-  const [accountCoverage, campaignCoverage, creativeCoverage] =
+  if (isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)) {
+    const requiredSurfaces = getMetaPlannerRequiredPublishedSurfacesForDay({
+      day: input.day,
+      referenceToday:
+        input.referenceToday ?? new Date().toISOString().slice(0, 10),
+    });
+    const verification = await getMetaPublishedVerificationSummary({
+      businessId: input.businessId,
+      startDate: input.day,
+      endDate: input.day,
+      providerAccountIds: [input.providerAccountId],
+      surfaces: requiredSurfaces,
+    }).catch(() => null);
+    const creativeCoverage = await getMetaAdDailyCoverage({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      startDate: input.day,
+      endDate: input.day,
+    }).catch(() => null);
+    return {
+      productCoreComplete: verification?.truthReady ?? false,
+      creativesComplete: (creativeCoverage?.completed_days ?? 0) >= 1,
+    };
+  }
+
+  const [accountCoverage, campaignCoverage, adsetCoverage, creativeCoverage] =
     await Promise.all([
       getMetaAccountDailyCoverage({
         businessId: input.businessId,
@@ -1271,6 +1424,12 @@ async function getMetaDailyCoverageState(input: {
         endDate: input.day,
       }).catch(() => null),
       getMetaCampaignDailyCoverage({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        startDate: input.day,
+        endDate: input.day,
+      }).catch(() => null),
+      getMetaAdSetDailyCoverage({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
         startDate: input.day,
@@ -1286,7 +1445,8 @@ async function getMetaDailyCoverageState(input: {
 
   const productCoreComplete =
     (accountCoverage?.completed_days ?? 0) >= 1 &&
-    (campaignCoverage?.completed_days ?? 0) >= 1;
+    (campaignCoverage?.completed_days ?? 0) >= 1 &&
+    (adsetCoverage?.completed_days ?? 0) >= 1;
   const creativesComplete = (creativeCoverage?.completed_days ?? 0) >= 1;
 
   return {
@@ -1362,12 +1522,18 @@ async function syncMetaPartitionDay(input: {
       providerAccountId: input.providerAccountId,
       day: normalizedDay,
     }),
+    referenceToday: getMetaReferenceToday(credentials),
   });
   const beforeCoverage = coverageState;
   const sourceTodayWindow = normalizedDay === getMetaReferenceToday(credentials);
   const truthState = resolveMetaTruthState({
     day: normalizedDay,
     referenceToday: getMetaReferenceToday(credentials),
+  });
+  const shouldSyncBreakdowns = shouldSyncMetaBreakdownsForDay({
+    day: normalizedDay,
+    referenceToday: getMetaReferenceToday(credentials),
+    truthState,
   });
   const freshStart =
     truthState === "finalized" &&
@@ -1406,71 +1572,79 @@ async function syncMetaPartitionDay(input: {
         flushThresholdRows: bulkResult.memoryInstrumentation.flushThresholdRows,
       });
     }
-    const breakdownJobs = [
-      {
-        breakdowns: "age,gender",
-        endpointName: "breakdown_age",
-      },
-      {
-        breakdowns: "country",
-        endpointName: "breakdown_country",
-      },
-      {
-        breakdowns: "publisher_platform,platform_position,impression_device",
-        endpointName:
-          "breakdown_publisher_platform,platform_position,impression_device",
-      },
-    ];
-    for (const breakdownJob of breakdownJobs) {
-      try {
-        await syncMetaAccountBreakdownWarehouseDay({
-          credentials,
-          accountId: input.providerAccountId,
-          day: normalizedDay,
+    if (shouldSyncBreakdowns) {
+      const breakdownJobs = [
+        {
+          breakdowns: "age,gender",
+          endpointName: "breakdown_age",
+        },
+        {
+          breakdowns: "country",
+          endpointName: "breakdown_country",
+        },
+        {
+          breakdowns: "publisher_platform,platform_position,impression_device",
+          endpointName:
+            "breakdown_publisher_platform,platform_position,impression_device",
+        },
+      ];
+      for (const breakdownJob of breakdownJobs) {
+        try {
+          await syncMetaAccountBreakdownWarehouseDay({
+            credentials,
+            accountId: input.providerAccountId,
+            day: normalizedDay,
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
+            attemptCount: input.attemptCount + 1,
+            breakdowns: breakdownJob.breakdowns,
+            endpointName: breakdownJob.endpointName,
+            positiveSpendAdIds: bulkResult.positiveSpendAdIds,
+            source: input.source,
+            publishAuthoritativeSurface:
+              breakdownJob.endpointName ===
+              "breakdown_publisher_platform,platform_position,impression_device",
+            referenceToday: getMetaReferenceToday(credentials),
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          });
+        } catch (error) {
+          await upsertMetaCheckpointOrThrow({
+            partitionId: input.partitionId,
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
+            phase: "fetch_raw",
+            status: "failed",
+            pageIndex: 0,
+            nextPageUrl: null,
+            providerCursor: null,
+            rowsFetched: 0,
+            rowsWritten: 0,
+            lastSuccessfulEntityKey: null,
+            lastResponseHeaders: {},
+            attemptCount: input.attemptCount + 1,
+            leaseEpoch: input.leaseEpoch,
+            leaseOwner: input.workerId,
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          }).catch(() => null);
+          console.warn("[meta-sync] breakdown_sync_failed", {
+            businessId: input.businessId,
+            providerAccountId: input.providerAccountId,
+            partitionDate: normalizedDay,
+            breakdowns: breakdownJob.breakdowns,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+        await heartbeatMetaPartitionDuringOrchestrationOrThrow({
           partitionId: input.partitionId,
           workerId: input.workerId,
           leaseEpoch: input.leaseEpoch,
-          attemptCount: input.attemptCount + 1,
-          breakdowns: breakdownJob.breakdowns,
-          endpointName: breakdownJob.endpointName,
-          positiveSpendAdIds: bulkResult.positiveSpendAdIds,
           leaseMinutes: META_PARTITION_LEASE_MINUTES,
         });
-      } catch (error) {
-        await upsertMetaCheckpointOrThrow({
-          partitionId: input.partitionId,
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
-          phase: "fetch_raw",
-          status: "failed",
-          pageIndex: 0,
-          nextPageUrl: null,
-          providerCursor: null,
-          rowsFetched: 0,
-          rowsWritten: 0,
-          lastSuccessfulEntityKey: null,
-          lastResponseHeaders: {},
-          attemptCount: input.attemptCount + 1,
-          leaseEpoch: input.leaseEpoch,
-          leaseOwner: input.workerId,
-          startedAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
-        }).catch(() => null);
-        console.warn("[meta-sync] breakdown_sync_failed_non_blocking", {
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          partitionDate: normalizedDay,
-          breakdowns: breakdownJob.breakdowns,
-          message: error instanceof Error ? error.message : String(error),
-        });
       }
-      await heartbeatMetaPartitionDuringOrchestrationOrThrow({
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        leaseEpoch: input.leaseEpoch,
-        leaseMinutes: META_PARTITION_LEASE_MINUTES,
-      });
     }
     await heartbeatMetaPartitionDuringOrchestrationOrThrow({
       partitionId: input.partitionId,
@@ -1503,6 +1677,7 @@ async function syncMetaPartitionDay(input: {
       providerAccountId: input.providerAccountId,
       day: normalizedDay,
     }),
+    referenceToday: getMetaReferenceToday(credentials),
   });
 
   console.info("[meta-sync] partition_day_result", {
@@ -1633,27 +1808,23 @@ async function enqueueMetaHistoricalCorePartitions(
   maxDates = META_HISTORICAL_ENQUEUE_DAYS_PER_RUN,
 ) {
   if (!credentials?.accountIds?.length) return 0;
-  const { startDate, endDate } = getMetaHistoricalWindow(credentials);
-  const historicalReplayEnd = toIsoDate(
-    addDays(new Date(`${endDate}T00:00:00Z`), -META_RECENT_RECOVERY_DAYS),
-  );
-  if (historicalReplayEnd < startDate) return 0;
-  const completion = await getMetaWarehouseWindowCompletion({
-    businessId,
-    startDate,
-    endDate: historicalReplayEnd,
-  }).catch(() => null);
-  if (completion?.complete) return 0;
+  const { startDate } = getMetaHistoricalWindow(credentials);
   let queued = 0;
 
   for (const providerAccountId of credentials.accountIds) {
-    const incompleteDates = await getMetaIncompleteCoreDates({
+    const referenceToday =
+      credentials.accountProfiles?.[providerAccountId]?.timezone
+        ? getTodayIsoForTimeZoneServer(
+            credentials.accountProfiles[providerAccountId].timezone,
+          )
+        : getMetaReferenceToday(credentials);
+    const nextIncompleteDate = await getNextMetaHistoricalAuthoritativeDay({
       businessId,
       providerAccountId,
       startDate,
-      endDate: historicalReplayEnd,
-      limit: Math.max(1, maxDates),
-    }).catch(() => []);
+      referenceToday,
+    }).catch(() => null);
+    const incompleteDates = nextIncompleteDate ? [nextIncompleteDate] : [];
 
     const historicalDates: string[] = [];
     const historicalRecoveryDates: string[] = [];
@@ -2432,6 +2603,14 @@ async function processMetaPartition(input: {
   }
 
   try {
+    if (input.partition.source === "finalize_day") {
+      await markProviderDayRolloverFinalizeStarted({
+        provider: "meta",
+        businessId: input.partition.businessId,
+        providerAccountId: input.partition.providerAccountId,
+        targetDate: input.partition.partitionDate,
+      }).catch(() => null);
+    }
     const scopes =
       input.partition.lane === "core" || input.partition.lane === "maintenance"
         ? META_CORE_SCOPES
@@ -2650,6 +2829,14 @@ async function processMetaPartition(input: {
         date: input.partition.partitionDate,
         source: input.partition.source,
       });
+    }
+    if (input.partition.source === "finalize_day") {
+      await markProviderDayRolloverFinalizeCompleted({
+        provider: "meta",
+        businessId: input.partition.businessId,
+        providerAccountId: input.partition.providerAccountId,
+        targetDate: input.partition.partitionDate,
+      }).catch(() => null);
     }
     return true;
   } catch (error) {
@@ -3632,21 +3819,19 @@ export async function syncMetaRepairRange(input: {
 export async function syncMetaInitial(
   businessId: string,
 ): Promise<MetaSyncResult> {
-  const credentials = await resolveMetaCredentials(businessId);
-  if (!credentials) {
-    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+  const scheduled = await enqueueMetaScheduledWork(businessId).catch(() => null);
+  if (canUseInProcessBackgroundScheduling()) {
+    scheduleMetaBackgroundSync({ businessId, delayMs: 0 });
   }
-  const { startDate, endDate } = getMetaHistoricalWindow(credentials);
-  return enqueueMetaRangeJob({
+  const queued =
+    (scheduled?.queuedCore ?? 0) + (scheduled?.queuedMaintenance ?? 0);
+  return {
     businessId,
-    startDate,
-    endDate,
-    triggerSource: "initial_connect",
-    syncType: "initial_backfill",
-    lane: "core",
-    scopes: META_CORE_PARTITION_QUEUE_SCOPES,
-    priority: 20,
-  });
+    attempted: queued,
+    succeeded: queued,
+    failed: 0,
+    skipped: queued === 0,
+  };
 }
 
 export async function ensureMetaWarehouseRangeFilled(input: {

@@ -3,6 +3,7 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { syncMetaInitial } from "@/lib/sync/meta-sync";
 
 const META_ASSIGNMENT_REQUIRED_TABLES = ["provider_account_assignments"] as const;
 
@@ -149,6 +150,8 @@ export async function POST(
     businessId,
     assigned_accounts: cleaned,
   });
+
+  await syncMetaInitial(businessId).catch(() => null);
 
   return NextResponse.json({
     success: true,

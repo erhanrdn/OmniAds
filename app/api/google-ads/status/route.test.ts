@@ -71,7 +71,7 @@ vi.mock("@/lib/google-ads/status-machine", () => ({
   decideGoogleAdsAdvisorReadiness: vi.fn(() => ({
     ready: false,
     notReady: true,
-    readinessModel: "recent_90d_required_support",
+    readinessModel: "recent_84d_required_support",
   })),
   decideGoogleAdsFullSyncPriority: vi.fn(() => ({
     required: false,
@@ -378,7 +378,7 @@ describe("GET /api/google-ads/status", () => {
     vi.useRealTimers();
   });
 
-  it("returns the explicit recent-90-day advisor readiness contract", async () => {
+  it("returns the explicit recent-84-day advisor readiness contract", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_google",
       business_id: "biz",
@@ -400,7 +400,7 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(statusMachine.decideGoogleAdsAdvisorReadiness).mockReturnValue({
       ready: true,
       notReady: false,
-      readinessModel: "recent_90d_required_support",
+      readinessModel: "recent_84d_required_support",
     });
 
     const response = await GET(
@@ -418,12 +418,12 @@ describe("GET /api/google-ads/status", () => {
     );
     expect(payload.advisor).toMatchObject({
       ready: true,
-      readinessModel: "recent_90d_required_support",
-      readinessWindowDays: 90,
+      readinessModel: "recent_84d_required_support",
+      readinessWindowDays: 84,
     });
     expect(payload.operations).toMatchObject({
-      advisorReadinessModel: "recent_90d_required_support",
-      advisorReadinessWindowDays: 90,
+      advisorReadinessModel: "recent_84d_required_support",
+      advisorReadinessWindowDays: 84,
       retentionRuntimeAvailable: false,
       retentionExecutionEnabled: false,
       retentionMode: "dry_run",
