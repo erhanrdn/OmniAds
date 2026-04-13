@@ -13,32 +13,32 @@ Verified before Step 11 edits on April 13, 2026:
 * current branch
   * `main`
 * current actual repo `HEAD`
-  * `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `082c45624bd8533896497da73f5b760557a56466`
 * current actual `origin/main`
-  * `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `082c45624bd8533896497da73f5b760557a56466`
 * `https://adsecute.com/api/build-info`
   * `buildId` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * `https://adsecute.com/api/release-authority`
   * `currentLiveSha` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
-  * `currentMainSha` `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `currentMainSha` `082c45624bd8533896497da73f5b760557a56466`
   * `liveVsMain.status` `drifted`
   * `overall.status` `drifted`
 
 Classification:
 
 * current actual repo `HEAD`
-  * `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `082c45624bd8533896497da73f5b760557a56466`
 * current actual `origin/main`
-  * `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `082c45624bd8533896497da73f5b760557a56466`
 * current live runtime SHA
   * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * current release-authority live SHA
   * `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * current release-authority main SHA
-  * `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `082c45624bd8533896497da73f5b760557a56466`
 * runtime/main aligned or drifted
   * drifted on exact SHA
-  * explainable as docs-only continuity drift because main only advanced to the Step 10 continuity commit
+  * explainable as program continuity drift because main only advanced through the Step 10 continuity commit and the Step 11 closure/hardening commit
 * non-program commits after the Step 10 continuity state
   * none
 * whether the accepted Step 10 understanding still holds

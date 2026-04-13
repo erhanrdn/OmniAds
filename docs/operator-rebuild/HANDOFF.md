@@ -17,15 +17,16 @@ Verdict:
 Why:
 
 * actual repo/live truth was re-verified on April 13, 2026 before any Step 11 edits
-* current repo `HEAD` and `origin/main` were both `efceb546e668668d4427d847400a7dd55ee54e1e`
+* current repo `HEAD` and `origin/main` are both `082c45624bd8533896497da73f5b760557a56466`
 * live runtime stayed on accepted Step 10 product SHA `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * `release-authority` reported:
   * `currentLiveSha` `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
-  * `currentMainSha` `efceb546e668668d4427d847400a7dd55ee54e1e`
+  * `currentMainSha` `082c45624bd8533896497da73f5b760557a56466`
   * `liveVsMain.status` `drifted`
 * that drift was explainable and non-product:
-  * the only repo commit after the Step 10 live runtime SHA was the Step 10 continuity/docs commit itself:
+  * the only repo commits after the Step 10 live runtime SHA were program continuity/hardening commits:
     * `efceb54 step10: record temporary proof path, live proof, and teardown`
+    * `082c456 step11: freeze accepted operator-rebuild baseline`
   * no non-program commits landed after the Step 10 continuity state
 * the accepted Step 10 understanding still held in substance:
   * live runtime still matched the accepted non-demo proof build
@@ -41,11 +42,11 @@ Why:
 Verified on April 13, 2026:
 
 * current branch: `main`
-* current actual repo `HEAD`: `efceb546e668668d4427d847400a7dd55ee54e1e`
-* current actual `origin/main`: `efceb546e668668d4427d847400a7dd55ee54e1e`
+* current actual repo `HEAD`: `082c45624bd8533896497da73f5b760557a56466`
+* current actual `origin/main`: `082c45624bd8533896497da73f5b760557a56466`
 * current live runtime SHA: `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
 * current release-authority live SHA: `0dbd9cff0b1dc383e06537ebdc1068db76b9686a`
-* current release-authority main SHA: `efceb546e668668d4427d847400a7dd55ee54e1e`
+* current release-authority main SHA: `082c45624bd8533896497da73f5b760557a56466`
 * runtime/main aligned or drifted:
   * drifted on exact SHA
   * explainable as docs-only continuity drift, not a proven product regression
