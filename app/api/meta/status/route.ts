@@ -34,6 +34,8 @@ import {
   isMetaHistoricalVerificationActionRequired,
 } from "@/lib/meta/historical-verification";
 import {
+  META_AUTHORITATIVE_HISTORY_DAYS,
+  META_BREAKDOWN_AUTHORITATIVE_HISTORY_DAYS,
   isMetaRangeWithinAuthoritativeHistory,
   isMetaRangeWithinBreakdownHistory,
 } from "@/lib/meta/contract";
@@ -46,8 +48,10 @@ import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import {
+  getMetaRetentionRunRows,
   getLatestMetaRetentionRun,
   getMetaRetentionRuntimeStatus,
+  summarizeMetaRetentionRunRows,
 } from "@/lib/meta/warehouse-retention";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
@@ -239,6 +243,11 @@ export async function GET(request: NextRequest) {
       getLatestMetaRetentionRun().catch(() => null),
     ]);
   const retentionRuntime = getMetaRetentionRuntimeStatus();
+  const latestRetentionRows = getMetaRetentionRunRows(latestRetentionRun);
+  const latestRetentionSummary =
+    latestRetentionRows.length > 0
+      ? summarizeMetaRetentionRunRows(latestRetentionRows)
+      : null;
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected");
@@ -1470,10 +1479,63 @@ export async function GET(request: NextRequest) {
             retentionExecutionEnabled: retentionRuntime.executionEnabled,
             retentionMode: retentionRuntime.mode,
             retentionGateReason: retentionRuntime.gateReason,
+            retentionDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
             latestRetentionRunAt: latestRetentionRun?.finishedAt ?? null,
             latestRetentionRunMode: latestRetentionRun?.executionMode ?? null,
+            retentionLatestRunObserved:
+              latestRetentionSummary != null
+                ? latestRetentionSummary.observedTables > 0
+                : false,
           }
         : null,
+      retention: {
+        runtimeAvailable: retentionRuntime.runtimeAvailable,
+        executionEnabled: retentionRuntime.executionEnabled,
+        defaultExecutionDisabled: !retentionRuntime.executionEnabled,
+        mode: retentionRuntime.mode,
+        gateReason: retentionRuntime.gateReason,
+        policy: {
+          coreDailyAuthoritativeDays: META_AUTHORITATIVE_HISTORY_DAYS,
+          breakdownDailyAuthoritativeDays:
+            META_BREAKDOWN_AUTHORITATIVE_HISTORY_DAYS,
+          currentDay: "live_only",
+          historicalInsideHorizon: "published_verified_truth_only",
+          historicalOutsideCoreHorizon: "live_fallback_unchanged",
+          breakdownOutsideHorizon: "unsupported_degraded",
+        },
+        latestRun: latestRetentionRun
+          ? {
+              id: latestRetentionRun.id,
+              finishedAt: latestRetentionRun.finishedAt,
+              executionMode: latestRetentionRun.executionMode,
+              skippedDueToActiveLease:
+                latestRetentionRun.skippedDueToActiveLease,
+              totalDeletedRows: latestRetentionRun.totalDeletedRows,
+              errorMessage: latestRetentionRun.errorMessage,
+            }
+          : null,
+        summary: latestRetentionSummary,
+        tables: latestRetentionRows.map((row) => ({
+          tier: row.tier,
+          label: row.label,
+          tableName: row.tableName,
+          summaryKey: row.summaryKey,
+          retentionDays: row.retentionDays,
+          cutoffDate: row.cutoffDate,
+          surfaceFilter: row.surfaceFilter ?? null,
+          observed: row.observed,
+          deletableRows: row.eligibleRows,
+          deletableDistinctDays: row.eligibleDistinctDays,
+          oldestDeletableValue: row.oldestEligibleValue,
+          newestDeletableValue: row.newestEligibleValue,
+          retainedRows: row.retainedRows,
+          latestRetainedValue: row.latestRetainedValue,
+          protectedRows: row.protectedRows,
+          protectedDistinctDays: row.protectedDistinctDays,
+          latestProtectedValue: row.latestProtectedValue,
+          deletedRows: row.deletedRows,
+        })),
+      },
       extendedRecoveryState,
       recentExtendedReady,
       historicalExtendedReady,

@@ -269,6 +269,67 @@ export interface MetaStatusResponse {
       extendedRecentQueued: number;
       extendedHistoricalQueued: number;
     } | null;
+    retentionRuntimeAvailable?: boolean;
+    retentionExecutionEnabled?: boolean;
+    retentionMode?: "dry_run" | "execute";
+    retentionGateReason?: string | null;
+    retentionDefaultExecutionDisabled?: boolean;
+    latestRetentionRunAt?: string | null;
+    latestRetentionRunMode?: "dry_run" | "execute" | null;
+    retentionLatestRunObserved?: boolean;
+  } | null;
+  retention?: {
+    runtimeAvailable: boolean;
+    executionEnabled: boolean;
+    defaultExecutionDisabled: boolean;
+    mode: "dry_run" | "execute";
+    gateReason: string;
+    policy: {
+      coreDailyAuthoritativeDays: number;
+      breakdownDailyAuthoritativeDays: number;
+      currentDay: "live_only";
+      historicalInsideHorizon: "published_verified_truth_only";
+      historicalOutsideCoreHorizon: "live_fallback_unchanged";
+      breakdownOutsideHorizon: "unsupported_degraded";
+    };
+    latestRun: {
+      id: string;
+      finishedAt: string | null;
+      executionMode: "dry_run" | "execute";
+      skippedDueToActiveLease: boolean;
+      totalDeletedRows: number;
+      errorMessage: string | null;
+    } | null;
+    summary: {
+      observedTables: number;
+      tablesWithDeletableRows: number;
+      tablesWithProtectedRows: number;
+      deletableRows: number;
+      retainedRows: number;
+      protectedRows: number;
+    } | null;
+    tables: Array<{
+      tier: "core_authoritative" | "breakdown_authoritative";
+      label: string;
+      tableName: string;
+      summaryKey: string;
+      retentionDays: number;
+      cutoffDate: string;
+      surfaceFilter: Array<
+        "account_daily" | "campaign_daily" | "adset_daily" | "ad_daily" | "breakdown_daily"
+      > | null;
+      observed: boolean;
+      deletableRows: number | null;
+      deletableDistinctDays: number | null;
+      oldestDeletableValue: string | null;
+      newestDeletableValue: string | null;
+      retainedRows: number | null;
+      latestRetainedValue: string | null;
+      protectedRows: number | null;
+      protectedDistinctDays: number | null;
+      latestProtectedValue: string | null;
+      deletedRows: number;
+    }>;
   } | null;
   extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;
   recentExtendedReady?: boolean;

@@ -97,13 +97,97 @@ describe("Meta warehouse retention policy", () => {
     expect(result.dryRun).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          label: "Meta breakdown authoritative",
           tableName: "meta_breakdown_daily",
           cutoffDate: "2025-03-15",
           executionEnabled: false,
+          observed: false,
         }),
         expect.objectContaining({
           summaryKey: "meta_authoritative_day_state:core",
           cutoffDate: "2024-03-13",
+          protectedRows: null,
+        }),
+      ]),
+    );
+  });
+
+  it("inspects deletable residue and protected published truth in dry-run mode", async () => {
+    process.env.DATABASE_URL = "postgres://example";
+
+    const sqlQuery = vi.fn(async (query: string) => {
+      if (query.includes("FROM meta_account_daily")) {
+        return [
+          {
+            eligible_rows: 12,
+            eligible_distinct_days: 3,
+            oldest_eligible_value: "2024-03-01",
+            newest_eligible_value: "2024-03-12",
+            retained_rows: 144,
+            latest_retained_value: "2026-04-12",
+            protected_rows: 8,
+            protected_distinct_days: 2,
+            latest_protected_value: "2026-04-12",
+          },
+        ];
+      }
+      if (query.includes("FROM meta_breakdown_daily")) {
+        return [
+          {
+            eligible_rows: 4,
+            eligible_distinct_days: 1,
+            oldest_eligible_value: "2025-03-14",
+            newest_eligible_value: "2025-03-14",
+            retained_rows: 30,
+            latest_retained_value: "2026-04-12",
+            protected_rows: 6,
+            protected_distinct_days: 2,
+            latest_protected_value: "2026-04-12",
+          },
+        ];
+      }
+      return [
+        {
+          eligible_rows: 0,
+          eligible_distinct_days: 0,
+          oldest_eligible_value: null,
+          newest_eligible_value: null,
+          retained_rows: 0,
+          latest_retained_value: null,
+          protected_rows: 0,
+          protected_distinct_days: 0,
+          latest_protected_value: null,
+        },
+      ];
+    });
+    getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
+
+    const result = await retention.executeMetaRetentionPolicyDryRunOnly({
+      asOfDate: "2026-04-13",
+    });
+
+    expect(result.executionEnabled).toBe(false);
+    expect(result.dryRun).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_account_daily",
+          retentionDays: 761,
+          cutoffDate: "2024-03-13",
+          observed: true,
+          eligibleRows: 12,
+          eligibleDistinctDays: 3,
+          retainedRows: 144,
+          protectedRows: 8,
+          latestProtectedValue: "2026-04-12",
+        }),
+        expect.objectContaining({
+          tableName: "meta_breakdown_daily",
+          retentionDays: 394,
+          cutoffDate: "2025-03-15",
+          observed: true,
+          eligibleRows: 4,
+          newestEligibleValue: "2025-03-14",
+          protectedRows: 6,
         }),
       ]),
     );
@@ -137,11 +221,40 @@ describe("Meta warehouse retention policy", () => {
       checkedAt: "2026-04-13T00:00:00.000Z",
     });
 
-    const sqlQuery = vi
-      .fn()
-      .mockResolvedValueOnce([{ count: 2 }])
-      .mockResolvedValueOnce([{ count: 1 }])
-      .mockResolvedValue([{ count: 0 }]);
+    const deleteCounts = [2, 1, 0];
+    const sqlQuery = vi.fn(async (query: string) => {
+      if (query.includes("eligible_rows")) {
+        if (query.includes("FROM meta_account_daily")) {
+          return [
+            {
+              eligible_rows: 3,
+              eligible_distinct_days: 1,
+              oldest_eligible_value: "2024-03-10",
+              newest_eligible_value: "2024-03-12",
+              retained_rows: 25,
+              latest_retained_value: "2026-04-12",
+              protected_rows: 4,
+              protected_distinct_days: 1,
+              latest_protected_value: "2026-04-12",
+            },
+          ];
+        }
+        return [
+          {
+            eligible_rows: 0,
+            eligible_distinct_days: 0,
+            oldest_eligible_value: null,
+            newest_eligible_value: null,
+            retained_rows: 0,
+            latest_retained_value: null,
+            protected_rows: 0,
+            protected_distinct_days: 0,
+            latest_protected_value: null,
+          },
+        ];
+      }
+      return [{ count: deleteCounts.shift() ?? 0 }];
+    });
     getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
     getDb.mockReturnValue(
       Object.assign(
@@ -164,7 +277,11 @@ describe("Meta warehouse retention policy", () => {
     expect(result.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          label: "Meta core daily authoritative",
           tableName: "meta_account_daily",
+          observed: true,
+          eligibleRows: 3,
+          protectedRows: 4,
           deletedRows: 3,
           mode: "execute",
         }),
@@ -172,5 +289,78 @@ describe("Meta warehouse retention policy", () => {
     );
     expect(sqlQuery).toHaveBeenCalled();
     expect(releaseSyncRunnerLease).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses and summarizes recorded retention rows for operator surfaces", () => {
+    const rows = retention.getMetaRetentionRunRows({
+      summaryJson: {
+        rows: [
+          {
+            tier: "core_authoritative",
+            label: "Meta core daily authoritative",
+            tableName: "meta_account_daily",
+            summaryKey: "meta_account_daily",
+            retentionDays: 761,
+            cutoffDate: "2024-03-13",
+            executionEnabled: false,
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 12,
+            eligibleDistinctDays: 3,
+            oldestEligibleValue: "2024-03-01",
+            newestEligibleValue: "2024-03-12",
+            retainedRows: 144,
+            latestRetainedValue: "2026-04-12",
+            protectedRows: 8,
+            protectedDistinctDays: 2,
+            latestProtectedValue: "2026-04-12",
+            deletedRows: 0,
+          },
+          {
+            tier: "breakdown_authoritative",
+            label: "Meta breakdown authoritative",
+            tableName: "meta_breakdown_daily",
+            summaryKey: "meta_breakdown_daily",
+            retentionDays: 394,
+            cutoffDate: "2025-03-15",
+            executionEnabled: false,
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 4,
+            eligibleDistinctDays: 1,
+            oldestEligibleValue: "2025-03-14",
+            newestEligibleValue: "2025-03-14",
+            retainedRows: 30,
+            latestRetainedValue: "2026-04-12",
+            protectedRows: 6,
+            protectedDistinctDays: 2,
+            latestProtectedValue: "2026-04-12",
+            deletedRows: 0,
+          },
+        ],
+      },
+    });
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_account_daily",
+          eligibleRows: 12,
+          protectedRows: 8,
+        }),
+        expect.objectContaining({
+          tableName: "meta_breakdown_daily",
+          retentionDays: 394,
+        }),
+      ]),
+    );
+    expect(retention.summarizeMetaRetentionRunRows(rows)).toEqual({
+      observedTables: 2,
+      tablesWithDeletableRows: 2,
+      tablesWithProtectedRows: 2,
+      deletableRows: 16,
+      retainedRows: 174,
+      protectedRows: 14,
+    });
   });
 });

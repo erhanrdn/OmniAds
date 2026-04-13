@@ -75,6 +75,29 @@ first-class operator states.
    - `META_RETENTION_EXECUTION_ENABLED` is still disabled by default
    - this runbook does not authorize retention rollout
 
+## Phase 9 Retention Preparation Contract
+
+Meta retention is now prepared for operator-visible dry-run verification without
+enabling destructive execution by default.
+
+1. Locked horizons
+   - `meta_account_daily`, `meta_campaign_daily`, `meta_adset_daily`, `meta_ad_daily`: `761` days
+   - `meta_breakdown_daily`: `394` days
+2. Published-truth protection
+   - active publication pointers required inside the locked horizon remain protected
+   - active published slice versions and source manifests required by those pointers remain protected
+   - published day-state rows tied to active publication remain protected
+   - published warehouse rows on currently-authoritative account-days remain protected
+3. Horizon-outside residue
+   - core artifacts older than `761` days are treated as deletable residue
+   - breakdown artifacts older than `394` days are treated as deletable residue
+   - breakdown artifacts beyond `394` days are not authoritative requirements for serving or verification
+4. Operator visibility
+   - `/api/meta/status` now exposes a `retention` block with runtime gate, locked policy summary, latest dry-run totals, and per-table protected-vs-deletable evidence
+5. Execution posture
+   - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
+   - this runbook still does not authorize global delete execution
+
 ## Preflight
 
 1. Confirm migrations are additive and rollout-safe
@@ -187,6 +210,21 @@ Run these from the Hetzner host after each rollout.
 
 1. `npm run meta:verify-day -- <businessId> <providerAccountId> <d1Day>`
 
+### Retention Dry-Run Health
+
+1. Inspect the latest Meta retention proof:
+
+```bash
+curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention'
+```
+
+2. Confirm:
+   - `defaultExecutionDisabled=true`
+   - `policy.coreDailyAuthoritativeDays=761`
+   - `policy.breakdownDailyAuthoritativeDays=394`
+   - `summary.protectedRows` is non-zero for businesses with active published history
+   - deletable rows appear only as horizon-outside residue, not as required currently-published truth
+
 ### Refresh Behavior
 
 1. Trigger historical refresh:
@@ -222,6 +260,8 @@ Use these commands before considering manual database work:
    - `npm run meta:cleanup -- <businessId>`
 7. Replay dead-letter work and immediately re-plan
    - `npm run meta:replay-dead-letter -- <businessId> [scope]`
+8. Inspect retention dry-run posture without enabling deletes
+   - `curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention'`
 
 ## Verify-Day Procedure
 

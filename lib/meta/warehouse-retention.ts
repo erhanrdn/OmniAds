@@ -37,6 +37,7 @@ export interface MetaRetentionPolicyEntry {
 
 export interface MetaRetentionDryRunRow {
   tier: MetaRetentionTier;
+  label: string;
   tableName: string;
   summaryKey: string;
   retentionDays: number;
@@ -45,9 +46,22 @@ export interface MetaRetentionDryRunRow {
   surfaceFilter?: MetaWarehouseScope[] | null;
 }
 
-export interface MetaRetentionExecutionRow extends MetaRetentionDryRunRow {
-  deletedRows: number;
+export interface MetaRetentionInspectionRow extends MetaRetentionDryRunRow {
   mode: "dry_run" | "execute";
+  observed: boolean;
+  eligibleRows: number | null;
+  eligibleDistinctDays: number | null;
+  oldestEligibleValue: string | null;
+  newestEligibleValue: string | null;
+  retainedRows: number | null;
+  latestRetainedValue: string | null;
+  protectedRows: number | null;
+  protectedDistinctDays: number | null;
+  latestProtectedValue: string | null;
+}
+
+export interface MetaRetentionExecutionRow extends MetaRetentionInspectionRow {
+  deletedRows: number;
 }
 
 export interface MetaRetentionRunSummary {
@@ -85,6 +99,12 @@ const CORE_SURFACES: MetaWarehouseScope[] = [
 const BREAKDOWN_SURFACES: MetaWarehouseScope[] = ["breakdown_daily"];
 const RETENTION_LEASE_BUSINESS_ID = "__meta_retention__";
 const RETENTION_LEASE_PROVIDER_SCOPE = "meta_retention";
+
+function toNullableNumber(value: unknown) {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 function envNumber(
   name:
@@ -136,6 +156,27 @@ async function deleteBatches(
   return totalDeleted;
 }
 
+function buildMetaRetentionUnobservedRows(input: {
+  asOfDate: string;
+  env?: NodeJS.ProcessEnv;
+  mode: "dry_run" | "execute";
+}) {
+  return buildMetaRetentionDryRun(input.asOfDate, input.env).map((row) => ({
+    ...row,
+    mode: input.mode,
+    observed: false,
+    eligibleRows: null,
+    eligibleDistinctDays: null,
+    oldestEligibleValue: null,
+    newestEligibleValue: null,
+    retainedRows: null,
+    latestRetainedValue: null,
+    protectedRows: null,
+    protectedDistinctDays: null,
+    latestProtectedValue: null,
+  }));
+}
+
 function emptyRetentionRunSummary(input: {
   asOfDate: string;
   executionEnabled: boolean;
@@ -151,13 +192,16 @@ function emptyRetentionRunSummary(input: {
     executionEnabled: input.executionEnabled,
     mode: input.mode,
     skippedDueToActiveLease: input.skippedDueToActiveLease ?? false,
-    rows: buildMetaRetentionDryRun(input.asOfDate, {
-      ...process.env,
-      META_RETENTION_EXECUTION_ENABLED: String(input.executionEnabled),
+    rows: buildMetaRetentionUnobservedRows({
+      asOfDate: input.asOfDate,
+      env: {
+        ...process.env,
+        META_RETENTION_EXECUTION_ENABLED: String(input.executionEnabled),
+      },
+      mode: input.mode,
     }).map((row) => ({
       ...row,
       deletedRows: 0,
-      mode: input.mode,
     })),
     totalDeletedRows: 0,
     errorMessage: input.errorMessage ?? null,
@@ -349,6 +393,7 @@ export function buildMetaRetentionDryRun(
   const executionEnabled = isMetaRetentionExecutionEnabled(env);
   return META_RETENTION_POLICY.map((entry) => ({
     tier: entry.tier,
+    label: entry.label,
     tableName: entry.tableName,
     summaryKey: entry.summaryKey,
     retentionDays: entry.retentionDays,
@@ -435,6 +480,257 @@ export async function getLatestMetaRetentionRun() {
 
 function surfaceFilterParams(entry: MetaRetentionPolicyEntry) {
   return (entry.surfaceFilter ?? []) as string[];
+}
+
+function metaSurfaceForDailyRetentionTable(
+  tableName: string,
+): MetaWarehouseScope | null {
+  switch (tableName) {
+    case "meta_account_daily":
+      return "account_daily";
+    case "meta_campaign_daily":
+      return "campaign_daily";
+    case "meta_adset_daily":
+      return "adset_daily";
+    case "meta_ad_daily":
+      return "ad_daily";
+    case "meta_breakdown_daily":
+      return "breakdown_daily";
+    default:
+      return null;
+  }
+}
+
+async function inspectMetaRetentionAggregate(input: {
+  sql: ReturnType<typeof getDbWithTimeout>;
+  query: string;
+  params: unknown[];
+}) {
+  const rows = (await input.sql.query(input.query, input.params)) as Array<
+    Record<string, unknown>
+  >;
+  const row = rows[0] ?? {};
+  return {
+    observed: true,
+    eligibleRows: toNullableNumber(row.eligible_rows),
+    eligibleDistinctDays: toNullableNumber(row.eligible_distinct_days),
+    oldestEligibleValue: row.oldest_eligible_value
+      ? String(row.oldest_eligible_value)
+      : null,
+    newestEligibleValue: row.newest_eligible_value
+      ? String(row.newest_eligible_value)
+      : null,
+    retainedRows: toNullableNumber(row.retained_rows),
+    latestRetainedValue: row.latest_retained_value
+      ? String(row.latest_retained_value)
+      : null,
+    protectedRows: toNullableNumber(row.protected_rows),
+    protectedDistinctDays: toNullableNumber(row.protected_distinct_days),
+    latestProtectedValue: row.latest_protected_value
+      ? String(row.latest_protected_value)
+      : null,
+  } satisfies Pick<
+    MetaRetentionInspectionRow,
+    | "observed"
+    | "eligibleRows"
+    | "eligibleDistinctDays"
+    | "oldestEligibleValue"
+    | "newestEligibleValue"
+    | "retainedRows"
+    | "latestRetainedValue"
+    | "protectedRows"
+    | "protectedDistinctDays"
+    | "latestProtectedValue"
+  >;
+}
+
+async function inspectMetaRetentionEntryWindow(input: {
+  sql: ReturnType<typeof getDbWithTimeout>;
+  entry: MetaRetentionPolicyEntry;
+  cutoffDate: string;
+}) {
+  const surfaceFilter = surfaceFilterParams(input.entry);
+  const dateColumn = input.entry.dateColumn;
+  const distinctAccountDaysSql = `COUNT(DISTINCT CONCAT(business_id, ':', provider_account_id, ':', retention_value::text))`;
+  const aggregateSql = `
+    SELECT
+      COUNT(*) FILTER (WHERE retention_value < $1)::int AS eligible_rows,
+      ${distinctAccountDaysSql}
+        FILTER (WHERE retention_value < $1)::int AS eligible_distinct_days,
+      MIN(retention_value) FILTER (WHERE retention_value < $1)::text AS oldest_eligible_value,
+      MAX(retention_value) FILTER (WHERE retention_value < $1)::text AS newest_eligible_value,
+      COUNT(*) FILTER (WHERE retention_value >= $1)::int AS retained_rows,
+      MAX(retention_value) FILTER (WHERE retention_value >= $1)::text AS latest_retained_value,
+      COUNT(*) FILTER (WHERE retention_value >= $1 AND protected_active)::int AS protected_rows,
+      ${distinctAccountDaysSql}
+        FILTER (WHERE retention_value >= $1 AND protected_active)::int AS protected_distinct_days,
+      MAX(retention_value) FILTER (WHERE retention_value >= $1 AND protected_active)::text AS latest_protected_value
+    FROM inspected
+  `;
+
+  const dailySurface = metaSurfaceForDailyRetentionTable(input.entry.tableName);
+  if (dailySurface) {
+    return inspectMetaRetentionAggregate({
+      sql: input.sql,
+      query: `
+        WITH inspected AS (
+          SELECT
+            target.business_id,
+            target.provider_account_id,
+            target.${dateColumn} AS retention_value,
+            EXISTS (
+              SELECT 1
+              FROM meta_authoritative_publication_pointers pointer
+              WHERE pointer.business_id = target.business_id
+                AND pointer.provider_account_id = target.provider_account_id
+                AND pointer.day = target.${dateColumn}
+                AND pointer.surface = $2
+            ) AS protected_active
+          FROM ${input.entry.tableName} target
+        )
+        ${aggregateSql}
+      `,
+      params: [input.cutoffDate, dailySurface],
+    });
+  }
+
+  switch (input.entry.tableName) {
+    case "meta_authoritative_publication_pointers":
+      return inspectMetaRetentionAggregate({
+        sql: input.sql,
+        query: `
+          WITH inspected AS (
+            SELECT
+              target.business_id,
+              target.provider_account_id,
+              target.${dateColumn} AS retention_value,
+              TRUE AS protected_active
+            FROM ${input.entry.tableName} target
+            WHERE target.surface = ANY($2::text[])
+          )
+          ${aggregateSql}
+        `,
+        params: [input.cutoffDate, surfaceFilter],
+      });
+    case "meta_authoritative_slice_versions":
+      return inspectMetaRetentionAggregate({
+        sql: input.sql,
+        query: `
+          WITH inspected AS (
+            SELECT
+              target.business_id,
+              target.provider_account_id,
+              target.${dateColumn} AS retention_value,
+              EXISTS (
+                SELECT 1
+                FROM meta_authoritative_publication_pointers pointer
+                WHERE pointer.active_slice_version_id = target.id
+              ) AS protected_active
+            FROM ${input.entry.tableName} target
+            WHERE target.surface = ANY($2::text[])
+          )
+          ${aggregateSql}
+        `,
+        params: [input.cutoffDate, surfaceFilter],
+      });
+    case "meta_authoritative_source_manifests":
+      return inspectMetaRetentionAggregate({
+        sql: input.sql,
+        query: `
+          WITH inspected AS (
+            SELECT
+              target.business_id,
+              target.provider_account_id,
+              target.${dateColumn} AS retention_value,
+              EXISTS (
+                SELECT 1
+                FROM meta_authoritative_slice_versions slice
+                INNER JOIN meta_authoritative_publication_pointers pointer
+                  ON pointer.active_slice_version_id = slice.id
+                WHERE slice.manifest_id = target.id
+              ) AS protected_active
+            FROM ${input.entry.tableName} target
+            WHERE target.surface = ANY($2::text[])
+          )
+          ${aggregateSql}
+        `,
+        params: [input.cutoffDate, surfaceFilter],
+      });
+    case "meta_authoritative_reconciliation_events":
+      return inspectMetaRetentionAggregate({
+        sql: input.sql,
+        query: `
+          WITH inspected AS (
+            SELECT
+              target.business_id,
+              target.provider_account_id,
+              target.${dateColumn} AS retention_value,
+              EXISTS (
+                SELECT 1
+                FROM meta_authoritative_publication_pointers pointer
+                WHERE pointer.business_id = target.business_id
+                  AND pointer.provider_account_id = target.provider_account_id
+                  AND pointer.day = target.${dateColumn}
+                  AND pointer.surface = target.surface
+              ) AS protected_active
+            FROM ${input.entry.tableName} target
+            WHERE target.surface = ANY($2::text[])
+          )
+          ${aggregateSql}
+        `,
+        params: [input.cutoffDate, surfaceFilter],
+      });
+    case "meta_authoritative_day_state":
+      return inspectMetaRetentionAggregate({
+        sql: input.sql,
+        query: `
+          WITH inspected AS (
+            SELECT
+              target.business_id,
+              target.provider_account_id,
+              target.${dateColumn} AS retention_value,
+              (
+                target.state = 'published'
+                AND target.last_publication_pointer_id IS NOT NULL
+                AND EXISTS (
+                  SELECT 1
+                  FROM meta_authoritative_publication_pointers pointer
+                  WHERE pointer.id = target.last_publication_pointer_id
+                )
+              ) AS protected_active
+            FROM ${input.entry.tableName} target
+            WHERE target.surface = ANY($2::text[])
+          )
+          ${aggregateSql}
+        `,
+        params: [input.cutoffDate, surfaceFilter],
+      });
+    default:
+      return {
+        observed: false,
+        eligibleRows: null,
+        eligibleDistinctDays: null,
+        oldestEligibleValue: null,
+        newestEligibleValue: null,
+        retainedRows: null,
+        latestRetainedValue: null,
+        protectedRows: null,
+        protectedDistinctDays: null,
+        latestProtectedValue: null,
+      } satisfies Pick<
+        MetaRetentionInspectionRow,
+        | "observed"
+        | "eligibleRows"
+        | "eligibleDistinctDays"
+        | "oldestEligibleValue"
+        | "newestEligibleValue"
+        | "retainedRows"
+        | "latestRetainedValue"
+        | "protectedRows"
+        | "protectedDistinctDays"
+        | "latestProtectedValue"
+      >;
+  }
 }
 
 async function executeMetaRetentionEntryDelete(input: {
@@ -643,6 +939,11 @@ export async function executeMetaRetentionPolicy(input: {
     const rows: MetaRetentionExecutionRow[] = [];
     for (const entry of META_RETENTION_POLICY) {
       const cutoffDate = addDaysToIsoDate(input.asOfDate, -entry.retentionDays);
+      const inspection = await inspectMetaRetentionEntryWindow({
+        sql,
+        entry,
+        cutoffDate,
+      });
       let deletedRows = 0;
       if (mode === "execute") {
         deletedRows = await executeMetaRetentionEntryDelete({
@@ -654,11 +955,13 @@ export async function executeMetaRetentionPolicy(input: {
       }
       rows.push({
         tier: entry.tier,
+        label: entry.label,
         tableName: entry.tableName,
         summaryKey: entry.summaryKey,
         retentionDays: entry.retentionDays,
         cutoffDate,
         executionEnabled,
+        ...inspection,
         deletedRows,
         mode,
         surfaceFilter: entry.surfaceFilter ?? null,
@@ -687,8 +990,18 @@ export async function executeMetaRetentionPolicy(input: {
       skippedDueToActiveLease: false,
       rows: buildMetaRetentionDryRun(input.asOfDate, env).map((row) => ({
         ...row,
-        deletedRows: 0,
         mode,
+        observed: false,
+        eligibleRows: null,
+        eligibleDistinctDays: null,
+        oldestEligibleValue: null,
+        newestEligibleValue: null,
+        retainedRows: null,
+        latestRetainedValue: null,
+        protectedRows: null,
+        protectedDistinctDays: null,
+        latestProtectedValue: null,
+        deletedRows: 0,
       })),
       totalDeletedRows: 0,
       errorMessage: error instanceof Error ? error.message : String(error),
@@ -704,12 +1017,120 @@ export async function executeMetaRetentionPolicy(input: {
   }
 }
 
+async function inspectMetaRetentionDryRunRows(input: {
+  asOfDate: string;
+  env?: NodeJS.ProcessEnv;
+}) {
+  const env = input.env ?? process.env;
+  if (!isMetaRetentionRuntimeAvailable(env)) {
+    return buildMetaRetentionUnobservedRows({
+      asOfDate: input.asOfDate,
+      env,
+      mode: "dry_run",
+    });
+  }
+
+  await assertDbSchemaReady({
+    tables: [...META_RETENTION_REQUIRED_TABLES],
+    context: "meta_retention_dry_run",
+  });
+  const sql = getDbWithTimeout(envNumber("META_RETENTION_QUERY_TIMEOUT_MS", 30_000, env));
+
+  return Promise.all(
+    buildMetaRetentionDryRun(input.asOfDate, env).map(async (row) => ({
+      ...row,
+      mode: "dry_run" as const,
+      ...(await inspectMetaRetentionEntryWindow({
+        sql,
+        entry:
+          META_RETENTION_POLICY.find(
+            (entry) => entry.summaryKey === row.summaryKey,
+          ) ?? META_RETENTION_POLICY[0],
+        cutoffDate: row.cutoffDate,
+      })),
+    })),
+  );
+}
+
 export async function executeMetaRetentionPolicyDryRunOnly(input: {
   asOfDate: string;
   env?: NodeJS.ProcessEnv;
 }) {
   return {
     executionEnabled: isMetaRetentionExecutionEnabled(input.env),
-    dryRun: buildMetaRetentionDryRun(input.asOfDate, input.env),
+    dryRun: await inspectMetaRetentionDryRunRows(input),
   };
+}
+
+export function getMetaRetentionRunRows(
+  run: Pick<MetaRetentionRunRecord, "summaryJson"> | null | undefined,
+): MetaRetentionExecutionRow[] {
+  const rows = Array.isArray(run?.summaryJson?.rows)
+    ? (run.summaryJson.rows as Array<Record<string, unknown>>)
+    : [];
+  return rows.map((row) => {
+    const summaryKey = String(row.summaryKey ?? "");
+    const policyEntry =
+      META_RETENTION_POLICY.find((entry) => entry.summaryKey === summaryKey) ??
+      META_RETENTION_POLICY.find((entry) => entry.tableName === row.tableName) ??
+      null;
+    return {
+      tier: String(row.tier ?? policyEntry?.tier ?? "core_authoritative") as MetaRetentionTier,
+      label: String(row.label ?? policyEntry?.label ?? ""),
+      tableName: String(row.tableName ?? policyEntry?.tableName ?? ""),
+      summaryKey: String(row.summaryKey ?? policyEntry?.summaryKey ?? ""),
+      retentionDays: Number(row.retentionDays ?? policyEntry?.retentionDays ?? 0),
+      cutoffDate: row.cutoffDate ? String(row.cutoffDate) : "",
+      executionEnabled: Boolean(row.executionEnabled),
+      mode: String(row.mode ?? "dry_run") as MetaRetentionExecutionRow["mode"],
+      observed: Boolean(row.observed),
+      eligibleRows: toNullableNumber(row.eligibleRows),
+      eligibleDistinctDays: toNullableNumber(row.eligibleDistinctDays),
+      oldestEligibleValue: row.oldestEligibleValue
+        ? String(row.oldestEligibleValue)
+        : null,
+      newestEligibleValue: row.newestEligibleValue
+        ? String(row.newestEligibleValue)
+        : null,
+      retainedRows: toNullableNumber(row.retainedRows),
+      latestRetainedValue: row.latestRetainedValue
+        ? String(row.latestRetainedValue)
+        : null,
+      protectedRows: toNullableNumber(row.protectedRows),
+      protectedDistinctDays: toNullableNumber(row.protectedDistinctDays),
+      latestProtectedValue: row.latestProtectedValue
+        ? String(row.latestProtectedValue)
+        : null,
+      deletedRows: Number(row.deletedRows ?? 0),
+      surfaceFilter: Array.isArray(row.surfaceFilter)
+        ? (row.surfaceFilter as MetaWarehouseScope[])
+        : (policyEntry?.surfaceFilter ?? null),
+    };
+  });
+}
+
+export function summarizeMetaRetentionRunRows(rows: MetaRetentionExecutionRow[]) {
+  return rows.reduce(
+    (summary, row) => ({
+      observedTables: summary.observedTables + (row.observed ? 1 : 0),
+      tablesWithDeletableRows:
+        summary.tablesWithDeletableRows +
+        ((row.eligibleRows ?? 0) > 0 ? 1 : 0),
+      tablesWithProtectedRows:
+        summary.tablesWithProtectedRows +
+        ((row.protectedRows ?? 0) > 0 ? 1 : 0),
+      deletableRows: summary.deletableRows + Math.max(0, row.eligibleRows ?? 0),
+      retainedRows: summary.retainedRows + Math.max(0, row.retainedRows ?? 0),
+      protectedRows:
+        summary.protectedRows + Math.max(0, row.protectedRows ?? 0),
+    }),
+    {
+      observedTables: 0,
+      tablesWithDeletableRows: 0,
+      tablesWithProtectedRows: 0,
+      deletableRows: 0,
+      retainedRows: 0,
+      protectedRows: 0,
+    },
+  );
 }

@@ -23,6 +23,7 @@ export function assertMetaStatusPageContract(payload: Record<string, unknown>) {
   expect(payload).toHaveProperty("currentDateInTimezone");
   expect(payload).toHaveProperty("primaryAccountTimezone");
   expect(payload).toHaveProperty("currentDayLive");
+  expect(payload).toHaveProperty("retention");
 
   const pageReadiness = payload.pageReadiness as Record<string, unknown>;
   expect(pageReadiness).toBeTruthy();
@@ -70,6 +71,15 @@ export function assertMetaStatusPageContract(payload: Record<string, unknown>) {
     expectBoolean(currentDayLive.summaryAvailable);
     expectBoolean(currentDayLive.campaignsAvailable);
   }
+
+  const retention = payload.retention as Record<string, unknown>;
+  expectBoolean(retention.runtimeAvailable);
+  expectBoolean(retention.executionEnabled);
+  expectBoolean(retention.defaultExecutionDisabled);
+  expect(typeof retention.mode).toBe("string");
+  expect(typeof retention.gateReason).toBe("string");
+  expect(retention.policy).toBeTruthy();
+  expect(Array.isArray(retention.tables)).toBe(true);
 }
 
 export function assertMetaSummaryPageContract(payload: Record<string, unknown>) {

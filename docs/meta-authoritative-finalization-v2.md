@@ -338,10 +338,15 @@ Posture locks:
 - non-today inside the horizon still serves published verified truth only
 - horizon-outside fallback semantics are unchanged
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
+- Meta Phase 9 retention preparation now adds delete-safe dry-run proof:
+  - latest retention rows expose what would be deleted vs what would remain
+  - active publication pointers, active published slice versions, source manifests, and published day-state rows inside the locked horizon are explicitly protected
+  - core truth stays locked to `761` days and breakdown truth stays locked to `394` days
+  - `/api/meta/status` exposes the latest retention block for operator inspection
 
 Next recommended step:
 
-- Meta Phase 9 retention enforcement preparation without enabling retention execution by default
+- Meta Phase 10 legacy cleanup and hardening while keeping retention execution default-disabled and leaving any explicit execute canary for a later dedicated rollout
 
 ## Compatibility Strategy
 

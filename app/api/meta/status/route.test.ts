@@ -86,12 +86,14 @@ vi.mock("@/lib/sync/meta-sync", () => ({
 
 vi.mock("@/lib/meta/warehouse-retention", () => ({
   getLatestMetaRetentionRun: vi.fn(),
+  getMetaRetentionRunRows: vi.fn(() => []),
   getMetaRetentionRuntimeStatus: vi.fn(() => ({
     runtimeAvailable: false,
     executionEnabled: false,
     mode: "dry_run",
     gateReason: "Meta retention execution is disabled by default. Dry-run remains available.",
   })),
+  summarizeMetaRetentionRunRows: vi.fn(() => null),
 }));
 
 const access = await import("@/lib/access");
@@ -249,6 +251,8 @@ describe("GET /api/meta/status", () => {
     vi.mocked(db.getDb).mockReturnValue(sql as never);
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null as never);
     vi.mocked(metaRetention.getLatestMetaRetentionRun).mockResolvedValue(null as never);
+    vi.mocked(metaRetention.getMetaRetentionRunRows).mockReturnValue([] as never);
+    vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue(null as never);
     vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
       summaryAvailable: true,
       campaignsAvailable: true,
@@ -297,6 +301,134 @@ describe("GET /api/meta/status", () => {
         percent: 100,
         complete: true,
       })
+    );
+    expect(payload.retention).toMatchObject({
+      runtimeAvailable: false,
+      executionEnabled: false,
+      defaultExecutionDisabled: true,
+      mode: "dry_run",
+      policy: {
+        coreDailyAuthoritativeDays: 761,
+        breakdownDailyAuthoritativeDays: 394,
+      },
+      latestRun: null,
+      summary: null,
+      tables: [],
+    });
+  });
+
+  it("surfaces Meta retention dry-run protection evidence", async () => {
+    vi.mocked(metaRetention.getMetaRetentionRuntimeStatus).mockReturnValue({
+      runtimeAvailable: true,
+      executionEnabled: false,
+      mode: "dry_run",
+      gateReason:
+        "Meta retention execution is disabled by default. Dry-run remains available.",
+    } as never);
+    vi.mocked(metaRetention.getLatestMetaRetentionRun).mockResolvedValue({
+      id: "meta_retention_run_1",
+      executionMode: "dry_run",
+      executionEnabled: false,
+      skippedDueToActiveLease: false,
+      totalDeletedRows: 0,
+      summaryJson: {},
+      errorMessage: null,
+      startedAt: "2026-04-13T12:00:00.000Z",
+      finishedAt: "2026-04-13T12:01:00.000Z",
+      createdAt: "2026-04-13T12:00:00.000Z",
+      updatedAt: "2026-04-13T12:01:00.000Z",
+    } as never);
+    vi.mocked(metaRetention.getMetaRetentionRunRows).mockReturnValue([
+      {
+        tier: "core_authoritative",
+        label: "Meta core daily authoritative",
+        tableName: "meta_account_daily",
+        summaryKey: "meta_account_daily",
+        retentionDays: 761,
+        cutoffDate: "2024-03-13",
+        executionEnabled: false,
+        mode: "dry_run",
+        observed: true,
+        eligibleRows: 12,
+        eligibleDistinctDays: 3,
+        oldestEligibleValue: "2024-03-01",
+        newestEligibleValue: "2024-03-12",
+        retainedRows: 144,
+        latestRetainedValue: "2026-04-12",
+        protectedRows: 8,
+        protectedDistinctDays: 2,
+        latestProtectedValue: "2026-04-12",
+        deletedRows: 0,
+        surfaceFilter: null,
+      },
+      {
+        tier: "breakdown_authoritative",
+        label: "Meta authoritative publication pointers",
+        tableName: "meta_authoritative_publication_pointers",
+        summaryKey: "meta_authoritative_publication_pointers:breakdown",
+        retentionDays: 394,
+        cutoffDate: "2025-03-15",
+        executionEnabled: false,
+        mode: "dry_run",
+        observed: true,
+        eligibleRows: 4,
+        eligibleDistinctDays: 1,
+        oldestEligibleValue: "2025-03-14",
+        newestEligibleValue: "2025-03-14",
+        retainedRows: 10,
+        latestRetainedValue: "2026-04-12",
+        protectedRows: 10,
+        protectedDistinctDays: 4,
+        latestProtectedValue: "2026-04-12",
+        deletedRows: 0,
+        surfaceFilter: ["breakdown_daily"],
+      },
+    ] as never);
+    vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue({
+      observedTables: 2,
+      tablesWithDeletableRows: 2,
+      tablesWithProtectedRows: 2,
+      deletableRows: 16,
+      retainedRows: 154,
+      protectedRows: 18,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.retention).toMatchObject({
+      runtimeAvailable: true,
+      executionEnabled: false,
+      defaultExecutionDisabled: true,
+      mode: "dry_run",
+      latestRun: {
+        id: "meta_retention_run_1",
+        executionMode: "dry_run",
+        totalDeletedRows: 0,
+      },
+      summary: {
+        observedTables: 2,
+        deletableRows: 16,
+        protectedRows: 18,
+      },
+    });
+    expect(payload.retention.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_account_daily",
+          deletableRows: 12,
+          protectedRows: 8,
+          newestDeletableValue: "2024-03-12",
+        }),
+        expect.objectContaining({
+          tableName: "meta_authoritative_publication_pointers",
+          surfaceFilter: ["breakdown_daily"],
+          protectedRows: 10,
+        }),
+      ]),
     );
   });
 

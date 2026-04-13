@@ -75,6 +75,27 @@ Use these interpretations during rollout and release approval:
    - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
    - retention rollout is not part of Phase 8 completion
 
+## Phase 9 Retention Dry-Run Gate
+
+1. Open `/api/meta/status?businessId=<businessId>` and inspect the `retention` block.
+2. Confirm:
+   - `defaultExecutionDisabled=true`
+   - `policy.coreDailyAuthoritativeDays=761`
+   - `policy.breakdownDailyAuthoritativeDays=394`
+   - latest dry-run rows show both deletable residue and protected published truth
+   - active published pointers, slice versions, manifests, and day-state rows inside the locked horizon are counted as protected
+   - breakdown artifacts beyond `394` days appear only as deletable residue, not as required truth
+3. Confirm no operator needs manual SQL to answer:
+   - what would be deleted
+   - what would remain
+   - which currently-published artifacts are protected
+   - how much old non-authoritative residue still exists
+
+Go/no-go:
+
+- `GO` only if Meta retention dry-run is operator-meaningful and proves published-truth safety without enabling deletes.
+- `NO-GO` if retention posture still requires raw table inspection or if protected-vs-deletable truth is ambiguous.
+
 ## T0 Validation
 
 Run this shortly before or during the account-timezone rollover window.
@@ -171,11 +192,13 @@ Go/no-go:
    - stale leases
    - last successful publish timestamp
    - `D-1` finalize SLA breaches
+   - retention dry-run policy and protected-vs-deletable summary
 3. Confirm business rows show:
    - latest authoritative publishes
    - recent authoritative failures
    - source manifest counts
    - last successful publish timestamp
+   - latest retention dry-run evidence when available
 
 Go/no-go:
 
@@ -219,6 +242,7 @@ Meta is product-ready only when all of the following are true:
 - Rollback can disable `META_AUTHORITATIVE_FINALIZATION_V2` without deleting current published truth.
 - Phase 8 detector outcomes are explicit enough that blocked publication mismatch, repair-required retry, and retryable non-terminal states are distinguishable without manual SQL.
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
+- Meta retention dry-run exposes protected-vs-deletable evidence for the locked `761` / `394` policy without requiring manual SQL.
 - Production rollout succeeded in shadow mode, allowlisted canary, and full rollout order.
 
 Any single failed criterion is a `NO-GO`.

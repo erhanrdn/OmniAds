@@ -2948,6 +2948,129 @@ describe("meta warehouse ownership safety", () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps published verification green after old non-authoritative residue has been removed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH latest_slice AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "account_daily",
+            latest_slice_id: "slice-1",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2026-04-08T00:10:00.000Z",
+            source_fetched_at: "2026-04-08T00:01:00.000Z",
+            active_slice_version_id: "slice-1",
+            published_at: "2026-04-08T00:10:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "campaign_daily",
+            latest_slice_id: "slice-2",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2026-04-08T00:11:00.000Z",
+            source_fetched_at: "2026-04-08T00:01:00.000Z",
+            active_slice_version_id: "slice-2",
+            published_at: "2026-04-08T00:11:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+        ];
+      }
+      if (query.includes("WITH latest_manifests AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "account_daily",
+            id: "manifest-1",
+            fetch_status: "completed",
+            completed_at: "2026-04-08T00:01:00.000Z",
+            run_id: "run-1",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "campaign_daily",
+            id: "manifest-2",
+            fetch_status: "completed",
+            completed_at: "2026-04-08T00:01:00.000Z",
+            run_id: "run-1",
+          },
+        ];
+      }
+      if (query.includes("WITH latest_failures AS")) {
+        return [];
+      }
+      if (
+        query.includes("FROM meta_authoritative_day_state") &&
+        query.includes("diagnosis_code")
+      ) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "account_daily",
+            state: "published",
+            diagnosis_code: null,
+          },
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-07",
+            surface: "campaign_daily",
+            state: "published",
+            diagnosis_code: null,
+          },
+        ];
+      }
+      if (query.includes("partition_date AS day")) {
+        return [];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            account_timezone: "UTC",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    try {
+      const summary = await getMetaPublishedVerificationSummary({
+        businessId: "biz-1",
+        providerAccountIds: ["act_1"],
+        startDate: "2026-04-07",
+        endDate: "2026-04-07",
+        surfaces: ["account_daily", "campaign_daily"],
+      });
+
+      expect(summary.verificationState).toBe("finalized_verified");
+      expect(summary.truthReady).toBe(true);
+      expect(summary.publishedSlices).toBe(2);
+      expect(summary.reasonCounts.blocked).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("meta warehouse config columns", () => {
