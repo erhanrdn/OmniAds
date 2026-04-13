@@ -146,9 +146,31 @@
    - duplicated historical verification wording now resolves through the shared published-truth helper so status/read-path messaging stays aligned with `blocked`, `repair_required`, and published verification truth.
    - both `META_RETENTION_EXECUTION_ENABLED` and `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remain disabled by default.
 
+11. Meta retention execute canary and staged rollout proof
+   - `npm run meta:retention-canary -- <businessId>` now provides the explicit Meta retention proof path.
+   - delete execution remains separate from global enablement:
+     - `META_RETENTION_EXECUTION_ENABLED` stays default-disabled and unchanged
+     - `--execute` is required for any delete attempt
+     - `META_RETENTION_EXECUTE_CANARY_ENABLED=true` and `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>` are both required before the canary will execute
+   - canary runs are business-scoped and never silently widen into global Meta retention execution.
+   - canary delete scope is locked to safe residue only:
+     - core daily residue older than `761` days
+     - breakdown residue older than `394` days
+     - horizon-outside publication pointers, reconciliation rows, and published day-state rows older than the applicable horizon
+     - orphaned unpublished slice versions and orphaned source manifests older than the applicable horizon
+   - active published truth remains explicitly protected:
+     - active publication pointers inside the locked horizon
+     - active published slice versions referenced by those pointers
+     - active source manifests referenced by published slices
+     - published day-state rows tied to active publication pointers
+     - currently-required core truth inside `761` days
+     - currently-required breakdown truth inside `394` days
+   - `/api/meta/status` now exposes the canary gate, canary commands, latest canary run disposition, and per-table protected-vs-deleted proof alongside the existing dry-run block.
+   - canary run metadata now records whether the canary was dry-run only, gated, skipped, or executed.
+
 ### Still Pending
 
-- no additional Meta cleanup remains in-scope for Phases 5-10.
+- global Meta retention execution rollout remains intentionally deferred until real canary evidence is reviewed.
 
 ## Current Repo Baseline
 
@@ -161,22 +183,20 @@
   - Meta Phase 8 is complete.
   - Meta Phase 9 is complete.
   - Meta Phase 10 is complete.
+  - Meta Phase 11 is complete.
 - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled.
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled.
 - The reverted 2026-04-13 warehouse-only current-day experiment is not reintroduced.
 
 ## Verified Tests
 
-- Targeted Meta Phase 10 suite passed:
-  - `lib/sync/meta-selected-range-truth.test.ts`
+- Targeted Meta retention canary suite passed:
   - `app/api/meta/status/route.test.ts`
+  - `lib/meta/retention-canary.test.ts`
   - `lib/meta/warehouse.test.ts`
   - `lib/meta/serving.test.ts`
   - `lib/meta/warehouse-retention.test.ts`
-  - `app/api/sync/refresh/route.test.ts`
-  - `app/api/meta/breakdowns/route.test.ts`
-  - `lib/meta/canonical-overview.test.ts`
-- Result: `8` files, `125` tests passed.
+- Result: `5` files, `100` tests passed.
 - TypeScript verification passed: `npx tsc --noEmit --pretty false`
 
 ## Remaining Risks
@@ -184,28 +204,28 @@
 - Google retention execute mode is still intentionally off; Phase 4 adds dry-run proof and an explicit canary verifier, but no execute-mode delete was run from this PR.
 - The raw `/api/google-ads/search-terms` surface is intentionally still a `120` day hot/debug surface and is not a long-horizon intelligence API.
 - Search-intelligence serving now reads additive storage and Phase 4 adds delete-safe observability, but a future explicit operator-approved execute canary is still deferred.
-- Meta retention dry-run/operator proof now exists, but execute-mode Meta retention is still intentionally disabled by default and no destructive canary was run from this PR.
-- The latest Meta retention block proves protected-vs-deletable truth against the current contract, but a later explicit operator-approved execute canary is still deferred.
+- Meta retention global execution is still intentionally disabled by default; only the dedicated business-scoped canary path can execute deletes.
+- Meta canary safety now has code/test/status proof, but real production rollout evidence still depends on an operator running the canary for an allowlisted business and reviewing the recorded proof.
 - Google execute-mode retention rollout is still intentionally deferred and must remain isolated from any Meta retention canary.
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: dedicated Meta retention execute canary and staged rollout proof.
+- Next recommended PR: operator-reviewed Meta retention canary rollout follow-up.
 - Required scope:
   - keep the published-truth historical contract unchanged
-  - verify deletes touch only horizon-outside residue and never active published truth
+  - run the dedicated canary for one allowlisted Meta business and review `/api/meta/status.retention.canary`
   - keep global `META_RETENTION_EXECUTION_ENABLED` off until canary evidence is reviewed
-  - keep Google retention execute-mode rollout out of the Meta canary PR
-- Intentionally deferred after Phase 10:
+  - keep Google retention execute-mode rollout out of the Meta rollout follow-up
+- Intentionally deferred after Phase 11:
   - Google execute-mode raw-hot-table retention canary
   - global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
   - archival/cold export strategy for raw payloads
-  - Meta retention execute-mode canary and global enablement
+  - global enablement of `META_RETENTION_EXECUTION_ENABLED`
 
 ### Next Recommended Prompt
 
-1. Run a dedicated Meta retention execute canary without changing the published-truth serving contract.
-2. Prove the canary only deletes horizon-outside residue and leaves active published truth untouched.
-3. Keep `META_RETENTION_EXECUTION_ENABLED` default-disabled globally unless explicit rollout evidence says otherwise.
-4. Do not mix Google execute-mode retention enablement into the Meta canary PR.
-5. Preserve the Phase 8 detector states and Phase 9 retention status proof while adding canary evidence only.
+1. Run `npm run meta:retention-canary -- <businessId> --execute` for one allowlisted Meta business after setting `META_RETENTION_EXECUTE_CANARY_ENABLED=true` and `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`.
+2. Review `/api/meta/status?businessId=<businessId>` and confirm `retention.canary.latestRun.executionDisposition=canary_execute`, protected rows are non-zero, and deleted rows are limited to safe residue.
+3. Keep `META_RETENTION_EXECUTION_ENABLED` disabled globally unless explicit rollout evidence says otherwise.
+4. Do not mix Google execute-mode retention enablement into the Meta rollout follow-up.
+5. Preserve the locked Meta published-truth serving contract while evaluating whether to widen the canary allowlist or keep execution isolated.

@@ -85,7 +85,30 @@ vi.mock("@/lib/sync/meta-sync", () => ({
 }));
 
 vi.mock("@/lib/meta/warehouse-retention", () => ({
+  getLatestMetaRetentionCanaryRun: vi.fn(),
   getLatestMetaRetentionRun: vi.fn(),
+  getMetaRetentionCanaryRuntimeStatus: vi.fn(() => ({
+    runtimeAvailable: false,
+    globalExecutionEnabled: false,
+    canaryExecutionEnabled: false,
+    businessId: "biz",
+    allowlistConfigured: false,
+    businessAllowed: false,
+    executeRequested: false,
+    executeAllowed: false,
+    mode: "dry_run",
+    gateReason:
+      "Meta retention canary defaults to dry-run until --execute is supplied.",
+  })),
+  getMetaRetentionDeleteScope: vi.fn(() => "horizon_outside_residue"),
+  getMetaRetentionRunMetadata: vi.fn(() => ({
+    scope: {
+      kind: "all_businesses",
+      businessIds: null,
+    },
+    executionDisposition: "dry_run",
+    canary: null,
+  })),
   getMetaRetentionRunRows: vi.fn(() => []),
   getMetaRetentionRuntimeStatus: vi.fn(() => ({
     runtimeAvailable: false,
@@ -251,7 +274,16 @@ describe("GET /api/meta/status", () => {
     vi.mocked(db.getDb).mockReturnValue(sql as never);
     vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue(null as never);
     vi.mocked(metaRetention.getLatestMetaRetentionRun).mockResolvedValue(null as never);
+    vi.mocked(metaRetention.getLatestMetaRetentionCanaryRun).mockResolvedValue(null as never);
     vi.mocked(metaRetention.getMetaRetentionRunRows).mockReturnValue([] as never);
+    vi.mocked(metaRetention.getMetaRetentionRunMetadata).mockReturnValue({
+      scope: {
+        kind: "all_businesses",
+        businessIds: null,
+      },
+      executionDisposition: "dry_run",
+      canary: null,
+    } as never);
     vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue(null as never);
     vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
       summaryAvailable: true,
@@ -315,6 +347,14 @@ describe("GET /api/meta/status", () => {
       latestRun: null,
       summary: null,
       tables: [],
+      canary: {
+        available: true,
+        command: "npm run meta:retention-canary -- biz",
+        executeCommand: "npm run meta:retention-canary -- biz --execute",
+        canaryExecutionEnabled: false,
+        businessAllowed: false,
+        executeAllowed: false,
+      },
     });
     expect(payload.dataContract).toEqual({
       todayMode: "live_only",
@@ -391,6 +431,14 @@ describe("GET /api/meta/status", () => {
         surfaceFilter: ["breakdown_daily"],
       },
     ] as never);
+    vi.mocked(metaRetention.getMetaRetentionRunMetadata).mockReturnValue({
+      scope: {
+        kind: "all_businesses",
+        businessIds: null,
+      },
+      executionDisposition: "dry_run",
+      canary: null,
+    } as never);
     vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue({
       observedTables: 2,
       tablesWithDeletableRows: 2,
@@ -421,6 +469,13 @@ describe("GET /api/meta/status", () => {
         deletableRows: 16,
         protectedRows: 18,
       },
+      canary: {
+        command: "npm run meta:retention-canary -- biz",
+        executeCommand: "npm run meta:retention-canary -- biz --execute",
+        canaryExecutionEnabled: false,
+        businessAllowed: false,
+        executeAllowed: false,
+      },
     });
     expect(payload.retention.tables).toEqual(
       expect.arrayContaining([
@@ -434,6 +489,200 @@ describe("GET /api/meta/status", () => {
           tableName: "meta_authoritative_publication_pointers",
           surfaceFilter: ["breakdown_daily"],
           protectedRows: 10,
+        }),
+      ]),
+    );
+  });
+
+  it("surfaces Meta retention canary execute posture and latest canary proof", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue({
+      workerHealthy: true,
+      heartbeatAgeMs: 30_000,
+      ownerWorkerId: "worker_1",
+      consumeStage: "consume_started",
+    } as never);
+    vi.mocked(metaRetention.getMetaRetentionCanaryRuntimeStatus).mockReturnValue({
+      runtimeAvailable: true,
+      globalExecutionEnabled: false,
+      canaryExecutionEnabled: true,
+      businessId: "biz",
+      allowlistConfigured: true,
+      businessAllowed: true,
+      executeRequested: false,
+      executeAllowed: false,
+      mode: "dry_run",
+      gateReason:
+        "Meta retention canary defaults to dry-run until --execute is supplied.",
+    } as never);
+    vi.mocked(metaRetention.getLatestMetaRetentionRun).mockResolvedValue(null);
+    vi.mocked(metaRetention.getLatestMetaRetentionCanaryRun).mockResolvedValue({
+      id: "meta_retention_canary_run_1",
+      executionMode: "execute",
+      executionEnabled: false,
+      skippedDueToActiveLease: false,
+      totalDeletedRows: 5,
+      summaryJson: {},
+      errorMessage: null,
+      startedAt: "2026-04-13T12:00:00.000Z",
+      finishedAt: "2026-04-13T12:01:00.000Z",
+      createdAt: "2026-04-13T12:00:00.000Z",
+      updatedAt: "2026-04-13T12:01:00.000Z",
+    } as never);
+    vi.mocked(metaRetention.getMetaRetentionRunRows)
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([
+        {
+          tier: "core_authoritative",
+          label: "Meta core daily authoritative",
+          tableName: "meta_account_daily",
+          summaryKey: "meta_account_daily",
+          retentionDays: 761,
+          cutoffDate: "2024-03-13",
+          executionEnabled: false,
+          mode: "execute",
+          observed: true,
+          eligibleRows: 3,
+          eligibleDistinctDays: 1,
+          oldestEligibleValue: "2024-03-01",
+          newestEligibleValue: "2024-03-12",
+          retainedRows: 16,
+          latestRetainedValue: "2026-04-12",
+          protectedRows: 6,
+          protectedDistinctDays: 2,
+          latestProtectedValue: "2026-04-12",
+          deletedRows: 3,
+          surfaceFilter: null,
+        },
+        {
+          tier: "core_authoritative",
+          label: "Meta authoritative slice versions",
+          tableName: "meta_authoritative_slice_versions",
+          summaryKey: "meta_authoritative_slice_versions:core",
+          retentionDays: 761,
+          cutoffDate: "2024-03-13",
+          executionEnabled: false,
+          mode: "execute",
+          observed: true,
+          eligibleRows: 2,
+          eligibleDistinctDays: 1,
+          oldestEligibleValue: "2024-01-01",
+          newestEligibleValue: "2024-01-15",
+          retainedRows: 8,
+          latestRetainedValue: "2026-04-12",
+          protectedRows: 2,
+          protectedDistinctDays: 1,
+          latestProtectedValue: "2026-04-12",
+          deletedRows: 2,
+          surfaceFilter: ["account_daily"],
+        },
+      ] as never);
+    vi.mocked(metaRetention.getMetaRetentionRunMetadata)
+      .mockReturnValueOnce({
+        scope: {
+          kind: "all_businesses",
+          businessIds: null,
+        },
+        executionDisposition: "dry_run",
+        canary: null,
+      } as never)
+      .mockReturnValueOnce({
+        scope: {
+          kind: "canary_businesses",
+          businessIds: ["biz"],
+        },
+        executionDisposition: "canary_execute",
+        canary: {
+          runtimeAvailable: true,
+          globalExecutionEnabled: false,
+          canaryExecutionEnabled: true,
+          businessId: "biz",
+          allowlistConfigured: true,
+          businessAllowed: true,
+          executeRequested: true,
+          executeAllowed: true,
+          mode: "execute",
+          gateReason:
+            "Meta retention execute canary is explicitly enabled for this business.",
+        },
+      } as never);
+    vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue({
+      observedTables: 2,
+      tablesWithDeletableRows: 2,
+      tablesWithProtectedRows: 2,
+      deletableRows: 5,
+      retainedRows: 24,
+      protectedRows: 8,
+    } as never);
+    vi.mocked(metaRetention.getMetaRetentionDeleteScope)
+      .mockReturnValueOnce("horizon_outside_residue" as never)
+      .mockReturnValueOnce("orphaned_stale_artifact" as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operations).toMatchObject({
+      retentionCanaryCommand: "npm run meta:retention-canary -- biz",
+      retentionCanaryExecuteCommand:
+        "npm run meta:retention-canary -- biz --execute",
+      retentionCanaryExecuteAllowed: false,
+      latestRetentionCanaryRunMode: "execute",
+      latestRetentionCanaryRunDisposition: "canary_execute",
+    });
+    expect(payload.retention.canary).toMatchObject({
+      available: true,
+      businessId: "biz",
+      command: "npm run meta:retention-canary -- biz",
+      executeCommand: "npm run meta:retention-canary -- biz --execute",
+      canaryExecutionEnabled: true,
+      businessAllowed: true,
+      executeAllowed: false,
+      latestRun: {
+        id: "meta_retention_canary_run_1",
+        executionMode: "execute",
+        executionDisposition: "canary_execute",
+        totalDeletedRows: 5,
+        scope: {
+          kind: "canary_businesses",
+          businessIds: ["biz"],
+        },
+      },
+      summary: {
+        deletableRows: 5,
+        protectedRows: 8,
+      },
+    });
+    expect(payload.retention.canary.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "meta_account_daily",
+          deleteScope: "horizon_outside_residue",
+          deletedRows: 3,
+        }),
+        expect.objectContaining({
+          tableName: "meta_authoritative_slice_versions",
+          deleteScope: "orphaned_stale_artifact",
+          deletedRows: 2,
         }),
       ]),
     );

@@ -64,12 +64,44 @@ export interface MetaRetentionExecutionRow extends MetaRetentionInspectionRow {
   deletedRows: number;
 }
 
+export type MetaRetentionExecutionDisposition =
+  | "dry_run"
+  | "global_execute"
+  | "canary_dry_run"
+  | "gated_canary_execute"
+  | "canary_execute";
+
+export interface MetaRetentionRunScope {
+  kind: "all_businesses" | "canary_businesses";
+  businessIds: string[] | null;
+}
+
+export interface MetaRetentionCanaryRuntimeStatus {
+  runtimeAvailable: boolean;
+  globalExecutionEnabled: boolean;
+  canaryExecutionEnabled: boolean;
+  businessId: string;
+  allowlistConfigured: boolean;
+  businessAllowed: boolean;
+  executeRequested: boolean;
+  executeAllowed: boolean;
+  mode: "dry_run" | "execute";
+  gateReason: string;
+}
+
+export type MetaRetentionDeleteScope =
+  | "horizon_outside_residue"
+  | "orphaned_stale_artifact";
+
 export interface MetaRetentionRunSummary {
   runId: string | null;
   startedAt: string;
   finishedAt: string;
   executionEnabled: boolean;
   mode: "dry_run" | "execute";
+  scope: MetaRetentionRunScope;
+  executionDisposition: MetaRetentionExecutionDisposition;
+  canary: MetaRetentionCanaryRuntimeStatus | null;
   skippedDueToActiveLease: boolean;
   rows: MetaRetentionExecutionRow[];
   totalDeletedRows: number;
@@ -121,7 +153,9 @@ function envNumber(
 }
 
 function readBooleanFlag(
-  name: "META_RETENTION_EXECUTION_ENABLED",
+  name:
+    | "META_RETENTION_EXECUTION_ENABLED"
+    | "META_RETENTION_EXECUTE_CANARY_ENABLED",
   fallback: boolean,
   env: NodeJS.ProcessEnv = process.env,
 ) {
@@ -133,6 +167,28 @@ function readBooleanFlag(
 
 function isMetaRetentionRuntimeAvailable(env: NodeJS.ProcessEnv = process.env) {
   return Boolean(env.DATABASE_URL?.trim());
+}
+
+function parseEnvList(
+  name: "META_RETENTION_EXECUTE_CANARY_BUSINESSES",
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return (env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function normalizeBusinessIds(
+  businessIds: readonly (string | null | undefined)[] | null | undefined,
+) {
+  return Array.from(
+    new Set(
+      (businessIds ?? [])
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 async function execCount(query: Promise<unknown>) {
@@ -181,16 +237,32 @@ function emptyRetentionRunSummary(input: {
   asOfDate: string;
   executionEnabled: boolean;
   mode: "dry_run" | "execute";
+  businessIds?: string[] | null;
+  executionDisposition?: MetaRetentionExecutionDisposition;
+  canary?: MetaRetentionCanaryRuntimeStatus | null;
   skippedDueToActiveLease?: boolean;
   errorMessage?: string | null;
 }) {
   const startedAt = new Date().toISOString();
+  const businessIds = normalizeBusinessIds(input.businessIds);
   return {
     runId: null,
     startedAt,
     finishedAt: startedAt,
     executionEnabled: input.executionEnabled,
     mode: input.mode,
+    scope:
+      businessIds.length > 0
+        ? {
+            kind: "canary_businesses" as const,
+            businessIds,
+          }
+        : {
+            kind: "all_businesses" as const,
+            businessIds: null,
+          },
+    executionDisposition: input.executionDisposition ?? "dry_run",
+    canary: input.canary ?? null,
     skippedDueToActiveLease: input.skippedDueToActiveLease ?? false,
     rows: buildMetaRetentionUnobservedRows({
       asOfDate: input.asOfDate,
@@ -374,6 +446,18 @@ export function isMetaRetentionExecutionEnabled(env: NodeJS.ProcessEnv = process
   return readBooleanFlag("META_RETENTION_EXECUTION_ENABLED", false, env);
 }
 
+export function isMetaRetentionExecuteCanaryEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return readBooleanFlag("META_RETENTION_EXECUTE_CANARY_ENABLED", false, env);
+}
+
+export function getMetaRetentionExecuteCanaryBusinesses(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return parseEnvList("META_RETENTION_EXECUTE_CANARY_BUSINESSES", env);
+}
+
 export function getMetaRetentionRuntimeStatus(env: NodeJS.ProcessEnv = process.env) {
   const executionEnabled = isMetaRetentionExecutionEnabled(env);
   return {
@@ -383,6 +467,79 @@ export function getMetaRetentionRuntimeStatus(env: NodeJS.ProcessEnv = process.e
     gateReason: executionEnabled
       ? "Meta retention execution is explicitly enabled."
       : "Meta retention execution is disabled by default. Dry-run remains available.",
+  };
+}
+
+export function getMetaRetentionDeleteScope(
+  row:
+    | Pick<MetaRetentionExecutionRow, "summaryKey">
+    | Pick<MetaRetentionPolicyEntry, "summaryKey" | "deleteStrategy">,
+): MetaRetentionDeleteScope {
+  if ("deleteStrategy" in row) {
+    return row.deleteStrategy === "orphaned_slice_versions" ||
+      row.deleteStrategy === "orphaned_source_manifests"
+      ? "orphaned_stale_artifact"
+      : "horizon_outside_residue";
+  }
+  return row.summaryKey.startsWith("meta_authoritative_slice_versions") ||
+    row.summaryKey.startsWith("meta_authoritative_source_manifests")
+    ? "orphaned_stale_artifact"
+    : "horizon_outside_residue";
+}
+
+export function getMetaRetentionCanaryRuntimeStatus(input: {
+  businessId: string;
+  executeRequested?: boolean;
+  env?: NodeJS.ProcessEnv;
+}): MetaRetentionCanaryRuntimeStatus {
+  const env = input.env ?? process.env;
+  const runtimeAvailable = isMetaRetentionRuntimeAvailable(env);
+  const globalExecutionEnabled = isMetaRetentionExecutionEnabled(env);
+  const canaryExecutionEnabled = isMetaRetentionExecuteCanaryEnabled(env);
+  const canaryBusinesses = getMetaRetentionExecuteCanaryBusinesses(env);
+  const allowlistConfigured = canaryBusinesses.length > 0;
+  const businessAllowed = allowlistConfigured
+    ? canaryBusinesses.includes(input.businessId)
+    : false;
+  const executeRequested = Boolean(input.executeRequested);
+  let gateReason =
+    "Meta retention canary defaults to dry-run until --execute is supplied.";
+  let executeAllowed = false;
+
+  if (!runtimeAvailable) {
+    gateReason = "Meta retention canary requires DATABASE_URL.";
+  } else if (globalExecutionEnabled) {
+    gateReason =
+      "META_RETENTION_EXECUTION_ENABLED is enabled. Keep global execution disabled to preserve canary isolation.";
+  } else if (!executeRequested) {
+    gateReason =
+      "Meta retention canary defaults to dry-run until --execute is supplied.";
+  } else if (!canaryExecutionEnabled) {
+    gateReason =
+      "META_RETENTION_EXECUTE_CANARY_ENABLED is disabled. Set it to true to allow --execute.";
+  } else if (!allowlistConfigured) {
+    gateReason =
+      "No Meta retention execute canary allowlist is configured.";
+  } else if (!businessAllowed) {
+    gateReason =
+      "Business is not in the Meta retention execute canary allowlist.";
+  } else {
+    executeAllowed = true;
+    gateReason =
+      "Meta retention execute canary is explicitly enabled for this business.";
+  }
+
+  return {
+    runtimeAvailable,
+    globalExecutionEnabled,
+    canaryExecutionEnabled,
+    businessId: input.businessId,
+    allowlistConfigured,
+    businessAllowed,
+    executeRequested,
+    executeAllowed,
+    mode: executeAllowed ? "execute" : "dry_run",
+    gateReason,
   };
 }
 
@@ -430,7 +587,12 @@ async function recordMetaRetentionRun(
       ${summary.executionEnabled},
       ${summary.skippedDueToActiveLease},
       ${summary.totalDeletedRows},
-      ${JSON.stringify({ rows: summary.rows })}::jsonb,
+      ${JSON.stringify({
+        scope: summary.scope,
+        executionDisposition: summary.executionDisposition,
+        canary: summary.canary,
+        rows: summary.rows,
+      })}::jsonb,
       ${summary.errorMessage ?? null},
       ${summary.startedAt},
       ${summary.finishedAt},
@@ -458,6 +620,44 @@ export async function getLatestMetaRetentionRun() {
     ORDER BY finished_at DESC NULLS LAST, created_at DESC
     LIMIT 1
   `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    executionMode: String(row.execution_mode ?? "dry_run") as "dry_run" | "execute",
+    executionEnabled: Boolean(row.execution_enabled),
+    skippedDueToActiveLease: Boolean(row.skipped_due_to_active_lease),
+    totalDeletedRows: Number(row.total_deleted_rows ?? 0),
+    summaryJson:
+      row.summary_json && typeof row.summary_json === "object"
+        ? (row.summary_json as Record<string, unknown>)
+        : {},
+    errorMessage: row.error_message ? String(row.error_message) : null,
+    startedAt: row.started_at ? new Date(String(row.started_at)).toISOString() : new Date().toISOString(),
+    finishedAt: row.finished_at ? new Date(String(row.finished_at)).toISOString() : null,
+    createdAt: row.created_at ? new Date(String(row.created_at)).toISOString() : null,
+    updatedAt: row.updated_at ? new Date(String(row.updated_at)).toISOString() : null,
+  } satisfies MetaRetentionRunRecord;
+}
+
+export async function getLatestMetaRetentionCanaryRun(businessId: string) {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["meta_retention_runs"],
+  }).catch(() => null);
+  if (!readiness?.ready || !isMetaRetentionRuntimeAvailable()) {
+    return null;
+  }
+  const sql = getDbWithTimeout(30_000);
+  const rows = (await sql.query(
+    `
+      SELECT *
+      FROM meta_retention_runs
+      WHERE summary_json -> 'canary' ->> 'businessId' = $1
+      ORDER BY finished_at DESC NULLS LAST, created_at DESC
+      LIMIT 1
+    `,
+    [businessId],
+  )) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) return null;
   return {
@@ -548,8 +748,11 @@ async function inspectMetaRetentionEntryWindow(input: {
   sql: ReturnType<typeof getDbWithTimeout>;
   entry: MetaRetentionPolicyEntry;
   cutoffDate: string;
+  businessIds?: string[] | null;
 }) {
   const surfaceFilter = surfaceFilterParams(input.entry);
+  const businessIds = normalizeBusinessIds(input.businessIds);
+  const scopedBusinessIds = businessIds.length > 0 ? businessIds : null;
   const dateColumn = input.entry.dateColumn;
   const distinctAccountDaysSql = `COUNT(DISTINCT CONCAT(business_id, ':', provider_account_id, ':', retention_value::text))`;
   const aggregateSql = `
@@ -587,10 +790,11 @@ async function inspectMetaRetentionEntryWindow(input: {
                 AND pointer.surface = $2
             ) AS protected_active
           FROM ${input.entry.tableName} target
+          WHERE ($3::text[] IS NULL OR target.business_id = ANY($3::text[]))
         )
         ${aggregateSql}
       `,
-      params: [input.cutoffDate, dailySurface],
+      params: [input.cutoffDate, dailySurface, scopedBusinessIds],
     });
   }
 
@@ -607,10 +811,11 @@ async function inspectMetaRetentionEntryWindow(input: {
               TRUE AS protected_active
             FROM ${input.entry.tableName} target
             WHERE target.surface = ANY($2::text[])
+              AND ($3::text[] IS NULL OR target.business_id = ANY($3::text[]))
           )
           ${aggregateSql}
         `,
-        params: [input.cutoffDate, surfaceFilter],
+        params: [input.cutoffDate, surfaceFilter, scopedBusinessIds],
       });
     case "meta_authoritative_slice_versions":
       return inspectMetaRetentionAggregate({
@@ -628,10 +833,11 @@ async function inspectMetaRetentionEntryWindow(input: {
               ) AS protected_active
             FROM ${input.entry.tableName} target
             WHERE target.surface = ANY($2::text[])
+              AND ($3::text[] IS NULL OR target.business_id = ANY($3::text[]))
           )
           ${aggregateSql}
         `,
-        params: [input.cutoffDate, surfaceFilter],
+        params: [input.cutoffDate, surfaceFilter, scopedBusinessIds],
       });
     case "meta_authoritative_source_manifests":
       return inspectMetaRetentionAggregate({
@@ -651,10 +857,11 @@ async function inspectMetaRetentionEntryWindow(input: {
               ) AS protected_active
             FROM ${input.entry.tableName} target
             WHERE target.surface = ANY($2::text[])
+              AND ($3::text[] IS NULL OR target.business_id = ANY($3::text[]))
           )
           ${aggregateSql}
         `,
-        params: [input.cutoffDate, surfaceFilter],
+        params: [input.cutoffDate, surfaceFilter, scopedBusinessIds],
       });
     case "meta_authoritative_reconciliation_events":
       return inspectMetaRetentionAggregate({
@@ -675,10 +882,11 @@ async function inspectMetaRetentionEntryWindow(input: {
               ) AS protected_active
             FROM ${input.entry.tableName} target
             WHERE target.surface = ANY($2::text[])
+              AND ($3::text[] IS NULL OR target.business_id = ANY($3::text[]))
           )
           ${aggregateSql}
         `,
-        params: [input.cutoffDate, surfaceFilter],
+        params: [input.cutoffDate, surfaceFilter, scopedBusinessIds],
       });
     case "meta_authoritative_day_state":
       return inspectMetaRetentionAggregate({
@@ -700,10 +908,11 @@ async function inspectMetaRetentionEntryWindow(input: {
               ) AS protected_active
             FROM ${input.entry.tableName} target
             WHERE target.surface = ANY($2::text[])
+              AND ($3::text[] IS NULL OR target.business_id = ANY($3::text[]))
           )
           ${aggregateSql}
         `,
-        params: [input.cutoffDate, surfaceFilter],
+        params: [input.cutoffDate, surfaceFilter, scopedBusinessIds],
       });
     default:
       return {
@@ -738,8 +947,11 @@ async function executeMetaRetentionEntryDelete(input: {
   entry: MetaRetentionPolicyEntry;
   cutoffDate: string;
   batchSize: number;
+  businessIds?: string[] | null;
 }) {
   const surfaceFilter = surfaceFilterParams(input.entry);
+  const businessIds = normalizeBusinessIds(input.businessIds);
+  const scopedBusinessIds = businessIds.length > 0 ? businessIds : null;
   switch (input.entry.deleteStrategy) {
     case "date_id":
       return deleteBatches(
@@ -751,8 +963,9 @@ async function executeMetaRetentionEntryDelete(input: {
                   SELECT id
                   FROM ${input.entry.tableName}
                   WHERE ${input.entry.dateColumn} < $1
+                    AND ($2::text[] IS NULL OR business_id = ANY($2::text[]))
                   ORDER BY ${input.entry.dateColumn} ASC, id ASC
-                  LIMIT $2
+                  LIMIT $3
                   FOR UPDATE SKIP LOCKED
                 ),
                 deleted AS (
@@ -763,7 +976,7 @@ async function executeMetaRetentionEntryDelete(input: {
                 )
                 SELECT COUNT(*)::int AS count FROM deleted
               `,
-              [input.cutoffDate, input.batchSize],
+              [input.cutoffDate, scopedBusinessIds, input.batchSize],
             ),
           ),
         input.batchSize,
@@ -779,8 +992,9 @@ async function executeMetaRetentionEntryDelete(input: {
                   FROM ${input.entry.tableName}
                   WHERE ${input.entry.dateColumn} < $1
                     AND surface = ANY($2::text[])
+                    AND ($3::text[] IS NULL OR business_id = ANY($3::text[]))
                   ORDER BY ${input.entry.dateColumn} ASC, id ASC
-                  LIMIT $3
+                  LIMIT $4
                   FOR UPDATE SKIP LOCKED
                 ),
                 deleted AS (
@@ -791,7 +1005,7 @@ async function executeMetaRetentionEntryDelete(input: {
                 )
                 SELECT COUNT(*)::int AS count FROM deleted
               `,
-              [input.cutoffDate, surfaceFilter, input.batchSize],
+              [input.cutoffDate, surfaceFilter, scopedBusinessIds, input.batchSize],
             ),
           ),
         input.batchSize,
@@ -807,8 +1021,9 @@ async function executeMetaRetentionEntryDelete(input: {
                   FROM ${input.entry.tableName}
                   WHERE ${input.entry.dateColumn} < $1
                     AND surface = ANY($2::text[])
+                    AND ($3::text[] IS NULL OR business_id = ANY($3::text[]))
                   ORDER BY ${input.entry.dateColumn} ASC
-                  LIMIT $3
+                  LIMIT $4
                 ),
                 deleted AS (
                   DELETE FROM ${input.entry.tableName} target
@@ -818,7 +1033,7 @@ async function executeMetaRetentionEntryDelete(input: {
                 )
                 SELECT COUNT(*)::int AS count FROM deleted
               `,
-              [input.cutoffDate, surfaceFilter, input.batchSize],
+              [input.cutoffDate, surfaceFilter, scopedBusinessIds, input.batchSize],
             ),
           ),
         input.batchSize,
@@ -836,9 +1051,10 @@ async function executeMetaRetentionEntryDelete(input: {
                     ON pointer.active_slice_version_id = slice.id
                   WHERE slice.day < $1
                     AND slice.surface = ANY($2::text[])
+                    AND ($3::text[] IS NULL OR slice.business_id = ANY($3::text[]))
                     AND pointer.id IS NULL
                   ORDER BY slice.day ASC, slice.id ASC
-                  LIMIT $3
+                  LIMIT $4
                   FOR UPDATE SKIP LOCKED
                 ),
                 deleted AS (
@@ -849,7 +1065,7 @@ async function executeMetaRetentionEntryDelete(input: {
                 )
                 SELECT COUNT(*)::int AS count FROM deleted
               `,
-              [input.cutoffDate, surfaceFilter, input.batchSize],
+              [input.cutoffDate, surfaceFilter, scopedBusinessIds, input.batchSize],
             ),
           ),
         input.batchSize,
@@ -867,9 +1083,10 @@ async function executeMetaRetentionEntryDelete(input: {
                     ON slice.manifest_id = manifest.id
                   WHERE manifest.day < $1
                     AND manifest.surface = ANY($2::text[])
+                    AND ($3::text[] IS NULL OR manifest.business_id = ANY($3::text[]))
                     AND slice.id IS NULL
                   ORDER BY manifest.day ASC, manifest.id ASC
-                  LIMIT $3
+                  LIMIT $4
                   FOR UPDATE SKIP LOCKED
                 ),
                 deleted AS (
@@ -880,7 +1097,7 @@ async function executeMetaRetentionEntryDelete(input: {
                 )
                 SELECT COUNT(*)::int AS count FROM deleted
               `,
-              [input.cutoffDate, surfaceFilter, input.batchSize],
+              [input.cutoffDate, surfaceFilter, scopedBusinessIds, input.batchSize],
             ),
           ),
         input.batchSize,
@@ -892,18 +1109,42 @@ export async function executeMetaRetentionPolicy(input: {
   asOfDate: string;
   env?: NodeJS.ProcessEnv;
   forceExecute?: boolean;
+  businessIds?: string[] | null;
+  executionDisposition?: MetaRetentionExecutionDisposition;
+  canary?: MetaRetentionCanaryRuntimeStatus | null;
 }) {
   const env = input.env ?? process.env;
   const runtime = getMetaRetentionRuntimeStatus(env);
   const executionEnabled = runtime.executionEnabled;
+  const businessIds = normalizeBusinessIds(input.businessIds);
   const mode =
     executionEnabled || input.forceExecute ? ("execute" as const) : ("dry_run" as const);
+  const executionDisposition =
+    input.executionDisposition ??
+    (input.forceExecute
+      ? "canary_execute"
+      : executionEnabled
+        ? "global_execute"
+        : "dry_run");
+  const scope =
+    businessIds.length > 0
+      ? {
+          kind: "canary_businesses" as const,
+          businessIds,
+        }
+      : {
+          kind: "all_businesses" as const,
+          businessIds: null,
+        };
 
   if (!isMetaRetentionRuntimeAvailable(env)) {
     return emptyRetentionRunSummary({
       asOfDate: input.asOfDate,
       executionEnabled,
       mode,
+      businessIds,
+      executionDisposition,
+      canary: input.canary ?? null,
       errorMessage: "DATABASE_URL is not configured.",
     });
   }
@@ -929,6 +1170,9 @@ export async function executeMetaRetentionPolicy(input: {
         asOfDate: input.asOfDate,
         executionEnabled,
         mode,
+        businessIds,
+        executionDisposition,
+        canary: input.canary ?? null,
         skippedDueToActiveLease: true,
       }),
     );
@@ -943,6 +1187,7 @@ export async function executeMetaRetentionPolicy(input: {
         sql,
         entry,
         cutoffDate,
+        businessIds,
       });
       let deletedRows = 0;
       if (mode === "execute") {
@@ -951,6 +1196,7 @@ export async function executeMetaRetentionPolicy(input: {
           entry,
           cutoffDate,
           batchSize,
+          businessIds,
         });
       }
       rows.push({
@@ -974,6 +1220,9 @@ export async function executeMetaRetentionPolicy(input: {
       finishedAt: new Date().toISOString(),
       executionEnabled,
       mode,
+      scope,
+      executionDisposition,
+      canary: input.canary ?? null,
       skippedDueToActiveLease: false,
       rows,
       totalDeletedRows: rows.reduce((sum, row) => sum + row.deletedRows, 0),
@@ -987,6 +1236,9 @@ export async function executeMetaRetentionPolicy(input: {
       finishedAt: new Date().toISOString(),
       executionEnabled,
       mode,
+      scope,
+      executionDisposition,
+      canary: input.canary ?? null,
       skippedDueToActiveLease: false,
       rows: buildMetaRetentionDryRun(input.asOfDate, env).map((row) => ({
         ...row,
@@ -1020,8 +1272,10 @@ export async function executeMetaRetentionPolicy(input: {
 async function inspectMetaRetentionDryRunRows(input: {
   asOfDate: string;
   env?: NodeJS.ProcessEnv;
+  businessIds?: string[] | null;
 }) {
   const env = input.env ?? process.env;
+  const businessIds = normalizeBusinessIds(input.businessIds);
   if (!isMetaRetentionRuntimeAvailable(env)) {
     return buildMetaRetentionUnobservedRows({
       asOfDate: input.asOfDate,
@@ -1047,6 +1301,7 @@ async function inspectMetaRetentionDryRunRows(input: {
             (entry) => entry.summaryKey === row.summaryKey,
           ) ?? META_RETENTION_POLICY[0],
         cutoffDate: row.cutoffDate,
+        businessIds,
       })),
     })),
   );
@@ -1055,10 +1310,60 @@ async function inspectMetaRetentionDryRunRows(input: {
 export async function executeMetaRetentionPolicyDryRunOnly(input: {
   asOfDate: string;
   env?: NodeJS.ProcessEnv;
+  businessIds?: string[] | null;
 }) {
   return {
     executionEnabled: isMetaRetentionExecutionEnabled(input.env),
     dryRun: await inspectMetaRetentionDryRunRows(input),
+  };
+}
+
+export function getMetaRetentionRunMetadata(
+  run:
+    | Pick<MetaRetentionRunRecord, "summaryJson" | "executionMode">
+    | null
+    | undefined,
+) {
+  const scopeValue =
+    run?.summaryJson?.scope && typeof run.summaryJson.scope === "object"
+      ? (run.summaryJson.scope as Record<string, unknown>)
+      : null;
+  const canaryValue =
+    run?.summaryJson?.canary && typeof run.summaryJson.canary === "object"
+      ? (run.summaryJson.canary as Record<string, unknown>)
+      : null;
+  const scopeKind =
+    scopeValue?.kind === "canary_businesses" ? "canary_businesses" : "all_businesses";
+  const scopeBusinessIds = Array.isArray(scopeValue?.businessIds)
+    ? normalizeBusinessIds(scopeValue.businessIds as Array<string>)
+    : null;
+  const executionDisposition = String(
+    run?.summaryJson?.executionDisposition ??
+      (run?.executionMode === "execute" ? "global_execute" : "dry_run"),
+  ) as MetaRetentionExecutionDisposition;
+
+  return {
+    scope: {
+      kind: scopeKind,
+      businessIds:
+        scopeKind === "canary_businesses" ? scopeBusinessIds ?? [] : null,
+    } satisfies MetaRetentionRunScope,
+    executionDisposition,
+    canary: canaryValue
+      ? ({
+          runtimeAvailable: Boolean(canaryValue.runtimeAvailable),
+          globalExecutionEnabled: Boolean(canaryValue.globalExecutionEnabled),
+          canaryExecutionEnabled: Boolean(canaryValue.canaryExecutionEnabled),
+          businessId: String(canaryValue.businessId ?? ""),
+          allowlistConfigured: Boolean(canaryValue.allowlistConfigured),
+          businessAllowed: Boolean(canaryValue.businessAllowed),
+          executeRequested: Boolean(canaryValue.executeRequested),
+          executeAllowed: Boolean(canaryValue.executeAllowed),
+          mode:
+            canaryValue.mode === "execute" ? "execute" : "dry_run",
+          gateReason: String(canaryValue.gateReason ?? ""),
+        } satisfies MetaRetentionCanaryRuntimeStatus)
+      : null,
   };
 }
 

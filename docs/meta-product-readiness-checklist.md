@@ -55,7 +55,8 @@ Use a real Meta business and at least one real assigned Meta ad account.
 6. `npm run meta:refresh-state -- <businessId>`
 7. `npm run meta:reschedule -- <businessId>`
 8. `npm run meta:cleanup -- <businessId>`
-9. If needed: `npm run meta:replay-dead-letter -- <businessId> [scope]`
+9. `npm run meta:retention-canary -- <businessId>`
+10. If needed: `npm run meta:replay-dead-letter -- <businessId> [scope]`
 
 ## Phase 8 Detector Posture
 
@@ -112,6 +113,41 @@ Go/no-go:
 
 - `GO` only if published verification is now the only supported historical truth contract in the touched Meta read/status paths.
 - `NO-GO` if raw row presence, broad coverage, or planner-only success can still make historical Meta look authoritative.
+
+## Phase 11 Retention Execute Canary Gate
+
+1. Open `/api/meta/status?businessId=<businessId>` and inspect both `retention` and `retention.canary`.
+2. Confirm default posture:
+   - `META_RETENTION_EXECUTION_ENABLED=false` by default
+   - `retention.defaultExecutionDisabled=true`
+   - `retention.canary.command="npm run meta:retention-canary -- <businessId>"`
+   - `retention.canary.executeCommand="npm run meta:retention-canary -- <businessId> --execute"`
+   - `retention.canary.executeAllowed=false` until the explicit canary gate is configured
+3. Run the non-destructive proof first:
+   - `npm run meta:retention-canary -- <businessId>`
+4. To allow the execute canary, set:
+   - `META_RETENTION_EXECUTE_CANARY_ENABLED=true`
+   - `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`
+5. Run the dedicated execute canary:
+   - `npm run meta:retention-canary -- <businessId> --execute`
+6. Confirm the resulting evidence:
+   - `retention.canary.latestRun.executionDisposition=canary_execute`
+   - `retention.canary.latestRun.totalDeletedRows` reflects only the scoped canary run
+   - `retention.canary.summary.protectedRows` remains non-zero when active published truth exists
+   - `retention.canary.tables[].deleteScope` is limited to `horizon_outside_residue` or `orphaned_stale_artifact`
+   - `retention.canary.tables[].deletedRows` never imply active in-horizon published truth deletion
+7. Confirm protected truth remains explicit:
+   - active publication pointers
+   - active published slice versions referenced by those pointers
+   - active source manifests referenced by published slices
+   - published day-state rows tied to active publication pointers
+   - currently-required core truth inside `761` days
+   - currently-required breakdown truth inside `394` days
+
+Go/no-go:
+
+- `GO` only if the canary proves deletes are limited to safe residue and the status surface makes the outcome operator-visible without manual SQL.
+- `NO-GO` if canary execution requires global enablement, if protected published truth is ambiguous, or if status cannot distinguish dry-run from gated or executed canary posture.
 
 ## T0 Validation
 
@@ -262,6 +298,8 @@ Meta is product-ready only when all of the following are true:
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
 - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
 - Meta retention dry-run exposes protected-vs-deletable evidence for the locked `761` / `394` policy without requiring manual SQL.
+- Meta retention execute canary is business-scoped, explicitly gated, and operator-verifiable through `meta:retention-canary` plus `/api/meta/status.retention.canary`.
+- Global Meta retention execution remains disabled unless a later rollout explicitly changes `META_RETENTION_EXECUTION_ENABLED`.
 - Production rollout succeeded in shadow mode, allowlisted canary, and full rollout order.
 
 Any single failed criterion is a `NO-GO`.

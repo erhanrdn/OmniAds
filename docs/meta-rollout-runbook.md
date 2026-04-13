@@ -118,6 +118,38 @@ authoritative horizon.
    - `/api/meta/status` now reports the historical contract explicitly as `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
    - retention dry-run evidence remains intact and both retention executors stay disabled by default
 
+## Phase 11 Retention Execute Canary Contract
+
+Meta retention execution now has one supported non-global rollout path.
+
+1. Global posture remains locked
+   - `META_RETENTION_EXECUTION_ENABLED` stays disabled by default
+   - this runbook still does not authorize global Meta retention execution
+2. Dedicated canary path
+   - `npm run meta:retention-canary -- <businessId>` is the explicit operator proof path
+   - `npm run meta:retention-canary -- <businessId> --execute` is the only supported delete canary command
+3. Canary execute enablement
+   - `META_RETENTION_EXECUTE_CANARY_ENABLED=true`
+   - `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`
+   - both gate values plus the explicit `--execute` flag are required before deletes occur
+4. Protected truth
+   - active publication pointers inside the locked horizon
+   - active published slice versions referenced by those pointers
+   - active source manifests referenced by published slices
+   - published day-state rows tied to active publication pointers
+   - currently-required core truth inside `761` days
+   - currently-required breakdown truth inside `394` days
+5. Allowed delete scope
+   - core daily residue older than `761` days
+   - breakdown residue older than `394` days
+   - horizon-outside publication pointers, reconciliation rows, and published day-state rows older than the applicable horizon
+   - orphaned unpublished slice versions older than the applicable horizon
+   - orphaned source manifests older than the applicable horizon
+6. Operator evidence
+   - `/api/meta/status?businessId=<businessId>` now exposes `retention.canary`
+   - the latest canary run records whether the canary was dry-run only, gated, skipped, or executed
+   - per-table proof reports what was protected, what was deletable, and what was actually deleted
+
 ## Preflight
 
 1. Confirm migrations are additive and rollout-safe
@@ -245,6 +277,43 @@ curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '
    - `summary.protectedRows` is non-zero for businesses with active published history
    - deletable rows appear only as horizon-outside residue, not as required currently-published truth
 
+### Retention Execute Canary
+
+1. Inspect canary posture before any delete attempt:
+
+```bash
+curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention.canary'
+```
+
+2. Confirm:
+   - `globalDefaultExecutionDisabled=true`
+   - `executeAllowed=false` until the explicit canary gate is configured
+   - `command="npm run meta:retention-canary -- <businessId>"`
+   - `executeCommand="npm run meta:retention-canary -- <businessId> --execute"`
+3. Run the proof command first without deletes:
+
+```bash
+npm run meta:retention-canary -- <businessId>
+```
+
+4. To run the execute canary, set:
+   - `META_RETENTION_EXECUTE_CANARY_ENABLED=true`
+   - `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`
+
+5. Then run:
+
+```bash
+npm run meta:retention-canary -- <businessId> --execute
+```
+
+6. After the run, inspect:
+   - `/api/meta/status?businessId=<businessId>` and confirm `retention.canary.latestRun.executionDisposition=canary_execute`
+   - `retention.canary.latestRun.totalDeletedRows`
+   - `retention.canary.summary.protectedRows`
+   - `retention.canary.tables[].deleteScope`
+   - `retention.canary.tables[].deletedRows`
+7. Do not widen the allowlist or touch `META_RETENTION_EXECUTION_ENABLED` until the canary evidence shows only safe residue deletes and no ambiguity around protected published truth.
+
 ### Refresh Behavior
 
 1. Trigger historical refresh:
@@ -282,6 +351,8 @@ Use these commands before considering manual database work:
    - `npm run meta:replay-dead-letter -- <businessId> [scope]`
 8. Inspect retention dry-run posture without enabling deletes
    - `curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention'`
+9. Run the dedicated retention canary proof
+   - `npm run meta:retention-canary -- <businessId>`
 
 ## Verify-Day Procedure
 

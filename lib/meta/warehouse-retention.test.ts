@@ -29,6 +29,8 @@ describe("Meta warehouse retention policy", () => {
     vi.resetAllMocks();
     delete process.env.DATABASE_URL;
     delete process.env.META_RETENTION_EXECUTION_ENABLED;
+    delete process.env.META_RETENTION_EXECUTE_CANARY_ENABLED;
+    delete process.env.META_RETENTION_EXECUTE_CANARY_BUSINESSES;
     delete process.env.META_RETENTION_BATCH_SIZE;
     delete process.env.META_RETENTION_LEASE_MINUTES;
     delete process.env.META_RETENTION_QUERY_TIMEOUT_MS;
@@ -80,6 +82,7 @@ describe("Meta warehouse retention policy", () => {
 
   it("keeps retention execution disabled by default and produces a dry run", async () => {
     expect(retention.isMetaRetentionExecutionEnabled({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(retention.isMetaRetentionExecuteCanaryEnabled({} as NodeJS.ProcessEnv)).toBe(false);
     expect(
       retention.getMetaRetentionRuntimeStatus({} as NodeJS.ProcessEnv),
     ).toMatchObject({
@@ -112,10 +115,50 @@ describe("Meta warehouse retention policy", () => {
     );
   });
 
+  it("keeps the execute canary disabled by default and only enables it for allowlisted businesses", () => {
+    expect(
+      retention.getMetaRetentionCanaryRuntimeStatus({
+        businessId: "biz_keep",
+        executeRequested: true,
+        env: {} as NodeJS.ProcessEnv,
+      }),
+    ).toMatchObject({
+      runtimeAvailable: false,
+      globalExecutionEnabled: false,
+      canaryExecutionEnabled: false,
+      allowlistConfigured: false,
+      businessAllowed: false,
+      executeAllowed: false,
+      mode: "dry_run",
+    });
+
+    const env = {
+      DATABASE_URL: "postgres://example",
+      META_RETENTION_EXECUTE_CANARY_ENABLED: "true",
+      META_RETENTION_EXECUTE_CANARY_BUSINESSES: "biz_keep",
+    } as unknown as NodeJS.ProcessEnv;
+
+    expect(
+      retention.getMetaRetentionCanaryRuntimeStatus({
+        businessId: "biz_keep",
+        executeRequested: true,
+        env,
+      }),
+    ).toMatchObject({
+      runtimeAvailable: true,
+      globalExecutionEnabled: false,
+      canaryExecutionEnabled: true,
+      allowlistConfigured: true,
+      businessAllowed: true,
+      executeAllowed: true,
+      mode: "execute",
+    });
+  });
+
   it("inspects deletable residue and protected published truth in dry-run mode", async () => {
     process.env.DATABASE_URL = "postgres://example";
 
-    const sqlQuery = vi.fn(async (query: string) => {
+    const sqlQuery = vi.fn(async (query: string, _params?: unknown[]) => {
       if (query.includes("FROM meta_account_daily")) {
         return [
           {
@@ -291,6 +334,88 @@ describe("Meta warehouse retention policy", () => {
     expect(releaseSyncRunnerLease).toHaveBeenCalledTimes(1);
   });
 
+  it("scopes canary execution to one business and preserves active published artifacts", async () => {
+    process.env.DATABASE_URL = "postgres://example";
+
+    const sqlQuery = vi.fn(async (query: string) => {
+      if (query.includes("eligible_rows")) {
+        return [
+          {
+            eligible_rows: 0,
+            eligible_distinct_days: 0,
+            oldest_eligible_value: null,
+            newest_eligible_value: null,
+            retained_rows: 4,
+            latest_retained_value: "2026-04-12",
+            protected_rows: 4,
+            protected_distinct_days: 1,
+            latest_protected_value: "2026-04-12",
+          },
+        ];
+      }
+      return [{ count: 0 }];
+    });
+    getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
+
+    const canary = retention.getMetaRetentionCanaryRuntimeStatus({
+      businessId: "biz_canary",
+      executeRequested: true,
+      env: {
+        DATABASE_URL: "postgres://example",
+        META_RETENTION_EXECUTE_CANARY_ENABLED: "true",
+        META_RETENTION_EXECUTE_CANARY_BUSINESSES: "biz_canary",
+      } as unknown as NodeJS.ProcessEnv,
+    });
+
+    const result = await retention.executeMetaRetentionPolicy({
+      asOfDate: "2026-04-13",
+      businessIds: ["biz_canary"],
+      forceExecute: canary.executeAllowed,
+      executionDisposition: "canary_execute",
+      canary,
+    });
+
+    expect(result).toMatchObject({
+      mode: "execute",
+      executionDisposition: "canary_execute",
+      scope: {
+        kind: "canary_businesses",
+        businessIds: ["biz_canary"],
+      },
+      totalDeletedRows: 0,
+    });
+
+    const accountDeleteCall = sqlQuery.mock.calls.find(([query]) =>
+      String(query).includes("DELETE FROM meta_account_daily"),
+    );
+    expect(accountDeleteCall?.[0]).toContain(
+      "AND ($2::text[] IS NULL OR business_id = ANY($2::text[]))",
+    );
+    expect((accountDeleteCall as [string, unknown[]] | undefined)?.[1]).toEqual([
+      "2024-03-13",
+      ["biz_canary"],
+      250,
+    ]);
+
+    const sliceDeleteCall = sqlQuery.mock.calls.find(([query]) =>
+      String(query).includes("DELETE FROM meta_authoritative_slice_versions"),
+    );
+    expect(sliceDeleteCall?.[0]).toContain("pointer.active_slice_version_id = slice.id");
+    expect(sliceDeleteCall?.[0]).toContain("AND pointer.id IS NULL");
+    expect(sliceDeleteCall?.[0]).toContain(
+      "AND ($3::text[] IS NULL OR slice.business_id = ANY($3::text[]))",
+    );
+
+    const manifestDeleteCall = sqlQuery.mock.calls.find(([query]) =>
+      String(query).includes("DELETE FROM meta_authoritative_source_manifests"),
+    );
+    expect(manifestDeleteCall?.[0]).toContain("slice.manifest_id = manifest.id");
+    expect(manifestDeleteCall?.[0]).toContain("AND slice.id IS NULL");
+    expect(manifestDeleteCall?.[0]).toContain(
+      "AND ($3::text[] IS NULL OR manifest.business_id = ANY($3::text[]))",
+    );
+  });
+
   it("parses and summarizes recorded retention rows for operator surfaces", () => {
     const rows = retention.getMetaRetentionRunRows({
       summaryJson: {
@@ -361,6 +486,45 @@ describe("Meta warehouse retention policy", () => {
       deletableRows: 16,
       retainedRows: 174,
       protectedRows: 14,
+    });
+  });
+
+  it("parses recorded canary run metadata for operator surfaces", () => {
+    expect(
+      retention.getMetaRetentionRunMetadata({
+        executionMode: "execute",
+        summaryJson: {
+          scope: {
+            kind: "canary_businesses",
+            businessIds: ["biz_canary"],
+          },
+          executionDisposition: "canary_execute",
+          canary: {
+            runtimeAvailable: true,
+            globalExecutionEnabled: false,
+            canaryExecutionEnabled: true,
+            businessId: "biz_canary",
+            allowlistConfigured: true,
+            businessAllowed: true,
+            executeRequested: true,
+            executeAllowed: true,
+            mode: "execute",
+            gateReason:
+              "Meta retention execute canary is explicitly enabled for this business.",
+          },
+        },
+      }),
+    ).toEqual({
+      scope: {
+        kind: "canary_businesses",
+        businessIds: ["biz_canary"],
+      },
+      executionDisposition: "canary_execute",
+      canary: expect.objectContaining({
+        businessId: "biz_canary",
+        executeAllowed: true,
+        mode: "execute",
+      }),
     });
   });
 });

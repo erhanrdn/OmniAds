@@ -48,7 +48,11 @@ import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import {
+  getMetaRetentionCanaryRuntimeStatus,
+  getMetaRetentionDeleteScope,
+  getMetaRetentionRunMetadata,
   getMetaRetentionRunRows,
+  getLatestMetaRetentionCanaryRun,
   getLatestMetaRetentionRun,
   getMetaRetentionRuntimeStatus,
   summarizeMetaRetentionRunRows,
@@ -206,6 +210,32 @@ function buildPageSurfaceState(input: {
   return "partial";
 }
 
+function buildMetaRetentionTableEvidence(
+  rows: ReturnType<typeof getMetaRetentionRunRows>,
+) {
+  return rows.map((row) => ({
+    tier: row.tier,
+    label: row.label,
+    tableName: row.tableName,
+    summaryKey: row.summaryKey,
+    deleteScope: getMetaRetentionDeleteScope(row),
+    retentionDays: row.retentionDays,
+    cutoffDate: row.cutoffDate,
+    surfaceFilter: row.surfaceFilter ?? null,
+    observed: row.observed,
+    deletableRows: row.eligibleRows,
+    deletableDistinctDays: row.eligibleDistinctDays,
+    oldestDeletableValue: row.oldestEligibleValue,
+    newestDeletableValue: row.newestEligibleValue,
+    retainedRows: row.retainedRows,
+    latestRetainedValue: row.latestRetainedValue,
+    protectedRows: row.protectedRows,
+    protectedDistinctDays: row.protectedDistinctDays,
+    latestProtectedValue: row.latestProtectedValue,
+    deletedRows: row.deletedRows,
+  }));
+}
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const businessId = url.searchParams.get("businessId");
@@ -227,6 +257,7 @@ export async function GET(request: NextRequest) {
     legacyJobHealth,
     workerHealth,
     latestRetentionRun,
+    latestRetentionCanaryRun,
   ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
@@ -241,13 +272,30 @@ export async function GET(request: NextRequest) {
         staleThresholdMs: 3 * 60_000,
       }).catch(() => null),
       getLatestMetaRetentionRun().catch(() => null),
+      getLatestMetaRetentionCanaryRun(businessId!).catch(() => null),
     ]);
   const retentionRuntime = getMetaRetentionRuntimeStatus();
+  const retentionCanaryRuntime = getMetaRetentionCanaryRuntimeStatus({
+    businessId: businessId!,
+  });
   const latestRetentionRows = getMetaRetentionRunRows(latestRetentionRun);
+  const latestRetentionMetadata = getMetaRetentionRunMetadata(latestRetentionRun);
   const latestRetentionSummary =
     latestRetentionRows.length > 0
       ? summarizeMetaRetentionRunRows(latestRetentionRows)
       : null;
+  const latestRetentionTables = buildMetaRetentionTableEvidence(latestRetentionRows);
+  const latestRetentionCanaryRows = getMetaRetentionRunRows(latestRetentionCanaryRun);
+  const latestRetentionCanaryMetadata = getMetaRetentionRunMetadata(
+    latestRetentionCanaryRun,
+  );
+  const latestRetentionCanarySummary =
+    latestRetentionCanaryRows.length > 0
+      ? summarizeMetaRetentionRunRows(latestRetentionCanaryRows)
+      : null;
+  const latestRetentionCanaryTables = buildMetaRetentionTableEvidence(
+    latestRetentionCanaryRows,
+  );
 
   const accountIds = assignments?.account_ids ?? [];
   const connected = Boolean(integration?.status === "connected");
@@ -1488,11 +1536,28 @@ export async function GET(request: NextRequest) {
             retentionMode: retentionRuntime.mode,
             retentionGateReason: retentionRuntime.gateReason,
             retentionDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
+            retentionCanaryCommand: `npm run meta:retention-canary -- ${businessId!}`,
+            retentionCanaryExecuteCommand: `npm run meta:retention-canary -- ${businessId!} --execute`,
+            retentionCanaryExecuteAllowed:
+              retentionCanaryRuntime.executeAllowed,
+            retentionCanaryGateReason: retentionCanaryRuntime.gateReason,
             latestRetentionRunAt: latestRetentionRun?.finishedAt ?? null,
             latestRetentionRunMode: latestRetentionRun?.executionMode ?? null,
+            latestRetentionRunDisposition:
+              latestRetentionMetadata.executionDisposition,
+            latestRetentionCanaryRunAt:
+              latestRetentionCanaryRun?.finishedAt ?? null,
+            latestRetentionCanaryRunMode:
+              latestRetentionCanaryRun?.executionMode ?? null,
+            latestRetentionCanaryRunDisposition:
+              latestRetentionCanaryMetadata.executionDisposition,
             retentionLatestRunObserved:
               latestRetentionSummary != null
                 ? latestRetentionSummary.observedTables > 0
+                : false,
+            retentionLatestCanaryObserved:
+              latestRetentionCanarySummary != null
+                ? latestRetentionCanarySummary.observedTables > 0
                 : false,
           }
         : null,
@@ -1516,6 +1581,8 @@ export async function GET(request: NextRequest) {
               id: latestRetentionRun.id,
               finishedAt: latestRetentionRun.finishedAt,
               executionMode: latestRetentionRun.executionMode,
+              executionDisposition: latestRetentionMetadata.executionDisposition,
+              scope: latestRetentionMetadata.scope,
               skippedDueToActiveLease:
                 latestRetentionRun.skippedDueToActiveLease,
               totalDeletedRows: latestRetentionRun.totalDeletedRows,
@@ -1523,26 +1590,37 @@ export async function GET(request: NextRequest) {
             }
           : null,
         summary: latestRetentionSummary,
-        tables: latestRetentionRows.map((row) => ({
-          tier: row.tier,
-          label: row.label,
-          tableName: row.tableName,
-          summaryKey: row.summaryKey,
-          retentionDays: row.retentionDays,
-          cutoffDate: row.cutoffDate,
-          surfaceFilter: row.surfaceFilter ?? null,
-          observed: row.observed,
-          deletableRows: row.eligibleRows,
-          deletableDistinctDays: row.eligibleDistinctDays,
-          oldestDeletableValue: row.oldestEligibleValue,
-          newestDeletableValue: row.newestEligibleValue,
-          retainedRows: row.retainedRows,
-          latestRetainedValue: row.latestRetainedValue,
-          protectedRows: row.protectedRows,
-          protectedDistinctDays: row.protectedDistinctDays,
-          latestProtectedValue: row.latestProtectedValue,
-          deletedRows: row.deletedRows,
-        })),
+        tables: latestRetentionTables,
+        canary: {
+          available: true,
+          businessId: businessId!,
+          command: `npm run meta:retention-canary -- ${businessId!}`,
+          executeCommand: `npm run meta:retention-canary -- ${businessId!} --execute`,
+          globalDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
+          canaryExecutionEnabled:
+            retentionCanaryRuntime.canaryExecutionEnabled,
+          allowlistConfigured: retentionCanaryRuntime.allowlistConfigured,
+          businessAllowed: retentionCanaryRuntime.businessAllowed,
+          executeAllowed: retentionCanaryRuntime.executeAllowed,
+          gateReason: retentionCanaryRuntime.gateReason,
+          latestRun: latestRetentionCanaryRun
+            ? {
+                id: latestRetentionCanaryRun.id,
+                finishedAt: latestRetentionCanaryRun.finishedAt,
+                executionMode: latestRetentionCanaryRun.executionMode,
+                executionDisposition:
+                  latestRetentionCanaryMetadata.executionDisposition,
+                scope: latestRetentionCanaryMetadata.scope,
+                skippedDueToActiveLease:
+                  latestRetentionCanaryRun.skippedDueToActiveLease,
+                totalDeletedRows: latestRetentionCanaryRun.totalDeletedRows,
+                errorMessage: latestRetentionCanaryRun.errorMessage,
+                canary: latestRetentionCanaryMetadata.canary,
+              }
+            : null,
+          summary: latestRetentionCanarySummary,
+          tables: latestRetentionCanaryTables,
+        },
       },
       extendedRecoveryState,
       recentExtendedReady,

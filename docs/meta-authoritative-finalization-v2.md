@@ -347,10 +347,16 @@ Posture locks:
   - selected-range historical readiness no longer infers truth from coverage alone
   - planner `published` state without a publication pointer no longer counts as D-1 success
   - operator/status vocabulary now points directly at `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
+- Meta Phase 11 retention execute canary now adds the explicit delete-proof path without global enablement:
+  - `npm run meta:retention-canary -- <businessId>` is the operator-visible proof command
+  - `--execute` plus `META_RETENTION_EXECUTE_CANARY_ENABLED=true` and `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>` are all required before the canary deletes anything
+  - active publication pointers, active published slice versions, active source manifests, published day-state rows, and currently-required published truth inside the locked horizon remain protected
+  - allowed deletes remain limited to horizon-outside residue and orphaned stale authoritative artifacts
+  - `/api/meta/status.retention.canary` now reports the gate, latest canary run posture, and per-table protected-vs-deleted evidence
 
 Next recommended step:
 
-- a later dedicated Meta retention execute canary, while keeping retention execution default-disabled globally until explicit operator approval and canary evidence exist
+- review real operator evidence from the dedicated Meta retention canary before considering any wider rollout, while keeping `META_RETENTION_EXECUTION_ENABLED` default-disabled globally
 
 ## Compatibility Strategy
 
