@@ -1,7 +1,7 @@
 # Meta Authoritative Finalization v2
 
 ## Status
-Proposed
+Active rollout contract
 
 ## Purpose
 
@@ -82,6 +82,7 @@ The v2 target lifecycle for a single Meta account-day slice is:
 Terminal and side states:
 
 - `failed`
+- `blocked`
 - `repair_required`
 - `superseded`
 
@@ -104,6 +105,9 @@ Terminal and side states:
   - this is the only v2 state that grants authoritative historical finalization
 - `failed`
   - finalization attempt failed before verified publication
+- `blocked`
+  - finalize-like work completed, but the required publication pointer was not created
+  - also used for planner/worker/publication contract mismatch states where the executor must not report success
 - `repair_required`
   - validation or reconciliation detected a mismatch that requires another
     source-authoritative attempt
@@ -122,8 +126,12 @@ Terminal and side states:
   - only after fresh source fetch, validation, stage completion, and publication
 - `finalizing -> failed`
   - on fetch/stage/validation failure
+- `finalizing -> blocked`
+  - when manifest completion exists but the required publication pointer is still missing
 - `failed -> repair_required`
   - when retry policy or operator action marks the slice for a fresh retry
+- `blocked -> repair_required`
+  - when operator or detector logic schedules a fresh authoritative retry after the publication mismatch is understood
 - `repair_required -> finalizing`
   - on retried authoritative repair
 - any non-terminal candidate state -> `superseded`
@@ -250,6 +258,7 @@ Rules:
 
 - never delete the active published slice first
 - never mark non-today data as final solely because a worker completed
+- never report executor or manual refresh success unless the required publication pointer exists
 - never report manual refresh success until a source-authoritative publish
   succeeded, or a clear failure is returned
 - staged candidates may be discarded or superseded, but published truth remains

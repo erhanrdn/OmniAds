@@ -333,6 +333,100 @@ describe("meta warehouse ownership safety", () => {
     expect(queries.some((query) => query.includes("meta_authoritative_day_state"))).toBe(true);
   });
 
+  it("marks completed manifests without publication as blocked planner state", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM meta_authoritative_day_state")) {
+        return [];
+      }
+      if (query.includes("INSERT INTO meta_authoritative_day_state")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "acct-1",
+            day: "2026-04-07",
+            surface: "campaign_daily",
+            state: "blocked",
+            account_timezone: "UTC",
+            active_partition_id: null,
+            last_run_id: "run-1",
+            last_manifest_id: "manifest-1",
+            last_publication_pointer_id: null,
+            published_at: null,
+            retry_after_at: "2026-04-07T00:02:00.000Z",
+            failure_streak: 1,
+            diagnosis_code: "publication_pointer_missing",
+            diagnosis_detail_json: {
+              verificationState: "processing",
+              plannerState: "blocked",
+            },
+            last_started_at: "2026-04-07T00:01:00.000Z",
+            last_finished_at: "2026-04-07T00:02:00.000Z",
+            last_autoheal_at: null,
+            autoheal_count: 0,
+            created_at: "2026-04-07T00:00:00.000Z",
+            updated_at: "2026-04-07T00:02:00.000Z",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const rows = await reconcileMetaAuthoritativeDayStateFromVerification({
+      verification: {
+        businessId: "biz-1",
+        providerAccountId: "acct-1",
+        day: "2026-04-07",
+        verificationState: "processing",
+        sourceManifestState: "completed",
+        validationState: "processing",
+        activePublication: null,
+        surfaces: [
+          {
+            surface: "campaign_daily",
+            manifest: {
+              id: "manifest-1",
+              businessId: "biz-1",
+              providerAccountId: "acct-1",
+              day: "2026-04-07",
+              surface: "campaign_daily",
+              accountTimezone: "UTC",
+              sourceKind: "historical_recovery",
+              sourceWindowKind: "historical",
+              runId: "run-1",
+              fetchStatus: "completed",
+              freshStartApplied: true,
+              checkpointResetApplied: false,
+              rawSnapshotWatermark: "run-1",
+              sourceSpend: 10,
+              validationBasisVersion: "meta-authoritative-finalization-v2",
+              metaJson: {},
+              startedAt: "2026-04-07T00:01:00.000Z",
+              completedAt: "2026-04-07T00:02:00.000Z",
+              createdAt: "2026-04-07T00:00:00.000Z",
+              updatedAt: "2026-04-07T00:02:00.000Z",
+            },
+            publication: null,
+          } as never,
+        ],
+        lastFailure: null,
+        repairBacklog: 0,
+        deadLetters: 0,
+        staleLeases: 0,
+        queuedPartitions: 0,
+        leasedPartitions: 0,
+      } as never,
+    });
+
+    expect(rows[0]).toMatchObject({
+      surface: "campaign_daily",
+      state: "blocked",
+      diagnosisCode: "publication_pointer_missing",
+      activePartitionId: null,
+    });
+  });
+
   it("returns null when checkpoint upsert loses partition ownership", async () => {
     const sql = vi.fn().mockResolvedValue([]);
     vi.mocked(db.getDb).mockReturnValue(sql as never);
@@ -2662,6 +2756,117 @@ describe("meta warehouse ownership safety", () => {
       expect(summary.verificationState).toBe("processing");
       expect(summary.truthReady).toBe(false);
       expect(summary.publishedSlices).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not require breakdown publication beyond the breakdown horizon", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH latest_slice AS")) {
+        return [
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2025-03-09",
+            surface: "account_daily",
+            latest_slice_id: "slice-1",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2025-03-10T00:10:00.000Z",
+            source_fetched_at: "2025-03-10T00:01:00.000Z",
+            active_slice_version_id: "slice-1",
+            published_at: "2025-03-10T00:10:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2025-03-09",
+            surface: "campaign_daily",
+            latest_slice_id: "slice-2",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2025-03-10T00:11:00.000Z",
+            source_fetched_at: "2025-03-10T00:01:00.000Z",
+            active_slice_version_id: "slice-2",
+            published_at: "2025-03-10T00:11:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2025-03-09",
+            surface: "adset_daily",
+            latest_slice_id: "slice-3",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2025-03-10T00:12:00.000Z",
+            source_fetched_at: "2025-03-10T00:01:00.000Z",
+            active_slice_version_id: "slice-3",
+            published_at: "2025-03-10T00:12:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+          {
+            business_id: "biz-1",
+            provider_account_id: "act_1",
+            day: "2025-03-09",
+            surface: "ad_daily",
+            latest_slice_id: "slice-4",
+            latest_state: "finalized_verified",
+            latest_status: "published",
+            latest_validation_status: "passed",
+            latest_slice_published_at: "2025-03-10T00:13:00.000Z",
+            source_fetched_at: "2025-03-10T00:01:00.000Z",
+            active_slice_version_id: "slice-4",
+            published_at: "2025-03-10T00:13:00.000Z",
+            published_state: "finalized_verified",
+            published_status: "published",
+          },
+        ];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            account_timezone: "UTC",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    try {
+      const summary = await getMetaPublishedVerificationSummary({
+        businessId: "biz-1",
+        providerAccountIds: ["act_1"],
+        startDate: "2025-03-09",
+        endDate: "2025-03-09",
+        surfaces: [
+          "account_daily",
+          "campaign_daily",
+          "adset_daily",
+          "ad_daily",
+          "breakdown_daily",
+        ],
+      });
+
+      expect(summary.verificationState).toBe("finalized_verified");
+      expect(summary.truthReady).toBe(true);
+      expect(summary.publishedSlices).toBe(4);
+      expect(summary.totalExpectedSlices).toBe(4);
+      expect(summary.publishedKeysBySurface.breakdown_daily).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }

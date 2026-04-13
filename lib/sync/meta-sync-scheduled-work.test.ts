@@ -145,6 +145,21 @@ function buildPublishedPlannerRows(providerAccountId: string, days: string[]) {
   );
 }
 
+function buildCoreOnlyPlannerRows(providerAccountId: string, days: string[]) {
+  return days.flatMap((day) =>
+    ["account_daily", "campaign_daily", "adset_daily", "ad_daily"].map(
+      (surface) => ({
+        businessId: "biz-1",
+        providerAccountId,
+        day,
+        surface,
+        state: "published",
+        accountTimezone: "UTC",
+      }),
+    ),
+  );
+}
+
 describe("enqueueMetaScheduledWork", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -367,6 +382,40 @@ describe("enqueueMetaScheduledWork", () => {
       );
 
     expect(repairCalls).toHaveLength(0);
+    vi.useRealTimers();
+  });
+
+  it("does not advance D-2 repair work until D-1 is fully published", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
+      buildCoreOnlyPlannerRows("act_1", ["2026-04-05"]) as never,
+    );
+    vi.mocked(warehouse.getMetaDirtyRecentDates)
+      .mockResolvedValueOnce([
+        {
+          providerAccountId: "act_1",
+          date: "2026-04-04",
+          severity: "critical",
+          reasons: ["non_finalized"],
+          nonFinalized: true,
+        },
+      ] as never)
+      .mockResolvedValueOnce([] as never);
+
+    await enqueueMetaScheduledWork("biz-1");
+
+    const d2Calls = vi
+      .mocked(warehouse.queueMetaSyncPartition)
+      .mock.calls.map(([input]) => input)
+      .filter(
+        (input) =>
+          input.providerAccountId === "act_1" &&
+          input.partitionDate === "2026-04-04" &&
+          input.scope === "account_daily",
+      );
+
+    expect(d2Calls).toHaveLength(0);
     vi.useRealTimers();
   });
 
@@ -618,9 +667,12 @@ describe("enqueueMetaScheduledWork", () => {
     vi.useRealTimers();
   });
 
-  it("starts historical backfill from D-2 instead of queueing the full range", async () => {
+  it("starts historical backfill from D-2 only after D-1 is published", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
+    vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
+      buildPublishedPlannerRows("act_1", ["2026-04-05"]) as never,
+    );
 
     await enqueueMetaScheduledWork("biz-1");
 
@@ -640,11 +692,11 @@ describe("enqueueMetaScheduledWork", () => {
     vi.useRealTimers();
   });
 
-  it("moves historical backfill to the next older day only after D-2 is already published", async () => {
+  it("moves historical backfill to the next older day only after D-1 and D-2 are published", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
     vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
-      buildPublishedPlannerRows("act_1", ["2026-04-04"]) as never,
+      buildPublishedPlannerRows("act_1", ["2026-04-05", "2026-04-04"]) as never,
     );
 
     await enqueueMetaScheduledWork("biz-1");

@@ -37,6 +37,21 @@ Use only these rollout controls:
    - when empty and v2 is enabled, rollout is global
    - when populated, only allowlisted businesses use v2
 
+## Phase 7 Executor Success Contract
+
+Historical Meta executor success now has a strict meaning:
+
+1. `meta_authoritative_day_state` is the runtime authority for whether a non-today account-day is actually done.
+2. A historical partition only succeeds when every required surface for that day has a published authoritative pointer.
+3. `fetch completed`, `partition completed`, or a normal worker return are not success by themselves.
+4. If a worker returns without authoritative publication progress, the runtime prefers non-terminal cancel-and-requeue semantics over false success.
+5. If finalize-like work completed but required publication is still missing, treat the day as explicit non-success:
+   - `blocked` for publication-pointer or contract-mismatch style states
+   - `repair_required` when verification says another authoritative attempt is needed
+   - `failed` when the authoritative attempt itself failed
+6. Near the rollover boundary, `D-2` historical advancement must wait for a fully published `D-1`.
+7. Breakdown publication is only required inside the `394` day breakdown horizon.
+
 ## Preflight
 
 1. Confirm migrations are additive and rollout-safe
@@ -163,6 +178,8 @@ curl -fsS -X POST http://127.0.0.1:3000/api/sync/refresh \
 2. Verify refresh produced authoritative publish semantics:
    - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
    - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
+3. Treat refresh as successful only if publish verification passes for the required surfaces.
+4. If the worker returned but publication is still missing, treat the outcome as `blocked` or `repair_required`, not success.
 
 ## Standard Operator Commands
 
@@ -198,19 +215,24 @@ The command reports:
 Interpretation:
 
 1. `verificationState=finalized_verified`
-   - published verified truth is active
+   - published verified truth is active for the required surfaces for that day
    - no operator action is required unless user-visible data is still inconsistent
 2. `verificationState=processing`
    - check queue vs leased counts
    - if leased is positive, wait for worker or inspect worker heartbeat
    - if queued is positive and leased is zero, run `meta:refresh-state` then `meta:reschedule`
-3. `verificationState=failed` or `repair_required`
+   - if `meta:state-check` still shows `pending`, `queued`, or `running` planner rows with no publication, treat this as non-terminal and prefer requeue/reschedule semantics over dead-letter assumptions
+3. planner or verify output indicates `blocked`
+   - treat this as an explicit publication or contract mismatch, not a soft success
+   - inspect manifest completion vs publication absence
+   - confirm worker/web/planner contract alignment before replaying work
+4. `verificationState=failed` or `repair_required`
    - keep current published truth active
    - inspect `lastFailure`
    - follow the recommended recovery action from the command output
-4. `deadLetters > 0`
+5. `deadLetters > 0`
    - run `meta:replay-dead-letter`
-5. `staleLeases > 0`
+6. `staleLeases > 0`
    - run `meta:cleanup`
    - then `meta:reschedule`
 
@@ -230,6 +252,7 @@ Preferred order:
 4. `meta:cleanup` if stale leases exist
 5. `meta:replay-dead-letter` if dead letters exist
 6. Re-run `meta:verify-day`
+7. Do not treat a normal worker completion without publish verification as recovery success
 
 ## Failure Handling
 
@@ -248,6 +271,7 @@ If rollout produces incorrect behavior:
    - `meta:reschedule`
    - `meta:verify-day`
 6. Record the failed manifest/candidate/reconciliation evidence for follow-up
+7. If manifest completion exists without publication, classify the incident as `blocked` until the contract mismatch is resolved
 
 ## Rollback
 

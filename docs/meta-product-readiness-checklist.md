@@ -75,6 +75,7 @@ Run this shortly before or during the account-timezone rollover window.
    - source manifest state is visible
    - active publication is visible
    - queued vs leased vs published progression is visible
+   - `D-2` does not advance before `D-1` is fully published
    - no manual SQL was required to inspect state
 
 Go/no-go:
@@ -92,14 +93,14 @@ This is the critical backend gate.
 2. Confirm:
    - `verificationState=finalized_verified`
    - `sourceManifestState=completed`
-   - active publication exists for at least `account_daily` and `campaign_daily`
+   - active publication exists for every required surface for that day
    - `goNoGo.passed=true` from publish verification
    - no delete-first symptom occurred
 
 Go/no-go:
 
 - `GO` only if autonomous `D-1` finalization reaches `finalized_verified` without a manual reschedule.
-- `NO-GO` if queue movement occurs without verified publication, or if manual intervention is required for normal rollover success.
+- `NO-GO` if queue movement occurs without verified publication, if planner state becomes `blocked`, or if manual intervention is required for normal rollover success.
 
 ## Manual Refresh Publish Verification
 
@@ -110,13 +111,13 @@ Go/no-go:
    - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
    - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
 3. Confirm:
-   - historical refresh success means fresh fetch + validate + publish happened
-   - historical refresh does not report success from enqueue alone
+   - historical refresh success means fresh fetch + validate + publish happened for the required surfaces
+   - historical refresh does not report success from enqueue alone or from worker completion alone
    - publish verification reports `goNoGo.passed=true` after a successful refresh
 
 Go/no-go:
 
-- `GO` only if manual historical refresh ends in verified publication or a clear `failed` / `repair_required` state.
+- `GO` only if manual historical refresh ends in verified publication or a clear `failed` / `repair_required` / `blocked` state.
 - `NO-GO` if refresh reports success while publication remains stale or unverifiable.
 
 ## T0 + 24h Validation
@@ -133,6 +134,7 @@ Repeat the same checks 24 hours later.
    - `published` progression increased during the 24h window
    - `lastSuccessfulPublishAt` moved forward
    - queue drain is accompanied by publication advancement, not only retry churn
+   - there was no hidden publish-less success promoted to done
 
 Go/no-go:
 

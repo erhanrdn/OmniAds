@@ -161,6 +161,52 @@ function isMetaCurrentAccountDay(input: {
   );
 }
 
+function getMetaHistoricalDayAgeForAccountDay(input: {
+  day: string;
+  providerAccountId: string;
+  accountTimeZoneById: Map<string, string>;
+}) {
+  const normalizedDay = normalizeDate(input.day);
+  const today = getTodayIsoForTimeZone(
+    getMetaAccountTimeZone(
+      input.accountTimeZoneById,
+      input.providerAccountId,
+    ),
+  );
+  const historicalEnd = addIsoDays(today, -1);
+  if (normalizedDay > historicalEnd) return 0;
+  return Math.max(
+    0,
+    Math.floor(
+      (new Date(`${historicalEnd}T00:00:00.000Z`).getTime() -
+        new Date(`${normalizedDay}T00:00:00.000Z`).getTime()) /
+        86_400_000,
+    ),
+  );
+}
+
+function getMetaApplicableVerificationSurfaces(input: {
+  day: string;
+  providerAccountId: string;
+  accountTimeZoneById: Map<string, string>;
+  requestedSurfaces: MetaWarehouseScope[];
+}) {
+  const requestedSurfaces = new Set(input.requestedSurfaces);
+  return getMetaAuthoritativeRequiredSurfacesForDayAge(
+    getMetaHistoricalDayAgeForAccountDay({
+      day: input.day,
+      providerAccountId: input.providerAccountId,
+      accountTimeZoneById: input.accountTimeZoneById,
+    }),
+  )
+    .filter(
+      (requirement) =>
+        requirement.state !== "not_applicable" &&
+        requestedSurfaces.has(requirement.surface),
+    )
+    .map((requirement) => requirement.surface);
+}
+
 function addIsoDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -762,21 +808,42 @@ export async function reconcileMetaAuthoritativeDayStateFromVerification(input: 
     const existing = existingStates[index] ?? null;
     const publication = surfaceState.publication?.publication ?? null;
     const sliceVersion = surfaceState.publication?.sliceVersion ?? null;
+    const lastFailure =
+      input.verification.lastFailure?.surface === surfaceState.surface
+        ? input.verification.lastFailure
+        : null;
+    const manifestStatus = surfaceState.manifest?.fetchStatus ?? null;
     const isPublished =
-      input.verification.verificationState === "finalized_verified" &&
       Boolean(publication?.activeSliceVersionId) &&
-      Boolean(publication?.publishedAt);
+      Boolean(publication?.publishedAt) &&
+      sliceVersion?.status === "published" &&
+      sliceVersion?.validationStatus === "passed";
     const derivedState: MetaAuthoritativeDayStateStatus = isPublished
       ? "published"
-      : input.verification.verificationState === "failed" ||
-          input.verification.lastFailure?.result === "failed"
+      : manifestStatus === "failed" ||
+          lastFailure?.result === "failed" ||
+          input.verification.verificationState === "failed"
         ? "failed"
         : input.verification.verificationState === "repair_required" ||
-            input.verification.lastFailure?.result === "repair_required"
+            lastFailure?.result === "repair_required"
           ? "repair_required"
-          : sliceVersion?.status === "published"
-            ? "queued"
-            : "pending";
+          : manifestStatus === "completed"
+            ? "blocked"
+            : manifestStatus === "running" ||
+                input.verification.leasedPartitions > 0
+              ? "running"
+              : manifestStatus === "pending" ||
+                  input.verification.queuedPartitions > 0 ||
+                  input.verification.repairBacklog > 0 ||
+                  Boolean(
+                    input.activePartitionIdBySurface?.[surfaceState.surface],
+                  )
+                ? "queued"
+                : "pending";
+    const terminalFailureState =
+      derivedState === "failed" ||
+      derivedState === "repair_required" ||
+      derivedState === "blocked";
 
     updates.push({
       businessId: input.verification.businessId,
@@ -790,7 +857,11 @@ export async function reconcileMetaAuthoritativeDayStateFromVerification(input: 
         existing?.accountTimezone ??
         "UTC",
       activePartitionId:
-        input.activePartitionIdBySurface?.[surfaceState.surface] ?? existing?.activePartitionId ?? null,
+        derivedState === "queued" || derivedState === "running"
+          ? input.activePartitionIdBySurface?.[surfaceState.surface] ??
+            existing?.activePartitionId ??
+            null
+          : null,
       lastRunId: surfaceState.manifest?.runId ?? existing?.lastRunId ?? null,
       lastManifestId: surfaceState.manifest?.id ?? existing?.lastManifestId ?? null,
       lastPublicationPointerId:
@@ -799,22 +870,30 @@ export async function reconcileMetaAuthoritativeDayStateFromVerification(input: 
       retryAfterAt:
         derivedState === "published"
           ? null
-          : surfaceState.manifest?.completedAt ?? existing?.retryAfterAt ?? null,
+          : terminalFailureState
+            ? surfaceState.manifest?.completedAt ?? existing?.retryAfterAt ?? null
+            : existing?.retryAfterAt ?? null,
       failureStreak:
         derivedState === "published"
           ? 0
-          : Math.max(0, (existing?.failureStreak ?? 0) + 1),
+          : terminalFailureState
+            ? Math.max(0, (existing?.failureStreak ?? 0) + 1)
+            : existing?.failureStreak ?? 0,
       diagnosisCode:
         derivedState === "published"
           ? null
-          : input.verification.lastFailure?.reason ??
-            surfaceState.manifest?.fetchStatus ??
-            input.verification.sourceManifestState,
+          : derivedState === "blocked"
+            ? "publication_pointer_missing"
+            : lastFailure?.reason ??
+              manifestStatus ??
+              input.verification.sourceManifestState,
       diagnosisDetailJson: {
         verificationState: input.verification.verificationState,
         validationState: input.verification.validationState,
         sourceManifestState: input.verification.sourceManifestState,
         surface: surfaceState.surface,
+        plannerState: derivedState,
+        manifestFetchStatus: manifestStatus,
         publishedAt: publication?.publishedAt ?? null,
         publicationReason: publication?.publicationReason ?? null,
         activeSliceVersionId: publication?.activeSliceVersionId ?? null,
@@ -1955,11 +2034,19 @@ export async function getMetaPublishedVerificationSummary(input: {
   let failed = false;
   let repairRequired = false;
   let processing = false;
+  let totalExpectedSlices = 0;
 
   for (const day of days) {
     let dayComplete = true;
     for (const providerAccountId of providerAccountIds) {
-      for (const surface of surfaces) {
+      const requiredSurfaces = getMetaApplicableVerificationSurfaces({
+        day,
+        providerAccountId,
+        accountTimeZoneById,
+        requestedSurfaces: surfaces,
+      });
+      totalExpectedSlices += requiredSurfaces.length;
+      for (const surface of requiredSurfaces) {
         const key = `${providerAccountId}:${day}:${surface}`;
         const row = rowByKey.get(key);
         const isCurrentDay = isMetaCurrentAccountDay({
@@ -2008,9 +2095,8 @@ export async function getMetaPublishedVerificationSummary(input: {
     }
   }
 
-  const totalExpectedSlices = days.length * providerAccountIds.length * surfaces.length;
   const verificationState =
-    publishedSlices === totalExpectedSlices
+    totalExpectedSlices > 0 && publishedSlices === totalExpectedSlices
       ? "finalized_verified"
       : failed
         ? "failed"
@@ -2021,7 +2107,9 @@ export async function getMetaPublishedVerificationSummary(input: {
 
   return {
     verificationState,
-    truthReady: verificationState === "finalized_verified",
+    truthReady:
+      totalExpectedSlices > 0 &&
+      verificationState === "finalized_verified",
     totalDays: days.length,
     completedCoreDays,
     sourceFetchedAt,

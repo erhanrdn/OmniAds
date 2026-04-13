@@ -19,6 +19,7 @@ import {
   cancelObsoleteMetaCoreScopePartitions,
   cleanupMetaPartitionOrchestration,
   completeMetaPartitionAttempt,
+  createMetaAuthoritativeReconciliationEvent,
   createMetaSyncJob,
   createMetaSyncRun,
   expireStaleMetaSyncJobs,
@@ -59,6 +60,8 @@ import {
   upsertMetaSyncCheckpoint,
 } from "@/lib/meta/warehouse";
 import type {
+  MetaAuthoritativeDayStateRecord,
+  MetaAuthoritativeDayVerification,
   MetaDirtyRecentDateRow,
   MetaDirtyRecentReason,
   MetaDirtyRecentSeverity,
@@ -1014,13 +1017,32 @@ async function getNextMetaHistoricalAuthoritativeDay(input: {
 }) {
   const endDate = addUtcDays(input.referenceToday, -2);
   if (endDate < input.startDate) return null;
+  const finalizeDay = addUtcDays(input.referenceToday, -1);
   const dayStateRows = await listMetaAuthoritativeDayStates({
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
     startDay: input.startDate,
-    endDay: endDate,
+    endDay: finalizeDay,
   }).catch(() => []);
   const statesByDay = buildMetaAuthoritativeDayStateMap(dayStateRows);
+  const finalizeDayStates = statesByDay.get(finalizeDay) ?? null;
+  await seedMetaAuthoritativePlannerDayStates({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    day: finalizeDay,
+    referenceToday: input.referenceToday,
+    accountTimezone: input.accountTimezone,
+    existingStates: finalizeDayStates,
+  });
+  if (
+    !isMetaPlannerDayPublished({
+      day: finalizeDay,
+      referenceToday: input.referenceToday,
+      statesBySurface: finalizeDayStates,
+    })
+  ) {
+    return null;
+  }
   for (const day of enumerateDays(input.startDate, endDate, true)) {
     const existingStates = statesByDay.get(day) ?? null;
     await seedMetaAuthoritativePlannerDayStates({
@@ -1205,6 +1227,29 @@ function getMetaWorkerId() {
 }
 
 function classifyMetaError(error: unknown) {
+  if (error instanceof MetaAuthoritativeExecutorError) {
+    switch (error.classification) {
+      case "blocked":
+        return {
+          errorClass: "authoritative_blocked",
+          terminal: true,
+          retryDelayMinutes: 0,
+        };
+      case "repair_required":
+        return {
+          errorClass: "authoritative_repair_required",
+          terminal: false,
+          retryDelayMinutes: 3,
+        };
+      case "failed":
+      default:
+        return {
+          errorClass: "authoritative_failed",
+          terminal: false,
+          retryDelayMinutes: 5,
+        };
+    }
+  }
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   if (
@@ -1370,7 +1415,7 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
       startDate: input.startDate,
       endDate: input.endDate,
       providerAccountIds,
-      surfaces: ["account_daily", "campaign_daily"],
+      surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
     }).catch(() => null);
     if (verification) {
       return {
@@ -1538,6 +1583,10 @@ export function isMetaAuthoritativeHistoricalSource(source: string) {
     "manual_refresh",
     "recent",
     "recent_recovery",
+    "historical",
+    "historical_recovery",
+    "initial_connect",
+    "request_runtime",
   ]).has(source);
 }
 
@@ -1560,6 +1609,212 @@ export function resolveMetaTruthState(input: {
   return input.day === input.referenceToday ? "provisional" : "finalized";
 }
 
+type MetaPartitionDayResult = {
+  truthState: "provisional" | "finalized";
+  referenceToday: string;
+  beforeCoverage: Awaited<ReturnType<typeof getMetaDailyCoverageState>>;
+  afterCoverage: Awaited<ReturnType<typeof getMetaDailyCoverageState>>;
+  authoritative:
+    | {
+        verification: MetaAuthoritativeDayVerification;
+        plannerStates: MetaAuthoritativeDayStateRecord[];
+        requiredSurfaces: MetaWarehouseScope[];
+      }
+    | null;
+};
+
+type MetaPartitionProcessResult = {
+  outcome: "succeeded" | "failed" | "requeued";
+};
+
+class MetaAuthoritativeExecutorError extends Error {
+  constructor(
+    readonly classification: "failed" | "repair_required" | "blocked",
+    message: string,
+  ) {
+    super(message);
+    this.name = "MetaAuthoritativeExecutorError";
+  }
+}
+
+function buildMetaPlannerStateBySurface(
+  plannerStates: MetaAuthoritativeDayStateRecord[],
+) {
+  return new Map(
+    plannerStates.map((plannerState) => [plannerState.surface, plannerState]),
+  );
+}
+
+function describeMetaPlannerSurfaceStates(input: {
+  plannerStates: MetaAuthoritativeDayStateRecord[];
+  requiredSurfaces: MetaWarehouseScope[];
+}) {
+  const plannerStateBySurface = buildMetaPlannerStateBySurface(
+    input.plannerStates,
+  );
+  return input.requiredSurfaces
+    .map(
+      (surface) =>
+        `${surface}=${plannerStateBySurface.get(surface)?.state ?? "pending"}`,
+    )
+    .join(", ");
+}
+
+function getMetaAuthoritativePartitionOutcome(input: {
+  plannerStates: MetaAuthoritativeDayStateRecord[];
+  requiredSurfaces: MetaWarehouseScope[];
+  verification: MetaAuthoritativeDayVerification;
+}) {
+  const plannerStateBySurface = buildMetaPlannerStateBySurface(
+    input.plannerStates,
+  );
+  const requiredPlannerStates = input.requiredSurfaces.map((surface) => ({
+    surface,
+    state: plannerStateBySurface.get(surface)?.state ?? "pending",
+  }));
+  if (
+    requiredPlannerStates.length === 0 ||
+    requiredPlannerStates.every(
+      (plannerState) => plannerState.state === "published",
+    )
+  ) {
+    return {
+      outcome: "published" as const,
+      message: null,
+    };
+  }
+
+  const verificationSummary = [
+    `verification=${input.verification.verificationState}`,
+    `manifest=${input.verification.sourceManifestState}`,
+    `planner=${describeMetaPlannerSurfaceStates({
+      plannerStates: input.plannerStates,
+      requiredSurfaces: input.requiredSurfaces,
+    })}`,
+  ].join(", ");
+
+  if (
+    requiredPlannerStates.some((plannerState) => plannerState.state === "blocked")
+  ) {
+    return {
+      outcome: "blocked" as const,
+      message: `authoritative_publication_missing:${verificationSummary}`,
+    };
+  }
+  if (
+    requiredPlannerStates.some(
+      (plannerState) => plannerState.state === "repair_required",
+    )
+  ) {
+    return {
+      outcome: "repair_required" as const,
+      message: `authoritative_repair_required:${verificationSummary}`,
+    };
+  }
+  if (
+    requiredPlannerStates.some((plannerState) => plannerState.state === "failed")
+  ) {
+    return {
+      outcome: "failed" as const,
+      message: `authoritative_finalize_failed:${verificationSummary}`,
+    };
+  }
+  return {
+    outcome: "requeued" as const,
+    message: `authoritative_publication_pending:${verificationSummary}`,
+  };
+}
+
+async function recordMetaAuthoritativePublicationShortfall(input: {
+  authoritative: NonNullable<MetaPartitionDayResult["authoritative"]>;
+  message: string;
+  reason:
+    | "publication_pointer_missing_after_finalize"
+    | "authoritative_publication_repair_required";
+}) {
+  const plannerStateBySurface = buildMetaPlannerStateBySurface(
+    input.authoritative.plannerStates,
+  );
+  const verificationSurfaceById = new Map(
+    input.authoritative.verification.surfaces.map((surfaceState) => [
+      surfaceState.surface,
+      surfaceState,
+    ]),
+  );
+
+  await Promise.all(
+    input.authoritative.requiredSurfaces
+      .filter(
+        (surface) => plannerStateBySurface.get(surface)?.state !== "published",
+      )
+      .map((surface) => {
+        const surfaceVerification = verificationSurfaceById.get(surface) ?? null;
+        return createMetaAuthoritativeReconciliationEvent({
+          businessId: input.authoritative.verification.businessId,
+          providerAccountId:
+            input.authoritative.verification.providerAccountId,
+          day: input.authoritative.verification.day,
+          surface,
+          sliceVersionId: null,
+          manifestId: surfaceVerification?.manifest?.id ?? null,
+          eventKind: "publication_missing",
+          severity: "error",
+          sourceSpend: surfaceVerification?.manifest?.sourceSpend ?? null,
+          warehouseAccountSpend: null,
+          warehouseCampaignSpend: null,
+          toleranceApplied: null,
+          result: "repair_required",
+          detailsJson: {
+            reason: input.reason,
+            plannerState:
+              plannerStateBySurface.get(surface)?.state ?? "pending",
+            verificationState:
+              input.authoritative.verification.verificationState,
+            sourceManifestState:
+              input.authoritative.verification.sourceManifestState,
+            message: input.message,
+          },
+        }).catch(() => null);
+      }),
+  );
+}
+
+function getMetaRequeuePriority(input: {
+  lane: MetaSyncLane;
+  source: string;
+  priority?: number;
+}) {
+  if (typeof input.priority === "number" && Number.isFinite(input.priority)) {
+    return input.priority;
+  }
+  switch (input.source) {
+    case "priority_window":
+      return 90;
+    case "finalize_day":
+      return 80;
+    case "yesterday":
+      return 70;
+    case "repair_recent_day":
+      return 65;
+    case "today":
+    case "today_observe":
+      return 60;
+    case "recent_recovery":
+      return 55;
+    case "recent":
+      return 50;
+    case "manual_refresh":
+      return input.lane === "maintenance" ? 90 : 40;
+    case "historical_recovery":
+      return 25;
+    case "historical":
+    case "initial_connect":
+      return 20;
+    default:
+      return input.lane === "maintenance" ? 60 : 20;
+  }
+}
+
 async function syncMetaPartitionDay(input: {
   credentials: MetaCredentials;
   businessId: string;
@@ -1571,31 +1826,36 @@ async function syncMetaPartitionDay(input: {
   workerId: string;
   leaseEpoch: number;
   attemptCount: number;
-}) {
+}): Promise<MetaPartitionDayResult> {
   const normalizedDay = normalizeMetaPartitionDate(input.day);
   const credentials = input.credentials;
   if (!credentials?.accountIds?.length) {
     throw new Error("Meta credentials are not available for this business.");
   }
   const assignedAccountIds = credentials.accountIds;
+  const referenceToday = getMetaReferenceToday(credentials);
   const coverageState = await getMetaDailyCoverageState({
     ...buildMetaDailyCoverageLookup({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       day: normalizedDay,
     }),
-    referenceToday: getMetaReferenceToday(credentials),
+    referenceToday,
   });
   const beforeCoverage = coverageState;
-  const sourceTodayWindow = normalizedDay === getMetaReferenceToday(credentials);
+  const sourceTodayWindow = normalizedDay === referenceToday;
   const truthState = resolveMetaTruthState({
     day: normalizedDay,
-    referenceToday: getMetaReferenceToday(credentials),
+    referenceToday,
   });
   const shouldSyncBreakdowns = shouldSyncMetaBreakdownsForDay({
     day: normalizedDay,
-    referenceToday: getMetaReferenceToday(credentials),
+    referenceToday,
     truthState,
+  });
+  const requiredPublishedSurfaces = getMetaPlannerRequiredPublishedSurfacesForDay({
+    day: normalizedDay,
+    referenceToday,
   });
   const freshStart =
     truthState === "finalized" &&
@@ -1667,7 +1927,7 @@ async function syncMetaPartitionDay(input: {
             publishAuthoritativeSurface:
               breakdownJob.endpointName ===
               "breakdown_publisher_platform,platform_position,impression_device",
-            referenceToday: getMetaReferenceToday(credentials),
+            referenceToday,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           });
         } catch (error) {
@@ -1725,8 +1985,7 @@ async function syncMetaPartitionDay(input: {
         assignedAccountIds,
         sourceRunId: input.partitionId,
         mediaMode:
-          input.day >=
-          getCreativeMediaRetentionStart(getMetaReferenceToday(credentials))
+          input.day >= getCreativeMediaRetentionStart(referenceToday)
             ? "full"
             : "metadata",
       });
@@ -1739,7 +1998,7 @@ async function syncMetaPartitionDay(input: {
       providerAccountId: input.providerAccountId,
       day: normalizedDay,
     }),
-    referenceToday: getMetaReferenceToday(credentials),
+    referenceToday,
   });
 
   if (
@@ -1750,21 +2009,54 @@ async function syncMetaPartitionDay(input: {
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       day: normalizedDay,
-    }).catch(() => null);
-    if (verification) {
+    });
+    const plannerStates =
       await reconcileMetaAuthoritativeDayStateFromVerification({
         verification,
         accountTimezone:
           credentials.accountProfiles?.[input.providerAccountId]?.timezone ??
           "UTC",
         activePartitionIdBySurface: Object.fromEntries(
-          getMetaPlannerRequiredPublishedSurfacesForDay({
-            day: normalizedDay,
-            referenceToday: getMetaReferenceToday(credentials),
-          }).map((surface) => [surface, input.partitionId]),
+          requiredPublishedSurfaces.map((surface) => [surface, input.partitionId]),
         ),
-      }).catch(() => null);
-    }
+      });
+    console.info("[meta-sync] partition_authoritative_verification", {
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      partitionDate: normalizedDay,
+      source: input.source,
+      verificationState: verification.verificationState,
+      sourceManifestState: verification.sourceManifestState,
+      requiredPublishedSurfaces,
+      plannerStates: plannerStates.map((plannerState) => ({
+        surface: plannerState.surface,
+        state: plannerState.state,
+      })),
+    });
+    console.info("[meta-sync] partition_day_result", {
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      partitionDate: normalizedDay,
+      scopes: input.scopes,
+      sourceTodayWindow,
+      truthState,
+      source: input.source,
+      productCoreCompleteBefore: beforeCoverage.productCoreComplete,
+      productCoreCompleteAfter: afterCoverage.productCoreComplete,
+      creativesCompleteBefore: beforeCoverage.creativesComplete,
+      creativesCompleteAfter: afterCoverage.creativesComplete,
+    });
+    return {
+      truthState,
+      referenceToday,
+      beforeCoverage,
+      afterCoverage,
+      authoritative: {
+        verification,
+        plannerStates,
+        requiredSurfaces: requiredPublishedSurfaces,
+      },
+    };
   }
 
   console.info("[meta-sync] partition_day_result", {
@@ -1780,6 +2072,13 @@ async function syncMetaPartitionDay(input: {
     creativesCompleteBefore: beforeCoverage.creativesComplete,
     creativesCompleteAfter: afterCoverage.creativesComplete,
   });
+  return {
+    truthState,
+    referenceToday,
+    beforeCoverage,
+    afterCoverage,
+    authoritative: null,
+  };
 }
 
 function logMetaRunObservability(input: {
@@ -2604,6 +2903,157 @@ async function cancelDeprecatedMetaPartition(input: {
   return true;
 }
 
+async function requeueMetaPartitionWithoutSuccess(input: {
+  partition: {
+    id: string;
+    businessId: string;
+    providerAccountId: string;
+    lane: MetaSyncLane;
+    scope: MetaWarehouseScope;
+    partitionDate: string;
+    attemptCount: number;
+    leaseEpoch: number;
+    source: string;
+    priority?: number;
+  };
+  workerId: string;
+  runId: string | null;
+  recoveredRunId?: string | null;
+  startedAtMs: number;
+  reason: string;
+}) {
+  const finishedAt = new Date().toISOString();
+  logMetaRunObservability({
+    event: "completion_attempt_started",
+    partitionId: input.partition.id,
+    runId: input.runId,
+    recoveredRunId: input.recoveredRunId ?? null,
+    workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
+    lane: input.partition.lane,
+    scope: input.partition.scope,
+    partitionStatus: "cancelled",
+    runStatusBefore: "running",
+    runStatusAfter: "cancelled",
+    pathKind: "primary",
+  });
+  const completionHeartbeatOk = await heartbeatMetaPartitionBeforeCompletion({
+    partitionId: input.partition.id,
+    workerId: input.workerId,
+    leaseEpoch: input.partition.leaseEpoch,
+    leaseMinutes: META_PARTITION_LEASE_MINUTES,
+  });
+  if (!completionHeartbeatOk.ok) {
+    if (input.runId) {
+      await updateMetaSyncRun({
+        id: input.runId,
+        status: "failed",
+        durationMs: Date.now() - input.startedAtMs,
+        errorClass: "lease_conflict",
+        errorMessage:
+          "partition lost ownership before non-terminal authoritative requeue",
+        finishedAt,
+        onlyIfCurrentStatus: "running",
+      }).catch(() => null);
+    }
+    return { outcome: "failed" } satisfies MetaPartitionProcessResult;
+  }
+
+  let completion;
+  try {
+    completion = await completeMetaPartitionAttempt({
+      partitionId: input.partition.id,
+      workerId: input.workerId,
+      leaseEpoch: input.partition.leaseEpoch,
+      runId: input.runId,
+      partitionStatus: "cancelled",
+      runStatus: "cancelled",
+      durationMs: Date.now() - input.startedAtMs,
+      finishedAt,
+      lastError: input.reason,
+      lane: input.partition.lane,
+      scope: input.partition.scope,
+      observabilityPath: "primary",
+      recoveredRunId: input.recoveredRunId ?? null,
+    });
+  } catch (error) {
+    if (input.runId) {
+      await updateMetaSyncRun({
+        id: input.runId,
+        status: "failed",
+        durationMs: Date.now() - input.startedAtMs,
+        errorClass: "operational",
+        errorMessage: error instanceof Error ? error.message : String(error),
+        finishedAt,
+        onlyIfCurrentStatus: "running",
+      }).catch(() => null);
+    }
+    return { outcome: "failed" } satisfies MetaPartitionProcessResult;
+  }
+  if (!completion.ok) {
+    if (input.runId) {
+      await updateMetaSyncRun({
+        id: input.runId,
+        status: "failed",
+        durationMs: Date.now() - input.startedAtMs,
+        errorClass: "lease_conflict",
+        errorMessage:
+          "partition lost ownership before non-terminal authoritative requeue",
+        finishedAt,
+        onlyIfCurrentStatus: "running",
+      }).catch(() => null);
+    }
+    return { outcome: "failed" } satisfies MetaPartitionProcessResult;
+  }
+  if (!completion.runUpdated) {
+    await backfillMetaRunTerminalState({
+      runId: input.runId,
+      recoveredRunId: input.recoveredRunId ?? null,
+      startedAtMs: input.startedAtMs,
+      status: "cancelled",
+      finishedAt,
+      context: {
+        partitionId: input.partition.id,
+        workerId: input.workerId,
+        leaseEpoch: input.partition.leaseEpoch,
+        lane: input.partition.lane,
+        scope: input.partition.scope,
+      },
+    });
+  }
+
+  const requeued = await queueMetaSyncPartition({
+    businessId: input.partition.businessId,
+    providerAccountId: input.partition.providerAccountId,
+    lane: input.partition.lane,
+    scope: input.partition.scope,
+    partitionDate: input.partition.partitionDate,
+    status: "queued",
+    priority: getMetaRequeuePriority({
+      lane: input.partition.lane,
+      source: input.partition.source,
+      priority: input.partition.priority,
+    }),
+    source: input.partition.source,
+    attemptCount: input.partition.attemptCount,
+  }).catch(() => null);
+
+  console.info("[meta-sync] partition_requeued_without_success", {
+    businessId: input.partition.businessId,
+    partitionId: input.partition.id,
+    workerId: input.workerId,
+    scope: input.partition.scope,
+    partitionDate: input.partition.partitionDate,
+    source: input.partition.source,
+    reason: input.reason,
+    requeued: requeued?.status === "queued",
+  });
+
+  return requeued?.status === "queued"
+    ? ({ outcome: "requeued" } satisfies MetaPartitionProcessResult)
+    : ({ outcome: "failed" } satisfies MetaPartitionProcessResult);
+}
+
 async function processMetaPartition(input: {
   credentials: MetaCredentials;
   partition: {
@@ -2613,14 +3063,15 @@ async function processMetaPartition(input: {
     lane: MetaSyncLane;
     scope: MetaWarehouseScope;
     partitionDate: string;
+    priority?: number;
     attemptCount: number;
     leaseEpoch: number;
     source: string;
   };
   workerId: string;
-}) {
+}): Promise<MetaPartitionProcessResult> {
   const partitionId = input.partition.id;
-  if (!partitionId) return false;
+  if (!partitionId) return { outcome: "failed" };
   const markRunningOk = await markMetaPartitionRunning({
     partitionId,
     workerId: input.workerId,
@@ -2635,7 +3086,7 @@ async function processMetaPartition(input: {
       scope: input.partition.scope,
       partitionDate: input.partition.partitionDate,
     });
-    return false;
+    return { outcome: "failed" };
   }
   const startedAt = Date.now();
   const createdRunId = await createMetaSyncRun({
@@ -2708,7 +3159,7 @@ async function processMetaPartition(input: {
     input.partition.scope,
   );
   if (deprecatedScopeReason) {
-    return cancelDeprecatedMetaPartition({
+    return (await cancelDeprecatedMetaPartition({
       partition: {
         id: partitionId,
         businessId: input.partition.businessId,
@@ -2725,7 +3176,9 @@ async function processMetaPartition(input: {
       recoveredRunId,
       startedAtMs: startedAt,
       reason: deprecatedScopeReason,
-    });
+    }))
+      ? ({ outcome: "succeeded" } satisfies MetaPartitionProcessResult)
+      : ({ outcome: "failed" } satisfies MetaPartitionProcessResult);
   }
 
   try {
@@ -2741,7 +3194,7 @@ async function processMetaPartition(input: {
       input.partition.lane === "core" || input.partition.lane === "maintenance"
         ? META_CORE_SCOPES
         : [input.partition.scope];
-    await syncMetaPartitionDay({
+    const partitionDayResult = await syncMetaPartitionDay({
       credentials: input.credentials,
       businessId: input.partition.businessId,
       providerAccountId: input.partition.providerAccountId,
@@ -2753,6 +3206,62 @@ async function processMetaPartition(input: {
       leaseEpoch: input.partition.leaseEpoch,
       attemptCount: input.partition.attemptCount,
     });
+    const authoritativeOutcome = partitionDayResult.authoritative
+      ? getMetaAuthoritativePartitionOutcome({
+          plannerStates: partitionDayResult.authoritative.plannerStates,
+          requiredSurfaces: partitionDayResult.authoritative.requiredSurfaces,
+          verification: partitionDayResult.authoritative.verification,
+        })
+      : { outcome: "published" as const, message: null };
+
+    if (authoritativeOutcome.outcome === "requeued") {
+      return requeueMetaPartitionWithoutSuccess({
+        partition: {
+          id: partitionId,
+          businessId: input.partition.businessId,
+          providerAccountId: input.partition.providerAccountId,
+          lane: input.partition.lane,
+          scope: input.partition.scope,
+          partitionDate: input.partition.partitionDate,
+          priority: input.partition.priority,
+          attemptCount: input.partition.attemptCount,
+          leaseEpoch: input.partition.leaseEpoch,
+          source: input.partition.source,
+        },
+        workerId: input.workerId,
+        runId,
+        recoveredRunId,
+        startedAtMs: startedAt,
+        reason: authoritativeOutcome.message ?? "authoritative_publication_pending",
+      });
+    }
+    if (
+      partitionDayResult.authoritative &&
+      (authoritativeOutcome.outcome === "blocked" ||
+        authoritativeOutcome.outcome === "repair_required")
+    ) {
+      await recordMetaAuthoritativePublicationShortfall({
+        authoritative: partitionDayResult.authoritative,
+        message:
+          authoritativeOutcome.message ??
+          "authoritative_publication_missing",
+        reason:
+          authoritativeOutcome.outcome === "blocked"
+            ? "publication_pointer_missing_after_finalize"
+            : "authoritative_publication_repair_required",
+      });
+    }
+    if (
+      authoritativeOutcome.outcome === "blocked" ||
+      authoritativeOutcome.outcome === "repair_required" ||
+      authoritativeOutcome.outcome === "failed"
+    ) {
+      throw new MetaAuthoritativeExecutorError(
+        authoritativeOutcome.outcome,
+        authoritativeOutcome.message ??
+          "authoritative_executor_completion_denied",
+      );
+    }
     try {
       const completionHeartbeat = await heartbeatMetaPartitionBeforeCompletion({
         partitionId,
@@ -2800,7 +3309,7 @@ async function processMetaPartition(input: {
               scope: input.partition.scope,
             },
           });
-          return true;
+          return { outcome: "succeeded" };
         }
         if (runId) {
           await updateMetaSyncRun({
@@ -2813,7 +3322,7 @@ async function processMetaPartition(input: {
             onlyIfCurrentStatus: "running",
           }).catch(() => null);
         }
-        return false;
+        return { outcome: "failed" };
       }
       logMetaRunObservability({
         event: "completion_attempt_started",
@@ -2883,7 +3392,7 @@ async function processMetaPartition(input: {
               scope: input.partition.scope,
             },
           });
-          return true;
+          return { outcome: "succeeded" };
         }
         if (runId) {
           await updateMetaSyncRun({
@@ -2896,7 +3405,7 @@ async function processMetaPartition(input: {
             onlyIfCurrentStatus: "running",
           }).catch(() => null);
         }
-        return false;
+        return { outcome: "failed" };
       }
       if (!completed.runUpdated) {
         await backfillMetaRunTerminalState({
@@ -2964,7 +3473,7 @@ async function processMetaPartition(input: {
         targetDate: input.partition.partitionDate,
       }).catch(() => null);
     }
-    return true;
+    return { outcome: "succeeded" };
   } catch (error) {
     const classified = classifyMetaError(error);
     const message = error instanceof Error ? error.message : String(error);
@@ -3090,7 +3599,7 @@ async function processMetaPartition(input: {
       errorClass: classified.errorClass,
       message,
     });
-    return false;
+    return { outcome: "failed" };
   }
 }
 
@@ -3114,11 +3623,12 @@ export async function processMetaLifecyclePartition(input: {
   if (!credentials) {
     throw new Error("meta_credentials_unavailable");
   }
-  return processMetaPartition({
+  const result = await processMetaPartition({
     credentials,
     partition: input.partition,
     workerId: input.workerId,
   });
+  return result.outcome !== "failed";
 }
 
 export async function consumeMetaQueuedWork(
@@ -3437,7 +3947,7 @@ export async function consumeMetaQueuedWork(
         failed += 1;
         break;
       }
-      const ok = await processMetaPartition({
+      const result = await processMetaPartition({
         credentials,
         partition: {
           id: partition.id,
@@ -3446,14 +3956,15 @@ export async function consumeMetaQueuedWork(
           lane: partition.lane,
           scope: partition.scope,
           partitionDate: partition.partitionDate,
+          priority: partition.priority,
           attemptCount: partition.attemptCount,
           leaseEpoch: partition.leaseEpoch ?? 0,
           source: partition.source,
         },
         workerId,
       });
-      if (ok) succeeded += 1;
-      else failed += 1;
+      if (result.outcome === "succeeded") succeeded += 1;
+      else if (result.outcome === "failed") failed += 1;
     }
 
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(

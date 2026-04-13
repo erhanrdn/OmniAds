@@ -21,9 +21,11 @@ vi.mock("@/lib/meta/warehouse", async () => {
     cleanupMetaPartitionOrchestration: vi.fn(),
     completeMetaPartitionAttempt: vi.fn(),
     completeMetaPartition: vi.fn(),
+    createMetaAuthoritativeReconciliationEvent: vi.fn(),
     createMetaSyncJob: vi.fn(),
     createMetaSyncRun: vi.fn(),
     expireStaleMetaSyncJobs: vi.fn(),
+    getMetaAuthoritativeDayVerification: vi.fn(),
     getMetaPartitionCompletionDenialSnapshot: vi.fn(),
     getLatestMetaCheckpointForPartition: vi.fn(),
     getLatestRunningMetaSyncRunIdForPartition: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
     getMetaCreativeDailyCoverage: vi.fn(),
     getMetaIncompleteCoreDates: vi.fn(),
     getMetaPartitionStatesForDate: vi.fn(),
+    getMetaPublishedVerificationSummary: vi.fn(),
     getMetaQueueComposition: vi.fn(),
     getMetaPartitionHealth: vi.fn(),
     getMetaQueueHealth: vi.fn(),
@@ -45,6 +48,7 @@ vi.mock("@/lib/meta/warehouse", async () => {
     leaseMetaSyncPartitions: vi.fn(),
     markMetaPartitionRunning: vi.fn(),
     queueMetaSyncPartition: vi.fn(),
+    reconcileMetaAuthoritativeDayStateFromVerification: vi.fn(),
     replayMetaDeadLetterPartitions: vi.fn(),
     requeueMetaRetryableFailedPartitions: vi.fn(),
     updateMetaSyncJob: vi.fn(),
@@ -58,9 +62,42 @@ const apiMeta = await import("@/lib/api/meta");
 const warehouse = await import("@/lib/meta/warehouse");
 const { processMetaLifecyclePartition } = await import("@/lib/sync/meta-sync");
 
+function buildPublishedPlannerStates(day: string) {
+  return [
+    "account_daily",
+    "campaign_daily",
+    "adset_daily",
+    "ad_daily",
+    "breakdown_daily",
+  ].map(
+    (surface) =>
+      ({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        day,
+        surface,
+        state: "published",
+        accountTimezone: "UTC",
+        lastRunId: "run-1",
+        lastManifestId: `manifest-${surface}`,
+        lastPublicationPointerId: `publication-${surface}`,
+        publishedAt: "2026-04-04T00:05:00.000Z",
+        retryAfterAt: null,
+        failureStreak: 0,
+        diagnosisCode: null,
+        diagnosisDetailJson: {},
+        lastStartedAt: "2026-04-04T00:00:00.000Z",
+        lastFinishedAt: "2026-04-04T00:05:00.000Z",
+        lastAutohealAt: null,
+        autohealCount: 0,
+      }) as never,
+  );
+}
+
 describe("processMetaLifecyclePartition lease epoch", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    delete process.env.META_AUTHORITATIVE_FINALIZATION_V2;
     vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
       businessId: "biz-1",
       accessToken: "token-1",
@@ -101,6 +138,99 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       latest_updated_at: null,
       ready_through_date: null,
     } as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "finalized_verified",
+      truthReady: true,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-04-04T00:05:00.000Z",
+      publishedAt: "2026-04-04T00:05:00.000Z",
+      asOf: "2026-04-04T00:05:00.000Z",
+      publishedSlices: 5,
+      totalExpectedSlices: 5,
+      reasonCounts: {},
+      publishedKeysBySurface: {},
+    } as never);
+    vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockResolvedValue({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      day: "2026-04-03",
+      verificationState: "finalized_verified",
+      sourceManifestState: "completed",
+      validationState: "passed",
+      activePublication: {
+        id: "publication-1",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        day: "2026-04-03",
+        pointerKind: "validation_basis",
+        pointerValue: "validation-basis-1",
+        manifestIds: ["manifest-account_daily"],
+        validationStatus: "passed",
+        verificationState: "finalized_verified",
+        createdAt: "2026-04-04T00:05:00.000Z",
+      },
+      surfaces: [
+        "account_daily",
+        "campaign_daily",
+        "adset_daily",
+        "ad_daily",
+        "breakdown_daily",
+      ].map(
+        (surface) =>
+          ({
+            surface,
+            manifest: {
+              id: `manifest-${surface}`,
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day: "2026-04-03",
+              surface,
+              accountTimezone: "UTC",
+              sourceKind: "recent_recovery",
+              sourceWindowKind: "historical",
+              runId: "run-1",
+              fetchStatus: "completed",
+              freshStartApplied: true,
+              checkpointResetApplied: false,
+              rawSnapshotWatermark: "run-1",
+              sourceSpend: 10,
+              validationBasisVersion: "meta-authoritative-finalization-v2",
+              metaJson: {},
+              startedAt: "2026-04-04T00:00:00.000Z",
+              completedAt: "2026-04-04T00:05:00.000Z",
+              createdAt: "2026-04-04T00:00:00.000Z",
+              updatedAt: "2026-04-04T00:05:00.000Z",
+            },
+            publication: {
+              id: `publication-${surface}`,
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day: "2026-04-03",
+              surface,
+              status: "published",
+              validationStatus: "passed",
+              pointerKind: "validation_basis",
+              pointerValue: `validation-${surface}`,
+              manifestId: `manifest-${surface}`,
+              publishedAt: "2026-04-04T00:05:00.000Z",
+              createdAt: "2026-04-04T00:05:00.000Z",
+            },
+          }) as never,
+      ),
+      lastFailure: null,
+      repairBacklog: 0,
+      deadLetters: 0,
+      staleLeases: 0,
+      queuedPartitions: 0,
+      leasedPartitions: 0,
+    } as never);
+    vi.mocked(
+      warehouse.reconcileMetaAuthoritativeDayStateFromVerification,
+    ).mockResolvedValue(buildPublishedPlannerStates("2026-04-03") as never);
+    vi.mocked(
+      warehouse.createMetaAuthoritativeReconciliationEvent,
+    ).mockResolvedValue(null as never);
     vi.mocked(warehouse.markMetaPartitionRunning).mockResolvedValue(true);
     vi.mocked(warehouse.createMetaSyncRun).mockResolvedValue("run-1");
     vi.mocked(warehouse.heartbeatMetaPartitionLease).mockResolvedValue(true);
@@ -566,6 +696,219 @@ describe("processMetaLifecyclePartition lease epoch", () => {
         finishedAt: expect.any(String),
         onlyIfCurrentStatus: "running",
       })
+    );
+  });
+
+  it("dead-letters authoritative finalize attempts when required publications are still missing", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockResolvedValue({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      day: "2026-04-03",
+      verificationState: "processing",
+      sourceManifestState: "completed",
+      validationState: "processing",
+      activePublication: null,
+      surfaces: [
+        "account_daily",
+        "campaign_daily",
+        "adset_daily",
+        "ad_daily",
+        "breakdown_daily",
+      ].map(
+        (surface) =>
+          ({
+            surface,
+            manifest: {
+              id: `manifest-${surface}`,
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day: "2026-04-03",
+              surface,
+              accountTimezone: "UTC",
+              sourceKind: "historical_recovery",
+              sourceWindowKind: "historical",
+              runId: "run-1",
+              fetchStatus: "completed",
+              freshStartApplied: true,
+              checkpointResetApplied: false,
+              rawSnapshotWatermark: "run-1",
+              sourceSpend: 10,
+              validationBasisVersion: "meta-authoritative-finalization-v2",
+              metaJson: {},
+              startedAt: "2026-04-04T00:00:00.000Z",
+              completedAt: "2026-04-04T00:05:00.000Z",
+              createdAt: "2026-04-04T00:00:00.000Z",
+              updatedAt: "2026-04-04T00:05:00.000Z",
+            },
+            publication: null,
+          }) as never,
+      ),
+      lastFailure: null,
+      repairBacklog: 0,
+      deadLetters: 0,
+      staleLeases: 0,
+      queuedPartitions: 0,
+      leasedPartitions: 0,
+    } as never);
+    vi.mocked(
+      warehouse.reconcileMetaAuthoritativeDayStateFromVerification,
+    ).mockResolvedValue(
+      [
+        "account_daily",
+        "campaign_daily",
+        "adset_daily",
+        "ad_daily",
+        "breakdown_daily",
+      ].map(
+        (surface) =>
+          ({
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            day: "2026-04-03",
+            surface,
+            state: "blocked",
+            accountTimezone: "UTC",
+            activePartitionId: null,
+            lastRunId: "run-1",
+            lastManifestId: `manifest-${surface}`,
+            lastPublicationPointerId: null,
+            publishedAt: null,
+            retryAfterAt: "2026-04-04T00:05:00.000Z",
+            failureStreak: 1,
+            diagnosisCode: "publication_pointer_missing",
+            diagnosisDetailJson: {},
+            lastStartedAt: "2026-04-04T00:00:00.000Z",
+            lastFinishedAt: "2026-04-04T00:05:00.000Z",
+            lastAutohealAt: null,
+            autohealCount: 0,
+          }) as never,
+      ),
+    );
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-missing-publish",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "maintenance",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 1,
+        leaseEpoch: 24,
+        source: "historical_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(false);
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-missing-publish",
+        partitionStatus: "dead_letter",
+        runStatus: "failed",
+        errorClass: "authoritative_blocked",
+        errorMessage: expect.stringContaining(
+          "authoritative_publication_missing",
+        ),
+      }),
+    );
+    expect(
+      warehouse.createMetaAuthoritativeReconciliationEvent,
+    ).toHaveBeenCalled();
+  });
+
+  it("requeues authoritative partitions that return without published planner progress", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockResolvedValue({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      day: "2026-04-03",
+      verificationState: "processing",
+      sourceManifestState: "missing",
+      validationState: "processing",
+      activePublication: null,
+      surfaces: [
+        "account_daily",
+        "campaign_daily",
+        "adset_daily",
+        "ad_daily",
+        "breakdown_daily",
+      ].map(
+        (surface) =>
+          ({
+            surface,
+            manifest: null,
+            publication: null,
+          }) as never,
+      ),
+      lastFailure: null,
+      repairBacklog: 0,
+      deadLetters: 0,
+      staleLeases: 0,
+      queuedPartitions: 0,
+      leasedPartitions: 0,
+    } as never);
+    vi.mocked(
+      warehouse.reconcileMetaAuthoritativeDayStateFromVerification,
+    ).mockResolvedValue(
+      [
+        "account_daily",
+        "campaign_daily",
+        "adset_daily",
+        "ad_daily",
+        "breakdown_daily",
+      ].map(
+        (surface) =>
+          ({
+            businessId: "biz-1",
+            providerAccountId: "act_1",
+            day: "2026-04-03",
+            surface,
+            state: "pending",
+            accountTimezone: "UTC",
+          }) as never,
+      ),
+    );
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-no-progress",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "core",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 2,
+        leaseEpoch: 25,
+        source: "historical",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(warehouse.completeMetaPartitionAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-no-progress",
+        partitionStatus: "cancelled",
+        runStatus: "cancelled",
+      }),
+    );
+    expect(warehouse.completeMetaPartitionAttempt).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionStatus: "succeeded",
+      }),
+    );
+    expect(warehouse.queueMetaSyncPartition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "core",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        status: "queued",
+        source: "historical",
+      }),
     );
   });
 
