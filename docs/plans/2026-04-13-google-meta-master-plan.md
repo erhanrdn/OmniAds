@@ -54,9 +54,14 @@
 ### Completed In This Commit
 
 3. Google search-term cutover
-   - `search-intelligence` and `search terms` serving now read canonical hot support rows from `google_ads_search_query_hot_daily`.
-   - advisor historical support no longer depends on long-history `google_ads_search_term_daily` reads.
-   - Google status/reporting surfaces now report `search_term_daily` posture as a `120` day hot window instead of implied long-history coverage.
+   - raw `google_ads_search_term_daily` is no longer treated as an implicit long-history intelligence source.
+   - raw search-term inspection now remains explicitly hot-window-limited to `120` days.
+   - `search-intelligence` serving now reads the additive intelligence layer:
+     - hot query rows from `google_ads_search_query_hot_daily`
+     - weekly query fallback from `google_ads_top_query_weekly`
+     - semantic cluster support from `google_ads_search_cluster_daily`
+   - Google status and advisor-support coverage now read additive search-intelligence coverage instead of raw `google_ads_search_term_daily` coverage.
+   - advisor historical support remains aggregate-backed and no longer carries any raw two-year search-term assumption.
 
 5. Meta read-path separation
    - current-day `summary`, `campaigns`, and `adsets` are live-only and do not fall back to warehouse truth on empty/error responses.
@@ -94,44 +99,39 @@
 
 - Targeted regression suite passed:
   - `lib/google-ads/search-serving-hot-window.test.ts`
-  - `lib/meta/adsets-source.test.ts`
   - `lib/google-ads/search-intelligence-storage.test.ts`
+  - `lib/google-ads/advisor-aggregate-intelligence.test.ts`
   - `app/api/google-ads/status/route.test.ts`
-  - `lib/meta/canonical-overview.test.ts`
-  - `app/api/meta/summary/route.test.ts`
-  - `app/api/meta/campaigns/route.test.ts`
-  - `app/api/meta/status/route.test.ts`
-  - `lib/meta/serving.test.ts`
-  - `lib/sync/meta-sync-scheduled-work.test.ts`
-  - `lib/overview-service.test.ts`
-- Result: `11` files, `69` tests passed.
+- Result: `4` files, `18` tests passed.
 - TypeScript verification passed: `npx tsc --noEmit --pretty false`
 
 ## Remaining Risks
 
 - Google retention execute mode is still intentionally off; a dedicated Phase 4 PR must prove there is no remaining `>120d` dependency on `google_ads_search_term_daily` before any canary delete runs.
+- The raw `/api/google-ads/search-terms` surface is intentionally still a `120` day hot/debug surface and is not a long-horizon intelligence API.
+- Search-intelligence serving now reads additive storage, but Phase 4 still needs delete-safe observability and canary proof before retention enforcement is allowed to touch old raw rows.
 - Meta planner state now influences scheduling, but executor success and completion semantics are not yet fully enforced by publication pointers.
 - Meta detector and auto-heal semantics are not upgraded yet; missing publication and blocked/config-mismatch flows still need first-class detector coverage.
 - Legacy compat helpers and row-presence assumptions may still exist outside the touched read/status paths and should not be cleaned up until planner authority is complete.
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: Meta Phase 6 and 7 cutover, limited to planner authority and executor completion semantics.
+- Next recommended PR: Google Phase 4 retention enforcement dry-run/canary rollout.
 - Required scope:
-  - make `meta_authoritative_day_state` the canonical source for enqueue decisions
-  - require publication-pointer-backed completion before a day can be considered published/successful
-  - turn publication-less finalize outcomes into `repair_required` or `blocked`
-  - keep current-day live-only and horizon contracts unchanged
-  - keep both retention workers in dry-run mode
-- Do not include detector/auto-heal rollout or retention execution in that PR.
+  - prove there is no remaining `>120d` serving, advisor, or status dependency on `google_ads_search_term_daily`
+  - keep `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` disabled by default
+  - add dry-run observability and explicit canary verification for raw search-term retention deletes
+  - verify `google_ads_search_query_hot_daily`, `google_ads_top_query_weekly`, and `google_ads_search_cluster_daily` remain sufficient after old raw rows are absent
+  - keep Meta work out of the PR
+- Intentionally deferred from Phase 3:
+  - destructive retention execution
+  - archival/cold export strategy for raw payloads
+  - broad legacy cleanup outside the touched Google search-intelligence paths
 
 ### Next Recommended Prompt
 
-1. Promote `meta_authoritative_day_state` from scheduling hint to scheduler authority.
-2. Replace remaining published-verification scan decisions with planner-state-based enqueue decisions.
-3. Enforce `D-1 -> D-2 -> D-3` publish gating end to end, including worker success/finalize paths.
-4. Treat finalize success without a publication pointer as `repair_required` or `blocked`, never complete.
-5. Keep current-day Meta reads live-only and keep horizon fallback behavior unchanged.
-6. Do not enable `META_RETENTION_EXECUTION_ENABLED`.
-7. Do not start Meta detector/auto-heal rollout in the same change.
-8. Add targeted tests for planner authority, publication-gated success, and broken finalize outcomes.
+1. Keep `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` disabled by default.
+2. Prove Google search intelligence, advisor support, and status remain correct when `google_ads_search_term_daily` contains only the most recent `120` days.
+3. Add dry-run retention observability and a canary verification path for raw search-term cleanup.
+4. Do not change Meta behavior in the same PR.
+5. Add targeted tests around delete safety, canary posture, and post-retention search-intelligence correctness.

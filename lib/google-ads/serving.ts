@@ -20,17 +20,20 @@ import {
 } from "@/lib/google-ads-intelligence";
 import { buildGoogleGrowthAdvisor } from "@/lib/google-ads/growth-advisor";
 import { decorateAdvisorRecommendationsForExecution } from "@/lib/google-ads/advisor-handoff";
+import { summarizeGoogleAdsAdvisorAggregateIntelligence } from "@/lib/google-ads/advisor-aggregate-intelligence";
 import { buildActionClusters } from "@/lib/google-ads/action-clusters";
 import { annotateAdvisorMemory, getAdvisorExecutionCalibration } from "@/lib/google-ads/advisor-memory";
 import { loadGoogleAdsAdvisorAggregateIntelligence } from "@/lib/google-ads/advisor-aggregate-intelligence";
 import { buildGoogleAdsOpportunityEngine, type GoogleAdsOpportunity } from "@/lib/google-ads/opportunity-engine";
 import { buildCrossEntityIntelligence } from "@/lib/google-ads/cross-entity-intelligence";
 import type {
+  GoogleAdvisorAggregateClusterSupport,
   GoogleAdvisorAggregateIntelligence,
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorMetadata,
   GoogleAdvisorResponse,
   GoogleRecommendation,
+  GoogleAdvisorAggregateWeeklyQuerySupport,
 } from "@/lib/google-ads/growth-advisor-types";
 import {
   analyzeAssetGroups,
@@ -62,6 +65,7 @@ import {
   normalizeGoogleAdsQueryText,
   readGoogleAdsSearchClusterDailyRows,
   readGoogleAdsSearchQueryHotDailySupportRows,
+  readGoogleAdsTopQueryWeeklyRows,
 } from "@/lib/google-ads/search-intelligence-storage";
 import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 import type {
@@ -1653,6 +1657,213 @@ function resolveGoogleAdsSearchHotWindow(input: {
   };
 }
 
+function isoWeekStart(date: string) {
+  const value = new Date(`${date}T00:00:00Z`);
+  const day = value.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  value.setUTCDate(value.getUTCDate() + diff);
+  return value.toISOString().slice(0, 10);
+}
+
+function buildSearchIntelligenceRowsFromWeeklySupport(input: {
+  rows: GoogleAdvisorAggregateWeeklyQuerySupport[];
+  keywordSet: Set<string>;
+  productTerms: string[];
+}) {
+  return input.rows.map((row) => {
+    const searchTerm = String(row.displayQuery || row.normalizedQuery).trim();
+    const normalizedQuery = normalizeGoogleAdsQueryText(searchTerm);
+    const spend = Number(row.totalSpend.toFixed(2));
+    const revenue = Number(row.totalRevenue.toFixed(2));
+    const conversions = Number(row.totalConversions.toFixed(2));
+    const clicks = Math.round(row.totalClicks);
+    const roas = spend > 0 ? Number((revenue / spend).toFixed(2)) : 0;
+    const cpa =
+      conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0;
+    const cpc = clicks > 0 ? Number((spend / clicks).toFixed(2)) : null;
+    const keywordOpportunityFlag =
+      !input.keywordSet.has(normalizedQuery) && conversions >= 2;
+    const negativeKeywordFlag =
+      clicks >= 20 && conversions === 0 && spend > 10;
+
+    return {
+      key: `weekly:${normalizedQuery || searchTerm}`,
+      searchTerm,
+      status: "INTELLIGENCE_AGGREGATE",
+      campaignId: null,
+      campaign: "",
+      campaignName: "",
+      adGroupId: null,
+      adGroup: "",
+      adGroupName: "",
+      matchSource: "AGGREGATE",
+      source: "top_query_weekly",
+      impressions: 0,
+      clicks,
+      spend,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr: 0,
+      cpc,
+      conversionRate: null,
+      intent: classifySearchIntent(searchTerm),
+      intentClass: classifySearchIntent(searchTerm),
+      classification: classifySearchIntent(searchTerm),
+      isKeyword: input.keywordSet.has(normalizedQuery),
+      wasteFlag: spend > 20 && conversions === 0,
+      keywordOpportunityFlag,
+      negativeKeywordFlag,
+      clusterId: normalizedQuery || searchTerm.toLowerCase(),
+      ownershipClass: null,
+      recommendation: classifySearchAction(
+        {
+          searchTerm,
+          campaign: "",
+          isKeyword: input.keywordSet.has(normalizedQuery),
+          conversions,
+          spend,
+          clicks,
+          roas,
+          conversionRate: null,
+        },
+        [],
+        input.productTerms,
+      ),
+      supportWeeks: row.weeksPresent,
+      lastWeekEnd: row.lastWeekEnd,
+    };
+  });
+}
+
+function buildSearchIntelligenceRowsFromClusterSupport(
+  rows: GoogleAdvisorAggregateClusterSupport[]
+) {
+  return rows.map((row) => {
+    const searchTerm = String(row.clusterLabel || row.clusterKey).trim();
+    const spend = Number(row.totalSpend.toFixed(2));
+    const revenue = Number(row.totalRevenue.toFixed(2));
+    const conversions = Number(row.totalConversions.toFixed(2));
+    const clicks = Math.round(row.totalClicks);
+    const roas = spend > 0 ? Number((revenue / spend).toFixed(2)) : 0;
+    const cpa =
+      conversions > 0 ? Number((spend / conversions).toFixed(2)) : 0;
+    const cpc = clicks > 0 ? Number((spend / clicks).toFixed(2)) : null;
+
+    return {
+      key: `cluster:${row.clusterKey}`,
+      searchTerm,
+      status: "INTELLIGENCE_AGGREGATE",
+      campaignId: null,
+      campaign: "",
+      campaignName: "",
+      adGroupId: null,
+      adGroup: "",
+      adGroupName: "",
+      matchSource: "AGGREGATE",
+      source: "search_cluster_daily",
+      impressions: 0,
+      clicks,
+      spend,
+      conversions,
+      revenue,
+      roas,
+      cpa,
+      ctr: 0,
+      cpc,
+      conversionRate: null,
+      intent: row.dominantIntentClass ?? classifySearchIntent(searchTerm),
+      intentClass: row.dominantIntentClass ?? classifySearchIntent(searchTerm),
+      classification: row.dominantIntentClass ?? classifySearchIntent(searchTerm),
+      isKeyword: false,
+      wasteFlag: spend > 20 && conversions === 0,
+      keywordOpportunityFlag: conversions >= 2,
+      negativeKeywordFlag: clicks >= 20 && conversions === 0 && spend > 10,
+      clusterId: row.clusterKey,
+      ownershipClass: row.dominantOwnershipClass,
+      recommendation:
+        conversions >= 2
+          ? "Promote winning theme"
+          : spend > 20 && conversions === 0
+            ? "Tighten intent"
+            : "Monitor",
+      supportDays: row.daysPresent,
+      uniqueQueryCount: row.totalUniqueQueries,
+      lastSeenDate: row.lastSeenDate,
+    };
+  });
+}
+
+function summarizeSearchIntelligenceFromAggregateSupport(input: {
+  clusterSupport: GoogleAdvisorAggregateClusterSupport[];
+  queryWeeklySupport: GoogleAdvisorAggregateWeeklyQuerySupport[];
+  keywordSet: Set<string>;
+}) {
+  const semanticClusters = input.clusterSupport.map((row) => ({
+    cluster: row.clusterLabel || row.clusterKey,
+    intent: row.dominantIntentClass ?? "unknown",
+    spend: Number(row.totalSpend.toFixed(2)),
+    revenue: Number(row.totalRevenue.toFixed(2)),
+    conversions: Number(row.totalConversions.toFixed(2)),
+    roas:
+      row.totalSpend > 0
+        ? Number((row.totalRevenue / row.totalSpend).toFixed(2))
+        : 0,
+    queries: [row.clusterLabel || row.clusterKey],
+    daysPresent: row.daysPresent,
+    uniqueQueryCount: row.totalUniqueQueries,
+  }));
+  const newOpportunityQueries = input.queryWeeklySupport
+    .filter((row) => {
+      const normalizedQuery = normalizeGoogleAdsQueryText(
+        row.displayQuery || row.normalizedQuery
+      );
+      return !input.keywordSet.has(normalizedQuery) && row.totalConversions >= 1;
+    })
+    .slice(0, 5)
+    .map((row) => ({
+      searchTerm: row.displayQuery,
+      spend: Number(row.totalSpend.toFixed(2)),
+      conversions: Number(row.totalConversions.toFixed(2)),
+      revenue: Number(row.totalRevenue.toFixed(2)),
+      roas:
+        row.totalSpend > 0
+          ? Number((row.totalRevenue / row.totalSpend).toFixed(2))
+          : 0,
+      source: "top_query_weekly",
+      matchSource: "AGGREGATE",
+      weeksPresent: row.weeksPresent,
+      lastWeekEnd: row.lastWeekEnd,
+    }));
+
+  return {
+    summary: {
+      bestConvertingThemeCount: semanticClusters.filter(
+        (cluster) => toNumber(cluster.conversions) >= 2
+      ).length,
+      wastefulThemeCount: semanticClusters.filter(
+        (cluster) => toNumber(cluster.spend) > 50 && toNumber(cluster.conversions) === 0
+      ).length,
+      emergingThemeCount: semanticClusters.filter(
+        (cluster) => toNumber(cluster.conversions) > 0 && toNumber(cluster.spend) < 50
+      ).length,
+    },
+    insights: {
+      bestConvertingThemes: [...semanticClusters]
+        .filter((cluster) => toNumber(cluster.conversions) > 0)
+        .sort((left, right) => toNumber(right.roas) - toNumber(left.roas))
+        .slice(0, 5),
+      wastefulThemes: [...semanticClusters]
+        .filter((cluster) => toNumber(cluster.spend) > 20 && toNumber(cluster.conversions) === 0)
+        .sort((left, right) => toNumber(right.spend) - toNumber(left.spend))
+        .slice(0, 5),
+      newOpportunityQueries,
+      semanticClusters,
+    },
+  };
+}
+
 async function buildGoogleAdsSearchTermsHotReport(
   params: BaseReportParams
 ): Promise<ReportResult<Record<string, unknown>>> {
@@ -1964,15 +2175,126 @@ export async function getGoogleAdsSearchTermsReport(
 export async function getGoogleAdsSearchIntelligenceReport(
   params: BaseReportParams & { filter?: string }
 ): Promise<ReportResult<Record<string, unknown>>> {
-  const terms = await getGoogleAdsSearchTermsReport(params);
+  const [terms, context] = await Promise.all([
+    buildGoogleAdsSearchTermsHotReport(params),
+    resolveWarehouseContext({
+      businessId: params.businessId,
+      accountId: params.accountId,
+      dateRange: params.dateRange,
+      customStart: params.customStart,
+      customEnd: params.customEnd,
+    }),
+  ]);
+  const providerAccountId =
+    context.providerAccountIds.length === 1 ? context.providerAccountIds[0] : null;
+  const shouldLoadAggregateSupport =
+    context.providerAccountIds.length > 0;
+  const [queryWeeklyRows, clusterDailyRows, keywordRows, productRows] =
+    shouldLoadAggregateSupport
+      ? await Promise.all([
+          readGoogleAdsTopQueryWeeklyRows({
+            businessId: params.businessId,
+            providerAccountId,
+            startWeek: isoWeekStart(context.startDate),
+            endWeek: isoWeekStart(context.endDate),
+          }).catch(() => []),
+          readGoogleAdsSearchClusterDailyRows({
+            businessId: params.businessId,
+            providerAccountId,
+            startDate: context.startDate,
+            endDate: context.endDate,
+          }).catch(() => []),
+          readGoogleAdsAggregatedRange({
+            scope: "keyword_daily",
+            businessId: params.businessId,
+            providerAccountIds: context.providerAccountIds,
+            startDate: context.startDate,
+            endDate: context.endDate,
+          }).catch(() => []),
+          readGoogleAdsAggregatedRange({
+            scope: "product_daily",
+            businessId: params.businessId,
+            providerAccountIds: context.providerAccountIds,
+            startDate: context.startDate,
+            endDate: context.endDate,
+          }).catch(() => []),
+        ])
+      : [[], [], [], []];
+  const aggregateIntelligence = summarizeGoogleAdsAdvisorAggregateIntelligence({
+    queryWeeklyRows,
+    clusterDailyRows,
+    supportWindowStart: context.startDate,
+    supportWindowEnd: context.endDate,
+  });
+  const keywordSet = new Set(
+    keywordRows
+      .map((row) =>
+        normalizeGoogleAdsQueryText(
+          String(
+            row.keywordText ??
+              row.keyword ??
+              row.entityLabel ??
+              row.name ??
+              ""
+          )
+        )
+      )
+      .filter(Boolean)
+  );
+  const productTerms = Array.from(
+    new Set(
+      productRows
+        .map((row) =>
+          String(
+            row.productTitle ??
+              row.title ??
+              row.entityLabel ??
+              row.name ??
+              ""
+          ).trim()
+        )
+        .filter((value) => value.length >= 4)
+    )
+  );
+  const aggregateFallbackRows =
+    aggregateIntelligence.queryWeeklySupport.length > 0
+      ? buildSearchIntelligenceRowsFromWeeklySupport({
+          rows: aggregateIntelligence.queryWeeklySupport,
+          keywordSet,
+          productTerms,
+        })
+      : buildSearchIntelligenceRowsFromClusterSupport(
+          aggregateIntelligence.clusterDailySupport
+        );
+  const sourceRows =
+    terms.rows.length > 0 ? terms.rows : aggregateFallbackRows;
   const rows = params.filter
-    ? terms.rows.filter((row) =>
+    ? sourceRows.filter((row) =>
         String(row.classification ?? row.intentClass ?? "")
           .toLowerCase()
           .includes(params.filter!.toLowerCase())
       )
-    : terms.rows;
+    : sourceRows;
   const analysis = analyzeSearchIntelligence(rows);
+  const aggregateInsights =
+    params.filter || aggregateIntelligence.clusterDailySupport.length === 0
+      ? null
+      : summarizeSearchIntelligenceFromAggregateSupport({
+          clusterSupport: aggregateIntelligence.clusterDailySupport,
+          queryWeeklySupport: aggregateIntelligence.queryWeeklySupport,
+          keywordSet,
+        });
+  const warnings = Array.from(
+    new Set([
+      ...terms.meta.warnings,
+      ...(aggregateIntelligence.metadata.topQueryWeeklyAvailable ||
+      aggregateIntelligence.metadata.clusterDailyAvailable
+        ? [
+            `Long-range search intelligence is served from additive query and cluster aggregates; raw search-term rows remain limited to the most recent ${GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS} days.`,
+          ]
+        : []),
+    ])
+  );
   return {
     rows,
     summary: {
@@ -1981,10 +2303,31 @@ export async function getGoogleAdsSearchIntelligenceReport(
         .reduce((sum, row) => sum + toNumber(row.spend), 0),
       keywordOpportunityCount: rows.filter((row) => Boolean(row.keywordOpportunityFlag)).length,
       negativeKeywordCount: rows.filter((row) => Boolean(row.negativeKeywordFlag)).length,
-      promotionSuggestionCount: analysis.summary.emergingThemeCount ?? 0,
+      promotionSuggestionCount:
+        aggregateInsights?.summary.emergingThemeCount ??
+        analysis.summary.emergingThemeCount ??
+        0,
     },
-    insights: analysis.insights,
-    meta: terms.meta,
+    insights: aggregateInsights
+      ? {
+          ...analysis.insights,
+          bestConvertingThemes: aggregateInsights.insights.bestConvertingThemes,
+          wastefulThemes: aggregateInsights.insights.wastefulThemes,
+          newOpportunityQueries:
+            aggregateInsights.insights.newOpportunityQueries.length > 0
+              ? aggregateInsights.insights.newOpportunityQueries
+              : analysis.insights.newOpportunityQueries,
+          semanticClusters: aggregateInsights.insights.semanticClusters,
+        }
+      : analysis.insights,
+    meta: {
+      ...terms.meta,
+      warnings,
+      row_counts: {
+        ...terms.meta.row_counts,
+        search_term_daily: rows.length,
+      },
+    },
   };
 }
 

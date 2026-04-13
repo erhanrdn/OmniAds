@@ -95,6 +95,13 @@ export interface GoogleAdsSearchClusterDailyRow {
 
 export interface GoogleAdsSearchClusterDailySupportReadRow extends GoogleAdsSearchClusterDailyRow {}
 
+export interface GoogleAdsSearchIntelligenceCoverage {
+  completedDays: number;
+  readyThroughDate: string | null;
+  latestUpdatedAt: string | null;
+  totalRows: number;
+}
+
 export interface GoogleAdsDecisionActionOutcomeLogRow {
   businessId: string;
   providerAccountId: string | null;
@@ -853,6 +860,60 @@ export async function readGoogleAdsSearchClusterDailyRows(input: {
     ORDER BY date DESC, spend DESC
   `) as GoogleAdsSearchClusterDailyPersistedRow[];
   return rows.map(mapPersistedSearchClusterDailyRow);
+}
+
+export async function readGoogleAdsSearchIntelligenceCoverage(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  startDate: string;
+  endDate: string;
+}): Promise<GoogleAdsSearchIntelligenceCoverage> {
+  await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
+  const sql = getDb();
+  const rows = (await sql`
+    WITH coverage_rows AS (
+      SELECT date, updated_at
+      FROM google_ads_search_query_hot_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date >= ${input.startDate}
+        AND date <= ${input.endDate}
+      UNION ALL
+      SELECT date, updated_at
+      FROM google_ads_search_cluster_daily
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND date >= ${input.startDate}
+        AND date <= ${input.endDate}
+    ),
+    covered_days AS (
+      SELECT
+        date,
+        MAX(updated_at) AS latest_updated_at
+      FROM coverage_rows
+      GROUP BY date
+    )
+    SELECT
+      COUNT(*)::int AS completed_days,
+      MAX(date)::text AS ready_through_date,
+      MAX(latest_updated_at)::text AS latest_updated_at,
+      (SELECT COUNT(*)::int FROM coverage_rows) AS total_rows
+    FROM covered_days
+  `) as Array<{
+    completed_days?: number | string | null;
+    ready_through_date?: string | null;
+    latest_updated_at?: string | null;
+    total_rows?: number | string | null;
+  }>;
+  const row = rows[0] ?? null;
+  return {
+    completedDays: toNumber(row?.completed_days),
+    readyThroughDate: row?.ready_through_date
+      ? normalizeIsoDate(String(row.ready_through_date))
+      : null,
+    latestUpdatedAt: row?.latest_updated_at ? String(row.latest_updated_at) : null,
+    totalRows: toNumber(row?.total_rows),
+  };
 }
 
 export async function readGoogleAdsDecisionActionOutcomeLogs(input: {

@@ -55,6 +55,7 @@ vi.mock("@/lib/google-ads/search-intelligence-storage", () => ({
   ),
   readGoogleAdsSearchQueryHotDailySupportRows: vi.fn(),
   readGoogleAdsSearchClusterDailyRows: vi.fn(),
+  readGoogleAdsTopQueryWeeklyRows: vi.fn(),
 }));
 
 const integrations = await import("@/lib/integrations");
@@ -132,6 +133,8 @@ describe("Google Ads search serving hot window", () => {
         displayQuery: "Buy Shoes",
       },
     ] as never);
+    vi.mocked(searchStorage.readGoogleAdsSearchClusterDailyRows).mockResolvedValue([] as never);
+    vi.mocked(searchStorage.readGoogleAdsTopQueryWeeklyRows).mockResolvedValue([] as never);
     vi.mocked(warehouse.readGoogleAdsAggregatedRange).mockImplementation(
       async ({ scope }) => {
         if (scope === "keyword_daily") {
@@ -202,5 +205,85 @@ describe("Google Ads search serving hot window", () => {
         recommendation: "Promote in headlines",
       }),
     );
+  });
+
+  it("falls back to additive weekly query intelligence when the request is outside the raw hot window", async () => {
+    vi.mocked(searchStorage.readGoogleAdsSearchQueryHotDailySupportRows).mockResolvedValue(
+      [] as never
+    );
+    vi.mocked(searchStorage.readGoogleAdsTopQueryWeeklyRows).mockResolvedValue([
+      {
+        businessId: "biz",
+        providerAccountId: "acc_1",
+        weekStart: "2025-10-27",
+        weekEnd: "2025-11-02",
+        queryHash: "hash_hiking_backpack",
+        queryCountDays: 5,
+        spend: 48,
+        revenue: 144,
+        conversions: 4,
+        impressions: 0,
+        clicks: 16,
+        normalizedQuery: "hiking backpack",
+        displayQuery: "Hiking Backpack",
+      },
+    ] as never);
+    vi.mocked(searchStorage.readGoogleAdsSearchClusterDailyRows).mockResolvedValue([
+      {
+        businessId: "biz",
+        providerAccountId: "acc_1",
+        date: "2025-11-01",
+        clusterKey: "hiking-backpack",
+        clusterLabel: "Hiking backpack demand",
+        themeKey: "category_high_intent",
+        dominantIntentClass: "category_high_intent",
+        dominantOwnershipClass: "non_brand",
+        uniqueQueryCount: 3,
+        spend: 48,
+        revenue: 144,
+        conversions: 4,
+        impressions: 0,
+        clicks: 16,
+      },
+    ] as never);
+
+    const report = await serving.getGoogleAdsSearchIntelligenceReport({
+      businessId: "biz",
+      accountId: "acc_1",
+      dateRange: "custom",
+      customStart: "2025-11-01",
+      customEnd: "2025-11-05",
+    });
+
+    expect(report.rows).toEqual([
+      expect.objectContaining({
+        searchTerm: "Hiking Backpack",
+        source: "top_query_weekly",
+        matchSource: "AGGREGATE",
+        recommendation: "Add as exact keyword",
+      }),
+    ]);
+    expect(report.insights).toEqual(
+      expect.objectContaining({
+        semanticClusters: expect.arrayContaining([
+          expect.objectContaining({
+            cluster: "Hiking backpack demand",
+            spend: 48,
+            conversions: 4,
+          }),
+        ]),
+      })
+    );
+    expect(report.meta.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("120 days"),
+        expect.stringContaining("Long-range search intelligence is served from additive query and cluster aggregates"),
+      ])
+    );
+    expect(
+      vi
+        .mocked(warehouse.readGoogleAdsAggregatedRange)
+        .mock.calls.some(([input]) => input.scope === "search_term_daily"),
+    ).toBe(false);
   });
 });

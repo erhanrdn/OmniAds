@@ -48,6 +48,7 @@ import {
   isGoogleAdsAdvisorWindowReady,
 } from "@/lib/google-ads/advisor-readiness";
 import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
+import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
 import {
   buildProviderStateContract,
   buildProviderSurfaces,
@@ -211,6 +212,32 @@ async function readGoogleAdsStatusCoverage(input: {
   endDate: string;
   timeoutMs?: number;
 }) {
+  if (input.scope === "search_term_daily") {
+    const queryStartedAt = Date.now();
+    try {
+      const coverage = await readGoogleAdsSearchIntelligenceCoverage({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId ?? null,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      });
+      return {
+        completed_days: coverage.completedDays,
+        ready_through_date: coverage.readyThroughDate,
+        latest_updated_at: coverage.latestUpdatedAt,
+        total_rows: coverage.totalRows,
+      };
+    } catch (error) {
+      console.warn("[google-ads-status] search-intelligence-coverage-failed", {
+        startDate: input.startDate,
+        endDate: input.endDate,
+        durationMs: Date.now() - queryStartedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
   const queryStartedAt = Date.now();
   try {
     return await getGoogleAdsDailyCoverage({

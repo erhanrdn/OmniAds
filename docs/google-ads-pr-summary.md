@@ -8,7 +8,7 @@ The work was delivered in six deliberate layers:
 
 - Phase 1: Decision Engine V2 foundation, feature flags, typed decision schema, explicit write-back gate
 - Phase 2: Decision Snapshot V2 serving and multi-window snapshot semantics
-- Phase 3: additive warehouse retention and search-intelligence storage foundation
+- Phase 3: search-term cutover onto additive search-intelligence storage
 - Phase 4: strict query-governance guardrails, including expert-safe suppression behavior
 - Phase 5: operator-first recommendation surface grouped by action lane
 - Phase 6: replay-style fixture coverage, release checklist, and build/test hardening
@@ -43,6 +43,7 @@ This change set makes the system:
   - top-query weekly aggregate
   - search cluster/theme aggregate
   - action/outcome log foundation
+- Search-intelligence serving/status now read additive storage instead of depending on long-history raw `google_ads_search_term_daily`
 - Explicit query-governance suppression model with payload-visible blocker reasons
 - Operator queue surface grouped by `Review`, `Test`, `Watch`, and `Suppressed`
 
@@ -55,7 +56,7 @@ This change set makes the system:
 - Visible suppressed states with explanation
 - Brand-governance separated from negative-keyword waste cleanup
 - Exact-negative-only guardrails for eligible query-waste actions
-- Additive warehouse/search-intelligence groundwork for future phases
+- Google search-intelligence/advisor-support cutover onto additive storage while keeping raw search terms hot-only
 - Replay-style fixture coverage for release-critical decision scenarios
 
 ## What is explicitly NOT included in V1
@@ -64,7 +65,6 @@ This change set makes the system:
 - Verified native write-back
 - Verified rollback automation
 - Phrase-negative or broad-negative automation
-- Full serving cutover to new search-intelligence aggregates
 - Destructive warehouse cleanup execution
 - Historical replay engine with production event re-execution
 
@@ -74,7 +74,7 @@ This change set makes the system:
 - replay coverage is fixture-based, not a true historical replay system
 - `lagAdjustedEndDate` is an honest placeholder shape, not an implemented lag model
 - some serving/readiness internals still use legacy compatibility paths while outward semantics are V2-aligned
-- search-intelligence storage is additive groundwork; serving is not fully migrated onto it
+- retention execution is still intentionally disabled; Phase 4 must prove delete safety before any raw search-term cleanup can run
 
 ## Rollout guidance
 

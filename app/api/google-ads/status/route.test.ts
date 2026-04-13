@@ -170,6 +170,10 @@ vi.mock("@/lib/google-ads/warehouse-retention", () => ({
   getLatestGoogleAdsRetentionRun: vi.fn(async () => null),
 }));
 
+vi.mock("@/lib/google-ads/search-intelligence-storage", () => ({
+  readGoogleAdsSearchIntelligenceCoverage: vi.fn(),
+}));
+
 vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
@@ -203,6 +207,7 @@ const assignments = await import("@/lib/provider-account-assignments");
 const warehouse = await import("@/lib/google-ads/warehouse");
 const advisorSnapshots = await import("@/lib/google-ads/advisor-snapshots");
 const warehouseRetention = await import("@/lib/google-ads/warehouse-retention");
+const searchIntelligenceStorage = await import("@/lib/google-ads/search-intelligence-storage");
 const migrations = await import("@/lib/migrations");
 const statusMachine = await import("@/lib/google-ads/status-machine");
 
@@ -277,6 +282,12 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(warehouse.getGoogleAdsSyncState).mockResolvedValue([]);
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
     vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue(null);
+    vi.mocked(searchIntelligenceStorage.readGoogleAdsSearchIntelligenceCoverage).mockResolvedValue({
+      completedDays: 365,
+      readyThroughDate: "2026-03-30",
+      latestUpdatedAt: null,
+      totalRows: 10,
+    });
 
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -606,5 +617,45 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.domains).toHaveProperty("advisor");
     expect(payload.domains.advisor.detail).toBe("Multi-window analysis coverage is ready.");
     expect(payload.advisor.blockingMessage).toContain("Decision snapshot");
+  });
+
+  it("uses additive search-intelligence coverage instead of raw search_term_daily warehouse coverage", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/google-ads/status?businessId=biz&startDate=2026-03-01&endDate=2026-03-30"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(searchIntelligenceStorage.readGoogleAdsSearchIntelligenceCoverage).toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(warehouse.getGoogleAdsDailyCoverage)
+        .mock.calls.some(([input]) => input.scope === "search_term_daily")
+    ).toBe(false);
+    expect(payload.rangeCompletionBySurface.search_term_daily).toMatchObject({
+      selectedRange: expect.any(Object),
+      historical: expect.any(Object),
+    });
   });
 });

@@ -296,4 +296,37 @@ describe("Google Ads search intelligence storage", () => {
     expect(joined).toContain("ad_group_id IS NOT DISTINCT FROM");
     expect(calls.filter((query) => query.includes("INSERT INTO google_ads_search_query_hot_daily"))).toHaveLength(1);
   });
+
+  it("computes canonical search-intelligence coverage from additive hot-query and cluster tables", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("WITH coverage_rows AS")) {
+        return [
+          {
+            completed_days: 3,
+            ready_through_date: "2026-04-10",
+            latest_updated_at: "2026-04-10T12:00:00.000Z",
+            total_rows: 7,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const coverage = await storage.readGoogleAdsSearchIntelligenceCoverage({
+      businessId: "biz",
+      providerAccountId: "acct",
+      startDate: "2026-04-08",
+      endDate: "2026-04-10",
+    });
+
+    expect(coverage).toEqual({
+      completedDays: 3,
+      readyThroughDate: "2026-04-10",
+      latestUpdatedAt: "2026-04-10T12:00:00.000Z",
+      totalRows: 7,
+    });
+    expect(sql).toHaveBeenCalled();
+  });
 });

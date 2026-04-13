@@ -54,7 +54,7 @@ That preserves the intelligence layer while reducing repeated raw-text pressure.
 - Cold:
   future archival or external export strategy for raw payloads and long-tail historical search detail
 
-Phase 3 does not implement archival export. It establishes the hot/warm foundation and retention scaffolding.
+Phase 3 does not implement archival export. It establishes the hot/warm foundation, completes the Google search-intelligence serving cutover, and leaves retention execution in dry-run/off posture.
 
 ## Raw query storage vs cluster/theme intelligence
 
@@ -67,26 +67,28 @@ These are intentionally different layers.
 
 The cluster/theme layer is not a lossy replacement for all raw data. It is the long-horizon intelligence surface.
 
-## Migration and rollout strategy
+## Phase 3 completion
 
-Phase 3 rollout is additive.
+Google Phase 3 is now complete.
 
-- Add normalized dictionary and aggregate tables.
-- Keep existing `google_ads_search_term_daily` readable.
-- Write normalized sidecar search-intelligence tables during sync.
-- Do not cut serving over fully in this phase.
-- Do not run destructive retention cleanup by default.
-- Keep retention execution behind an explicit disabled-by-default gate.
-
-This preserves compatibility while building the future storage model.
+- `google_ads_search_term_daily` remains readable only as a raw/debug/inspection surface.
+- Raw search-term behavior is explicitly limited to the most recent `120` days.
+- Canonical search intelligence now reads from the additive intelligence layer:
+  - `google_ads_search_query_hot_daily` for hot query rows
+  - `google_ads_top_query_weekly` for longer-range query fallback
+  - `google_ads_search_cluster_daily` for daily semantic cluster support
+- Google status and advisor-support coverage now read additive search-intelligence coverage instead of treating raw `google_ads_search_term_daily` as the intelligence source.
+- Sync continues to write the additive search-intelligence tables alongside the raw hot/debug table.
+- Retention execution remains behind an explicit disabled-by-default gate.
 
 ## Current advisor readiness contract
 
-Until serving and advisor logic move onto the newer aggregate intelligence surfaces, advisor readiness remains intentionally conservative.
+Advisor readiness remains intentionally conservative even after the serving cutover.
 
 - Decision Snapshot readiness is still gated by recent 84-day support coverage.
 - The required surfaces are `campaign_daily`, `search_term_daily`, and `product_daily`.
-- The retention policy defined in this document does not yet drive advisor/button readiness.
+- For the search surface, that recent support now comes from additive search-intelligence coverage rather than raw two-year `google_ads_search_term_daily` history.
+- The retention policy defined in this document still does not by itself enable destructive cleanup.
 - The selected range remains contextual for the operator UI and does not redefine decision readiness.
 
 ## Explicit non-goals for Phase 3
@@ -95,14 +97,15 @@ Until serving and advisor logic move onto the newer aggregate intelligence surfa
 - No silent deletion of historical data
 - No major UI redesign
 - No Phase 4 query-governance guardrail rewrite
-- No forced serving cutover to normalized search aggregates
 - No warehouse partition rewrite
 - No claim that archival/cold storage is fully implemented
+- No broad legacy cleanup beyond the Google search-intelligence cutover
 
 ## Future work after Phase 3
 
-- Move serving and advisor logic to consume top-query weekly and cluster/theme aggregates where appropriate
-- Add explicit retention execution jobs with dry-run and observability
+- Google Phase 4: retention enforcement dry-run/canary rollout
+- Prove there is no remaining `>120d` dependency on `google_ads_search_term_daily`
+- Add explicit retention execution jobs with dry-run observability and canary verification
 - Backfill dictionary/hash references for legacy search-term history if needed
 - Consolidate advisor memory and execution logs into a fuller decision action/outcome lineage model
 - Define archival strategy for raw payloads and non-hot search detail
