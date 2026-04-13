@@ -48,15 +48,9 @@ function getCurrentDayDescription(status: MetaStatusResponse, language: MetaUiLa
   const timeZoneSuffix = status.primaryAccountTimezone
     ? ` (${status.primaryAccountTimezone})`
     : "";
-  const snapshotSuffix =
-    status.dataContract?.todayMode === "warehouse_snapshot" && status.warehouseReadyThroughDate
-      ? language === "tr"
-        ? ` Son sabit warehouse snapshot: ${status.warehouseReadyThroughDate}.`
-        : ` Latest stable warehouse snapshot: ${status.warehouseReadyThroughDate}.`
-      : "";
   return language === "tr"
-    ? `Meta bu tarih için veriyi hâlâ hazırlıyor. Referans gün ${selectedDateLabel}${timeZoneSuffix}.${snapshotSuffix}`
-    : `Meta is still preparing data for this date. The current account day is ${selectedDateLabel}${timeZoneSuffix}.${snapshotSuffix}`;
+    ? `Meta bu tarih için veriyi hâlâ hazırlıyor. Referans gün ${selectedDateLabel}${timeZoneSuffix}.`
+    : `Meta is still preparing data for this date. The current account day is ${selectedDateLabel}${timeZoneSuffix}.`;
 }
 
 function getNotConnectedDescription(status: MetaStatusResponse, language: MetaUiLanguage) {
@@ -109,13 +103,11 @@ export function getMetaPageStatusMessaging(
       : pageReadiness?.state === "blocked"
         ? "blocked"
         : pageReadiness?.state === "syncing"
-          ? pageReadiness.selectedRangeMode === "current_day_live" ||
-              pageReadiness.selectedRangeMode === "current_day_snapshot"
+          ? pageReadiness.selectedRangeMode === "current_day_live"
             ? "syncing_current_day"
             : "syncing_historical"
           : pageReadiness?.state === "partial"
-            ? pageReadiness.selectedRangeMode === "current_day_live" ||
-                pageReadiness.selectedRangeMode === "current_day_snapshot"
+            ? pageReadiness.selectedRangeMode === "current_day_live"
               ? "partial_current_day"
               : "partial_historical"
             : readyButEmpty
@@ -190,12 +182,8 @@ export function getMetaPageStatusMessaging(
             language === "tr" ? "Bugünün Meta verisi hazırlanıyor" : "Current-day Meta data is preparing",
           revenueSubLabel:
             language === "tr"
-              ? status?.dataContract?.todayMode === "warehouse_snapshot"
-                ? "Kartlar yeni warehouse snapshot hazır olduğunda güncellenecek"
-                : "Kartlar bugünün verisi geldikçe açılacak"
-              : status?.dataContract?.todayMode === "warehouse_snapshot"
-                ? "Cards will update when the next warehouse snapshot is ready"
-                : "Cards will unlock as current-day data becomes available",
+              ? "Kartlar bugünün verisi geldikçe açılacak"
+              : "Cards will unlock as current-day data becomes available",
           avgCpaSubLabel:
             language === "tr"
               ? "Meta günü kapanmadan dönüşümler tamamlanmayabilir"

@@ -1,10 +1,4 @@
-import {
-  hasUsableCurrentDaySnapshot,
-  isMetaTodayLiveReadsEnabled,
-  type CurrentDayWarehouseSnapshotFields,
-} from "@/lib/current-day-snapshot";
 import { getIntegration } from "@/lib/integrations";
-import { resolveMetaCurrentDaySnapshot } from "@/lib/meta/current-day-snapshot";
 import { getMetaLiveSummaryTotals } from "@/lib/meta/live";
 import {
   getMetaPartialReason,
@@ -35,11 +29,8 @@ export type MetaCanonicalOverviewSummary = Awaited<
 > & {
   isPartial: boolean;
   notReadyReason?: string | null;
-  readSource:
-    | "warehouse"
-    | "warehouse_plus_live_override"
-    | "warehouse_snapshot_current_day";
-} & CurrentDayWarehouseSnapshotFields;
+  readSource: "warehouse" | "warehouse_plus_live_override";
+};
 
 export type MetaCanonicalOverviewTrends = Awaited<
   ReturnType<typeof getMetaWarehouseTrends>
@@ -47,26 +38,7 @@ export type MetaCanonicalOverviewTrends = Awaited<
   isPartial: boolean;
   notReadyReason?: string | null;
   readSource: "warehouse_published";
-} & CurrentDayWarehouseSnapshotFields;
-
-function buildCurrentDaySnapshotReason(input: {
-  warehouseReadyThroughDate?: string | null;
-  currentDateInTimezone: string | null;
-  primaryAccountTimezone: string | null;
-}) {
-  if (input.warehouseReadyThroughDate) {
-    const timezoneSuffix = input.primaryAccountTimezone
-      ? ` (${input.primaryAccountTimezone})`
-      : "";
-    return `Showing the latest warehouse snapshot ready through ${input.warehouseReadyThroughDate} while Meta prepares ${input.currentDateInTimezone ?? "the current account day"}${timezoneSuffix}.`;
-  }
-  return getMetaPartialReason({
-    isSelectedCurrentDay: true,
-    currentDateInTimezone: input.currentDateInTimezone,
-    primaryAccountTimezone: input.primaryAccountTimezone,
-    defaultReason: "Meta is still preparing current-day warehouse data.",
-  });
-}
+};
 
 function canServeMetaHistoricalSummaryWhileFinalizePending(
   selectedRangeTruth:
@@ -110,92 +82,33 @@ export async function getMetaCanonicalOverviewSummary(input: {
 
   const connected = integration?.status === "connected";
   if (rangeContext.isSelectedCurrentDay && connected) {
-    if (isMetaTodayLiveReadsEnabled()) {
-      try {
-        const liveTotals = await getMetaLiveSummaryTotals({
-          ...input,
-          providerAccountIds,
-        });
-        if (liveTotals.spend > 0 || liveTotals.impressions > 0) {
-          console.info("[meta-canonical] summary_read", {
-            businessId: input.businessId,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            readSource: "warehouse_plus_live_override",
-            isPartial: false,
-            accountCount: warehouseSummary.accounts.length,
-          });
-          return {
-            ...warehouseSummary,
-            totals: liveTotals,
-            isPartial: false,
-            notReadyReason: null,
-            readSource: "warehouse_plus_live_override",
-          };
-        }
-      } catch (error: unknown) {
-        console.warn("[meta-canonical] live_totals_failed", {
-          businessId: input.businessId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    } else {
-      const snapshot = await resolveMetaCurrentDaySnapshot({
-        businessId: input.businessId,
-        requestedDate: input.endDate,
-        scope: "summary",
+    try {
+      const liveTotals = await getMetaLiveSummaryTotals({
+        ...input,
+        providerAccountIds,
       });
-      if (!hasUsableCurrentDaySnapshot(snapshot)) {
+      if (liveTotals.spend > 0 || liveTotals.impressions > 0) {
+        console.info("[meta-canonical] summary_read", {
+          businessId: input.businessId,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          readSource: "warehouse_plus_live_override",
+          isPartial: false,
+          accountCount: warehouseSummary.accounts.length,
+        });
         return {
           ...warehouseSummary,
-          totals: {
-            spend: 0,
-            revenue: 0,
-            conversions: 0,
-            roas: 0,
-            cpa: null,
-            ctr: null,
-            cpc: null,
-            impressions: 0,
-            clicks: 0,
-            reach: 0,
-          },
-          accounts: [],
-          isPartial: true,
-          notReadyReason: buildCurrentDaySnapshotReason({
-            warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-            currentDateInTimezone: rangeContext.currentDateInTimezone,
-            primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-          }),
-          readSource: "warehouse_snapshot_current_day",
-          ...snapshot,
+          totals: liveTotals,
+          isPartial: false,
+          notReadyReason: null,
+          readSource: "warehouse_plus_live_override",
         };
       }
-
-      const effectiveSnapshotDate = snapshot.effectiveEndDate!;
-      const snapshotSummary =
-        effectiveSnapshotDate === input.endDate
-          ? warehouseSummary
-          : await getMetaWarehouseSummary({
-              businessId: input.businessId,
-              startDate: effectiveSnapshotDate,
-              endDate: effectiveSnapshotDate,
-              providerAccountIds,
-            });
-      return {
-        ...snapshotSummary,
-        isPartial: false,
-        notReadyReason:
-          snapshot.isStaleSnapshot
-            ? buildCurrentDaySnapshotReason({
-                warehouseReadyThroughDate: snapshot.warehouseReadyThroughDate,
-                currentDateInTimezone: rangeContext.currentDateInTimezone,
-                primaryAccountTimezone: rangeContext.primaryAccountTimezone,
-              })
-            : null,
-        readSource: "warehouse_snapshot_current_day",
-        ...snapshot,
-      };
+    } catch (error: unknown) {
+      console.warn("[meta-canonical] live_totals_failed", {
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -225,12 +138,6 @@ export async function getMetaCanonicalOverviewSummary(input: {
         })
         : null,
     readSource: "warehouse" as const,
-    todayMode: undefined,
-    requestedEndDate: undefined,
-    effectiveEndDate: undefined,
-    warehouseReadyThroughDate: undefined,
-    lastWarehouseWriteAt: undefined,
-    isStaleSnapshot: undefined,
   };
   console.info("[meta-canonical] summary_read", {
     businessId: input.businessId,
@@ -272,12 +179,6 @@ export async function getMetaCanonicalOverviewTrends(input: {
         })
       : null,
     readSource: "warehouse_published" as const,
-    todayMode: undefined,
-    requestedEndDate: undefined,
-    effectiveEndDate: undefined,
-    warehouseReadyThroughDate: undefined,
-    lastWarehouseWriteAt: undefined,
-    isStaleSnapshot: undefined,
   };
   console.info("[meta-canonical] trends_read", {
     businessId: input.businessId,

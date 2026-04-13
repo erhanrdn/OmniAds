@@ -2,13 +2,7 @@ import { getIntegrationMetadata } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import { getBusinessCostModel } from "@/lib/business-cost-model";
-import {
-  hasUsableCurrentDaySnapshot,
-  isGoogleAdsTodayLiveReadsEnabled,
-  type CurrentDayWarehouseSnapshotFields,
-} from "@/lib/current-day-snapshot";
 import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
-import { resolveGoogleAdsCurrentDaySnapshot } from "@/lib/google-ads/current-day-snapshot";
 import { addDaysToIsoDate, getHistoricalWindowStart } from "@/lib/google-ads/history";
 import { getComparisonWindow, pctDelta } from "@/lib/google-ads/reporting-support";
 import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
@@ -457,12 +451,11 @@ export interface GoogleAdsOverviewSummaryResult {
     readSource:
       | "warehouse_account_aggregate"
       | "warehouse_campaign_aggregate_fallback"
-      | "live_overlay_current_day"
-      | "warehouse_snapshot_current_day";
+      | "live_overlay_current_day";
     overlayApplied?: boolean;
     warehouseSegmentEndDate?: string | null;
     liveSegmentStartDate?: string | null;
-  } & CurrentDayWarehouseSnapshotFields;
+  };
   meta: WarehouseMeta;
 }
 
@@ -474,18 +467,16 @@ export interface GoogleAdsCanonicalOverviewSummaryResult {
     readSource:
       | "warehouse_account_aggregate"
       | "warehouse_campaign_aggregate_fallback"
-      | "live_overlay_current_day"
-      | "warehouse_snapshot_current_day";
+      | "live_overlay_current_day";
     overlayApplied?: boolean;
     warehouseSegmentEndDate?: string | null;
     liveSegmentStartDate?: string | null;
-  } & CurrentDayWarehouseSnapshotFields;
+  };
   meta: WarehouseMeta & {
     readSource:
       | "warehouse_account_aggregate"
       | "warehouse_campaign_aggregate_fallback"
-      | "live_overlay_current_day"
-      | "warehouse_snapshot_current_day";
+      | "live_overlay_current_day";
     overlayApplied?: boolean;
     warehouseSegmentEndDate?: string | null;
     liveSegmentStartDate?: string | null;
@@ -512,60 +503,6 @@ function buildCurrentDayOverlayMeta(input: { providerCurrentDate: string }) {
   };
 }
 
-function buildCurrentDaySnapshotMeta(
-  snapshot: Required<CurrentDayWarehouseSnapshotFields>,
-) {
-  return {
-    readSource: "warehouse_snapshot_current_day" as const,
-    ...snapshot,
-  };
-}
-
-async function resolveCurrentDaySnapshotPlan(input: {
-  params: ComparativeReportParams | BaseReportParams;
-  context: Awaited<ReturnType<typeof resolveWarehouseContext>>;
-  scopes: GoogleAdsWarehouseScope[];
-}) {
-  const currentDayOnly = isCurrentDayOnlyWindow({
-    startDate: input.context.startDate,
-    endDate: input.context.endDate,
-    providerCurrentDate: input.context.providerCurrentDate,
-  });
-  if (!currentDayOnly || isGoogleAdsTodayLiveReadsEnabled()) {
-    return {
-      currentDayOnly,
-      snapshot: null,
-      effectiveParams: input.params,
-    };
-  }
-
-  const snapshot = await resolveGoogleAdsCurrentDaySnapshot({
-    businessId: input.params.businessId,
-    providerAccountId:
-      input.params.accountId && input.params.accountId !== "all"
-        ? input.params.accountId
-        : input.context.providerAccountIds.length === 1
-          ? input.context.providerAccountIds[0]
-          : null,
-    requestedDate: input.context.endDate,
-    scopes: input.scopes,
-  });
-
-  return {
-    currentDayOnly,
-    snapshot,
-    effectiveParams:
-      snapshot.effectiveEndDate == null
-        ? null
-        : ({
-            ...input.params,
-            dateRange: "custom",
-            customStart: snapshot.effectiveEndDate,
-            customEnd: snapshot.effectiveEndDate,
-          } as typeof input.params),
-  };
-}
-
 export interface GoogleAdsCanonicalTrendResult {
   points: Array<{
     date: string;
@@ -584,8 +521,7 @@ export interface GoogleAdsCanonicalTrendResult {
       | "warehouse_account_daily"
       | "warehouse_campaign_daily_fallback"
       | "projection_fallback"
-      | "provider_truth_unavailable"
-      | "warehouse_snapshot_current_day";
+      | "provider_truth_unavailable";
     fallbackReason: string | null;
     degraded: boolean;
   };
@@ -1026,12 +962,13 @@ export async function getGoogleAdsCampaignsReport(
     customStart: params.customStart ?? null,
     customEnd: params.customEnd ?? null,
   });
-  const currentDayPlan = await resolveCurrentDaySnapshotPlan({
-    params,
-    context: currentDayContext,
-    scopes: ["campaign_daily"],
-  });
-  if (currentDayPlan.currentDayOnly && isGoogleAdsTodayLiveReadsEnabled()) {
+  if (
+    isCurrentDayOnlyWindow({
+      startDate: currentDayContext.startDate,
+      endDate: currentDayContext.endDate,
+      providerCurrentDate: currentDayContext.providerCurrentDate,
+    })
+  ) {
     const liveReport = await getLiveGoogleAdsCampaignsReport(params);
     return {
       rows: liveReport.rows,
@@ -1052,42 +989,14 @@ export async function getGoogleAdsCampaignsReport(
       },
     };
   }
-  if (
-    currentDayPlan.currentDayOnly &&
-    currentDayPlan.snapshot != null &&
-    !hasUsableCurrentDaySnapshot(currentDayPlan.snapshot)
-  ) {
-    const snapshotMeta = buildCurrentDaySnapshotMeta(currentDayPlan.snapshot!);
-    return {
-      rows: [],
-      summary: {
-        accountAvgRoas: 0,
-        totalSpend: 0,
-        totalRevenue: 0,
-        ...snapshotMeta,
-      },
-      meta: {
-        ...buildMeta({
-          freshness: createGoogleAdsWarehouseFreshness({
-            dataState: "partial",
-            isPartial: true,
-            warnings: ["Google Ads current-day warehouse snapshot is still preparing."],
-          }),
-          rowCounts: { campaign_daily: 0 },
-        }),
-        ...snapshotMeta,
-      },
-    };
-  }
 
-  const effectiveParams = (currentDayPlan.effectiveParams ?? params) as ComparativeReportParams;
-  const current = await buildScopeResponse({ params: effectiveParams, scope: "campaign_daily" });
+  const current = await buildScopeResponse({ params, scope: "campaign_daily" });
   const compareWindow = getComparisonWindow({
-    compareMode: effectiveParams.compareMode,
+    compareMode: params.compareMode,
     startDate: current.context.startDate,
     endDate: current.context.endDate,
-    compareStart: effectiveParams.compareStart,
-    compareEnd: effectiveParams.compareEnd,
+    compareStart: params.compareStart,
+    compareEnd: params.compareEnd,
   });
   const previousRows = compareWindow
     ? (
@@ -1104,23 +1013,17 @@ export async function getGoogleAdsCampaignsReport(
   const accountAvgRoas =
     campaignRows.reduce((sum, row) => sum + toNumber(row.revenue), 0) /
       Math.max(1, campaignRows.reduce((sum, row) => sum + toNumber(row.spend), 0)) || 0;
-  const snapshotMeta =
-    currentDayPlan.snapshot != null ? buildCurrentDaySnapshotMeta(currentDayPlan.snapshot) : null;
   return {
     rows: campaignRows,
     summary: {
       accountAvgRoas: Number(accountAvgRoas.toFixed(2)),
       totalSpend: Number(campaignRows.reduce((sum, row) => sum + toNumber(row.spend), 0).toFixed(2)),
       totalRevenue: Number(campaignRows.reduce((sum, row) => sum + toNumber(row.revenue), 0).toFixed(2)),
-      ...(snapshotMeta ?? {}),
     },
-    meta: {
-      ...buildMeta({
-        freshness: current.freshness,
-        rowCounts: { campaign_daily: campaignRows.length },
-      }),
-      ...(snapshotMeta ?? {}),
-    },
+    meta: buildMeta({
+      freshness: current.freshness,
+      rowCounts: { campaign_daily: campaignRows.length },
+    }),
   };
 }
 
@@ -1135,7 +1038,6 @@ export async function getGoogleAdsOverviewReport(
     customEnd: params.customEnd ?? null,
   });
   if (
-    isGoogleAdsTodayLiveReadsEnabled() &&
     isCurrentDayOnlyWindow({
       startDate: currentDayContext.startDate,
       endDate: currentDayContext.endDate,
@@ -1190,12 +1092,6 @@ export async function getGoogleAdsOverviewReport(
       accountAvgRoas: Number(canonicalSummary.kpis.roas ?? 0),
       totalCampaigns: campaignRows.length,
       readSource: canonicalSummary.summary.readSource,
-      todayMode: canonicalSummary.summary.todayMode,
-      requestedEndDate: canonicalSummary.summary.requestedEndDate,
-      effectiveEndDate: canonicalSummary.summary.effectiveEndDate,
-      warehouseReadyThroughDate: canonicalSummary.summary.warehouseReadyThroughDate,
-      lastWarehouseWriteAt: canonicalSummary.summary.lastWarehouseWriteAt,
-      isStaleSnapshot: canonicalSummary.summary.isStaleSnapshot,
     },
     meta: canonicalSummary.meta,
   };
@@ -1211,12 +1107,13 @@ export async function getGoogleCanonicalOverviewSummary(
     customStart: params.customStart ?? null,
     customEnd: params.customEnd ?? null,
   });
-  const currentDayPlan = await resolveCurrentDaySnapshotPlan({
-    params,
-    context: currentDayContext,
-    scopes: ["account_daily", "campaign_daily"],
-  });
-  if (currentDayPlan.currentDayOnly && isGoogleAdsTodayLiveReadsEnabled()) {
+  if (
+    isCurrentDayOnlyWindow({
+      startDate: currentDayContext.startDate,
+      endDate: currentDayContext.endDate,
+      providerCurrentDate: currentDayContext.providerCurrentDate,
+    })
+  ) {
     const liveReport = await getLiveGoogleAdsOverviewReport(params);
     const overlayMeta = buildCurrentDayOverlayMeta({
       providerCurrentDate: currentDayContext.providerCurrentDate,
@@ -1260,52 +1157,15 @@ export async function getGoogleCanonicalOverviewSummary(
       },
     };
   }
-  if (
-    currentDayPlan.currentDayOnly &&
-    currentDayPlan.snapshot != null &&
-    !hasUsableCurrentDaySnapshot(currentDayPlan.snapshot)
-  ) {
-    const snapshotMeta = buildCurrentDaySnapshotMeta(currentDayPlan.snapshot!);
-    return {
-      kpis: {
-        spend: 0,
-        revenue: 0,
-        conversions: 0,
-        roas: 0,
-        cpa: 0,
-        cpc: 0,
-        ctr: 0,
-        impressions: 0,
-        clicks: 0,
-        convRate: 0,
-      },
-      summary: {
-        totalAccounts: 0,
-        ...snapshotMeta,
-      },
-      meta: {
-        ...buildMeta({
-          freshness: createGoogleAdsWarehouseFreshness({
-            dataState: "partial",
-            isPartial: true,
-            warnings: ["Google Ads current-day warehouse snapshot is still preparing."],
-          }),
-          rowCounts: { account_daily: 0 },
-        }),
-        ...snapshotMeta,
-      },
-    };
-  }
 
-  const effectiveParams = (currentDayPlan.effectiveParams ?? params) as ComparativeReportParams;
-  const current = await buildScopeResponse({ params: effectiveParams, scope: "account_daily" });
+  const current = await buildScopeResponse({ params, scope: "account_daily" });
   const accountRows = current.rows as Array<Record<string, unknown>>;
   const compareWindow = getComparisonWindow({
-    compareMode: effectiveParams.compareMode,
+    compareMode: params.compareMode,
     startDate: current.context.startDate,
     endDate: current.context.endDate,
-    compareStart: effectiveParams.compareStart,
-    compareEnd: effectiveParams.compareEnd,
+    compareStart: params.compareStart,
+    compareEnd: params.compareEnd,
   });
   const previousRows = compareWindow
     ? (
@@ -1369,15 +1229,12 @@ export async function getGoogleCanonicalOverviewSummary(
     });
   }
 
-  const snapshotMeta =
-    currentDayPlan.snapshot != null ? buildCurrentDaySnapshotMeta(currentDayPlan.snapshot) : null;
   const meta = {
     ...buildMeta({
       freshness: current.freshness,
       rowCounts: { account_daily: accountRows.length },
     }),
-    readSource: snapshotMeta?.readSource ?? readSource,
-    ...(snapshotMeta ?? {}),
+    readSource,
   };
 
   const result = {
@@ -1394,8 +1251,7 @@ export async function getGoogleCanonicalOverviewSummary(
       : undefined,
     summary: {
       totalAccounts: summaryCount,
-      readSource: snapshotMeta?.readSource ?? readSource,
-      ...(snapshotMeta ?? {}),
+      readSource,
     },
     meta,
   };
@@ -1474,55 +1330,8 @@ export async function getGoogleCanonicalOverviewTrends(input: {
     customStart: input.startDate,
     customEnd: input.endDate,
   });
-  const currentDayPlan = await resolveCurrentDaySnapshotPlan({
-    params: {
-      businessId: input.businessId,
-      accountId: input.accountId ?? null,
-      dateRange: "custom",
-      customStart: input.startDate,
-      customEnd: input.endDate,
-      debug: input.debug,
-      source: input.source,
-    },
-    context,
-    scopes: ["account_daily", "campaign_daily"],
-  });
-  if (
-    currentDayPlan.currentDayOnly &&
-    currentDayPlan.snapshot != null &&
-    !hasUsableCurrentDaySnapshot(currentDayPlan.snapshot)
-  ) {
-    const snapshotMeta = buildCurrentDaySnapshotMeta(currentDayPlan.snapshot!);
-    const freshness = createGoogleAdsWarehouseFreshness({
-      dataState: "partial",
-      isPartial: true,
-      warnings: ["Google Ads current-day warehouse snapshot is still preparing."],
-    });
-    return {
-      points: [],
-      meta: {
-        ...buildMeta({
-          freshness,
-          rowCounts: { account_daily: 0 },
-        }),
-        fallbackReason: null,
-        degraded: false,
-        ...snapshotMeta,
-      },
-    };
-  }
-  const effectiveContext =
-    currentDayPlan.effectiveParams == null
-      ? context
-      : await resolveWarehouseContext({
-          businessId: input.businessId,
-          accountId: input.accountId ?? null,
-          dateRange: "custom",
-          customStart: currentDayPlan.effectiveParams.customStart ?? null,
-          customEnd: currentDayPlan.effectiveParams.customEnd ?? null,
-        });
 
-  if (effectiveContext.providerAccountIds.length === 0) {
+  if (context.providerAccountIds.length === 0) {
     const freshness = createGoogleAdsWarehouseFreshness({
       dataState: "connected_no_assignment",
       warnings: ["No Google Ads account is assigned to this business."],
@@ -1545,17 +1354,17 @@ export async function getGoogleCanonicalOverviewTrends(input: {
     const rows = await readGoogleAdsDailyRange({
       scope: "account_daily",
       businessId: input.businessId,
-      providerAccountIds: effectiveContext.providerAccountIds,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
       timeoutMs: 30_000,
     });
     const freshness = await buildFreshness({
       businessId: input.businessId,
       scope: "account_daily",
-      providerAccountIds: effectiveContext.providerAccountIds,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
       rows,
     });
     let effectiveRows = rows;
@@ -1565,9 +1374,9 @@ export async function getGoogleCanonicalOverviewTrends(input: {
     const campaignRows = await readGoogleAdsDailyRange({
       scope: "campaign_daily",
       businessId: input.businessId,
-      providerAccountIds: effectiveContext.providerAccountIds,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
       timeoutMs: 30_000,
     });
     const accountTotals = aggregateGoogleOverviewTrendPoints(rows).reduce(
@@ -1599,8 +1408,8 @@ export async function getGoogleCanonicalOverviewTrends(input: {
       readSource = "warehouse_campaign_daily_fallback";
       console.warn("[google-canonical] trends_scope_fallback_to_campaign", {
         businessId: input.businessId,
-        startDate: effectiveContext.startDate,
-        endDate: effectiveContext.endDate,
+        startDate: context.startDate,
+        endDate: context.endDate,
         accountSpend: accountTotals.spend,
         campaignSpend: campaignTotals.spend,
         accountRevenue: accountTotals.revenue,
@@ -1612,16 +1421,11 @@ export async function getGoogleCanonicalOverviewTrends(input: {
 
     console.info("[google-canonical] trends_provider_truth_read_succeeded", {
       businessId: input.businessId,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      startDate: context.startDate,
+      endDate: context.endDate,
       rowCount: effectiveRows.length,
-      readSource:
-        currentDayPlan.snapshot != null
-          ? "warehouse_snapshot_current_day"
-          : readSource,
+      readSource,
     });
-    const snapshotMeta =
-      currentDayPlan.snapshot != null ? buildCurrentDaySnapshotMeta(currentDayPlan.snapshot) : null;
     return {
       points: aggregateGoogleOverviewTrendPoints(effectiveRows),
       meta: {
@@ -1629,32 +1433,31 @@ export async function getGoogleCanonicalOverviewTrends(input: {
           freshness,
           rowCounts: { account_daily: effectiveRows.length },
         }),
-        readSource: snapshotMeta?.readSource ?? readSource,
+        readSource,
         fallbackReason: null,
         degraded: false,
-        ...(snapshotMeta ?? {}),
       },
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[google-canonical] trends_provider_truth_read_failed", {
       businessId: input.businessId,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      startDate: context.startDate,
+      endDate: context.endDate,
       message,
     });
 
     const projectionWindow = await resolveGoogleProjectionWindowState({
       businessId: input.businessId,
-      providerAccountIds: effectiveContext.providerAccountIds,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
     });
     if (!projectionWindow.historicalOnly) {
       console.info("[google-canonical] projection_bypassed", {
         businessId: input.businessId,
-        startDate: effectiveContext.startDate,
-        endDate: effectiveContext.endDate,
+        startDate: context.startDate,
+        endDate: context.endDate,
         reason: projectionWindow.reason,
       });
       const freshness = createGoogleAdsWarehouseFreshness({
@@ -1679,22 +1482,22 @@ export async function getGoogleCanonicalOverviewTrends(input: {
     const cached = await readOverviewSummaryRange({
       businessId: input.businessId,
       provider: "google",
-      providerAccountIds: effectiveContext.providerAccountIds,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
     }).catch(() => null);
     const validity = evaluateOverviewSummaryProjectionValidity({
-      providerAccountIds: effectiveContext.providerAccountIds,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      providerAccountIds: context.providerAccountIds,
+      startDate: context.startDate,
+      endDate: context.endDate,
       hydrated: Boolean(cached?.hydrated),
       manifest: cached?.manifest,
       rows: cached?.rows ?? [],
     });
     console.info("[google-canonical] projection_evaluated", {
       businessId: input.businessId,
-      startDate: effectiveContext.startDate,
-      endDate: effectiveContext.endDate,
+      startDate: context.startDate,
+      endDate: context.endDate,
       valid: validity.valid,
       reason: validity.reason,
     });
@@ -1736,8 +1539,8 @@ export async function getGoogleCanonicalOverviewTrends(input: {
       });
       console.warn("[google-canonical] projection_fallback_activated", {
         businessId: input.businessId,
-        startDate: effectiveContext.startDate,
-        endDate: effectiveContext.endDate,
+        startDate: context.startDate,
+        endDate: context.endDate,
         reason: "provider_truth_operational_failure",
       });
       return {

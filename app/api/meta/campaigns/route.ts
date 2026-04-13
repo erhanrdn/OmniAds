@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import type { CurrentDayWarehouseSnapshotFields } from "@/lib/current-day-snapshot";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 
 export interface MetaCampaignRow {
@@ -98,7 +97,7 @@ export interface MetaCampaignRow {
   isBidValueMixed: boolean;
 }
 
-export interface MetaCampaignsResponse extends CurrentDayWarehouseSnapshotFields {
+export interface MetaCampaignsResponse {
   status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
   rows: MetaCampaignRow[];
   isPartial?: boolean;

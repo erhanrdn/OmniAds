@@ -83,15 +83,6 @@ export interface GoogleAdsCurrentDayLiveStatus {
   liveSegmentStartDate: string | null;
 }
 
-export interface GoogleAdsCurrentDaySnapshotStatus {
-  active: boolean;
-  requestedEndDate: string | null;
-  effectiveEndDate: string | null;
-  warehouseReadyThroughDate: string | null;
-  lastWarehouseWriteAt: string | null;
-  isStaleSnapshot: boolean;
-}
-
 export interface GoogleAdsStatusDomainSummary {
   state: "syncing" | "partial" | "ready" | "advisor_not_ready";
   label: string;
@@ -120,13 +111,8 @@ export interface GoogleAdsStatusResponse {
   d1TargetDate?: string | null;
   d1FinalizeState?: "ready" | "processing" | "blocked" | null;
   d1BlockedReason?: string | null;
-  requestedEndDate?: string | null;
-  effectiveEndDate?: string | null;
-  warehouseReadyThroughDate?: string | null;
-  lastWarehouseWriteAt?: string | null;
-  isStaleSnapshot?: boolean;
   dataContract?: {
-    todayMode: "live_overlay" | "warehouse_snapshot";
+    todayMode: "live_overlay";
     historicalMode: "warehouse_only";
   };
   platformDateBoundary?: {
@@ -134,10 +120,7 @@ export interface GoogleAdsStatusResponse {
     primaryAccountTimezone: string | null;
     currentDateInTimezone: string | null;
     previousDateInTimezone: string | null;
-    selectedRangeMode:
-      | "current_day_live"
-      | "current_day_snapshot"
-      | "historical_warehouse";
+    selectedRangeMode: "current_day_live" | "historical_warehouse";
     mixedCurrentDates: boolean;
     accounts: Array<{
       provider: "google";
@@ -158,16 +141,10 @@ export interface GoogleAdsStatusResponse {
   completionBlockers?: string[];
   globalSyncProgress?: GoogleAdsGlobalSyncProgressState | null;
   currentDayLiveStatus?: GoogleAdsCurrentDayLiveStatus | null;
-  currentDaySnapshotStatus?: GoogleAdsCurrentDaySnapshotStatus | null;
   selectedRangeReadinessBasis?: {
-    mode: "current_day_live" | "current_day_snapshot" | "historical_warehouse";
-    warehouseCoverageIgnored?: boolean;
-    liveOverlayEligible?: boolean;
-    usesWarehouseSnapshot?: boolean;
-    warehouseReadyThroughDate?: string | null;
-    effectiveEndDate?: string | null;
-    lastWarehouseWriteAt?: string | null;
-    isStaleSnapshot?: boolean;
+    mode: "current_day_live" | "historical_warehouse";
+    warehouseCoverageIgnored: boolean;
+    liveOverlayEligible: boolean;
   } | null;
   requiredScopeCompletion?: ProviderRequiredCoverage | null;
   needsBootstrap?: boolean;

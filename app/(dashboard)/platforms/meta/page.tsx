@@ -76,7 +76,6 @@ import { getMetaPageStatusMessaging } from "@/lib/meta/ui-status";
 import { resolveMetaSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   formatMetaDate,
-  formatMetaDateTime,
 } from "@/lib/meta/ui";
 import { getMetaPresetDates } from "@/lib/meta/date";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
@@ -537,7 +536,6 @@ export default function MetaPage() {
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
   const [bootstrapRequestedForBusiness, setBootstrapRequestedForBusiness] = useState<string | null>(null);
-  const [currentDaySnapshotRequestedKey, setCurrentDaySnapshotRequestedKey] = useState<string | null>(null);
   const [resolvedMetaReferenceDate, setResolvedMetaReferenceDate] = useState<string | null>(null);
   const [resolvedMetaTimeZoneLabel, setResolvedMetaTimeZoneLabel] = useState<string | null>(null);
   const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
@@ -793,7 +791,7 @@ export default function MetaPage() {
         body: JSON.stringify({
           businessId,
           provider: "meta",
-          mode: isTodayRange ? "current_day_snapshot" : "repair",
+          mode: isTodayRange ? "today" : "repair",
           startDate,
           endDate,
         }),
@@ -851,7 +849,7 @@ export default function MetaPage() {
           queueDepth <= 0 &&
           leasedPartitions <= 0;
         const truthReady = isTodayRange
-          ? Boolean(refreshedStatus && !refreshedStatus.isStaleSnapshot)
+          ? syncSettled
           : Boolean(refreshedStatus?.selectedRangeTruth?.truthReady);
 
         if (
@@ -978,60 +976,6 @@ export default function MetaPage() {
       (!effectiveStatus && (baseStatusQuery.isLoading || statusQuery.isLoading)));
   const isSyncInProgress =
     metaSyncPill?.state === "syncing";
-  const currentDaySnapshotStatusKey =
-    businessId && startDate && endDate
-      ? `${businessId}:${startDate}:${endDate}:${effectiveStatus?.warehouseReadyThroughDate ?? "none"}`
-      : null;
-  const readyThroughLabel = effectiveStatus?.warehouseReadyThroughDate
-    ? formatMetaDate(effectiveStatus.warehouseReadyThroughDate, language) ??
-      effectiveStatus.warehouseReadyThroughDate
-    : null;
-  const lastWarehouseWriteLabel = effectiveStatus?.lastWarehouseWriteAt
-    ? formatMetaDateTime(effectiveStatus.lastWarehouseWriteAt, language)
-    : null;
-
-  useEffect(() => {
-    if (!businessId || !metaConnected || !isMetaReferenceReady || !isTodayRange) return;
-    if (!effectiveStatus || effectiveStatus.dataContract?.todayMode !== "warehouse_snapshot") return;
-    if (!effectiveStatus.isStaleSnapshot) return;
-    if (isManualRefreshRunning || isSyncInProgress) return;
-    if (!currentDaySnapshotStatusKey || currentDaySnapshotRequestedKey === currentDaySnapshotStatusKey) return;
-
-    setCurrentDaySnapshotRequestedKey(currentDaySnapshotStatusKey);
-    void fetch("/api/sync/refresh", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        businessId,
-        provider: "meta",
-        mode: "current_day_snapshot",
-      }),
-    }).finally(() => {
-      void baseStatusQuery.refetch();
-      void statusQuery.refetch();
-      void summaryQuery.refetch();
-      void campaignsQuery.refetch();
-      void breakdownsQuery.refetch();
-    });
-  }, [
-    baseStatusQuery,
-    breakdownsQuery,
-    businessId,
-    campaignsQuery,
-    currentDaySnapshotRequestedKey,
-    currentDaySnapshotStatusKey,
-    effectiveStatus,
-    isManualRefreshRunning,
-    isMetaReferenceReady,
-    isSyncInProgress,
-    isTodayRange,
-    metaConnected,
-    statusQuery,
-    summaryQuery,
-  ]);
 
   const previousWarehouseKpis = useMemo(() => {
     const totals = comparisonSummaryQuery.data?.totals;
@@ -1168,12 +1112,6 @@ export default function MetaPage() {
           {metaConnected && metaAccountDayLabel ? (
             <p className="mt-1 text-xs text-muted-foreground">{metaAccountDayLabel}</p>
           ) : null}
-          {metaConnected && (readyThroughLabel || lastWarehouseWriteLabel) ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {readyThroughLabel ? `Ready through ${readyThroughLabel}` : "Ready through pending"}
-              {lastWarehouseWriteLabel ? ` · Last warehouse write ${lastWarehouseWriteLabel}` : ""}
-            </p>
-          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {metaConnected && isStatusLoading && (
@@ -1194,9 +1132,7 @@ export default function MetaPage() {
               />
               {isManualRefreshRunning || isSyncInProgress
                 ? "Sync in progress"
-                : isTodayRange
-                  ? "Sync snapshot"
-                  : "Refresh data"}
+                : "Refresh data"}
             </Button>
           )}
           <div className="shrink-0 rounded-xl border bg-card p-1 shadow-sm">

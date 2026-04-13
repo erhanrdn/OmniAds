@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import type { CurrentDayWarehouseSnapshotFields } from "@/lib/current-day-snapshot";
 import { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
-export interface MetaAdSetsResponse extends CurrentDayWarehouseSnapshotFields {
+export interface MetaAdSetsResponse {
   status?: "ok" | "not_connected";
   rows: Awaited<ReturnType<typeof getMetaAdSetsForRange>>["rows"];
   isPartial?: boolean;

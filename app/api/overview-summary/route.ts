@@ -956,13 +956,6 @@ export async function GET(request: NextRequest) {
       startDate: resolvedStart,
       endDate: resolvedEnd,
     },
-    todayMode: currentOverview.todayMode,
-    requestedEndDate: currentOverview.requestedEndDate ?? resolvedEnd,
-    effectiveEndDate: currentOverview.effectiveEndDate ?? resolvedEnd,
-    warehouseReadyThroughDate:
-      currentOverview.warehouseReadyThroughDate ?? currentOverview.effectiveEndDate ?? resolvedEnd,
-    lastWarehouseWriteAt: currentOverview.lastWarehouseWriteAt ?? null,
-    isStaleSnapshot: currentOverview.isStaleSnapshot ?? false,
     comparison: {
       mode: compareMode,
       startDate: previousWindow.startDate,

@@ -9,12 +9,10 @@ import * as metaWarehouse from "@/lib/meta/warehouse";
 import * as googleAdsWarehouse from "@/lib/google-ads/warehouse";
 import {
   consumeMetaQueuedWork,
-  enqueueMetaScheduledWork,
   getMetaSelectedRangeTruthReadiness,
   syncMetaRepairRange,
   syncMetaToday,
 } from "@/lib/sync/meta-sync";
-import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
 /**
  * POST /api/sync/refresh
@@ -349,12 +347,6 @@ async function runSyncForProvider(
 ): Promise<{ provider: string; result: unknown }> {
   switch (provider) {
     case "google_ads":
-      if (input?.mode === "current_day_snapshot") {
-        return {
-          provider,
-          result: await enqueueGoogleAdsScheduledWork(businessId),
-        };
-      }
       const googleResult = await runGoogleAdsRepairCycle(businessId);
       return {
         provider,
@@ -366,12 +358,6 @@ async function runSyncForProvider(
         },
       };
     case "meta":
-      if (input?.mode === "current_day_snapshot") {
-        return {
-          provider,
-          result: await enqueueMetaScheduledWork(businessId),
-        };
-      }
       if (input?.mode === "today") {
         return {
           provider,
@@ -565,13 +551,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const googleSnapshotMode = provider === "google_ads" && mode === "current_day_snapshot";
-  if (
-    provider !== "meta" &&
-    (startDate != null ||
-      endDate != null ||
-      (mode != null && !googleSnapshotMode))
-  ) {
+  if (provider !== "meta" && (mode != null || startDate != null || endDate != null)) {
     return NextResponse.json(
       { error: "mode, startDate and endDate are only supported for Meta refreshes." },
       { status: 400 },
@@ -586,10 +566,7 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    if (
-      mode != null &&
-      !["today", "repair", "finalize_range", "current_day_snapshot"].includes(mode)
-    ) {
+    if (mode != null && !["today", "repair", "finalize_range"].includes(mode)) {
       return NextResponse.json(
         { error: "unsupported_meta_refresh_mode" },
         { status: 400 },

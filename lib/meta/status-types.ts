@@ -44,13 +44,11 @@ export type MetaPageReadinessState =
 
 export type MetaPageSelectedRangeMode =
   | "current_day_live"
-  | "current_day_snapshot"
   | "historical_warehouse";
 
 export type MetaPageSurfaceTruthClass =
   | "historical_warehouse"
   | "current_day_live"
-  | "current_day_snapshot"
   | "conditional_drilldown"
   | "deterministic_decision_engine";
 
@@ -111,13 +109,8 @@ export interface MetaStatusResponse {
   d1TargetDate?: string | null;
   d1FinalizeState?: "ready" | "processing" | "blocked" | null;
   d1BlockedReason?: string | null;
-  requestedEndDate?: string | null;
-  effectiveEndDate?: string | null;
-  warehouseReadyThroughDate?: string | null;
-  lastWarehouseWriteAt?: string | null;
-  isStaleSnapshot?: boolean;
   dataContract?: {
-    todayMode: "live_overlay" | "warehouse_snapshot";
+    todayMode: "live_overlay";
     historicalMode: "warehouse_only";
   };
   platformDateBoundary?: {
@@ -125,10 +118,7 @@ export interface MetaStatusResponse {
     primaryAccountTimezone: string | null;
     currentDateInTimezone: string | null;
     previousDateInTimezone: string | null;
-    selectedRangeMode:
-      | "current_day_live"
-      | "current_day_snapshot"
-      | "historical_warehouse";
+    selectedRangeMode: "current_day_live" | "historical_warehouse";
     mixedCurrentDates: boolean;
     accounts: Array<{
       provider: "meta";

@@ -4,7 +4,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 const mockUseQuery = vi.fn();
 const mockUseMutation = vi.fn();
-const mockInvalidateQueries = vi.fn();
 const mockGetPresetDatesForReferenceDate = vi.fn();
 const mockGetTodayIsoForTimeZone = vi.fn();
 const capturedPickerProps: Array<Record<string, unknown>> = [];
@@ -12,9 +11,6 @@ const capturedPickerProps: Array<Record<string, unknown>> = [];
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (input: { queryKey: unknown[] }) => mockUseQuery(input),
   useMutation: () => mockUseMutation(),
-  useQueryClient: () => ({
-    invalidateQueries: mockInvalidateQueries,
-  }),
 }));
 
 vi.mock("@/components/date-range/DateRangePicker", () => ({

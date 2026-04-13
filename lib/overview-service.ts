@@ -1,6 +1,4 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
-import type { CurrentDayWarehouseSnapshotFields } from "@/lib/current-day-snapshot";
-import { pickEarliestDate, pickLatestTimestamp } from "@/lib/current-day-snapshot";
 import { getDemoOverview, getDemoSparklines, isDemoBusinessId } from "@/lib/demo-business";
 import {
   getGoogleCanonicalOverviewSummary,
@@ -64,12 +62,6 @@ export interface OverviewResponse {
   businessId: string;
   dateRange: { startDate: string; endDate: string };
   status?: string;
-  todayMode?: "warehouse_snapshot";
-  requestedEndDate?: string | null;
-  effectiveEndDate?: string | null;
-  warehouseReadyThroughDate?: string | null;
-  lastWarehouseWriteAt?: string | null;
-  isStaleSnapshot?: boolean;
   kpis: {
     spend: number;
     revenue: number;
@@ -131,12 +123,6 @@ interface MetaOverviewFragment {
   revenue: number;
   purchases: number;
   rows: PlatformEfficiencyRow[];
-  todayMode?: "warehouse_snapshot";
-  requestedEndDate: string;
-  effectiveEndDate: string | null;
-  warehouseReadyThroughDate: string | null;
-  lastWarehouseWriteAt: string | null;
-  isStaleSnapshot: boolean;
 }
 
 interface GoogleOverviewFragment {
@@ -146,12 +132,6 @@ interface GoogleOverviewFragment {
   clicks: number;
   impressions: number;
   row: PlatformEfficiencyRow | null;
-  todayMode?: "warehouse_snapshot";
-  requestedEndDate: string;
-  effectiveEndDate: string | null;
-  warehouseReadyThroughDate: string | null;
-  lastWarehouseWriteAt: string | null;
-  isStaleSnapshot: boolean;
 }
 
 interface DailyTrendsBundle {
@@ -171,7 +151,6 @@ interface MetaAccessContext {
 
 interface GoogleAccessContext {
   assignedAccountIds: string[];
-  connected: boolean;
 }
 
 const META_OVERVIEW_CACHE_TTL_MINUTES = 15;
@@ -234,99 +213,13 @@ async function getMetaAccessContext(businessId: string): Promise<MetaAccessConte
 
 async function getGoogleAccessContext(businessId: string): Promise<GoogleAccessContext> {
   try {
-    const [assignment, integration] = await Promise.all([
-      getProviderAccountAssignments(businessId, "google"),
-      getIntegrationMetadata(businessId, "google").catch(() => null),
-    ]);
+    const assignment = await getProviderAccountAssignments(businessId, "google");
     return {
       assignedAccountIds: assignment?.account_ids ?? [],
-      connected: Boolean(integration?.status === "connected"),
     };
   } catch {
-    return { assignedAccountIds: [], connected: false };
+    return { assignedAccountIds: [] };
   }
-}
-
-function buildOverviewFragmentSnapshot(input: {
-  requestedEndDate: string;
-  effectiveEndDate?: string | null;
-  warehouseReadyThroughDate?: string | null;
-  lastWarehouseWriteAt?: string | null;
-  isStaleSnapshot?: boolean;
-  todayMode?: "warehouse_snapshot";
-}) {
-  return {
-    todayMode: input.todayMode,
-    requestedEndDate: input.requestedEndDate,
-    effectiveEndDate: input.effectiveEndDate ?? input.requestedEndDate,
-    warehouseReadyThroughDate:
-      input.warehouseReadyThroughDate ?? input.effectiveEndDate ?? input.requestedEndDate,
-    lastWarehouseWriteAt: input.lastWarehouseWriteAt ?? null,
-    isStaleSnapshot: input.isStaleSnapshot ?? false,
-  };
-}
-
-function resolveOverviewSnapshotAlignment(input: {
-  requestedStartDate: string;
-  requestedEndDate: string;
-  metaAccess: MetaAccessContext;
-  googleAccess: GoogleAccessContext;
-  metaFragment: MetaOverviewFragment | null;
-  googleFragment: GoogleOverviewFragment | null;
-}) {
-  const snapshotProviders: Array<CurrentDayWarehouseSnapshotFields> = [];
-
-  if (
-    input.metaAccess.connected &&
-    input.metaAccess.assignedAccountIds.length > 0 &&
-    input.metaFragment?.todayMode === "warehouse_snapshot"
-  ) {
-    snapshotProviders.push(input.metaFragment);
-  }
-  if (
-    input.googleAccess.connected &&
-    input.googleAccess.assignedAccountIds.length > 0 &&
-    input.googleFragment?.todayMode === "warehouse_snapshot"
-  ) {
-    snapshotProviders.push(input.googleFragment);
-  }
-
-  if (
-    input.requestedStartDate !== input.requestedEndDate ||
-    snapshotProviders.length === 0
-  ) {
-    return {
-      effectiveStartDate: input.requestedStartDate,
-      effectiveEndDate: input.requestedEndDate,
-      snapshot: null,
-    };
-  }
-
-  const effectiveEndDate = pickEarliestDate(
-    snapshotProviders.map((provider) => provider.effectiveEndDate),
-  );
-
-  return {
-    effectiveStartDate: effectiveEndDate ?? input.requestedStartDate,
-    effectiveEndDate,
-    snapshot: {
-      todayMode: "warehouse_snapshot" as const,
-      requestedEndDate: input.requestedEndDate,
-      effectiveEndDate,
-      warehouseReadyThroughDate: pickEarliestDate(
-        snapshotProviders.map(
-          (provider) =>
-            provider.warehouseReadyThroughDate ?? provider.effectiveEndDate ?? null,
-        ),
-      ),
-      lastWarehouseWriteAt: pickLatestTimestamp(
-        snapshotProviders.map((provider) => provider.lastWarehouseWriteAt),
-      ),
-      isStaleSnapshot:
-        effectiveEndDate == null ||
-        effectiveEndDate.localeCompare(input.requestedEndDate) < 0,
-    },
-  };
 }
 
 async function getMetaOverviewFragment(input: {
@@ -340,17 +233,6 @@ async function getMetaOverviewFragment(input: {
       startDate: input.startDate,
       endDate: input.endDate,
     });
-    const snapshotMeta = buildOverviewFragmentSnapshot({
-      requestedEndDate: input.endDate,
-      effectiveEndDate: canonicalSummary.effectiveEndDate ?? input.endDate,
-      warehouseReadyThroughDate:
-        canonicalSummary.warehouseReadyThroughDate ??
-        canonicalSummary.effectiveEndDate ??
-        input.endDate,
-      lastWarehouseWriteAt: canonicalSummary.lastWarehouseWriteAt ?? null,
-      isStaleSnapshot: canonicalSummary.isStaleSnapshot ?? false,
-      todayMode: canonicalSummary.todayMode,
-    });
     if (canonicalSummary.accounts.length > 0) {
       const payload: MetaOverviewFragment = {
         spend: canonicalSummary.totals.spend,
@@ -361,10 +243,9 @@ async function getMetaOverviewFragment(input: {
           spend: account.spend,
           revenue: account.revenue,
           purchases: account.conversions,
-            cpa: account.conversions > 0 ? account.spend / account.conversions : 0,
-            roas: account.roas,
-          })),
-        ...snapshotMeta,
+          cpa: account.conversions > 0 ? account.spend / account.conversions : 0,
+          roas: account.roas,
+        })),
       };
       return payload;
     }
@@ -393,7 +274,6 @@ async function getMetaOverviewFragment(input: {
             roas: canonicalSummary.totals.roas,
           },
         ],
-        ...snapshotMeta,
       };
     }
   } catch (error: unknown) {
@@ -403,16 +283,7 @@ async function getMetaOverviewFragment(input: {
       message,
     });
   }
-  return {
-    spend: 0,
-    revenue: 0,
-    purchases: 0,
-    rows: [],
-    ...buildOverviewFragmentSnapshot({
-      requestedEndDate: input.endDate,
-      effectiveEndDate: input.endDate,
-    }),
-  };
+  return { spend: 0, revenue: 0, purchases: 0, rows: [] };
 }
 
 async function getGoogleOverviewFragment(input: {
@@ -454,17 +325,6 @@ async function getGoogleOverviewFragment(input: {
             cpa: Number(googleOverview.kpis.cpa ?? 0),
           }
         : null,
-    ...buildOverviewFragmentSnapshot({
-      requestedEndDate: input.endDate,
-      effectiveEndDate: googleOverview.summary.effectiveEndDate ?? input.endDate,
-      warehouseReadyThroughDate:
-        googleOverview.summary.warehouseReadyThroughDate ??
-        googleOverview.summary.effectiveEndDate ??
-        input.endDate,
-      lastWarehouseWriteAt: googleOverview.summary.lastWarehouseWriteAt ?? null,
-      isStaleSnapshot: googleOverview.summary.isStaleSnapshot ?? false,
-      todayMode: googleOverview.summary.todayMode,
-    }),
   };
 
   return payload;
@@ -622,48 +482,10 @@ async function buildDailyTrends(params: {
       dateSpanDays: enumerateDays(params.startDate, params.endDate).length,
     },
     async () => {
-      const [metaAccess, googleAccess] = await Promise.all([
-        getMetaAccessContext(params.businessId),
-        getGoogleAccessContext(params.businessId),
-      ]);
-      const [metaFragment, googleFragment] = await Promise.all([
-        getMetaOverviewFragment({
-          businessId: params.businessId,
-          startDate: params.startDate,
-          endDate: params.endDate,
-        }).catch(() => null),
-        getGoogleOverviewFragment({
-          businessId: params.businessId,
-          startDate: params.startDate,
-          endDate: params.endDate,
-        }).catch(() => null),
-      ]);
-      const snapshotAlignment = resolveOverviewSnapshotAlignment({
-        requestedStartDate: params.startDate,
-        requestedEndDate: params.endDate,
-        metaAccess,
-        googleAccess,
-        metaFragment,
-        googleFragment,
-      });
-      if (
-        snapshotAlignment.snapshot &&
-        snapshotAlignment.snapshot.effectiveEndDate == null
-      ) {
-        return {
-          combined: [],
-          providerTrends: {},
-        };
-      }
-      const effectiveStartDate = snapshotAlignment.effectiveStartDate;
-      const effectiveEndDate =
-        snapshotAlignment.snapshot?.effectiveEndDate ?? params.endDate;
       const [shopifyResult] = await Promise.all([
         measureComponent(() =>
           resolveShopifyOverviewAggregateForRead({
-            businessId: params.businessId,
-            startDate: effectiveStartDate,
-            endDate: effectiveEndDate,
+            ...params,
             purpose: "summary",
           }).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
@@ -680,16 +502,16 @@ async function buildDailyTrends(params: {
         measureComponent(async () => {
           const trends = await getMetaCanonicalOverviewTrends({
             businessId: params.businessId,
-            startDate: effectiveStartDate,
-            endDate: effectiveEndDate,
+            startDate: params.startDate,
+            endDate: params.endDate,
           }).catch(() => null);
           return trends?.points ?? [];
         }),
         measureComponent(async () => {
           const trends = await getGoogleCanonicalOverviewTrends({
             businessId: params.businessId,
-            startDate: effectiveStartDate,
-            endDate: effectiveEndDate,
+            startDate: params.startDate,
+            endDate: params.endDate,
           }).catch(() => null);
           return trends?.points ?? [];
         }),
@@ -697,7 +519,7 @@ async function buildDailyTrends(params: {
       const metaRows = metaRowsResult.result;
       const googleRows = googleRowsResult.result;
 
-      const dates = enumerateDays(effectiveStartDate, effectiveEndDate);
+      const dates = enumerateDays(params.startDate, params.endDate);
       const mergeStartedAt = Date.now();
       const metaByDate = new Map<string, DailyTrendPoint>();
       const googleByDate = new Map<string, DailyTrendPoint>();
@@ -762,8 +584,8 @@ async function buildDailyTrends(params: {
       };
       logPerfEvent("overview_daily_trends_components", {
         businessId: params.businessId,
-        startDate: effectiveStartDate,
-        endDate: effectiveEndDate,
+        startDate: params.startDate,
+        endDate: params.endDate,
         dateSpanDays: dates.length,
         metaReadDurationMs: metaRowsResult.durationMs,
         googleReadDurationMs: googleRowsResult.durationMs,
@@ -829,10 +651,6 @@ export async function getOverviewData(params: {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[overview] shopify integration warmup failed", { businessId, message });
   });
-  const [metaAccess, googleAccess] = await Promise.all([
-    getMetaAccessContext(businessId),
-    getGoogleAccessContext(businessId),
-  ]);
 
   let totalSpend = 0;
   let totalRevenue = 0;
@@ -840,10 +658,6 @@ export async function getOverviewData(params: {
   let totalClicks = 0;
   let totalImpressions = 0;
   const platformEfficiency: PlatformEfficiencyRow[] = [];
-  let effectiveStart = resolvedStart;
-  let effectiveEnd = resolvedEnd;
-  let overviewSnapshotMetadata: Required<CurrentDayWarehouseSnapshotFields> | null =
-    null;
 
   const [metaResult, googleResult, shopifyResult] = await Promise.allSettled([
     measureComponent(() =>
@@ -878,80 +692,12 @@ export async function getOverviewData(params: {
     aggregationDurationMs: null,
   };
 
-  let metaFragment =
-    metaResult.status === "fulfilled" ? metaResult.value.result : null;
-  let googleFragment =
-    googleResult.status === "fulfilled" ? googleResult.value.result : null;
-  let shopifyResolution =
-    shopifyResult.status === "fulfilled" ? shopifyResult.value.result : null;
-
-  const snapshotAlignment = resolveOverviewSnapshotAlignment({
-    requestedStartDate: resolvedStart,
-    requestedEndDate: resolvedEnd,
-    metaAccess,
-    googleAccess,
-    metaFragment,
-    googleFragment,
-  });
-  overviewSnapshotMetadata = snapshotAlignment.snapshot;
-  if (
-    snapshotAlignment.snapshot &&
-    snapshotAlignment.snapshot.effectiveEndDate == null
-  ) {
-    const overview = buildOverviewResponse({
-      businessId,
-      startDate: resolvedStart,
-      endDate: resolvedEnd,
-      totalSpend: 0,
-      totalRevenue: 0,
-      totalPurchases: 0,
-      totalClicks: 0,
-      totalImpressions: 0,
-      roas: 0,
-      cpa: 0,
-      aov: 0,
-      platformEfficiency: [],
-    });
-    overview.status = "snapshot_pending";
-    Object.assign(overview, snapshotAlignment.snapshot);
-    return overview;
-  }
-  if (
-    snapshotAlignment.snapshot?.effectiveEndDate &&
-    snapshotAlignment.snapshot.effectiveEndDate !== resolvedEnd
-  ) {
-    effectiveStart = snapshotAlignment.effectiveStartDate;
-    effectiveEnd = snapshotAlignment.snapshot.effectiveEndDate;
-    if (metaFragment) {
-      metaFragment = await getMetaOverviewFragment({
-        businessId,
-        startDate: effectiveStart,
-        endDate: effectiveEnd,
-      }).catch(() => metaFragment);
-    }
-    if (googleFragment) {
-      googleFragment = await getGoogleOverviewFragment({
-        businessId,
-        startDate: effectiveStart,
-        endDate: effectiveEnd,
-      }).catch(() => googleFragment);
-    }
-    if (shopifyResolution) {
-      shopifyResolution = await resolveShopifyOverviewAggregateForRead({
-        businessId,
-        startDate: effectiveStart,
-        endDate: effectiveEnd,
-        purpose: params.includeTrends === false ? "summary" : "full",
-      }).catch(() => shopifyResolution);
-    }
-  }
-
-  if (metaFragment) {
-    totalSpend += metaFragment.spend;
-    totalRevenue += metaFragment.revenue;
-    totalPurchases += metaFragment.purchases;
-    platformEfficiency.push(...metaFragment.rows);
-  } else if (metaResult.status === "rejected") {
+  if (metaResult.status === "fulfilled") {
+    totalSpend += metaResult.value.result.spend;
+    totalRevenue += metaResult.value.result.revenue;
+    totalPurchases += metaResult.value.result.purchases;
+    platformEfficiency.push(...metaResult.value.result.rows);
+  } else {
     const message =
       metaResult.reason instanceof Error
         ? metaResult.reason.message
@@ -959,16 +705,16 @@ export async function getOverviewData(params: {
     console.warn("[overview] meta overview unavailable", { businessId, message });
   }
 
-  if (googleFragment) {
-    totalSpend += googleFragment.spend;
-    totalRevenue += googleFragment.revenue;
-    totalPurchases += googleFragment.purchases;
-    totalClicks += googleFragment.clicks;
-    totalImpressions += googleFragment.impressions;
-    if (googleFragment.row) {
-      platformEfficiency.push(googleFragment.row);
+  if (googleResult.status === "fulfilled") {
+    totalSpend += googleResult.value.result.spend;
+    totalRevenue += googleResult.value.result.revenue;
+    totalPurchases += googleResult.value.result.purchases;
+    totalClicks += googleResult.value.result.clicks;
+    totalImpressions += googleResult.value.result.impressions;
+    if (googleResult.value.result.row) {
+      platformEfficiency.push(googleResult.value.result.row);
     }
-  } else if (googleResult.status === "rejected") {
+  } else {
     const message =
       googleResult.reason instanceof Error
         ? googleResult.reason.message
@@ -976,6 +722,7 @@ export async function getOverviewData(params: {
     console.warn("[overview] google ads overview unavailable", { businessId, message });
   }
 
+  const shopifyResolution = shopifyResult.status === "fulfilled" ? shopifyResult.value.result : null;
   const shopifyAggregate = shopifyResolution?.aggregate ?? null;
   if (shopifyResult.status === "rejected") {
     const message =
@@ -1011,10 +758,10 @@ export async function getOverviewData(params: {
   const [ga4FallbackResult, dailyTrends] = await Promise.all([
     shopifyAggregate
       ? Promise.resolve<TimedResult<Ga4EcommerceFallback | null> | null>(null)
-      : measureComponent(() => getGa4EcommerceFallback(businessId, effectiveStart, effectiveEnd)),
+      : measureComponent(() => getGa4EcommerceFallback(businessId, resolvedStart, resolvedEnd)),
     skipTrends
       ? Promise.resolve(null)
-      : buildDailyTrends({ businessId, startDate: effectiveStart, endDate: effectiveEnd }),
+      : buildDailyTrends({ businessId, startDate: resolvedStart, endDate: resolvedEnd }),
   ]);
   componentPerf.ga4FallbackDurationMs = ga4FallbackResult?.durationMs ?? null;
   const ga4Fallback = ga4FallbackResult?.result ?? null;
@@ -1041,9 +788,6 @@ export async function getOverviewData(params: {
     overview.trends["7d"] = dailyTrends.combined.slice(-7);
     overview.trends["14d"] = dailyTrends.combined.slice(-14);
     overview.trends["30d"] = dailyTrends.combined.slice(-30);
-  }
-  if (overviewSnapshotMetadata) {
-    Object.assign(overview, overviewSnapshotMetadata);
   }
 
   if (overview.status === "no_data" && (ga4Fallback || shopifyAggregate)) {
