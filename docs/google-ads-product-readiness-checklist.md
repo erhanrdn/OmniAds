@@ -33,7 +33,7 @@ Product-ready is declared only after a real business passes a `T0` and `T0 + 24h
    - `device_daily`
    - `audience_daily`
 5. Compare repeated snapshots and confirm:
-   - `search_term_daily` completed days increase over time
+   - `search_term_daily` additive coverage completed days increase over time
    - `product_daily` completed days increase over time
    - extended queue depth declines when core backlog is low
 
@@ -42,7 +42,7 @@ Product-ready is declared only after a real business passes a `T0` and `T0 + 24h
 1. Run `npm run google:ads:advisor-readiness -- <businessId> <startDate> <endDate>`
 2. Refresh the native snapshot with `npm run google:ads:advisor-refresh -- <businessId> --json`
 3. Confirm:
-   - advisor is `ready=false` when `campaign_daily`, `search_term_daily`, or `product_daily` is incomplete
+   - advisor is `ready=false` when `campaign_daily`, additive `search_term_daily`, or `product_daily` is incomplete
    - advisor is `ready=true` only when all required surfaces are complete
    - legacy snapshots remain labeled `compatibility_derived` until refreshed
    - AI structured assist stays absent unless both the global flag and the per-business allowlist are active
@@ -88,6 +88,23 @@ Product-ready is declared only after a real business passes a `T0` and `T0 + 24h
    - the screen refreshes with updated queue/state data
    - dead-letter or stuck backlog symptoms visibly improve when the action is appropriate
 
+## Retention / Canary Validation
+
+1. Run `npm run google:ads:retention-canary -- <businessId>`
+2. Confirm:
+   - the command exits `0`
+   - raw search-term probe rows are `0` outside the `120` day hot window
+   - historical search intelligence remains aggregate-backed
+   - recent advisor support reports `84/84` additive-backed search coverage
+   - the output shows raw-hot-table dry-run stats for:
+     - `google_ads_search_query_hot_daily`
+     - `google_ads_search_term_daily`
+3. Confirm `/api/google-ads/status` or `google:ads:product-gate` shows:
+   - retention mode `dry_run`
+   - retention execution still disabled by default
+   - the explicit canary verification command
+   - latest raw-hot-table dry-run stats when a retention run has been recorded
+
 ## Product Exit Criteria
 
 The Google Ads stack is considered product-ready only when all of the following are true:
@@ -98,6 +115,7 @@ The Google Ads stack is considered product-ready only when all of the following 
 - both `search_term_daily` and `product_daily` increase during the same 24 hour validation window
 - `/api/google-ads/status` is fully state-driven
 - `/api/google-ads/status` reports advisor action-contract truth and retention runtime posture honestly
+- Google retention remains `dry_run` by default and the explicit retention canary passes
 - advisor runs only on manual trigger
 - request-time sync no longer creates queue storms
 - admin sync health reflects Google Ads queue/state truth

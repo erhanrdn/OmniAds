@@ -44,10 +44,16 @@ vi.mock("@/lib/google-ads/decision-engine-config", () => ({
   getGoogleAdsWritebackCapabilityGate,
 }));
 
-vi.mock("@/lib/google-ads/warehouse-retention", () => ({
-  getGoogleAdsRetentionRuntimeStatus,
-  getLatestGoogleAdsRetentionRun,
-}));
+vi.mock("@/lib/google-ads/warehouse-retention", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/google-ads/warehouse-retention")>(
+    "@/lib/google-ads/warehouse-retention"
+  );
+  return {
+    ...actual,
+    getGoogleAdsRetentionRuntimeStatus,
+    getLatestGoogleAdsRetentionRun,
+  };
+});
 
 vi.mock("@/lib/admin-operations-health", () => ({
   getAdminOperationsHealth,
@@ -223,6 +229,46 @@ describe("runGoogleAdsProductGate", () => {
       blockedReasons: [],
     });
     getLatestGoogleAdsRetentionRun.mockResolvedValue({
+      summaryJson: {
+        rows: [
+          {
+            tier: "raw_search_terms_hot",
+            label: "Raw search terms daily hot",
+            tableName: "google_ads_search_term_daily",
+            retentionDays: 120,
+            cutoffDate: "2025-12-12",
+            executionEnabled: false,
+            grain: "daily",
+            storageTemperature: "hot",
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 20,
+            oldestEligibleValue: "2025-01-01",
+            newestEligibleValue: "2025-12-11",
+            retainedRows: 30,
+            latestRetainedValue: "2026-04-10",
+            deletedRows: 0,
+          },
+          {
+            tier: "raw_search_terms_hot",
+            label: "Raw search terms daily hot",
+            tableName: "google_ads_search_query_hot_daily",
+            retentionDays: 120,
+            cutoffDate: "2025-12-12",
+            executionEnabled: false,
+            grain: "daily",
+            storageTemperature: "hot",
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 12,
+            oldestEligibleValue: "2025-01-01",
+            newestEligibleValue: "2025-12-11",
+            retainedRows: 44,
+            latestRetainedValue: "2026-04-10",
+            deletedRows: 0,
+          },
+        ],
+      },
       executionMode: "dry_run",
       finishedAt: new Date().toISOString(),
     });
@@ -264,6 +310,16 @@ describe("runGoogleAdsProductGate", () => {
     ).toContain("AI assist applied/rejected/failed/skipped: 1/0/0/2");
     expect(result.sections.find((entry) => entry.key === "admin_visibility_contract")?.level).toBe(
       "PASS"
+    );
+    expect(
+      result.sections.find((entry) => entry.key === "known_limitations")?.details
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "Raw hot-table dry-run google_ads_search_term_daily: eligible 20"
+        ),
+        "Retention canary verification: npm run google:ads:retention-canary -- biz_1",
+      ])
     );
     expect(result.sections.find((entry) => entry.key === "product_exit_criteria")?.level).toBe(
       "PASS"

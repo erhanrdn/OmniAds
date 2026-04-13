@@ -17,6 +17,7 @@ import {
   getGoogleAdsWritebackCapabilityGate,
 } from "@/lib/google-ads/decision-engine-config";
 import {
+  getGoogleAdsRetentionRunRows,
   getGoogleAdsRetentionRuntimeStatus,
   getLatestGoogleAdsRetentionRun,
 } from "@/lib/google-ads/warehouse-retention";
@@ -431,6 +432,7 @@ export async function runGoogleAdsProductGate(
     "google:ads:state-check",
     "google:ads:advisor-readiness",
     "google:ads:advisor-refresh",
+    "google:ads:retention-canary",
   ];
   const missingScripts = requiredScripts.filter((script) => !packageScripts[script]);
   sections.push(
@@ -440,7 +442,7 @@ export async function runGoogleAdsProductGate(
       level: missingScripts.length === 0 ? "PASS" : "FAIL",
       summary:
         missingScripts.length === 0
-          ? "Cleanup, replay, reschedule, refresh-state, readiness, and advisor-refresh tooling are present."
+          ? "Cleanup, replay, reschedule, refresh-state, readiness, advisor-refresh, and retention-canary tooling are present."
           : "Some required recovery scripts are missing from package.json.",
       details:
         missingScripts.length === 0
@@ -502,6 +504,14 @@ export async function runGoogleAdsProductGate(
 
   const latestRetentionRun =
     runtimeAvailable ? await getLatestGoogleAdsRetentionRun().catch(() => null) : null;
+  const latestRetentionRunRows = getGoogleAdsRetentionRunRows(latestRetentionRun);
+  const latestRawHotRetentionRows = latestRetentionRunRows.filter((row) =>
+    [
+      "google_ads_search_query_hot_daily",
+      "google_ads_search_term_daily",
+    ].includes(row.tableName)
+  );
+  const retentionCanaryCommand = `npm run google:ads:retention-canary -- ${input.businessId}`;
   const limitations: string[] = [
     decisionConfig.writebackEnabled
       ? "Write-back is enabled by flag, but mutate/rollback are not marked verified."
@@ -524,6 +534,17 @@ export async function runGoogleAdsProductGate(
       : runtimeAvailable
         ? "No recorded Google Ads retention run was found yet."
         : "Retention runtime could not be verified without DATABASE_URL.",
+    latestRawHotRetentionRows.length > 0
+      ? latestRawHotRetentionRows
+          .map(
+            (row) =>
+              `Raw hot-table dry-run ${row.tableName}: eligible ${row.eligibleRows ?? "unknown"}, oldest ${row.oldestEligibleValue ?? "none"}, newest ${row.newestEligibleValue ?? "none"}, retained ${row.retainedRows ?? "unknown"}, latest retained ${row.latestRetainedValue ?? "none"}`
+          )
+          .join(" | ")
+      : latestRetentionRun
+        ? "Latest retention run did not carry raw hot-table candidate stats."
+        : "No raw hot-table dry-run stats are recorded yet.",
+    `Retention canary verification: ${retentionCanaryCommand}`,
     input.sinceIso
       ? `Observations were evaluated relative to sinceIso ${input.sinceIso}.`
       : "No sinceIso boundary was supplied for freshness assertions.",
@@ -538,6 +559,8 @@ export async function runGoogleAdsProductGate(
       data: {
         retentionRuntime: retentionRuntime,
         latestRetentionRun,
+        latestRawHotRetentionRows,
+        retentionCanaryCommand,
       },
     })
   );

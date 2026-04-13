@@ -1,5 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
+import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
 import { runMigrations } from "@/lib/migrations";
 
 loadEnvConfig(process.cwd());
@@ -22,12 +23,25 @@ async function main() {
 
   const coverage = await Promise.all(
     REQUIRED_SCOPES.map(async (scope) => {
+      if (scope === "search_term_daily") {
+        const additiveCoverage = await readGoogleAdsSearchIntelligenceCoverage({
+          businessId,
+          startDate,
+          endDate,
+        });
+        return {
+          scope,
+          source: "additive_search_intelligence",
+          completedDays: additiveCoverage.completedDays,
+          firstDate: null,
+          lastDate: additiveCoverage.readyThroughDate,
+        };
+      }
+
       const table =
         scope === "campaign_daily"
           ? "google_ads_campaign_daily"
-          : scope === "search_term_daily"
-            ? "google_ads_search_term_daily"
-            : "google_ads_product_daily";
+          : "google_ads_product_daily";
       const rows = await sql.query(
         `
           SELECT COUNT(DISTINCT date)::int AS completed_days, MIN(date) AS first_date, MAX(date) AS last_date
@@ -41,6 +55,7 @@ async function main() {
       const row = rows[0] ?? {};
       return {
         scope,
+        source: "warehouse_daily",
         completedDays: Number(row.completed_days ?? 0),
         firstDate: row.first_date ? String(row.first_date).slice(0, 10) : null,
         lastDate: row.last_date ? String(row.last_date).slice(0, 10) : null,

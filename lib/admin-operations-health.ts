@@ -1926,10 +1926,20 @@ async function readGoogleAdsHealthRows() {
       FROM google_ads_sync_state
       GROUP BY business_id
     ),
-    recent_search AS (
-      SELECT business_id, COUNT(DISTINCT date) AS recent_search_term_completed_days
-      FROM google_ads_search_term_daily
+    recent_search_days AS (
+      SELECT business_id, date
+      FROM google_ads_search_query_hot_daily
       WHERE date >= CURRENT_DATE - interval '13 days'
+      GROUP BY business_id, date
+      UNION
+      SELECT business_id, date
+      FROM google_ads_search_cluster_daily
+      WHERE date >= CURRENT_DATE - interval '13 days'
+      GROUP BY business_id, date
+    ),
+    recent_search AS (
+      SELECT business_id, COUNT(*) AS recent_search_term_completed_days
+      FROM recent_search_days
       GROUP BY business_id
     ),
     recent_product AS (
@@ -1948,8 +1958,7 @@ async function readGoogleAdsHealthRows() {
       SELECT business_id, MIN(date)::text AS extended_recent_ready_through_date
       FROM (
         SELECT business_id, date
-        FROM google_ads_search_term_daily
-        WHERE date >= CURRENT_DATE - interval '13 days'
+        FROM recent_search_days
         UNION ALL
         SELECT business_id, date
         FROM google_ads_product_daily

@@ -48,8 +48,10 @@ Future-path flags expected to stay disabled by default:
 - The advisor UI now surfaces validation-due recommendations and recent operator-entered outcomes as a separate manual workflow view.
 - The advisor UI now renders manual action packs from bundled action clusters and labels them as human-approval-only plans.
 - Admin sync health surfaces queue depth, dead-letter pressure, maintenance pressure, checkpoint lag, integrity blockers, and Google Ads recovery actions.
+- Admin sync health recent search readiness now reflects additive search-intelligence coverage instead of raw `google_ads_search_term_daily` row presence.
 - Recovery tooling exists for cleanup, dead-letter replay, reschedule, refresh state, targeted repair, repair cycle, integrity-window repair, and quarantine release.
 - `npm run google:ads:product-gate -- <businessId>` now exists as the canonical executable checkpoint for feature posture, warehouse/sync health, advisor contract truth, recovery tooling, admin visibility, exit criteria, and deferred items.
+- `npm run google:ads:retention-canary -- <businessId>` now exists as the explicit non-destructive verification path for raw search-term cleanup safety.
 - Search intelligence aggregate storage exists for:
   - `google_ads_search_query_hot_daily`
   - `google_ads_top_query_weekly`
@@ -61,6 +63,7 @@ Future-path flags expected to stay disabled by default:
 - Write-back endpoints, preflight checks, rollback scaffolding, grouped cluster execution, and shared-budget/portfolio-target mutate previews exist in code.
 - Write-back is still explicitly disabled by default and not verified for production-safe use.
 - Retention execution now exists in code, runs under a lease, records `google_ads_retention_runs`, and is scheduled from the durable worker loop, but destructive deletion remains explicitly gated off by default.
+- Dry-run retention rows now record per-table candidate/retained-row observability, especially for `google_ads_search_query_hot_daily` and `google_ads_search_term_daily`.
 - Snapshot compatibility normalization exists for legacy advisor payloads, but legacy payloads remain compatibility-derived until refreshed.
 - Future automation foundations now exist as explicit config posture only:
   - write-back pilot flag
@@ -81,7 +84,7 @@ Future-path flags expected to stay disabled by default:
 - Residual AI scope is now narrow by design; current runtime primarily reserves it for generic `operating_model_gap`-style fallback cards rather than core live recommendation families.
 - Search intelligence aggregates are now consumed as supplemental support for recurring query and cluster evidence, but they do not yet replace the core recent-surface readiness contract or every recommendation heuristic.
 - Decision action/outcome logs exist as a table, and operator workflow now appends plan/outcome rows, but the UI does not yet provide richer longitudinal outcome analytics.
-- `/api/google-ads/status` now exposes advisor action-contract posture, aggregate-intelligence posture, retention runtime state, and automation boundary state, but the operator page does not yet surface every backend control-plane detail.
+- `/api/google-ads/status` now exposes advisor action-contract posture, aggregate-intelligence posture, retention runtime state, raw-hot-table dry-run stats, the canary verification command, and automation boundary state, but the operator page does not yet surface every backend control-plane detail.
 - Manual action packs are visible to operators, but they remain planning bundles only. There is still no verified scheduled or autonomous execution path.
 
 ## Docs-Only Or Not Operationalized Yet
@@ -124,7 +127,7 @@ Admin and ops surfaces:
 
 - `/admin/sync-health`
 - `GET /api/google-ads/status`
-- Google Ads health, state-check, advisor-readiness, cleanup, replay, reschedule, refresh-state, run-once, and repair scripts
+- Google Ads health, state-check, advisor-readiness, retention-canary, cleanup, replay, reschedule, refresh-state, run-once, and repair scripts
 
 ## V1 Shipping Boundary
 
@@ -175,6 +178,8 @@ Runtime reality at this baseline:
 - runs are recorded in `google_ads_retention_runs`
 - the durable worker schedules retention on a lease-protected cadence
 - `/api/google-ads/status` and `google:ads:product-gate` report retention runtime posture
+- latest raw-hot-table dry-run stats are visible to operators
+- `google:ads:retention-canary` provides the explicit proof path before any future execute-mode delete canary
 
 ## Product Blockers At Baseline
 

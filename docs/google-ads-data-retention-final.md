@@ -22,7 +22,8 @@ Current implemented posture:
 - retention runs are recorded in `google_ads_retention_runs`
 - retention work executes under the shared `sync_runner_leases` lease system using provider scope `google_ads_retention`
 - the durable worker schedules retention automatically on a background cadence
-- `/api/google-ads/status` and `npm run google:ads:product-gate -- <businessId>` expose retention runtime posture
+- `/api/google-ads/status` and `npm run google:ads:product-gate -- <businessId>` expose retention runtime posture plus latest raw-hot-table dry-run observability
+- `npm run google:ads:retention-canary -- <businessId>` is the explicit non-default verification path for raw search-term cleanup safety
 
 ## What Gets Deleted
 
@@ -68,9 +69,40 @@ Deletion is batched by `id` and keyed by the retention cutoff column for that ta
 ## Observability
 
 - `google_ads_retention_runs` records run mode, deleted row totals, errors, timestamps, and per-table summary JSON
+- per-table summary JSON now includes:
+  - `eligibleRows`
+  - `oldestEligibleValue`
+  - `newestEligibleValue`
+  - `retainedRows`
+  - `latestRetainedValue`
+  - `observed`
 - the worker logs retention results under `[durable-worker] google_ads_retention`
-- the product gate reports runtime availability, current mode, and latest recorded run
-- `/api/google-ads/status` exposes retention runtime state under `operations`
+- the product gate reports runtime availability, current mode, latest recorded run, raw-hot-table dry-run stats, and the canary command
+- `/api/google-ads/status` exposes retention runtime state under both `operations` and a dedicated `retention` block
+
+## Delete-Safety Proof
+
+Phase 4 completed the delete-safety proof path for raw search-term retention:
+
+- canonical search intelligence outside the raw `120` day hot window reads additive weekly query and cluster support
+- status/search support coverage reads additive search-intelligence coverage
+- product-gate and admin sync-health recent search readiness now read additive search coverage instead of raw row presence
+- the advisor-readiness helper now checks additive search-intelligence coverage for the `search_term_daily` requirement
+
+This means the repo now treats raw `google_ads_search_term_daily` as hot/debug-only storage, not as a hidden long-history dependency.
+
+## Canary Verification
+
+Run:
+
+- `npm run google:ads:retention-canary -- <businessId>`
+
+The canary verifier is explicit and non-destructive. It does not enable retention execution. It proves:
+
+- raw search terms stay empty outside the `120` day hot window
+- historical search intelligence still returns aggregate-backed support
+- recent `84` day advisor search support remains additive-backed
+- the latest raw-hot-table dry-run stats are visible for operator review
 
 ## Current Session Constraint
 
@@ -86,4 +118,13 @@ Live retention execution is still not verified from this task because:
 The honest current posture is:
 
 - DB-backed retention state can be inspected
+- dry-run candidate stats and canary verification can be inspected without enabling deletion
 - execute-mode deletion is still gated and not verified
+
+## Intentionally Deferred After Phase 4
+
+- execute-mode Google retention canary
+- global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
+- archival/cold export for long-tail raw search detail
+- broader legacy cleanup outside the touched Google search-intelligence and operational reporting paths
+- overall next master-plan step: Meta Phase 7 executor cutover

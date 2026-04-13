@@ -601,10 +601,10 @@ export default function AdminSyncHealthPage() {
                         Extended recent queued {business.extendedRecentQueueDepth ?? 0} • leased {business.extendedRecentLeasedPartitions ?? 0} • historical queued {business.extendedHistoricalQueueDepth ?? 0} • leased {business.extendedHistoricalLeasedPartitions ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Campaign {business.campaignCompletedDays} • Search terms {business.searchTermCompletedDays} • Products {business.productCompletedDays} • Assets {business.assetCompletedDays ?? 0}
+                        Campaign {business.campaignCompletedDays} • Search intelligence {business.searchTermCompletedDays} • Products {business.productCompletedDays} • Assets {business.assetCompletedDays ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Recent frontier: Search {business.recentSearchTermCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Products {business.recentProductCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Assets {business.recentAssetCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14}
+                        Recent frontier: Search intelligence {business.recentSearchTermCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Products {business.recentProductCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14} • Assets {business.recentAssetCompletedDays ?? 0}/{business.recentRangeTotalDays ?? 14}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Recent window ready-through {formatDateTime(business.extendedRecentReadyThroughDate ?? null)} • Block reason {business.extendedRecoveryBlockReason ?? "—"}

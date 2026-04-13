@@ -82,6 +82,44 @@ describe("Google Ads warehouse retention policy", () => {
           tier: "raw_search_terms_hot",
           tableName: "google_ads_search_query_hot_daily",
           executionEnabled: false,
+          observed: false,
+        }),
+      ])
+    );
+  });
+
+  it("inspects dry-run candidate stats when runtime access is available", async () => {
+    process.env.DATABASE_URL = "postgres://example";
+    const sqlQuery = vi.fn(async (query: string) => {
+      if (query.includes("eligible_rows")) {
+        return [
+          {
+            eligible_rows: 7,
+            oldest_eligible_value: "2025-01-01",
+            newest_eligible_value: "2025-12-11",
+            retained_rows: 21,
+            latest_retained_value: "2026-04-08",
+          },
+        ];
+      }
+      return [];
+    });
+    getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
+
+    const result = await retention.executeGoogleAdsRetentionPolicyDryRunOnly({
+      asOfDate: "2026-04-08",
+    });
+
+    expect(result.dryRun).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tableName: "google_ads_search_term_daily",
+          mode: "dry_run",
+          observed: true,
+          eligibleRows: 7,
+          retainedRows: 21,
+          oldestEligibleValue: "2025-01-01",
+          latestRetainedValue: "2026-04-08",
         }),
       ])
     );
@@ -136,11 +174,27 @@ describe("Google Ads warehouse retention policy", () => {
       checkedAt: "2026-04-10T00:00:00.000Z",
     });
 
-    const sqlQuery = vi
-      .fn()
-      .mockResolvedValueOnce([{ count: 2 }])
-      .mockResolvedValueOnce([{ count: 1 }])
-      .mockResolvedValue(Array.from({ length: 20 }, () => [{ count: 0 }])[0]);
+    let deleteCallCount = 0;
+    const sqlQuery = vi.fn(async (query: string) => {
+      if (query.includes("eligible_rows")) {
+        return [
+          {
+            eligible_rows: 3,
+            oldest_eligible_value: "2025-01-01",
+            newest_eligible_value: "2025-12-11",
+            retained_rows: 12,
+            latest_retained_value: "2026-04-10",
+          },
+        ];
+      }
+      if (query.includes("WITH candidates")) {
+        deleteCallCount += 1;
+        if (deleteCallCount === 1) return [{ count: 2 }];
+        if (deleteCallCount === 2) return [{ count: 1 }];
+        return [{ count: 0 }];
+      }
+      return [{ count: 0 }];
+    });
     getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
     getDb.mockReturnValue(
       Object.assign(
@@ -166,10 +220,50 @@ describe("Google Ads warehouse retention policy", () => {
           tableName: "google_ads_account_daily",
           deletedRows: 3,
           mode: "execute",
+          observed: true,
+          eligibleRows: 3,
+          retainedRows: 12,
         }),
       ])
     );
     expect(sqlQuery).toHaveBeenCalled();
     expect(releaseSyncRunnerLease).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses recorded retention rows for status and product-gate surfaces", () => {
+    const rows = retention.getGoogleAdsRetentionRunRows({
+      summaryJson: {
+        rows: [
+          {
+            tier: "raw_search_terms_hot",
+            label: "Raw search terms daily hot",
+            tableName: "google_ads_search_term_daily",
+            retentionDays: 120,
+            cutoffDate: "2025-12-11",
+            executionEnabled: false,
+            grain: "daily",
+            storageTemperature: "hot",
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 9,
+            oldestEligibleValue: "2025-01-01",
+            newestEligibleValue: "2025-12-10",
+            retainedRows: 14,
+            latestRetainedValue: "2026-04-10",
+            deletedRows: 0,
+          },
+        ],
+      },
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        tableName: "google_ads_search_term_daily",
+        observed: true,
+        eligibleRows: 9,
+        retainedRows: 14,
+        mode: "dry_run",
+      }),
+    ]);
   });
 });

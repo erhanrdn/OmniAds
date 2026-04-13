@@ -160,15 +160,21 @@ vi.mock("@/lib/google-ads/decision-engine-config", () => ({
   })),
 }));
 
-vi.mock("@/lib/google-ads/warehouse-retention", () => ({
-  getGoogleAdsRetentionRuntimeStatus: vi.fn(() => ({
-    runtimeAvailable: false,
-    executionEnabled: false,
-    mode: "dry_run",
-    gateReason: "Retention execution is disabled.",
-  })),
-  getLatestGoogleAdsRetentionRun: vi.fn(async () => null),
-}));
+vi.mock("@/lib/google-ads/warehouse-retention", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/google-ads/warehouse-retention")>(
+    "@/lib/google-ads/warehouse-retention"
+  );
+  return {
+    ...actual,
+    getGoogleAdsRetentionRuntimeStatus: vi.fn(() => ({
+      runtimeAvailable: false,
+      executionEnabled: false,
+      mode: "dry_run",
+      gateReason: "Retention execution is disabled.",
+    })),
+    getLatestGoogleAdsRetentionRun: vi.fn(async () => null),
+  };
+});
 
 vi.mock("@/lib/google-ads/search-intelligence-storage", () => ({
   readGoogleAdsSearchIntelligenceCoverage: vi.fn(),
@@ -438,6 +444,20 @@ describe("GET /api/google-ads/status", () => {
       retentionRuntimeAvailable: false,
       retentionExecutionEnabled: false,
       retentionMode: "dry_run",
+      retentionDefaultExecutionDisabled: true,
+      retentionCanaryVerificationCommand:
+        "npm run google:ads:retention-canary -- biz",
+    });
+    expect(payload.retention).toMatchObject({
+      runtimeAvailable: false,
+      executionEnabled: false,
+      defaultExecutionDisabled: true,
+      mode: "dry_run",
+      rawHotTables: [],
+      canaryVerification: {
+        available: true,
+        command: "npm run google:ads:retention-canary -- biz",
+      },
     });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
@@ -501,9 +521,54 @@ describe("GET /api/google-ads/status", () => {
       gateReason: "Retention execution is disabled.",
     });
     vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue({
+      id: "retention_run_1",
       executionMode: "dry_run",
       finishedAt: "2026-04-10T00:00:00.000Z",
       totalDeletedRows: 0,
+      skippedDueToActiveLease: false,
+      errorMessage: null,
+      summaryJson: {
+        rows: [
+          {
+            tier: "raw_search_terms_hot",
+            label: "Raw search terms daily hot",
+            tableName: "google_ads_search_query_hot_daily",
+            retentionDays: 120,
+            cutoffDate: "2025-12-12",
+            executionEnabled: false,
+            grain: "daily",
+            storageTemperature: "hot",
+            dateColumn: "date",
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 12,
+            oldestEligibleValue: "2025-01-01",
+            newestEligibleValue: "2025-12-11",
+            retainedRows: 44,
+            latestRetainedValue: "2026-04-10",
+            deletedRows: 0,
+          },
+          {
+            tier: "raw_search_terms_hot",
+            label: "Raw search terms daily hot",
+            tableName: "google_ads_search_term_daily",
+            retentionDays: 120,
+            cutoffDate: "2025-12-12",
+            executionEnabled: false,
+            grain: "daily",
+            storageTemperature: "hot",
+            dateColumn: "date",
+            mode: "dry_run",
+            observed: true,
+            eligibleRows: 20,
+            oldestEligibleValue: "2025-01-01",
+            newestEligibleValue: "2025-12-11",
+            retainedRows: 30,
+            latestRetainedValue: "2026-04-10",
+            deletedRows: 0,
+          },
+        ],
+      },
     } as never);
 
     const response = await GET(
@@ -541,9 +606,43 @@ describe("GET /api/google-ads/status", () => {
       retentionRuntimeAvailable: true,
       retentionExecutionEnabled: false,
       retentionMode: "dry_run",
+      retentionDefaultExecutionDisabled: true,
+      retentionCanaryVerificationCommand:
+        "npm run google:ads:retention-canary -- biz",
+      retentionLatestRunObserved: true,
       lastRetentionRunAt: "2026-04-10T00:00:00.000Z",
       lastRetentionRunMode: "dry_run",
       lastRetentionRunDeletedRows: 0,
+    });
+    expect(payload.retention).toMatchObject({
+      runtimeAvailable: true,
+      executionEnabled: false,
+      defaultExecutionDisabled: true,
+      mode: "dry_run",
+      latestRun: {
+        id: "retention_run_1",
+        finishedAt: "2026-04-10T00:00:00.000Z",
+        executionMode: "dry_run",
+        totalDeletedRows: 0,
+      },
+      canaryVerification: {
+        available: true,
+        command: "npm run google:ads:retention-canary -- biz",
+      },
+      rawHotTables: [
+        expect.objectContaining({
+          tableName: "google_ads_search_query_hot_daily",
+          observed: true,
+          eligibleRows: 12,
+          retainedRows: 44,
+        }),
+        expect.objectContaining({
+          tableName: "google_ads_search_term_daily",
+          observed: true,
+          eligibleRows: 20,
+          retainedRows: 30,
+        }),
+      ],
     });
   });
 

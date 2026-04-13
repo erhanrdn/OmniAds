@@ -38,6 +38,7 @@ import {
   getGoogleAdsDecisionEngineConfig,
 } from "@/lib/google-ads/decision-engine-config";
 import {
+  getGoogleAdsRetentionRunRows,
   getGoogleAdsRetentionRuntimeStatus,
   getLatestGoogleAdsRetentionRun,
 } from "@/lib/google-ads/warehouse-retention";
@@ -1182,6 +1183,13 @@ export async function GET(request: NextRequest) {
     retentionRuntime.runtimeAvailable
       ? await getLatestGoogleAdsRetentionRun().catch(() => null)
       : null;
+  const latestRetentionRunRows = getGoogleAdsRetentionRunRows(latestRetentionRun);
+  const latestRawHotRetentionRows = latestRetentionRunRows.filter((row) =>
+    [
+      "google_ads_search_query_hot_daily",
+      "google_ads_search_term_daily",
+    ].includes(row.tableName)
+  );
   const advisorRelevantDeadLetterPartitions =
     advisorQueueHealth?.advisorRelevantDeadLetterPartitions ?? 0;
   const advisorRelevantFailedPartitions =
@@ -1988,6 +1996,39 @@ export async function GET(request: NextRequest) {
       oldestQueuedPartition: queueHealth?.oldestQueuedPartition ?? null,
     },
     priorityWindow,
+    retention: {
+      runtimeAvailable: retentionRuntime.runtimeAvailable,
+      executionEnabled: retentionRuntime.executionEnabled,
+      defaultExecutionDisabled: !retentionRuntime.executionEnabled,
+      mode: retentionRuntime.mode,
+      gateReason: retentionRuntime.gateReason,
+      canaryVerification: {
+        available: true,
+        command: `npm run google:ads:retention-canary -- ${businessId!}`,
+        description:
+          "Explicit non-destructive verification that historical search intelligence stays aggregate-backed when raw search-term rows older than 120 days are absent.",
+      },
+      latestRun: latestRetentionRun
+        ? {
+            id: latestRetentionRun.id,
+            finishedAt: latestRetentionRun.finishedAt,
+            executionMode: latestRetentionRun.executionMode,
+            skippedDueToActiveLease: latestRetentionRun.skippedDueToActiveLease,
+            totalDeletedRows: latestRetentionRun.totalDeletedRows,
+            errorMessage: latestRetentionRun.errorMessage,
+          }
+        : null,
+      rawHotTables: latestRawHotRetentionRows.map((row) => ({
+        tableName: row.tableName,
+        observed: row.observed,
+        cutoffDate: row.cutoffDate,
+        eligibleRows: row.eligibleRows,
+        oldestEligibleValue: row.oldestEligibleValue,
+        newestEligibleValue: row.newestEligibleValue,
+        retainedRows: row.retainedRows,
+        latestRetainedValue: row.latestRetainedValue,
+      })),
+    },
     operations: {
       currentMode,
       canaryEligible,
@@ -2023,6 +2064,11 @@ export async function GET(request: NextRequest) {
       retentionExecutionEnabled: retentionRuntime.executionEnabled,
       retentionMode: retentionRuntime.mode,
       retentionGateReason: retentionRuntime.gateReason,
+      retentionDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
+      retentionCanaryVerificationCommand: `npm run google:ads:retention-canary -- ${businessId!}`,
+      retentionLatestRunObserved:
+        latestRawHotRetentionRows.length > 0 &&
+        latestRawHotRetentionRows.every((row) => row.observed),
       lastRetentionRunAt: latestRetentionRun?.finishedAt ?? null,
       lastRetentionRunMode: latestRetentionRun?.executionMode ?? null,
       lastRetentionRunDeletedRows: latestRetentionRun?.totalDeletedRows ?? null,

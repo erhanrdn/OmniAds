@@ -17,7 +17,7 @@ export type GoogleAdsRetentionTier =
   | "search_cluster_aggregate"
   | "decision_action_outcome_log";
 
-type GoogleAdsRetentionDateColumn = "date" | "week_start" | "occurred_at";
+export type GoogleAdsRetentionDateColumn = "date" | "week_start" | "occurred_at";
 
 export interface GoogleAdsRetentionPolicyEntry {
   tier: GoogleAdsRetentionTier;
@@ -30,15 +30,28 @@ export interface GoogleAdsRetentionPolicyEntry {
 
 export interface GoogleAdsRetentionDryRunRow {
   tier: GoogleAdsRetentionTier;
+  label: string;
   tableName: string;
   retentionDays: number;
   cutoffDate: string;
   executionEnabled: boolean;
+  grain: GoogleAdsRetentionPolicyEntry["grain"];
+  storageTemperature: GoogleAdsRetentionPolicyEntry["storageTemperature"];
+  dateColumn: GoogleAdsRetentionDateColumn;
 }
 
-export interface GoogleAdsRetentionExecutionRow extends GoogleAdsRetentionDryRunRow {
-  deletedRows: number;
+export interface GoogleAdsRetentionInspectionRow extends GoogleAdsRetentionDryRunRow {
   mode: "dry_run" | "execute";
+  observed: boolean;
+  eligibleRows: number | null;
+  oldestEligibleValue: string | null;
+  newestEligibleValue: string | null;
+  retainedRows: number | null;
+  latestRetainedValue: string | null;
+}
+
+export interface GoogleAdsRetentionExecutionRow extends GoogleAdsRetentionInspectionRow {
+  deletedRows: number;
 }
 
 export interface GoogleAdsRetentionRunSummary {
@@ -65,6 +78,12 @@ export interface GoogleAdsRetentionRunRecord {
   finishedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+function toNullableNumber(value: unknown) {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 const DAYS_PER_MONTH = 30.4375;
@@ -119,8 +138,14 @@ function emptyRetentionRunSummary(input: {
       GOOGLE_ADS_RETENTION_EXECUTION_ENABLED: String(input.executionEnabled),
     }).map((row) => ({
       ...row,
-      deletedRows: 0,
       mode: input.mode,
+      observed: false,
+      eligibleRows: null,
+      oldestEligibleValue: null,
+      newestEligibleValue: null,
+      retainedRows: null,
+      latestRetainedValue: null,
+      deletedRows: 0,
     })),
     totalDeletedRows: 0,
     errorMessage: input.errorMessage ?? null,
@@ -257,10 +282,98 @@ export function buildGoogleAdsRetentionDryRun(asOfDate: string, env: NodeJS.Proc
   return Object.values(GOOGLE_ADS_RETENTION_POLICY).flatMap((entry) =>
     entry.tableNames.map((tableName) => ({
       tier: entry.tier,
+      label: entry.label,
       tableName,
       retentionDays: entry.retentionDays,
       cutoffDate: addDaysToIsoDate(asOfDate, -entry.retentionDays),
       executionEnabled,
+      grain: entry.grain,
+      storageTemperature: entry.storageTemperature,
+      dateColumn: retentionDateColumnForTable(tableName),
+    }))
+  );
+}
+
+async function inspectRetentionTableWindow(input: {
+  sql: ReturnType<typeof getDbWithTimeout>;
+  tableName: string;
+  dateColumn: GoogleAdsRetentionDateColumn;
+  cutoffDate: string;
+}): Promise<Pick<
+  GoogleAdsRetentionInspectionRow,
+  | "observed"
+  | "eligibleRows"
+  | "oldestEligibleValue"
+  | "newestEligibleValue"
+  | "retainedRows"
+  | "latestRetainedValue"
+>> {
+  const rows = (await input.sql.query(
+    `
+      SELECT
+        COUNT(*) FILTER (WHERE ${input.dateColumn} < $1)::int AS eligible_rows,
+        MIN(${input.dateColumn}) FILTER (WHERE ${input.dateColumn} < $1)::text AS oldest_eligible_value,
+        MAX(${input.dateColumn}) FILTER (WHERE ${input.dateColumn} < $1)::text AS newest_eligible_value,
+        COUNT(*) FILTER (WHERE ${input.dateColumn} >= $1)::int AS retained_rows,
+        MAX(${input.dateColumn}) FILTER (WHERE ${input.dateColumn} >= $1)::text AS latest_retained_value
+      FROM ${input.tableName}
+    `,
+    [input.cutoffDate]
+  )) as Array<Record<string, unknown>>;
+  const row = rows[0] ?? {};
+  return {
+    observed: true,
+    eligibleRows: toNullableNumber(row.eligible_rows),
+    oldestEligibleValue: row.oldest_eligible_value
+      ? String(row.oldest_eligible_value)
+      : null,
+    newestEligibleValue: row.newest_eligible_value
+      ? String(row.newest_eligible_value)
+      : null,
+    retainedRows: toNullableNumber(row.retained_rows),
+    latestRetainedValue: row.latest_retained_value
+      ? String(row.latest_retained_value)
+      : null,
+  };
+}
+
+async function inspectGoogleAdsRetentionDryRunRows(input: {
+  asOfDate: string;
+  env?: NodeJS.ProcessEnv;
+}) {
+  const env = input.env ?? process.env;
+  const executionEnabled = isGoogleAdsRetentionExecutionEnabled(env);
+  if (!isGoogleAdsRetentionRuntimeAvailable(env)) {
+    return buildGoogleAdsRetentionDryRun(input.asOfDate, env).map((row) => ({
+      ...row,
+      mode: "dry_run" as const,
+      observed: false,
+      eligibleRows: null,
+      oldestEligibleValue: null,
+      newestEligibleValue: null,
+      retainedRows: null,
+      latestRetainedValue: null,
+    }));
+  }
+
+  await assertDbSchemaReady({
+    tables: [...GOOGLE_ADS_RETENTION_REQUIRED_TABLES],
+    context: "google_ads_retention_dry_run",
+  });
+  const sql = getDbWithTimeout(
+    envNumber("GOOGLE_ADS_RETENTION_QUERY_TIMEOUT_MS", 30_000, env)
+  );
+
+  return Promise.all(
+    buildGoogleAdsRetentionDryRun(input.asOfDate, env).map(async (row) => ({
+      ...row,
+      mode: "dry_run" as const,
+      ...(await inspectRetentionTableWindow({
+        sql,
+        tableName: row.tableName,
+        dateColumn: row.dateColumn,
+        cutoffDate: row.cutoffDate,
+      })),
     }))
   );
 }
@@ -344,6 +457,49 @@ export async function getLatestGoogleAdsRetentionRun() {
   } satisfies GoogleAdsRetentionRunRecord;
 }
 
+export function getGoogleAdsRetentionRunRows(
+  run: Pick<GoogleAdsRetentionRunRecord, "summaryJson"> | null | undefined
+): GoogleAdsRetentionExecutionRow[] {
+  const rows = Array.isArray(run?.summaryJson?.rows)
+    ? (run?.summaryJson?.rows as Array<Record<string, unknown>>)
+    : [];
+  return rows.map((row) => {
+    const tableName = String(row.tableName ?? "");
+    const policyEntry =
+      Object.values(GOOGLE_ADS_RETENTION_POLICY).find((entry) =>
+        entry.tableNames.includes(tableName)
+      ) ?? null;
+    const dateColumn = retentionDateColumnForTable(tableName);
+    return {
+      tier: String(row.tier ?? policyEntry?.tier ?? "core_daily") as GoogleAdsRetentionTier,
+      label: String(row.label ?? policyEntry?.label ?? ""),
+      tableName,
+      retentionDays: Number(row.retentionDays ?? policyEntry?.retentionDays ?? 0),
+      cutoffDate: row.cutoffDate ? String(row.cutoffDate) : "",
+      executionEnabled: Boolean(row.executionEnabled),
+      grain: String(row.grain ?? policyEntry?.grain ?? "daily") as GoogleAdsRetentionPolicyEntry["grain"],
+      storageTemperature: String(
+        row.storageTemperature ?? policyEntry?.storageTemperature ?? "warm"
+      ) as GoogleAdsRetentionPolicyEntry["storageTemperature"],
+      dateColumn,
+      mode: String(row.mode ?? "dry_run") as GoogleAdsRetentionExecutionRow["mode"],
+      observed: Boolean(row.observed),
+      eligibleRows: toNullableNumber(row.eligibleRows),
+      oldestEligibleValue: row.oldestEligibleValue
+        ? String(row.oldestEligibleValue)
+        : null,
+      newestEligibleValue: row.newestEligibleValue
+        ? String(row.newestEligibleValue)
+        : null,
+      retainedRows: toNullableNumber(row.retainedRows),
+      latestRetainedValue: row.latestRetainedValue
+        ? String(row.latestRetainedValue)
+        : null,
+      deletedRows: Number(row.deletedRows ?? 0),
+    };
+  });
+}
+
 export async function executeGoogleAdsRetentionPolicy(input: {
   asOfDate: string;
   env?: NodeJS.ProcessEnv;
@@ -398,9 +554,15 @@ export async function executeGoogleAdsRetentionPolicy(input: {
     for (const entry of Object.values(GOOGLE_ADS_RETENTION_POLICY)) {
       for (const tableName of entry.tableNames) {
         const cutoffDate = addDaysToIsoDate(input.asOfDate, -entry.retentionDays);
+        const dateColumn = retentionDateColumnForTable(tableName);
+        const inspection = await inspectRetentionTableWindow({
+          sql,
+          tableName,
+          dateColumn,
+          cutoffDate,
+        });
         let deletedRows = 0;
         if (mode === "execute") {
-          const dateColumn = retentionDateColumnForTable(tableName);
           deletedRows = await deleteBatches(
             () =>
               execCount(
@@ -430,12 +592,17 @@ export async function executeGoogleAdsRetentionPolicy(input: {
         }
         rows.push({
           tier: entry.tier,
+          label: entry.label,
           tableName,
           retentionDays: entry.retentionDays,
           cutoffDate,
           executionEnabled,
+          grain: entry.grain,
+          storageTemperature: entry.storageTemperature,
+          dateColumn,
           deletedRows,
           mode,
+          ...inspection,
         });
       }
     }
@@ -463,6 +630,12 @@ export async function executeGoogleAdsRetentionPolicy(input: {
       skippedDueToActiveLease: false,
       rows: buildGoogleAdsRetentionDryRun(input.asOfDate, env).map((row) => ({
         ...row,
+        observed: false,
+        eligibleRows: null,
+        oldestEligibleValue: null,
+        newestEligibleValue: null,
+        retainedRows: null,
+        latestRetainedValue: null,
         deletedRows: 0,
         mode,
       })),
@@ -486,6 +659,6 @@ export async function executeGoogleAdsRetentionPolicyDryRunOnly(input: {
 }) {
   return {
     executionEnabled: isGoogleAdsRetentionExecutionEnabled(input.env),
-    dryRun: buildGoogleAdsRetentionDryRun(input.asOfDate, input.env),
+    dryRun: await inspectGoogleAdsRetentionDryRunRows(input),
   };
 }
