@@ -153,7 +153,7 @@ export interface MetaRecentAuthoritativeSliceGuard {
 
 export interface MetaSelectedRangeTruthReadiness {
   truthReady: boolean;
-  state: "processing" | "finalized" | MetaHistoricalVerificationState;
+  state: MetaHistoricalVerificationState;
   totalDays: number;
   completedCoreDays: number;
   blockingReasons: MetaDirtyRecentReason[];

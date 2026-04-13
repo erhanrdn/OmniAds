@@ -112,8 +112,10 @@ export interface MetaStatusResponse {
   d1FinalizeState?: "ready" | "processing" | "blocked" | null;
   d1BlockedReason?: string | null;
   dataContract?: {
-    todayMode: "live_overlay";
-    historicalMode: "warehouse_only" | "warehouse_plus_live_fallback";
+    todayMode: "live_only";
+    historicalInsideHorizon: "published_verified_truth";
+    historicalOutsideCoreHorizon: "live_fallback";
+    breakdownOutsideHorizon: "unsupported_degraded";
   };
   platformDateBoundary?: {
     primaryAccountId: string | null;

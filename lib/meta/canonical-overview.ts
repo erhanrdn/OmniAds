@@ -1,4 +1,5 @@
 import { getIntegration } from "@/lib/integrations";
+import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
 import { getMetaLiveSummaryTotals } from "@/lib/meta/live";
 import {
   getMetaPartialReason,
@@ -9,22 +10,6 @@ import {
   getMetaWarehouseTrends,
 } from "@/lib/meta/serving";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
-
-function getHistoricalVerificationReason(input: {
-  verificationState?: string | null;
-  fallbackReason: string;
-}) {
-  if (input.verificationState === "blocked") {
-    return "Historical Meta publication is blocked because finalized work does not match the required published truth.";
-  }
-  if (input.verificationState === "failed") {
-    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
-  }
-  if (input.verificationState === "repair_required") {
-    return "Historical Meta data requires a fresh authoritative retry before the selected range can be treated as finalized.";
-  }
-  return input.fallbackReason;
-}
 
 export type MetaCanonicalOverviewSummary = Awaited<
   ReturnType<typeof getMetaWarehouseSummary>
@@ -170,7 +155,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
     isPartial: Boolean(warehouseSummary.isPartial),
     notReadyReason:
       warehouseSummary.isPartial
-      ? getHistoricalVerificationReason({
+      ? getMetaHistoricalVerificationReason({
           verificationState: warehouseSummary.verification?.verificationState ?? null,
           fallbackReason: getMetaPartialReason({
             isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,

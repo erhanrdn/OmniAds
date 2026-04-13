@@ -2761,28 +2761,26 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
       `${row.provider_account_id}:${expectedDay}:campaign_daily`,
     );
     const finalized =
-      (accountPlanner?.state === "published" &&
-        campaignPlanner?.state === "published") ||
-      (accountRow?.validation_status === "passed" &&
-        campaignRow?.validation_status === "passed");
+      accountRow?.validation_status === "passed" &&
+      Boolean(accountRow?.published_at) &&
+      campaignRow?.validation_status === "passed" &&
+      Boolean(campaignRow?.published_at);
     const failureResult =
       accountPlanner?.state === "failed" ||
       campaignPlanner?.state === "failed" ||
       accountRow?.latest_failure_result === "failed" ||
       campaignRow?.latest_failure_result === "failed"
         ? "failed"
-        : accountPlanner?.state === "repair_required" ||
-            campaignPlanner?.state === "repair_required" ||
-            accountPlanner?.state === "blocked" ||
+        : accountPlanner?.state === "blocked" ||
             campaignPlanner?.state === "blocked"
           ? "blocked"
-          : accountRow?.latest_failure_result === "repair_required" ||
-            campaignRow?.latest_failure_result === "repair_required"
-          ? "repair_required"
-          : null;
+          : accountPlanner?.state === "repair_required" ||
+              campaignPlanner?.state === "repair_required" ||
+              accountRow?.latest_failure_result === "repair_required" ||
+              campaignRow?.latest_failure_result === "repair_required"
+            ? "repair_required"
+            : null;
     const publishedAtCandidates = [
-      accountPlanner?.published_at,
-      campaignPlanner?.published_at,
       accountRow?.published_at,
       campaignRow?.published_at,
     ]

@@ -520,29 +520,39 @@ export async function GET(request: NextRequest) {
       !selectedRangeIsToday &&
       !selectedRangeWithinAuthoritativeHistory
   );
+  const selectedRangeRequiresPublishedTruth = Boolean(
+    selectedRangeRequested &&
+      !selectedRangeIsToday &&
+      selectedRangeWithinAuthoritativeHistory
+  );
   const selectedRangeCoreCompletedDays = minCompletedDays(
     selectedRangeUsesLiveFallback
       ? [selectedRangeTotalDays ?? 0]
-      : [
-          selectedRangeTruth && !selectedRangeIsToday
-            ? selectedRangeTruth.completedCoreDays
-            : selectedRangeCoverage?.completed_days ?? 0,
-          selectedRangeTruth && !selectedRangeIsToday
-            ? selectedRangeTruth.completedCoreDays
-            : selectedRangeCampaignCoverage?.completed_days ?? 0,
-        ],
+      : selectedRangeRequiresPublishedTruth
+        ? [selectedRangeTruth?.completedCoreDays ?? 0]
+        : [
+            selectedRangeCoverage?.completed_days ?? 0,
+            selectedRangeCampaignCoverage?.completed_days ?? 0,
+          ],
     selectedRangeTotalDays,
   );
   const selectedRangeIncomplete =
     selectedRangeUsesLiveFallback
       ? false
-      : selectedRangeTruth && !selectedRangeIsToday
-        ? !selectedRangeTruth.truthReady
-        : Boolean(selectedRangeTotalDays) && selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
-  const selectedRangeCoreReadyThroughDate = earliestReadyThroughDate([
-    selectedRangeUsesLiveFallback ? selectedEndDate ?? null : selectedRangeCoverage?.ready_through_date ?? null,
-    selectedRangeUsesLiveFallback ? selectedEndDate ?? null : selectedRangeCampaignCoverage?.ready_through_date ?? null,
-  ]);
+      : selectedRangeRequiresPublishedTruth
+        ? !(selectedRangeTruth?.truthReady ?? false)
+        : Boolean(selectedRangeTotalDays) &&
+          selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
+  const selectedRangeCoreReadyThroughDate = selectedRangeUsesLiveFallback
+    ? selectedEndDate ?? null
+    : selectedRangeRequiresPublishedTruth
+      ? selectedRangeTruth?.truthReady
+        ? selectedEndDate ?? null
+        : null
+      : earliestReadyThroughDate([
+          selectedRangeCoverage?.ready_through_date ?? null,
+          selectedRangeCampaignCoverage?.ready_through_date ?? null,
+        ]);
   const selectedRangeBreakdownReadyThroughDate =
     selectedRangeRequested
       ? META_BREAKDOWN_ENDPOINTS.map(
@@ -787,10 +797,7 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.summaryAvailable === true
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
-      : selectedRangeTruth
-        ? selectedRangeTruth.truthReady
-        : Boolean(selectedRangeTotalDays) &&
-          (selectedRangeCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+      : selectedRangeTruth?.truthReady === true;
   const campaignsReady =
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (campaignCoverage?.completed_days ?? 0) > 0
@@ -798,10 +805,7 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.campaignsAvailable === true
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
-      : selectedRangeTruth
-        ? selectedRangeTruth.truthReady
-        : Boolean(selectedRangeTotalDays) &&
-          (selectedRangeCampaignCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+      : selectedRangeTruth?.truthReady === true;
   const summarySurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -842,9 +846,8 @@ export async function GET(request: NextRequest) {
       const ready = selectedRangeIsToday
         ? coverage.isComplete
         : coverage.isComplete &&
-          (selectedRangeTruth
-            ? selectedRangeTruth.truthReady
-            : true);
+          (!selectedRangeRequiresPublishedTruth ||
+            selectedRangeTruth?.truthReady === true);
       const blockedReason =
         coverage.isBlocked && coverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${coverage.supportStartDate} onward for the selected range.`
@@ -939,7 +942,10 @@ export async function GET(request: NextRequest) {
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
       : Boolean(selectedRangeTotalDays) &&
-        (selectedRangeAdsetCoverage?.completed_days ?? 0) >= (selectedRangeTotalDays ?? 0);
+        (selectedRangeAdsetCoverage?.completed_days ?? 0) >=
+          (selectedRangeTotalDays ?? 0) &&
+        (!selectedRangeRequiresPublishedTruth ||
+          selectedRangeTruth?.truthReady === true);
   const decisionOsEnabled = isMetaDecisionOsV1EnabledForBusiness(businessId);
   const pageOptionalSurfaces = {
     adsets: {
@@ -1186,8 +1192,10 @@ export async function GET(request: NextRequest) {
     notReadyReason: phaseLabel === "Ready" ? null : phaseLabel,
   });
   const dataContract = {
-    todayMode: "live_overlay",
-    historicalMode: "warehouse_plus_live_fallback",
+    todayMode: "live_only",
+    historicalInsideHorizon: "published_verified_truth",
+    historicalOutsideCoreHorizon: "live_fallback",
+    breakdownOutsideHorizon: "unsupported_degraded",
   } as const;
   const completionBasis = {
     requiredScopes: ["account_daily", "campaign_daily"],

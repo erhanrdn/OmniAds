@@ -2443,6 +2443,79 @@ describe("meta warehouse ownership safety", () => {
     expect(snapshot.d1FinalizeSla.totalAccounts).toBe(2);
   });
 
+  it("does not treat planner-published d-1 state as finalized without a published pointer", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-06T12:00:00.000Z"));
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("GROUP BY fetch_status")) {
+        return [{ fetch_status: "completed", count: 2 }];
+      }
+      if (query.includes("WITH published_days AS")) {
+        return [
+          {
+            queued: 0,
+            leased: 0,
+            retryable_failed: 0,
+            dead_letter: 0,
+            stale_leases: 0,
+            repair_backlog: 0,
+            published: 0,
+          },
+        ];
+      }
+      if (query.includes("ORDER BY pointer.published_at DESC")) {
+        return [];
+      }
+      if (query.includes("LIMIT 20")) {
+        return [];
+      }
+      if (query.includes("WITH manifest_accounts AS")) {
+        return [{ provider_account_id: "act_1", account_timezone: "UTC" }];
+      }
+      if (query.includes("latest_failure_result")) {
+        return [];
+      }
+      if (query.includes("FROM meta_authoritative_day_state")) {
+        return [
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "account_daily",
+            state: "published",
+            published_at: "2026-04-06T00:10:00.000Z",
+          },
+          {
+            provider_account_id: "act_1",
+            day: "2026-04-05",
+            surface: "campaign_daily",
+            state: "published",
+            published_at: "2026-04-06T00:10:00.000Z",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    try {
+      const snapshot = await getMetaAuthoritativeBusinessOpsSnapshot({
+        businessId: "biz-1",
+        latestPublishLimit: 5,
+      });
+
+      expect(snapshot.d1FinalizeSla.accounts[0]).toMatchObject({
+        providerAccountId: "act_1",
+        verificationState: "processing",
+        publishedAt: null,
+        breached: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("builds day-level authoritative verification with manifest and publication provenance", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");

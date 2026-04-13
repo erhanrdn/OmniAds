@@ -259,7 +259,8 @@ describe("GET /api/meta/status", () => {
     } as never);
     vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
       truthReady: true,
-      state: "finalized",
+      state: "finalized_verified",
+      verificationState: "finalized_verified",
       totalDays: 1,
       completedCoreDays: 1,
       blockingReasons: [],
@@ -314,6 +315,12 @@ describe("GET /api/meta/status", () => {
       latestRun: null,
       summary: null,
       tables: [],
+    });
+    expect(payload.dataContract).toEqual({
+      todayMode: "live_only",
+      historicalInsideHorizon: "published_verified_truth",
+      historicalOutsideCoreHorizon: "live_fallback",
+      breakdownOutsideHorizon: "unsupported_degraded",
     });
   });
 
@@ -863,6 +870,70 @@ describe("GET /api/meta/status", () => {
         }),
       ]),
     );
+  });
+
+  it("does not treat historical coverage alone as ready when selected-range publication truth is unavailable", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockRejectedValue(
+      new Error("verification unavailable"),
+    );
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: null,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: null,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-10&endDate=2026-04-10"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("partial");
+    expect(payload.selectedRangeTruth).toBeNull();
+    expect(payload.currentCoreUsable).toBe(false);
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("partial");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("partial");
+    expect(payload.warehouse.coverage.selectedRange).toMatchObject({
+      completedDays: 0,
+      totalDays: 1,
+      isComplete: false,
+    });
+    expect(payload.latestSync).toMatchObject({
+      completedDays: 0,
+      totalDays: 1,
+      readyThroughDate: null,
+    });
   });
 
   it("does not mark current-day summary or campaigns ready when live availability is missing", async () => {

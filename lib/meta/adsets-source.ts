@@ -1,6 +1,7 @@
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseAdSets } from "@/lib/meta/serving";
 import { getMetaLiveAdSets } from "@/lib/meta/live";
@@ -13,22 +14,6 @@ export interface MetaAdSetsSourceResult {
   rows: MetaAdSetData[];
   isPartial?: boolean;
   notReadyReason?: string | null;
-}
-
-function getHistoricalVerificationReason(input: {
-  verificationState?: string | null;
-  fallbackReason: string;
-}) {
-  if (input.verificationState === "blocked") {
-    return "Historical Meta publication is blocked because finalized work does not match the required published truth.";
-  }
-  if (input.verificationState === "failed") {
-    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
-  }
-  if (input.verificationState === "repair_required") {
-    return "Historical Meta data requires a fresh authoritative retry before the selected range can be treated as finalized.";
-  }
-  return input.fallbackReason;
 }
 
 export async function getMetaAdSetsForRange(input: {
@@ -147,7 +132,7 @@ export async function getMetaAdSetsForRange(input: {
         isPartial: historicalTruth ? !historicalTruth.truthReady : false,
         notReadyReason:
           historicalTruth && !historicalTruth.truthReady
-            ? getHistoricalVerificationReason({
+            ? getMetaHistoricalVerificationReason({
                 verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
                 fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
               })
@@ -203,7 +188,7 @@ export async function getMetaAdSetsForRange(input: {
           isPartial: historicalTruth ? !historicalTruth.truthReady : false,
           notReadyReason:
             historicalTruth && !historicalTruth.truthReady
-              ? getHistoricalVerificationReason({
+              ? getMetaHistoricalVerificationReason({
                   verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
                   fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
                 })
@@ -222,7 +207,7 @@ export async function getMetaAdSetsForRange(input: {
     notReadyReason: historicalTruth
       ? historicalTruth.truthReady
         ? null
-        : getHistoricalVerificationReason({
+        : getMetaHistoricalVerificationReason({
             verificationState: historicalTruth.verificationState ?? historicalTruth.state ?? null,
             fallbackReason: getMetaPartialReason({
               isSelectedCurrentDay: rangeContext.isSelectedCurrentDay,

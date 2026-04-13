@@ -96,6 +96,23 @@ Go/no-go:
 - `GO` only if Meta retention dry-run is operator-meaningful and proves published-truth safety without enabling deletes.
 - `NO-GO` if retention posture still requires raw table inspection or if protected-vs-deletable truth is ambiguous.
 
+## Phase 10 Legacy Cleanup Gate
+
+1. Open `/api/meta/status?businessId=<businessId>` for a non-today in-horizon range.
+2. Confirm:
+   - historical readiness does not become `ready` from warehouse coverage alone when published verification is unavailable
+   - `blocked`, `repair_required`, and retryable non-terminal states remain explicit in status/operator output
+   - D-1 success is backed by published pointers, not planner `published` state or finalize-like completion alone
+   - `/api/meta/status.dataContract` reports `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
+3. Confirm both retention executors remain default-disabled:
+   - `META_RETENTION_EXECUTION_ENABLED=false` by default
+   - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED=false` by default
+
+Go/no-go:
+
+- `GO` only if published verification is now the only supported historical truth contract in the touched Meta read/status paths.
+- `NO-GO` if raw row presence, broad coverage, or planner-only success can still make historical Meta look authoritative.
+
 ## T0 Validation
 
 Run this shortly before or during the account-timezone rollover window.
@@ -241,7 +258,9 @@ Meta is product-ready only when all of the following are true:
 - Dead-letter and stale-lease recovery work without manual SQL.
 - Rollback can disable `META_AUTHORITATIVE_FINALIZATION_V2` without deleting current published truth.
 - Phase 8 detector outcomes are explicit enough that blocked publication mismatch, repair-required retry, and retryable non-terminal states are distinguishable without manual SQL.
+- Phase 10 cleanup removes legacy historical truth shortcuts so raw coverage, row presence, or planner-only state can no longer imply published success in the touched Meta paths.
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
+- `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
 - Meta retention dry-run exposes protected-vs-deletable evidence for the locked `761` / `394` policy without requiring manual SQL.
 - Production rollout succeeded in shadow mode, allowlisted canary, and full rollout order.
 

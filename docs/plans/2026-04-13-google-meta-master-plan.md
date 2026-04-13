@@ -138,9 +138,17 @@
      - per-table protected-vs-deletable evidence
    - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default; this PR does not enable destructive retention globally.
 
+10. Meta legacy cleanup and hardening
+   - selected-range historical truth readiness no longer falls back to raw coverage or dirty-row heuristics when published verification is unavailable.
+   - inside the authoritative horizon, Meta status/readiness surfaces now require published verification before marking historical summary or campaign truth as ready; ad set drilldown no longer becomes ready from coverage alone.
+   - current-day Meta remains live-only, horizon-outside core fallback remains live fallback, and breakdowns outside `394` days remain unsupported/degraded.
+   - D-1 authoritative ops/SLA reporting no longer treats planner `published` state as historical success without a publication pointer, and `repair_required` is no longer collapsed into `blocked`.
+   - duplicated historical verification wording now resolves through the shared published-truth helper so status/read-path messaging stays aligned with `blocked`, `repair_required`, and published verification truth.
+   - both `META_RETENTION_EXECUTION_ENABLED` and `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remain disabled by default.
+
 ### Still Pending
 
-10. Legacy cleanup and hardening
+- no additional Meta cleanup remains in-scope for Phases 5-10.
 
 ## Current Repo Baseline
 
@@ -152,31 +160,23 @@
   - Meta Phase 7 is complete.
   - Meta Phase 8 is complete.
   - Meta Phase 9 is complete.
+  - Meta Phase 10 is complete.
 - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled.
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled.
 - The reverted 2026-04-13 warehouse-only current-day experiment is not reintroduced.
 
 ## Verified Tests
 
-- Targeted regression suite passed:
-  - `lib/google-ads/warehouse-retention.test.ts`
-  - `lib/google-ads/retention-canary.test.ts`
-  - `lib/google-ads/search-serving-hot-window.test.ts`
-  - `lib/google-ads/search-intelligence-storage.test.ts`
-  - `lib/google-ads/advisor-aggregate-intelligence.test.ts`
-  - `app/api/google-ads/status/route.test.ts`
-  - `lib/google-ads/product-gate.test.ts`
-  - `lib/admin-operations-health.test.ts`
-- Result: `8` files, `48` tests passed.
-- Additional targeted Meta Phase 9 suite passed:
-  - `lib/meta/warehouse-retention.test.ts`
-  - `lib/meta/warehouse.test.ts`
-  - `lib/meta/authoritative-ops.test.ts`
-  - `lib/sync/provider-repair-engine.test.ts`
+- Targeted Meta Phase 10 suite passed:
+  - `lib/sync/meta-selected-range-truth.test.ts`
   - `app/api/meta/status/route.test.ts`
-  - `app/api/sync/refresh/route.test.ts`
+  - `lib/meta/warehouse.test.ts`
   - `lib/meta/serving.test.ts`
-- Result: `7` files, `130` tests passed.
+  - `lib/meta/warehouse-retention.test.ts`
+  - `app/api/sync/refresh/route.test.ts`
+  - `app/api/meta/breakdowns/route.test.ts`
+  - `lib/meta/canonical-overview.test.ts`
+- Result: `8` files, `125` tests passed.
 - TypeScript verification passed: `npx tsc --noEmit --pretty false`
 
 ## Remaining Risks
@@ -186,27 +186,26 @@
 - Search-intelligence serving now reads additive storage and Phase 4 adds delete-safe observability, but a future explicit operator-approved execute canary is still deferred.
 - Meta retention dry-run/operator proof now exists, but execute-mode Meta retention is still intentionally disabled by default and no destructive canary was run from this PR.
 - The latest Meta retention block proves protected-vs-deletable truth against the current contract, but a later explicit operator-approved execute canary is still deferred.
-- Legacy compat helpers and row-presence assumptions may still exist outside the touched read/status paths and should not be cleaned up until the later detector and cleanup phases are complete.
+- Google execute-mode retention rollout is still intentionally deferred and must remain isolated from any Meta retention canary.
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: Meta Phase 10 legacy cleanup and hardening.
+- Next recommended PR: dedicated Meta retention execute canary and staged rollout proof.
 - Required scope:
-  - remove or tighten legacy Meta row-presence shortcuts that are now redundant after Phases 5-9
-  - preserve the published-truth contract and do not reopen provisional historical serving
-  - keep both retention executors default-disabled unless a later explicit rollout says otherwise
-  - keep Google retention execute-mode rollout out of the next PR
-- Intentionally deferred after Phase 4:
+  - keep the published-truth historical contract unchanged
+  - verify deletes touch only horizon-outside residue and never active published truth
+  - keep global `META_RETENTION_EXECUTION_ENABLED` off until canary evidence is reviewed
+  - keep Google retention execute-mode rollout out of the Meta canary PR
+- Intentionally deferred after Phase 10:
   - Google execute-mode raw-hot-table retention canary
   - global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
   - archival/cold export strategy for raw payloads
-  - broad legacy cleanup outside the touched Google search-intelligence paths
   - Meta retention execute-mode canary and global enablement
 
 ### Next Recommended Prompt
 
-1. Complete Meta Phase 10 legacy cleanup and hardening without changing the published-truth contract or the default-disabled retention posture.
-2. Preserve explicit Phase 8 detector outcomes for `blocked`, `repair_required`, stale-lease proof, and retryable non-terminal states.
-3. Keep both retention executors disabled by default unless a later explicit rollout says otherwise.
-4. Do not mix Google execute-mode retention enablement into the legacy-cleanup PR.
-5. Keep the new Meta retention status/dry-run proof intact while removing obsolete compat assumptions.
+1. Run a dedicated Meta retention execute canary without changing the published-truth serving contract.
+2. Prove the canary only deletes horizon-outside residue and leaves active published truth untouched.
+3. Keep `META_RETENTION_EXECUTION_ENABLED` default-disabled globally unless explicit rollout evidence says otherwise.
+4. Do not mix Google execute-mode retention enablement into the Meta canary PR.
+5. Preserve the Phase 8 detector states and Phase 9 retention status proof while adding canary evidence only.

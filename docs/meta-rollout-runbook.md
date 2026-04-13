@@ -98,6 +98,26 @@ enabling destructive execution by default.
    - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
    - this runbook still does not authorize global delete execution
 
+## Phase 10 Legacy Cleanup Contract
+
+Meta historical truth now has one supported interpretation inside the
+authoritative horizon.
+
+1. Published verification only
+   - non-today inside the authoritative horizon is ready only when published verification succeeds for the required surfaces
+   - raw warehouse row presence, broad coverage, or dirty-date heuristics are not historical truth
+2. No finalize-pending compatibility success
+   - finalize-like completion without a required publication pointer remains `blocked`, `repair_required`, `failed`, or retryable non-terminal work
+   - planner `published` state without a pointer is not historical success
+3. Read-path posture
+   - `today` remains live-only
+   - non-today inside the horizon remains published verified truth only
+   - horizon-outside core reads keep the existing live fallback behavior
+   - breakdowns outside `394` days remain unsupported/degraded
+4. Operator visibility
+   - `/api/meta/status` now reports the historical contract explicitly as `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
+   - retention dry-run evidence remains intact and both retention executors stay disabled by default
+
 ## Preflight
 
 1. Confirm migrations are additive and rollout-safe
@@ -359,9 +379,9 @@ Detailed rollback steps:
 2. Keep `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` unchanged or clear it; it has no effect once v2 is disabled
 3. Redeploy web and worker
 4. Confirm both containers return healthy status
-5. Confirm `/api/meta/status` returns compatibility behavior for historical ranges
-6. Confirm `meta:state-check` still reports the old queue/coverage signals
-7. Confirm historical refresh no longer claims `finalized_verified` unless the old path would have done so
+5. Confirm `/api/meta/status` still reports the explicit historical contract truthfully for the rolled-back runtime state
+6. Confirm `meta:state-check` and `meta:verify-day` still distinguish published truth from blocked / repair-required / retryable non-terminal states
+7. Confirm historical refresh no longer claims `finalized_verified` unless published verification actually exists for the rolled-back path
 8. Do not delete authoritative v2 tables during rollback
 9. Preserve manifest/publication/reconciliation evidence for forensic follow-up
 

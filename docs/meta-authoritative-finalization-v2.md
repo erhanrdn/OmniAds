@@ -343,10 +343,14 @@ Posture locks:
   - active publication pointers, active published slice versions, source manifests, and published day-state rows inside the locked horizon are explicitly protected
   - core truth stays locked to `761` days and breakdown truth stays locked to `394` days
   - `/api/meta/status` exposes the latest retention block for operator inspection
+- Meta Phase 10 legacy cleanup now removes the remaining touched compat shortcuts:
+  - selected-range historical readiness no longer infers truth from coverage alone
+  - planner `published` state without a publication pointer no longer counts as D-1 success
+  - operator/status vocabulary now points directly at `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
 
 Next recommended step:
 
-- Meta Phase 10 legacy cleanup and hardening while keeping retention execution default-disabled and leaving any explicit execute canary for a later dedicated rollout
+- a later dedicated Meta retention execute canary, while keeping retention execution default-disabled globally until explicit operator approval and canary evidence exist
 
 ## Compatibility Strategy
 
@@ -391,6 +395,9 @@ Current columns such as `truth_state`, `truth_version`, `finalized_at`,
 
 Under v2 they become compatibility projections of the stronger publication model
 rather than the only proof of authoritative finalization.
+
+They must not be treated as stand-alone historical success signals without an
+active published pointer and verified publication proof.
 
 ## Exact File Touchpoints For Implementation
 

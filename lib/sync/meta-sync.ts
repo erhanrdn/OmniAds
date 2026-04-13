@@ -63,7 +63,6 @@ import type {
   MetaAuthoritativeDayStateRecord,
   MetaAuthoritativeDayVerification,
   MetaDirtyRecentDateRow,
-  MetaDirtyRecentReason,
   MetaDirtyRecentSeverity,
   MetaSelectedRangeTruthReadiness,
   MetaSyncCheckpointRecord,
@@ -1369,140 +1368,77 @@ async function getMetaWarehouseWindowCompletion(input: {
   };
 }
 
-function collectMetaBlockingDirtyReasons(
-  rows: MetaDirtyRecentDateRow[],
-): MetaDirtyRecentReason[] {
-  const reasons = new Set<MetaDirtyRecentReason>();
-  for (const row of rows) {
-    if (row.nonFinalized || row.reasons.includes("non_finalized")) {
-      reasons.add("non_finalized");
-    }
-    if (row.reasons.includes("missing_campaign")) {
-      reasons.add("missing_campaign");
-    }
-    if (row.reasons.includes("spend_drift")) {
-      reasons.add("spend_drift");
-    }
-    if (row.reasons.includes("tiny_stale_spend")) {
-      reasons.add("tiny_stale_spend");
-    }
-    if (
-      row.validationFailed &&
-      !row.breakdownOnly &&
-      !row.coverageMissing &&
-      !row.reasons.includes("missing_adset") &&
-      !row.reasons.includes("missing_breakdown")
-    ) {
-      reasons.add("validation_failed");
-    }
-  }
-  return Array.from(reasons);
-}
-
 export async function getMetaSelectedRangeTruthReadiness(input: {
   businessId: string;
   startDate: string;
   endDate: string;
 }): Promise<MetaSelectedRangeTruthReadiness> {
-  if (isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)) {
-    const assignments = await getProviderAccountAssignments(
-      input.businessId,
-      "meta",
-    ).catch(() => null);
-    const providerAccountIds = assignments?.account_ids ?? [];
-    const verification = await getMetaPublishedVerificationSummary({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds,
-      surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
-    }).catch(() => null);
-    if (verification) {
-      const detectorReasonCodes = Object.entries(verification.reasonCounts)
-        .filter(
-          ([code, count]) =>
-            count > 0 &&
-            ![
-              "blocked",
-              "failed",
-              "processing",
-              "queued",
-              "repair_required",
-              "running",
-            ].includes(code),
-        )
-        .map(([code]) => code);
-      return {
-        truthReady: verification.truthReady,
-        state: verification.verificationState,
-        totalDays: verification.totalDays,
-        completedCoreDays: verification.completedCoreDays,
-        blockingReasons:
-          verification.verificationState === "failed"
-            ? ["validation_failed"]
-            : verification.verificationState === "repair_required"
-              ? ["non_finalized"]
-              : [],
-        reasonCounts: verification.reasonCounts,
-        detectorReasonCodes,
-        sourceFetchedAt: verification.sourceFetchedAt,
-        publishedAt: verification.publishedAt,
-        verificationState: verification.verificationState,
-        asOf: verification.asOf,
-      };
-    }
-  }
   const totalDays = dayCountInclusive(input.startDate, input.endDate);
-  const slowPathDates = enumerateDays(input.startDate, input.endDate, false);
-  const [accountCoverage, campaignCoverage, adsetCoverage, dirtyRows] =
-    await Promise.all([
-      getMetaAccountDailyCoverage({
-        businessId: input.businessId,
-        providerAccountId: null,
-        startDate: input.startDate,
-        endDate: input.endDate,
-      }).catch(() => null),
-      getMetaCampaignDailyCoverage({
-        businessId: input.businessId,
-        providerAccountId: null,
-        startDate: input.startDate,
-        endDate: input.endDate,
-      }).catch(() => null),
-      getMetaAdSetDailyCoverage({
-        businessId: input.businessId,
-        providerAccountId: null,
-        startDate: input.startDate,
-        endDate: input.endDate,
-      }).catch(() => null),
-      getMetaDirtyRecentDates({
-        businessId: input.businessId,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        slowPathDates,
-      }).catch(() => []),
-    ]);
-
-  const completedCoreDays = Math.min(
-    accountCoverage?.completed_days ?? 0,
-    campaignCoverage?.completed_days ?? 0,
-  );
-  const blockingReasons = collectMetaBlockingDirtyReasons(dirtyRows);
-  const reasonCounts: Record<string, number> = {};
-  for (const row of dirtyRows) {
-    for (const reason of row.reasons) {
-      reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
-    }
-  }
-
-  const truthReady =
-    completedCoreDays >= totalDays && blockingReasons.length === 0;
-  return {
-    truthReady,
-    state: truthReady ? "finalized" : "processing",
+  const pendingState: MetaSelectedRangeTruthReadiness = {
+    truthReady: false,
+    state: "processing",
+    verificationState: "processing",
     totalDays,
-    completedCoreDays,
-    blockingReasons,
-    reasonCounts,
+    completedCoreDays: 0,
+    blockingReasons: [],
+    reasonCounts: {},
+    detectorReasonCodes: [],
+    sourceFetchedAt: null,
+    publishedAt: null,
+    asOf: null,
+  };
+  if (!isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)) {
+    return pendingState;
+  }
+  const assignments = await getProviderAccountAssignments(
+    input.businessId,
+    "meta",
+  ).catch(() => null);
+  const providerAccountIds = assignments?.account_ids ?? [];
+  if (providerAccountIds.length === 0) {
+    return pendingState;
+  }
+  const verification = await getMetaPublishedVerificationSummary({
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    providerAccountIds,
+    surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
+  }).catch(() => null);
+  if (!verification) {
+    return pendingState;
+  }
+  const detectorReasonCodes = Object.entries(verification.reasonCounts)
+    .filter(
+      ([code, count]) =>
+        count > 0 &&
+        ![
+          "blocked",
+          "failed",
+          "processing",
+          "queued",
+          "repair_required",
+          "running",
+        ].includes(code),
+    )
+    .map(([code]) => code);
+  return {
+    truthReady: verification.truthReady,
+    state: verification.verificationState,
+    totalDays: verification.totalDays,
+    completedCoreDays: verification.completedCoreDays,
+    blockingReasons:
+      verification.verificationState === "failed"
+        ? ["validation_failed"]
+        : verification.verificationState === "repair_required"
+          ? ["non_finalized"]
+          : [],
+    reasonCounts: verification.reasonCounts,
+    detectorReasonCodes,
+    sourceFetchedAt: verification.sourceFetchedAt,
+    publishedAt: verification.publishedAt,
+    verificationState: verification.verificationState,
+    asOf: verification.asOf,
   };
 }
 

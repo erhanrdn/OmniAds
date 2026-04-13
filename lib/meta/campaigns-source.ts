@@ -3,6 +3,7 @@ import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaCampaigns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
 import { getMetaLiveCampaignRows } from "@/lib/meta/live";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
@@ -14,22 +15,6 @@ export interface MetaCampaignsSourceResult {
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
-}
-
-function getHistoricalVerificationReason(input: {
-  verificationState?: string | null;
-  fallbackReason: string;
-}) {
-  if (input.verificationState === "blocked") {
-    return "Historical Meta publication is blocked because finalized work does not match the required published truth.";
-  }
-  if (input.verificationState === "failed") {
-    return "Historical Meta verification failed for the selected range. The last published truth remains active while repair is required.";
-  }
-  if (input.verificationState === "repair_required") {
-    return "Historical Meta data requires a fresh authoritative retry before the selected range can be treated as finalized.";
-  }
-  return input.fallbackReason;
 }
 
 function toISODate(date: Date) {
@@ -236,7 +221,7 @@ export async function getMetaCampaignsForRange(input: {
       historicalTruth
         ? historicalTruth.truthReady
           ? null
-          : getHistoricalVerificationReason({
+          : getMetaHistoricalVerificationReason({
               verificationState:
                 historicalTruth.verificationState ?? historicalTruth.state ?? null,
               fallbackReason: getMetaPartialReason({
