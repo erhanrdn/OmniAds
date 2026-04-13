@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Adsecute PostgreSQL Health Check Every 15 Minutes
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=15m
+Persistent=true
+Unit=adsecute-db-healthcheck.service
+
+[Install]
+WantedBy=timers.target

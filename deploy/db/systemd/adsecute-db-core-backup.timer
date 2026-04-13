@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Adsecute PostgreSQL Core Backup Daily
+
+[Timer]
+OnCalendar=03:25
+Persistent=true
+Unit=adsecute-db-core-backup.service
+
+[Install]
+WantedBy=timers.target

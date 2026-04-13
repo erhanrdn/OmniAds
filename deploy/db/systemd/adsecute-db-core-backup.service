@@ -1,0 +1,8 @@
+[Unit]
+Description=Adsecute PostgreSQL Core Backup
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/adsecute-db-core-backup.sh
