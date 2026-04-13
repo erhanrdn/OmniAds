@@ -198,4 +198,103 @@ describe("MetaCampaignList render contract", () => {
     expect(html).toContain("Missing target pack");
     expect(html).toContain("Cost Cap");
   });
+
+  it("sorts campaign rows in operator-first order before spend-only ordering", () => {
+    const html = renderToStaticMarkup(
+      <MetaCampaignList
+        campaigns={[
+          campaign({ id: "cmp_watch", name: "Watch Campaign", spend: 900 }) as any,
+          campaign({ id: "cmp_blocked", name: "Blocked Campaign", spend: 800 }) as any,
+          campaign({ id: "cmp_truth", name: "Truth Campaign", spend: 700 }) as any,
+          campaign({ id: "cmp_act", name: "Act Campaign", spend: 100 }) as any,
+        ]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        campaignOperatorSummaries={
+          new Map([
+            [
+              "cmp_watch",
+              {
+                campaignId: "cmp_watch",
+                ownerType: "campaign",
+                ownerLabel: "Watch Campaign",
+                item: {
+                  id: "campaign:cmp_watch",
+                  title: "Watch Campaign",
+                  primaryAction: "Hold steady",
+                  authorityState: "watch",
+                  reason: "Still learning.",
+                  blocker: null,
+                  confidence: "Limited",
+                  secondaryLabels: [],
+                  metrics: [],
+                },
+              },
+            ],
+            [
+              "cmp_blocked",
+              {
+                campaignId: "cmp_blocked",
+                ownerType: "campaign",
+                ownerLabel: "Blocked Campaign",
+                item: {
+                  id: "campaign:cmp_blocked",
+                  title: "Blocked Campaign",
+                  primaryAction: "Fix blocker",
+                  authorityState: "blocked",
+                  reason: "Deployment truth is blocked.",
+                  blocker: "Preview missing.",
+                  confidence: "Medium",
+                  secondaryLabels: [],
+                  metrics: [],
+                },
+              },
+            ],
+            [
+              "cmp_truth",
+              {
+                campaignId: "cmp_truth",
+                ownerType: "campaign",
+                ownerLabel: "Truth Campaign",
+                item: {
+                  id: "campaign:cmp_truth",
+                  title: "Truth Campaign",
+                  primaryAction: "Needs truth",
+                  authorityState: "needs_truth",
+                  reason: "Profitable, but capped.",
+                  blocker: "Missing target pack.",
+                  confidence: "Medium",
+                  secondaryLabels: [],
+                  metrics: [],
+                },
+              },
+            ],
+            [
+              "cmp_act",
+              {
+                campaignId: "cmp_act",
+                ownerType: "campaign",
+                ownerLabel: "Act Campaign",
+                item: {
+                  id: "campaign:cmp_act",
+                  title: "Act Campaign",
+                  primaryAction: "Increase budget",
+                  authorityState: "act_now",
+                  reason: "Strong signal.",
+                  blocker: null,
+                  confidence: "High",
+                  secondaryLabels: [],
+                  metrics: [],
+                },
+              },
+            ],
+          ])
+        }
+      />
+    );
+
+    expect(html.indexOf("Act Campaign")).toBeLessThan(html.indexOf("Truth Campaign"));
+    expect(html.indexOf("Truth Campaign")).toBeLessThan(html.indexOf("Blocked Campaign"));
+    expect(html.indexOf("Blocked Campaign")).toBeLessThan(html.indexOf("Watch Campaign"));
+  });
 });

@@ -424,12 +424,18 @@ describe("CreativeDecisionOsOverview", () => {
 
     expect(html).toContain("Operator Review");
     expect(html).toContain("Creative Operator Console");
+    expect(html).toContain("Decisions use live windows. Selected period affects analysis only.");
     expect(html).toContain("Preview Truth");
+    expect(html).toContain("Preview truth is ready across this review scope.");
+    expect(html).toContain("1 ready · 0 degraded · 0 missing.");
     expect(html).toContain("Creative Authority");
     expect(html).toContain("Policy Review");
     expect(html).toContain("candidate active");
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
+    expect(html).toContain("Scale-ready");
+    expect(html).toContain("Keep testing");
+    expect(html).toContain("Blocked");
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");

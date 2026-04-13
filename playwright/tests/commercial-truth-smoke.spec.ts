@@ -203,7 +203,7 @@ async function captureCreativeDecisionSignature(
   const drawer = page.getByTestId("creative-decision-os-drawer");
   const alreadyOpen = await drawer.isVisible().catch(() => false);
   if (!alreadyOpen) {
-    await page.getByRole("button", { name: "Creative Decision OS" }).click();
+    await page.getByRole("button", { name: "Decision support" }).click();
   }
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   return {
@@ -213,8 +213,8 @@ async function captureCreativeDecisionSignature(
     lifecycle: normalizeText(
       await page.getByTestId("creative-lifecycle-board").textContent(),
     ),
-    queues: normalizeText(
-      await page.getByTestId("creative-operator-queues").textContent(),
+    opportunityBoard: normalizeText(
+      await page.getByTestId("creative-opportunity-board").textContent(),
     ),
   };
 }
@@ -293,7 +293,9 @@ async function openFirstCampaignAwareMetaCommandCenterAction(page: Page) {
 test("commercial truth navigation relocation keeps Commercial Truth under Main and out of Settings", async ({ page }) => {
   await page.goto("/commercial-truth");
   await expect(page).toHaveURL(/\/commercial-truth$/);
-  await expect(page.getByRole("heading", { name: "Commercial Truth", level: 1 })).toBeVisible();
+  await expect(
+    page.locator("main").getByRole("heading", { name: "Commercial Truth", level: 1 }),
+  ).toBeVisible();
 
   const commercialTruthNavLink = page.locator('aside a[href="/commercial-truth"]').first();
   await expect(commercialTruthNavLink).toBeVisible();
@@ -329,7 +331,9 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
 
   await page.goto("/commercial-truth");
   await expect(page).toHaveURL(/\/commercial-truth$/);
-  await expect(page.getByRole("heading", { name: "Commercial Truth", level: 1 })).toBeVisible();
+  await expect(
+    page.locator("main").getByRole("heading", { name: "Commercial Truth", level: 1 }),
+  ).toBeVisible();
   const commercialTruthNavLink = page.locator('aside a[href="/commercial-truth"]').first();
   await expect(commercialTruthNavLink).toBeVisible();
   await expect(commercialTruthNavLink).toHaveClass(/bg-primary/);
@@ -399,12 +403,15 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
   await openMetaCampaignReasoning(page);
-  await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
+  await expect
+    .poll(async () =>
+      page.getByTestId("meta-campaign-reasoning").evaluate((element) => element.hasAttribute("open")),
+    )
+    .toBe(true);
+  const metaCampaignDecisionPanel = page.getByTestId("meta-campaign-decision-panel");
+  await expect(metaCampaignDecisionPanel).toContainText("Campaign Role");
   const metaCampaignAdsetActions = page.getByTestId("meta-campaign-adset-actions");
-  await metaCampaignAdsetActions.evaluate((node: HTMLElement) =>
-    node.scrollIntoView({ block: "center", inline: "nearest" }),
-  );
-  await expect(metaCampaignAdsetActions).toBeVisible();
+  await expect(metaCampaignAdsetActions).toContainText(/Ad Set Actions|No ad set actions are available|ROAS/);
   await page.screenshot({
     path: testInfo.outputPath("commercial-meta-mode.png"),
     fullPage: true,
@@ -536,27 +543,34 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   });
 
   await page.goto("/creatives");
-  await page.getByRole("button", { name: "Creative Decision OS" }).click();
+  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
+  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText("Preview Truth Contract");
+  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText(
+    "Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.",
+  );
+  await page.getByRole("button", { name: "Decision support" }).click();
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Decisions use live windows");
-  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Selected period affects analysis only");
+  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Creative Decision Support");
+  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText(
+    "The page worklist stays primary. This drawer is support for live-window decision context only.",
+  );
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
-  await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+  await expect(page.getByTestId("creative-opportunity-board")).toBeVisible();
   await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
   await page.getByLabel("Close Creative Decision OS").click();
-  await expect(page.getByTestId("creative-decision-signals")).toBeVisible();
+  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
   let creativeBaseline: Awaited<ReturnType<typeof captureCreativeDecisionSignature>> | null = null;
   let creativeHistoricalBaseline: string | null = null;
   let creativeHistoricalChanged = false;
   for (const range of BROWSER_DECISION_RANGES) {
     await setStoredDateRange(page, "creativeDateRange", range.creative);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Creative Decision OS" }).click();
+    await page.getByRole("button", { name: "Decision support" }).click();
     await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
     await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
     await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
-    await expect(page.getByTestId("creative-operator-queues")).toBeVisible();
+    await expect(page.getByTestId("creative-opportunity-board")).toBeVisible();
     await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
     const signature = await captureCreativeDecisionSignature(page);
     const historicalSignature = await captureCreativeHistoricalSignature(page);
@@ -573,7 +587,7 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   }
   expect(creativeHistoricalChanged).toBeTruthy();
 
-  await page.getByRole("button", { name: "Creative Decision OS" }).click();
+  await page.getByRole("button", { name: "Decision support" }).click();
   const familyCards = page.locator('button[data-testid^="creative-family-"]');
   await expect(familyCards.first()).toBeVisible();
   const preFilterCount = await page.locator('[data-testid^="creative-row-"]').count();
@@ -589,12 +603,16 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   await creativeRows.first().click();
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-deterministic-decision")).toContainText("Primary decision");
+  await expect(page.getByTestId("creative-detail-preview-truth")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-preview-truth")).toContainText("Preview Truth Gate");
   await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
   await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
   await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
   await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
   await expect(page.getByTestId("creative-detail-commercial-context")).toBeVisible();
   await expect(page.getByTestId("creative-detail-ai-commentary")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-ai-commentary")).toContainText("Support only");
   await page.screenshot({
     path: testInfo.outputPath("commercial-creative-context.png"),
     fullPage: true,

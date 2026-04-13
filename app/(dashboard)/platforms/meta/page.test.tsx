@@ -5,6 +5,7 @@ import { META_PAGE_OPTIONAL_SURFACES } from "@/lib/meta/page-contract";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 
 const mockPush = vi.fn();
+let mockSearchParams = new URLSearchParams();
 
 let mockMetaView = {
   status: "ready",
@@ -185,7 +186,7 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   usePathname: () => "/platforms/meta",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockSearchParams,
 }));
 
 vi.mock("@/components/business/BusinessEmptyState", () => ({
@@ -321,6 +322,7 @@ describe("Meta page render contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPush.mockReset();
+    mockSearchParams = new URLSearchParams();
     mockMetaView = { status: "ready", isConnected: true };
     mockBootstrap = { isBootstrapping: false, bootstrapStatus: "ready" };
     mockDateRange = {
@@ -571,4 +573,5 @@ describe("Meta page render contract", () => {
     expect(html).not.toContain("data-empty:");
     expect(html).not.toContain("Selected range is preparing");
   });
+
 });

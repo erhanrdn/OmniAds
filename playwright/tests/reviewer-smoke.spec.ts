@@ -30,12 +30,21 @@ async function expectVisibleIfPresent(locator: import("@playwright/test").Locato
   }
 }
 
+async function openDetailsIfNeeded(details: import("@playwright/test").Locator) {
+  await expect(details).toBeVisible();
+  const isOpen = await details.evaluate((element) => element.hasAttribute("open"));
+  if (!isOpen) {
+    await details.locator("summary").click();
+  }
+}
+
 test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
 
   await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Daily Operator Surface");
+  await expect(page.getByText(/Daily operator surface for what needs action now/)).toBeVisible();
   await page.getByText("Show why").first().click();
   await expectVisibleIfPresent(page.getByTestId("meta-policy-review"));
   await expectVisibleIfPresent(page.getByTestId("meta-budget-shift-board"));
@@ -43,7 +52,7 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expectVisibleIfPresent(page.getByTestId("meta-geo-board"));
   await expectVisibleIfPresent(page.getByTestId("meta-no-touch-list"));
   await expect(page.getByTestId("meta-supporting-context")).toBeVisible();
-  await page.getByTestId("meta-supporting-context").locator("summary").click();
+  await openDetailsIfNeeded(page.getByTestId("meta-supporting-context"));
   await expect(page.getByTestId("meta-recommendations-panel")).toBeVisible();
   await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Supporting Context");
   await expect(page.getByTestId("meta-recommendations-run")).toContainText(/Refresh Context/);
@@ -52,23 +61,16 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
 
+  await expect(page).toHaveURL(/campaignId=/);
   await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
-  const metaCampaignReasoningSummary = page
-    .getByTestId("meta-campaign-reasoning")
-    .locator("summary")
-    .first();
-  await expect(metaCampaignReasoningSummary).toBeVisible();
-  await metaCampaignReasoningSummary.evaluate((node: HTMLElement) => node.click());
+  await expect(page.getByTestId("meta-campaign-detail")).toContainText("Show campaign reasoning");
+  await openDetailsIfNeeded(page.getByTestId("meta-campaign-reasoning"));
   await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
   const metaCampaignAdsetActions = page.getByTestId("meta-campaign-adset-actions");
-  await metaCampaignAdsetActions.evaluate((node: HTMLElement) =>
-    node.scrollIntoView({ block: "center", inline: "nearest" }),
-  );
+  await metaCampaignAdsetActions.scrollIntoViewIfNeeded();
   await expect(metaCampaignAdsetActions).toBeVisible();
   const metaAdsetsSection = page.getByTestId("meta-adsets-section");
-  await metaAdsetsSection.evaluate((node: HTMLElement) =>
-    node.scrollIntoView({ block: "center", inline: "nearest" }),
-  );
+  await metaAdsetsSection.scrollIntoViewIfNeeded();
   await expect(metaAdsetsSection).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("meta-smoke.png"), fullPage: true });
 
@@ -111,9 +113,21 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
 
   await page.goto("/creatives");
   await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
+  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText("Preview Truth Contract");
+  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText(
+    "Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.",
+  );
+  await expect(page.getByTestId("creative-quick-filters-panel")).toContainText("Decision Path");
+  await expect(page.getByTestId("creative-quick-filters")).toContainText(
+    /ACT NOW|NEEDS TRUTH|KEEP TESTING|BLOCKED|PROTECTED/,
+  );
 
   await page.getByRole("button", { name: "Decision support" }).click();
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
+  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Creative Decision Support");
+  await expect(page.getByTestId("creative-decision-os-drawer")).toContainText(
+    "The page worklist stays primary. This drawer is support for live-window decision context only.",
+  );
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-preview-truth-summary")).toBeVisible();
   await expect(page.getByTestId("creative-lifecycle-board")).toBeVisible();
@@ -143,17 +157,24 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await expect(page).toHaveURL(/creative=/);
 
   await expect(page.getByTestId("creative-detail-deterministic-decision")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-deterministic-decision")).toContainText("Primary decision");
+  await expect(page.getByTestId("creative-detail-deterministic-decision")).toContainText("Queue status");
   await expect(page.getByTestId("creative-detail-preview-truth")).toBeVisible();
+  await expect(page.getByTestId("creative-detail-preview-truth")).toContainText("Preview Truth Gate");
   await expect(page.getByTestId("creative-detail-command-center")).toBeVisible();
   await expect(page.getByTestId("creative-detail-deployment-matrix")).toBeVisible();
   await expect(page.getByTestId("creative-detail-benchmark-evidence")).toBeVisible();
   await expect(page.getByTestId("creative-detail-fatigue-evidence")).toBeVisible();
   const commentarySection = page.getByTestId("creative-detail-ai-commentary");
   await expect(commentarySection).toBeVisible();
+  await expect(commentarySection).toContainText("Support only");
   const commentaryButton = commentarySection.getByRole("button", {
     name: /Generate AI interpretation|Refresh interpretation/,
   });
   if (await commentaryButton.count()) {
+    await expect(commentarySection).toContainText(
+      "Support only. AI commentary does not change the deterministic decision.",
+    );
     await commentaryButton.click();
     await expect(commentarySection).toContainText(/Opportunities|Next actions|Risks|AI interpretation is temporarily unavailable/, {
       timeout: 45_000,

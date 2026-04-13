@@ -155,7 +155,7 @@ function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeA
   };
 }
 
-function buildDecisionOsRow(rowId: string) {
+function buildDecisionOsRow(rowId: string, overrides: Record<string, unknown> = {}) {
   return {
     creativeId: rowId,
     familyId: "family_1",
@@ -297,6 +297,7 @@ function buildDecisionOsRow(rowId: string) {
         materiality: "material",
       },
     },
+    ...overrides,
   } as any;
 }
 
@@ -337,5 +338,147 @@ describe("CreativeDetailExperience", () => {
     expect(html).toContain("Support only");
     expect(html).toContain("AI interpretation stays disabled because preview truth is missing.");
     expect(html).not.toContain("Generate AI interpretation");
+  });
+
+  it("keeps AI interpretation support-only when preview truth is ready", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        id: "creative_ready",
+        creative_id: "cr_ready",
+        name: "Preview Ready Creative",
+        preview_url: "https://example.com/preview.jpg",
+        preview_source: "snapshot",
+        thumbnail_url: "https://example.com/thumb.jpg",
+        image_url: "https://example.com/image.jpg",
+        table_thumbnail_url: "https://example.com/table.jpg",
+        card_preview_url: "https://example.com/card.jpg",
+        preview_manifest: {
+          table_src: "https://example.com/table.jpg",
+          card_src: "https://example.com/card.jpg",
+          detail_image_src: "https://example.com/image.jpg",
+          detail_video_src: null,
+          render_state: "renderable_high_quality",
+          card_state: "ready",
+          waiting_reason: null,
+          table_source_kind: "thumbnail_static",
+          card_source_kind: "non_thumbnail_static",
+          resolution_class: "high_res",
+          thumbnail_like: false,
+          source_reason: "card_prefer_non_thumbnail",
+          needs_card_enrichment: false,
+          live_html_available: true,
+        },
+        preview_state: "preview",
+        preview: {
+          render_mode: "image",
+          image_url: "https://example.com/image.jpg",
+          video_url: null,
+          poster_url: null,
+          source: "image_url",
+          is_catalog: false,
+        },
+        preview_status: "ready",
+      }),
+    );
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={{
+          creatives: [
+            buildDecisionOsRow(row.id, {
+              name: "Preview Ready Creative",
+              primaryAction: "promote_to_scaling",
+              summary: "Preview truth is ready, so this creative can keep decisive wording.",
+              previewStatus: {
+                selectedWindow: "ready",
+                liveDecisionWindow: "ready",
+                reason: "Live preview media is available for the live decision window.",
+              },
+              deployment: {
+                metaFamily: "purchase",
+                metaFamilyLabel: "Purchase",
+                targetLane: "Scaling",
+                targetAdSetRole: "scaling_hero",
+                preferredCampaignIds: [],
+                preferredCampaignNames: [],
+                preferredAdSetIds: [],
+                preferredAdSetNames: [],
+                eligibleLanes: ["Scaling"],
+                geoContext: "core",
+                queueVerdict: "eligible",
+                queueSummary: "Queue entry is honest because preview truth is ready.",
+                constraints: [],
+                compatibility: {
+                  status: "compatible",
+                  objectiveFamily: "sales",
+                  optimizationGoal: "purchase",
+                  bidRegime: "cost_cap",
+                  reasons: [],
+                },
+                whatWouldChangeThisDecision: [],
+              },
+              report: {
+                creativeId: row.id,
+                creativeName: "Preview Ready Creative",
+                action: "scale",
+                lifecycleState: "scale_ready",
+                score: 88,
+                confidence: 0.86,
+                summary: "Preview truth is ready, so this creative can keep decisive wording.",
+                timeframeContext: {
+                  coreVerdict: "Live preview truth and economics both support the current decision.",
+                  selectedRangeOverlay: "Selected range remains analysis context only.",
+                  historicalSupport: "Historical support reinforces but does not override the live window.",
+                },
+                accountContext: {
+                  roasAvg: 2,
+                  cpaAvg: 14,
+                  ctrAvg: 1.1,
+                  spendMedian: 80,
+                  spendP20: 40,
+                  spendP80: 160,
+                },
+                factors: [
+                  {
+                    label: "Preview truth",
+                    impact: "positive",
+                    value: "ready",
+                    reason: "Live preview media is available for decisive review.",
+                  },
+                ],
+              },
+            }),
+          ],
+        } as any}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Preview ready");
+    expect(html).toContain("Preview truth is ready for decisive review.");
+    expect(html).toContain(
+      "Live decision-window preview is ready, so authoritative action wording can stay active for this creative.",
+    );
+    expect(html).toContain("Primary decision");
+    expect(html).toContain("Queue status");
+    expect(html).toContain("AI commentary");
+    expect(html).toContain("Support only");
+    expect(html).toContain("Support only. AI commentary does not change the deterministic decision.");
+    expect(html).toContain("Generate AI interpretation");
   });
 });
