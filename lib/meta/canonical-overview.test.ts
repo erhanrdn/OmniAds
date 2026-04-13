@@ -47,6 +47,10 @@ describe("meta canonical overview summary", () => {
       isSelectedCurrentDay: false,
       currentDateInTimezone: "2026-04-08",
       primaryAccountTimezone: "America/Los_Angeles",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
     } as never);
     vi.mocked(readiness.getMetaPartialReason).mockReturnValue(
       "Warehouse data is still being prepared for the requested range.",

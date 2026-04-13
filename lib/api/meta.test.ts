@@ -37,6 +37,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   createMetaSyncJob: vi.fn(),
   persistMetaRawSnapshot: vi.fn().mockResolvedValue("snapshot-id"),
   replaceMetaAccountDailySlice: vi.fn().mockResolvedValue(undefined),
+  replaceMetaAdDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaCampaignDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaAdSetDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaBreakdownDailySlice: vi.fn().mockResolvedValue(undefined),
@@ -90,6 +91,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     } as never);
     vi.mocked(warehouse.replaceMetaAccountDailySlice).mockImplementation(async (input) => {
       await warehouse.upsertMetaAccountDailyRows(input.rows as never);
+    });
+    vi.mocked(warehouse.replaceMetaAdDailySlice).mockImplementation(async (input) => {
+      await warehouse.upsertMetaAdDailyRows(input.rows as never);
     });
     vi.mocked(warehouse.replaceMetaCampaignDailySlice).mockImplementation(async (input) => {
       await warehouse.upsertMetaCampaignDailyRows(input.rows as never);
