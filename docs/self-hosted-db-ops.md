@@ -2,6 +2,8 @@
 
 This project can run on a self-hosted PostgreSQL server without Neon.
 
+For Meta sync queue pressure, drain-rate checks, and `pg_stat_activity` or `pg_stat_statements` workflows, use [`docs/meta-sync-hardening/postgres-runbook.md`](./meta-sync-hardening/postgres-runbook.md) first. This file stays focused on backups, health checks, and restore shape.
+
 ## Installed backup shape
 
 - Daily logical backup of only irreplaceable tables

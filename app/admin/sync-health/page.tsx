@@ -27,6 +27,92 @@ interface SyncHealthPayload {
   syncEffectivenessReview?: SyncEffectivenessReview;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
+  dbDiagnostics?: {
+    sampledAt: string;
+    web: {
+      runtime: "web" | "worker";
+      applicationName: string;
+      settings: {
+        poolMax: number;
+        queryTimeoutMs: number;
+        connectionTimeoutMs: number;
+        idleTimeoutMs: number;
+        maxLifetimeSeconds: number | null;
+        retryAttempts: number;
+        retryBackoffMs: number;
+        retryMaxBackoffMs: number;
+      };
+      pool: {
+        totalCount: number;
+        idleCount: number;
+        waitingCount: number;
+        utilizationPercent: number;
+        saturationState: "idle" | "busy" | "saturated";
+        maxObservedWaitingCount: number;
+      };
+      counters: {
+        timeoutCount: number;
+        retryableErrorCount: number;
+        connectionErrorCount: number;
+      };
+      lastError: {
+        at: string;
+        code: string | null;
+        message: string;
+      } | null;
+    } | null;
+    workers: Array<{
+      workerId?: string | null;
+      providerScope?: string | null;
+      workerStatus?: string | null;
+      lastHeartbeatAt?: string | null;
+      applicationName: string;
+      settings: {
+        poolMax: number;
+        queryTimeoutMs: number;
+        connectionTimeoutMs: number;
+        idleTimeoutMs: number;
+        maxLifetimeSeconds: number | null;
+        retryAttempts: number;
+        retryBackoffMs: number;
+        retryMaxBackoffMs: number;
+      };
+      pool: {
+        totalCount: number;
+        idleCount: number;
+        waitingCount: number;
+        utilizationPercent: number;
+        saturationState: "idle" | "busy" | "saturated";
+        maxObservedWaitingCount: number;
+      };
+      counters: {
+        timeoutCount: number;
+        retryableErrorCount: number;
+        connectionErrorCount: number;
+      };
+      lastError: {
+        at: string;
+        code: string | null;
+        message: string;
+      } | null;
+    }>;
+    summary: {
+      webPressureState: "healthy" | "elevated" | "saturated" | "unknown";
+      workerPressureState: "healthy" | "elevated" | "saturated" | "unknown";
+      metaBacklogState: "clear" | "draining" | "stalled";
+      likelyPrimaryConstraint: "none" | "db" | "scheduler_or_queue" | "mixed" | "unknown";
+      headline: string;
+      evidence: string[];
+      workerCount: number;
+      metaQueueDepth: number;
+      metaLeasedPartitions: number;
+      workerCurrentPoolWaiters: number;
+      workerMaxObservedPoolWaiters: number;
+      workerTimeoutCount: number;
+      workerRetryableErrorCount: number;
+      workerConnectionErrorCount: number;
+    };
+  };
   summary: {
     impactedBusinesses: number;
     runningJobs: number;
@@ -248,6 +334,25 @@ function getGoogleAdsBusinessSignals(
   return signals;
 }
 
+function formatDbConstraint(value: NonNullable<SyncHealthPayload["dbDiagnostics"]>["summary"]["likelyPrimaryConstraint"]) {
+  if (value === "db") return "db ceiling";
+  if (value === "scheduler_or_queue") return "scheduler/queue";
+  if (value === "mixed") return "mixed";
+  if (value === "none") return "none";
+  return "unknown";
+}
+
+function formatDbSettingsCompact(settings: {
+  poolMax: number;
+  queryTimeoutMs: number;
+  connectionTimeoutMs: number;
+  idleTimeoutMs: number;
+  maxLifetimeSeconds: number | null;
+  retryAttempts: number;
+}) {
+  return `pool ${settings.poolMax} • query ${settings.queryTimeoutMs}ms • connect ${settings.connectionTimeoutMs}ms • idle ${settings.idleTimeoutMs}ms • life ${settings.maxLifetimeSeconds ?? "off"}s • retry ${settings.retryAttempts}`;
+}
+
 const SYNC_HELP: Record<string, string> = {
   "Failed 24h":
     "Background sync jobs that failed during the last 24 hours and need system-side attention.",
@@ -352,6 +457,7 @@ export default function AdminSyncHealthPage() {
   const metaBusinesses = payload?.metaBusinesses ?? [];
   const googleAdsHealthStatus = payload?.googleAdsHealthStatus ?? "ok";
   const googleAdsHealthError = payload?.googleAdsHealthError ?? null;
+  const dbDiagnostics = payload?.dbDiagnostics ?? null;
   const globalRebuildReview = payload?.globalRebuildReview ?? null;
   const syncEffectivenessReview = payload?.syncEffectivenessReview ?? null;
 
@@ -445,6 +551,112 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
       </div>
+
+      {dbDiagnostics ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">DB pressure</p>
+              <p className="mt-1 text-sm text-gray-500">
+                Current web and worker pool pressure, timeout or retry evidence, and the matching Meta backlog posture for self-hosted Postgres.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StateBadge state={dbDiagnostics.summary.workerPressureState} />
+              <StateBadge state={dbDiagnostics.summary.metaBacklogState} />
+              <MetricPill
+                label="Constraint"
+                value={formatDbConstraint(dbDiagnostics.summary.likelyPrimaryConstraint)}
+              />
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-gray-600">{dbDiagnostics.summary.headline}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <MetricPill label="Meta queue" value={dbDiagnostics.summary.metaQueueDepth} />
+            <MetricPill label="Meta leased" value={dbDiagnostics.summary.metaLeasedPartitions} />
+            <MetricPill label="Worker waiters" value={dbDiagnostics.summary.workerCurrentPoolWaiters} />
+            <MetricPill label="Max waiters" value={dbDiagnostics.summary.workerMaxObservedPoolWaiters} />
+            <MetricPill label="Timeouts" value={dbDiagnostics.summary.workerTimeoutCount} />
+            <MetricPill label="Retryable" value={dbDiagnostics.summary.workerRetryableErrorCount} />
+            <MetricPill label="Conn errs" value={dbDiagnostics.summary.workerConnectionErrorCount} />
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-gray-900">Web process</p>
+                <StateBadge state={dbDiagnostics.summary.webPressureState} />
+              </div>
+              {dbDiagnostics.web ? (
+                <>
+                  <p className="mt-2 text-xs text-gray-500">
+                    {dbDiagnostics.web.applicationName} • {formatDbSettingsCompact(dbDiagnostics.web.settings)}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <MetricPill label="Pool" value={`${dbDiagnostics.web.pool.totalCount}/${dbDiagnostics.web.settings.poolMax}`} />
+                    <MetricPill label="Idle" value={dbDiagnostics.web.pool.idleCount} />
+                    <MetricPill label="Wait" value={dbDiagnostics.web.pool.waitingCount} />
+                    <MetricPill label="Util" value={`${dbDiagnostics.web.pool.utilizationPercent}%`} />
+                    <MetricPill label="State" value={dbDiagnostics.web.pool.saturationState} />
+                  </div>
+                  {dbDiagnostics.web.lastError ? (
+                    <p className="mt-3 text-xs text-amber-700">
+                      Last error {formatDateTime(dbDiagnostics.web.lastError.at)} • {dbDiagnostics.web.lastError.message}
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-xs text-gray-500">No recent web DB error captured.</p>
+                  )}
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-gray-500">Web DB diagnostics unavailable.</p>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-gray-900">Worker processes</p>
+                <MetricPill label="Workers" value={dbDiagnostics.summary.workerCount} />
+              </div>
+              {dbDiagnostics.workers.length ? (
+                <div className="mt-3 space-y-2">
+                  {dbDiagnostics.workers.slice(0, 4).map((worker) => (
+                    <div
+                      key={`${worker.workerId ?? worker.applicationName}:${worker.providerScope ?? "all"}`}
+                      className="rounded-lg border border-white bg-white px-3 py-2 text-xs text-gray-600"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-gray-800">{worker.workerId ?? worker.applicationName}</span>
+                        <span>{worker.providerScope ?? "all"}</span>
+                        <span>{worker.workerStatus ?? "unknown"}</span>
+                        <span>{formatDateTime(worker.lastHeartbeatAt ?? null)}</span>
+                      </div>
+                      <p className="mt-1 text-gray-500">{formatDbSettingsCompact(worker.settings)}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <MetricPill label="Pool" value={`${worker.pool.totalCount}/${worker.settings.poolMax}`} />
+                        <MetricPill label="Wait" value={worker.pool.waitingCount} />
+                        <MetricPill label="Max wait" value={worker.pool.maxObservedWaitingCount} />
+                        <MetricPill label="Util" value={`${worker.pool.utilizationPercent}%`} />
+                        <MetricPill label="Timeouts" value={worker.counters.timeoutCount} />
+                        <MetricPill label="Retryable" value={worker.counters.retryableErrorCount} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-gray-500">
+                  No worker heartbeat has published DB diagnostics yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <ul className="mt-4 space-y-2 text-sm text-gray-600">
+            {dbDiagnostics.summary.evidence.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {globalRebuildReview ? (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -1202,18 +1414,24 @@ function MetricPill({
 function StateBadge({ state }: { state: string }) {
   const className =
     state === "ready" ||
+    state === "healthy" ||
+    state === "clear" ||
     state === "present" ||
     state === "eligible_for_explicit_review" ||
     state === "improving" ||
     state === "ready_with_current_support"
       ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
       : state === "not_ready" ||
+          state === "saturated" ||
+          state === "stalled" ||
           state === "blocked" ||
           state === "publication_missing" ||
           state === "no_go" ||
           state === "blocked_repair_needed"
         ? "border border-red-200 bg-red-50 text-red-700"
       : state === "conditionally_ready" ||
+            state === "elevated" ||
+            state === "draining" ||
             state === "hold_manual" ||
             state === "repair_required" ||
             state === "quota_limited" ||

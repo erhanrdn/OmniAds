@@ -12,6 +12,7 @@ import { executeGoogleAdsRetentionPolicy } from "@/lib/google-ads/warehouse-rete
 import { executeMetaRetentionPolicy } from "@/lib/meta/warehouse-retention";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
+import { getDbRuntimeDiagnostics } from "@/lib/db";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -241,7 +242,10 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       status: input.status,
       lastBusinessId: input.lastBusinessId,
       lastPartitionId: input.lastPartitionId,
-      metaJson: input.metaJson,
+      metaJson: {
+        ...input.metaJson,
+        dbRuntime: getDbRuntimeDiagnostics(),
+      },
     });
   }
 

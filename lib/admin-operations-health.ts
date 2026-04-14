@@ -1,4 +1,14 @@
-import { getDb, getDbWithTimeout } from "@/lib/db";
+import {
+  getDb,
+  getDbRuntimeDiagnostics,
+  getDbWithTimeout,
+  type DbRuntimeDiagnostics,
+} from "@/lib/db";
+import {
+  buildAdminDbDiagnostics,
+  buildWorkerDbProcessDiagnostics,
+  type AdminDbDiagnosticsPayload,
+} from "@/lib/admin-db-diagnostics";
 import {
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaReclaimClassificationSummary,
@@ -81,6 +91,7 @@ export interface AdminSyncHealthPayload {
   syncEffectivenessReview?: SyncEffectivenessReview;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
+  dbDiagnostics?: AdminDbDiagnosticsPayload;
   summary: {
     impactedBusinesses: number;
     runningJobs: number;
@@ -803,6 +814,7 @@ export function buildAdminSyncHealth(input: {
   metaIntegritySummaries?: Record<string, AdminIntegritySummary>;
   metaD1FinalizeNonTerminalCounts?: Record<string, number>;
   workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
+  webDbDiagnostics?: DbRuntimeDiagnostics | null;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -1789,9 +1801,26 @@ export function buildAdminSyncHealth(input: {
       return right - left;
     });
 
+  const dbDiagnostics = buildAdminDbDiagnostics({
+    web: input.webDbDiagnostics ?? null,
+    workers: buildWorkerDbProcessDiagnostics(
+      (input.workerHealth?.workers ?? []).map((worker) => ({
+        workerId: worker.workerId,
+        providerScope: worker.providerScope,
+        status: worker.status,
+        lastHeartbeatAt: worker.lastHeartbeatAt,
+        metaJson: worker.metaJson ?? null,
+      })),
+    ),
+    metaQueueDepth,
+    metaLeasedPartitions,
+    metaBusinesses,
+  });
+
   return {
     googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
     googleAdsHealthError: input.googleAdsHealthError ?? null,
+    dbDiagnostics,
     summary: {
       impactedBusinesses: impactedBusinesses.size,
       runningJobs,
@@ -2763,6 +2792,7 @@ export async function getAdminOperationsHealth() {
     ]);
   const googleRetentionRuntime = getGoogleAdsRetentionRuntimeStatus();
   const metaRetentionRuntime = getMetaRetentionRuntimeStatus();
+  const webDbDiagnostics = getDbRuntimeDiagnostics();
   const metaProtectedPublishedTruth =
     (await getMetaProtectedPublishedTruthReview().catch(() => null)) ?? {
       runtimeAvailable: false,
@@ -2797,6 +2827,7 @@ export async function getAdminOperationsHealth() {
     metaIntegritySummaries,
     metaD1FinalizeNonTerminalCounts,
     workerHealth,
+    webDbDiagnostics,
   });
   syncHealth.globalRebuildReview = buildGlobalRebuildTruthReview({
     googleBusinesses: syncHealth.googleAdsBusinesses ?? [],

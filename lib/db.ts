@@ -1,14 +1,91 @@
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import { logStartupEvent } from "@/lib/startup-diagnostics";
 
-const DEFAULT_DB_TIMEOUT_MS = 8_000;
+const DEFAULT_WEB_DB_TIMEOUT_MS = 8_000;
 const DEFAULT_WORKER_DB_TIMEOUT_MS = 30_000;
+const DEFAULT_WEB_DB_POOL_MAX = 10;
+const DEFAULT_WORKER_DB_POOL_MAX = 12;
+const DEFAULT_DB_CONNECTION_TIMEOUT_MS = 10_000;
+const DEFAULT_DB_IDLE_TIMEOUT_MS = 30_000;
 const DEFAULT_DB_RETRY_ATTEMPTS = 4;
-const DB_RETRY_DELAY_MS = 400;
-const DEFAULT_DB_POOL_MAX = 10;
-const DEFAULT_WORKER_DB_POOL_MAX = 20;
+const DEFAULT_DB_RETRY_BACKOFF_MS = 400;
+const DEFAULT_DB_RETRY_MAX_BACKOFF_MS = 4_000;
+const DEFAULT_DB_APPLICATION_NAME = "omniads";
 
 type DbRow = Record<string, any>;
+
+export type DbRuntimeRole = "web" | "worker";
+
+export interface DbRuntimeSettings {
+  runtime: DbRuntimeRole;
+  applicationName: string;
+  poolMax: number;
+  queryTimeoutMs: number;
+  connectionTimeoutMs: number;
+  idleTimeoutMs: number;
+  maxLifetimeSeconds: number | null;
+  statementTimeoutMs: number | null;
+  idleInTransactionSessionTimeoutMs: number | null;
+  retryAttempts: number;
+  retryBackoffMs: number;
+  retryMaxBackoffMs: number;
+  allowExitOnIdle: boolean;
+}
+
+export interface DbRuntimePoolSnapshot {
+  max: number;
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+  utilizationPercent: number;
+  saturationState: "idle" | "busy" | "saturated";
+  maxObservedWaitingCount: number;
+  maxObservedUtilizationPercent: number;
+  poolWaitEventCount: number;
+  lastPoolWaitAt: string | null;
+}
+
+export interface DbRuntimeCountersSnapshot {
+  queryCount: number;
+  successCount: number;
+  failureCount: number;
+  retriedQueryCount: number;
+  retryAttemptCount: number;
+  retryableErrorCount: number;
+  timeoutCount: number;
+  connectionErrorCount: number;
+  lastSuccessfulQueryAt: string | null;
+  lastRetryableErrorAt: string | null;
+  lastTimeoutAt: string | null;
+  lastConnectionErrorAt: string | null;
+}
+
+export interface DbRuntimeErrorSnapshot {
+  at: string;
+  code: string | null;
+  message: string;
+  retryable: boolean;
+  timeout: boolean;
+  connection: boolean;
+}
+
+export interface DbRuntimeDiagnostics {
+  sampledAt: string;
+  runtime: DbRuntimeRole;
+  applicationName: string;
+  settings: DbRuntimeSettings;
+  pool: DbRuntimePoolSnapshot;
+  counters: DbRuntimeCountersSnapshot;
+  lastError: DbRuntimeErrorSnapshot | null;
+}
+
+interface DbRuntimeMetrics extends DbRuntimeCountersSnapshot {
+  lastError: DbRuntimeErrorSnapshot | null;
+  maxObservedWaitingCount: number;
+  maxObservedUtilizationPercent: number;
+  poolWaitEventCount: number;
+  lastPoolWaitAt: string | null;
+}
 
 export type DbClient = (<TRow extends DbRow = DbRow>(
   strings: TemplateStringsArray,
@@ -20,28 +97,169 @@ export type DbClient = (<TRow extends DbRow = DbRow>(
   ) => Promise<TRow[]>;
 };
 
-export function resolveDbTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
-  const raw = env.DB_QUERY_TIMEOUT_MS?.trim();
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function isWorkerRuntime(env: NodeJS.ProcessEnv = process.env) {
   const workerMode = env.SYNC_WORKER_MODE?.trim().toLowerCase();
-  const fallback =
-    workerMode === "1" || workerMode === "true"
-      ? DEFAULT_WORKER_DB_TIMEOUT_MS
-      : DEFAULT_DB_TIMEOUT_MS;
-  if (!raw) return fallback;
-  const parsed = Number(raw);
+  return workerMode === "1" || workerMode === "true";
+}
+
+export function resolveDbRuntimeRole(env: NodeJS.ProcessEnv = process.env): DbRuntimeRole {
+  return isWorkerRuntime(env) ? "worker" : "web";
+}
+
+function resolveRoleScopedRawValue(
+  env: NodeJS.ProcessEnv,
+  runtime: DbRuntimeRole,
+  sharedKey: string,
+) {
+  const roleSpecificKey =
+    runtime === "worker"
+      ? sharedKey.replace(/^DB_/, "DB_WORKER_")
+      : sharedKey.replace(/^DB_/, "DB_WEB_");
+  return env[roleSpecificKey]?.trim() || env[sharedKey]?.trim() || null;
+}
+
+function parsePositiveNumber(value: string | null, fallback: number) {
+  if (!value) return fallback;
+  const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseOptionalPositiveNumber(value: string | null) {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function resolveRoleScopedPositiveNumber(input: {
+  env?: NodeJS.ProcessEnv;
+  runtime?: DbRuntimeRole;
+  sharedKey: string;
+  fallback: number;
+}) {
+  const env = input.env ?? process.env;
+  const runtime = input.runtime ?? resolveDbRuntimeRole(env);
+  return parsePositiveNumber(
+    resolveRoleScopedRawValue(env, runtime, input.sharedKey),
+    input.fallback,
+  );
+}
+
+function resolveRoleScopedOptionalPositiveNumber(input: {
+  env?: NodeJS.ProcessEnv;
+  runtime?: DbRuntimeRole;
+  sharedKey: string;
+}) {
+  const env = input.env ?? process.env;
+  const runtime = input.runtime ?? resolveDbRuntimeRole(env);
+  return parseOptionalPositiveNumber(resolveRoleScopedRawValue(env, runtime, input.sharedKey));
+}
+
+function resolveDbApplicationName(env: NodeJS.ProcessEnv, runtime: DbRuntimeRole) {
+  const roleSpecific =
+    runtime === "worker"
+      ? env.DB_WORKER_APPLICATION_NAME?.trim()
+      : env.DB_WEB_APPLICATION_NAME?.trim();
+  if (roleSpecific) return roleSpecific;
+  const raw = env.DB_APPLICATION_NAME?.trim() || DEFAULT_DB_APPLICATION_NAME;
+  return raw.includes(runtime) ? raw : `${raw}-${runtime}`;
+}
+
+export function resolveDbTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
+  const runtime = resolveDbRuntimeRole(env);
+  return resolveRoleScopedPositiveNumber({
+    env,
+    runtime,
+    sharedKey: "DB_QUERY_TIMEOUT_MS",
+    fallback:
+      runtime === "worker" ? DEFAULT_WORKER_DB_TIMEOUT_MS : DEFAULT_WEB_DB_TIMEOUT_MS,
+  });
+}
+
 export function resolveDbPoolMax(env: NodeJS.ProcessEnv = process.env) {
-  const raw = env.DB_POOL_MAX?.trim();
-  const workerMode = env.SYNC_WORKER_MODE?.trim().toLowerCase();
-  const fallback =
-    workerMode === "1" || workerMode === "true"
-      ? DEFAULT_WORKER_DB_POOL_MAX
-      : DEFAULT_DB_POOL_MAX;
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  const runtime = resolveDbRuntimeRole(env);
+  return resolveRoleScopedPositiveNumber({
+    env,
+    runtime,
+    sharedKey: "DB_POOL_MAX",
+    fallback: runtime === "worker" ? DEFAULT_WORKER_DB_POOL_MAX : DEFAULT_WEB_DB_POOL_MAX,
+  });
+}
+
+export function resolveDbRuntimeSettings(env: NodeJS.ProcessEnv = process.env): DbRuntimeSettings {
+  const runtime = resolveDbRuntimeRole(env);
+  return {
+    runtime,
+    applicationName: resolveDbApplicationName(env, runtime),
+    poolMax: resolveDbPoolMax(env),
+    queryTimeoutMs: resolveDbTimeoutMs(env),
+    connectionTimeoutMs: resolveRoleScopedPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_CONNECTION_TIMEOUT_MS",
+      fallback: DEFAULT_DB_CONNECTION_TIMEOUT_MS,
+    }),
+    idleTimeoutMs: resolveRoleScopedPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_IDLE_TIMEOUT_MS",
+      fallback: DEFAULT_DB_IDLE_TIMEOUT_MS,
+    }),
+    maxLifetimeSeconds: resolveRoleScopedOptionalPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_MAX_LIFETIME_SECONDS",
+    }),
+    statementTimeoutMs: resolveRoleScopedOptionalPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_STATEMENT_TIMEOUT_MS",
+    }),
+    idleInTransactionSessionTimeoutMs: resolveRoleScopedOptionalPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_IDLE_IN_TRANSACTION_TIMEOUT_MS",
+    }),
+    retryAttempts: resolveRoleScopedPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_RETRY_ATTEMPTS",
+      fallback: DEFAULT_DB_RETRY_ATTEMPTS,
+    }),
+    retryBackoffMs: resolveRoleScopedPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_RETRY_BACKOFF_MS",
+      fallback: DEFAULT_DB_RETRY_BACKOFF_MS,
+    }),
+    retryMaxBackoffMs: resolveRoleScopedPositiveNumber({
+      env,
+      runtime,
+      sharedKey: "DB_RETRY_MAX_BACKOFF_MS",
+      fallback: DEFAULT_DB_RETRY_MAX_BACKOFF_MS,
+    }),
+    allowExitOnIdle: true,
+  };
+}
+
+function buildDbStartupDetails(settings: DbRuntimeSettings) {
+  return {
+    runtime: settings.runtime,
+    applicationName: settings.applicationName,
+    poolMax: settings.poolMax,
+    queryTimeoutMs: settings.queryTimeoutMs,
+    connectionTimeoutMs: settings.connectionTimeoutMs,
+    idleTimeoutMs: settings.idleTimeoutMs,
+    maxLifetimeSeconds: settings.maxLifetimeSeconds,
+    statementTimeoutMs: settings.statementTimeoutMs,
+    idleInTransactionSessionTimeoutMs: settings.idleInTransactionSessionTimeoutMs,
+    retryAttempts: settings.retryAttempts,
+    retryBackoffMs: settings.retryBackoffMs,
+    retryMaxBackoffMs: settings.retryMaxBackoffMs,
+  };
 }
 
 function getDbTimeoutMs() {
@@ -68,16 +286,35 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableDbError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  const code =
-    typeof error === "object" && error && "code" in error
-      ? String((error as { code?: unknown }).code ?? "")
-      : "";
+function getDbErrorCode(error: unknown) {
+  if (typeof error !== "object" || !error || !("code" in error)) return null;
+  const code = (error as { code?: unknown }).code;
+  return code == null ? null : String(code);
+}
+
+function getDbErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error ?? "");
+}
+
+function isTimeoutDbError(error: unknown) {
+  const message = getDbErrorMessage(error);
+  const code = getDbErrorCode(error);
   return (
-    code === "XX000" ||
+    code === "57014" ||
+    message.includes("timed out after") ||
+    message.includes("statement timeout") ||
+    message.includes("Query read timeout") ||
+    message.includes("timeout expired")
+  );
+}
+
+function isConnectionDbError(error: unknown) {
+  const message = getDbErrorMessage(error);
+  const code = getDbErrorCode(error);
+  return (
     code === "08001" ||
     code === "08006" ||
+    code === "53300" ||
     code === "57P01" ||
     code === "57P02" ||
     code === "57P03" ||
@@ -91,24 +328,31 @@ function isRetryableDbError(error: unknown) {
     message.includes("connection closed") ||
     message.includes("server conn crashed") ||
     message.includes("terminating connection") ||
-    message.includes("Connection terminated unexpectedly")
+    message.includes("Connection terminated unexpectedly") ||
+    message.includes("timeout expired")
   );
 }
 
-async function withDbRetries<T>(operation: () => Promise<T>): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= DEFAULT_DB_RETRY_ATTEMPTS; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (attempt >= DEFAULT_DB_RETRY_ATTEMPTS || !isRetryableDbError(error)) {
-        throw error;
-      }
-      await sleep(DB_RETRY_DELAY_MS * (attempt + 1));
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+function isRetryableDbError(error: unknown) {
+  const code = getDbErrorCode(error);
+  return code === "XX000" || isConnectionDbError(error);
+}
+
+function classifyDbError(error: unknown) {
+  const message = getDbErrorMessage(error);
+  const code = getDbErrorCode(error);
+  return {
+    code,
+    message,
+    retryable: isRetryableDbError(error),
+    timeout: isTimeoutDbError(error),
+    connection: isConnectionDbError(error),
+  };
+}
+
+function computeRetryDelayMs(baseMs: number, maxMs: number, attempt: number) {
+  const backoff = Math.max(1, baseMs) * 2 ** attempt;
+  return Math.min(Math.max(baseMs, backoff), Math.max(baseMs, maxMs));
 }
 
 function getDatabaseUrl() {
@@ -140,40 +384,211 @@ export function buildParameterizedQuery(strings: TemplateStringsArray, values: u
   };
 }
 
-function createPool(poolMax: number) {
-  const pool = new Pool({
-    connectionString: getDatabaseUrl(),
+function createDbMetrics(): DbRuntimeMetrics {
+  return {
+    queryCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    retriedQueryCount: 0,
+    retryAttemptCount: 0,
+    retryableErrorCount: 0,
+    timeoutCount: 0,
+    connectionErrorCount: 0,
+    lastSuccessfulQueryAt: null,
+    lastRetryableErrorAt: null,
+    lastTimeoutAt: null,
+    lastConnectionErrorAt: null,
+    lastError: null,
+    maxObservedWaitingCount: 0,
+    maxObservedUtilizationPercent: 0,
+    poolWaitEventCount: 0,
+    lastPoolWaitAt: null,
+  };
+}
+
+function calculatePoolUtilizationPercent(totalCount: number, poolMax: number) {
+  if (poolMax <= 0) return 0;
+  return Math.round((Math.max(0, totalCount) / poolMax) * 100);
+}
+
+function getPoolSaturationState(input: {
+  waitingCount: number;
+  totalCount: number;
+  idleCount: number;
+  poolMax: number;
+}): DbRuntimePoolSnapshot["saturationState"] {
+  if (input.waitingCount > 0) return "saturated";
+  if (
+    input.totalCount >= Math.max(1, Math.ceil(input.poolMax * 0.75)) ||
+    (input.totalCount > 0 && input.idleCount === 0)
+  ) {
+    return "busy";
+  }
+  return "idle";
+}
+
+function observePoolSnapshot(pool: Pool | undefined, metrics: DbRuntimeMetrics, poolMax: number) {
+  const totalCount = pool?.totalCount ?? 0;
+  const idleCount = pool?.idleCount ?? 0;
+  const waitingCount = pool?.waitingCount ?? 0;
+  const utilizationPercent = calculatePoolUtilizationPercent(totalCount, poolMax);
+  metrics.maxObservedWaitingCount = Math.max(metrics.maxObservedWaitingCount, waitingCount);
+  metrics.maxObservedUtilizationPercent = Math.max(
+    metrics.maxObservedUtilizationPercent,
+    utilizationPercent,
+  );
+  if (waitingCount > 0) {
+    metrics.poolWaitEventCount += 1;
+    metrics.lastPoolWaitAt = nowIso();
+  }
+  return {
     max: poolMax,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
-    allowExitOnIdle: true,
-  });
+    totalCount,
+    idleCount,
+    waitingCount,
+    utilizationPercent,
+    saturationState: getPoolSaturationState({
+      waitingCount,
+      totalCount,
+      idleCount,
+      poolMax,
+    }),
+    maxObservedWaitingCount: metrics.maxObservedWaitingCount,
+    maxObservedUtilizationPercent: metrics.maxObservedUtilizationPercent,
+    poolWaitEventCount: metrics.poolWaitEventCount,
+    lastPoolWaitAt: metrics.lastPoolWaitAt,
+  } satisfies DbRuntimePoolSnapshot;
+}
+
+function recordDbError(metrics: DbRuntimeMetrics, error: ReturnType<typeof classifyDbError>) {
+  const at = nowIso();
+  if (error.retryable) {
+    metrics.retryableErrorCount += 1;
+    metrics.lastRetryableErrorAt = at;
+  }
+  if (error.timeout) {
+    metrics.timeoutCount += 1;
+    metrics.lastTimeoutAt = at;
+  }
+  if (error.connection) {
+    metrics.connectionErrorCount += 1;
+    metrics.lastConnectionErrorAt = at;
+  }
+  metrics.lastError = {
+    at,
+    code: error.code,
+    message: error.message,
+    retryable: error.retryable,
+    timeout: error.timeout,
+    connection: error.connection,
+  };
+}
+
+function getGlobalStore() {
+  return globalThis as typeof globalThis & {
+    __omniadsDbPool?: Pool;
+    __omniadsDbWrapped?: DbClient;
+    __omniadsDbWrappedByTimeout?: Map<number, DbClient>;
+    __omniadsDbSettings?: DbRuntimeSettings;
+    __omniadsDbMetrics?: DbRuntimeMetrics;
+  };
+}
+
+function getDbMetrics() {
+  const globalStore = getGlobalStore();
+  if (!globalStore.__omniadsDbMetrics) {
+    globalStore.__omniadsDbMetrics = createDbMetrics();
+  }
+  return globalStore.__omniadsDbMetrics;
+}
+
+function getCachedOrResolvedDbSettings(env: NodeJS.ProcessEnv = process.env) {
+  return getGlobalStore().__omniadsDbSettings ?? resolveDbRuntimeSettings(env);
+}
+
+function createPool(settings: DbRuntimeSettings) {
+  const config: PoolConfig = {
+    connectionString: getDatabaseUrl(),
+    max: settings.poolMax,
+    idleTimeoutMillis: settings.idleTimeoutMs,
+    connectionTimeoutMillis: settings.connectionTimeoutMs,
+    allowExitOnIdle: settings.allowExitOnIdle,
+    application_name: settings.applicationName,
+  };
+  if (settings.statementTimeoutMs != null) {
+    config.statement_timeout = settings.statementTimeoutMs;
+  }
+  if (settings.idleInTransactionSessionTimeoutMs != null) {
+    config.idle_in_transaction_session_timeout =
+      settings.idleInTransactionSessionTimeoutMs;
+  }
+  if (settings.maxLifetimeSeconds != null) {
+    config.maxLifetimeSeconds = settings.maxLifetimeSeconds;
+  }
+
+  const pool = new Pool(config);
 
   pool.on("error", (error) => {
+    const metrics = getDbMetrics();
+    recordDbError(metrics, classifyDbError(error));
+    observePoolSnapshot(pool, metrics, settings.poolMax);
     logStartupEvent("db_pool_error", {
       code: "code" in error ? String(error.code ?? "") : "",
       message: error.message,
+      runtime: settings.runtime,
+      applicationName: settings.applicationName,
     });
   });
 
   return pool;
 }
 
-function createWrappedDb(pool: Pool, timeoutMs: number): DbClient {
+function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeoutMs: number): DbClient {
   const executeQuery = async <TRow extends DbRow = DbRow>(
     queryText: string,
     params: unknown[] = [],
-  ) =>
-    withDbRetries(async () => {
-      const result = await withTimeout(
-        pool.query<TRow>(queryText, params.map(normalizeQueryValue)),
-        timeoutMs,
-        "Database query",
-      );
-      return result.rows as TRow[];
-    });
+  ) => {
+    const metrics = getDbMetrics();
+    metrics.queryCount += 1;
+    let retried = false;
 
-  const wrapped = Object.assign(
+    for (let attempt = 0; attempt <= settings.retryAttempts; attempt += 1) {
+      observePoolSnapshot(pool, metrics, settings.poolMax);
+      try {
+        const result = await withTimeout(
+          pool.query<TRow>(queryText, params.map(normalizeQueryValue)),
+          defaultTimeoutMs,
+          "Database query",
+        );
+        metrics.successCount += 1;
+        metrics.lastSuccessfulQueryAt = nowIso();
+        observePoolSnapshot(pool, metrics, settings.poolMax);
+        return result.rows as TRow[];
+      } catch (error) {
+        const classified = classifyDbError(error);
+        recordDbError(metrics, classified);
+        observePoolSnapshot(pool, metrics, settings.poolMax);
+        const canRetry = classified.retryable && attempt < settings.retryAttempts;
+        if (!canRetry) {
+          metrics.failureCount += 1;
+          throw error;
+        }
+        if (!retried) {
+          metrics.retriedQueryCount += 1;
+          retried = true;
+        }
+        metrics.retryAttemptCount += 1;
+        await sleep(
+          computeRetryDelayMs(settings.retryBackoffMs, settings.retryMaxBackoffMs, attempt),
+        );
+      }
+    }
+
+    metrics.failureCount += 1;
+    throw new Error("Database query exhausted retry budget.");
+  };
+
+  return Object.assign(
     (<TRow extends DbRow = DbRow>(
       strings: TemplateStringsArray,
       ...values: unknown[]
@@ -185,8 +600,38 @@ function createWrappedDb(pool: Pool, timeoutMs: number): DbClient {
       query: executeQuery,
     },
   );
+}
 
-  return wrapped;
+export function getDbResolvedSettings() {
+  return { ...getCachedOrResolvedDbSettings() };
+}
+
+export function getDbRuntimeDiagnostics(): DbRuntimeDiagnostics {
+  const globalStore = getGlobalStore();
+  const settings = getCachedOrResolvedDbSettings();
+  const metrics = getDbMetrics();
+  return {
+    sampledAt: nowIso(),
+    runtime: settings.runtime,
+    applicationName: settings.applicationName,
+    settings: { ...settings },
+    pool: observePoolSnapshot(globalStore.__omniadsDbPool, metrics, settings.poolMax),
+    counters: {
+      queryCount: metrics.queryCount,
+      successCount: metrics.successCount,
+      failureCount: metrics.failureCount,
+      retriedQueryCount: metrics.retriedQueryCount,
+      retryAttemptCount: metrics.retryAttemptCount,
+      retryableErrorCount: metrics.retryableErrorCount,
+      timeoutCount: metrics.timeoutCount,
+      connectionErrorCount: metrics.connectionErrorCount,
+      lastSuccessfulQueryAt: metrics.lastSuccessfulQueryAt,
+      lastRetryableErrorAt: metrics.lastRetryableErrorAt,
+      lastTimeoutAt: metrics.lastTimeoutAt,
+      lastConnectionErrorAt: metrics.lastConnectionErrorAt,
+    },
+    lastError: metrics.lastError ? { ...metrics.lastError } : null,
+  };
 }
 
 /**
@@ -198,32 +643,29 @@ function createWrappedDb(pool: Pool, timeoutMs: number): DbClient {
  *   const rows = await sql`SELECT 1 AS ok`;
  */
 export function getDb() {
-  const globalStore = globalThis as typeof globalThis & {
-    __omniadsDbPool?: Pool;
-    __omniadsDbWrapped?: DbClient;
-  };
+  const globalStore = getGlobalStore();
   if (globalStore.__omniadsDbWrapped) {
     return globalStore.__omniadsDbWrapped;
   }
 
-  const timeoutMs = getDbTimeoutMs();
-  const poolMax = getDbPoolMax();
-  const pool = globalStore.__omniadsDbPool ?? createPool(poolMax);
-  const wrapped = createWrappedDb(pool, timeoutMs);
+  const settings = resolveDbRuntimeSettings(process.env);
+  const pool = globalStore.__omniadsDbPool ?? createPool(settings);
+  const wrapped = createWrappedDb(pool, settings, getDbTimeoutMs());
 
   globalStore.__omniadsDbPool = pool;
+  globalStore.__omniadsDbSettings = settings;
   globalStore.__omniadsDbWrapped = wrapped;
-  logStartupEvent("db_client_initialized", { timeoutMs, poolMax });
+  logStartupEvent("db_client_initialized", buildDbStartupDetails(settings));
   return wrapped;
 }
 
 export function getDbWithTimeout(timeoutMs: number) {
-  const globalStore = globalThis as typeof globalThis & {
-    __omniadsDbPool?: Pool;
-    __omniadsDbWrappedByTimeout?: Map<number, DbClient>;
-  };
+  const globalStore = getGlobalStore();
   if (!globalStore.__omniadsDbPool) {
-    globalStore.__omniadsDbPool = createPool(getDbPoolMax());
+    const settings = resolveDbRuntimeSettings(process.env);
+    globalStore.__omniadsDbSettings = settings;
+    globalStore.__omniadsDbPool = createPool(settings);
+    logStartupEvent("db_client_initialized", buildDbStartupDetails(settings));
   }
   if (!globalStore.__omniadsDbWrappedByTimeout) {
     globalStore.__omniadsDbWrappedByTimeout = new Map();
@@ -231,22 +673,26 @@ export function getDbWithTimeout(timeoutMs: number) {
   const existing = globalStore.__omniadsDbWrappedByTimeout.get(timeoutMs);
   if (existing) return existing;
 
-  const wrapped = createWrappedDb(globalStore.__omniadsDbPool, timeoutMs);
+  const settings = getCachedOrResolvedDbSettings();
+  const wrapped = createWrappedDb(globalStore.__omniadsDbPool, settings, timeoutMs);
   globalStore.__omniadsDbWrappedByTimeout.set(timeoutMs, wrapped);
-  logStartupEvent("db_client_initialized", { timeoutMs, poolMax: getDbPoolMax() });
+  logStartupEvent("db_client_timeout_wrapper_initialized", {
+    runtime: settings.runtime,
+    applicationName: settings.applicationName,
+    timeoutMs,
+    poolMax: settings.poolMax,
+  });
   return wrapped;
 }
 
 export function resetDbClientCache() {
-  const globalStore = globalThis as typeof globalThis & {
-    __omniadsDbPool?: Pool;
-    __omniadsDbWrapped?: DbClient;
-    __omniadsDbWrappedByTimeout?: Map<number, DbClient>;
-  };
+  const globalStore = getGlobalStore();
 
   void globalStore.__omniadsDbPool?.end().catch(() => undefined);
   delete globalStore.__omniadsDbPool;
   delete globalStore.__omniadsDbWrapped;
   globalStore.__omniadsDbWrappedByTimeout?.clear();
   delete globalStore.__omniadsDbWrappedByTimeout;
+  delete globalStore.__omniadsDbSettings;
+  delete globalStore.__omniadsDbMetrics;
 }

@@ -36,6 +36,8 @@
     "meta:verify-day": "node --import tsx scripts/meta-verify-day.ts",
     "meta:verify-publish": "node --import tsx scripts/meta-verify-publish.ts",
     "meta:retention-canary": "node --import tsx scripts/meta-retention-canary.ts",
+    "meta:db:diagnostics": "node --import tsx scripts/meta-sync-db-diagnostics.ts",
+    "meta:drain-rate": "node --import tsx scripts/meta-sync-drain-rate.ts",
     "sync:hardening-acceptance": "node --import tsx scripts/sync-hardening-acceptance.ts",
     "google:ads:health": "node --import tsx scripts/google-ads-health-snapshot.ts",
     "google:ads:diagnostic-snapshot": "node --import tsx scripts/google-ads-diagnostic-snapshot.ts",
