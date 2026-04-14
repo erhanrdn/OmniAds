@@ -1982,13 +1982,13 @@ async function readGoogleAdsHealthRows() {
         COUNT(DISTINCT CONCAT(provider_account_id, ':', scope)) AS state_row_count,
         MAX(completed_days) FILTER (WHERE scope = 'campaign_daily') AS campaign_completed_days,
         MAX(dead_letter_count) FILTER (WHERE scope = 'campaign_daily') AS campaign_dead_letter_count,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'campaign_daily') AS campaign_ready_through_date,
+        (MIN(ready_through_date) FILTER (WHERE scope = 'campaign_daily'))::text AS campaign_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'search_term_daily') AS search_term_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'search_term_daily') AS search_term_ready_through_date,
+        (MIN(ready_through_date) FILTER (WHERE scope = 'search_term_daily'))::text AS search_term_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'product_daily') AS product_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'product_daily') AS product_ready_through_date,
+        (MIN(ready_through_date) FILTER (WHERE scope = 'product_daily'))::text AS product_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'asset_daily') AS asset_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'asset_daily') AS asset_ready_through_date
+        (MIN(ready_through_date) FILTER (WHERE scope = 'asset_daily'))::text AS asset_ready_through_date
       FROM google_ads_sync_state
       GROUP BY business_id
     ),
@@ -2282,13 +2282,13 @@ async function readMetaHealthRows() {
         business_id::text AS business_id,
         COUNT(DISTINCT CONCAT(provider_account_id, ':', scope)) AS state_row_count,
         MAX(completed_days) FILTER (WHERE scope = 'account_daily') AS account_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'account_daily') AS account_ready_through_date,
+        (MIN(ready_through_date) FILTER (WHERE scope = 'account_daily'))::text AS account_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'adset_daily') AS adset_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'adset_daily') AS adset_ready_through_date,
+        (MIN(ready_through_date) FILTER (WHERE scope = 'adset_daily'))::text AS adset_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'creative_daily') AS creative_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'creative_daily') AS creative_ready_through_date,
+        (MIN(ready_through_date) FILTER (WHERE scope = 'creative_daily'))::text AS creative_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'ad_daily') AS ad_completed_days,
-        MIN(ready_through_date)::text FILTER (WHERE scope = 'ad_daily') AS ad_ready_through_date
+        (MIN(ready_through_date) FILTER (WHERE scope = 'ad_daily'))::text AS ad_ready_through_date
       FROM meta_sync_state
       GROUP BY business_id::text
     ),
@@ -2475,9 +2475,13 @@ async function readMetaHealthRows() {
       today_account_rows.today_account_rows,
       today_adset_rows.today_adset_rows,
       state.account_completed_days,
+      state.account_ready_through_date,
       state.adset_completed_days,
+      state.adset_ready_through_date,
       state.creative_completed_days,
+      state.creative_ready_through_date,
       state.ad_completed_days,
+      state.ad_ready_through_date,
       recent.recent_account_completed_days,
       recent.recent_adset_completed_days,
       recent.recent_creative_completed_days,
