@@ -12,12 +12,15 @@ import {
 import {
   fetchSearchConsoleAnalyticsRows,
   buildSeoOverviewPayload,
+  SearchConsoleApiError,
 } from "@/lib/seo/intelligence";
 import { buildSeoTechnicalFindings } from "@/lib/seo/findings";
 import { writeSeoResultsCacheEntry } from "@/lib/seo/results-cache-writer";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
 
 const DATE_WINDOWS = [
   { days: 30 },
@@ -106,39 +109,50 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
 
     await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "running");
     try {
-      const [currentRows, previousRows] = await Promise.all([
-        fetchSearchConsoleAnalyticsRows({
-          accessToken: context.accessToken,
-          siteUrl,
-          startDate,
-          endDate,
-          rowLimit: 300,
-        }),
-        fetchSearchConsoleAnalyticsRows({
-          accessToken: context.accessToken,
-          siteUrl,
-          startDate: prevStart,
-          endDate: prevEnd,
-          rowLimit: 300,
-        }),
-      ]);
-
-      const [overviewPayload, findingsPayload] = await Promise.all([
-        buildSeoOverviewPayload({
-          siteUrl,
-          startDate,
-          endDate,
-          currentRows,
-          previousRows,
+      const [overviewPayload, findingsPayload] = await runWithGoogleRequestAuditContext(
+        {
+          provider: "search_console",
           businessId,
-        }),
-        buildSeoTechnicalFindings({
-          siteUrl,
-          accessToken: context.accessToken,
-          currentRows,
-          previousRows,
-        }),
-      ]);
+          requestSource: "cron_sync",
+          requestPath: "sync/search-console-cache-warm",
+          requestType: "seo_overview",
+        },
+        async () => {
+          const [currentRows, previousRows] = await Promise.all([
+            fetchSearchConsoleAnalyticsRows({
+              accessToken: context.accessToken,
+              siteUrl,
+              startDate,
+              endDate,
+              rowLimit: 300,
+            }),
+            fetchSearchConsoleAnalyticsRows({
+              accessToken: context.accessToken,
+              siteUrl,
+              startDate: prevStart,
+              endDate: prevEnd,
+              rowLimit: 300,
+            }),
+          ]);
+
+          return Promise.all([
+            buildSeoOverviewPayload({
+              siteUrl,
+              startDate,
+              endDate,
+              currentRows,
+              previousRows,
+              businessId,
+            }),
+            buildSeoTechnicalFindings({
+              siteUrl,
+              accessToken: context.accessToken,
+              currentRows,
+              previousRows,
+            }),
+          ]);
+        },
+      );
 
       await Promise.all([
         writeSeoResultsCacheEntry({
@@ -163,6 +177,12 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
       await upsertSyncJob(businessId, "seo_overview", dateRangeKey, "failed", msg);
       failed++;
       console.warn("[search-console-sync] task_failed", { businessId, startDate, endDate, message: msg });
+      if (
+        err instanceof ProviderRequestCooldownError ||
+        (err instanceof SearchConsoleApiError && [401, 403, 429].includes(err.status))
+      ) {
+        break;
+      }
     }
   }
 

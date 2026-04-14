@@ -74,6 +74,9 @@ export async function GET(request: NextRequest) {
       provider: "ga4",
       businessId,
       requestType: "properties",
+      requestSource: "discovery",
+      requestPath: "/api/google-analytics/properties",
+      tripGlobalBreakerFor: ["quota", "auth", "permission"],
       execute: async () => {
         const propertiesResult = await fetchGA4Properties(ga4Context.accessToken);
         if (!propertiesResult.ok) {

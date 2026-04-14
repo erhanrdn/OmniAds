@@ -6,6 +6,7 @@ import {
   buildDemoPreviousRows,
   buildSeoOverviewPayload,
   fetchSearchConsoleAnalyticsRows,
+  SearchConsoleApiError,
 } from "@/lib/seo/intelligence";
 import {
   resolveSearchConsoleContext,
@@ -13,6 +14,10 @@ import {
 } from "@/lib/search-console";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getSeoResultsCache } from "@/lib/seo/results-cache";
+import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
+
+const SEO_STALE_FALLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -73,31 +78,42 @@ export async function GET(request: NextRequest) {
     });
     if (cached) return NextResponse.json(cached);
 
-    const [currentRows, previousRows] = await Promise.all([
-      fetchSearchConsoleAnalyticsRows({
-        accessToken: context.accessToken,
-        siteUrl,
-        startDate,
-        endDate,
-        rowLimit,
-      }),
-      fetchSearchConsoleAnalyticsRows({
-        accessToken: context.accessToken,
-        siteUrl,
-        startDate: prevStart,
-        endDate: prevEnd,
-        rowLimit,
-      }),
-    ]);
+    const payload = await runWithGoogleRequestAuditContext(
+      {
+        provider: "search_console",
+        businessId,
+        requestSource: "live_report",
+        requestPath: "/api/seo/overview",
+        requestType: "seo_overview",
+      },
+      async () => {
+        const [currentRows, previousRows] = await Promise.all([
+          fetchSearchConsoleAnalyticsRows({
+            accessToken: context.accessToken,
+            siteUrl,
+            startDate,
+            endDate,
+            rowLimit,
+          }),
+          fetchSearchConsoleAnalyticsRows({
+            accessToken: context.accessToken,
+            siteUrl,
+            startDate: prevStart,
+            endDate: prevEnd,
+            rowLimit,
+          }),
+        ]);
 
-    const payload = await buildSeoOverviewPayload({
-      siteUrl,
-      startDate,
-      endDate,
-      currentRows,
-      previousRows,
-      businessId,
-    });
+        return buildSeoOverviewPayload({
+          siteUrl,
+          startDate,
+          endDate,
+          currentRows,
+          previousRows,
+          businessId,
+        });
+      },
+    );
 
     return NextResponse.json(payload);
   } catch (error) {
@@ -105,6 +121,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: error.code, message: error.message },
         { status: error.status },
+      );
+    }
+    if (
+      error instanceof ProviderRequestCooldownError ||
+      (error instanceof SearchConsoleApiError && [401, 403, 429].includes(error.status))
+    ) {
+      const stalePayload = await getSeoResultsCache({
+        businessId,
+        cacheType: "overview",
+        startDate,
+        endDate,
+        maxAgeMs: SEO_STALE_FALLBACK_MAX_AGE_MS,
+      });
+      if (stalePayload) {
+        return NextResponse.json(stalePayload);
+      }
+      return NextResponse.json(
+        {
+          error: "seo_overview_cooldown",
+          message:
+            "Search Console refresh is temporarily suppressed after repeated Google failures. Try again after cooldown or rely on the next background refresh.",
+        },
+        { status: 503 },
       );
     }
 

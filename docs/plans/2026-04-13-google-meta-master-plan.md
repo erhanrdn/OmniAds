@@ -73,6 +73,7 @@ The repo work covered by the Google + Meta phase train is complete:
 10. `npm run ops:execution-readiness-review` is the supported operator command-line review artifact for the same model.
 11. Status/admin/docs now treat this as one global behavior contract, not a per-business rollout ladder.
 12. `npm run ops:sync-effectiveness-review` and the sync-effectiveness section in `/admin/sync-health` are the supported operator workflow for judging whether rebuilt Google and Meta sync are actually catching up right now.
+13. `npm run ops:google-error-budget-audit` is the supported operator workflow for identifying which Google provider/path is wasting requests, how those failures classify, and whether cooldown suppression is absorbing repeats.
 
 ## Current Steady-State Global Operator Model
 
@@ -88,17 +89,22 @@ Use one operator decision flow for all businesses:
    - This answers whether Google and Meta are improving, stable but incomplete, stalled by quota, blocked, or still sparse because of rebuild.
    - Use `Trusted day`, `Warehouse through`, `Lag`, quota counts, and truth-health output before concluding that recent sync changes are helping.
 
-3. Read the global execution-readiness gate third.
+3. Read the Google error-budget audit when Google request pressure is part of the question.
+   - Use `npm run ops:google-error-budget-audit`.
+   - This answers which Google provider and request path are spending requests, which failures are `quota` vs `auth` vs `permission` vs `generic`, and whether cooldown/circuit-breaker suppression is actually preventing repeat waste.
+   - Treat high `cooldown_hits` with low new `errorCount` as evidence that suppression is protecting quota, not evidence that sync is healthy.
+
+4. Read the global execution-readiness gate next.
    - `not_ready`: stronger posture would overstate rebuild truth.
    - `conditionally_ready`: hard blockers cleared, but missing evidence still requires a conservative hold.
    - `ready`: rebuild truth no longer reports global blockers and Meta protected published truth is visible.
 
-4. Read the explicit execution posture review fourth.
+5. Read the explicit execution posture review next.
    - `no_go`: do not move beyond the current manual posture.
    - `hold_manual`: keep the current manual posture; use drilldown only to explain evidence gaps.
    - `eligible_for_explicit_review`: operators may consider a stronger posture next, but nothing auto-enables.
 
-5. Use provider status drilldown only to explain the global answer.
+6. Use provider status drilldown only to explain the global answer.
    - Google: `/api/google-ads/status?businessId=<businessId>`
    - Meta: `/api/meta/status?businessId=<businessId>`
    - Provider drilldown is explanatory only because the data is provider/account scoped.

@@ -9,6 +9,7 @@ import {
   resolveGa4AnalyticsContext,
   GA4AuthError,
 } from "@/lib/google-analytics-reporting";
+import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
 import { getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
@@ -133,6 +134,9 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
             endDate,
             message,
           });
+          if (error instanceof ProviderRequestCooldownError) {
+            break;
+          }
         }
       }
       await upsertSyncJob(businessId, REPORT_TYPE, dateRangeKey, "done");
@@ -143,7 +147,12 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
       failed++;
       console.warn("[ga4-sync] task_failed", { businessId, window: window.label, message: msg });
       // quota hatası gelirse diğer window'ları da deneme
-      if (err instanceof GA4AuthError && err.status === 429) break;
+      if (
+        err instanceof ProviderRequestCooldownError ||
+        (err instanceof GA4AuthError && [401, 403, 429].includes(err.status))
+      ) {
+        break;
+      }
     }
   }
 

@@ -5,6 +5,11 @@ import {
 } from "@/lib/geo-query-classification";
 import { getOpenAI } from "@/lib/openai";
 import {
+  getGoogleRequestAuditContext,
+  buildGoogleRequestSignature,
+} from "@/lib/google-request-audit";
+import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
+import {
   buildUserPrompt,
   systemPrompt,
   type SeoPromptSiteContext,
@@ -21,6 +26,16 @@ export interface SearchConsoleAnalyticsRow {
   impressions: number;
   ctr: number;
   position: number;
+}
+
+export class SearchConsoleApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "SearchConsoleApiError";
+  }
 }
 
 interface AggregateBucket {
@@ -218,55 +233,94 @@ export interface SeoOverviewPayload {
 }
 
 export async function fetchSearchConsoleAnalyticsRows(params: {
+  businessId?: string;
+  requestType?: string;
+  requestSource?: "cron_sync" | "background_refresh" | "live_report" | "discovery" | "unknown";
+  requestPath?: string | null;
   accessToken: string;
   siteUrl: string;
   startDate: string;
   endDate: string;
   rowLimit?: number;
 }): Promise<SearchConsoleAnalyticsRow[]> {
-  const response = await fetch(
-    `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(params.siteUrl)}/searchAnalytics/query`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${params.accessToken}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
+  const execute = async () => {
+    const response = await fetch(
+      `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(params.siteUrl)}/searchAnalytics/query`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${params.accessToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          startDate: params.startDate,
+          endDate: params.endDate,
+          dimensions: ["query", "page"],
+          rowLimit: params.rowLimit ?? 400,
+        }),
+        cache: "no-store",
       },
-      body: JSON.stringify({
-        startDate: params.startDate,
-        endDate: params.endDate,
-        dimensions: ["query", "page"],
-        rowLimit: params.rowLimit ?? 400,
-      }),
-      cache: "no-store",
-    },
-  );
+    );
 
-  const payload = (await response.json().catch(() => null)) as
-    | {
-        rows?: Array<{
-          keys?: string[];
-          clicks?: number;
-          impressions?: number;
-          ctr?: number;
-          position?: number;
-        }>;
-      }
-    | null;
+    const payload = (await response.json().catch(() => null)) as
+      | {
+          error?: {
+            message?: string;
+          };
+          rows?: Array<{
+            keys?: string[];
+            clicks?: number;
+            impressions?: number;
+            ctr?: number;
+            position?: number;
+          }>;
+        }
+      | null;
 
-  if (!response.ok) {
-    throw new Error("Could not fetch Search Console analytics.");
+    if (!response.ok) {
+      throw new SearchConsoleApiError(
+        payload?.error?.message ?? "Could not fetch Search Console analytics.",
+        response.status || 502,
+      );
+    }
+
+    return (payload?.rows ?? []).map((row) => ({
+      query: typeof row.keys?.[0] === "string" ? row.keys[0] : "",
+      page: typeof row.keys?.[1] === "string" ? row.keys[1] : "",
+      clicks: Number(row.clicks ?? 0),
+      impressions: Number(row.impressions ?? 0),
+      ctr: Number(row.ctr ?? 0),
+      position: Number(row.position ?? 0),
+    }));
+  };
+
+  const requestContext = getGoogleRequestAuditContext("search_console");
+  const governedBusinessId = params.businessId ?? requestContext?.businessId ?? null;
+  if (!governedBusinessId) {
+    return execute();
   }
 
-  return (payload?.rows ?? []).map((row) => ({
-    query: typeof row.keys?.[0] === "string" ? row.keys[0] : "",
-    page: typeof row.keys?.[1] === "string" ? row.keys[1] : "",
-    clicks: Number(row.clicks ?? 0),
-    impressions: Number(row.impressions ?? 0),
-    ctr: Number(row.ctr ?? 0),
-    position: Number(row.position ?? 0),
-  }));
+  const requestTypeBase =
+    params.requestType ?? requestContext?.requestType ?? "search_console_analytics";
+  const requestSource = params.requestSource ?? requestContext?.requestSource;
+  const requestPath = params.requestPath ?? requestContext?.requestPath;
+  const requestSignature = buildGoogleRequestSignature({
+    siteUrl: params.siteUrl,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    rowLimit: params.rowLimit ?? 400,
+  });
+
+  return runProviderRequestWithGovernance({
+    provider: "search_console",
+    businessId: governedBusinessId,
+    requestType: `${requestTypeBase}:${requestSignature}`,
+    requestSource,
+    requestPath,
+    tripGlobalBreakerFor: ["quota", "auth", "permission"],
+    execute,
+  });
 }
 
 export function buildDemoPreviousRows(

@@ -6,6 +6,7 @@ import {
   GA4_USER_FACING_ROUTE_REPORT_TYPES,
   getGa4UserFacingRoutePayload,
 } from "@/lib/ga4-user-facing-reports";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
 import { getReportingDateRangeKey } from "@/lib/reporting-cache";
 import {
   writeCachedReportSnapshot,
@@ -64,13 +65,23 @@ export async function warmGa4UserFacingRouteReportCache(input: {
     endDate: input.endDate,
     dimension: normalizedDimension,
   });
-  const payload = await getGa4UserFacingRoutePayload({
-    businessId: input.businessId,
-    reportType: input.reportType,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    dimension: normalizedDimension,
-  });
+  const payload = await runWithGoogleRequestAuditContext(
+    {
+      provider: "ga4",
+      businessId: input.businessId,
+      requestSource: "cron_sync",
+      requestPath: "sync/ga4-route-cache-warm",
+      requestType: input.reportType,
+    },
+    () =>
+      getGa4UserFacingRoutePayload({
+        businessId: input.businessId,
+        reportType: input.reportType,
+        startDate: input.startDate,
+        endDate: input.endDate,
+        dimension: normalizedDimension,
+      }),
+  );
 
   await writeCachedRouteReport({
     businessId: input.businessId,
@@ -95,10 +106,20 @@ export async function warmGa4EcommerceFallbackCache(input: {
   startDate: string;
   endDate: string;
 }) {
-  const payload = await getGa4EcommerceFallbackData(
-    input.businessId,
-    input.startDate,
-    input.endDate,
+  const payload = await runWithGoogleRequestAuditContext(
+    {
+      provider: "ga4",
+      businessId: input.businessId,
+      requestSource: "cron_sync",
+      requestPath: "sync/ga4-ecommerce-fallback-warm",
+      requestType: "ecommerce_fallback",
+    },
+    () =>
+      getGa4EcommerceFallbackData(
+        input.businessId,
+        input.startDate,
+        input.endDate,
+      ),
   );
   if (!payload) {
     return {

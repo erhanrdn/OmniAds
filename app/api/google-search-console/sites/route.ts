@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { requireBusinessAccess } from "@/lib/access";
-import {  } from "@/lib/demo-business";
 import {
   getSearchConsoleSiteType,
   resolveSearchConsoleContext,
@@ -69,6 +68,9 @@ export async function GET(request: NextRequest) {
         provider: "search_console",
         businessId,
         requestType: "sites",
+        requestSource: "discovery",
+        requestPath: "/api/google-search-console/sites",
+        tripGlobalBreakerFor: ["quota", "auth", "permission"],
         execute: async () => {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), SEARCH_CONSOLE_SITES_TIMEOUT_MS);

@@ -10,6 +10,7 @@ export async function getSeoResultsCache<T>(params: {
   cacheType: SeoCacheType;
   startDate: string;
   endDate: string;
+  maxAgeMs?: number;
 }): Promise<T | null> {
   const readiness = await getDbSchemaReadiness({
     tables: ["seo_results_cache"],
@@ -32,7 +33,8 @@ export async function getSeoResultsCache<T>(params: {
   if (!row) return null;
 
   const age = Date.now() - new Date(row.generated_at).getTime();
-  if (age > CACHE_TTL_MS) return null;
+  const maxAgeMs = params.maxAgeMs ?? CACHE_TTL_MS;
+  if (age > maxAgeMs) return null;
 
   return row.payload;
 }

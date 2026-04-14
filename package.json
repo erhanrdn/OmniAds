@@ -17,6 +17,7 @@
     "sync:prune": "node --import tsx scripts/sync-prune.ts",
     "ops:execution-readiness-review": "node --import tsx scripts/execution-readiness-review.ts",
     "ops:sync-effectiveness-review": "node --import tsx scripts/sync-effectiveness-review.ts",
+    "ops:google-error-budget-audit": "node --import tsx scripts/google-error-budget-audit.ts",
     "seed:demo-business": "node scripts/seed-demo-business.mjs",
     "seed:reviewer-account": "node scripts/seed-reviewer-account.mjs",
     "seed:commercial-smoke-operator": "node scripts/seed-commercial-smoke-operator.mjs",

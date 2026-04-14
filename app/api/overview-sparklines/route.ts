@@ -5,6 +5,7 @@ import {
   runGA4Report,
 } from "@/lib/google-analytics-reporting";
 import { getOverviewTrendBundle } from "@/lib/overview-service";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
 
 interface Ga4DailyTrendPoint {
   date: string;
@@ -30,28 +31,40 @@ async function fetchGa4DailyTrends(params: {
   endDate: string;
 }): Promise<Ga4DailyTrendPoint[]> {
   try {
-    const context = await resolveGa4AnalyticsContext(params.businessId, {
-      requireProperty: true,
-    });
-    if (!context.propertyId) return [];
+    const report = await runWithGoogleRequestAuditContext(
+      {
+        provider: "ga4",
+        businessId: params.businessId,
+        requestSource: "live_report",
+        requestPath: "/api/overview-sparklines",
+        requestType: "ga4_daily_trends",
+      },
+      async () => {
+        const context = await resolveGa4AnalyticsContext(params.businessId, {
+          requireProperty: true,
+        });
+        if (!context.propertyId) return null;
 
-    const report = await runGA4Report({
-      propertyId: context.propertyId,
-      accessToken: context.accessToken,
-      dateRanges: [{ startDate: params.startDate, endDate: params.endDate }],
-      dimensions: [{ name: "date" }],
-      metrics: [
-        { name: "sessions" },
-        { name: "ecommercePurchases" },
-        { name: "purchaseRevenue" },
-        { name: "engagementRate" },
-        { name: "averageSessionDuration" },
-        { name: "totalPurchasers" },
-        { name: "firstTimePurchasers" },
-      ],
-      orderBys: [{ dimension: { dimensionName: "date" } }],
-      limit: 400,
-    });
+        return runGA4Report({
+          propertyId: context.propertyId,
+          accessToken: context.accessToken,
+          dateRanges: [{ startDate: params.startDate, endDate: params.endDate }],
+          dimensions: [{ name: "date" }],
+          metrics: [
+            { name: "sessions" },
+            { name: "ecommercePurchases" },
+            { name: "purchaseRevenue" },
+            { name: "engagementRate" },
+            { name: "averageSessionDuration" },
+            { name: "totalPurchasers" },
+            { name: "firstTimePurchasers" },
+          ],
+          orderBys: [{ dimension: { dimensionName: "date" } }],
+          limit: 400,
+        });
+      },
+    );
+    if (!report) return [];
 
     return report.rows.map((row) => ({
       date: normalizeGa4Date(row.dimensions[0] ?? ""),

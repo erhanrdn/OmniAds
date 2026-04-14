@@ -1,5 +1,10 @@
 import { getIntegration } from "@/lib/integrations";
 import { refreshGA4AccessToken } from "@/lib/google-analytics-accounts";
+import {
+  buildGoogleRequestSignature,
+  getGoogleRequestAuditContext,
+} from "@/lib/google-request-audit";
+import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
 
 const REPORTING_API_BASE = "https://analyticsdata.googleapis.com/v1beta";
 // 60 sn → 5 dk: quota hatasında daha uzun bekleme
@@ -46,6 +51,9 @@ interface RunReportParams {
   propertyId: string;
   accessToken: string;
   businessId?: string;
+  requestType?: string;
+  requestSource?: "cron_sync" | "background_refresh" | "live_report" | "discovery" | "unknown";
+  requestPath?: string | null;
   dateRanges: GA4DateRange[];
   dimensions?: Array<{ name: string }>;
   metrics: Array<{ name: string }>;
@@ -87,19 +95,6 @@ interface ResolveGa4AnalyticsContextOptions {
 export async function runGA4Report(
   params: RunReportParams
 ): Promise<GA4ReportResult> {
-  if (Date.now() < quotaCooldownUntil) {
-    throw new GA4AuthError(
-      "ga4_quota_exceeded",
-      "GA4 request quota is temporarily exhausted. Please try again in a few minutes.",
-      429,
-      "retry_later"
-    );
-  }
-
-  // Strip "properties/" prefix if present to get numeric ID
-  const numericId = params.propertyId.replace(/^properties\//, "");
-  const url = `${REPORTING_API_BASE}/properties/${numericId}:runReport`;
-
   const body: Record<string, unknown> = {
     dateRanges: params.dateRanges,
     metrics: params.metrics,
@@ -111,30 +106,8 @@ export async function runGA4Report(
   if (params.keepEmptyRows !== undefined)
     body.keepEmptyRows = params.keepEmptyRows;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${params.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  // Quota bilgisini response header'larından oku
-  updateQuotaFromHeaders(params.propertyId, res.headers);
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    const normalizedError = errorText.toUpperCase();
-
-    if (
-      res.status === 429 ||
-      normalizedError.includes("RESOURCE_EXHAUSTED") ||
-      normalizedError.includes("QUOTA") ||
-      normalizedError.includes("RATE LIMIT") ||
-      normalizedError.includes("TOO MANY REQUESTS")
-    ) {
-      quotaCooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
+  const execute = async () => {
+    if (Date.now() < quotaCooldownUntil) {
       throw new GA4AuthError(
         "ga4_quota_exceeded",
         "GA4 request quota is temporarily exhausted. Please try again in a few minutes.",
@@ -143,66 +116,127 @@ export async function runGA4Report(
       );
     }
 
-    if (res.status === 401) {
-      throw new GA4AuthError(
-        "ga4_unauthenticated",
-        "GA4 credentials were rejected by Google. Please reconnect GA4.",
-        401,
-        "reconnect_ga4"
-      );
+    // Strip "properties/" prefix if present to get numeric ID
+    const numericId = params.propertyId.replace(/^properties\//, "");
+    const url = `${REPORTING_API_BASE}/properties/${numericId}:runReport`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    // Quota bilgisini response header'larından oku
+    updateQuotaFromHeaders(params.propertyId, res.headers);
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      const normalizedError = errorText.toUpperCase();
+
+      if (
+        res.status === 429 ||
+        normalizedError.includes("RESOURCE_EXHAUSTED") ||
+        normalizedError.includes("QUOTA") ||
+        normalizedError.includes("RATE LIMIT") ||
+        normalizedError.includes("TOO MANY REQUESTS")
+      ) {
+        quotaCooldownUntil = Date.now() + QUOTA_COOLDOWN_MS;
+        throw new GA4AuthError(
+          "ga4_quota_exceeded",
+          "GA4 request quota is temporarily exhausted. Please try again in a few minutes.",
+          429,
+          "retry_later"
+        );
+      }
+
+      if (res.status === 401) {
+        throw new GA4AuthError(
+          "ga4_unauthenticated",
+          "GA4 credentials were rejected by Google. Please reconnect GA4.",
+          401,
+          "reconnect_ga4"
+        );
+      }
+
+      if (
+        res.status === 403 &&
+        (normalizedError.includes("PERMISSION") ||
+          normalizedError.includes("ACCESS") ||
+          normalizedError.includes("SCOPE"))
+      ) {
+        throw new GA4AuthError(
+          "ga4_permission_denied",
+          "GA4 access was denied for the selected property. Check permissions or reconnect GA4.",
+          403,
+          "reconnect_ga4"
+        );
+      }
+
+      throw new Error(`GA4 Reporting API error ${res.status}: ${errorText}`);
     }
 
-    if (
-      res.status === 403 &&
-      (normalizedError.includes("PERMISSION") ||
-        normalizedError.includes("ACCESS") ||
-        normalizedError.includes("SCOPE"))
-    ) {
-      throw new GA4AuthError(
-        "ga4_permission_denied",
-        "GA4 access was denied for the selected property. Check permissions or reconnect GA4.",
-        403,
-        "reconnect_ga4"
-      );
-    }
+    const data = await res.json();
 
-    throw new Error(`GA4 Reporting API error ${res.status}: ${errorText}`);
-  }
+    const dimensionHeaders: string[] =
+      (data.dimensionHeaders ?? []).map((h: { name: string }) => h.name);
+    const metricHeaders: string[] =
+      (data.metricHeaders ?? []).map((h: { name: string }) => h.name);
 
-  const data = await res.json();
-
-  const dimensionHeaders: string[] =
-    (data.dimensionHeaders ?? []).map((h: { name: string }) => h.name);
-  const metricHeaders: string[] =
-    (data.metricHeaders ?? []).map((h: { name: string }) => h.name);
-
-  const rows: GA4ReportRow[] = (data.rows ?? []).map(
-    (row: {
-      dimensionValues?: Array<{ value: string }>;
-      metricValues?: Array<{ value: string }>;
-    }) => ({
-      dimensions: (row.dimensionValues ?? []).map((d) => d.value ?? ""),
-      metrics: (row.metricValues ?? []).map((m) => m.value ?? "0"),
-    })
-  );
-
-  const totals: GA4ReportRow[] | undefined = data.totals
-    ? (data.totals as Array<{
+    const rows: GA4ReportRow[] = (data.rows ?? []).map(
+      (row: {
         dimensionValues?: Array<{ value: string }>;
         metricValues?: Array<{ value: string }>;
-      }>).map((row) => ({
+      }) => ({
         dimensions: (row.dimensionValues ?? []).map((d) => d.value ?? ""),
         metrics: (row.metricValues ?? []).map((m) => m.value ?? "0"),
-      }))
-    : undefined;
+      })
+    );
 
-  return {
-    dimensionHeaders,
-    metricHeaders,
-    rows,
-    rowCount: data.rowCount ?? rows.length,
-    totals,
+    const totals: GA4ReportRow[] | undefined = data.totals
+      ? (data.totals as Array<{
+          dimensionValues?: Array<{ value: string }>;
+          metricValues?: Array<{ value: string }>;
+        }>).map((row) => ({
+          dimensions: (row.dimensionValues ?? []).map((d) => d.value ?? ""),
+          metrics: (row.metricValues ?? []).map((m) => m.value ?? "0"),
+        }))
+      : undefined;
+
+    return {
+      dimensionHeaders,
+      metricHeaders,
+      rows,
+      rowCount: data.rowCount ?? rows.length,
+      totals,
+    };
   };
+
+  const requestContext = getGoogleRequestAuditContext("ga4");
+  const governedBusinessId = params.businessId ?? requestContext?.businessId ?? null;
+  if (!governedBusinessId) {
+    return execute();
+  }
+
+  const requestTypeBase = params.requestType ?? requestContext?.requestType ?? "ga4_report";
+  const requestSource = params.requestSource ?? requestContext?.requestSource;
+  const requestPath = params.requestPath ?? requestContext?.requestPath;
+  const requestSignature = buildGoogleRequestSignature({
+    propertyId: params.propertyId,
+    body,
+  });
+
+  return runProviderRequestWithGovernance({
+    provider: "ga4",
+    businessId: governedBusinessId,
+    requestType: `${requestTypeBase}:${requestSignature}`,
+    requestSource,
+    requestPath,
+    tripGlobalBreakerFor: ["quota", "auth", "permission"],
+    execute,
+  });
 }
 
 // ── Token Helper ───────────────────────────────────────────────────

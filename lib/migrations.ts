@@ -1073,6 +1073,37 @@ export async function runMigrations(options?: {
           last_called_at TIMESTAMPTZ
         )`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_quota_usage_key ON provider_quota_usage (business_id, provider, quota_date)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS provider_request_audit_daily (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider                TEXT NOT NULL,
+          audit_date              DATE NOT NULL DEFAULT CURRENT_DATE,
+          request_type            TEXT NOT NULL,
+          audit_source            TEXT NOT NULL DEFAULT 'unknown',
+          audit_path              TEXT NOT NULL DEFAULT '',
+          request_count           INT NOT NULL DEFAULT 0,
+          error_count             INT NOT NULL DEFAULT 0,
+          quota_error_count       INT NOT NULL DEFAULT 0,
+          auth_error_count        INT NOT NULL DEFAULT 0,
+          permission_error_count  INT NOT NULL DEFAULT 0,
+          generic_error_count     INT NOT NULL DEFAULT 0,
+          cooldown_hit_count      INT NOT NULL DEFAULT 0,
+          deduped_count           INT NOT NULL DEFAULT 0,
+          last_error_at           TIMESTAMPTZ,
+          last_error_message      TEXT,
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_request_audit_daily_key
+          ON provider_request_audit_daily (
+            business_id,
+            provider,
+            audit_date,
+            request_type,
+            audit_source,
+            audit_path
+          )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_request_audit_daily_provider
+          ON provider_request_audit_daily (provider, audit_date, updated_at DESC)`.catch(() => {}),
         // ── Meta warehouse-first pilot tables ───────────────────────────────
         sql`CREATE TABLE IF NOT EXISTS meta_sync_jobs (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

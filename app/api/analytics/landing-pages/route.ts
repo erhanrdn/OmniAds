@@ -9,6 +9,8 @@ import {
 } from "@/lib/google-analytics-reporting";
 import { getGa4DetailedLandingPagesData } from "@/lib/ga4-user-facing-reports";
 import { getCachedRouteReport } from "@/lib/route-report-cache";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
+import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -41,13 +43,34 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const payload = await getGa4DetailedLandingPagesData({
-      businessId,
-      startDate,
-      endDate,
-    });
+    const payload = await runWithGoogleRequestAuditContext(
+      {
+        provider: "ga4",
+        businessId,
+        requestSource: "live_report",
+        requestPath: "/api/analytics/landing-pages",
+        requestType: "ga4_detailed_landing_pages",
+      },
+      () =>
+        getGa4DetailedLandingPagesData({
+          businessId,
+          startDate,
+          endDate,
+        }),
+    );
     return NextResponse.json(payload);
   } catch (err) {
+    if (err instanceof ProviderRequestCooldownError) {
+      return NextResponse.json(
+        {
+          error: "ga4_live_cooldown",
+          message:
+            "GA4 live refresh is temporarily suppressed after repeated Google failures. Please retry after cooldown.",
+          retryAfterMs: err.retryAfterMs,
+        },
+        { status: 503 }
+      );
+    }
     if (err instanceof GA4AuthError) {
       return NextResponse.json(
         {

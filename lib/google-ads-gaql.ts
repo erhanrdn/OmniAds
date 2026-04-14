@@ -3,6 +3,7 @@ import { getIntegration } from "@/lib/integrations";
 import { refreshGoogleAccessToken } from "@/lib/google-ads-accounts";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { runProviderRequestWithGovernance } from "@/lib/provider-request-governance";
+import { classifyGoogleRequestAuditSource } from "@/lib/google-request-audit";
 import { createHash } from "node:crypto";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 
@@ -356,6 +357,8 @@ export async function executeGaqlQuery(params: {
     provider: "google",
     businessId: params.businessId,
     requestType: buildGaqlRequestType(params.customerId, params.query),
+    requestSource: classifyGoogleRequestAuditSource(params.source),
+    requestPath: params.source ?? params.queryName ?? params.queryFamily ?? "google_ads_gaql",
     execute: async () => {
       let lastError: GoogleAdsQueryError | null = null;
 

@@ -45,6 +45,7 @@ const intelligence = await import("@/lib/seo/intelligence");
 const findings = await import("@/lib/seo/findings");
 const resultsCacheWriter = await import("@/lib/seo/results-cache-writer");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
+const { ProviderRequestCooldownError } = await import("@/lib/provider-request-governance");
 const { syncSearchConsoleReports } = await import("@/lib/sync/search-console-sync");
 
 describe("syncSearchConsoleReports", () => {
@@ -115,6 +116,35 @@ describe("syncSearchConsoleReports", () => {
       failed: 0,
       skipped: true,
     });
+    expect(resultsCacheWriter.writeSeoResultsCacheEntry).not.toHaveBeenCalled();
+  });
+
+  it("stops after cooldown suppression instead of hammering later windows", async () => {
+    vi.mocked(intelligence.fetchSearchConsoleAnalyticsRows)
+      .mockRejectedValueOnce(
+        new ProviderRequestCooldownError({
+          provider: "search_console",
+          businessId: "biz_1",
+          requestType: "seo_overview:abc",
+          message: "cooldown",
+          retryAfterMs: 60_000,
+          status: 503,
+        }),
+      )
+      .mockResolvedValue([
+        { keys: ["/"], clicks: 12 },
+      ] as never);
+
+    const result = await syncSearchConsoleReports("biz_1");
+
+    expect(result).toEqual({
+      businessId: "biz_1",
+      attempted: 2,
+      succeeded: 0,
+      failed: 1,
+      skipped: false,
+    });
+    expect(intelligence.fetchSearchConsoleAnalyticsRows).toHaveBeenCalledTimes(2);
     expect(resultsCacheWriter.writeSeoResultsCacheEntry).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import {
   buildDemoPreviousRows,
   buildSeoOverviewPayload,
   fetchSearchConsoleAnalyticsRows,
+  SearchConsoleApiError,
 } from "@/lib/seo/intelligence";
 import {
   generateSeoMonthlyAiAnalysis,
@@ -17,6 +18,8 @@ import {
 } from "@/lib/search-console";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDemoSearchConsoleAnalytics } from "@/lib/demo-business";
+import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
 
 function resolvePeriod(request: NextRequest) {
   const startDate =
@@ -84,29 +87,40 @@ export async function GET(request: NextRequest) {
       } else {
         const context = await resolveSearchConsoleContext({ businessId, requireSite: true });
         const { prevStart, prevEnd } = computePreviousPeriod(startDate, endDate);
-        const [currentRows, previousRows] = await Promise.all([
-          fetchSearchConsoleAnalyticsRows({
-            accessToken: context.accessToken,
-            siteUrl: context.siteUrl ?? "",
-            startDate,
-            endDate,
-            rowLimit: 500,
-          }),
-          fetchSearchConsoleAnalyticsRows({
-            accessToken: context.accessToken,
-            siteUrl: context.siteUrl ?? "",
-            startDate: prevStart,
-            endDate: prevEnd,
-            rowLimit: 500,
-          }),
-        ]);
-        const overview = await buildSeoOverviewPayload({
-          siteUrl: context.siteUrl ?? "",
-          startDate,
-          endDate,
-          currentRows,
-          previousRows,
-        });
+        const overview = await runWithGoogleRequestAuditContext(
+          {
+            provider: "search_console",
+            businessId,
+            requestSource: "live_report",
+            requestPath: "/api/seo/ai-analysis",
+            requestType: "seo_ai_analysis_overview",
+          },
+          async () => {
+            const [currentRows, previousRows] = await Promise.all([
+              fetchSearchConsoleAnalyticsRows({
+                accessToken: context.accessToken,
+                siteUrl: context.siteUrl ?? "",
+                startDate,
+                endDate,
+                rowLimit: 500,
+              }),
+              fetchSearchConsoleAnalyticsRows({
+                accessToken: context.accessToken,
+                siteUrl: context.siteUrl ?? "",
+                startDate: prevStart,
+                endDate: prevEnd,
+                rowLimit: 500,
+              }),
+            ]);
+            return buildSeoOverviewPayload({
+              siteUrl: context.siteUrl ?? "",
+              startDate,
+              endDate,
+              currentRows,
+              previousRows,
+            });
+          },
+        );
         overviewData = overview.aiWorkspace;
       }
     }
@@ -121,6 +135,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: error.code, message: error.message },
         { status: error.status },
+      );
+    }
+    if (
+      error instanceof ProviderRequestCooldownError ||
+      (error instanceof SearchConsoleApiError && [401, 403, 429].includes(error.status))
+    ) {
+      return NextResponse.json(
+        {
+          error: "seo_ai_analysis_cooldown",
+          message:
+            "Search Console requests for SEO AI analysis are temporarily suppressed after repeated failures. Use the last generated analysis or retry after cooldown.",
+        },
+        { status: 503 },
       );
     }
 
@@ -155,11 +182,21 @@ export async function POST(request: NextRequest) {
   const endDate = payload?.endDate ?? new Date().toISOString().slice(0, 10);
 
   try {
-    const result = await generateSeoMonthlyAiAnalysis({
-      businessId,
-      startDate,
-      endDate,
-    });
+    const result = await runWithGoogleRequestAuditContext(
+      {
+        provider: "search_console",
+        businessId,
+        requestSource: "live_report",
+        requestPath: "/api/seo/ai-analysis",
+        requestType: "seo_ai_analysis_generate",
+      },
+      () =>
+        generateSeoMonthlyAiAnalysis({
+          businessId,
+          startDate,
+          endDate,
+        }),
+    );
 
     return NextResponse.json(
       {
@@ -179,6 +216,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: error.code, message: error.message },
         { status: error.status },
+      );
+    }
+    if (
+      error instanceof ProviderRequestCooldownError ||
+      (error instanceof SearchConsoleApiError && [401, 403, 429].includes(error.status))
+    ) {
+      return NextResponse.json(
+        {
+          error: "seo_ai_analysis_cooldown",
+          message:
+            "Search Console requests for SEO AI analysis generation are temporarily suppressed after repeated failures.",
+        },
+        { status: 503 },
       );
     }
 

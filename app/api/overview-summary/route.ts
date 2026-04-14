@@ -15,6 +15,7 @@ import {
   getShopifyOverviewServingData,
   type OverviewResponse as OverviewAggregateData,
 } from "@/lib/overview-service";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
 import {
   buildAttributionRows,
   buildMetricCard,
@@ -165,18 +166,38 @@ export async function GET(request: NextRequest) {
         })
       : Promise.resolve(null),
     canReadAnalytics
-      ? getAnalyticsOverviewData({
-          businessId,
-          startDate: resolvedStart,
-          endDate: resolvedEnd,
-        })
+      ? runWithGoogleRequestAuditContext(
+          {
+            provider: "ga4",
+            businessId,
+            requestSource: "live_report",
+            requestPath: "/api/overview-summary",
+            requestType: "ga4_overview_summary_current",
+          },
+          () =>
+            getAnalyticsOverviewData({
+              businessId,
+              startDate: resolvedStart,
+              endDate: resolvedEnd,
+            }),
+        )
       : Promise.resolve(null),
     canReadAnalytics && previousWindow.startDate && previousWindow.endDate
-      ? getAnalyticsOverviewData({
-          businessId,
-          startDate: previousWindow.startDate,
-          endDate: previousWindow.endDate,
-        })
+      ? runWithGoogleRequestAuditContext(
+          {
+            provider: "ga4",
+            businessId,
+            requestSource: "live_report",
+            requestPath: "/api/overview-summary",
+            requestType: "ga4_overview_summary_previous",
+          },
+          () =>
+            getAnalyticsOverviewData({
+              businessId,
+              startDate: previousWindow.startDate,
+              endDate: previousWindow.endDate,
+            }),
+        )
       : Promise.resolve(null),
     getShopifyOverviewServingData({
       businessId,

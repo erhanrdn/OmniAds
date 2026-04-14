@@ -5,6 +5,7 @@ import { getDemoSearchConsoleAnalytics } from "@/lib/demo-business";
 import {
   buildDemoPreviousRows,
   fetchSearchConsoleAnalyticsRows,
+  SearchConsoleApiError,
 } from "@/lib/seo/intelligence";
 import {
   buildDemoTechnicalFindings,
@@ -16,6 +17,10 @@ import {
 } from "@/lib/search-console";
 import { computePreviousPeriod } from "@/lib/geo-momentum";
 import { getSeoResultsCache } from "@/lib/seo/results-cache";
+import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
+import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
+
+const SEO_STALE_FALLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   const businessId = request.nextUrl.searchParams.get("businessId");
@@ -65,29 +70,40 @@ export async function GET(request: NextRequest) {
     });
     if (cached) return NextResponse.json(cached);
 
-    const [currentRows, previousRows] = await Promise.all([
-      fetchSearchConsoleAnalyticsRows({
-        accessToken: context.accessToken,
-        siteUrl,
-        startDate,
-        endDate,
-        rowLimit: 300,
-      }),
-      fetchSearchConsoleAnalyticsRows({
-        accessToken: context.accessToken,
-        siteUrl,
-        startDate: prevStart,
-        endDate: prevEnd,
-        rowLimit: 300,
-      }),
-    ]);
+    const payload = await runWithGoogleRequestAuditContext(
+      {
+        provider: "search_console",
+        businessId,
+        requestSource: "live_report",
+        requestPath: "/api/seo/findings",
+        requestType: "seo_findings",
+      },
+      async () => {
+        const [currentRows, previousRows] = await Promise.all([
+          fetchSearchConsoleAnalyticsRows({
+            accessToken: context.accessToken,
+            siteUrl,
+            startDate,
+            endDate,
+            rowLimit: 300,
+          }),
+          fetchSearchConsoleAnalyticsRows({
+            accessToken: context.accessToken,
+            siteUrl,
+            startDate: prevStart,
+            endDate: prevEnd,
+            rowLimit: 300,
+          }),
+        ]);
 
-    const payload = await buildSeoTechnicalFindings({
-      siteUrl,
-      accessToken: context.accessToken,
-      currentRows,
-      previousRows,
-    });
+        return buildSeoTechnicalFindings({
+          siteUrl,
+          accessToken: context.accessToken,
+          currentRows,
+          previousRows,
+        });
+      },
+    );
 
     return NextResponse.json(payload);
   } catch (error) {
@@ -95,6 +111,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: error.code, message: error.message },
         { status: error.status },
+      );
+    }
+    if (
+      error instanceof ProviderRequestCooldownError ||
+      (error instanceof SearchConsoleApiError && [401, 403, 429].includes(error.status))
+    ) {
+      const stalePayload = await getSeoResultsCache({
+        businessId,
+        cacheType: "findings",
+        startDate,
+        endDate,
+        maxAgeMs: SEO_STALE_FALLBACK_MAX_AGE_MS,
+      });
+      if (stalePayload) {
+        return NextResponse.json(stalePayload);
+      }
+      return NextResponse.json(
+        {
+          error: "seo_findings_cooldown",
+          message:
+            "Search Console findings refresh is temporarily suppressed after repeated Google failures. Try again after cooldown or use the latest cached findings.",
+        },
+        { status: 503 },
       );
     }
 

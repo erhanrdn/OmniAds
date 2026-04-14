@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import type { GoogleRequestAuditSource } from "@/lib/google-request-audit";
 
 interface GovernedProviderRequestInput<T> {
   provider: string;
@@ -8,6 +9,9 @@ interface GovernedProviderRequestInput<T> {
   execute: () => Promise<T>;
   cooldownMs?: number;
   bypassCooldown?: boolean;
+  requestSource?: GoogleRequestAuditSource;
+  requestPath?: string | null;
+  tripGlobalBreakerFor?: Array<"quota" | "auth" | "permission" | "generic">;
 }
 
 interface FailureState {
@@ -94,6 +98,20 @@ export class ProviderRequestCooldownError extends Error {
   }
 }
 
+interface ProviderRequestAuditDelta {
+  provider: string;
+  businessId: string;
+  requestType: string;
+  requestSource?: GoogleRequestAuditSource;
+  requestPath?: string | null;
+  requestCount?: number;
+  errorCount?: number;
+  cooldownHitCount?: number;
+  dedupedCount?: number;
+  failureClass?: "quota" | "auth" | "permission" | "generic" | null;
+  errorMessage?: string | null;
+}
+
 function getInFlightStore() {
   const globalStore = globalThis as typeof globalThis & {
     __omniadsProviderRequestInFlight?: Map<string, Promise<unknown>>;
@@ -162,6 +180,13 @@ async function isProviderQuotaUsageSchemaReady() {
   return Boolean(readiness?.ready);
 }
 
+async function isProviderRequestAuditSchemaReady() {
+  const readiness = await getDbSchemaReadiness({
+    tables: ["provider_request_audit_daily"],
+  }).catch(() => null);
+  return Boolean(readiness?.ready);
+}
+
 // Hata tipini ayrıştır: quota, auth, permission veya generic
 function classifyError(error: unknown): "quota" | "auth" | "permission" | "generic" | null {
   const status = getErrorStatus(error);
@@ -193,6 +218,80 @@ function getCooldownMsForErrorType(errorType: "quota" | "auth" | "permission" | 
 
 function shouldEnterCooldown(error: unknown): boolean {
   return classifyError(error) !== null;
+}
+
+function normalizeRequestAuditPath(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  return normalized.length > 0 ? normalized.slice(0, 200) : "";
+}
+
+function logProviderRequestAudit(delta: ProviderRequestAuditDelta): void {
+  isProviderRequestAuditSchemaReady().then((ready) => {
+    if (!ready) {
+      return;
+    }
+    const sql = getDb();
+    const failureClass = delta.failureClass ?? null;
+    return sql`
+      INSERT INTO provider_request_audit_daily (
+        business_id,
+        provider,
+        audit_date,
+        request_type,
+        audit_source,
+        audit_path,
+        request_count,
+        error_count,
+        quota_error_count,
+        auth_error_count,
+        permission_error_count,
+        generic_error_count,
+        cooldown_hit_count,
+        deduped_count,
+        last_error_at,
+        last_error_message,
+        updated_at
+      ) VALUES (
+        ${delta.businessId},
+        ${delta.provider},
+        CURRENT_DATE,
+        ${delta.requestType},
+        ${delta.requestSource ?? "unknown"},
+        ${normalizeRequestAuditPath(delta.requestPath)},
+        ${Math.max(0, delta.requestCount ?? 0)},
+        ${Math.max(0, delta.errorCount ?? 0)},
+        ${failureClass === "quota" ? Math.max(0, delta.errorCount ?? 0) : 0},
+        ${failureClass === "auth" ? Math.max(0, delta.errorCount ?? 0) : 0},
+        ${failureClass === "permission" ? Math.max(0, delta.errorCount ?? 0) : 0},
+        ${failureClass === "generic" ? Math.max(0, delta.errorCount ?? 0) : 0},
+        ${Math.max(0, delta.cooldownHitCount ?? 0)},
+        ${Math.max(0, delta.dedupedCount ?? 0)},
+        ${delta.errorCount ? new Date().toISOString() : null},
+        ${delta.errorCount ? delta.errorMessage ?? null : null},
+        now()
+      )
+      ON CONFLICT (business_id, provider, audit_date, request_type, audit_source, audit_path)
+      DO UPDATE SET
+        request_count = provider_request_audit_daily.request_count + EXCLUDED.request_count,
+        error_count = provider_request_audit_daily.error_count + EXCLUDED.error_count,
+        quota_error_count =
+          provider_request_audit_daily.quota_error_count + EXCLUDED.quota_error_count,
+        auth_error_count =
+          provider_request_audit_daily.auth_error_count + EXCLUDED.auth_error_count,
+        permission_error_count =
+          provider_request_audit_daily.permission_error_count + EXCLUDED.permission_error_count,
+        generic_error_count =
+          provider_request_audit_daily.generic_error_count + EXCLUDED.generic_error_count,
+        cooldown_hit_count =
+          provider_request_audit_daily.cooldown_hit_count + EXCLUDED.cooldown_hit_count,
+        deduped_count = provider_request_audit_daily.deduped_count + EXCLUDED.deduped_count,
+        last_error_at =
+          COALESCE(EXCLUDED.last_error_at, provider_request_audit_daily.last_error_at),
+        last_error_message =
+          COALESCE(EXCLUDED.last_error_message, provider_request_audit_daily.last_error_message),
+        updated_at = now()
+    `;
+  }).catch(() => {});
 }
 
 // DB'den cooldown state'ini in-memory'ye yükle (lazy, per key)
@@ -673,6 +772,14 @@ export async function runProviderRequestWithGovernance<T>(
         businessId: input.businessId,
       }).catch(() => null);
       if (globalBreaker && globalBreaker.retryAfterMs > 0) {
+        logProviderRequestAudit({
+          provider: input.provider,
+          businessId: input.businessId,
+          requestType: input.requestType,
+          requestSource: input.requestSource,
+          requestPath: input.requestPath,
+          cooldownHitCount: 1,
+        });
         throw new ProviderRequestCooldownError({
           provider: input.provider,
           businessId: input.businessId,
@@ -703,6 +810,16 @@ export async function runProviderRequestWithGovernance<T>(
         status: existingFailure.status ?? null,
         errorType,
       });
+      logProviderRequestAudit({
+        provider: input.provider,
+        businessId: input.businessId,
+        requestType: input.requestType,
+        requestSource: input.requestSource,
+        requestPath: input.requestPath,
+        cooldownHitCount: 1,
+        failureClass: errorType,
+        errorMessage: existingFailure.message,
+      });
       throw new ProviderRequestCooldownError({
         provider: input.provider,
         businessId: input.businessId,
@@ -721,6 +838,14 @@ export async function runProviderRequestWithGovernance<T>(
       provider: input.provider,
       businessId: input.businessId,
       requestType: input.requestType,
+    });
+    logProviderRequestAudit({
+      provider: input.provider,
+      businessId: input.businessId,
+      requestType: input.requestType,
+      requestSource: input.requestSource,
+      requestPath: input.requestPath,
+      dedupedCount: 1,
     });
     return existingRequest;
   }
@@ -742,11 +867,21 @@ export async function runProviderRequestWithGovernance<T>(
     .execute()
     .then((result) => {
       failures.delete(key);
+      clearCooldownFromDb(input.provider, input.businessId, input.requestType);
       console.log("[provider-request] success", {
         provider: input.provider,
         businessId: input.businessId,
         requestType: input.requestType,
       });
+      logProviderRequestAudit({
+        provider: input.provider,
+        businessId: input.businessId,
+        requestType: input.requestType,
+        requestSource: input.requestSource,
+        requestPath: input.requestPath,
+        requestCount: 1,
+      });
+      logQuotaUsage(input.provider, input.businessId, false);
       return result;
     })
     .catch((error: unknown) => {
@@ -760,6 +895,22 @@ export async function runProviderRequestWithGovernance<T>(
           status: getErrorStatus(error),
         };
         failures.set(key, newState);
+        persistCooldownToDb(
+          input.provider,
+          input.businessId,
+          input.requestType,
+          newState,
+          input.cooldownMs ?? getCooldownMsForErrorType(errorType),
+        );
+        if (input.tripGlobalBreakerFor?.includes(errorType)) {
+          void openProviderGlobalCircuitBreaker({
+            provider: input.provider,
+            businessId: input.businessId,
+            message: newState.message,
+            status: newState.status,
+            cooldownMs: input.cooldownMs ?? getCooldownMsForErrorType(errorType),
+          }).catch(() => null);
+        }
       }
       console.error("[provider-request] failure", {
         provider: input.provider,
@@ -769,6 +920,18 @@ export async function runProviderRequestWithGovernance<T>(
         errorType: errorType ?? "not_governed",
         message: getErrorMessage(error),
       });
+      logProviderRequestAudit({
+        provider: input.provider,
+        businessId: input.businessId,
+        requestType: input.requestType,
+        requestSource: input.requestSource,
+        requestPath: input.requestPath,
+        requestCount: 1,
+        errorCount: 1,
+        failureClass: errorType ?? "generic",
+        errorMessage: getErrorMessage(error),
+      });
+      logQuotaUsage(input.provider, input.businessId, true);
       throw error;
     })
     .finally(() => {
