@@ -180,7 +180,8 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.googleAdsBusinesses?.[0]?.quotaPressure).toBe(0.6);
     expect(payload.googleAdsBusinesses?.[0]?.recentExtendedReady).toBe(true);
     expect(payload.googleAdsBusinesses?.[0]?.historicalExtendedReady).toBe(false);
-    expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("canary_reopen");
+    expect(payload.summary.googleAdsGlobalReopenEnabled).toBe(false);
+    expect(payload.googleAdsBusinesses?.[0]?.effectiveMode).toBe("global_backfill");
   });
 
   it("classifies google ads businesses as partial_stuck when backlog is idle without leases", () => {

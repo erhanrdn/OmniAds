@@ -48,7 +48,7 @@ interface SyncHealthPayload {
     googleAdsCompactedPartitions?: number;
     googleAdsBudgetPressureMax?: number;
     googleAdsRecoveryBusinesses?: number;
-    googleAdsCanaryBusinesses?: number;
+    googleAdsGlobalReopenEnabled?: boolean;
     googleAdsIntegrityIncidentCount?: number;
     googleAdsIntegrityBlockedCount?: number;
     metaIntegrityIncidentCount?: number;
@@ -110,8 +110,7 @@ interface SyncHealthPayload {
     quotaBudget?: number;
     quotaPressure?: number;
     recoveryMode?: "open" | "half_open" | "closed";
-    canaryEnabled?: boolean;
-    effectiveMode?: "safe_mode" | "canary_reopen" | "general_reopen";
+    effectiveMode?: "safe_mode" | "global_backfill" | "global_reopen";
     recentSearchTermCompletedDays?: number;
     recentProductCompletedDays?: number;
     recentAssetCompletedDays?: number;
@@ -325,7 +324,7 @@ export default function AdminSyncHealthPage() {
     googleAdsCompactedPartitions: undefined,
     googleAdsBudgetPressureMax: undefined,
     googleAdsRecoveryBusinesses: undefined,
-    googleAdsCanaryBusinesses: undefined,
+    googleAdsGlobalReopenEnabled: undefined,
     googleAdsIntegrityIncidentCount: undefined,
     googleAdsIntegrityBlockedCount: undefined,
     metaIntegrityIncidentCount: undefined,
@@ -423,7 +422,7 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="GAds Breaker" value={summary.googleAdsCircuitBreakerBusinesses} help="Businesses currently blocked by the Google Ads circuit breaker." />
         <MetricCard label="GAds Compact" value={summary.googleAdsCompactedPartitions} help="Extended Google Ads partitions compacted or suppressed during incident containment." />
         <MetricCard label="GAds Recovery" value={summary.googleAdsRecoveryBusinesses} help="Businesses currently in Google Ads half-open recovery mode." />
-        <MetricCard label="GAds Canary" value={summary.googleAdsCanaryBusinesses} help="Businesses currently eligible for controlled extended-lane canary reopen." />
+        <MetricCard label="GAds Global" value={summary.googleAdsGlobalReopenEnabled ? "on" : "off"} help="Global extended-lane execution posture for Google Ads rebuild work." />
         <MetricCard label="Meta Queue" value={summary.metaQueueDepth ?? 0} help="Meta partition queue depth across all businesses." />
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
@@ -564,7 +563,7 @@ export default function AdminSyncHealthPage() {
             Use these controls instead of manual SQL when a business queue is stuck.
           </p>
           <p className="mt-2 text-xs text-gray-500">
-            Rollout standard: safe mode only during incidents, then 1-business canary, then small cohort, then general reopen only after recent frontier is draining cleanly with no breaker flapping.
+            Global posture: safe mode only during incidents, keep extended execution globally disabled while rebuild truth is incomplete, and enable global reopen only after the recent frontier drains cleanly with no breaker flapping.
           </p>
         </div>
         {googleAdsBusinesses.length === 0 ? (
@@ -622,7 +621,7 @@ export default function AdminSyncHealthPage() {
                         Integrity incidents {business.integrityIncidentCount ?? 0} • Blocked {business.integrityBlockedCount ?? 0} • Lease conflicts {business.leaseConflictRuns24h ?? 0} • Skipped active lease recoveries {business.skippedActiveLeaseRecoveries ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Mode {business.effectiveMode ?? "canary_reopen"} • Safe mode {business.safeModeActive ? "on" : "off"} • Breaker {business.circuitBreakerOpen ? "open" : "closed"} • Recovery {business.recoveryMode ?? "closed"} • Canary {business.canaryEnabled ? "yes" : "no"} • Compacted {business.compactedPartitions ?? 0}
+                        Mode {business.effectiveMode ?? "global_backfill"} • Safe mode {business.safeModeActive ? "on" : "off"} • Breaker {business.circuitBreakerOpen ? "open" : "closed"} • Recovery {business.recoveryMode ?? "closed"} • Global extended {business.effectiveMode === "global_reopen" ? "on" : "off"} • Compacted {business.compactedPartitions ?? 0}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Quota calls {business.quotaCallCount ?? 0} • Quota errors {business.quotaErrorCount ?? 0} • Budget {business.quotaBudget ?? 0} • Pressure {Math.round((business.quotaPressure ?? 0) * 100)}%

@@ -49,20 +49,19 @@ function printHelp() {
   console.log(`Usage: npm run meta:retention-canary -- <businessId> [options]
 
 Options:
-  --execute                    Request business-scoped delete execution
+  --execute                    Request scoped delete execution for the selected business
   --as-of=YYYY-MM-DD           Override the retention as-of date
   --json                       Print machine-readable JSON
   --help                       Show this message
 
 Execute gating:
-  META_RETENTION_EXECUTION_ENABLED must remain false
-  META_RETENTION_EXECUTE_CANARY_ENABLED=true
-  META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>
+  META_RETENTION_EXECUTION_ENABLED=true
+  The command stays scoped to the requested businessId even when global execute mode is enabled.
 `);
 }
 
 function printText(result: Awaited<ReturnType<typeof runMetaRetentionCanary>>) {
-  console.log(`Meta Retention Canary for ${result.businessId}`);
+  console.log(`Meta Retention Scoped Verification for ${result.businessId}`);
   console.log(`As of: ${result.asOfDate}`);
   console.log(`Result: ${result.passed ? "PASS" : "FAIL"}`);
   console.log(
@@ -71,9 +70,9 @@ function printText(result: Awaited<ReturnType<typeof runMetaRetentionCanary>>) {
     } (${result.globalRetentionRuntime.mode})`,
   );
   console.log(
-    `Canary mode: ${result.canaryRuntime.mode} (executeRequested=${result.executeRequested ? "yes" : "no"})`,
+    `Scoped mode: ${result.canaryRuntime.mode} (executeRequested=${result.executeRequested ? "yes" : "no"})`,
   );
-  console.log(`Canary gate: ${result.canaryRuntime.gateReason}`);
+  console.log(`Scoped gate: ${result.canaryRuntime.gateReason}`);
   console.log("");
 
   if (result.blockers.length > 0) {

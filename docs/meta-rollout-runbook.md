@@ -4,6 +4,13 @@ This runbook defines the standard operator procedures for Meta authoritative
 finalization v2 rollout, verification, recovery, and rollback on the existing
 Hetzner deployment shape.
 
+Current posture for this repo:
+
+- one global Meta behavior contract applies across all businesses
+- the DB server changed and the warehouse is rebuilding from provider APIs
+- cold bootstrap, backfill, quota pressure, and partial upstream coverage are first-class operator truth
+- business-by-business canary expansion is no longer the preferred operating model
+
 Production rollout record:
 
 - `docs/meta-rollout-record-2026-04-07.md`
@@ -23,19 +30,21 @@ Keep the production architecture stable during this rollout:
    - is responsible for autonomous queue advancement into `D-1` finalization
 4. `nginx`
    - remains the public reverse proxy in front of `web`
-   - must keep forwarding `/api/*` and dashboard traffic without special canary routing
+   - must keep forwarding `/api/*` and dashboard traffic without special rollout routing
 
-## Rollout Flags
+## Runtime Flags
 
 Use only these rollout controls:
 
 1. `META_AUTHORITATIVE_FINALIZATION_V2`
    - `0`: old Meta finalization path remains authoritative
-   - `1`: v2 may serve and finalize for eligible businesses
-2. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
-   - comma-separated business ids
-   - when empty and v2 is enabled, rollout is global
-   - when populated, only allowlisted businesses use v2
+   - `1`: v2 serves and finalizes globally for every business
+2. `META_RETENTION_EXECUTION_ENABLED`
+   - `0`: retention remains dry-run only for every business
+   - `1`: retention execution is globally enabled for every business
+3. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
+   - legacy env only
+   - no longer changes runtime behavior under the current global contract
 
 ## Phase 7 Executor Success Contract
 
@@ -118,36 +127,33 @@ authoritative horizon.
    - `/api/meta/status` now reports the historical contract explicitly as `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
    - retention dry-run evidence remains intact and both retention executors stay disabled by default
 
-## Phase 11 Retention Execute Canary Contract
+## Phase 11 Retention Scoped Execution Contract
 
-Meta retention execution now has one supported non-global rollout path.
+Meta retention execution now uses one global execution posture plus an optional scoped proof command.
 
-1. Global posture remains locked
+1. Global posture
    - `META_RETENTION_EXECUTION_ENABLED` stays disabled by default
-   - this runbook still does not authorize global Meta retention execution
-2. Dedicated canary path
-   - `npm run meta:retention-canary -- <businessId>` is the explicit operator proof path
-   - `npm run meta:retention-canary -- <businessId> --execute` is the only supported delete canary command
-3. Canary execute enablement
-   - `META_RETENTION_EXECUTE_CANARY_ENABLED=true`
-   - `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`
-   - both gate values plus the explicit `--execute` flag are required before deletes occur
-4. Protected truth
+   - when it is enabled, that posture applies globally across all businesses
+2. Scoped proof path
+   - `npm run meta:retention-canary -- <businessId>` remains the explicit operator proof path
+   - `npm run meta:retention-canary -- <businessId> --execute` is allowed only when global execute mode is on
+   - the command still scopes inspection or delete work to the requested business, but that data scope is not a separate rollout posture
+3. Protected truth
    - active publication pointers inside the locked horizon
    - active published slice versions referenced by those pointers
    - active source manifests referenced by published slices
    - published day-state rows tied to active publication pointers
    - currently-required core truth inside `761` days
    - currently-required breakdown truth inside `394` days
-5. Allowed delete scope
+4. Allowed delete scope
    - core daily residue older than `761` days
    - breakdown residue older than `394` days
    - horizon-outside publication pointers, reconciliation rows, and published day-state rows older than the applicable horizon
    - orphaned unpublished slice versions older than the applicable horizon
    - orphaned source manifests older than the applicable horizon
-6. Operator evidence
-   - `/api/meta/status?businessId=<businessId>` now exposes `retention.canary`
-   - the latest canary run records whether the canary was dry-run only, gated, skipped, or executed
+5. Operator evidence
+   - `/api/meta/status?businessId=<businessId>` now exposes `retention.scopedExecution`
+   - the latest scoped run records whether it was dry-run only, gated, skipped, or executed under the global posture
    - per-table proof reports what was protected, what was deletable, and what was actually deleted
 
 ## Preflight
@@ -167,7 +173,7 @@ Meta retention execution now has one supported non-global rollout path.
    - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
    - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
 
-## Canary Plan
+## Global Enablement Plan
 
 ### Shadow Mode
 
@@ -178,37 +184,28 @@ Deploy the code and keep `META_AUTHORITATIVE_FINALIZATION_V2=0`.
    - worker emits fresh heartbeats
    - cron still reaches `/api/sync/cron`
    - nginx still serves external traffic normally
-2. Run post-deploy verification commands for the target canary business:
+2. Run post-deploy verification commands for one or more representative Meta businesses:
    - `npm run meta:state-check -- <businessId>`
    - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
    - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
 3. Do not enable v2 until shadow mode shows no baseline regression.
 
-### Allowlisted Business Rollout
+### Global Enablement
 
-1. Select one internal or low-risk Meta business
-2. Record:
-   - business id
-   - primary Meta account id
-   - account timezone
-   - current account day
-3. Set:
-   - `META_AUTHORITATIVE_FINALIZATION_V2=1`
-   - `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>`
-4. Redeploy web and worker
-5. Observe:
+1. Set `META_AUTHORITATIVE_FINALIZATION_V2=1`
+2. Redeploy web and worker
+3. Observe:
    - `live -> pending_finalization -> finalizing -> finalized_verified`
    - publication timing
    - validation outcomes
    - queue/backlog side effects
-6. Do not expand allowlist until the canary business passes `T0` and `T0 + 24h`.
-
-### Full Rollout
-
-1. Expand `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` gradually until all intended businesses are covered
-2. When the allowlist is no longer needed, keep `META_AUTHORITATIVE_FINALIZATION_V2=1` and clear `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
-3. Redeploy web and worker
-4. Re-run the post-deploy verification block on at least one previously canaried business and one non-canary business
+   - `/api/meta/status.operatorTruth.rebuild`
+4. Verify that rebuild truth is honest during catch-up:
+   - `cold_bootstrap` during a fresh warehouse rebuild
+   - `backfill_in_progress` while historical ranges are still catching up
+   - `quota_limited` when provider pressure or retry windows are active
+   - `blocked` / `repair_required` only when publication or verification evidence supports that wording
+5. Re-run the post-deploy verification block after `T0` and `T0 + 24h`.
 
 ## Validation Window
 
@@ -277,17 +274,18 @@ curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '
    - `summary.protectedRows` is non-zero for businesses with active published history
    - deletable rows appear only as horizon-outside residue, not as required currently-published truth
 
-### Retention Execute Canary
+### Retention Scoped Proof
 
-1. Inspect canary posture before any delete attempt:
+1. Inspect the scoped retention posture before any delete attempt:
 
 ```bash
-curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention.canary'
+curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention.scopedExecution'
 ```
 
 2. Confirm:
    - `globalDefaultExecutionDisabled=true`
-   - `executeAllowed=false` until the explicit canary gate is configured
+   - `globalExecutionEnabled=false`
+   - `executeAllowed=false` until global execution is explicitly enabled
    - `command="npm run meta:retention-canary -- <businessId>"`
    - `executeCommand="npm run meta:retention-canary -- <businessId> --execute"`
 3. Run the proof command first without deletes:
@@ -296,9 +294,8 @@ curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '
 npm run meta:retention-canary -- <businessId>
 ```
 
-4. To run the execute canary, set:
-   - `META_RETENTION_EXECUTE_CANARY_ENABLED=true`
-   - `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`
+4. To run the scoped execute proof, set:
+   - `META_RETENTION_EXECUTION_ENABLED=true`
 
 5. Then run:
 
@@ -307,39 +304,40 @@ npm run meta:retention-canary -- <businessId> --execute
 ```
 
 6. After the run, inspect:
-   - `/api/meta/status?businessId=<businessId>` and confirm `retention.canary.latestRun.executionDisposition=canary_execute`
-   - `retention.canary.latestRun.totalDeletedRows`
-   - `retention.canary.summary.protectedRows`
-   - `retention.canary.tables[].deleteScope`
-   - `retention.canary.tables[].deletedRows`
-7. Do not widen the allowlist or touch `META_RETENTION_EXECUTION_ENABLED` until the canary evidence shows only safe residue deletes and no ambiguity around protected published truth.
+   - `/api/meta/status?businessId=<businessId>` and confirm `retention.scopedExecution.latestRun.executionDisposition=scoped_execute`
+   - `retention.scopedExecution.latestRun.totalDeletedRows`
+   - `retention.scopedExecution.summary.protectedRows`
+   - `retention.scopedExecution.tables[].deleteScope`
+   - `retention.scopedExecution.tables[].deletedRows`
+7. Treat this as scoped evidence only:
+   - the command stays business-scoped because the data is business-scoped
+   - the execution posture itself remains one global contract
+   - keep global execution disabled until rebuild truth is no longer cold, partial, or quota-limited and protected published truth is clearly exercised
 
 Observed follow-up on April 14, 2026:
 
-1. One production Meta business was reviewed and kept isolated to a single-business canary.
+1. One production Meta business was reviewed as a scoped proof sample under the global contract.
    - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
 2. Dry-run evidence:
    - one initial dry-run was skipped because another Meta retention lease was active
    - the successful dry-run observed `612` deletable `meta_breakdown_daily` rows
    - the deletable breakdown residue window was `2024-04-26` through `2024-05-04`
    - `deleteScope` remained `horizon_outside_residue`
-3. First execute attempt:
+3. First scoped execute attempt:
    - failed with `FOR UPDATE cannot be applied to the nullable side of an outer join`
    - the narrow fix was to lock only the base orphan target rows during slice/manifest cleanup
 4. Post-fix rerun:
-   - `retention.canary.latestRun.executionDisposition=canary_execute`
-   - `retention.canary.latestRun.totalDeletedRows=0`
-   - `retention.canary.tables[].deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
+   - `retention.scopedExecution.latestRun.executionDisposition=scoped_execute`
+   - `retention.scopedExecution.latestRun.totalDeletedRows=0`
+   - `retention.scopedExecution.tables[].deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
    - `META_RETENTION_EXECUTION_ENABLED` stayed globally disabled
    - final status review showed no remaining deletable residue for the reviewed business
-5. Rollout decision after the review:
-   - keep the Meta canary isolated to one allowlisted business
-   - do not widen the allowlist yet
+5. Operator decision after the review:
    - do not enable global Meta retention execution
    - do not mix Google execute-mode rollout into this follow-up
-6. Remaining blocker before widening:
-   - the reviewed business currently reports `0` protected published rows and `0` active publication pointers in `/api/meta/status.retention.canary`
-   - this follow-up therefore proves safe canary posture and operator visibility, but it is not enough evidence to widen rollout to additional businesses
+6. Remaining blocker before any global execute review:
+   - the reviewed business currently reports `0` protected published rows and `0` active publication pointers in `/api/meta/status.retention.scopedExecution`
+   - this follow-up therefore proves safe scoped posture and operator visibility, but it is not enough evidence to claim protected published-truth exercise or rebuild completeness
 
 ### Refresh Behavior
 
@@ -378,7 +376,7 @@ Use these commands before considering manual database work:
    - `npm run meta:replay-dead-letter -- <businessId> [scope]`
 8. Inspect retention dry-run posture without enabling deletes
    - `curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention'`
-9. Run the dedicated retention canary proof
+9. Run the dedicated scoped retention proof
    - `npm run meta:retention-canary -- <businessId>`
 
 ## Verify-Day Procedure
@@ -474,7 +472,7 @@ Rollback must preserve historical serving continuity.
 Detailed rollback steps:
 
 1. Set `META_AUTHORITATIVE_FINALIZATION_V2=0`
-2. Keep `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` unchanged or clear it; it has no effect once v2 is disabled
+2. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` may remain unset or be cleared; it is legacy-only and has no runtime effect here
 3. Redeploy web and worker
 4. Confirm both containers return healthy status
 5. Confirm `/api/meta/status` still reports the explicit historical contract truthfully for the rolled-back runtime state
@@ -488,7 +486,7 @@ Detailed rollback steps:
 Do not mark rollout complete until:
 
 - shadow mode completed without baseline regressions
-- canary rollover passes
+- global `T0` rollout validation passes
 - `T0 + 24h` validation passes
 - admin signals remain understandable
 - no destructive recovery step was required

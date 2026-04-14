@@ -39,6 +39,7 @@ import {
   isMetaRangeWithinAuthoritativeHistory,
   isMetaRangeWithinBreakdownHistory,
 } from "@/lib/meta/contract";
+import { isMetaAuthoritativeFinalizationV2Enabled } from "@/lib/meta/authoritative-finalization-config";
 import {
   buildProviderStateContract,
   buildProviderSurfaces,
@@ -1384,6 +1385,67 @@ export async function GET(request: NextRequest) {
       : historicalExtendedReady
         ? "extended_normal"
         : "extended_recovery";
+  const quotaLimited =
+    accountSnapshot?.meta.failureClass === "quota" ||
+    /quota|rate[- ]?limit|too many requests|429|resource[_ ]?exhausted/i.test(
+      [
+        accountSnapshot?.meta.lastError,
+        latestSync?.last_error ? String(latestSync.last_error) : null,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .join(" "),
+    );
+  const coldBootstrap =
+    connected &&
+    accountIds.length > 0 &&
+    Number(accountStats?.row_count ?? 0) === 0 &&
+    historicalArchiveCompletedDays === 0;
+  const backfillInProgress =
+    connected &&
+    accountIds.length > 0 &&
+    (historicalArchiveCompletedDays < historicalTotalDays ||
+      Boolean(selectedRangeIncomplete) ||
+      overallSyncActive ||
+      (queueHealth?.queueDepth ?? 0) > 0 ||
+      (queueHealth?.leasedPartitions ?? 0) > 0);
+  const partialUpstreamCoverage =
+    !selectedRangeActionRequired &&
+    (pageReadiness.state === "partial" ||
+      Boolean(selectedRangeStillPreparing) ||
+      surfaces.missing.length > 0);
+  const rebuildState =
+    selectedRangeVerificationState === "repair_required"
+      ? "repair_required"
+      : state === "action_required" || selectedRangeVerificationState === "blocked"
+        ? "blocked"
+        : quotaLimited
+          ? "quota_limited"
+          : coldBootstrap
+            ? "cold_bootstrap"
+            : backfillInProgress
+              ? "backfill_in_progress"
+              : partialUpstreamCoverage
+                ? "partial_upstream_coverage"
+                : "ready";
+  const finalizationExecutionPosture = isMetaAuthoritativeFinalizationV2Enabled()
+    ? {
+        state: "globally_enabled" as const,
+        summary:
+          "Meta authoritative finalization v2 is globally enabled for all businesses.",
+      }
+    : {
+        state: "disabled" as const,
+        summary: "Meta authoritative finalization v2 is globally disabled.",
+      };
+  const retentionExecutionPosture = retentionRuntime.executionEnabled
+    ? {
+        state: "globally_enabled" as const,
+        summary: retentionRuntime.gateReason,
+      }
+    : {
+        state: "dry_run" as const,
+        summary: retentionRuntime.gateReason,
+      };
 
   return NextResponse.json(
     {
@@ -1408,6 +1470,36 @@ export async function GET(request: NextRequest) {
       d1TargetDate,
       d1FinalizeState,
       d1BlockedReason,
+      operatorTruth: {
+        rolloutModel: "global",
+        execution: {
+          authoritativeFinalization: finalizationExecutionPosture,
+          retention: retentionExecutionPosture,
+        },
+        rebuild: {
+          state: rebuildState,
+          coldBootstrap,
+          backfillInProgress,
+          quotaLimited,
+          partialUpstreamCoverage,
+          blocked: state === "action_required" || selectedRangeVerificationState === "blocked",
+          repairRequired: selectedRangeVerificationState === "repair_required",
+          summary:
+            rebuildState === "repair_required"
+              ? "Meta historical truth needs an authoritative retry before it can be treated as ready."
+              : rebuildState === "blocked"
+                ? "Meta historical truth is blocked on publication or verification evidence."
+                : rebuildState === "quota_limited"
+                  ? "Meta rebuild is constrained by provider quota or rate-limit pressure."
+                  : rebuildState === "cold_bootstrap"
+                    ? "Meta is rebuilding historical truth from provider APIs on a cold warehouse."
+                    : rebuildState === "backfill_in_progress"
+                      ? "Meta historical truth is still backfilling."
+                      : rebuildState === "partial_upstream_coverage"
+                        ? "Meta has partial upstream coverage; some surfaces remain incomplete."
+                        : "Meta rebuild truth is ready for the current contract.",
+        },
+      },
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
       currentDateInTimezone,
@@ -1536,26 +1628,26 @@ export async function GET(request: NextRequest) {
             retentionMode: retentionRuntime.mode,
             retentionGateReason: retentionRuntime.gateReason,
             retentionDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
-            retentionCanaryCommand: `npm run meta:retention-canary -- ${businessId!}`,
-            retentionCanaryExecuteCommand: `npm run meta:retention-canary -- ${businessId!} --execute`,
-            retentionCanaryExecuteAllowed:
+            retentionScopedCommand: `npm run meta:retention-canary -- ${businessId!}`,
+            retentionScopedExecuteCommand: `npm run meta:retention-canary -- ${businessId!} --execute`,
+            retentionScopedExecuteAllowed:
               retentionCanaryRuntime.executeAllowed,
-            retentionCanaryGateReason: retentionCanaryRuntime.gateReason,
+            retentionScopedGateReason: retentionCanaryRuntime.gateReason,
             latestRetentionRunAt: latestRetentionRun?.finishedAt ?? null,
             latestRetentionRunMode: latestRetentionRun?.executionMode ?? null,
             latestRetentionRunDisposition:
               latestRetentionMetadata.executionDisposition,
-            latestRetentionCanaryRunAt:
+            latestRetentionScopedRunAt:
               latestRetentionCanaryRun?.finishedAt ?? null,
-            latestRetentionCanaryRunMode:
+            latestRetentionScopedRunMode:
               latestRetentionCanaryRun?.executionMode ?? null,
-            latestRetentionCanaryRunDisposition:
+            latestRetentionScopedRunDisposition:
               latestRetentionCanaryMetadata.executionDisposition,
             retentionLatestRunObserved:
               latestRetentionSummary != null
                 ? latestRetentionSummary.observedTables > 0
                 : false,
-            retentionLatestCanaryObserved:
+            retentionLatestScopedObserved:
               latestRetentionCanarySummary != null
                 ? latestRetentionCanarySummary.observedTables > 0
                 : false,
@@ -1591,16 +1683,13 @@ export async function GET(request: NextRequest) {
           : null,
         summary: latestRetentionSummary,
         tables: latestRetentionTables,
-        canary: {
+        scopedExecution: {
           available: true,
           businessId: businessId!,
           command: `npm run meta:retention-canary -- ${businessId!}`,
           executeCommand: `npm run meta:retention-canary -- ${businessId!} --execute`,
           globalDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
-          canaryExecutionEnabled:
-            retentionCanaryRuntime.canaryExecutionEnabled,
-          allowlistConfigured: retentionCanaryRuntime.allowlistConfigured,
-          businessAllowed: retentionCanaryRuntime.businessAllowed,
+          globalExecutionEnabled: retentionCanaryRuntime.globalExecutionEnabled,
           executeAllowed: retentionCanaryRuntime.executeAllowed,
           gateReason: retentionCanaryRuntime.gateReason,
           latestRun: latestRetentionCanaryRun
@@ -1615,7 +1704,7 @@ export async function GET(request: NextRequest) {
                   latestRetentionCanaryRun.skippedDueToActiveLease,
                 totalDeletedRows: latestRetentionCanaryRun.totalDeletedRows,
                 errorMessage: latestRetentionCanaryRun.errorMessage,
-                canary: latestRetentionCanaryMetadata.canary,
+                scopedExecution: latestRetentionCanaryMetadata.canary,
               }
             : null,
           summary: latestRetentionCanarySummary,

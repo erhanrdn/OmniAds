@@ -56,6 +56,14 @@ That preserves the intelligence layer while reducing repeated raw-text pressure.
 
 Phases 3 and 4 do not implement archival export. They establish the hot/warm foundation, complete the Google search-intelligence serving cutover, harden delete-safety proof, and keep retention execution in dry-run/off posture.
 
+## Global posture
+
+- Google retention behavior is one global contract across all businesses.
+- `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` is the only destructive execution gate.
+- Business-by-business rollout is not the preferred operating model.
+- Scoped verification commands may inspect a single business, but they do not define a separate rollout posture.
+- The DB server changed and the Google warehouse is rebuilding from provider APIs, so cold bootstrap, backfill, quota pressure, and partial upstream coverage are first-class operator truth.
+
 ## Raw query storage vs cluster/theme intelligence
 
 These are intentionally different layers.
@@ -97,9 +105,9 @@ Google Phase 4 is now complete.
   - `newestEligibleValue`
   - `retainedRows`
   - `latestRetainedValue`
-- `/api/google-ads/status` now exposes a dedicated retention block with latest raw-hot-table dry-run stats and the explicit canary command.
+- `/api/google-ads/status` now exposes a dedicated retention block with latest raw-hot-table dry-run stats and the explicit scoped verification command.
 - `npm run google:ads:product-gate -- <businessId>` now surfaces the same raw-hot-table dry-run posture in operator-readable text.
-- `npm run google:ads:retention-canary -- <businessId>` now provides the explicit non-default canary verification path for raw search-term cleanup.
+- `npm run google:ads:retention-canary -- <businessId>` remains the explicit scoped verification path for raw search-term cleanup.
 
 ## Current advisor readiness contract
 
@@ -110,6 +118,12 @@ Advisor readiness remains intentionally conservative even after the serving cuto
 - For the search surface, that recent support now comes from additive search-intelligence coverage rather than raw two-year `google_ads_search_term_daily` history.
 - The retention policy defined in this document still does not by itself enable destructive cleanup.
 - The selected range remains contextual for the operator UI and does not redefine decision readiness.
+- `/api/google-ads/status.operatorTruth` now distinguishes:
+  - `cold_bootstrap`
+  - `backfill_in_progress`
+  - `quota_limited`
+  - `partial_upstream_coverage`
+  - true `blocked` states
 
 ## Explicit non-goals after Phase 4
 
@@ -117,7 +131,7 @@ Advisor readiness remains intentionally conservative even after the serving cuto
 - No silent deletion of historical data
 - No major UI redesign
 - No global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
-- No automatic execute-mode canary delete
+- No automatic execute-mode business-specific delete posture
 - No warehouse partition rewrite
 - No claim that archival/cold storage is fully implemented
 - No broad legacy cleanup beyond the Google search-intelligence cutover
@@ -140,12 +154,16 @@ Advisor readiness remains intentionally conservative even after the serving cuto
   - `google_ads_search_term_daily`
   - `google_ads_search_query_hot_daily`
 - `/api/google-ads/status` exposes the latest raw-hot-table dry-run stats under `retention`.
-- `google:ads:product-gate` prints the latest raw-hot-table dry-run stats plus the canary verification command.
+- `google:ads:product-gate` prints the latest raw-hot-table dry-run stats plus the scoped verification command.
 - Execution remains disabled by default unless `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED=true` is explicitly supplied.
+- Rebuild honesty matters while the new DB server catches up:
+  - sparse warehouse rows are not treated as healthy long-history truth
+  - quota-limited fetch pressure is surfaced explicitly
+  - partial upstream coverage is not collapsed into ready/healthy wording
 
 ## Deferred after Phase 4
 
-- explicit operator-approved execute-mode canary delete
+- explicit operator-approved global execute review
 - global enablement of destructive Google retention
 - archival strategy for raw payloads and non-hot search detail
 - broader legacy cleanup outside the touched Google search-intelligence and operational reporting paths

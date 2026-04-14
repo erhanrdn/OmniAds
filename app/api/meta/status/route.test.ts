@@ -90,15 +90,12 @@ vi.mock("@/lib/meta/warehouse-retention", () => ({
   getMetaRetentionCanaryRuntimeStatus: vi.fn(() => ({
     runtimeAvailable: false,
     globalExecutionEnabled: false,
-    canaryExecutionEnabled: false,
     businessId: "biz",
-    allowlistConfigured: false,
-    businessAllowed: false,
     executeRequested: false,
     executeAllowed: false,
     mode: "dry_run",
     gateReason:
-      "Meta retention canary defaults to dry-run until --execute is supplied.",
+      "Scoped Meta retention verification defaults to dry-run until --execute is supplied.",
   })),
   getMetaRetentionDeleteScope: vi.fn(() => "horizon_outside_residue"),
   getMetaRetentionRunMetadata: vi.fn(() => ({
@@ -347,12 +344,11 @@ describe("GET /api/meta/status", () => {
       latestRun: null,
       summary: null,
       tables: [],
-      canary: {
+      scopedExecution: {
         available: true,
         command: "npm run meta:retention-canary -- biz",
         executeCommand: "npm run meta:retention-canary -- biz --execute",
-        canaryExecutionEnabled: false,
-        businessAllowed: false,
+        globalExecutionEnabled: false,
         executeAllowed: false,
       },
     });
@@ -469,11 +465,10 @@ describe("GET /api/meta/status", () => {
         deletableRows: 16,
         protectedRows: 18,
       },
-      canary: {
+      scopedExecution: {
         command: "npm run meta:retention-canary -- biz",
         executeCommand: "npm run meta:retention-canary -- biz --execute",
-        canaryExecutionEnabled: false,
-        businessAllowed: false,
+        globalExecutionEnabled: false,
         executeAllowed: false,
       },
     });
@@ -494,7 +489,7 @@ describe("GET /api/meta/status", () => {
     );
   });
 
-  it("surfaces Meta retention canary execute posture and latest canary proof", async () => {
+  it("surfaces Meta retention scoped execute posture and latest scoped proof", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -522,15 +517,12 @@ describe("GET /api/meta/status", () => {
     vi.mocked(metaRetention.getMetaRetentionCanaryRuntimeStatus).mockReturnValue({
       runtimeAvailable: true,
       globalExecutionEnabled: false,
-      canaryExecutionEnabled: true,
       businessId: "biz",
-      allowlistConfigured: true,
-      businessAllowed: true,
       executeRequested: false,
       executeAllowed: false,
       mode: "dry_run",
       gateReason:
-        "Meta retention canary defaults to dry-run until --execute is supplied.",
+        "Scoped Meta retention verification defaults to dry-run until --execute is supplied.",
     } as never);
     vi.mocked(metaRetention.getLatestMetaRetentionRun).mockResolvedValue(null);
     vi.mocked(metaRetention.getLatestMetaRetentionCanaryRun).mockResolvedValue({
@@ -605,22 +597,19 @@ describe("GET /api/meta/status", () => {
       } as never)
       .mockReturnValueOnce({
         scope: {
-          kind: "canary_businesses",
+          kind: "selected_businesses",
           businessIds: ["biz"],
         },
-        executionDisposition: "canary_execute",
+        executionDisposition: "scoped_execute",
         canary: {
           runtimeAvailable: true,
-          globalExecutionEnabled: false,
-          canaryExecutionEnabled: true,
+          globalExecutionEnabled: true,
           businessId: "biz",
-          allowlistConfigured: true,
-          businessAllowed: true,
           executeRequested: true,
           executeAllowed: true,
           mode: "execute",
           gateReason:
-            "Meta retention execute canary is explicitly enabled for this business.",
+            "Meta retention execute mode is globally enabled. The scoped command will execute only the requested business slice.",
         },
       } as never);
     vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue({
@@ -642,28 +631,27 @@ describe("GET /api/meta/status", () => {
 
     expect(response.status).toBe(200);
     expect(payload.operations).toMatchObject({
-      retentionCanaryCommand: "npm run meta:retention-canary -- biz",
-      retentionCanaryExecuteCommand:
+      retentionScopedCommand: "npm run meta:retention-canary -- biz",
+      retentionScopedExecuteCommand:
         "npm run meta:retention-canary -- biz --execute",
-      retentionCanaryExecuteAllowed: false,
-      latestRetentionCanaryRunMode: "execute",
-      latestRetentionCanaryRunDisposition: "canary_execute",
+      retentionScopedExecuteAllowed: false,
+      latestRetentionScopedRunMode: "execute",
+      latestRetentionScopedRunDisposition: "scoped_execute",
     });
-    expect(payload.retention.canary).toMatchObject({
+    expect(payload.retention.scopedExecution).toMatchObject({
       available: true,
       businessId: "biz",
       command: "npm run meta:retention-canary -- biz",
       executeCommand: "npm run meta:retention-canary -- biz --execute",
-      canaryExecutionEnabled: true,
-      businessAllowed: true,
+      globalExecutionEnabled: false,
       executeAllowed: false,
       latestRun: {
         id: "meta_retention_canary_run_1",
         executionMode: "execute",
-        executionDisposition: "canary_execute",
+        executionDisposition: "scoped_execute",
         totalDeletedRows: 5,
         scope: {
-          kind: "canary_businesses",
+          kind: "selected_businesses",
           businessIds: ["biz"],
         },
       },
@@ -672,7 +660,7 @@ describe("GET /api/meta/status", () => {
         protectedRows: 8,
       },
     });
-    expect(payload.retention.canary.tables).toEqual(
+    expect(payload.retention.scopedExecution.tables).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           tableName: "meta_account_daily",
@@ -1119,6 +1107,14 @@ describe("GET /api/meta/status", () => {
         }),
       ]),
     );
+    expect(payload.operatorTruth).toMatchObject({
+      rolloutModel: "global",
+      rebuild: {
+        state: "blocked",
+        blocked: true,
+        repairRequired: false,
+      },
+    });
   });
 
   it("does not treat historical coverage alone as ready when selected-range publication truth is unavailable", async () => {
@@ -1182,6 +1178,116 @@ describe("GET /api/meta/status", () => {
       completedDays: 0,
       totalDays: 1,
       readyThroughDate: null,
+    });
+  });
+
+  it("surfaces cold rebuild and quota pressure without overstating readiness", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "act_1", name: "Main", timezone: "UTC" }],
+      meta: {
+        source: "snapshot",
+        sourceHealth: "stale_cached",
+        fetchedAt: null,
+        stale: true,
+        refreshFailed: true,
+        failureClass: "quota",
+        lastError: "Rate limit exceeded",
+        lastKnownGoodAvailable: true,
+        refreshRequestedAt: null,
+        lastRefreshAttemptAt: null,
+        nextRefreshAfter: "2026-04-13T12:30:00.000Z",
+        retryAfterAt: "2026-04-13T12:30:00.000Z",
+        refreshInProgress: false,
+        sourceReason: "rate_limited",
+      },
+    });
+    vi.mocked(warehouse.getMetaAccountDailyStats).mockResolvedValue({
+      row_count: 0,
+      first_date: null,
+      last_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaAdDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaCreativeDailyCoverage).mockResolvedValue({
+      completed_days: 0,
+      ready_through_date: null,
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 3,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: null,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: "2026-04-10",
+      historicalCoreQueueDepth: 3,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      totalDays: 1,
+      completedCoreDays: 0,
+      blockingReasons: [],
+      reasonCounts: {},
+      detectorReasonCodes: [],
+      verificationState: "processing",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-10&endDate=2026-04-10"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.readinessLevel).not.toBe("ready");
+    expect(payload.operatorTruth).toMatchObject({
+      rolloutModel: "global",
+      rebuild: {
+        state: "quota_limited",
+        coldBootstrap: true,
+        backfillInProgress: true,
+        quotaLimited: true,
+      },
     });
   });
 

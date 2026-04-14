@@ -63,11 +63,11 @@
    - Google status and advisor-support coverage now read additive search-intelligence coverage instead of raw `google_ads_search_term_daily` coverage.
    - advisor historical support remains aggregate-backed and no longer carries any raw two-year search-term assumption.
 
-4. Google retention dry-run/canary hardening
+4. Google retention dry-run/scoped verification hardening
    - delete-safety proof was extended across Google status, product-gate, admin ops, and advisor-readiness tooling so old raw `google_ads_search_term_daily` rows can disappear without breaking canonical search intelligence support.
    - retention dry-run rows now record per-table observability for what would be deleted and what would remain, including raw-hot-table candidate counts and oldest/newest eligible values.
-   - `/api/google-ads/status` now exposes a dedicated retention block with latest raw hot-table dry-run stats plus the explicit canary verification command.
-   - `google:ads:product-gate` now surfaces raw hot-table dry-run stats and the explicit retention canary command.
+   - `/api/google-ads/status` now exposes a dedicated retention block with latest raw hot-table dry-run stats plus the explicit verification command.
+   - `google:ads:product-gate` now surfaces raw hot-table dry-run stats and the explicit retention verification command.
    - `npm run google:ads:retention-canary -- <businessId>` now provides an explicit non-default verification path that proves:
      - raw search-term reads stay empty outside the 120-day hot window
      - historical search intelligence remains aggregate-backed
@@ -146,14 +146,13 @@
    - duplicated historical verification wording now resolves through the shared published-truth helper so status/read-path messaging stays aligned with `blocked`, `repair_required`, and published verification truth.
    - both `META_RETENTION_EXECUTION_ENABLED` and `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remain disabled by default.
 
-11. Meta retention execute canary and staged rollout proof
-   - `npm run meta:retention-canary -- <businessId>` now provides the explicit Meta retention proof path.
+11. Meta retention scoped proof and global execution truth
+   - `npm run meta:retention-canary -- <businessId>` remains the explicit Meta proof command, but it is now treated as a scoped verification path rather than a rollout canary.
    - delete execution remains separate from global enablement:
-     - `META_RETENTION_EXECUTION_ENABLED` stays default-disabled and unchanged
+     - `META_RETENTION_EXECUTION_ENABLED` is the only execution gate
      - `--execute` is required for any delete attempt
-     - `META_RETENTION_EXECUTE_CANARY_ENABLED=true` and `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>` are both required before the canary will execute
-   - canary runs are business-scoped and never silently widen into global Meta retention execution.
-   - canary delete scope is locked to safe residue only:
+     - business-specific allowlists are no longer part of the preferred operating model
+   - scoped delete proof is locked to safe residue only:
      - core daily residue older than `761` days
      - breakdown residue older than `394` days
      - horizon-outside publication pointers, reconciliation rows, and published day-state rows older than the applicable horizon
@@ -165,38 +164,54 @@
      - published day-state rows tied to active publication pointers
      - currently-required core truth inside `761` days
      - currently-required breakdown truth inside `394` days
-   - `/api/meta/status` now exposes the canary gate, canary commands, latest canary run disposition, and per-table protected-vs-deleted proof alongside the existing dry-run block.
-   - canary run metadata now records whether the canary was dry-run only, gated, skipped, or executed.
+   - `/api/meta/status` now exposes the global retention gate plus a scoped-execution proof block, latest scoped run disposition, and per-table protected-vs-deleted proof alongside the existing dry-run block.
+   - scoped run metadata now records whether the run was dry-run only, gated, skipped, or executed under the global posture.
+
+12. Global execution truth and rebuild-aware honesty
+   - the repo no longer treats per-business canary expansion as the primary model for Meta finalization, Meta retention execution, or Google extended historical rebuild posture.
+   - Meta authoritative finalization v2 now follows the global `META_AUTHORITATIVE_FINALIZATION_V2` posture for every business instead of an allowlisted business subset.
+   - Google extended historical rebuild posture now reports only global modes:
+     - `safe_mode`
+     - `global_backfill`
+     - `global_reopen`
+   - Meta retention scoped execution now obeys only the global `META_RETENTION_EXECUTION_ENABLED` gate.
+   - `/api/meta/status` and `/api/google-ads/status` now expose operator truth for:
+     - global execution posture
+     - cold bootstrap / rebuild in progress
+     - quota-limited pressure
+     - partial upstream coverage
+     - true blocked / repair-required publication states
+   - the DB server change and provider rebuild context are now first-class operator truth:
+     - sparse warehouse coverage during rebuild is not treated as healthy historical truth
+     - quota or rate-limit pressure is surfaced explicitly instead of being collapsed into generic success wording
+     - rebuild lag is separated from true `blocked` / `repair_required` publication problems
 
 ### Still Pending
 
-- global Meta retention execution rollout remains intentionally deferred until a later dedicated step reviews a business that exposes non-zero active published-truth protection evidence.
+- destructive retention remains intentionally disabled by default under the global posture until operators explicitly decide to enable it after rebuild truth, quota stability, and protected-truth evidence are satisfactory.
 
 ## Operator Follow-up Record
 
-- Reviewed on April 14, 2026 for one production Meta business only.
-  - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
+- Historical April 14, 2026 operator review:
+  - one production Meta business was sampled; repo docs intentionally anonymize it and only record that the live business id ends with `d34c84`
+  - this remains historical evidence only and is no longer the preferred rollout posture
 - Dry-run proof outcome:
   - one initial dry-run was skipped because another Meta retention lease was active
   - the completed dry-run observed `612` deletable `meta_breakdown_daily` rows outside the `394` day breakdown horizon
   - the deletable residue window was limited to `2024-04-26` through `2024-05-04`
   - no active publication-pointer-backed protected rows were present for the reviewed business
-- Execute canary outcome:
+- Scoped execute outcome:
   - the first execute attempt surfaced a real SQL bug: `FOR UPDATE cannot be applied to the nullable side of an outer join`
   - the fix was kept narrow: orphan cleanup now locks only the base delete target rows
   - targeted tests passed after the fix
-  - the rerun recorded `retention.canary.latestRun.executionDisposition=canary_execute`
+  - the rerun recorded a scoped execute disposition without enabling broad delete execution
   - the rerun left `META_RETENTION_EXECUTION_ENABLED=false` globally
-  - the final reviewed canary run reported `totalDeletedRows=0` and `deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
+  - the final reviewed scoped run reported `totalDeletedRows=0` and `deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
   - the final status review showed no remaining deletable residue for the reviewed business
-- Rollout decision after review:
-  - keep the Meta retention canary isolated to the single reviewed business
-  - do not widen the allowlist yet
-  - do not enable global `META_RETENTION_EXECUTION_ENABLED`
-  - keep Google retention execute rollout deferred and separate
-- Evidence gap that still blocks widening:
-  - the reviewed business currently exposes `0` protected published rows and `0` active publication pointers in `/api/meta/status.retention.canary`
-  - this follow-up therefore proves canary wiring and safe residue posture, but it does not yet prove active published-truth protection on a business where that protection is live
+- Current interpretation:
+  - keep `META_RETENTION_EXECUTION_ENABLED=false` unless operators intentionally choose a global execute posture
+  - use scoped verification as inspection evidence, not as a business-by-business rollout ladder
+  - the reviewed business currently exposes `0` protected published rows and `0` active publication pointers in status, so this record proves safe residue posture but not active protected-truth deletion safety under live protected rows
 
 ## Current Repo Baseline
 
@@ -216,7 +231,7 @@
 
 ## Verified Tests
 
-- Targeted Meta retention canary suite passed:
+- Targeted Meta retention scoped-proof suite passed:
   - `app/api/meta/status/route.test.ts`
   - `lib/meta/retention-canary.test.ts`
   - `lib/meta/warehouse.test.ts`
@@ -224,7 +239,7 @@
   - `lib/meta/warehouse-retention.test.ts`
 - Result: `5` files, `100` tests passed.
 - TypeScript verification passed: `npx tsc --noEmit --pretty false`
-- Follow-up regression after the April 14, 2026 canary execute bug fix passed:
+- Follow-up regression after the April 14, 2026 scoped execute bug fix passed:
   - `app/api/meta/status/route.test.ts`
   - `lib/meta/retention-canary.test.ts`
   - `lib/meta/warehouse-retention.test.ts`
@@ -232,25 +247,24 @@
 
 ## Remaining Risks
 
-- Google retention execute mode is still intentionally off; Phase 4 adds dry-run proof and an explicit canary verifier, but no execute-mode delete was run from this PR.
+- Google retention execute mode is still intentionally off; Phase 4 adds dry-run proof and an explicit scoped verifier, but no execute-mode delete was run from this PR.
 - The raw `/api/google-ads/search-terms` surface is intentionally still a `120` day hot/debug surface and is not a long-horizon intelligence API.
-- Search-intelligence serving now reads additive storage and Phase 4 adds delete-safe observability, but a future explicit operator-approved execute canary is still deferred.
-- Meta retention global execution is still intentionally disabled by default; only the dedicated business-scoped canary path can execute deletes.
-- The operator-reviewed follow-up now has one real-business canary record, but the reviewed business currently has no active published-truth protection rows, so widening the canary would still be premature.
+- Search-intelligence serving now reads additive storage and Phase 4 adds delete-safe observability, but a future explicit operator-approved execute review is still deferred.
+- Meta retention global execution is still intentionally disabled by default; scoped verification does not replace a deliberate global execution decision.
+- The historical sampled-business record currently has no active published-truth protection rows, so it is not evidence for global destructive execution under live protected rows.
 - The first execute attempt showed that a partial-safe delete can happen before a later per-table error is recorded; the follow-up fix removed the specific outer-join lock bug that surfaced during orphan cleanup.
-- Google execute-mode retention rollout is still intentionally deferred and must remain isolated from any Meta retention canary.
+- Google execute-mode retention rollout is still intentionally deferred and must remain isolated from Meta retention decisions.
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: Meta retention canary protection-proof follow-up on a business with non-zero active published truth.
+- Next recommended PR: global destructive-retention readiness review once rebuild truth is no longer cold/partial/quota-limited.
 - Required scope:
   - keep the published-truth historical contract unchanged
-  - keep the canary limited to one allowlisted Meta business at a time
-  - review `/api/meta/status.retention.canary` for non-zero protected published rows before widening
-  - keep global `META_RETENTION_EXECUTION_ENABLED` off until protection evidence is reviewed
-  - keep Google retention execute-mode rollout out of the Meta rollout follow-up
-- Intentionally deferred after Phase 11:
-  - Google execute-mode raw-hot-table retention canary
+  - keep `META_RETENTION_EXECUTION_ENABLED` off until operators explicitly choose a global execute posture
+  - review `/api/meta/status.retention.scopedExecution` on businesses that expose non-zero protected published rows
+  - keep Google retention execute-mode rollout out of the Meta follow-up
+- Intentionally deferred after Phase 12:
+  - Google execute-mode raw-hot-table retention verification under a global decision
   - global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
   - archival/cold export strategy for raw payloads
   - global enablement of `META_RETENTION_EXECUTION_ENABLED`
@@ -258,6 +272,6 @@
 ### Next Recommended Prompt
 
 1. Keep `META_RETENTION_EXECUTION_ENABLED=false` globally and leave Google execute-mode retention untouched.
-2. Review a later single-business Meta canary only when the target business exposes non-zero active published-truth protection evidence in `/api/meta/status.retention.canary`.
-3. Confirm `retention.canary.latestRun.executionDisposition=canary_execute`, `deleteScope` stays limited to safe residue or orphaned stale artifacts, and no evidence suggests active in-horizon published truth deletion.
-4. If protected published rows are still zero, keep the canary isolated and record the outcome honestly instead of widening the allowlist.
+2. Wait until `/api/meta/status.operatorTruth.rebuild.state` is no longer `cold_bootstrap`, `backfill_in_progress`, or `quota_limited` on the businesses being reviewed.
+3. Review scoped verification on businesses that expose non-zero protected published rows in `/api/meta/status.retention.scopedExecution`.
+4. Only after that global review should operators decide whether `META_RETENTION_EXECUTION_ENABLED` can move from `dry_run` to explicit global execute mode.

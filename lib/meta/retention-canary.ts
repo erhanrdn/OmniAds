@@ -75,9 +75,9 @@ export async function runMetaRetentionCanary(input: {
     forceExecute: canaryRuntime.executeAllowed,
     executionDisposition: executeRequested
       ? canaryRuntime.executeAllowed
-        ? "canary_execute"
-        : "gated_canary_execute"
-      : "canary_dry_run",
+        ? "scoped_execute"
+        : "gated_scoped_execute"
+      : "scoped_dry_run",
     canary: canaryRuntime,
   });
   const protectionProof = {
@@ -86,11 +86,6 @@ export async function runMetaRetentionCanary(input: {
   };
 
   const blockers: string[] = [];
-  if (canaryRuntime.globalExecutionEnabled) {
-    blockers.push(
-      "META_RETENTION_EXECUTION_ENABLED must remain disabled to keep the canary isolated.",
-    );
-  }
   if (!canaryRuntime.runtimeAvailable) {
     blockers.push(canaryRuntime.gateReason);
   }
@@ -99,7 +94,7 @@ export async function runMetaRetentionCanary(input: {
   }
   if (run.skippedDueToActiveLease) {
     blockers.push(
-      "Meta retention canary was skipped because another retention lease is already active.",
+      "Scoped Meta retention verification was skipped because another retention lease is already active.",
     );
   }
   if (run.errorMessage) {

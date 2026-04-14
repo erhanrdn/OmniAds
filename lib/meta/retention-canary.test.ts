@@ -41,19 +41,16 @@ describe("runMetaRetentionCanary", () => {
     getMetaRetentionCanaryRuntimeStatus.mockReturnValue({
       runtimeAvailable: true,
       globalExecutionEnabled: false,
-      canaryExecutionEnabled: false,
       businessId: "biz",
-      allowlistConfigured: false,
-      businessAllowed: false,
       executeRequested: true,
       executeAllowed: false,
       mode: "dry_run",
       gateReason:
-        "META_RETENTION_EXECUTE_CANARY_ENABLED is disabled. Set it to true to allow --execute.",
+        "META_RETENTION_EXECUTION_ENABLED is disabled. Set it to true to allow globally enabled execute mode.",
     });
     executeMetaRetentionPolicy.mockResolvedValue({
       mode: "dry_run",
-      executionDisposition: "gated_canary_execute",
+      executionDisposition: "gated_scoped_execute",
       skippedDueToActiveLease: false,
       totalDeletedRows: 0,
       errorMessage: null,
@@ -86,12 +83,12 @@ describe("runMetaRetentionCanary", () => {
 
     expect(result.passed).toBe(false);
     expect(result.blockers).toContain(
-      "META_RETENTION_EXECUTE_CANARY_ENABLED is disabled. Set it to true to allow --execute.",
+      "META_RETENTION_EXECUTION_ENABLED is disabled. Set it to true to allow globally enabled execute mode.",
     );
     expect(result.globalRetentionRuntime.defaultExecutionDisabled).toBe(true);
     expect(result.run).toMatchObject({
       mode: "dry_run",
-      executionDisposition: "gated_canary_execute",
+      executionDisposition: "gated_scoped_execute",
       totalDeletedRows: 0,
     });
     expect(result.protectionProof).toMatchObject({
@@ -107,23 +104,20 @@ describe("runMetaRetentionCanary", () => {
     });
   });
 
-  it("reports protected truth and deleted orphaned residue for an execute canary", async () => {
+  it("reports protected truth and deleted orphaned residue for a scoped execute run", async () => {
     getMetaRetentionCanaryRuntimeStatus.mockReturnValue({
       runtimeAvailable: true,
-      globalExecutionEnabled: false,
-      canaryExecutionEnabled: true,
+      globalExecutionEnabled: true,
       businessId: "biz",
-      allowlistConfigured: true,
-      businessAllowed: true,
       executeRequested: true,
       executeAllowed: true,
       mode: "execute",
       gateReason:
-        "Meta retention execute canary is explicitly enabled for this business.",
+        "Meta retention execute mode is globally enabled. The scoped command will execute only the requested business slice.",
     });
     executeMetaRetentionPolicy.mockResolvedValue({
       mode: "execute",
-      executionDisposition: "canary_execute",
+      executionDisposition: "scoped_execute",
       skippedDueToActiveLease: false,
       totalDeletedRows: 5,
       errorMessage: null,
@@ -175,7 +169,7 @@ describe("runMetaRetentionCanary", () => {
     expect(result.blockers).toEqual([]);
     expect(result.run).toMatchObject({
       mode: "execute",
-      executionDisposition: "canary_execute",
+      executionDisposition: "scoped_execute",
       totalDeletedRows: 5,
     });
     expect(result.protectionProof).toMatchObject({

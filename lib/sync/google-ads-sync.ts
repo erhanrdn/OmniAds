@@ -957,7 +957,7 @@ export function getGoogleAdsExtendedRecoveryBlockReason(input: {
   if (!input.policy.workerCapacityAvailable)
     return "worker_capacity_unavailable";
   if (!input.policy.extendedBudgetAllowed) return "extended_budget_denied";
-  if (!input.policy.extendedCanaryEligible) return "canary_not_enabled";
+  if (!input.policy.extendedCanaryEligible) return "global_execution_disabled";
   if (
     (input.queueHealth?.extendedQueueDepth ?? 0) >=
     GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT
@@ -1582,9 +1582,7 @@ export async function getGoogleAdsIncidentPolicy(input: {
           GOOGLE_ADS_EXTENDED_WORKER_LIMIT,
         1,
       );
-  const extendedCanaryEligible =
-    GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED ||
-    isGoogleAdsExtendedCanaryBusiness(input.businessId);
+  const extendedCanaryEligible = GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED;
 
   const policy = buildGoogleAdsLaneAdmissionPolicy({
     safeModeEnabled: isGoogleAdsIncidentSafeModeEnabled(),
@@ -6039,7 +6037,7 @@ export async function syncGoogleAdsReports(
             provider: "google",
             businessId,
             message:
-              "Google Ads extended sync is reopening in canary half-open mode.",
+              "Google Ads extended sync is reopening in global half-open mode.",
             cooldownMs: GOOGLE_ADS_CIRCUIT_BREAKER_BASE_MINUTES * 60_000,
           }).catch(() => null);
         }

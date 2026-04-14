@@ -511,7 +511,8 @@ export async function runGoogleAdsProductGate(
       "google_ads_search_term_daily",
     ].includes(row.tableName)
   );
-  const retentionCanaryCommand = `npm run google:ads:retention-canary -- ${input.businessId}`;
+  const retentionVerificationCommand =
+    `npm run google:ads:retention-canary -- ${input.businessId}`;
   const limitations: string[] = [
     decisionConfig.writebackEnabled
       ? "Write-back is enabled by flag, but mutate/rollback are not marked verified."
@@ -544,7 +545,7 @@ export async function runGoogleAdsProductGate(
       : latestRetentionRun
         ? "Latest retention run did not carry raw hot-table candidate stats."
         : "No raw hot-table dry-run stats are recorded yet.",
-    `Retention canary verification: ${retentionCanaryCommand}`,
+    `Retention verification: ${retentionVerificationCommand}`,
     input.sinceIso
       ? `Observations were evaluated relative to sinceIso ${input.sinceIso}.`
       : "No sinceIso boundary was supplied for freshness assertions.",
@@ -560,7 +561,7 @@ export async function runGoogleAdsProductGate(
         retentionRuntime: retentionRuntime,
         latestRetentionRun,
         latestRawHotRetentionRows,
-        retentionCanaryCommand,
+        retentionVerificationCommand,
       },
     })
   );

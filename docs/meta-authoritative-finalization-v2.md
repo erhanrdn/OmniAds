@@ -347,24 +347,24 @@ Posture locks:
   - selected-range historical readiness no longer infers truth from coverage alone
   - planner `published` state without a publication pointer no longer counts as D-1 success
   - operator/status vocabulary now points directly at `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
-- Meta Phase 11 retention execute canary now adds the explicit delete-proof path without global enablement:
-  - `npm run meta:retention-canary -- <businessId>` is the operator-visible proof command
-  - `--execute` plus `META_RETENTION_EXECUTE_CANARY_ENABLED=true` and `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>` are all required before the canary deletes anything
+- Meta Phase 11 retention scoped proof now adds the explicit delete-proof path without changing the global default posture:
+  - `npm run meta:retention-canary -- <businessId>` remains the operator-visible proof command
+  - `META_RETENTION_EXECUTION_ENABLED` is now the only execute gate; `--execute` plus global enablement are required before the scoped command deletes anything
   - active publication pointers, active published slice versions, active source manifests, published day-state rows, and currently-required published truth inside the locked horizon remain protected
   - allowed deletes remain limited to horizon-outside residue and orphaned stale authoritative artifacts
-  - `/api/meta/status.retention.canary` now reports the gate, latest canary run posture, and per-table protected-vs-deleted evidence
+  - `/api/meta/status.retention.scopedExecution` now reports the gate, latest scoped run posture, and per-table protected-vs-deleted evidence
 - April 14, 2026 operator follow-up outcome:
-  - one production Meta business was reviewed with a single-business canary; repo docs intentionally anonymize it and only record that the live business id ends with `d34c84`
+  - one production Meta business was historically reviewed as a scoped sample; repo docs intentionally anonymize it and only record that the live business id ends with `d34c84`
   - dry-run proof observed `612` deletable breakdown rows outside the `394` day horizon and no active publication-pointer-backed protected rows for that business
   - the first execute attempt surfaced a real SQL bug in orphan cleanup: `FOR UPDATE cannot be applied to the nullable side of an outer join`
   - the fix stayed narrow: orphan cleanup now locks only the base slice/manifest rows
-  - the execute rerun finished with `canary_execute` while global `META_RETENTION_EXECUTION_ENABLED` remained disabled
+  - the execute rerun finished with a scoped execute disposition while global `META_RETENTION_EXECUTION_ENABLED` remained disabled
   - final status review showed no remaining deletable residue for that business
-  - the reviewed business still reports `0` protected published rows in status, so the follow-up is not sufficient evidence to widen rollout
+  - the reviewed business still reports `0` protected published rows in status, so the follow-up is not sufficient evidence to justify a global destructive posture
 
 Next recommended step:
 
-- keep `META_RETENTION_EXECUTION_ENABLED` default-disabled globally and review a later single-business canary only when the target business can prove non-zero protected published truth in `/api/meta/status.retention.canary`
+- keep `META_RETENTION_EXECUTION_ENABLED` default-disabled globally until rebuild truth is no longer cold, partial, or quota-limited, then review scoped verification on businesses that can prove non-zero protected published truth in `/api/meta/status.retention.scopedExecution`
 
 ## Compatibility Strategy
 
@@ -479,7 +479,7 @@ Primary implementation touchpoints for the active rollout:
 
 ### Phase 5
 
-- controlled production rollout with canary businesses
+- controlled production rollout with one global Meta contract
 - verify `T0` and `T0 + 24h` behavior at account-timezone rollover
 
 ## Rollback Plan

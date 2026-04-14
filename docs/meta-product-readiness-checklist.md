@@ -8,6 +8,13 @@ Recorded production rollout outcome:
 
 - `docs/meta-rollout-record-2026-04-07.md`
 
+Current operating posture:
+
+- one global Meta behavior contract applies across all businesses
+- the DB server changed and the warehouse is rebuilding from provider APIs
+- cold bootstrap, backfill, quota pressure, and partial upstream coverage are first-class operator truth
+- product readiness must stay honest during rebuild and must not overclaim health from sparse warehouse state
+
 ## CI Gate
 
 1. Confirm GitHub Actions `CI` passed on the PR branch.
@@ -27,21 +34,24 @@ Go/no-go:
 
 1. Deploy first in shadow mode with:
    - `META_AUTHORITATIVE_FINALIZATION_V2=0`
-   - canary business and account identified in advance
+   - representative real business and account identified in advance for validation
 2. Confirm post-deploy signals:
    - web health check passes
    - worker health check passes
    - fresh Meta worker heartbeat is visible
    - cron still reaches `/api/sync/cron`
-3. Move to allowlisted rollout only after shadow mode is clean:
+3. Move to global enablement only after shadow mode is clean:
    - `META_AUTHORITATIVE_FINALIZATION_V2=1`
-   - `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>`
-4. Move to full rollout only after canary `T0` and `T0 + 24h` both pass.
+4. During `T0` and `T0 + 24h`, confirm `/api/meta/status.operatorTruth.rebuild` stays honest:
+   - `cold_bootstrap` for a fresh provider rebuild
+   - `backfill_in_progress` while history is still catching up
+   - `quota_limited` when upstream pressure is active
+   - `blocked` / `repair_required` only when verification evidence supports that wording
 
 Go/no-go:
 
-- `GO` only if rollout moves through shadow mode, allowlisted canary, and full rollout in that order.
-- `NO-GO` if v2 is enabled globally before canary verification is complete.
+- `GO` only if rollout moves through shadow mode and then one global enablement with honest `T0` and `T0 + 24h` verification.
+- `NO-GO` if status overclaims readiness during rebuild, or if v2 is treated as business-by-business rollout semantics.
 
 ## Required Validation Commands
 
@@ -114,28 +124,28 @@ Go/no-go:
 - `GO` only if published verification is now the only supported historical truth contract in the touched Meta read/status paths.
 - `NO-GO` if raw row presence, broad coverage, or planner-only success can still make historical Meta look authoritative.
 
-## Phase 11 Retention Execute Canary Gate
+## Phase 11 Retention Scoped Proof Gate
 
-1. Open `/api/meta/status?businessId=<businessId>` and inspect both `retention` and `retention.canary`.
+1. Open `/api/meta/status?businessId=<businessId>` and inspect both `retention` and `retention.scopedExecution`.
 2. Confirm default posture:
    - `META_RETENTION_EXECUTION_ENABLED=false` by default
    - `retention.defaultExecutionDisabled=true`
-   - `retention.canary.command="npm run meta:retention-canary -- <businessId>"`
-   - `retention.canary.executeCommand="npm run meta:retention-canary -- <businessId> --execute"`
-   - `retention.canary.executeAllowed=false` until the explicit canary gate is configured
+   - `retention.scopedExecution.command="npm run meta:retention-canary -- <businessId>"`
+   - `retention.scopedExecution.executeCommand="npm run meta:retention-canary -- <businessId> --execute"`
+   - `retention.scopedExecution.globalExecutionEnabled=false`
+   - `retention.scopedExecution.executeAllowed=false` until global execution is explicitly enabled
 3. Run the non-destructive proof first:
    - `npm run meta:retention-canary -- <businessId>`
-4. To allow the execute canary, set:
-   - `META_RETENTION_EXECUTE_CANARY_ENABLED=true`
-   - `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`
-5. Run the dedicated execute canary:
+4. To allow the scoped execute proof, set:
+   - `META_RETENTION_EXECUTION_ENABLED=true`
+5. Run the dedicated scoped execute proof:
    - `npm run meta:retention-canary -- <businessId> --execute`
 6. Confirm the resulting evidence:
-   - `retention.canary.latestRun.executionDisposition=canary_execute`
-   - `retention.canary.latestRun.totalDeletedRows` reflects only the scoped canary run
-   - `retention.canary.summary.protectedRows` remains non-zero when active published truth exists
-   - `retention.canary.tables[].deleteScope` is limited to `horizon_outside_residue` or `orphaned_stale_artifact`
-   - `retention.canary.tables[].deletedRows` never imply active in-horizon published truth deletion
+   - `retention.scopedExecution.latestRun.executionDisposition=scoped_execute`
+   - `retention.scopedExecution.latestRun.totalDeletedRows` reflects only the scoped run
+   - `retention.scopedExecution.summary.protectedRows` remains non-zero when active published truth exists
+   - `retention.scopedExecution.tables[].deleteScope` is limited to `horizon_outside_residue` or `orphaned_stale_artifact`
+   - `retention.scopedExecution.tables[].deletedRows` never imply active in-horizon published truth deletion
 7. Confirm protected truth remains explicit:
    - active publication pointers
    - active published slice versions referenced by those pointers
@@ -146,12 +156,12 @@ Go/no-go:
 
 Go/no-go:
 
-- `GO` only if the canary proves deletes are limited to safe residue and the status surface makes the outcome operator-visible without manual SQL.
-- `NO-GO` if canary execution requires global enablement, if protected published truth is ambiguous, or if status cannot distinguish dry-run from gated or executed canary posture.
+- `GO` only if the scoped proof shows deletes are limited to safe residue and the status surface makes the outcome operator-visible without manual SQL.
+- `NO-GO` if protected published truth is ambiguous, if rebuild/quota truth is hidden, or if status cannot distinguish dry-run from gated or executed scoped posture.
 
 Observed follow-up on April 14, 2026:
 
-1. One production Meta business was reviewed and kept isolated to a single-business canary.
+1. One production Meta business was reviewed as a scoped proof sample under the global contract.
    - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
 2. Dry-run evidence:
    - one initial dry-run skipped because another retention lease was active
@@ -160,13 +170,13 @@ Observed follow-up on April 14, 2026:
 3. Execute evidence:
    - the first execute attempt exposed a SQL bug in orphan cleanup: `FOR UPDATE cannot be applied to the nullable side of an outer join`
    - the narrow fix locked only the base orphan target rows and the targeted retention/status tests passed afterward
-   - the rerun recorded `retention.canary.latestRun.executionDisposition=canary_execute`
+   - the rerun recorded `retention.scopedExecution.latestRun.executionDisposition=scoped_execute`
    - the rerun kept `META_RETENTION_EXECUTION_ENABLED=false` globally
    - final status review showed no remaining deletable residue for the reviewed business
 4. Current gate decision:
-   - `NO-GO` for widening the Meta canary
-   - the reviewed business currently reports `protectedRows=0` and `0` active publication pointers in `/api/meta/status.retention.canary`
-   - this proves isolated canary execution posture, but it does not yet prove active published-truth protection on a business where that protection is live
+   - `NO-GO` for global Meta retention execution
+   - the reviewed business currently reports `protectedRows=0` and `0` active publication pointers in `/api/meta/status.retention.scopedExecution`
+   - this proves scoped operator visibility, but it does not yet prove active published-truth protection on a business where that protection is live
 5. Separate deferred work remains unchanged:
    - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled
    - Google execute-mode retention rollout is still separate and deferred
@@ -320,8 +330,8 @@ Meta is product-ready only when all of the following are true:
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
 - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled by default unless a later dedicated rollout changes it.
 - Meta retention dry-run exposes protected-vs-deletable evidence for the locked `761` / `394` policy without requiring manual SQL.
-- Meta retention execute canary is business-scoped, explicitly gated, and operator-verifiable through `meta:retention-canary` plus `/api/meta/status.retention.canary`.
+- Meta retention scoped proof is operator-verifiable through `meta:retention-canary` plus `/api/meta/status.retention.scopedExecution`, while execution posture remains globally controlled.
 - Global Meta retention execution remains disabled unless a later rollout explicitly changes `META_RETENTION_EXECUTION_ENABLED`.
-- Production rollout succeeded in shadow mode, allowlisted canary, and full rollout order.
+- Production rollout succeeded in shadow mode and one global enablement order, with `T0` and `T0 + 24h` validation interpreted through honest rebuild truth.
 
 Any single failed criterion is a `NO-GO`.

@@ -107,7 +107,7 @@ describe("buildGoogleAdsLaneAdmissionPolicy", () => {
     expect(policy.lanePolicy.extended).toBe("suspended");
   });
 
-  it("keeps extended suspended when canary reopen is not allowed", () => {
+  it("keeps extended suspended when global reopen is not allowed", () => {
     const policy = buildGoogleAdsLaneAdmissionPolicy({
       safeModeEnabled: false,
       workerHealthy: true,

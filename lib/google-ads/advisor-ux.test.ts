@@ -12,8 +12,8 @@ function buildOperations(
   overrides: Partial<NonNullable<GoogleAdsStatusResponse["operations"]>> = {}
 ): NonNullable<GoogleAdsStatusResponse["operations"]> {
   return {
-    currentMode: "canary_reopen",
-    canaryEligible: false,
+    currentMode: "global_backfill",
+    globalExtendedExecutionEnabled: false,
     quotaPressure: 0,
     breakerState: "closed",
     ...overrides,

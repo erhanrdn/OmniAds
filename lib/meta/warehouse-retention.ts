@@ -67,22 +67,19 @@ export interface MetaRetentionExecutionRow extends MetaRetentionInspectionRow {
 export type MetaRetentionExecutionDisposition =
   | "dry_run"
   | "global_execute"
-  | "canary_dry_run"
-  | "gated_canary_execute"
-  | "canary_execute";
+  | "scoped_dry_run"
+  | "gated_scoped_execute"
+  | "scoped_execute";
 
 export interface MetaRetentionRunScope {
-  kind: "all_businesses" | "canary_businesses";
+  kind: "all_businesses" | "selected_businesses";
   businessIds: string[] | null;
 }
 
 export interface MetaRetentionCanaryRuntimeStatus {
   runtimeAvailable: boolean;
   globalExecutionEnabled: boolean;
-  canaryExecutionEnabled: boolean;
   businessId: string;
-  allowlistConfigured: boolean;
-  businessAllowed: boolean;
   executeRequested: boolean;
   executeAllowed: boolean;
   mode: "dry_run" | "execute";
@@ -154,8 +151,7 @@ function envNumber(
 
 function readBooleanFlag(
   name:
-    | "META_RETENTION_EXECUTION_ENABLED"
-    | "META_RETENTION_EXECUTE_CANARY_ENABLED",
+    | "META_RETENTION_EXECUTION_ENABLED",
   fallback: boolean,
   env: NodeJS.ProcessEnv = process.env,
 ) {
@@ -167,16 +163,6 @@ function readBooleanFlag(
 
 function isMetaRetentionRuntimeAvailable(env: NodeJS.ProcessEnv = process.env) {
   return Boolean(env.DATABASE_URL?.trim());
-}
-
-function parseEnvList(
-  name: "META_RETENTION_EXECUTE_CANARY_BUSINESSES",
-  env: NodeJS.ProcessEnv = process.env,
-) {
-  return (env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
 }
 
 function normalizeBusinessIds(
@@ -254,7 +240,7 @@ function emptyRetentionRunSummary(input: {
     scope:
       businessIds.length > 0
         ? {
-            kind: "canary_businesses" as const,
+            kind: "selected_businesses" as const,
             businessIds,
           }
         : {
@@ -446,18 +432,6 @@ export function isMetaRetentionExecutionEnabled(env: NodeJS.ProcessEnv = process
   return readBooleanFlag("META_RETENTION_EXECUTION_ENABLED", false, env);
 }
 
-export function isMetaRetentionExecuteCanaryEnabled(
-  env: NodeJS.ProcessEnv = process.env,
-) {
-  return readBooleanFlag("META_RETENTION_EXECUTE_CANARY_ENABLED", false, env);
-}
-
-export function getMetaRetentionExecuteCanaryBusinesses(
-  env: NodeJS.ProcessEnv = process.env,
-) {
-  return parseEnvList("META_RETENTION_EXECUTE_CANARY_BUSINESSES", env);
-}
-
 export function getMetaRetentionRuntimeStatus(env: NodeJS.ProcessEnv = process.env) {
   const executionEnabled = isMetaRetentionExecutionEnabled(env);
   return {
@@ -495,47 +469,29 @@ export function getMetaRetentionCanaryRuntimeStatus(input: {
   const env = input.env ?? process.env;
   const runtimeAvailable = isMetaRetentionRuntimeAvailable(env);
   const globalExecutionEnabled = isMetaRetentionExecutionEnabled(env);
-  const canaryExecutionEnabled = isMetaRetentionExecuteCanaryEnabled(env);
-  const canaryBusinesses = getMetaRetentionExecuteCanaryBusinesses(env);
-  const allowlistConfigured = canaryBusinesses.length > 0;
-  const businessAllowed = allowlistConfigured
-    ? canaryBusinesses.includes(input.businessId)
-    : false;
   const executeRequested = Boolean(input.executeRequested);
   let gateReason =
-    "Meta retention canary defaults to dry-run until --execute is supplied.";
+    "Scoped Meta retention verification defaults to dry-run until --execute is supplied.";
   let executeAllowed = false;
 
   if (!runtimeAvailable) {
-    gateReason = "Meta retention canary requires DATABASE_URL.";
-  } else if (globalExecutionEnabled) {
-    gateReason =
-      "META_RETENTION_EXECUTION_ENABLED is enabled. Keep global execution disabled to preserve canary isolation.";
+    gateReason = "Scoped Meta retention verification requires DATABASE_URL.";
   } else if (!executeRequested) {
     gateReason =
-      "Meta retention canary defaults to dry-run until --execute is supplied.";
-  } else if (!canaryExecutionEnabled) {
+      "Scoped Meta retention verification defaults to dry-run until --execute is supplied.";
+  } else if (!globalExecutionEnabled) {
     gateReason =
-      "META_RETENTION_EXECUTE_CANARY_ENABLED is disabled. Set it to true to allow --execute.";
-  } else if (!allowlistConfigured) {
-    gateReason =
-      "No Meta retention execute canary allowlist is configured.";
-  } else if (!businessAllowed) {
-    gateReason =
-      "Business is not in the Meta retention execute canary allowlist.";
+      "META_RETENTION_EXECUTION_ENABLED is disabled. Set it to true to allow globally enabled execute mode.";
   } else {
     executeAllowed = true;
     gateReason =
-      "Meta retention execute canary is explicitly enabled for this business.";
+      "Meta retention execute mode is globally enabled. The scoped command will execute only the requested business slice.";
   }
 
   return {
     runtimeAvailable,
     globalExecutionEnabled,
-    canaryExecutionEnabled,
     businessId: input.businessId,
-    allowlistConfigured,
-    businessAllowed,
     executeRequested,
     executeAllowed,
     mode: executeAllowed ? "execute" : "dry_run",
@@ -1122,14 +1078,14 @@ export async function executeMetaRetentionPolicy(input: {
   const executionDisposition =
     input.executionDisposition ??
     (input.forceExecute
-      ? "canary_execute"
+      ? "scoped_execute"
       : executionEnabled
         ? "global_execute"
         : "dry_run");
   const scope =
     businessIds.length > 0
       ? {
-          kind: "canary_businesses" as const,
+          kind: "selected_businesses" as const,
           businessIds,
         }
       : {
@@ -1329,11 +1285,16 @@ export function getMetaRetentionRunMetadata(
       ? (run.summaryJson.scope as Record<string, unknown>)
       : null;
   const canaryValue =
-    run?.summaryJson?.canary && typeof run.summaryJson.canary === "object"
-      ? (run.summaryJson.canary as Record<string, unknown>)
+    run?.summaryJson?.scopedExecution &&
+    typeof run.summaryJson.scopedExecution === "object"
+      ? (run.summaryJson.scopedExecution as Record<string, unknown>)
+      : run?.summaryJson?.canary && typeof run.summaryJson.canary === "object"
+        ? (run.summaryJson.canary as Record<string, unknown>)
       : null;
   const scopeKind =
-    scopeValue?.kind === "canary_businesses" ? "canary_businesses" : "all_businesses";
+    scopeValue?.kind === "selected_businesses" || scopeValue?.kind === "canary_businesses"
+      ? "selected_businesses"
+      : "all_businesses";
   const scopeBusinessIds = Array.isArray(scopeValue?.businessIds)
     ? normalizeBusinessIds(scopeValue.businessIds as Array<string>)
     : null;
@@ -1346,17 +1307,14 @@ export function getMetaRetentionRunMetadata(
     scope: {
       kind: scopeKind,
       businessIds:
-        scopeKind === "canary_businesses" ? scopeBusinessIds ?? [] : null,
+        scopeKind === "selected_businesses" ? scopeBusinessIds ?? [] : null,
     } satisfies MetaRetentionRunScope,
     executionDisposition,
     canary: canaryValue
       ? ({
           runtimeAvailable: Boolean(canaryValue.runtimeAvailable),
           globalExecutionEnabled: Boolean(canaryValue.globalExecutionEnabled),
-          canaryExecutionEnabled: Boolean(canaryValue.canaryExecutionEnabled),
           businessId: String(canaryValue.businessId ?? ""),
-          allowlistConfigured: Boolean(canaryValue.allowlistConfigured),
-          businessAllowed: Boolean(canaryValue.businessAllowed),
           executeRequested: Boolean(canaryValue.executeRequested),
           executeAllowed: Boolean(canaryValue.executeAllowed),
           mode:

@@ -65,7 +65,6 @@ import {
   buildGoogleAdsLaneAdmissionPolicy,
   getGoogleAdsExtendedRecoveryBlockReason,
   getGoogleAdsWorkerSchedulingState,
-  isGoogleAdsExtendedCanaryBusiness,
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
 import {
@@ -92,8 +91,8 @@ function isGeneralReopenEnabled() {
 
 function decidePanelRecoveryMode(): GoogleAdsPanelRecoveryMode {
   if (isGoogleAdsIncidentSafeModeEnabled()) return "safe_mode";
-  if (isGeneralReopenEnabled()) return "general_reopen";
-  return "canary_reopen";
+  if (isGeneralReopenEnabled()) return "global_reopen";
+  return "global_backfill";
 }
 
 function buildPanelSurfaceState(input: {
@@ -104,7 +103,6 @@ function buildPanelSurfaceState(input: {
   readyThroughDate: string | null;
   latestBackgroundActivityAt: string | null;
   currentMode: GoogleAdsPanelRecoveryMode;
-  canaryEligible: boolean;
 }): GoogleAdsPanelSurfaceState {
   const totalDays = Math.max(1, input.totalDays);
   const completedDays = Math.max(0, Math.min(input.completedDays, totalDays));
@@ -130,17 +128,14 @@ function buildPanelSurfaceState(input: {
     latestBackgroundActivityAt: input.latestBackgroundActivityAt,
   };
   const coverageLabel = `${completedDays}/${totalDays} days`;
-  if (
-    input.currentMode === "safe_mode" ||
-    (input.currentMode === "canary_reopen" && !input.canaryEligible)
-  ) {
+  if (input.currentMode === "safe_mode" || input.currentMode === "global_backfill") {
     return {
       ...base,
       state: "extended_limited",
       message:
         input.currentMode === "safe_mode"
           ? `${input.label} is limited while safe mode protects core metrics. Coverage: ${coverageLabel}.`
-          : `${input.label} is reopening gradually. This business is waiting for controlled extended rollout. Coverage: ${coverageLabel}.`,
+          : `${input.label} is rebuilding under the current global execution posture. Coverage: ${coverageLabel}.`,
     };
   }
 
@@ -604,7 +599,7 @@ export async function GET(request: NextRequest) {
     recentRepairAttemptRowsPromise.catch(() => []),
   ]);
   const currentMode = decidePanelRecoveryMode();
-  const canaryEligible = isGoogleAdsExtendedCanaryBusiness(businessId!);
+  const globalExtendedExecutionEnabled = currentMode === "global_reopen";
   const effectiveLatestSync = latestSync;
   const lastTargetedRepair =
     effectiveLatestSync?.trigger_source &&
@@ -1326,7 +1321,7 @@ export async function GET(request: NextRequest) {
     ],
     available: availableSurfaces,
   });
-  const readinessLevel = decideProviderReadinessLevel({
+  const surfaceReadinessLevel = decideProviderReadinessLevel({
     required: surfaces.required,
     available: surfaces.available,
     usable: ["account_daily", "campaign_daily"],
@@ -1541,7 +1536,6 @@ export async function GET(request: NextRequest) {
         extendedScopeSummaries.find((summary) => summary.scope === scope)
           ?.latestBackgroundActivityAt ?? null,
       currentMode,
-      canaryEligible,
     })
   );
   const extendedLimited = majorSurfaceStates.some((surface) => surface.state !== "ready");
@@ -1584,7 +1578,7 @@ export async function GET(request: NextRequest) {
       quotaPressure: quotaBudgetState?.pressure ?? 0,
       maintenanceBudgetAllowed: quotaBudgetState?.maintenanceAllowed ?? true,
       extendedBudgetAllowed: quotaBudgetState?.extendedAllowed ?? false,
-      extendedCanaryEligible: canaryEligible || currentMode === "general_reopen",
+      extendedCanaryEligible: globalExtendedExecutionEnabled,
       recoveryMode: breakerState,
     }),
     queueHealth,
@@ -1629,7 +1623,7 @@ export async function GET(request: NextRequest) {
           runnerLeaseSeen: workerSchedulingState?.runnerLeaseActive ?? false,
           breakerState,
           recoveryMode: breakerState,
-          canaryEligible,
+          globalExtendedExecutionEnabled,
           quotaPressure: quotaBudgetState?.pressure ?? 0,
           queueDepthSnapshot: queueHealth?.queueDepth ?? 0,
           extendedQueueDepthSnapshot: queueHealth?.extendedQueueDepth ?? 0,
@@ -1805,6 +1799,81 @@ export async function GET(request: NextRequest) {
       : d1FinalizeState === "blocked"
         ? "missing_warehouse_coverage"
         : null;
+  const quotaLimited =
+    Boolean(
+      quotaBudgetState &&
+        (!quotaBudgetState.withinDailyBudget ||
+          !quotaBudgetState.maintenanceAllowed ||
+          !quotaBudgetState.extendedAllowed ||
+          quotaBudgetState.errorCount > 0),
+    ) || extendedRecoveryBlockReason === "extended_budget_denied";
+  const coldBootstrap =
+    connected &&
+    accountIds.length > 0 &&
+    Number(warehouseStats?.row_count ?? 0) === 0 &&
+    overallCompletedDays === 0;
+  const backfillInProgress =
+    connected &&
+    accountIds.length > 0 &&
+    (needsBootstrap ||
+      overallCompletedDays < effectiveHistoricalTotalDays ||
+      Boolean(selectedRangeCoreIncomplete) ||
+      runningJobs > 0 ||
+      (queueHealth?.queueDepth ?? 0) > 0 ||
+      (queueHealth?.leasedPartitions ?? 0) > 0);
+  const partialUpstreamCoverage =
+    !selectedRangeCoreIncomplete &&
+    (selectedRangePendingSurfaces.length > 0 ||
+      productPendingSurfaces.length > 0 ||
+      advisorMissingSurfaces.length > 0);
+  const rebuildState =
+    overallState === "action_required"
+      ? "blocked"
+      : quotaLimited
+        ? "quota_limited"
+        : coldBootstrap
+          ? "cold_bootstrap"
+          : backfillInProgress
+            ? "backfill_in_progress"
+            : partialUpstreamCoverage
+              ? "partial_upstream_coverage"
+              : "ready";
+  const readinessLevel =
+    rebuildState === "ready"
+      ? surfaceReadinessLevel
+      : surfaceReadinessLevel === "ready"
+        ? availableSurfaces.includes("account_daily") &&
+          availableSurfaces.includes("campaign_daily")
+          ? "usable"
+          : "partial"
+        : surfaceReadinessLevel;
+  const syncExecutionPosture =
+    currentMode === "safe_mode"
+      ? {
+          state: "disabled" as const,
+          summary:
+            "Extended Google Ads rebuild execution is globally limited by safe mode while core metrics remain protected.",
+        }
+      : globalExtendedExecutionEnabled
+        ? {
+            state: "globally_enabled" as const,
+            summary:
+              "Extended Google Ads rebuild execution is globally enabled, subject to quota, breaker, and worker-safety guards.",
+          }
+        : {
+            state: "disabled" as const,
+            summary:
+              "Extended Google Ads rebuild execution is globally disabled while the warehouse rebuild remains core-first.",
+          };
+  const retentionExecutionPosture = retentionRuntime.executionEnabled
+    ? {
+        state: "globally_enabled" as const,
+        summary: retentionRuntime.gateReason,
+      }
+    : {
+        state: "dry_run" as const,
+        summary: retentionRuntime.gateReason,
+      };
 
   return NextResponse.json({
     state: overallState,
@@ -1827,6 +1896,33 @@ export async function GET(request: NextRequest) {
     d1TargetDate,
     d1FinalizeState,
     d1BlockedReason,
+    operatorTruth: {
+      rolloutModel: "global",
+      execution: {
+        sync: syncExecutionPosture,
+        retention: retentionExecutionPosture,
+      },
+      rebuild: {
+        state: rebuildState,
+        coldBootstrap,
+        backfillInProgress,
+        quotaLimited,
+        partialUpstreamCoverage,
+        blocked: overallState === "action_required",
+        summary:
+          rebuildState === "blocked"
+            ? "Google Ads is blocked on verified warehouse or repair evidence."
+            : rebuildState === "quota_limited"
+              ? "Google Ads rebuild is constrained by quota or rate-limit pressure."
+              : rebuildState === "cold_bootstrap"
+                ? "Google Ads is rebuilding from provider APIs on a cold warehouse."
+                : rebuildState === "backfill_in_progress"
+                  ? "Google Ads historical truth is still backfilling."
+                  : rebuildState === "partial_upstream_coverage"
+                    ? "Google Ads has partial upstream coverage; deeper surfaces remain incomplete."
+                    : "Google Ads rebuild truth is ready for the current contract.",
+      },
+    },
     readinessLevel,
     surfaces,
     checkpointHealth: checkpointHealth ?? null,
@@ -2002,7 +2098,7 @@ export async function GET(request: NextRequest) {
       defaultExecutionDisabled: !retentionRuntime.executionEnabled,
       mode: retentionRuntime.mode,
       gateReason: retentionRuntime.gateReason,
-      canaryVerification: {
+      verification: {
         available: true,
         command: `npm run google:ads:retention-canary -- ${businessId!}`,
         description:
@@ -2031,7 +2127,7 @@ export async function GET(request: NextRequest) {
     },
     operations: {
       currentMode,
-      canaryEligible,
+      globalExtendedExecutionEnabled,
       quotaPressure: quotaBudgetState?.pressure ?? 0,
       breakerState,
       decisionEngineV2Enabled: decisionEngineConfig.decisionEngineV2Enabled,
@@ -2065,7 +2161,7 @@ export async function GET(request: NextRequest) {
       retentionMode: retentionRuntime.mode,
       retentionGateReason: retentionRuntime.gateReason,
       retentionDefaultExecutionDisabled: !retentionRuntime.executionEnabled,
-      retentionCanaryVerificationCommand: `npm run google:ads:retention-canary -- ${businessId!}`,
+      retentionVerificationCommand: `npm run google:ads:retention-canary -- ${businessId!}`,
       retentionLatestRunObserved:
         latestRawHotRetentionRows.length > 0 &&
         latestRawHotRetentionRows.every((row) => row.observed),

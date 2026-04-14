@@ -318,7 +318,7 @@ describe("runGoogleAdsProductGate", () => {
         expect.stringContaining(
           "Raw hot-table dry-run google_ads_search_term_daily: eligible 20"
         ),
-        "Retention canary verification: npm run google:ads:retention-canary -- biz_1",
+        "Retention verification: npm run google:ads:retention-canary -- biz_1",
       ])
     );
     expect(result.sections.find((entry) => entry.key === "product_exit_criteria")?.level).toBe(

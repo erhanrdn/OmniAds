@@ -46,13 +46,7 @@ export type MetaAuthoritativeFinalizationState =
   (typeof META_AUTHORITATIVE_FINALIZATION_TARGET_STATES)[number];
 
 export function isMetaAuthoritativeFinalizationV2EnabledForBusiness(
-  businessId: string | null | undefined,
+  _businessId: string | null | undefined,
 ) {
-  if (!isMetaAuthoritativeFinalizationV2Enabled()) return false;
-  const canaryBusinessIds = getMetaAuthoritativeFinalizationCanaryBusinessIds();
-  if (canaryBusinessIds.length === 0) {
-    return true;
-  }
-  if (!businessId) return false;
-  return canaryBusinessIds.includes(businessId);
+  return isMetaAuthoritativeFinalizationV2Enabled();
 }

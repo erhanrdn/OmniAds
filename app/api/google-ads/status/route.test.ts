@@ -216,6 +216,7 @@ const warehouseRetention = await import("@/lib/google-ads/warehouse-retention");
 const searchIntelligenceStorage = await import("@/lib/google-ads/search-intelligence-storage");
 const migrations = await import("@/lib/migrations");
 const statusMachine = await import("@/lib/google-ads/status-machine");
+const requestGovernance = await import("@/lib/provider-request-governance");
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
@@ -439,14 +440,23 @@ describe("GET /api/google-ads/status", () => {
       readinessWindowDays: 84,
     });
     expect(payload.operations).toMatchObject({
+      currentMode: "global_backfill",
+      globalExtendedExecutionEnabled: false,
       advisorReadinessModel: "recent_84d_required_support",
       advisorReadinessWindowDays: 84,
       retentionRuntimeAvailable: false,
       retentionExecutionEnabled: false,
       retentionMode: "dry_run",
       retentionDefaultExecutionDisabled: true,
-      retentionCanaryVerificationCommand:
+      retentionVerificationCommand:
         "npm run google:ads:retention-canary -- biz",
+    });
+    expect(payload.operatorTruth).toMatchObject({
+      rolloutModel: "global",
+      execution: {
+        sync: { state: "disabled" },
+        retention: { state: "dry_run" },
+      },
     });
     expect(payload.retention).toMatchObject({
       runtimeAvailable: false,
@@ -454,7 +464,7 @@ describe("GET /api/google-ads/status", () => {
       defaultExecutionDisabled: true,
       mode: "dry_run",
       rawHotTables: [],
-      canaryVerification: {
+      verification: {
         available: true,
         command: "npm run google:ads:retention-canary -- biz",
       },
@@ -597,6 +607,8 @@ describe("GET /api/google-ads/status", () => {
       promptVersion: "google_ads_ai_structured_assist_v1",
     });
     expect(payload.operations).toMatchObject({
+      currentMode: "global_backfill",
+      globalExtendedExecutionEnabled: false,
       advisorActionContractVersion: "google_ads_advisor_action_v2",
       advisorActionContractSource: "native",
       advisorAggregateTopQueryWeeklyAvailable: true,
@@ -607,7 +619,7 @@ describe("GET /api/google-ads/status", () => {
       retentionExecutionEnabled: false,
       retentionMode: "dry_run",
       retentionDefaultExecutionDisabled: true,
-      retentionCanaryVerificationCommand:
+      retentionVerificationCommand:
         "npm run google:ads:retention-canary -- biz",
       retentionLatestRunObserved: true,
       lastRetentionRunAt: "2026-04-10T00:00:00.000Z",
@@ -625,7 +637,7 @@ describe("GET /api/google-ads/status", () => {
         executionMode: "dry_run",
         totalDeletedRows: 0,
       },
-      canaryVerification: {
+      verification: {
         available: true,
         command: "npm run google:ads:retention-canary -- biz",
       },
@@ -657,6 +669,11 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");
+    expect(payload.operatorTruth).toMatchObject({
+      execution: {
+        sync: { state: "disabled" },
+      },
+    });
     expect(payload.completionBasis).toEqual(
       expect.objectContaining({
         requiredScopes: ["account_daily", "campaign_daily"],
@@ -756,5 +773,55 @@ describe("GET /api/google-ads/status", () => {
       selectedRange: expect.any(Object),
       historical: expect.any(Object),
     });
+  });
+
+  it("surfaces quota-limited rebuild truth without overstating readiness", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("partial");
+    vi.mocked(requestGovernance.getProviderQuotaBudgetState).mockResolvedValue({
+      provider: "google",
+      businessId: "biz",
+      quotaDate: "2026-04-13",
+      callCount: 4900,
+      errorCount: 12,
+      dailyBudget: 5000,
+      maintenanceBudget: 4250,
+      extendedBudget: 3000,
+      pressure: 0.98,
+      withinDailyBudget: true,
+      maintenanceAllowed: false,
+      extendedAllowed: false,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operatorTruth).toMatchObject({
+      rebuild: {
+        state: "quota_limited",
+        quotaLimited: true,
+      },
+    });
+    expect(payload.readinessLevel).not.toBe("ready");
   });
 });

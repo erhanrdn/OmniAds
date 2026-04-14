@@ -9,7 +9,6 @@ import {
   getGoogleAdsWarehouseIntegrityIncidents,
 } from "@/lib/google-ads/warehouse";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
-import { isGoogleAdsExtendedCanaryBusiness } from "@/lib/sync/google-ads-sync";
 import {
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
@@ -94,7 +93,7 @@ export interface AdminSyncHealthPayload {
     googleAdsCompactedPartitions?: number;
     googleAdsBudgetPressureMax?: number;
     googleAdsRecoveryBusinesses?: number;
-    googleAdsCanaryBusinesses?: number;
+    googleAdsGlobalReopenEnabled?: boolean;
     googleAdsSkippedActiveLeaseRecoveries?: number;
     googleAdsLeaseConflictRuns24h?: number;
     googleAdsIntegrityIncidentCount?: number;
@@ -158,8 +157,7 @@ export interface AdminSyncHealthPayload {
     quotaBudget?: number;
     quotaPressure?: number;
     recoveryMode?: "open" | "half_open" | "closed";
-    canaryEnabled?: boolean;
-    effectiveMode?: "safe_mode" | "canary_reopen" | "general_reopen";
+    effectiveMode?: "safe_mode" | "global_backfill" | "global_reopen";
     recentSearchTermCompletedDays?: number;
     recentProductCompletedDays?: number;
     recentAssetCompletedDays?: number;
@@ -738,7 +736,9 @@ export function buildAdminSyncHealth(input: {
   let googleAdsCompactedPartitions = 0;
   let googleAdsBudgetPressureMax = 0;
   let googleAdsRecoveryBusinesses = 0;
-  let googleAdsCanaryBusinesses = 0;
+  const googleAdsGlobalReopenEnabled =
+    (process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() ?? "") === "1" ||
+    (process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() ?? "") === "true";
   let googleAdsSkippedActiveLeaseRecoveries = 0;
   let googleAdsLeaseConflictRuns24h = 0;
   let googleAdsIntegrityIncidentCount = 0;
@@ -849,17 +849,15 @@ export function buildAdminSyncHealth(input: {
         : Number(row.recovery_half_open ?? 0) > 0
         ? "half_open"
         : "closed";
-    const canaryEnabled = isGoogleAdsExtendedCanaryBusiness(row.business_id);
     const safeModeActive =
       (process.env.GOOGLE_ADS_INCIDENT_SAFE_MODE?.trim().toLowerCase() ?? "") === "1" ||
       (process.env.GOOGLE_ADS_INCIDENT_SAFE_MODE?.trim().toLowerCase() ?? "") === "true";
     const effectiveMode =
       safeModeActive
         ? "safe_mode"
-        : process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "1" ||
-            process.env.GOOGLE_ADS_EXTENDED_GENERAL_REOPEN?.trim().toLowerCase() === "true"
-          ? "general_reopen"
-          : "canary_reopen";
+        : googleAdsGlobalReopenEnabled
+          ? "global_reopen"
+          : "global_backfill";
     const recentExtendedReady =
       recentSearchTermCompletedDays >= recentRangeTotalDays &&
       recentProductCompletedDays >= recentRangeTotalDays &&
@@ -969,7 +967,6 @@ export function buildAdminSyncHealth(input: {
       quotaBudget,
       quotaPressure,
       recoveryMode,
-      canaryEnabled,
       effectiveMode,
       recentSearchTermCompletedDays,
       recentProductCompletedDays,
@@ -1015,7 +1012,6 @@ export function buildAdminSyncHealth(input: {
     stuckJobs += googleReclaimSummary.reclaimCandidateCount;
     if (circuitBreakerOpen) googleAdsCircuitBreakerBusinesses += 1;
     if (recoveryMode === "half_open") googleAdsRecoveryBusinesses += 1;
-    if (canaryEnabled) googleAdsCanaryBusinesses += 1;
     googleAdsBudgetPressureMax = Math.max(googleAdsBudgetPressureMax, quotaPressure);
     if (
       row.oldest_queued_partition &&
@@ -1684,7 +1680,7 @@ export function buildAdminSyncHealth(input: {
       googleAdsCompactedPartitions,
       googleAdsBudgetPressureMax,
       googleAdsRecoveryBusinesses,
-      googleAdsCanaryBusinesses,
+      googleAdsGlobalReopenEnabled,
       googleAdsSkippedActiveLeaseRecoveries,
       googleAdsLeaseConflictRuns24h,
       googleAdsIntegrityIncidentCount,

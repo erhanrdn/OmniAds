@@ -33,8 +33,8 @@ export interface GoogleAdsSyncDetails {
 
 export type GoogleAdsPanelRecoveryMode =
   | "safe_mode"
-  | "canary_reopen"
-  | "general_reopen";
+  | "global_backfill"
+  | "global_reopen";
 
 export type GoogleAdsPanelSurfaceStateKind =
   | "core_live"
@@ -278,9 +278,37 @@ export interface GoogleAdsStatusResponse {
     totalDays: number;
     isActive: boolean;
   } | null;
+  operatorTruth?: {
+    rolloutModel: "global";
+    execution: {
+      sync: {
+        state: "disabled" | "globally_enabled";
+        summary: string;
+      };
+      retention: {
+        state: "dry_run" | "globally_enabled";
+        summary: string;
+      };
+    };
+    rebuild: {
+      state:
+        | "blocked"
+        | "quota_limited"
+        | "cold_bootstrap"
+        | "backfill_in_progress"
+        | "partial_upstream_coverage"
+        | "ready";
+      coldBootstrap: boolean;
+      backfillInProgress: boolean;
+      quotaLimited: boolean;
+      partialUpstreamCoverage: boolean;
+      blocked: boolean;
+      summary: string;
+    };
+  } | null;
   operations?: {
     currentMode: GoogleAdsPanelRecoveryMode;
-    canaryEligible: boolean;
+    globalExtendedExecutionEnabled: boolean;
     quotaPressure: number;
     breakerState: "open" | "half_open" | "closed";
     decisionEngineV2Enabled?: boolean;
