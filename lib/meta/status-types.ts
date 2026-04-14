@@ -65,6 +65,12 @@ export type MetaPageSurfaceKey =
   | "operating_mode"
   | "decision_os";
 
+export type MetaCoreSurfaceKey = "summary" | "campaigns";
+export type MetaExtendedSurfaceKey =
+  | "breakdowns.age"
+  | "breakdowns.location"
+  | "breakdowns.placement";
+
 export interface MetaSurfaceReadiness {
   state: MetaPageReadinessState;
   blocking: boolean;
@@ -88,6 +94,29 @@ export interface MetaPageReadiness {
     "adsets" | "recommendations" | "operating_mode" | "decision_os",
     MetaSurfaceReadiness
   >;
+}
+
+export interface MetaCoreReadiness {
+  state: MetaPageReadinessState;
+  usable: boolean;
+  complete: boolean;
+  percent: number;
+  reason: string | null;
+  summary: string | null;
+  missingSurfaces: MetaCoreSurfaceKey[];
+  blockedSurfaces: MetaCoreSurfaceKey[];
+  surfaces: Record<MetaCoreSurfaceKey, MetaSurfaceReadiness>;
+}
+
+export interface MetaExtendedCompleteness {
+  state: MetaPageReadinessState;
+  complete: boolean;
+  percent: number | null;
+  reason: string | null;
+  summary: string | null;
+  missingSurfaces: MetaExtendedSurfaceKey[];
+  blockedSurfaces: MetaExtendedSurfaceKey[];
+  surfaces: Record<MetaExtendedSurfaceKey, MetaSurfaceReadiness>;
 }
 
 export interface MetaStatusResponse {
@@ -149,6 +178,8 @@ export interface MetaStatusResponse {
   historicalArchiveProgressPercent?: number;
   currentCoreUsable?: boolean;
   historicalArchiveComplete?: boolean;
+  coreReadiness?: MetaCoreReadiness | null;
+  extendedCompleteness?: MetaExtendedCompleteness | null;
   needsBootstrap?: boolean;
   operatorTruth?: {
     rolloutModel: "global";

@@ -1,5 +1,9 @@
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
-import { getMetaPageReadiness } from "@/lib/meta/page-readiness";
+import {
+  getMetaExtendedCompleteness,
+  getMetaPageReadiness,
+  hasMetaExtendedCompletenessLag,
+} from "@/lib/meta/page-readiness";
 import {
   getMetaPageStatusMessaging,
   type MetaUiLanguage,
@@ -87,10 +91,61 @@ function getMetaSyncCaptionContext(status: MetaStatusResponse) {
   return "default";
 }
 
+function getMetaExtendedLagDescription(
+  status: MetaStatusResponse,
+  language: MetaUiLanguage
+) {
+  const extendedCompleteness = getMetaExtendedCompleteness(status);
+  if (!extendedCompleteness || extendedCompleteness.complete) return null;
+
+  if (extendedCompleteness.state === "blocked") {
+    return language === "tr"
+      ? "Özet ve kampanyalar hazır. Bazı breakdown yüzeyleri bu seçim için kullanılamıyor."
+      : "Summary and campaigns are ready. Some breakdown surfaces are unavailable for this selection.";
+  }
+
+  if (status.pageReadiness?.selectedRangeMode === "current_day_live") {
+    return language === "tr"
+      ? "Özet ve kampanyalar hazır. Bugünün breakdown yüzeyleri arka planda tamamlanıyor."
+      : "Summary and campaigns are ready. Current-day breakdown surfaces continue preparing in the background.";
+  }
+
+  if (status.warehouse?.coverage?.selectedRange) {
+    return language === "tr"
+      ? "Özet ve kampanyalar hazır. Seçili aralığın breakdown yüzeyleri arka planda tamamlanıyor."
+      : "Summary and campaigns are ready. Breakdown surfaces for the selected range continue preparing in the background.";
+  }
+
+  return language === "tr"
+    ? "Özet ve kampanyalar hazır. Breakdown geçmişi arka planda tamamlanıyor."
+    : "Summary and campaigns are ready. Breakdown history continues preparing in the background.";
+}
+
 export function getMetaSyncTitle(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (status.state === "action_required") {
+    return language === "tr"
+      ? "Meta senkronu için müdahale gerekiyor"
+      : "Meta sync needs attention";
+  }
+  if (status.state === "paused") {
+    return language === "tr"
+      ? "Meta kuyruğu senkron worker'ını bekliyor"
+      : "Meta queue is waiting for the sync worker";
+  }
+  if (status.state === "stale") {
+    return language === "tr"
+      ? "Meta senkronu ilerlemeyi doğrulayamıyor"
+      : "Meta sync needs progress confirmation";
+  }
+  if (hasMetaExtendedCompletenessLag(status)) {
+    return language === "tr"
+      ? "Meta çekirdek verisi hazır"
+      : "Meta core data is ready";
+  }
+
   const pageMessages = getMetaPageStatusMessaging(status, language);
   if (pageMessages.banner.title) return pageMessages.banner.title;
   if (status.domainReadiness?.summary) {
@@ -126,6 +181,30 @@ export function getMetaSyncDescription(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (status.state === "action_required") {
+    return language === "tr"
+      ? "Arka plan senkronu tamamlanamadı. Entegrasyonu kontrol edin veya senkronu yeniden başlatın."
+      : "Background sync stopped before finishing. Review the integration or restart the sync.";
+  }
+  if (status.state === "paused") {
+    return language === "tr"
+      ? "Kuyruktaki işler korunur. Worker yeniden devreye girdiğinde senkron otomatik devam eder."
+      : "Queued work is safe. Sync will resume automatically when the worker becomes active again.";
+  }
+  if (status.state === "stale") {
+    return language === "tr"
+      ? "Çekirdek Meta doğrusu görünür olsa da arka plan ilerlemesi şu anda doğrulanamıyor."
+      : "Core Meta truth may already be visible, but background progress cannot be verified right now.";
+  }
+  if (hasMetaExtendedCompletenessLag(status)) {
+    return (
+      getMetaExtendedLagDescription(status, language) ??
+      (language === "tr"
+        ? "Özet ve kampanyalar hazır. Breakdown hazırlığı arka planda devam ediyor."
+        : "Summary and campaigns are ready. Breakdown preparation continues in the background.")
+    );
+  }
+
   const pageMessages = getMetaPageStatusMessaging(status, language);
   if (pageMessages.banner.description) return pageMessages.banner.description;
   if (status.domainReadiness?.summary) {
@@ -202,7 +281,6 @@ export function getMetaStatusNotice(
   status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
-  const pageMessages = getMetaPageStatusMessaging(status, language);
   if (status.state === "connected_no_assignment") {
     return language === "tr"
       ? "Bağlantı hazır, ancak bu workspace için henüz bir Meta reklam hesabı atanmadı."
@@ -213,6 +291,10 @@ export function getMetaStatusNotice(
       ? status.latestSync.lastError
       : getMetaSyncDescription(status, language);
   }
+  if (hasMetaExtendedCompletenessLag(status)) {
+    return getMetaExtendedLagDescription(status, language);
+  }
+  const pageMessages = getMetaPageStatusMessaging(status, language);
   if (pageMessages.banner.visible) {
     return pageMessages.banner.description ?? getMetaSyncDescription(status, language);
   }

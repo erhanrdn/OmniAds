@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildMetaCoreReadiness,
+  buildMetaExtendedCompleteness,
   getMetaRequiredPageSurfaceKeys,
+  hasMetaExtendedCompletenessLag,
   isMetaPageCurrentDayPreparing,
   rollupMetaPageReadiness,
   shouldMaskMetaKpisAsPreparing,
@@ -181,6 +184,57 @@ describe("meta page readiness", () => {
     expect(readiness.state).toBe("syncing");
     expect(readiness.usable).toBe(false);
     expect(readiness.complete).toBe(false);
+  });
+
+  it("splits core readiness from extended completeness explicitly", () => {
+    const coreReadiness = buildMetaCoreReadiness({
+      connected: true,
+      hasAssignedAccounts: true,
+      percent: 100,
+      summary: "Summary and campaign data are ready.",
+      surfaces: {
+        summary: buildSurface("ready"),
+        campaigns: buildSurface("ready"),
+      },
+    });
+    const extendedCompleteness = buildMetaExtendedCompleteness({
+      connected: true,
+      hasAssignedAccounts: true,
+      percent: 33,
+      summary: "Breakdown data is still preparing.",
+      surfaces: {
+        "breakdowns.age": buildSurface("syncing", {
+          reason: "Age breakdown is still preparing.",
+        }),
+        "breakdowns.location": buildSurface("syncing", {
+          reason: "Location breakdown is still preparing.",
+        }),
+        "breakdowns.placement": buildSurface("ready"),
+      },
+    });
+
+    expect(coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      percent: 100,
+      missingSurfaces: [],
+    });
+    expect(extendedCompleteness).toMatchObject({
+      state: "syncing",
+      complete: false,
+      percent: 33,
+      missingSurfaces: ["breakdowns.age", "breakdowns.location"],
+    });
+    expect(
+      hasMetaExtendedCompletenessLag({
+        state: "partial",
+        connected: true,
+        assignedAccountIds: ["act_1"],
+        coreReadiness,
+        extendedCompleteness,
+      } as MetaStatusResponse)
+    ).toBe(true);
   });
 
   it("returns not_connected when integration or assignment is missing", () => {

@@ -1,4 +1,8 @@
 import type {
+  MetaCoreReadiness,
+  MetaCoreSurfaceKey,
+  MetaExtendedCompleteness,
+  MetaExtendedSurfaceKey,
   MetaPageReadiness,
   MetaPageReadinessState,
   MetaPageSelectedRangeMode,
@@ -8,31 +12,38 @@ import type {
 } from "@/lib/meta/status-types";
 import { META_PAGE_REQUIRED_SURFACE_ORDER } from "@/lib/meta/page-contract";
 
-function buildSurface(input: MetaSurfaceReadiness): MetaSurfaceReadiness {
-  return input;
+interface MetaSurfaceCollectionRollup<TSurfaceKey extends string> {
+  state: MetaPageReadinessState;
+  usable: boolean;
+  complete: boolean;
+  reason: string | null;
+  missingSurfaces: TSurfaceKey[];
+  blockedSurfaces: TSurfaceKey[];
 }
 
-export function rollupMetaPageReadiness(input: {
+export function rollupMetaSurfaceCollection<TSurfaceKey extends string>(input: {
   connected: boolean;
   hasAssignedAccounts: boolean;
-  selectedRangeMode: MetaPageSelectedRangeMode;
-  requiredSurfaces: MetaPageReadiness["requiredSurfaces"];
-  optionalSurfaces: MetaPageReadiness["optionalSurfaces"];
-}): MetaPageReadiness {
-  const orderedRequired = META_PAGE_REQUIRED_SURFACE_ORDER.map((key) => [
+  surfaces: Record<TSurfaceKey, MetaSurfaceReadiness>;
+  orderedKeys: readonly TSurfaceKey[];
+  usableKeys?: readonly TSurfaceKey[];
+}): MetaSurfaceCollectionRollup<TSurfaceKey> {
+  const orderedSurfaces = input.orderedKeys.map((key) => [
     key,
-    input.requiredSurfaces[key],
-  ] as [MetaPageSurfaceKey, MetaSurfaceReadiness]);
-  const missingRequiredSurfaces = orderedRequired
+    input.surfaces[key],
+  ] as [TSurfaceKey, MetaSurfaceReadiness]);
+  const usableKeys = input.usableKeys ?? input.orderedKeys;
+  const missingSurfaces = orderedSurfaces
     .filter(([, surface]) => surface.countsForPageCompleteness && surface.state !== "ready")
-    .map(([key]) => key) as MetaPageSurfaceKey[];
-  const usable =
-    input.requiredSurfaces.summary.state === "ready" &&
-    input.requiredSurfaces.campaigns.state === "ready";
-  const complete = missingRequiredSurfaces.length === 0;
+    .map(([key]) => key);
+  const blockedSurfaces = orderedSurfaces
+    .filter(([, surface]) => surface.state === "blocked")
+    .map(([key]) => key);
+  const usable = usableKeys.every((key) => input.surfaces[key].state === "ready");
+  const complete = missingSurfaces.length === 0;
   const firstMissingReason =
-    missingRequiredSurfaces
-      .map((key) => input.requiredSurfaces[key as keyof MetaPageReadiness["requiredSurfaces"]].reason)
+    missingSurfaces
+      .map((key) => input.surfaces[key].reason)
       .find((reason): reason is string => Boolean(reason)) ?? null;
 
   let state: MetaPageReadinessState;
@@ -50,18 +61,18 @@ export function rollupMetaPageReadiness(input: {
     state = "partial";
     reason = firstMissingReason;
   } else {
-    const blockedRequired = orderedRequired.filter(([, surface]) => surface.state === "blocked");
-    const syncingRequired = orderedRequired.filter(([, surface]) => surface.state === "syncing");
-    if (blockedRequired.length > 0) {
+    const syncingSurfaces = orderedSurfaces.filter(([, surface]) => surface.state === "syncing");
+    if (blockedSurfaces.length > 0) {
       state = "blocked";
       reason =
-        blockedRequired.find(([, surface]) => surface.reason)?.[1].reason ?? firstMissingReason;
-    } else if (syncingRequired.length > 0) {
+        orderedSurfaces.find(([, surface]) => surface.state === "blocked" && surface.reason)?.[1].reason ??
+        firstMissingReason;
+    } else if (syncingSurfaces.length > 0) {
       state = "syncing";
       reason =
-        syncingRequired.find(([, surface]) => surface.reason)?.[1].reason ?? firstMissingReason;
+        syncingSurfaces.find(([, surface]) => surface.reason)?.[1].reason ?? firstMissingReason;
     } else {
-      state = "blocked";
+      state = "partial";
       reason = firstMissingReason;
     }
   }
@@ -70,9 +81,34 @@ export function rollupMetaPageReadiness(input: {
     state,
     usable,
     complete,
-    selectedRangeMode: input.selectedRangeMode,
     reason,
-    missingRequiredSurfaces,
+    missingSurfaces,
+    blockedSurfaces,
+  };
+}
+
+export function rollupMetaPageReadiness(input: {
+  connected: boolean;
+  hasAssignedAccounts: boolean;
+  selectedRangeMode: MetaPageSelectedRangeMode;
+  requiredSurfaces: MetaPageReadiness["requiredSurfaces"];
+  optionalSurfaces: MetaPageReadiness["optionalSurfaces"];
+}): MetaPageReadiness {
+  const rolledUp = rollupMetaSurfaceCollection({
+    connected: input.connected,
+    hasAssignedAccounts: input.hasAssignedAccounts,
+    surfaces: input.requiredSurfaces,
+    orderedKeys: META_PAGE_REQUIRED_SURFACE_ORDER,
+    usableKeys: ["summary", "campaigns"] satisfies readonly MetaPageSurfaceKey[],
+  });
+
+  return {
+    state: rolledUp.state,
+    usable: rolledUp.usable,
+    complete: rolledUp.complete,
+    selectedRangeMode: input.selectedRangeMode,
+    reason: rolledUp.reason,
+    missingRequiredSurfaces: rolledUp.missingSurfaces as MetaPageSurfaceKey[],
     requiredSurfaces: input.requiredSurfaces,
     optionalSurfaces: input.optionalSurfaces,
   };
@@ -80,6 +116,75 @@ export function rollupMetaPageReadiness(input: {
 
 export function getMetaPageReadiness(status: MetaStatusResponse | undefined | null) {
   return status?.pageReadiness ?? null;
+}
+
+export function getMetaCoreReadiness(status: MetaStatusResponse | undefined | null) {
+  return status?.coreReadiness ?? null;
+}
+
+export function getMetaExtendedCompleteness(status: MetaStatusResponse | undefined | null) {
+  return status?.extendedCompleteness ?? null;
+}
+
+export function hasMetaExtendedCompletenessLag(status: MetaStatusResponse | undefined | null) {
+  const coreReadiness = getMetaCoreReadiness(status);
+  const extendedCompleteness = getMetaExtendedCompleteness(status);
+  if (!coreReadiness?.usable || !extendedCompleteness) return false;
+  return !extendedCompleteness.complete;
+}
+
+export function buildMetaCoreReadiness(input: {
+  connected: boolean;
+  hasAssignedAccounts: boolean;
+  percent: number;
+  summary: string | null;
+  surfaces: Record<MetaCoreSurfaceKey, MetaSurfaceReadiness>;
+}): MetaCoreReadiness {
+  const rolledUp = rollupMetaSurfaceCollection({
+    connected: input.connected,
+    hasAssignedAccounts: input.hasAssignedAccounts,
+    surfaces: input.surfaces,
+    orderedKeys: ["summary", "campaigns"],
+    usableKeys: ["summary", "campaigns"],
+  });
+
+  return {
+    state: rolledUp.state,
+    usable: rolledUp.usable,
+    complete: rolledUp.complete,
+    percent: input.percent,
+    reason: rolledUp.reason,
+    summary: input.summary,
+    missingSurfaces: rolledUp.missingSurfaces as MetaCoreSurfaceKey[],
+    blockedSurfaces: rolledUp.blockedSurfaces as MetaCoreSurfaceKey[],
+    surfaces: input.surfaces,
+  };
+}
+
+export function buildMetaExtendedCompleteness(input: {
+  connected: boolean;
+  hasAssignedAccounts: boolean;
+  percent: number | null;
+  summary: string | null;
+  surfaces: Record<MetaExtendedSurfaceKey, MetaSurfaceReadiness>;
+}): MetaExtendedCompleteness {
+  const rolledUp = rollupMetaSurfaceCollection({
+    connected: input.connected,
+    hasAssignedAccounts: input.hasAssignedAccounts,
+    surfaces: input.surfaces,
+    orderedKeys: ["breakdowns.age", "breakdowns.location", "breakdowns.placement"],
+  });
+
+  return {
+    state: rolledUp.state,
+    complete: rolledUp.complete,
+    percent: input.percent,
+    reason: rolledUp.reason,
+    summary: input.summary,
+    missingSurfaces: rolledUp.missingSurfaces as MetaExtendedSurfaceKey[],
+    blockedSurfaces: rolledUp.blockedSurfaces as MetaExtendedSurfaceKey[],
+    surfaces: input.surfaces,
+  };
 }
 
 export function getMetaPageStatusReason(status: MetaStatusResponse | undefined | null) {

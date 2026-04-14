@@ -21,6 +21,14 @@ describe("sync status pill resolver", () => {
           requiredSurfaces: {} as never,
           optionalSurfaces: {} as never,
         },
+        warehouse: {
+          coverage: {
+            selectedRange: {
+              completedDays: 82,
+              totalDays: 100,
+            },
+          },
+        },
         latestSync: { progressPercent: 82 },
       } as never)
     ).toMatchObject({
@@ -60,10 +68,18 @@ describe("sync status pill resolver", () => {
           requiredSurfaces: {} as never,
           optionalSurfaces: {} as never,
         },
+        warehouse: {
+          coverage: {
+            selectedRange: {
+              completedDays: 72,
+              totalDays: 100,
+            },
+          },
+        },
         latestSync: { progressPercent: 72 },
       } as never)
     ).toMatchObject({
-      label: "72% Partially ready",
+      label: "72% Preparing range",
       tone: "info",
       state: "syncing",
     });
@@ -142,6 +158,93 @@ describe("sync status pill resolver", () => {
       } as never)
     ).toMatchObject({
       label: "Active",
+      tone: "success",
+      state: "active",
+    });
+  });
+
+  it("renders a core-ready pill for Meta when summary and campaigns are ready but breakdowns still lag", () => {
+    expect(
+      resolveMetaSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["act_1"],
+        state: "syncing",
+        coreReadiness: {
+          state: "ready",
+          usable: true,
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Summary and campaign data are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {
+            summary: {
+              state: "ready",
+              blocking: false,
+              countsForPageCompleteness: true,
+              truthClass: "historical_warehouse",
+              reason: null,
+            },
+            campaigns: {
+              state: "ready",
+              blocking: false,
+              countsForPageCompleteness: true,
+              truthClass: "historical_warehouse",
+              reason: null,
+            },
+          },
+        },
+        extendedCompleteness: {
+          state: "syncing",
+          complete: false,
+          percent: 33,
+          reason: "Breakdowns are still preparing.",
+          summary: "Breakdowns are still preparing.",
+          missingSurfaces: [
+            "breakdowns.age",
+            "breakdowns.location",
+            "breakdowns.placement",
+          ],
+          blockedSurfaces: [],
+          surfaces: {
+            "breakdowns.age": {
+              state: "syncing",
+              blocking: true,
+              countsForPageCompleteness: true,
+              truthClass: "historical_warehouse",
+              reason: "Breakdowns are still preparing.",
+            },
+            "breakdowns.location": {
+              state: "syncing",
+              blocking: true,
+              countsForPageCompleteness: true,
+              truthClass: "historical_warehouse",
+              reason: "Breakdowns are still preparing.",
+            },
+            "breakdowns.placement": {
+              state: "syncing",
+              blocking: true,
+              countsForPageCompleteness: true,
+              truthClass: "historical_warehouse",
+              reason: "Breakdowns are still preparing.",
+            },
+          },
+        },
+        pageReadiness: {
+          state: "partial",
+          usable: true,
+          complete: false,
+          selectedRangeMode: "historical_warehouse",
+          reason: "Breakdowns are still preparing.",
+          missingRequiredSurfaces: ["breakdowns.age"],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
+        latestSync: { progressPercent: 100 },
+      } as never)
+    ).toMatchObject({
+      label: "Core ready",
       tone: "success",
       state: "active",
     });

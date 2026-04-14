@@ -20,6 +20,8 @@ export function assertMetaStatusPageContract(payload: Record<string, unknown>) {
   expect(payload).toHaveProperty("readinessLevel");
   expect(payload).toHaveProperty("domainReadiness");
   expect(payload).toHaveProperty("pageReadiness");
+  expect(payload).toHaveProperty("coreReadiness");
+  expect(payload).toHaveProperty("extendedCompleteness");
   expect(payload).toHaveProperty("currentDateInTimezone");
   expect(payload).toHaveProperty("primaryAccountTimezone");
   expect(payload).toHaveProperty("currentDayLive");
@@ -38,9 +40,39 @@ export function assertMetaStatusPageContract(payload: Record<string, unknown>) {
 
   const requiredSurfaces = pageReadiness.requiredSurfaces as Record<string, Record<string, unknown>>;
   const optionalSurfaces = pageReadiness.optionalSurfaces as Record<string, Record<string, unknown>>;
+  const coreReadiness = payload.coreReadiness as Record<string, unknown>;
+  const extendedCompleteness = payload.extendedCompleteness as Record<string, unknown>;
 
   expect(Object.keys(requiredSurfaces)).toEqual([...META_PAGE_REQUIRED_SURFACE_ORDER]);
   expect(Object.keys(optionalSurfaces)).toEqual([...META_PAGE_OPTIONAL_SURFACES]);
+  expect(coreReadiness).toBeTruthy();
+  expect(coreReadiness).toHaveProperty("state");
+  expect(coreReadiness).toHaveProperty("usable");
+  expect(coreReadiness).toHaveProperty("complete");
+  expect(coreReadiness).toHaveProperty("percent");
+  expect(coreReadiness).toHaveProperty("reason");
+  expect(coreReadiness).toHaveProperty("summary");
+  expect(coreReadiness).toHaveProperty("missingSurfaces");
+  expect(coreReadiness).toHaveProperty("blockedSurfaces");
+  expect(coreReadiness).toHaveProperty("surfaces");
+  expect(Object.keys(coreReadiness.surfaces as Record<string, unknown>)).toEqual([
+    "summary",
+    "campaigns",
+  ]);
+  expect(extendedCompleteness).toBeTruthy();
+  expect(extendedCompleteness).toHaveProperty("state");
+  expect(extendedCompleteness).toHaveProperty("complete");
+  expect(extendedCompleteness).toHaveProperty("percent");
+  expect(extendedCompleteness).toHaveProperty("reason");
+  expect(extendedCompleteness).toHaveProperty("summary");
+  expect(extendedCompleteness).toHaveProperty("missingSurfaces");
+  expect(extendedCompleteness).toHaveProperty("blockedSurfaces");
+  expect(extendedCompleteness).toHaveProperty("surfaces");
+  expect(Object.keys(extendedCompleteness.surfaces as Record<string, unknown>)).toEqual([
+    "breakdowns.age",
+    "breakdowns.location",
+    "breakdowns.placement",
+  ]);
 
   for (const key of META_PAGE_REQUIRED_SURFACE_ORDER) {
     expect(requiredSurfaces[key]).toEqual(

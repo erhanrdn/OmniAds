@@ -91,6 +91,93 @@ function buildStatus(overrides: Partial<MetaStatusResponse> = {}): MetaStatusRes
 }
 
 describe("meta ui helpers", () => {
+  it("prefers core-readiness copy over page completeness copy when only breakdowns lag", () => {
+    const status = buildStatus({
+      coreReadiness: {
+        state: "ready",
+        usable: true,
+        complete: true,
+        percent: 100,
+        reason: null,
+        summary: "Summary and campaign data are ready.",
+        missingSurfaces: [],
+        blockedSurfaces: [],
+        surfaces: {
+          summary: {
+            state: "ready",
+            blocking: false,
+            countsForPageCompleteness: true,
+            truthClass: "historical_warehouse",
+            reason: null,
+          },
+          campaigns: {
+            state: "ready",
+            blocking: false,
+            countsForPageCompleteness: true,
+            truthClass: "historical_warehouse",
+            reason: null,
+          },
+        },
+      },
+      extendedCompleteness: {
+        state: "syncing",
+        complete: false,
+        percent: 33,
+        reason: "Breakdown warehouse data is still being prepared for the selected range.",
+        summary: "Breakdown data is still being prepared for the selected range.",
+        missingSurfaces: [
+          "breakdowns.age",
+          "breakdowns.location",
+          "breakdowns.placement",
+        ],
+        blockedSurfaces: [],
+        surfaces: {
+          "breakdowns.age": {
+            state: "syncing",
+            blocking: true,
+            countsForPageCompleteness: true,
+            truthClass: "historical_warehouse",
+            reason: "Breakdown warehouse data is still being prepared for the selected range.",
+          },
+          "breakdowns.location": {
+            state: "syncing",
+            blocking: true,
+            countsForPageCompleteness: true,
+            truthClass: "historical_warehouse",
+            reason: "Breakdown warehouse data is still being prepared for the selected range.",
+          },
+          "breakdowns.placement": {
+            state: "syncing",
+            blocking: true,
+            countsForPageCompleteness: true,
+            truthClass: "historical_warehouse",
+            reason: "Breakdown warehouse data is still being prepared for the selected range.",
+          },
+        },
+      },
+      warehouse: {
+        coverage: {
+          selectedRange: {
+            startDate: "2026-04-01",
+            endDate: "2026-04-02",
+            completedDays: 2,
+            totalDays: 2,
+            readyThroughDate: "2026-04-02",
+            isComplete: true,
+          },
+        },
+      } as never,
+    });
+
+    expect(getMetaSyncTitle(status, "en")).toBe("Meta core data is ready");
+    expect(getMetaSyncDescription(status, "en")).toBe(
+      "Summary and campaigns are ready. Breakdown surfaces for the selected range continue preparing in the background."
+    );
+    expect(getMetaStatusNotice(status, "en")).toBe(
+      "Summary and campaigns are ready. Breakdown surfaces for the selected range continue preparing in the background."
+    );
+  });
+
   it("prefers page readiness for page-wide title and description", () => {
     const status = buildStatus();
 

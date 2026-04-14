@@ -1,6 +1,10 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import { resolveGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
-import { getMetaPageReadiness } from "@/lib/meta/page-readiness";
+import {
+  getMetaCoreReadiness,
+  getMetaPageReadiness,
+  hasMetaExtendedCompletenessLag,
+} from "@/lib/meta/page-readiness";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { getMetaPageStatusMessaging } from "@/lib/meta/ui-status";
 
@@ -27,6 +31,11 @@ function percentFromCoverage(
 }
 
 function resolveMetaPercent(status: MetaStatusResponse) {
+  const corePercent = status.coreReadiness?.percent;
+  if (typeof corePercent === "number" && Number.isFinite(corePercent)) {
+    return clampPercent(corePercent);
+  }
+
   const latestPercent = status.latestSync?.progressPercent;
   if (typeof latestPercent === "number" && Number.isFinite(latestPercent)) {
     return clampPercent(latestPercent);
@@ -48,6 +57,14 @@ function resolveMetaPercent(status: MetaStatusResponse) {
 
   const creativesCoverage = status.warehouse?.coverage?.creatives;
   return percentFromCoverage(creativesCoverage?.completedDays, creativesCoverage?.totalDays);
+}
+
+function getMetaProgressLabel(status: MetaStatusResponse) {
+  const coreReadiness = getMetaCoreReadiness(status);
+  if (coreReadiness?.usable && hasMetaExtendedCompletenessLag(status)) return "Core ready";
+  if (status.pageReadiness?.selectedRangeMode === "current_day_live") return "Preparing today";
+  if (status.warehouse?.coverage?.selectedRange) return "Preparing range";
+  return "Preparing core";
 }
 
 function buildSyncingPill(percent: number, label = "Syncing"): SyncStatusPillState {
@@ -98,39 +115,34 @@ export function resolveMetaSyncStatusPill(
 
   const pageReadiness = getMetaPageReadiness(status);
   const pageMessages = getMetaPageStatusMessaging(status, "en");
+  const coreReadiness = getMetaCoreReadiness(status);
   const percent = resolveMetaPercent(status);
   const isAttentionState =
+    coreReadiness?.state === "blocked" ||
     pageReadiness?.state === "blocked" ||
     status.state === "action_required" ||
     status.state === "paused" ||
     status.state === "stale" ||
     status.operations?.progressState === "blocked";
-  const isPreparingCoverageState =
-    pageReadiness?.state === "syncing" ||
-    pageReadiness?.state === "partial" ||
-    status.state === "syncing" ||
-    status.state === "partial";
-  const attentionLabel =
-    pageReadiness?.state === "blocked" ? pageMessages.pill.label : "Needs attention";
-
-  if (isAttentionState && isPreparingCoverageState && pageReadiness?.state !== "blocked") {
-    return buildInfoPill("Preparing data");
-  }
 
   if (isAttentionState) {
-    return buildAttentionPill(attentionLabel);
+    return buildAttentionPill();
   }
 
-  if (pageReadiness?.state === "ready") {
+  if (coreReadiness?.usable && hasMetaExtendedCompletenessLag(status)) {
+    return buildActivePill("Core ready");
+  }
+
+  if (coreReadiness?.state === "ready" || pageReadiness?.state === "ready") {
     return buildActivePill(pageMessages.pill.label);
   }
 
-  if ((pageReadiness?.state === "syncing" || pageReadiness?.state === "partial") && typeof percent === "number") {
-    return buildSyncingPill(percent, pageMessages.pill.label);
+  if ((coreReadiness?.state === "syncing" || coreReadiness?.state === "partial") && typeof percent === "number") {
+    return buildSyncingPill(percent, getMetaProgressLabel(status));
   }
 
   if (typeof percent === "number" && percent < 100) {
-    return buildSyncingPill(percent, pageMessages.pill.label);
+    return buildSyncingPill(percent, getMetaProgressLabel(status));
   }
 
   if (status.state === "ready" || percent === 100) {
@@ -138,16 +150,16 @@ export function resolveMetaSyncStatusPill(
   }
 
   if ((status.state === "syncing" || status.state === "partial") && typeof percent === "number") {
-    return buildSyncingPill(percent, pageMessages.pill.label);
+    return buildSyncingPill(percent, getMetaProgressLabel(status));
   }
 
   if (
-    pageReadiness?.state === "syncing" ||
-    pageReadiness?.state === "partial" ||
+    coreReadiness?.state === "syncing" ||
+    coreReadiness?.state === "partial" ||
     status.state === "syncing" ||
     status.state === "partial"
   ) {
-    return buildAttentionPill(pageMessages.pill.label);
+    return buildInfoPill(getMetaProgressLabel(status));
   }
 
   return buildActivePill(pageMessages.pill.label);

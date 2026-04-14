@@ -8,7 +8,11 @@ import {
   META_RUNTIME_STATE_SCOPES,
   META_SECONDARY_REPORTING_SCOPES,
 } from "@/lib/meta/core-config";
-import { rollupMetaPageReadiness } from "@/lib/meta/page-readiness";
+import {
+  buildMetaCoreReadiness,
+  buildMetaExtendedCompleteness,
+  rollupMetaPageReadiness,
+} from "@/lib/meta/page-readiness";
 import { getMetaCurrentDayLiveAvailability } from "@/lib/meta/live";
 import {
   getLatestMetaSyncHealth,
@@ -165,6 +169,11 @@ function minCompletedDays(
   const minValue = Math.min(...finiteValues);
   if (!Number.isFinite(totalDays) || (totalDays ?? 0) <= 0) return minValue;
   return Math.min(minValue, totalDays ?? 0);
+}
+
+function clampPercent(value: number | null | undefined) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value ?? 0)));
 }
 
 function earliestReadyThroughDate(values: Array<string | null | undefined>) {
@@ -843,6 +852,14 @@ export async function GET(request: NextRequest) {
           campaignsAvailable: false,
         }))
       : null;
+  const recentSummaryReady =
+    connected &&
+    accountIds.length > 0 &&
+    (recentAccountCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
+  const recentCampaignsReady =
+    connected &&
+    accountIds.length > 0 &&
+    (recentCampaignCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
   const summaryReady =
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (accountCoverage?.completed_days ?? 0) > 0
@@ -1089,6 +1106,186 @@ export async function GET(request: NextRequest) {
     requiredSurfaces: pageRequiredSurfaces,
     optionalSurfaces: pageOptionalSurfaces,
   });
+  const providerCoreSurfaces = selectedRangeRequested
+    ? {
+        summary: pageRequiredSurfaces.summary,
+        campaigns: pageRequiredSurfaces.campaigns,
+      }
+    : {
+        summary: {
+          state: buildPageSurfaceState({
+            connected,
+            hasAssignedAccounts: accountIds.length > 0,
+            ready: recentSummaryReady,
+            activeProgress: overallSyncActive,
+            blockedReason: null,
+            syncingReason:
+              recentSummaryReady
+                ? "Recent summary warehouse data is ready."
+                : "Recent summary warehouse data is still being prepared for this workspace.",
+            blockedFallbackReason: "Recent summary warehouse data is unavailable.",
+          }),
+          blocking: !recentSummaryReady,
+          countsForPageCompleteness: true,
+          truthClass: "historical_warehouse",
+          reason: !connected
+            ? "Meta integration is not connected."
+            : accountIds.length === 0
+              ? "No Meta ad account is assigned to this workspace."
+              : recentSummaryReady
+                ? null
+                : "Recent summary warehouse data is still being prepared for this workspace.",
+        },
+        campaigns: {
+          state: buildPageSurfaceState({
+            connected,
+            hasAssignedAccounts: accountIds.length > 0,
+            ready: recentCampaignsReady,
+            activeProgress: overallSyncActive,
+            blockedReason: null,
+            syncingReason:
+              recentCampaignsReady
+                ? "Recent campaign warehouse data is ready."
+                : "Recent campaign warehouse data is still being prepared for this workspace.",
+            blockedFallbackReason: "Recent campaign warehouse data is unavailable.",
+          }),
+          blocking: !recentCampaignsReady,
+          countsForPageCompleteness: true,
+          truthClass: "historical_warehouse",
+          reason: !connected
+            ? "Meta integration is not connected."
+            : accountIds.length === 0
+              ? "No Meta ad account is assigned to this workspace."
+              : recentCampaignsReady
+                ? null
+                : "Recent campaign warehouse data is still being prepared for this workspace.",
+        },
+      };
+  const historicalBreakdownTotalDays = Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS);
+  const extendedSurfaceReadiness = Object.fromEntries(
+    META_BREAKDOWN_SURFACES.map((surface) => {
+      const selectedRangeCoverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
+      const historicalCoverage = breakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
+      const totalDays = selectedRangeRequested
+        ? selectedRangeTotalDays ?? 0
+        : historicalBreakdownTotalDays;
+      const completedDays = selectedRangeRequested
+        ? selectedRangeCoverage.completedDays
+        : Math.min(totalDays, historicalCoverage?.completed_days ?? 0);
+      const ready = totalDays > 0 && completedDays >= totalDays;
+      const blockedReason = selectedRangeRequested
+        ? selectedRangeCoverage.isBlocked && selectedRangeCoverage.supportStartDate
+          ? `${surface.label} breakdown data is only supported from ${selectedRangeCoverage.supportStartDate} onward for the selected range.`
+          : selectedRangeActionRequired
+            ? getMetaHistoricalVerificationReason({
+                verificationState: selectedRangeVerificationState,
+                fallbackReason: `${surface.label} breakdown data is still being prepared for the selected range.`,
+              })
+            : null
+        : null;
+      const reason = !connected
+        ? "Meta integration is not connected."
+        : accountIds.length === 0
+          ? "No Meta ad account is assigned to this workspace."
+          : blockedReason
+            ? blockedReason
+            : ready
+              ? null
+              : selectedRangeRequested
+                ? selectedRangeIsToday
+                  ? `${surface.label} breakdown data for the current Meta account day is still preparing.`
+                  : `${surface.label} breakdown data is still being prepared for the selected range.`
+                : `${surface.label} breakdown history is still being prepared for this workspace.`;
+      return [
+        surface.surfaceKey,
+        {
+          state: buildPageSurfaceState({
+            connected,
+            hasAssignedAccounts: accountIds.length > 0,
+            ready,
+            activeProgress: overallSyncActive,
+            blockedReason,
+            syncingReason: reason ?? `${surface.label} breakdown data is still preparing.`,
+            blockedFallbackReason:
+              reason ?? `${surface.label} breakdown data is unavailable for the current contract.`,
+          }),
+          blocking: connected && accountIds.length > 0 && !ready,
+          countsForPageCompleteness: true,
+          truthClass: selectedRangeIsToday
+            ? "current_day_live"
+            : "historical_warehouse",
+          reason,
+        },
+      ];
+    })
+  ) as {
+    "breakdowns.age": MetaSurfaceReadiness;
+    "breakdowns.location": MetaSurfaceReadiness;
+    "breakdowns.placement": MetaSurfaceReadiness;
+  };
+  const coreReadiness = buildMetaCoreReadiness({
+    connected,
+    hasAssignedAccounts: accountIds.length > 0,
+    percent: clampPercent(currentCoreProgressPercent),
+    summary: null,
+    surfaces: providerCoreSurfaces,
+  });
+  if (coreReadiness.complete) {
+    coreReadiness.percent = 100;
+  }
+  coreReadiness.summary =
+    coreReadiness.reason ??
+    (!connected
+      ? "Meta integration is not connected."
+      : accountIds.length === 0
+        ? "No Meta ad account is assigned to this workspace."
+        : coreReadiness.complete
+          ? selectedRangeRequested
+            ? selectedRangeIsToday
+              ? "Summary and campaign data for the current Meta account day are ready."
+              : "Summary and campaign data are ready for the selected range."
+            : "Summary and campaign data are ready for Meta's primary reporting surfaces."
+          : selectedRangeRequested
+            ? selectedRangeIsToday
+              ? "Summary and campaign data for the current Meta account day are still preparing."
+              : "Summary and campaign data are still being prepared for the selected range."
+            : "Recent summary and campaign data are still being prepared for this workspace.");
+  const extendedPercent =
+    selectedRangeRequested && selectedRangeBreakdownGuardrailBlocked
+      ? null
+      : clampPercent(
+          selectedRangeRequested && selectedRangeTotalDays
+            ? (selectedRangeBreakdownCompletedDays / Math.max(1, selectedRangeTotalDays)) * 100
+            : historicalBreakdownTotalDays > 0
+              ? (breakdownCoverageDays / historicalBreakdownTotalDays) * 100
+              : null
+        );
+  const extendedCompleteness = buildMetaExtendedCompleteness({
+    connected,
+    hasAssignedAccounts: accountIds.length > 0,
+    percent: extendedPercent,
+    summary: null,
+    surfaces: extendedSurfaceReadiness,
+  });
+  extendedCompleteness.summary =
+    extendedCompleteness.reason ??
+    (!connected
+      ? "Meta integration is not connected."
+      : accountIds.length === 0
+        ? "No Meta ad account is assigned to this workspace."
+        : extendedCompleteness.complete
+          ? selectedRangeRequested
+            ? selectedRangeIsToday
+              ? "Current-day Meta breakdowns are ready."
+              : "Breakdown data is ready for the selected range."
+            : "Breakdown history is ready for Meta's extended reporting surfaces."
+          : selectedRangeRequested
+            ? selectedRangeIsToday
+              ? "Current-day Meta breakdowns are still preparing."
+              : selectedRangeBreakdownGuardrailBlocked
+                ? "Some Meta breakdowns are unavailable for the selected range."
+                : "Breakdown data is still being prepared for the selected range."
+            : "Extended Meta breakdown history is still being prepared in the background.");
 
   const state = !connected
     ? "not_connected"
@@ -1547,6 +1744,8 @@ export async function GET(request: NextRequest) {
       historicalArchiveProgressPercent,
       currentCoreUsable,
       historicalArchiveComplete,
+      coreReadiness,
+      extendedCompleteness,
       needsBootstrap:
         connected && accountIds.length > 0 && historicalArchiveCompletedDays < historicalTotalDays,
       warehouse: {

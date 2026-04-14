@@ -1552,6 +1552,12 @@ describe("GET /api/meta/status", () => {
       summaryAvailable: true,
       campaignsAvailable: false,
     });
+    expect(payload.coreReadiness).toMatchObject({
+      state: "syncing",
+      usable: false,
+      complete: false,
+      missingSurfaces: ["campaigns"],
+    });
     expect(payload.pageReadiness.usable).toBe(false);
     expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces.campaigns.state).not.toBe("ready");
@@ -1616,6 +1622,23 @@ describe("GET /api/meta/status", () => {
       complete: false,
       selectedRangeMode: "historical_warehouse",
       missingRequiredSurfaces: [
+        "breakdowns.age",
+        "breakdowns.location",
+        "breakdowns.placement",
+      ],
+    });
+    expect(payload.coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      percent: 100,
+      missingSurfaces: [],
+    });
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "syncing",
+      complete: false,
+      percent: 50,
+      missingSurfaces: [
         "breakdowns.age",
         "breakdowns.location",
         "breakdowns.placement",
@@ -2118,6 +2141,22 @@ describe("GET /api/meta/status", () => {
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("blocked");
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("blocked");
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("blocked");
+    expect(payload.coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      missingSurfaces: [],
+    });
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "blocked",
+      complete: false,
+      percent: null,
+      blockedSurfaces: [
+        "breakdowns.age",
+        "breakdowns.location",
+        "breakdowns.placement",
+      ],
+    });
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].reason).toBe(
       "Age breakdown data is only supported from 2026-04-10 onward for the selected range."
     );
