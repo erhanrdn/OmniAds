@@ -57,6 +57,7 @@
     "overview:summary:materialize": "node --import tsx scripts/materialize-overview-summary-range.ts",
     "reporting:cache:warm": "node --import tsx scripts/warm-user-facing-report-cache.ts",
     "db:migrate": "node --import tsx scripts/run-migrations.ts",
+    "db:sync:local-businesses": "node --import tsx scripts/sync-local-businesses.ts",
     "db:architecture:baseline": "node --import tsx scripts/db-architecture-baseline.ts"
   },
   "dependencies": {
