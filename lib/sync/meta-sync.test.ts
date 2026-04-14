@@ -5,6 +5,7 @@ import {
   buildMetaFairnessLeasePlan,
   buildMetaFollowupLeasePlan,
   buildMetaLaneProgressEvidence,
+  buildMetaWorkerLeasePlan,
   hasMetaInProcessBackgroundWorkerIdentity,
   getDeprecatedMetaPartitionCancellationReason,
   getMetaExtendedHistoricalFairnessLimit,
@@ -12,10 +13,22 @@ import {
   isMetaAuthoritativeHistoricalSource,
   logMetaQueueVisibility,
   normalizeMetaPartitionDate,
+  resolveMetaBackgroundLoopDelayMs,
   resolveMetaTruthState,
   resolveMetaHistoricalReplaySource,
+  resolveMetaWorkerRequestedLimit,
   shouldBypassMetaCoverageShortCircuit,
 } from "@/lib/sync/meta-sync";
+
+vi.mock("@/lib/meta/warehouse", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/meta/warehouse")>();
+  return {
+    ...actual,
+    getMetaQueueHealth: vi.fn(),
+  };
+});
+
+const warehouse = await import("@/lib/meta/warehouse");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -192,7 +205,7 @@ describe("buildMetaFollowupLeasePlan", () => {
     });
 
     expect(plan.extendedRecentLimit).toBe(0);
-    expect(plan.historicalCoreLimit).toBeGreaterThan(0);
+    expect(plan.historicalCoreLimit).toBe(0);
   });
 
   it("holds historical tail leasing until recent backlog is drained", () => {
@@ -210,6 +223,147 @@ describe("buildMetaFollowupLeasePlan", () => {
 
     expect(plan.extendedHistoricalLimit).toBe(0);
     expect(plan.extendedRecentLimit).toBeGreaterThan(0);
+  });
+
+  it("holds historical core follow-up while priority core work is queued", () => {
+    const plan = buildMetaFollowupLeasePlan({
+      queueHealth: {
+        maintenanceQueueDepth: 0,
+        maintenanceLeasedPartitions: 0,
+        coreQueueDepth: 6,
+        historicalCoreQueueDepth: 2,
+      } as never,
+      leasedCorePriorityCount: 0,
+      leasedCoreFairnessCount: 0,
+      leasedExtendedHistoricalFairnessCount: 0,
+    });
+
+    expect(plan.historicalCoreLimit).toBe(0);
+  });
+});
+
+describe("resolveMetaWorkerRequestedLimit", () => {
+  it("expands the per-tick lease budget when priority backlog is moving", () => {
+    const requestedLimit = resolveMetaWorkerRequestedLimit({
+      leaseLimit: 1,
+      queueHealth: {
+        queueDepth: 18,
+        coreQueueDepth: 6,
+        historicalCoreQueueDepth: 0,
+        maintenanceQueueDepth: 2,
+        extendedRecentQueueDepth: 4,
+        deadLetterPartitions: 0,
+        retryableFailedPartitions: 0,
+        latestCoreActivityAt: "2026-04-02T09:27:00.000Z",
+        latestMaintenanceActivityAt: "2026-04-02T09:27:00.000Z",
+        latestExtendedActivityAt: "2026-04-02T09:27:00.000Z",
+      } as never,
+      laneProgressEvidence: {
+        core: {
+          lastCheckpointAdvancedAt: "2026-04-02T09:27:00.000Z",
+          lastReadyThroughAdvancedAt: null,
+          lastCompletedAt: "2026-04-02T09:27:00.000Z",
+          backlogDelta: -3,
+          completedPartitionDelta: 2,
+          lastReplayAt: null,
+          lastReclaimAt: null,
+          recentActivityWindowMinutes: 20,
+        },
+      },
+      nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+    });
+
+    expect(requestedLimit).toBeGreaterThan(1);
+  });
+
+  it("stays conservative when retryable failure pressure exists", () => {
+    const requestedLimit = resolveMetaWorkerRequestedLimit({
+      leaseLimit: 1,
+      queueHealth: {
+        queueDepth: 9,
+        coreQueueDepth: 4,
+        historicalCoreQueueDepth: 0,
+        retryableFailedPartitions: 2,
+        deadLetterPartitions: 0,
+      } as never,
+    });
+
+    expect(requestedLimit).toBe(1);
+  });
+});
+
+describe("resolveMetaBackgroundLoopDelayMs", () => {
+  it("returns the near-immediate busy delay when work is moving", () => {
+    const busyDelay = resolveMetaBackgroundLoopDelayMs({
+      hasPendingWork: true,
+      hasForwardProgress: true,
+    });
+    const idleDelay = resolveMetaBackgroundLoopDelayMs({
+      hasPendingWork: false,
+      hasForwardProgress: false,
+    });
+
+    expect(busyDelay).toBeLessThan(idleDelay);
+  });
+
+  it("backs off errors exponentially but stays bounded", () => {
+    expect(
+      resolveMetaBackgroundLoopDelayMs({
+        hasPendingWork: true,
+        hasForwardProgress: false,
+        hadError: true,
+        errorStreak: 2,
+      }),
+    ).toBeGreaterThan(
+      resolveMetaBackgroundLoopDelayMs({
+        hasPendingWork: true,
+        hasForwardProgress: false,
+        hadError: true,
+        errorStreak: 1,
+      }),
+    );
+    expect(
+      resolveMetaBackgroundLoopDelayMs({
+        hasPendingWork: true,
+        hasForwardProgress: false,
+        hadError: true,
+        errorStreak: 99,
+      }),
+    ).toBeLessThanOrEqual(15_000);
+  });
+});
+
+describe("buildMetaWorkerLeasePlan", () => {
+  it("prioritizes recent extended work ahead of historical tail work", async () => {
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 12,
+      leasedPartitions: 0,
+      coreQueueDepth: 0,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      maintenanceQueueDepth: 0,
+      maintenanceLeasedPartitions: 0,
+      extendedQueueDepth: 12,
+      extendedRecentQueueDepth: 4,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 8,
+      extendedHistoricalLeasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+      latestExtendedActivityAt: "2026-04-02T09:28:00.000Z",
+      latestCoreActivityAt: null,
+      latestMaintenanceActivityAt: null,
+    } as never);
+
+    const plan = await buildMetaWorkerLeasePlan({
+      businessId: "biz-1",
+      leaseLimit: 1,
+    });
+
+    expect(plan.requestedLimit).toBeGreaterThanOrEqual(1);
+    expect(plan.steps.map((step) => step.key)).toEqual([
+      "extended_recent",
+    ]);
   });
 });
 

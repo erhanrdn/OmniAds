@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildRequiredCoverage,
   buildProviderProgressEvidence,
+  deriveProviderActivityState,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
   hasRecentProviderAdvancement,
@@ -115,6 +116,42 @@ describe("deriveProviderProgressState", () => {
     });
 
     expect(state).toBe("partial_stuck");
+  });
+});
+
+describe("deriveProviderActivityState", () => {
+  it("reports busy when work is leased or actively progressing", () => {
+    expect(
+      deriveProviderActivityState({
+        progressState: "partial_progressing",
+        queueDepth: 5,
+        leasedPartitions: 0,
+      }),
+    ).toBe("busy");
+    expect(
+      deriveProviderActivityState({
+        progressState: "syncing",
+        queueDepth: 3,
+        leasedPartitions: 1,
+      }),
+    ).toBe("busy");
+  });
+
+  it("separates waiting from stalled backlog", () => {
+    expect(
+      deriveProviderActivityState({
+        progressState: "partial_progressing",
+        queueDepth: 4,
+        leasedPartitions: 0,
+      }),
+    ).toBe("busy");
+    expect(
+      deriveProviderActivityState({
+        progressState: "partial_stuck",
+        queueDepth: 4,
+        leasedPartitions: 0,
+      }),
+    ).toBe("stalled");
   });
 });
 

@@ -13,6 +13,13 @@ export type ProviderProgressState =
   | "partial_stuck"
   | "blocked";
 
+export type ProviderActivityState =
+  | "ready"
+  | "busy"
+  | "waiting"
+  | "stalled"
+  | "blocked";
+
 export type ProviderStallFingerprint =
   | "historical_starvation"
   | "dead_letter_blocking_completion"
@@ -343,6 +350,29 @@ export function deriveProviderProgressState(input: {
   }
 
   return input.fullyReady ? "ready" : "partial_stuck";
+}
+
+export function deriveProviderActivityState(input: {
+  progressState: ProviderProgressState;
+  queueDepth: number;
+  leasedPartitions: number;
+  blocked?: boolean;
+}) : ProviderActivityState {
+  if (input.blocked || input.progressState === "blocked") return "blocked";
+  if (input.progressState === "ready" && input.queueDepth === 0 && input.leasedPartitions === 0) {
+    return "ready";
+  }
+  if (
+    input.leasedPartitions > 0 ||
+    input.progressState === "syncing" ||
+    input.progressState === "partial_progressing"
+  ) {
+    return "busy";
+  }
+  if (input.queueDepth > 0) {
+    return input.progressState === "partial_stuck" ? "stalled" : "waiting";
+  }
+  return input.progressState === "partial_stuck" ? "stalled" : "waiting";
 }
 
 export function deriveProviderStallFingerprints(input: {

@@ -404,6 +404,7 @@ const META_STATE_SCOPES: MetaWarehouseScope[] = [...META_RUNTIME_STATE_SCOPES];
 const runtimeSyncStore = globalThis as typeof globalThis & {
   __metaBackgroundSyncKeys?: Set<string>;
   __metaBackgroundWorkerTimers?: Map<string, ReturnType<typeof setTimeout>>;
+  __metaBackgroundErrorCounts?: Map<string, number>;
 };
 
 function envNumber(name: string, fallback: number) {
@@ -413,9 +414,25 @@ function envNumber(name: string, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-const META_BACKGROUND_LOOP_DELAY_MS = envNumber(
-  "META_BACKGROUND_LOOP_DELAY_MS",
-  5_000,
+const META_BACKGROUND_IDLE_DELAY_MS = envNumber(
+  "META_BACKGROUND_IDLE_DELAY_MS",
+  envNumber("META_BACKGROUND_LOOP_DELAY_MS", 5_000),
+);
+const META_BACKGROUND_BUSY_DELAY_MS = envNumber(
+  "META_BACKGROUND_BUSY_DELAY_MS",
+  150,
+);
+const META_BACKGROUND_WAITING_DELAY_MS = envNumber(
+  "META_BACKGROUND_WAITING_DELAY_MS",
+  1_500,
+);
+const META_BACKGROUND_ERROR_BASE_DELAY_MS = envNumber(
+  "META_BACKGROUND_ERROR_BASE_DELAY_MS",
+  1_000,
+);
+const META_BACKGROUND_ERROR_MAX_DELAY_MS = envNumber(
+  "META_BACKGROUND_ERROR_MAX_DELAY_MS",
+  15_000,
 );
 const META_CORE_WORKER_LIMIT = envNumber("META_CORE_WORKER_LIMIT", 4);
 const META_CORE_FAIRNESS_WORKER_LIMIT = envNumber(
@@ -431,9 +448,21 @@ const META_MAINTENANCE_WORKER_LIMIT = envNumber(
   "META_MAINTENANCE_WORKER_LIMIT",
   2,
 );
+const META_PRIORITY_BACKLOG_LEASE_LIMIT = envNumber(
+  "META_PRIORITY_BACKLOG_LEASE_LIMIT",
+  3,
+);
+const META_FORWARD_PROGRESS_LEASE_LIMIT = envNumber(
+  "META_FORWARD_PROGRESS_LEASE_LIMIT",
+  2,
+);
+const META_PRODUCTIVE_LEASE_LIMIT = envNumber(
+  "META_PRODUCTIVE_LEASE_LIMIT",
+  6,
+);
 const META_PARTITION_LEASE_MINUTES = envNumber(
   "META_PARTITION_LEASE_MINUTES",
-  15,
+  6,
 );
 const META_PARTITION_MAX_ATTEMPTS = envNumber("META_PARTITION_MAX_ATTEMPTS", 6);
 const META_ENQUEUE_BATCH_SIZE = envNumber("META_ENQUEUE_BATCH_SIZE", 25);
@@ -493,6 +522,13 @@ function getBackgroundWorkerTimers() {
   return runtimeSyncStore.__metaBackgroundWorkerTimers;
 }
 
+function getBackgroundErrorCounts() {
+  if (!runtimeSyncStore.__metaBackgroundErrorCounts) {
+    runtimeSyncStore.__metaBackgroundErrorCounts = new Map();
+  }
+  return runtimeSyncStore.__metaBackgroundErrorCounts;
+}
+
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -544,6 +580,8 @@ const META_HISTORICAL_SOURCE_SET = new Set([
   "historical_recovery",
   "initial_connect",
 ]);
+const META_PRIORITY_CORE_SOURCE_LIST = [...META_RECENT_SOURCE_SET];
+const META_HISTORICAL_SOURCE_LIST = [...META_HISTORICAL_SOURCE_SET];
 
 const META_PROGRESS_EVIDENCE_WINDOW_MINUTES = envNumber(
   "META_PROGRESS_EVIDENCE_WINDOW_MINUTES",
@@ -570,6 +608,142 @@ export interface MetaFollowupLeasePlan {
   extendedHistoricalLimit: number;
 }
 
+function getMetaPriorityCoreQueueDepth(queueHealth?: MetaQueueHealth | null) {
+  return Math.max(
+    0,
+    (queueHealth?.coreQueueDepth ?? 0) - (queueHealth?.historicalCoreQueueDepth ?? 0),
+  );
+}
+
+function hasMetaMaintenanceBacklog(queueHealth?: MetaQueueHealth | null) {
+  return (
+    (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
+    (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0
+  );
+}
+
+function hasMetaExtendedRecentBacklog(queueHealth?: MetaQueueHealth | null) {
+  return (
+    (queueHealth?.extendedRecentQueueDepth ?? 0) > 0 ||
+    (queueHealth?.extendedRecentLeasedPartitions ?? 0) > 0
+  );
+}
+
+function hasMetaPriorityCoreBacklog(queueHealth?: MetaQueueHealth | null) {
+  return getMetaPriorityCoreQueueDepth(queueHealth) > 0;
+}
+
+function hasMetaHistoricalCoreBacklog(queueHealth?: MetaQueueHealth | null) {
+  return (
+    (queueHealth?.historicalCoreQueueDepth ?? 0) > 0 ||
+    (queueHealth?.historicalCoreLeasedPartitions ?? 0) > 0
+  );
+}
+
+function hasMetaExtendedHistoricalBacklog(queueHealth?: MetaQueueHealth | null) {
+  return (
+    (queueHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+    (queueHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0
+  );
+}
+
+function getMetaPriorityBacklogDepth(queueHealth?: MetaQueueHealth | null) {
+  return (
+    getMetaPriorityCoreQueueDepth(queueHealth) +
+    (queueHealth?.maintenanceQueueDepth ?? 0) +
+    (queueHealth?.extendedRecentQueueDepth ?? 0)
+  );
+}
+
+function hasRecentMetaForwardProgress(input: {
+  laneProgressEvidence?: Partial<MetaLaneEvidence> | null;
+  queueHealth?: MetaQueueHealth | null;
+  nowMs?: number;
+}) {
+  return (
+    hasRecentProviderAdvancement({
+      progressEvidence: input.laneProgressEvidence?.maintenance ?? null,
+      fallbackLatestPartitionActivityAt:
+        input.queueHealth?.latestMaintenanceActivityAt ?? null,
+      nowMs: input.nowMs,
+    }) ||
+    hasRecentProviderAdvancement({
+      progressEvidence: input.laneProgressEvidence?.core ?? null,
+      fallbackLatestPartitionActivityAt: input.queueHealth?.latestCoreActivityAt ?? null,
+      nowMs: input.nowMs,
+    }) ||
+    hasRecentProviderAdvancement({
+      progressEvidence: input.laneProgressEvidence?.extended_recent ?? null,
+      fallbackLatestPartitionActivityAt:
+        input.queueHealth?.latestExtendedActivityAt ?? null,
+      nowMs: input.nowMs,
+    })
+  );
+}
+
+export function resolveMetaWorkerRequestedLimit(input: {
+  leaseLimit: number;
+  queueHealth?: MetaQueueHealth | null;
+  laneProgressEvidence?: Partial<MetaLaneEvidence> | null;
+  nowMs?: number;
+}) {
+  const baseLimit = Math.max(1, input.leaseLimit);
+  const queueHealth = input.queueHealth ?? null;
+  if (!queueHealth || (queueHealth.queueDepth ?? 0) <= 0) return baseLimit;
+  if (
+    (queueHealth.deadLetterPartitions ?? 0) > 0 ||
+    (queueHealth.retryableFailedPartitions ?? 0) > 0
+  ) {
+    return baseLimit;
+  }
+
+  const hasPriorityBacklog = getMetaPriorityBacklogDepth(queueHealth) > 0;
+  const hasForwardProgress = hasRecentMetaForwardProgress({
+    laneProgressEvidence: input.laneProgressEvidence,
+    queueHealth,
+    nowMs: input.nowMs,
+  });
+
+  if (hasPriorityBacklog && hasForwardProgress) {
+    return Math.max(baseLimit, META_PRODUCTIVE_LEASE_LIMIT);
+  }
+  if (hasPriorityBacklog) {
+    return Math.max(
+      baseLimit,
+      Math.min(META_PRODUCTIVE_LEASE_LIMIT, META_PRIORITY_BACKLOG_LEASE_LIMIT),
+    );
+  }
+  if (hasForwardProgress) {
+    return Math.max(
+      baseLimit,
+      Math.min(META_PRODUCTIVE_LEASE_LIMIT, META_FORWARD_PROGRESS_LEASE_LIMIT),
+    );
+  }
+  return baseLimit;
+}
+
+export function resolveMetaBackgroundLoopDelayMs(input: {
+  hasPendingWork: boolean;
+  hasForwardProgress: boolean;
+  hadError?: boolean;
+  errorStreak?: number;
+}) {
+  if (input.hadError) {
+    const exponent = Math.max(0, (input.errorStreak ?? 1) - 1);
+    return Math.min(
+      META_BACKGROUND_ERROR_MAX_DELAY_MS,
+      META_BACKGROUND_ERROR_BASE_DELAY_MS * 2 ** exponent,
+    );
+  }
+  if (input.hasPendingWork && input.hasForwardProgress) {
+    return META_BACKGROUND_BUSY_DELAY_MS;
+  }
+  if (input.hasPendingWork) {
+    return META_BACKGROUND_WAITING_DELAY_MS;
+  }
+  return META_BACKGROUND_IDLE_DELAY_MS;
+}
+
 export async function buildMetaWorkerLeasePlan(input: {
   businessId: string;
   leaseLimit: number;
@@ -586,6 +760,7 @@ export async function buildMetaWorkerLeasePlan(input: {
   });
   const followupLeasePlan = buildMetaFollowupLeasePlan({
     queueHealth,
+    leasedCorePriorityCount: 0,
     leasedCoreFairnessCount: 0,
     leasedExtendedHistoricalFairnessCount: 0,
   });
@@ -594,54 +769,71 @@ export async function buildMetaWorkerLeasePlan(input: {
     queueHealth?.latestExtendedActivityAt ??
     queueHealth?.latestMaintenanceActivityAt ??
     null;
+  const hasMaintenance = hasMetaMaintenanceBacklog(queueHealth);
+  const hasPriorityCore = hasMetaPriorityCoreBacklog(queueHealth);
+  const hasExtendedRecent = hasMetaExtendedRecentBacklog(queueHealth);
+  const hasHistoricalCore = hasMetaHistoricalCoreBacklog(queueHealth);
+  const hasExtendedHistorical = hasMetaExtendedHistoricalBacklog(queueHealth);
+  const steps: ProviderLeasePlan["steps"] = [];
+  if (hasMaintenance) {
+    steps.push({
+      key: "maintenance",
+      lane: "maintenance",
+      limit: META_MAINTENANCE_WORKER_LIMIT,
+    });
+  }
+  if (hasPriorityCore) {
+    steps.push({
+      key: "core_priority",
+      lane: "core",
+      limit: META_CORE_WORKER_LIMIT,
+      sources: META_PRIORITY_CORE_SOURCE_LIST,
+    });
+  }
+  if (hasExtendedRecent) {
+    steps.push({
+      key: "extended_recent",
+      lane: "extended",
+      limit: followupLeasePlan.extendedRecentLimit,
+      sources: META_PRIORITY_CORE_SOURCE_LIST,
+    });
+  }
+  if (hasHistoricalCore) {
+    steps.push({
+      key: "core_fairness",
+      lane: "core",
+      limit: fairnessLeasePlan.coreFairnessLimit,
+      sources: META_HISTORICAL_SOURCE_LIST,
+    });
+    steps.push({
+      key: "historical_core",
+      lane: "core",
+      limit: followupLeasePlan.historicalCoreLimit,
+      sources: META_HISTORICAL_SOURCE_LIST,
+    });
+  }
+  if (hasExtendedHistorical) {
+    steps.push({
+      key: "extended_historical_fairness",
+      lane: "extended",
+      limit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
+      sources: META_HISTORICAL_SOURCE_LIST,
+    });
+    steps.push({
+      key: "extended_historical",
+      lane: "extended",
+      limit: followupLeasePlan.extendedHistoricalLimit,
+      sources: META_HISTORICAL_SOURCE_LIST,
+    });
+  }
   return {
     kind: "meta_policy_lease_plan",
-    requestedLimit: Math.max(1, input.leaseLimit),
-    steps: [
-      {
-        key: "maintenance",
-        lane: "maintenance",
-        limit: META_MAINTENANCE_WORKER_LIMIT,
-      },
-      {
-        key: "core_fairness",
-        lane: "core",
-        limit: fairnessLeasePlan.coreFairnessLimit,
-      },
-      {
-        key: "extended_historical_fairness",
-        lane: "extended",
-        limit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
-        sources: ["historical", "historical_recovery", "initial_connect"],
-      },
-      {
-        key: "extended_recent",
-        lane: "extended",
-        limit: followupLeasePlan.extendedRecentLimit,
-        sources: [
-          "recent",
-          "recent_recovery",
-          "repair_recent_day",
-          "today_observe",
-          "today",
-          "priority_window",
-          "finalize_day",
-          "request_runtime",
-          "manual_refresh",
-        ],
-      },
-      {
-        key: "historical_core",
-        lane: "core",
-        limit: followupLeasePlan.historicalCoreLimit,
-      },
-      {
-        key: "extended_historical",
-        lane: "extended",
-        limit: followupLeasePlan.extendedHistoricalLimit,
-        sources: ["historical", "historical_recovery", "initial_connect"],
-      },
-    ].filter((step) => step.limit > 0),
+    requestedLimit: resolveMetaWorkerRequestedLimit({
+      leaseLimit: input.leaseLimit,
+      queueHealth,
+      laneProgressEvidence,
+    }),
+    steps: steps.filter((step) => step.limit > 0),
     maintenancePlan: {
       autoHealEnabled: true,
       enqueueScheduledWork: false,
@@ -750,6 +942,12 @@ export function getMetaHistoricalCoreFairnessLimit(input: {
   nowMs?: number;
 }) {
   const queueHealth = input.queueHealth ?? null;
+  if (
+    hasMetaMaintenanceBacklog(queueHealth) ||
+    hasMetaPriorityCoreBacklog(queueHealth)
+  ) {
+    return 0;
+  }
   const backlogExists =
     (queueHealth?.historicalCoreQueueDepth ?? 0) > 0 ||
     (queueHealth?.historicalCoreLeasedPartitions ?? 0) > 0;
@@ -776,6 +974,12 @@ export function getMetaExtendedHistoricalFairnessLimit(input: {
   nowMs?: number;
 }) {
   const queueHealth = input.queueHealth ?? null;
+  if (
+    hasMetaMaintenanceBacklog(queueHealth) ||
+    hasMetaExtendedRecentBacklog(queueHealth)
+  ) {
+    return 0;
+  }
   const backlogExists =
     (queueHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
     (queueHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0;
@@ -817,17 +1021,15 @@ export function buildMetaFairnessLeasePlan(input: {
 
 export function buildMetaFollowupLeasePlan(input: {
   queueHealth?: MetaQueueHealth | null;
+  leasedCorePriorityCount?: number;
   leasedCoreFairnessCount: number;
   leasedExtendedHistoricalFairnessCount: number;
   leasedExtendedRecentCount?: number;
 }): MetaFollowupLeasePlan {
   const queueHealth = input.queueHealth ?? null;
-  const hasMaintenanceBacklog =
-    (queueHealth?.maintenanceQueueDepth ?? 0) > 0 ||
-    (queueHealth?.maintenanceLeasedPartitions ?? 0) > 0;
-  const hasExtendedRecentBacklog =
-    (queueHealth?.extendedRecentQueueDepth ?? 0) > 0 ||
-    (queueHealth?.extendedRecentLeasedPartitions ?? 0) > 0;
+  const hasMaintenanceBacklog = hasMetaMaintenanceBacklog(queueHealth);
+  const hasPriorityCoreBacklog = hasMetaPriorityCoreBacklog(queueHealth);
+  const hasExtendedRecentBacklog = hasMetaExtendedRecentBacklog(queueHealth);
   const remainingExtendedCapacity = Math.max(
     0,
     META_EXTENDED_WORKER_LIMIT - input.leasedExtendedHistoricalFairnessCount,
@@ -839,10 +1041,15 @@ export function buildMetaFollowupLeasePlan(input: {
 
   return {
     extendedRecentLimit: hasMaintenanceBacklog ? 0 : remainingExtendedCapacity,
-    historicalCoreLimit: Math.max(
-      0,
-      META_CORE_WORKER_LIMIT - input.leasedCoreFairnessCount,
-    ),
+    historicalCoreLimit:
+      hasMaintenanceBacklog || hasPriorityCoreBacklog
+        ? 0
+        : Math.max(
+            0,
+            META_CORE_WORKER_LIMIT -
+              (input.leasedCorePriorityCount ?? 0) -
+              input.leasedCoreFairnessCount,
+          ),
     extendedHistoricalLimit:
       hasMaintenanceBacklog || hasExtendedRecentBacklog
         ? 0
@@ -1311,6 +1518,9 @@ export interface MetaSyncResult {
   succeeded: number;
   failed: number;
   skipped: boolean;
+  hasPendingWork?: boolean;
+  hasForwardProgress?: boolean;
+  nextDelayMs?: number;
   outcome?: "consume_failed_before_leasing" | "consume_failed_after_leasing";
   failureReason?: string | null;
 }
@@ -2667,29 +2877,61 @@ export function scheduleMetaBackgroundSync(input: {
     return false;
   }
   backgroundSyncKeys.add(key);
+  const errorCounts = getBackgroundErrorCounts();
   const timer = setTimeout(
-    () => {
+    async () => {
       timers.delete(key);
       const runtimeWorkerId =
         process.env.META_WORKER_ID?.trim() ||
         process.env.WORKER_INSTANCE_ID?.trim() ||
         undefined;
-      void syncMetaReports(
-        input.businessId,
-        runtimeWorkerId ? { runtimeWorkerId } : undefined,
-      )
-        .catch((error) => {
-          console.warn("[meta-sync] background_run_failed", {
-            businessId: input.businessId,
-            workerId: runtimeWorkerId ?? null,
-            message: error instanceof Error ? error.message : String(error),
+      let nextDelayMs = META_BACKGROUND_IDLE_DELAY_MS;
+      try {
+        const result = await syncMetaReports(
+          input.businessId,
+          runtimeWorkerId ? { runtimeWorkerId } : undefined,
+        );
+        const hadError = result.failed > 0 && result.succeeded === 0;
+        const nextErrorCount = hadError ? (errorCounts.get(key) ?? 0) + 1 : 0;
+        if (nextErrorCount > 0) {
+          errorCounts.set(key, nextErrorCount);
+        } else {
+          errorCounts.delete(key);
+        }
+        nextDelayMs =
+          result.nextDelayMs ??
+          resolveMetaBackgroundLoopDelayMs({
+            hasPendingWork: result.hasPendingWork ?? false,
+            hasForwardProgress: result.hasForwardProgress ?? false,
+            hadError,
+            errorStreak: nextErrorCount,
           });
-        })
-        .finally(() => {
-          backgroundSyncKeys.delete(key);
+      } catch (error) {
+        const nextErrorCount = (errorCounts.get(key) ?? 0) + 1;
+        errorCounts.set(key, nextErrorCount);
+        nextDelayMs = resolveMetaBackgroundLoopDelayMs({
+          hasPendingWork: true,
+          hasForwardProgress: false,
+          hadError: true,
+          errorStreak: nextErrorCount,
         });
+        console.warn("[meta-sync] background_run_failed", {
+          businessId: input.businessId,
+          workerId: runtimeWorkerId ?? null,
+          nextDelayMs,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        backgroundSyncKeys.delete(key);
+        if (canUseInProcessBackgroundScheduling()) {
+          scheduleMetaBackgroundSync({
+            businessId: input.businessId,
+            delayMs: nextDelayMs,
+          });
+        }
+      }
     },
-    Math.max(0, input.delayMs ?? 0),
+    Math.max(0, input.delayMs ?? META_BACKGROUND_IDLE_DELAY_MS),
   );
   timers.set(key, timer);
   return true;
@@ -3597,7 +3839,19 @@ export async function consumeMetaQueuedWork(
     logRuntimeInfo("meta-sync", "meta_consume_skipped_no_credentials", {
       businessId,
     });
-    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+      hasPendingWork: false,
+      hasForwardProgress: false,
+      nextDelayMs: resolveMetaBackgroundLoopDelayMs({
+        hasPendingWork: false,
+        hasForwardProgress: false,
+      }),
+    };
   }
   logRuntimeInfo("meta-sync", "meta_consume_started", {
     businessId,
@@ -3634,7 +3888,19 @@ export async function consumeMetaQueuedWork(
       lockKey,
       source: "consume",
     });
-    return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
+    return {
+      businessId,
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skipped: true,
+      hasPendingWork: true,
+      hasForwardProgress: false,
+      nextDelayMs: resolveMetaBackgroundLoopDelayMs({
+        hasPendingWork: true,
+        hasForwardProgress: false,
+      }),
+    };
   }
 
   backgroundSyncKeys.add(lockKey);
@@ -3713,6 +3979,14 @@ export async function consumeMetaQueuedWork(
         succeeded: 0,
         failed: 1,
         skipped: false,
+        hasPendingWork: true,
+        hasForwardProgress: false,
+        nextDelayMs: resolveMetaBackgroundLoopDelayMs({
+          hasPendingWork: true,
+          hasForwardProgress: false,
+          hadError: true,
+          errorStreak: 1,
+        }),
         outcome: "consume_failed_before_leasing",
         failureReason: leaseConflictReason(),
       };
@@ -3725,9 +3999,17 @@ export async function consumeMetaQueuedWork(
       limit: META_MAINTENANCE_WORKER_LIMIT,
       leaseMinutes: META_PARTITION_LEASE_MINUTES,
     });
-    const queueHealthAfterPriorityLeases = await getMetaQueueHealth({
+    const leasedCorePriorityPartitions = await leaseMetaSyncPartitions({
       businessId,
-    }).catch(() => null);
+      lane: "core",
+      sources: META_PRIORITY_CORE_SOURCE_LIST,
+      workerId,
+      limit: META_CORE_WORKER_LIMIT,
+      leaseMinutes: META_PARTITION_LEASE_MINUTES,
+    });
+    const queueHealthAfterPriorityLeases = await getMetaQueueHealth({ businessId }).catch(
+      () => null,
+    );
     const hasHistoricalCoreBacklog =
       (queueHealthAfterPriorityLeases?.historicalCoreQueueDepth ?? 0) > 0 ||
       (queueHealthAfterPriorityLeases?.historicalCoreLeasedPartitions ?? 0) > 0;
@@ -3740,12 +4022,32 @@ export async function consumeMetaQueuedWork(
       laneProgressEvidence,
     });
 
-    // Keep historical core moving even while maintenance/recent work is draining.
+    const initialFollowupLeasePlan = buildMetaFollowupLeasePlan({
+      queueHealth: queueHealthAfterPriorityLeases,
+      leasedCorePriorityCount: leasedCorePriorityPartitions.length,
+      leasedCoreFairnessCount: 0,
+      leasedExtendedHistoricalFairnessCount: 0,
+    });
+
+    const leasedExtendedRecentPartitions =
+      initialFollowupLeasePlan.extendedRecentLimit > 0
+        ? await leaseMetaSyncPartitions({
+            businessId,
+            lane: "extended",
+            sources: META_PRIORITY_CORE_SOURCE_LIST,
+            workerId,
+            limit: initialFollowupLeasePlan.extendedRecentLimit,
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          })
+        : [];
+
+    // Historical work gets capacity only after the recent/core frontier has had a chance to lease.
     const leasedCoreFairnessPartitions =
       hasHistoricalCoreBacklog && fairnessLeasePlan.coreFairnessLimit > 0
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "core",
+            sources: META_HISTORICAL_SOURCE_LIST,
             workerId,
             limit: fairnessLeasePlan.coreFairnessLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
@@ -3758,37 +4060,9 @@ export async function consumeMetaQueuedWork(
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
-            sources: ["historical", "historical_recovery", "initial_connect"],
+            sources: META_HISTORICAL_SOURCE_LIST,
             workerId,
             limit: fairnessLeasePlan.extendedHistoricalFairnessLimit,
-            leaseMinutes: META_PARTITION_LEASE_MINUTES,
-          })
-        : [];
-    const initialFollowupLeasePlan = buildMetaFollowupLeasePlan({
-      queueHealth: queueHealthAfterPriorityLeases,
-      leasedCoreFairnessCount: leasedCoreFairnessPartitions.length,
-      leasedExtendedHistoricalFairnessCount:
-        leasedExtendedHistoricalFairnessPartitions.length,
-    });
-
-    const leasedExtendedRecentPartitions =
-      initialFollowupLeasePlan.extendedRecentLimit > 0
-        ? await leaseMetaSyncPartitions({
-            businessId,
-            lane: "extended",
-            sources: [
-              "recent",
-              "recent_recovery",
-              "repair_recent_day",
-              "today_observe",
-              "today",
-              "priority_window",
-              "finalize_day",
-              "request_runtime",
-              "manual_refresh",
-            ],
-            workerId,
-            limit: initialFollowupLeasePlan.extendedRecentLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
           })
         : [];
@@ -3798,6 +4072,7 @@ export async function consumeMetaQueuedWork(
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "core",
+            sources: META_HISTORICAL_SOURCE_LIST,
             workerId,
             limit: initialFollowupLeasePlan.historicalCoreLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
@@ -3805,6 +4080,7 @@ export async function consumeMetaQueuedWork(
         : [];
     const finalFollowupLeasePlan = buildMetaFollowupLeasePlan({
       queueHealth: queueHealthAfterPriorityLeases,
+      leasedCorePriorityCount: leasedCorePriorityPartitions.length,
       leasedCoreFairnessCount: leasedCoreFairnessPartitions.length,
       leasedExtendedHistoricalFairnessCount:
         leasedExtendedHistoricalFairnessPartitions.length,
@@ -3816,7 +4092,7 @@ export async function consumeMetaQueuedWork(
         ? await leaseMetaSyncPartitions({
             businessId,
             lane: "extended",
-            sources: ["historical", "historical_recovery", "initial_connect"],
+            sources: META_HISTORICAL_SOURCE_LIST,
             workerId,
             limit: finalFollowupLeasePlan.extendedHistoricalLimit,
             leaseMinutes: META_PARTITION_LEASE_MINUTES,
@@ -3825,23 +4101,25 @@ export async function consumeMetaQueuedWork(
 
     let partitions = [
       ...leasedMaintenancePartitions,
+      ...leasedCorePriorityPartitions,
+      ...leasedExtendedRecentPartitions,
       ...leasedCoreFairnessPartitions,
       ...leasedExtendedHistoricalFairnessPartitions,
-      ...leasedExtendedRecentPartitions,
       ...leasedHistoricalCorePartitions,
       ...leasedExtendedHistoricalPartitions,
     ];
     logRuntimeInfo("meta-sync", "meta_consume_leased_partitions", {
       businessId,
       maintenanceLeased: leasedMaintenancePartitions.length,
+      corePriorityLeased: leasedCorePriorityPartitions.length,
+      extendedRecentLimit: initialFollowupLeasePlan.extendedRecentLimit,
+      extendedRecentLeased: leasedExtendedRecentPartitions.length,
       coreFairnessLimit: fairnessLeasePlan.coreFairnessLimit,
       coreFairnessLeased: leasedCoreFairnessPartitions.length,
       extendedHistoricalFairnessLimit:
         fairnessLeasePlan.extendedHistoricalFairnessLimit,
       extendedHistoricalFairnessLeased:
         leasedExtendedHistoricalFairnessPartitions.length,
-      extendedRecentLimit: initialFollowupLeasePlan.extendedRecentLimit,
-      extendedRecentLeased: leasedExtendedRecentPartitions.length,
       historicalCoreLimit: initialFollowupLeasePlan.historicalCoreLimit,
       historicalCoreLeased: leasedHistoricalCorePartitions.length,
       extendedHistoricalLimit: finalFollowupLeasePlan.extendedHistoricalLimit,
@@ -3852,10 +4130,15 @@ export async function consumeMetaQueuedWork(
       const queueHealth = await getMetaQueueHealth({ businessId }).catch(
         () => null,
       );
+      const hasPendingWork =
+        (queueHealth?.queueDepth ?? 0) > 0 ||
+        (queueHealth?.leasedPartitions ?? 0) > 0 ||
+        (queueHealth?.retryableFailedPartitions ?? 0) > 0;
       logRuntimeInfo("meta-sync", "meta_consume_no_partitions", {
         businessId,
         queueDepth: queueHealth?.queueDepth ?? 0,
         leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+        hasPendingWork,
       });
       if (
         (queueHealth?.queueDepth ?? 0) > 0 ||
@@ -3888,6 +4171,12 @@ export async function consumeMetaQueuedWork(
         succeeded: 0,
         failed: 0,
         skipped: true,
+        hasPendingWork,
+        hasForwardProgress: false,
+        nextDelayMs: resolveMetaBackgroundLoopDelayMs({
+          hasPendingWork,
+          hasForwardProgress: false,
+        }),
       };
     }
 
@@ -3922,11 +4211,33 @@ export async function consumeMetaQueuedWork(
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(
       () => null,
     );
+    const queueHealthAfterConsume = await getMetaQueueHealth({ businessId }).catch(
+      () => null,
+    );
+    const hasPendingWork =
+      (queueHealthAfterConsume?.queueDepth ?? 0) > 0 ||
+      (queueHealthAfterConsume?.leasedPartitions ?? 0) > 0 ||
+      (queueHealthAfterConsume?.retryableFailedPartitions ?? 0) > 0;
+    const hasForwardProgress =
+      succeeded > 0 ||
+      (queueHealthAfterConsume?.queueDepth ?? 0) <
+        (queueHealthBeforeEnqueue?.queueDepth ?? 0);
+    const nextDelayMs = resolveMetaBackgroundLoopDelayMs({
+      hasPendingWork,
+      hasForwardProgress,
+      hadError: failed > 0 && succeeded === 0,
+      errorStreak: failed > 0 && succeeded === 0 ? 1 : 0,
+    });
     logRuntimeInfo("meta-sync", "meta_consume_finished", {
       businessId,
       attempted,
       succeeded,
       failed,
+      hasPendingWork,
+      hasForwardProgress,
+      nextDelayMs,
+      queueDepthAfter: queueHealthAfterConsume?.queueDepth ?? 0,
+      leasedAfter: queueHealthAfterConsume?.leasedPartitions ?? 0,
     });
     return {
       businessId,
@@ -3934,6 +4245,9 @@ export async function consumeMetaQueuedWork(
       succeeded,
       failed,
       skipped: attempted === 0,
+      hasPendingWork,
+      hasForwardProgress,
+      nextDelayMs,
       outcome:
         failed > 0 && succeeded === 0
           ? "consume_failed_after_leasing"

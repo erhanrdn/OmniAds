@@ -168,6 +168,18 @@ interface SyncHealthPayload {
     recentRangeTotalDays?: number;
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
+    progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
+    activityState?: "ready" | "busy" | "waiting" | "stalled" | "blocked";
+    progressEvidence?: {
+      lastCheckpointAdvancedAt: string | null;
+      lastReadyThroughAdvancedAt: string | null;
+      lastCompletedAt: string | null;
+      backlogDelta: number | null;
+      completedPartitionDelta: number | null;
+      lastReplayAt: string | null;
+      lastReclaimAt: string | null;
+      recentActivityWindowMinutes?: number;
+    } | null;
     integrityIncidentCount?: number;
     integrityBlockedCount?: number;
     d1FinalizeNonTerminalCount?: number;
@@ -1064,11 +1076,18 @@ export default function AdminSyncHealthPage() {
                       <p className="mt-3 text-xs text-gray-500">
                         Recovery {business.effectiveMode ?? "core_only"} • Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling prioritizes recent dates first
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <MetricPill label="Progress" value={business.progressState ?? "unknown"} />
+                        <MetricPill label="Activity" value={business.activityState ?? "waiting"} />
+                      </div>
                       <p className="mt-1 text-xs text-gray-500">
                         Recent window {business.recentRangeTotalDays ?? 14}d • Account {business.recentAccountCompletedDays ?? 0} • Adset {business.recentAdsetCompletedDays ?? 0} • Creative {business.recentCreativeCompletedDays ?? 0} • Ad {business.recentAdCompletedDays ?? 0}
                       </p>
                       <p className="mt-3 text-xs text-gray-500">
                         Oldest remaining queued {formatDateTime(business.oldestQueuedPartition)} • Latest activity {formatDateTime(business.latestPartitionActivityAt)}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Last completed {formatDateTime(business.progressEvidence?.lastCompletedAt ?? null)} • Ready-through advance {formatDateTime(business.progressEvidence?.lastReadyThroughAdvancedAt ?? null)} • Checkpoint advance {formatDateTime(business.progressEvidence?.lastCheckpointAdvancedAt ?? null)}
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}

@@ -657,6 +657,58 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.progressState).toBe("partial_stuck");
   });
 
+  it("surfaces meta forward-progress evidence and activity state", () => {
+    const recent = new Date(Date.now() - 5 * 60_000).toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta-progress",
+          business_name: "Meta Moving",
+          queue_depth: 7,
+          leased_partitions: 2,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 3,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: recent,
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: recent,
+          latest_progress_heartbeat_at: recent,
+          last_successful_page_index: 2,
+          checkpoint_failures: 0,
+          today_account_rows: 12,
+          today_adset_rows: 12,
+          account_completed_days: 50,
+          account_ready_through_date: "2026-03-20",
+          adset_completed_days: 50,
+          adset_ready_through_date: "2026-03-20",
+          creative_completed_days: 14,
+          creative_ready_through_date: "2026-03-20",
+          ad_completed_days: 14,
+          ad_ready_through_date: "2026-03-20",
+          recent_account_completed_days: 10,
+          recent_adset_completed_days: 10,
+          recent_creative_completed_days: 10,
+          recent_ad_completed_days: 10,
+          recent_range_total_days: 14,
+        },
+      ],
+    });
+
+    expect(payload.metaBusinesses?.[0]?.progressState).toBe("syncing");
+    expect(payload.metaBusinesses?.[0]?.activityState).toBe("busy");
+    expect(payload.metaBusinesses?.[0]?.progressEvidence).toMatchObject({
+      lastCheckpointAdvancedAt: recent,
+      lastCompletedAt: recent,
+      lastReadyThroughAdvancedAt: recent,
+    });
+  });
+
   it("keeps lightweight google ads summary when detailed health is degraded", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],

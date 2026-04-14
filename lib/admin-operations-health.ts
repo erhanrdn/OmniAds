@@ -25,9 +25,12 @@ import {
 } from "@/lib/meta/warehouse-retention";
 import { getGoogleAdsRetentionRuntimeStatus } from "@/lib/google-ads/warehouse-retention";
 import {
+  deriveProviderActivityState,
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
+  type ProviderActivityState,
+  type ProviderProgressEvidence,
   type ProviderProgressState,
   type ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
@@ -240,6 +243,8 @@ export interface AdminSyncHealthPayload {
     recentExtendedReady?: boolean;
     historicalExtendedReady?: boolean;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
+    activityState?: ProviderActivityState;
+    progressEvidence?: ProviderProgressEvidence | null;
     stallFingerprints?: ProviderStallFingerprint[];
     sourceManifestCounts?: MetaAuthoritativeBusinessOpsSnapshot["manifestCounts"];
     latestAuthoritativePublishes?: MetaAuthoritativeBusinessOpsSnapshot["latestPublishes"];
@@ -420,6 +425,61 @@ function classifyMetaProgressState(input: {
       recentActivityWindowMinutes: 20,
       aggregation: "latest",
     }),
+  });
+}
+
+function buildAdminMetaProgressEvidence(input: {
+  accountCompletedDays: number;
+  accountReadyThroughDate?: string | null;
+  adsetCompletedDays: number;
+  adsetReadyThroughDate?: string | null;
+  creativeCompletedDays: number;
+  creativeReadyThroughDate?: string | null;
+  adCompletedDays: number;
+  adReadyThroughDate?: string | null;
+  latestPartitionActivityAt?: string | null;
+  latestProgressHeartbeatAt?: string | null;
+  latestCheckpointUpdatedAt?: string | null;
+}) {
+  const latestObservedAt =
+    input.latestProgressHeartbeatAt ??
+    input.latestCheckpointUpdatedAt ??
+    input.latestPartitionActivityAt ??
+    null;
+  return buildProviderProgressEvidence({
+    states: [
+      {
+        completedDays: input.accountCompletedDays,
+        readyThroughDate: input.accountReadyThroughDate ?? null,
+        latestBackgroundActivityAt: input.latestPartitionActivityAt ?? null,
+        latestSuccessfulSyncAt: latestObservedAt,
+        updatedAt: latestObservedAt,
+      },
+      {
+        completedDays: input.adsetCompletedDays,
+        readyThroughDate: input.adsetReadyThroughDate ?? null,
+        latestBackgroundActivityAt: input.latestPartitionActivityAt ?? null,
+        latestSuccessfulSyncAt: latestObservedAt,
+        updatedAt: latestObservedAt,
+      },
+      {
+        completedDays: input.creativeCompletedDays,
+        readyThroughDate: input.creativeReadyThroughDate ?? null,
+        latestBackgroundActivityAt: input.latestPartitionActivityAt ?? null,
+        latestSuccessfulSyncAt: latestObservedAt,
+        updatedAt: latestObservedAt,
+      },
+      {
+        completedDays: input.adCompletedDays,
+        readyThroughDate: input.adReadyThroughDate ?? null,
+        latestBackgroundActivityAt: input.latestPartitionActivityAt ?? null,
+        latestSuccessfulSyncAt: latestObservedAt,
+        updatedAt: latestObservedAt,
+      },
+    ],
+    checkpointUpdatedAt: input.latestCheckpointUpdatedAt ?? null,
+    recentActivityWindowMinutes: 20,
+    aggregation: "bottleneck",
   });
 }
 
@@ -1290,10 +1350,18 @@ export function buildAdminSyncHealth(input: {
       row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
     const effectiveMode =
       !recentExtendedReady ? "core_only" : historicalExtendedReady ? "extended_normal" : "extended_recovery";
-    const metaProgressEvidence = buildProviderProgressEvidence({
-      checkpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
-      recentActivityWindowMinutes: 20,
-      aggregation: "latest",
+    const metaProgressEvidence = buildAdminMetaProgressEvidence({
+      accountCompletedDays,
+      accountReadyThroughDate: row.account_ready_through_date ?? null,
+      adsetCompletedDays,
+      adsetReadyThroughDate: row.adset_ready_through_date ?? null,
+      creativeCompletedDays,
+      creativeReadyThroughDate: row.creative_ready_through_date ?? null,
+      adCompletedDays,
+      adReadyThroughDate: row.ad_ready_through_date ?? null,
+      latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+      latestProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? null,
+      latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
     });
     const metaReclaimSummary = input.metaReclaimSummaries?.[row.business_id] ?? {
       activeSlowPartitions: Math.max(
@@ -1342,6 +1410,16 @@ export function buildAdminSyncHealth(input: {
       blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
       historicalBacklogDepth: queueDepth,
     });
+    const activityState = deriveProviderActivityState({
+      progressState,
+      queueDepth,
+      leasedPartitions,
+      blocked:
+        deadLetterPartitions > 0 ||
+        staleLeasePartitions > 0 ||
+        metaReclaimSummary.reclaimCandidateCount > 0 ||
+        Number(row.stale_run_count_24h ?? 0) > 0,
+    });
 
     metaBusinesses.push({
       businessId: row.business_id,
@@ -1383,6 +1461,8 @@ export function buildAdminSyncHealth(input: {
       recentExtendedReady,
       historicalExtendedReady,
       progressState,
+      activityState,
+      progressEvidence: metaProgressEvidence,
       stallFingerprints,
       sourceManifestCounts: metaSnapshotsByBusiness.get(row.business_id)?.manifestCounts,
       latestAuthoritativePublishes: metaSnapshotsByBusiness.get(row.business_id)?.latestPublishes ?? [],

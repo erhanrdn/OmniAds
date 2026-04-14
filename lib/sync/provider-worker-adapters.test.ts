@@ -184,6 +184,78 @@ describe("provider-worker-adapters", () => {
     expect(leased).toHaveLength(1);
   });
 
+  it("lets Meta use the lease-plan requestedLimit when productive backlog should keep draining", async () => {
+    leaseMetaSyncPartitions
+      .mockResolvedValueOnce([
+        {
+          id: "meta-part-1",
+          businessId: "biz-1",
+          providerAccountId: "act-1",
+          lane: "maintenance",
+          scope: "account_daily",
+          partitionDate: "2026-03-01",
+          status: "leased",
+          priority: 200,
+          source: "finalize_day",
+          leaseOwner: "worker-1",
+          leaseExpiresAt: "2026-03-01T00:05:00.000Z",
+          attemptCount: 1,
+          nextRetryAt: null,
+          lastError: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "meta-part-2",
+          businessId: "biz-1",
+          providerAccountId: "act-1",
+          lane: "core",
+          scope: "account_daily",
+          partitionDate: "2026-03-02",
+          status: "leased",
+          priority: 180,
+          source: "recent",
+          leaseOwner: "worker-1",
+          leaseExpiresAt: "2026-03-01T00:05:00.000Z",
+          attemptCount: 1,
+          nextRetryAt: null,
+          lastError: null,
+        },
+      ]);
+
+    const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const leased = await metaWorkerAdapter.leasePartitions({
+      businessId: "biz-1",
+      workerId: "worker-1",
+      limit: 1,
+      plan: {
+        kind: "meta_policy_lease_plan",
+        requestedLimit: 2,
+        steps: [
+          { key: "maintenance", lane: "maintenance", limit: 1 },
+          { key: "core_priority", lane: "core", limit: 1, sources: ["recent"] },
+        ],
+      },
+    });
+
+    expect(leaseMetaSyncPartitions).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        lane: "maintenance",
+        limit: 1,
+      }),
+    );
+    expect(leaseMetaSyncPartitions).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        lane: "core",
+        sources: ["recent"],
+        limit: 1,
+      }),
+    );
+    expect(leased).toHaveLength(2);
+  });
+
   it("runs Meta auto-heal through the shared repair engine", async () => {
     runMetaRepairCycle.mockResolvedValue({
       repair: {

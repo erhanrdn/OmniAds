@@ -69,6 +69,7 @@ import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import { isMetaDecisionOsV1EnabledForBusiness } from "@/lib/meta/decision-os-config";
 import {
   buildBlockingReason,
+  deriveProviderActivityState,
   buildProviderProgressEvidence,
   buildRepairableAction,
   buildRequiredCoverage,
@@ -1339,6 +1340,12 @@ export async function GET(request: NextRequest) {
     staleRunPressure: legacyJobHealth?.staleRunningJobs ?? 0,
     progressEvidence: metaProgressEvidence,
   });
+  const metaActivityState = deriveProviderActivityState({
+    progressState: metaProgressState,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    blocked: state === "action_required",
+  });
   const metaBlockingReasons = compactBlockingReasons([
     selectedRangeActionRequired
       ? buildBlockingReason(
@@ -1844,6 +1851,8 @@ export async function GET(request: NextRequest) {
             consumeStage: workerHealth.consumeStage,
             blockReason: operationsBlockReason,
             progressState: metaProgressState,
+            activityState: metaActivityState,
+            progressEvidence: metaProgressEvidence,
             blockingReasons: metaBlockingReasons,
             repairableActions: metaRepairableActions,
             requiredCoverage: metaRequiredCoverage,

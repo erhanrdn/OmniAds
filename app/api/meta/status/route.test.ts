@@ -899,6 +899,87 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("surfaces forward-progress evidence and activity state through operations truth", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue({
+      workerHealthy: true,
+      heartbeatAgeMs: 15_000,
+      runnerLeaseActive: true,
+      ownerWorkerId: "worker-1",
+      consumeStage: "consume_started",
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 5,
+      leasedPartitions: 2,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: "2026-04-13T11:58:00.000Z",
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: "2026-04-10",
+      historicalCoreQueueDepth: 2,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue({
+      latestCheckpointUpdatedAt: "2026-04-13T11:58:00.000Z",
+      checkpointLagMinutes: 2,
+      resumeCapable: true,
+    } as never);
+    vi.mocked(warehouse.getMetaSyncState).mockImplementation(async ({ scope }: { scope: string }) => {
+      if (scope === "account_daily" || scope === "campaign_daily") {
+        return [
+          {
+            providerAccountId: "act_1",
+            completedDays: 40,
+            readyThroughDate: "2026-04-12",
+            latestBackgroundActivityAt: "2026-04-13T11:58:00.000Z",
+            latestSuccessfulSyncAt: "2026-04-13T11:58:00.000Z",
+            updatedAt: "2026-04-13T11:58:00.000Z",
+            deadLetterCount: 0,
+          },
+        ] as never;
+      }
+      return [] as never;
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operations).toMatchObject({
+      progressState: "syncing",
+      activityState: "busy",
+      progressEvidence: {
+        lastCheckpointAdvancedAt: "2026-04-13T11:58:00.000Z",
+        lastCompletedAt: "2026-04-13T11:58:00.000Z",
+        lastReadyThroughAdvancedAt: "2026-04-13T11:58:00.000Z",
+      },
+    });
+  });
+
   it("keeps historical core progress while removing creative backlog from the summary", async () => {
     const today = getUtcTodayIso();
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({

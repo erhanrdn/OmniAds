@@ -9,7 +9,9 @@ import type {
   MetaSelectedRangeTruthReadiness,
 } from "@/lib/meta/warehouse-types";
 import type {
+  ProviderActivityState,
   ProviderBlockingReason,
+  ProviderProgressEvidence,
   ProviderRepairableAction,
   ProviderRequiredCoverage,
   ProviderSecondaryReadiness,
@@ -422,6 +424,8 @@ export interface MetaStatusResponse {
     staleRunPressure?: number;
     blockReason?: string | null;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
+    activityState?: ProviderActivityState;
+    progressEvidence?: ProviderProgressEvidence | null;
     blockingReasons?: ProviderBlockingReason[];
     repairableActions?: ProviderRepairableAction[];
     requiredCoverage?: ProviderRequiredCoverage | null;

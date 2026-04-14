@@ -320,7 +320,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       partitionId: "partition-1",
       workerId: "worker-1",
       leaseEpoch: 7,
-      leaseMinutes: 15,
+      leaseMinutes: 6,
     });
     expect(apiMeta.syncMetaAccountCoreWarehouseDay).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -363,7 +363,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       partitionId: "partition-1",
       workerId: "worker-1",
       leaseEpoch: 7,
-      leaseMinutes: 15,
+      leaseMinutes: 6,
     });
     expect(
       vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.invocationCallOrder[0]
