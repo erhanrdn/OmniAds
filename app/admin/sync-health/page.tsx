@@ -7,6 +7,7 @@ import { InlineHelp } from "@/components/admin/inline-help";
 import { formatMetaDateTime } from "@/lib/meta/ui";
 import { getSyncRunbook } from "@/lib/sync/runbooks";
 import type { GlobalRebuildTruthReview } from "@/lib/rebuild-truth-review";
+import type { SyncEffectivenessReview } from "@/lib/sync-effectiveness-review";
 
 interface SyncIssueRow {
   businessId: string;
@@ -23,6 +24,7 @@ interface SyncIssueRow {
 
 interface SyncHealthPayload {
   globalRebuildReview?: GlobalRebuildTruthReview;
+  syncEffectivenessReview?: SyncEffectivenessReview;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   summary: {
@@ -339,6 +341,7 @@ export default function AdminSyncHealthPage() {
   const googleAdsHealthStatus = payload?.googleAdsHealthStatus ?? "ok";
   const googleAdsHealthError = payload?.googleAdsHealthError ?? null;
   const globalRebuildReview = payload?.globalRebuildReview ?? null;
+  const syncEffectivenessReview = payload?.syncEffectivenessReview ?? null;
 
   async function runProviderAction(
     businessId: string,
@@ -590,6 +593,91 @@ export default function AdminSyncHealthPage() {
                 </p>
               )}
             </div>
+
+            {syncEffectivenessReview ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Global sync effectiveness review</p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Current rebuild evidence for whether Google and Meta are actually catching up, stalled, or still too sparse to trust.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                    Review {syncEffectivenessReview.workflow.reviewCommand}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  {[
+                    {
+                      key: "google",
+                      label: "Google Ads",
+                      review: syncEffectivenessReview.googleAds,
+                    },
+                    {
+                      key: "meta",
+                      label: "Meta",
+                      review: syncEffectivenessReview.meta,
+                    },
+                  ].map(({ key, label, review }) => (
+                    <div key={key} className="rounded-lg border border-white bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-gray-900">{label}</p>
+                        <StateBadge state={review.summaryState} />
+                      </div>
+                      <p className="mt-2 text-sm text-gray-600">{review.summary}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <MetricPill
+                          label="Trusted"
+                          value={review.freshness.mostRecentTrustedDay ?? "none"}
+                        />
+                        <MetricPill
+                          label="Lag"
+                          value={formatLagDays(review.freshness.lagDays)}
+                        />
+                        <MetricPill
+                          label="Warehouse"
+                          value={review.freshness.warehouseReadyThroughDay ?? "none"}
+                        />
+                        <MetricPill
+                          label="Moved"
+                          value={review.freshness.progressMovedRecently ? "recently" : "not recently"}
+                        />
+                        <MetricPill
+                          label="Progressing"
+                          value={`${review.coverage.progressingBusinesses}/${review.coverage.totalBusinesses}`}
+                        />
+                        <MetricPill
+                          label="Stalled"
+                          value={review.coverage.stalledBusinesses}
+                        />
+                        <MetricPill
+                          label="Quota"
+                          value={review.quota.quotaLimitedBusinesses}
+                        />
+                        {review.provider === "google_ads" ? (
+                          <MetricPill
+                            label="Hot window"
+                            value={`${review.truthHealth.currentHotWindowSupportBusinesses}/${review.coverage.totalBusinesses}`}
+                          />
+                        ) : (
+                          <MetricPill
+                            label="Published truth"
+                            value={review.truthHealth.protectedPublishedTruthState}
+                          />
+                        )}
+                      </div>
+                      <ul className="mt-4 space-y-2 text-sm text-gray-600">
+                        {review.topSignals.map((signal) => (
+                          <li key={signal}>{signal}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -1094,12 +1182,17 @@ function MetricPill({
 
 function StateBadge({ state }: { state: string }) {
   const className =
-    state === "ready" || state === "present" || state === "eligible_for_explicit_review"
+    state === "ready" ||
+    state === "present" ||
+    state === "eligible_for_explicit_review" ||
+    state === "improving" ||
+    state === "ready_with_current_support"
       ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
       : state === "not_ready" ||
           state === "blocked" ||
           state === "publication_missing" ||
-          state === "no_go"
+          state === "no_go" ||
+          state === "blocked_repair_needed"
         ? "border border-red-200 bg-red-50 text-red-700"
       : state === "conditionally_ready" ||
             state === "hold_manual" ||
@@ -1108,7 +1201,10 @@ function StateBadge({ state }: { state: string }) {
             state === "cold_bootstrap" ||
             state === "backfill_in_progress" ||
             state === "partial_upstream_coverage" ||
-            state === "rebuild_incomplete"
+            state === "rebuild_incomplete" ||
+            state === "stable_but_incomplete" ||
+            state === "stalled_by_quota" ||
+            state === "sparse_due_to_rebuild"
           ? "border border-amber-200 bg-amber-50 text-amber-800"
           : "border border-slate-200 bg-slate-50 text-slate-700";
 
@@ -1126,6 +1222,11 @@ function formatExecutionProvider(provider: string) {
 function formatHoldingProviders(providers: string[]) {
   if (providers.length === 0) return "none";
   return providers.map((provider) => formatExecutionProvider(provider)).join(", ");
+}
+
+function formatLagDays(value: number | null) {
+  if (value == null) return "n/a";
+  return `${value}d`;
 }
 
 function MetricCard({

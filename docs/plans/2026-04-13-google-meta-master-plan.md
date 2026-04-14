@@ -72,6 +72,7 @@ The repo work covered by the Google + Meta phase train is complete:
    - `eligible_for_explicit_review`
 10. `npm run ops:execution-readiness-review` is the supported operator command-line review artifact for the same model.
 11. Status/admin/docs now treat this as one global behavior contract, not a per-business rollout ladder.
+12. `npm run ops:sync-effectiveness-review` and the sync-effectiveness section in `/admin/sync-health` are the supported operator workflow for judging whether rebuilt Google and Meta sync are actually catching up right now.
 
 ## Current Steady-State Global Operator Model
 
@@ -82,17 +83,22 @@ Use one operator decision flow for all businesses:
    - This answers the current global rebuild state for Google and Meta.
    - Sparse rebuilt rows are never enough by themselves.
 
-2. Read the global execution-readiness gate second.
+2. Read the sync effectiveness review second.
+   - Use `/admin/sync-health` or `npm run ops:sync-effectiveness-review`.
+   - This answers whether Google and Meta are improving, stable but incomplete, stalled by quota, blocked, or still sparse because of rebuild.
+   - Use `Trusted day`, `Warehouse through`, `Lag`, quota counts, and truth-health output before concluding that recent sync changes are helping.
+
+3. Read the global execution-readiness gate third.
    - `not_ready`: stronger posture would overstate rebuild truth.
    - `conditionally_ready`: hard blockers cleared, but missing evidence still requires a conservative hold.
    - `ready`: rebuild truth no longer reports global blockers and Meta protected published truth is visible.
 
-3. Read the explicit execution posture review third.
+4. Read the explicit execution posture review fourth.
    - `no_go`: do not move beyond the current manual posture.
    - `hold_manual`: keep the current manual posture; use drilldown only to explain evidence gaps.
    - `eligible_for_explicit_review`: operators may consider a stronger posture next, but nothing auto-enables.
 
-4. Use provider status drilldown only to explain the global answer.
+5. Use provider status drilldown only to explain the global answer.
    - Google: `/api/google-ads/status?businessId=<businessId>`
    - Meta: `/api/meta/status?businessId=<businessId>`
    - Provider drilldown is explanatory only because the data is provider/account scoped.
@@ -118,6 +124,8 @@ Use the same evidence set every time:
    - `globalRebuildReview.googleAds.rebuild`
    - `globalRebuildReview.meta.rebuild`
    - `globalRebuildReview.meta.protectedPublishedTruth`
+   - `syncEffectivenessReview.googleAds`
+   - `syncEffectivenessReview.meta`
    - `globalRebuildReview.executionReadiness`
    - `globalRebuildReview.executionPostureReview`
 
@@ -142,6 +150,8 @@ Use the same evidence set every time:
    - quota pressure remains quota pressure
    - partial upstream coverage remains partial upstream coverage
    - Meta publication gaps remain `blocked` or `repair_required` when evidence supports them
+   - `sync effectiveness` may report `improving` only when recent movement is visible in the current snapshot
+   - `sync effectiveness` must report `stalled_by_quota` or `stable_but_incomplete` when truth or hot-window support is still missing
 
 ## What This Plan Now Means
 

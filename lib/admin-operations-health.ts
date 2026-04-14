@@ -14,6 +14,10 @@ import {
   deriveProviderQuotaLimitedBusinessIds,
   type GlobalRebuildTruthReview,
 } from "@/lib/rebuild-truth-review";
+import {
+  buildSyncEffectivenessReview,
+  type SyncEffectivenessReview,
+} from "@/lib/sync-effectiveness-review";
 import { isMetaAuthoritativeFinalizationV2Enabled } from "@/lib/meta/authoritative-finalization-config";
 import {
   getMetaProtectedPublishedTruthReview,
@@ -71,6 +75,7 @@ export interface AdminSyncIssueRow {
 
 export interface AdminSyncHealthPayload {
   globalRebuildReview?: GlobalRebuildTruthReview;
+  syncEffectivenessReview?: SyncEffectivenessReview;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   summary: {
@@ -191,6 +196,10 @@ export interface AdminSyncHealthPayload {
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     stallFingerprints?: ProviderStallFingerprint[];
     quotaLimitedEvidence?: boolean;
+    campaignReadyThroughDate?: string | null;
+    searchTermReadyThroughDate?: string | null;
+    productReadyThroughDate?: string | null;
+    assetReadyThroughDate?: string | null;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -244,6 +253,10 @@ export interface AdminSyncHealthPayload {
     integrityBlockedCount?: number;
     d1FinalizeNonTerminalCount?: number;
     quotaLimitedEvidence?: boolean;
+    accountReadyThroughDate?: string | null;
+    adsetReadyThroughDate?: string | null;
+    creativeReadyThroughDate?: string | null;
+    adReadyThroughDate?: string | null;
   }>;
 }
 
@@ -420,9 +433,13 @@ interface RawGoogleAdsHealthRow {
   latest_partition_activity_at: string | null;
   campaign_completed_days: number | string | null;
   campaign_dead_letter_count: number | string | null;
+  campaign_ready_through_date?: string | null;
   search_term_completed_days: number | string | null;
+  search_term_ready_through_date?: string | null;
   product_completed_days: number | string | null;
+  product_ready_through_date?: string | null;
   asset_completed_days?: number | string | null;
+  asset_ready_through_date?: string | null;
   latest_checkpoint_phase?: string | null;
   latest_checkpoint_updated_at?: string | null;
   latest_progress_heartbeat_at?: string | null;
@@ -483,9 +500,13 @@ interface RawMetaHealthRow {
   today_account_rows: number | string;
   today_adset_rows: number | string;
   account_completed_days: number | string | null;
+  account_ready_through_date?: string | null;
   adset_completed_days: number | string | null;
+  adset_ready_through_date?: string | null;
   creative_completed_days: number | string | null;
+  creative_ready_through_date?: string | null;
   ad_completed_days?: number | string | null;
+  ad_ready_through_date?: string | null;
   recent_account_completed_days?: number | string | null;
   recent_adset_completed_days?: number | string | null;
   recent_creative_completed_days?: number | string | null;
@@ -1023,6 +1044,10 @@ export function buildAdminSyncHealth(input: {
       progressState,
       stallFingerprints,
       quotaLimitedEvidence,
+      campaignReadyThroughDate: row.campaign_ready_through_date ?? null,
+      searchTermReadyThroughDate: row.search_term_ready_through_date ?? null,
+      productReadyThroughDate: row.product_ready_through_date ?? null,
+      assetReadyThroughDate: row.asset_ready_through_date ?? null,
     });
 
     if (
@@ -1372,6 +1397,10 @@ export function buildAdminSyncHealth(input: {
       integrityBlockedCount: metaIntegritySummary.blockedCount,
       d1FinalizeNonTerminalCount,
       quotaLimitedEvidence,
+      accountReadyThroughDate: row.account_ready_through_date ?? null,
+      adsetReadyThroughDate: row.adset_ready_through_date ?? null,
+      creativeReadyThroughDate: row.creative_ready_through_date ?? null,
+      adReadyThroughDate: row.ad_ready_through_date ?? null,
     });
 
     if (
@@ -1953,9 +1982,13 @@ async function readGoogleAdsHealthRows() {
         COUNT(DISTINCT CONCAT(provider_account_id, ':', scope)) AS state_row_count,
         MAX(completed_days) FILTER (WHERE scope = 'campaign_daily') AS campaign_completed_days,
         MAX(dead_letter_count) FILTER (WHERE scope = 'campaign_daily') AS campaign_dead_letter_count,
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'campaign_daily') AS campaign_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'search_term_daily') AS search_term_completed_days,
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'search_term_daily') AS search_term_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'product_daily') AS product_completed_days,
-        MAX(completed_days) FILTER (WHERE scope = 'asset_daily') AS asset_completed_days
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'product_daily') AS product_ready_through_date,
+        MAX(completed_days) FILTER (WHERE scope = 'asset_daily') AS asset_completed_days,
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'asset_daily') AS asset_ready_through_date
       FROM google_ads_sync_state
       GROUP BY business_id
     ),
@@ -2136,9 +2169,13 @@ async function readGoogleAdsHealthRows() {
       partition.latest_partition_activity_at,
       COALESCE(state.campaign_completed_days, 0) AS campaign_completed_days,
       COALESCE(state.campaign_dead_letter_count, 0) AS campaign_dead_letter_count,
+      state.campaign_ready_through_date,
       COALESCE(state.search_term_completed_days, 0) AS search_term_completed_days,
+      state.search_term_ready_through_date,
       COALESCE(state.product_completed_days, 0) AS product_completed_days,
+      state.product_ready_through_date,
       COALESCE(state.asset_completed_days, 0) AS asset_completed_days,
+      state.asset_ready_through_date,
       checkpoint_latest.latest_checkpoint_phase,
       checkpoint_latest.latest_checkpoint_updated_at,
       checkpoint_latest.latest_progress_heartbeat_at,
@@ -2245,9 +2282,13 @@ async function readMetaHealthRows() {
         business_id::text AS business_id,
         COUNT(DISTINCT CONCAT(provider_account_id, ':', scope)) AS state_row_count,
         MAX(completed_days) FILTER (WHERE scope = 'account_daily') AS account_completed_days,
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'account_daily') AS account_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'adset_daily') AS adset_completed_days,
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'adset_daily') AS adset_ready_through_date,
         MAX(completed_days) FILTER (WHERE scope = 'creative_daily') AS creative_completed_days,
-        MAX(completed_days) FILTER (WHERE scope = 'ad_daily') AS ad_completed_days
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'creative_daily') AS creative_ready_through_date,
+        MAX(completed_days) FILTER (WHERE scope = 'ad_daily') AS ad_completed_days,
+        MIN(ready_through_date)::text FILTER (WHERE scope = 'ad_daily') AS ad_ready_through_date
       FROM meta_sync_state
       GROUP BY business_id::text
     ),
@@ -2375,9 +2416,13 @@ async function readMetaHealthRows() {
       COALESCE(today_account_rows.today_account_rows, 0) AS today_account_rows,
       COALESCE(today_adset_rows.today_adset_rows, 0) AS today_adset_rows,
       COALESCE(state.account_completed_days, 0) AS account_completed_days,
+      state.account_ready_through_date,
       COALESCE(state.adset_completed_days, 0) AS adset_completed_days,
+      state.adset_ready_through_date,
       COALESCE(state.creative_completed_days, 0) AS creative_completed_days,
+      state.creative_ready_through_date,
       COALESCE(state.ad_completed_days, 0) AS ad_completed_days,
+      state.ad_ready_through_date,
       COALESCE(recent.recent_account_completed_days, 0) AS recent_account_completed_days,
       COALESCE(recent.recent_adset_completed_days, 0) AS recent_adset_completed_days,
       COALESCE(recent.recent_creative_completed_days, 0) AS recent_creative_completed_days,
@@ -2686,6 +2731,11 @@ export async function getAdminOperationsHealth() {
       retentionEnabled: metaRetentionRuntime.executionEnabled,
     },
     metaProtectedPublishedTruth,
+  });
+  syncHealth.syncEffectivenessReview = buildSyncEffectivenessReview({
+    globalRebuildReview: syncHealth.globalRebuildReview,
+    googleBusinesses: syncHealth.googleAdsBusinesses ?? [],
+    metaBusinesses: syncHealth.metaBusinesses ?? [],
   });
   const revenueRisk = buildAdminRevenueRisk({
     workspaces: revenueWorkspaces,
