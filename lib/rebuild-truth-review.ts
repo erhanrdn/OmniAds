@@ -7,6 +7,55 @@ export type GlobalRebuildState =
   | "partial_upstream_coverage"
   | "ready";
 
+export type GlobalExecutionReadinessState = "not_ready" | "conditionally_ready" | "ready";
+
+export type GlobalExecutionReadinessProvider = "google_ads" | "meta";
+
+export interface GlobalExecutionReadinessBlocker {
+  provider: GlobalExecutionReadinessProvider;
+  code:
+    | "google_blocked_businesses"
+    | "google_quota_limited"
+    | "google_cold_bootstrap"
+    | "google_backfill_in_progress"
+    | "google_partial_upstream_coverage"
+    | "meta_blocked_businesses"
+    | "meta_repair_required"
+    | "meta_quota_limited"
+    | "meta_cold_bootstrap"
+    | "meta_backfill_in_progress"
+    | "meta_partial_upstream_coverage"
+    | "meta_protected_truth_unavailable"
+    | "meta_publication_missing"
+    | "meta_protected_truth_rebuild_incomplete"
+    | "meta_protected_truth_not_visible";
+  severity: "blocking" | "watch";
+  summary: string;
+  evidence: string;
+}
+
+export interface ProviderExecutionReadinessReview {
+  state: GlobalExecutionReadinessState;
+  summary: string;
+  blockers: GlobalExecutionReadinessBlocker[];
+  evidenceStillMissing: string[];
+}
+
+export interface GlobalExecutionReadinessReview {
+  state: GlobalExecutionReadinessState;
+  summary: string;
+  decisionModel: "global";
+  automaticEnablement: false;
+  strongerPostureJustified: boolean;
+  holdingProviders: GlobalExecutionReadinessProvider[];
+  dominantBlockers: GlobalExecutionReadinessBlocker[];
+  evidenceStillMissing: string[];
+  providers: {
+    googleAds: ProviderExecutionReadinessReview;
+    meta: ProviderExecutionReadinessReview;
+  };
+}
+
 export interface MetaProtectedPublishedTruthClassReview {
   key:
     | "core_daily_rows"
@@ -125,6 +174,7 @@ export interface GlobalRebuildTruthReview {
     googleStatus: string;
     metaStatus: string;
   };
+  executionReadiness: GlobalExecutionReadinessReview;
   googleAds: GlobalProviderRebuildReview;
   meta: GlobalProviderRebuildReview & {
     protectedPublishedTruth: {
@@ -384,6 +434,317 @@ function summarizeMetaProtectedPublishedTruth(input: {
   };
 }
 
+function dedupeText(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function getExecutionReadinessState(
+  blockers: GlobalExecutionReadinessBlocker[],
+): GlobalExecutionReadinessState {
+  if (blockers.some((blocker) => blocker.severity === "blocking")) return "not_ready";
+  if (blockers.length > 0) return "conditionally_ready";
+  return "ready";
+}
+
+function buildGoogleExecutionReadinessReview(input: {
+  rebuild: ProviderRebuildTruthReview;
+}): ProviderExecutionReadinessReview {
+  const blockers: GlobalExecutionReadinessBlocker[] = [];
+  const evidenceStillMissing: string[] = [];
+
+  switch (input.rebuild.state) {
+    case "blocked":
+      blockers.push({
+        provider: "google_ads",
+        code: "google_blocked_businesses",
+        severity: "blocking",
+        summary:
+          "Google still has blocked businesses from dead-letter, integrity, reclaim, or poisoned-checkpoint evidence.",
+        evidence: `${input.rebuild.evidence.blockedBusinesses} blocked businesses`,
+      });
+      evidenceStillMissing.push(
+        "Google blocked businesses must clear from the global rebuild review.",
+      );
+      break;
+    case "quota_limited":
+      blockers.push({
+        provider: "google_ads",
+        code: "google_quota_limited",
+        severity: "blocking",
+        summary: "Google is still quota-limited or rate-limit constrained.",
+        evidence: `${input.rebuild.evidence.quotaLimitedBusinesses} quota-limited businesses`,
+      });
+      evidenceStillMissing.push(
+        "Google quota and rate-limit pressure must clear before stronger global trust is justified.",
+      );
+      break;
+    case "cold_bootstrap":
+      blockers.push({
+        provider: "google_ads",
+        code: "google_cold_bootstrap",
+        severity: "blocking",
+        summary: "Google is still in cold bootstrap on the rebuilt warehouse.",
+        evidence: `${input.rebuild.evidence.coldBootstrapBusinesses} cold-bootstrap businesses`,
+      });
+      evidenceStillMissing.push(
+        "Google must move past cold bootstrap with real rebuilt historical coverage.",
+      );
+      break;
+    case "backfill_in_progress":
+      blockers.push({
+        provider: "google_ads",
+        code: "google_backfill_in_progress",
+        severity: "blocking",
+        summary: "Google historical backfill is still in progress.",
+        evidence: `${input.rebuild.evidence.backfillInProgressBusinesses} businesses still backfilling`,
+      });
+      evidenceStillMissing.push(
+        "Google historical backfill must complete before stronger global trust is justified.",
+      );
+      break;
+    case "partial_upstream_coverage":
+      blockers.push({
+        provider: "google_ads",
+        code: "google_partial_upstream_coverage",
+        severity: "watch",
+        summary: "Google still has partial upstream coverage on required surfaces.",
+        evidence: `${input.rebuild.evidence.partialUpstreamCoverageBusinesses} businesses with partial coverage`,
+      });
+      evidenceStillMissing.push(
+        "Google partial upstream coverage on required surfaces must clear before the gate can become fully ready.",
+      );
+      break;
+    case "repair_required":
+    case "ready":
+    default:
+      break;
+  }
+
+  const state = getExecutionReadinessState(blockers);
+  const summary =
+    state === "ready"
+      ? "Google is not currently holding back the global execution readiness gate."
+      : state === "conditionally_ready"
+        ? "Google no longer reports hard rebuild blockers, but partial upstream coverage still prevents a fully ready global posture."
+        : blockers[0]?.summary ??
+          "Google is still holding back stronger global execution posture.";
+
+  return {
+    state,
+    summary,
+    blockers,
+    evidenceStillMissing: dedupeText(evidenceStillMissing),
+  };
+}
+
+function buildMetaExecutionReadinessReview(input: {
+  rebuild: ProviderRebuildTruthReview;
+  protectedPublishedTruth: GlobalRebuildTruthReview["meta"]["protectedPublishedTruth"];
+}): ProviderExecutionReadinessReview {
+  const blockers: GlobalExecutionReadinessBlocker[] = [];
+  const evidenceStillMissing: string[] = [];
+
+  switch (input.rebuild.state) {
+    case "blocked":
+      blockers.push({
+        provider: "meta",
+        code: "meta_blocked_businesses",
+        severity: "blocking",
+        summary:
+          "Meta still has blocked businesses from publication, integrity, or queue evidence.",
+        evidence: `${input.rebuild.evidence.blockedBusinesses} blocked businesses`,
+      });
+      evidenceStillMissing.push(
+        "Meta blocked publication or integrity states must clear from the global rebuild review.",
+      );
+      break;
+    case "repair_required":
+      blockers.push({
+        provider: "meta",
+        code: "meta_repair_required",
+        severity: "blocking",
+        summary:
+          "Meta still has repair-required authoritative truth that is not safe to trust more strongly yet.",
+        evidence: `${input.rebuild.evidence.repairRequiredBusinesses} repair-required businesses`,
+      });
+      evidenceStillMissing.push(
+        "Meta repair-required authoritative retries must succeed before stronger global trust is justified.",
+      );
+      break;
+    case "quota_limited":
+      blockers.push({
+        provider: "meta",
+        code: "meta_quota_limited",
+        severity: "blocking",
+        summary: "Meta is still quota-limited or rate-limit constrained.",
+        evidence: `${input.rebuild.evidence.quotaLimitedBusinesses} quota-limited businesses`,
+      });
+      evidenceStillMissing.push(
+        "Meta quota and rate-limit pressure must clear before stronger global trust is justified.",
+      );
+      break;
+    case "cold_bootstrap":
+      blockers.push({
+        provider: "meta",
+        code: "meta_cold_bootstrap",
+        severity: "blocking",
+        summary: "Meta is still in cold bootstrap on the rebuilt warehouse.",
+        evidence: `${input.rebuild.evidence.coldBootstrapBusinesses} cold-bootstrap businesses`,
+      });
+      evidenceStillMissing.push(
+        "Meta must move past cold bootstrap with real rebuilt historical coverage.",
+      );
+      break;
+    case "backfill_in_progress":
+      blockers.push({
+        provider: "meta",
+        code: "meta_backfill_in_progress",
+        severity: "blocking",
+        summary: "Meta historical backfill is still in progress.",
+        evidence: `${input.rebuild.evidence.backfillInProgressBusinesses} businesses still backfilling`,
+      });
+      evidenceStillMissing.push(
+        "Meta historical backfill must complete before stronger global trust is justified.",
+      );
+      break;
+    case "partial_upstream_coverage":
+      blockers.push({
+        provider: "meta",
+        code: "meta_partial_upstream_coverage",
+        severity: "watch",
+        summary: "Meta still has partial upstream coverage on required surfaces.",
+        evidence: `${input.rebuild.evidence.partialUpstreamCoverageBusinesses} businesses with partial coverage`,
+      });
+      evidenceStillMissing.push(
+        "Meta partial upstream coverage on required surfaces must clear before the gate can become fully ready.",
+      );
+      break;
+    case "ready":
+    default:
+      break;
+  }
+
+  switch (input.protectedPublishedTruth.state) {
+    case "unavailable":
+      blockers.push({
+        provider: "meta",
+        code: "meta_protected_truth_unavailable",
+        severity: "blocking",
+        summary: "Meta protected published truth review is unavailable.",
+        evidence: "Protected published truth runtime unavailable",
+      });
+      evidenceStillMissing.push(
+        "Meta protected published truth review must be available before stronger global trust is justified.",
+      );
+      break;
+    case "publication_missing":
+      blockers.push({
+        provider: "meta",
+        code: "meta_publication_missing",
+        severity: "blocking",
+        summary:
+          "Meta protected published truth is still missing because active publication pointers are not visible.",
+        evidence: `${input.protectedPublishedTruth.activePublicationPointerRows} active publication pointers`,
+      });
+      evidenceStillMissing.push(
+        "Meta must expose active publication pointers and protected published truth before stronger global trust is justified.",
+      );
+      break;
+    case "rebuild_incomplete":
+      blockers.push({
+        provider: "meta",
+        code: "meta_protected_truth_rebuild_incomplete",
+        severity: "blocking",
+        summary:
+          "Meta protected published truth is not yet visible while rebuild truth still reports incomplete warehouse posture.",
+        evidence: `${input.protectedPublishedTruth.protectedPublishedRows} protected published rows visible`,
+      });
+      evidenceStillMissing.push(
+        "Meta protected published truth must become visible after rebuild truth stops reporting incomplete posture.",
+      );
+      break;
+    case "none_visible":
+      blockers.push({
+        provider: "meta",
+        code: "meta_protected_truth_not_visible",
+        severity: "watch",
+        summary:
+          "Meta protected published truth is still not visible in rebuilt data, even though hard rebuild blockers have cleared.",
+        evidence: `${input.protectedPublishedTruth.protectedPublishedRows} protected rows, ${input.protectedPublishedTruth.activePublicationPointerRows} active publication pointers`,
+      });
+      evidenceStillMissing.push(
+        "Meta must show non-zero protected published daily truth on real rebuilt data before the gate can become fully ready.",
+      );
+      break;
+    case "present":
+    default:
+      break;
+  }
+
+  const state = getExecutionReadinessState(blockers);
+  const summary =
+    state === "ready"
+      ? "Meta is not currently holding back the global execution readiness gate."
+      : state === "conditionally_ready"
+        ? "Meta no longer reports hard rebuild blockers, but protected published truth is still not visible enough to justify a fully ready posture."
+        : blockers[0]?.summary ?? "Meta is still holding back stronger global execution posture.";
+
+  return {
+    state,
+    summary,
+    blockers,
+    evidenceStillMissing: dedupeText(evidenceStillMissing),
+  };
+}
+
+function buildGlobalExecutionReadinessReview(input: {
+  google: ProviderExecutionReadinessReview;
+  meta: ProviderExecutionReadinessReview;
+}): GlobalExecutionReadinessReview {
+  const holdingProviders = (
+    [
+      input.google.state === "ready" ? null : ("google_ads" as const),
+      input.meta.state === "ready" ? null : ("meta" as const),
+    ].filter(Boolean) as GlobalExecutionReadinessProvider[]
+  );
+  const dominantBlockers = [...input.google.blockers, ...input.meta.blockers].sort((left, right) => {
+    const severityOrder = left.severity === right.severity ? 0 : left.severity === "blocking" ? -1 : 1;
+    if (severityOrder !== 0) return severityOrder;
+    return left.provider.localeCompare(right.provider);
+  });
+  const evidenceStillMissing = dedupeText([
+    ...input.google.evidenceStillMissing,
+    ...input.meta.evidenceStillMissing,
+  ]);
+  const state =
+    input.google.state === "not_ready" || input.meta.state === "not_ready"
+      ? "not_ready"
+      : input.google.state === "conditionally_ready" || input.meta.state === "conditionally_ready"
+        ? "conditionally_ready"
+        : "ready";
+  const summary =
+    state === "ready"
+      ? "Global execution readiness is ready. Rebuild truth no longer shows global blockers, and Meta protected published truth is visible. Stronger execution remains a separate explicit operator decision."
+      : state === "conditionally_ready"
+        ? "Global execution readiness is conditionally ready. Hard rebuild blockers are cleared, but remaining evidence still does not justify stronger execution or stronger warehouse trust yet."
+        : "Global execution readiness is not ready. Stronger execution or stronger warehouse trust would overstate the current rebuild truth.";
+
+  return {
+    state,
+    summary,
+    decisionModel: "global",
+    automaticEnablement: false,
+    strongerPostureJustified: state === "ready",
+    holdingProviders,
+    dominantBlockers,
+    evidenceStillMissing,
+    providers: {
+      googleAds: input.google,
+      meta: input.meta,
+    },
+  };
+}
+
 export function buildGlobalRebuildTruthReview(input: {
   googleBusinesses?: GlobalGoogleBusinessRebuildInput[];
   metaBusinesses?: GlobalMetaBusinessRebuildInput[];
@@ -408,6 +769,29 @@ export function buildGlobalRebuildTruthReview(input: {
   const metaEvidence = buildEvidenceSummary(metaStates);
   const googleState = getDominantRebuildState(googleEvidence);
   const metaState = getDominantRebuildState(metaEvidence);
+  const metaProtectedPublishedTruth = summarizeMetaProtectedPublishedTruth({
+    review: input.metaProtectedPublishedTruth,
+    rebuildState: metaState,
+  });
+  const executionReadiness = buildGlobalExecutionReadinessReview({
+    google: buildGoogleExecutionReadinessReview({
+      rebuild: {
+        state: googleState,
+        summary: buildGoogleRebuildSummary(googleState),
+        evidence: googleEvidence,
+        nextChecks: [],
+      },
+    }),
+    meta: buildMetaExecutionReadinessReview({
+      rebuild: {
+        state: metaState,
+        summary: buildMetaRebuildSummary(metaState),
+        evidence: metaEvidence,
+        nextChecks: [],
+      },
+      protectedPublishedTruth: metaProtectedPublishedTruth,
+    }),
+  });
 
   return {
     rolloutModel: "global",
@@ -416,6 +800,7 @@ export function buildGlobalRebuildTruthReview(input: {
       googleStatus: "/api/google-ads/status?businessId=<businessId>",
       metaStatus: "/api/meta/status?businessId=<businessId>",
     },
+    executionReadiness,
     googleAds: {
       execution: {
         sync:
@@ -489,10 +874,7 @@ export function buildGlobalRebuildTruthReview(input: {
           "Use npm run meta:state-check -- <businessId> and npm run meta:verify-publish -- <businessId> <providerAccountId> <day> when publication proof is needed.",
         ],
       },
-      protectedPublishedTruth: summarizeMetaProtectedPublishedTruth({
-        review: input.metaProtectedPublishedTruth,
-        rebuildState: metaState,
-      }),
+      protectedPublishedTruth: metaProtectedPublishedTruth,
     },
   };
 }

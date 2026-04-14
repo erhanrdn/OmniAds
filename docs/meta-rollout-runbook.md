@@ -84,6 +84,38 @@ Meta protected published truth interpretation:
 
 This is a global review workflow, not a canary ladder and not a "pick the next business" operating model.
 
+## Global Execution Readiness Gate
+
+After reading the global rebuild review, read the explicit gate that answers the next operator question:
+
+`Are we globally ready to trust stronger execution or stronger warehouse posture yet?`
+
+1. Open `/admin/sync-health`.
+2. Read `globalRebuildReview.executionReadiness`.
+3. Interpret the state conservatively:
+   - `not_ready`
+     - stronger posture would overstate the current rebuild truth
+     - typical blockers include `blocked`, `repair_required`, `quota_limited`, `cold_bootstrap`, `backfill_in_progress`, `publication_missing`, or `rebuild_incomplete`
+   - `conditionally_ready`
+     - hard blockers have cleared, but stronger posture is still not justified yet
+     - typical blockers include `partial_upstream_coverage` or Meta protected published truth still being `none_visible`
+   - `ready`
+     - rebuild truth no longer reports global blockers and Meta protected published truth is visible
+     - this still does not auto-enable execution
+4. Use the gate fields directly:
+   - `holdingProviders`
+   - `dominantBlockers`
+   - `evidenceStillMissing`
+5. Keep the decision global:
+   - provider drilldown explains the blockers
+   - provider drilldown does not redefine the gate business-by-business
+
+Execution remains explicit:
+
+- `META_AUTHORITATIVE_FINALIZATION_V2` stays an explicit global flag
+- `META_RETENTION_EXECUTION_ENABLED` stays an explicit global flag
+- this gate is manual review only and never flips execution automatically
+
 ## Phase 7 Executor Success Contract
 
 Historical Meta executor success now has a strict meaning:

@@ -90,6 +90,7 @@ The next operator-facing review step is now explicit and global:
 4. Read:
    - `operatorTruth.rebuild`
    - `protectedPublishedTruth`
+   - the shared global execution-readiness gate on `/admin/sync-health` under `globalRebuildReview.executionReadiness`
 
 `protectedPublishedTruth` now answers the practical question that was missing before:
 
@@ -98,6 +99,17 @@ The next operator-facing review step is now explicit and global:
 - whether absence is best explained by rebuild still being incomplete, publication still being missing, or simply no visible protected truth yet
 
 Do not upgrade operator trust based only on row presence, planner state, or queue movement while the rebuild review still reports an incomplete posture.
+
+The explicit next operator decision is now global:
+
+- `not_ready`
+  - stronger execution or stronger warehouse trust would overstate the current rebuild truth
+- `conditionally_ready`
+  - hard rebuild blockers have cleared, but Meta protected published truth or partial coverage still leaves missing evidence
+- `ready`
+  - the global rebuild review no longer reports blockers and Meta protected published truth is visible
+
+This gate is manual-only. It does not enable finalization, retention, or any stronger execution posture automatically.
 
 ## Target State Machine
 

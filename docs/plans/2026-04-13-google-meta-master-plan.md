@@ -201,13 +201,47 @@
    - Google remains equally visible through the same global review plus the existing `/api/google-ads/status.operatorTruth.rebuild` contract.
    - repo wording now treats this as one global operator review workflow, not another rollout phase and not a "pick the next business" operating model.
 
+14. Global execution readiness gate
+   - the repo now exposes one explicit global execution-readiness gate for stronger execution or stronger warehouse trust:
+     - `not_ready`
+     - `conditionally_ready`
+     - `ready`
+   - the gate is additive and conservative; it is derived from the existing rebuild-truth contract rather than from a new scoring system.
+   - Google can hold the gate back through:
+     - `blocked`
+     - `quota_limited`
+     - `cold_bootstrap`
+     - `backfill_in_progress`
+     - `partial_upstream_coverage`
+   - Meta can hold the gate back through:
+     - `blocked`
+     - `repair_required`
+     - `quota_limited`
+     - `cold_bootstrap`
+     - `backfill_in_progress`
+     - `partial_upstream_coverage`
+     - protected published truth states:
+       - `publication_missing`
+       - `rebuild_incomplete`
+       - `none_visible`
+   - `/admin/sync-health` now reports, in one operator block:
+     - the global execution-readiness state
+     - whether stronger posture is justified yet
+     - which provider is still holding the posture back
+     - explicit blocker text and the evidence that must change before the gate can become fully ready
+   - the gate does not enable anything automatically:
+     - `META_RETENTION_EXECUTION_ENABLED` remains explicit
+     - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains explicit
+     - stronger warehouse trust remains a separate operator decision even when the gate becomes `ready`
+
 ### Still Pending
 
 - destructive retention remains intentionally disabled by default under the global posture until operators explicitly decide to enable it after rebuild truth, quota stability, and protected-truth evidence are satisfactory.
-- stronger warehouse trust is still deferred until:
-  - Google global review stops reporting cold bootstrap / backfill / quota / partial-coverage pressure
-  - Meta global review stops reporting rebuild-incomplete or publication-missing posture
-  - Meta protected published truth review shows the expected non-zero rebuilt truth on real data where that truth should exist
+- stronger warehouse trust is still deferred until the new global execution-readiness gate reaches `ready`.
+- the gate must not be treated as auto-enable logic:
+  - execution remains explicit and disabled unless separately enabled later
+  - `conditionally_ready` still means the evidence is not strong enough for stronger global trust
+  - `not_ready` means stronger posture would overstate the current rebuild truth
 
 ## Operator Follow-up Record
 
@@ -244,6 +278,9 @@
   - Meta Phase 9 is complete.
   - Meta Phase 10 is complete.
   - Meta Phase 11 is complete.
+  - Meta/Google Phase 12 is complete.
+  - Meta/Google Phase 13 is complete.
+  - Meta/Google Phase 14 is complete.
 - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled.
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled.
 - The reverted 2026-04-13 warehouse-only current-day experiment is not reintroduced.
@@ -276,13 +313,14 @@
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: global destructive-retention readiness review once rebuild truth is no longer cold/partial/quota-limited.
+- Next recommended PR: operator review for explicit execution posture only after the global execution-readiness gate reaches `ready`.
 - Required scope:
   - keep the published-truth historical contract unchanged
   - keep `META_RETENTION_EXECUTION_ENABLED` off until operators explicitly choose a global execute posture
-  - review `/api/meta/status.retention.scopedExecution` on businesses that expose non-zero protected published rows
-  - keep Google retention execute-mode rollout out of the Meta follow-up
-- Intentionally deferred after Phase 12:
+  - use `/admin/sync-health` as the global decision surface
+  - verify that the gate no longer reports Google or Meta blockers and that Meta protected published truth is visibly exercised
+  - keep Google retention execute-mode rollout out of the Meta follow-up unless a separate global decision is being reviewed
+- Intentionally deferred after Phase 14:
   - Google execute-mode raw-hot-table retention verification under a global decision
   - global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
   - archival/cold export strategy for raw payloads
@@ -291,6 +329,6 @@
 ### Next Recommended Prompt
 
 1. Keep `META_RETENTION_EXECUTION_ENABLED=false` globally and leave Google execute-mode retention untouched.
-2. Wait until `/api/meta/status.operatorTruth.rebuild.state` is no longer `cold_bootstrap`, `backfill_in_progress`, or `quota_limited` on the businesses being reviewed.
-3. Review scoped verification on businesses that expose non-zero protected published rows in `/api/meta/status.retention.scopedExecution`.
-4. Only after that global review should operators decide whether `META_RETENTION_EXECUTION_ENABLED` can move from `dry_run` to explicit global execute mode.
+2. Wait until `/admin/sync-health` reports `globalRebuildReview.executionReadiness.state=ready`.
+3. Use provider drilldown only to explain any remaining blockers reported by the global gate.
+4. Only after that explicit global review should operators decide whether any execution posture can move beyond the current manual controls.

@@ -89,6 +89,35 @@ Interpretation rules stay conservative:
 
 Use `npm run google:ads:product-gate -- <businessId>` or `npm run google:ads:retention-canary -- <businessId>` only as scoped proof paths after reading the global review, not as a business-by-business rollout ladder.
 
+## Global Execution Readiness Gate
+
+Google now contributes to one shared global execution-readiness gate for stronger execution or stronger warehouse trust.
+
+Read it on `/admin/sync-health` under `globalRebuildReview.executionReadiness`.
+
+Google holds the gate back when the global review still reports:
+
+- `blocked`
+- `quota_limited`
+- `cold_bootstrap`
+- `backfill_in_progress`
+- `partial_upstream_coverage`
+
+Interpretation:
+
+- `not_ready`
+  - Google or Meta still reports hard blockers that make stronger posture dishonest
+- `conditionally_ready`
+  - hard blockers are cleared, but some evidence such as partial coverage still keeps the gate from being fully ready
+- `ready`
+  - Google is no longer holding the global gate back
+
+This gate does not change execution by itself:
+
+- `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains the only destructive Google execution gate
+- Google drilldown remains business-scoped because the data is business-scoped
+- the decision about stronger posture remains one global manual contract
+
 ## Raw query storage vs cluster/theme intelligence
 
 These are intentionally different layers.

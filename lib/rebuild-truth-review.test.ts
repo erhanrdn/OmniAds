@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { buildGlobalRebuildTruthReview } from "@/lib/rebuild-truth-review";
+import {
+  buildGlobalRebuildTruthReview,
+  type MetaProtectedPublishedTruthReview,
+} from "@/lib/rebuild-truth-review";
 
-function buildMetaProtectedTruth(overrides: Partial<Parameters<typeof buildGlobalRebuildTruthReview>[0]["metaProtectedPublishedTruth"]> = {}) {
+function buildMetaProtectedTruth(
+  overrides: Partial<Parameters<typeof buildGlobalRebuildTruthReview>[0]["metaProtectedPublishedTruth"]> = {},
+): MetaProtectedPublishedTruthReview {
+  const protectedTruthClassesAbsent: MetaProtectedPublishedTruthReview["protectedTruthClassesAbsent"] =
+    [
+      "core_daily_rows",
+      "breakdown_daily_rows",
+      "active_publication_pointers",
+      "active_published_slice_versions",
+      "active_source_manifests",
+      "published_day_state",
+    ];
+
   return {
     runtimeAvailable: true,
     asOfDate: "2026-04-14",
@@ -13,14 +28,7 @@ function buildMetaProtectedTruth(overrides: Partial<Parameters<typeof buildGloba
     protectedPublishedRows: 0,
     activePublicationPointerRows: 0,
     protectedTruthClassesPresent: [],
-    protectedTruthClassesAbsent: [
-      "core_daily_rows",
-      "breakdown_daily_rows",
-      "active_publication_pointers",
-      "active_published_slice_versions",
-      "active_source_manifests",
-      "published_day_state",
-    ],
+    protectedTruthClassesAbsent,
     classes: [],
     ...overrides,
   };
@@ -57,6 +65,19 @@ describe("buildGlobalRebuildTruthReview", () => {
 
     expect(review.googleAds.rebuild.state).toBe("cold_bootstrap");
     expect(review.googleAds.rebuild.evidence.coldBootstrapBusinesses).toBe(1);
+    expect(review.executionReadiness).toMatchObject({
+      state: "not_ready",
+      strongerPostureJustified: false,
+      holdingProviders: ["google_ads", "meta"],
+    });
+    expect(review.executionReadiness.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "google_ads",
+          code: "google_cold_bootstrap",
+        }),
+      ]),
+    );
   });
 
   it("keeps Google quota-limited ahead of backfill readiness when quota evidence is present", () => {
@@ -93,6 +114,18 @@ describe("buildGlobalRebuildTruthReview", () => {
 
     expect(review.googleAds.rebuild.state).toBe("quota_limited");
     expect(review.googleAds.rebuild.evidence.quotaLimitedBusinesses).toBe(1);
+    expect(review.executionReadiness).toMatchObject({
+      state: "not_ready",
+      strongerPostureJustified: false,
+    });
+    expect(review.executionReadiness.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "google_ads",
+          code: "google_quota_limited",
+        }),
+      ]),
+    );
   });
 
   it("classifies Meta protected truth as publication_missing when blocked and no pointers are visible", () => {
@@ -130,6 +163,19 @@ describe("buildGlobalRebuildTruthReview", () => {
 
     expect(review.meta.rebuild.state).toBe("blocked");
     expect(review.meta.protectedPublishedTruth.state).toBe("publication_missing");
+    expect(review.executionReadiness).toMatchObject({
+      state: "not_ready",
+      strongerPostureJustified: false,
+      holdingProviders: ["meta"],
+    });
+    expect(review.executionReadiness.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "meta",
+          code: "meta_publication_missing",
+        }),
+      ]),
+    );
   });
 
   it("classifies Meta protected truth as rebuild_incomplete when backfill still remains", () => {
@@ -167,11 +213,150 @@ describe("buildGlobalRebuildTruthReview", () => {
 
     expect(review.meta.rebuild.state).toBe("backfill_in_progress");
     expect(review.meta.protectedPublishedTruth.state).toBe("rebuild_incomplete");
+    expect(review.executionReadiness).toMatchObject({
+      state: "not_ready",
+      strongerPostureJustified: false,
+      holdingProviders: ["meta"],
+    });
+    expect(review.executionReadiness.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "meta",
+          code: "meta_backfill_in_progress",
+        }),
+        expect.objectContaining({
+          provider: "meta",
+          code: "meta_protected_truth_rebuild_incomplete",
+        }),
+      ]),
+    );
   });
 
-  it("exposes Meta protected published truth when live protected rows are visible", () => {
+  it("keeps global execution readiness conditionally_ready when Meta protected truth is still not visible", () => {
     const review = buildGlobalRebuildTruthReview({
-      googleBusinesses: [],
+      googleBusinesses: [
+        {
+          businessId: "biz_google_ready",
+          queueDepth: 0,
+          leasedPartitions: 0,
+          deadLetterPartitions: 0,
+          campaignCompletedDays: 365,
+          searchTermCompletedDays: 365,
+          productCompletedDays: 365,
+          assetCompletedDays: 365,
+          recentExtendedReady: true,
+          historicalExtendedReady: true,
+        },
+      ],
+      metaBusinesses: [
+        {
+          businessId: "biz_meta_ready",
+          queueDepth: 0,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          staleLeasePartitions: 0,
+          deadLetterPartitions: 0,
+          stateRowCount: 20,
+          todayAccountRows: 5,
+          todayAdsetRows: 5,
+          accountCompletedDays: 365,
+          adsetCompletedDays: 365,
+          creativeCompletedDays: 365,
+          recentExtendedReady: true,
+          historicalExtendedReady: true,
+          progressState: "ready",
+        },
+      ],
+      googleExecution: {
+        sync: "global_backfill",
+        retentionEnabled: false,
+      },
+      metaExecution: {
+        authoritativeFinalizationEnabled: true,
+        retentionEnabled: false,
+      },
+      metaProtectedPublishedTruth: buildMetaProtectedTruth({
+        activePublicationPointerRows: 2,
+      }),
+    });
+
+    expect(review.googleAds.rebuild.state).toBe("ready");
+    expect(review.meta.rebuild.state).toBe("ready");
+    expect(review.meta.protectedPublishedTruth.state).toBe("none_visible");
+    expect(review.executionReadiness).toMatchObject({
+      state: "conditionally_ready",
+      strongerPostureJustified: false,
+      holdingProviders: ["meta"],
+    });
+    expect(review.executionReadiness.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "meta",
+          code: "meta_protected_truth_not_visible",
+        }),
+      ]),
+    );
+  });
+
+  it("does not become ready merely because some Google rows exist while historical backfill still remains", () => {
+    const review = buildGlobalRebuildTruthReview({
+      googleBusinesses: [
+        {
+          businessId: "biz_google_rows",
+          queueDepth: 3,
+          leasedPartitions: 1,
+          deadLetterPartitions: 0,
+          campaignCompletedDays: 60,
+          searchTermCompletedDays: 12,
+          productCompletedDays: 20,
+          assetCompletedDays: 15,
+          recentExtendedReady: false,
+          historicalExtendedReady: false,
+        },
+      ],
+      metaBusinesses: [],
+      googleExecution: {
+        sync: "global_backfill",
+        retentionEnabled: false,
+      },
+      metaExecution: {
+        authoritativeFinalizationEnabled: true,
+        retentionEnabled: false,
+      },
+      metaProtectedPublishedTruth: buildMetaProtectedTruth(),
+    });
+
+    expect(review.googleAds.rebuild.state).toBe("backfill_in_progress");
+    expect(review.executionReadiness).toMatchObject({
+      state: "not_ready",
+      strongerPostureJustified: false,
+    });
+    expect(review.executionReadiness.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "google_ads",
+          code: "google_backfill_in_progress",
+        }),
+      ]),
+    );
+  });
+
+  it("exposes Meta protected published truth when live protected rows are visible and the global gate is ready", () => {
+    const review = buildGlobalRebuildTruthReview({
+      googleBusinesses: [
+        {
+          businessId: "biz_google_ready",
+          queueDepth: 0,
+          leasedPartitions: 0,
+          deadLetterPartitions: 0,
+          campaignCompletedDays: 365,
+          searchTermCompletedDays: 365,
+          productCompletedDays: 365,
+          assetCompletedDays: 365,
+          recentExtendedReady: true,
+          historicalExtendedReady: true,
+        },
+      ],
       metaBusinesses: [
         {
           businessId: "biz_meta_ready",
@@ -232,5 +417,12 @@ describe("buildGlobalRebuildTruthReview", () => {
     expect(review.meta.protectedPublishedTruth.protectedTruthClassesPresent).toContain(
       "core_daily_rows",
     );
+    expect(review.executionReadiness).toMatchObject({
+      state: "ready",
+      strongerPostureJustified: true,
+      holdingProviders: [],
+      automaticEnablement: false,
+    });
+    expect(review.executionReadiness.dominantBlockers).toHaveLength(0);
   });
 });

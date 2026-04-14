@@ -448,6 +448,73 @@ export default function AdminSyncHealthPage() {
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Global execution readiness gate</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    One global decision for stronger execution or stronger warehouse trust across all businesses.
+                  </p>
+                </div>
+                <StateBadge state={globalRebuildReview.executionReadiness.state} />
+              </div>
+              <p className="mt-3 text-sm text-gray-600">
+                {globalRebuildReview.executionReadiness.summary}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <MetricPill
+                  label="Justified"
+                  value={globalRebuildReview.executionReadiness.strongerPostureJustified ? "yes" : "no"}
+                />
+                <MetricPill
+                  label="Holding"
+                  value={formatHoldingProviders(globalRebuildReview.executionReadiness.holdingProviders)}
+                />
+                <MetricPill
+                  label="Auto-enable"
+                  value={globalRebuildReview.executionReadiness.automaticEnablement ? "on" : "off"}
+                />
+              </div>
+              <p className="mt-3 text-xs text-gray-500">
+                This gate never enables execution automatically. Stronger execution remains an explicit operator decision.
+              </p>
+
+              {globalRebuildReview.executionReadiness.dominantBlockers.length > 0 ? (
+                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Dominant blockers
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm text-gray-600">
+                      {globalRebuildReview.executionReadiness.dominantBlockers.map((blocker) => (
+                        <li key={`${blocker.provider}-${blocker.code}`}>
+                          <span className="font-medium text-gray-900">
+                            {formatExecutionProvider(blocker.provider)}:
+                          </span>{" "}
+                          {blocker.summary}
+                          <span className="block text-xs text-gray-500">{blocker.evidence}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Evidence still missing
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm text-gray-600">
+                      {globalRebuildReview.executionReadiness.evidenceStillMissing.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-gray-600">
+                  No dominant blockers are currently reported by the shared gate.
+                </p>
+              )}
+            </div>
+
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-semibold text-gray-900">Google Ads</p>
@@ -953,9 +1020,10 @@ function StateBadge({ state }: { state: string }) {
   const className =
     state === "ready" || state === "present"
       ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-      : state === "blocked" || state === "publication_missing"
+      : state === "not_ready" || state === "blocked" || state === "publication_missing"
         ? "border border-red-200 bg-red-50 text-red-700"
-        : state === "repair_required" ||
+        : state === "conditionally_ready" ||
+            state === "repair_required" ||
             state === "quota_limited" ||
             state === "cold_bootstrap" ||
             state === "backfill_in_progress" ||
@@ -969,6 +1037,15 @@ function StateBadge({ state }: { state: string }) {
       {state}
     </span>
   );
+}
+
+function formatExecutionProvider(provider: string) {
+  return provider === "google_ads" ? "Google Ads" : provider === "meta" ? "Meta" : provider;
+}
+
+function formatHoldingProviders(providers: string[]) {
+  if (providers.length === 0) return "none";
+  return providers.map((provider) => formatExecutionProvider(provider)).join(", ");
 }
 
 function MetricCard({
