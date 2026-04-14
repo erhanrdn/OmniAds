@@ -48,6 +48,7 @@ import { addDaysToIsoDateUtc, getProviderPlatformDateBoundaries } from "@/lib/pr
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
+import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
   getMetaRetentionCanaryRuntimeStatus,
   getMetaRetentionDeleteScope,
@@ -1434,7 +1435,7 @@ export async function GET(request: NextRequest) {
     ? {
         state: "globally_enabled" as const,
         summary:
-          "Meta authoritative finalization v2 is globally enabled for all businesses.",
+          "Meta authoritative finalization v2 is globally enabled for all businesses under the current explicit operator posture.",
       }
     : {
         state: "disabled" as const,
@@ -1500,6 +1501,7 @@ export async function GET(request: NextRequest) {
       d1BlockedReason,
       operatorTruth: {
         rolloutModel: "global",
+        reviewWorkflow: GLOBAL_OPERATOR_REVIEW_WORKFLOW,
         execution: {
           authoritativeFinalization: finalizationExecutionPosture,
           retention: retentionExecutionPosture,
@@ -1525,7 +1527,7 @@ export async function GET(request: NextRequest) {
                       ? "Meta historical truth is still backfilling."
                       : rebuildState === "partial_upstream_coverage"
                         ? "Meta has partial upstream coverage; some surfaces remain incomplete."
-                        : "Meta rebuild truth is ready for the current contract.",
+                        : "Meta rebuild truth is ready for the current contract. Ready means evidence only and does not auto-enable stronger execution, finalization changes, or retention.",
         },
         protectedPublishedTruth: {
           state: protectedPublishedTruthState,

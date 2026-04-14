@@ -1,598 +1,176 @@
-# Meta Authoritative Finalization v2 Rollout Runbook
+# Meta Global Operations Runbook
 
-This runbook defines the standard operator procedures for Meta authoritative
-finalization v2 global enablement, rebuild review, verification, recovery, and
-rollback on the existing Hetzner deployment shape.
-
-Current posture for this repo:
-
-- one global Meta behavior contract applies across all businesses
-- the DB server changed and the warehouse is rebuilding from provider APIs
-- cold bootstrap, backfill, quota pressure, and partial upstream coverage are first-class operator truth
-- business-by-business canary expansion is no longer the preferred operating model
-
-Production rollout record:
+This file now describes the steady-state Meta operating model on the existing production shape. The historical rollout record remains:
 
 - `docs/meta-rollout-record-2026-04-07.md`
 
+## Current Operating Posture
+
+- one global Meta behavior contract applies across all businesses
+- the warehouse rebuild remains honest about cold bootstrap, backfill, quota pressure, partial coverage, blocked publication, and repair-required truth
+- business-level status is explanatory only because the data is business/account scoped
+- `ready` means evidence only; it does not auto-enable stronger execution
+
 ## Deployment Surface
 
-Keep the production architecture stable during this rollout:
+Keep the production shape stable:
 
 1. `web`
    - serves the Next.js application
-   - must pass `/api/build-info` health checks before the deploy is considered up
+   - must pass `/api/build-info` health checks after deploy
 2. `worker`
    - runs `npm run worker:start`
-   - must emit a fresh post-deploy `meta` worker heartbeat before the deploy is considered healthy
+   - must emit a fresh Meta worker heartbeat after deploy
 3. `cron`
    - remains host-level cron calling `/api/sync/cron`
-   - is responsible for autonomous queue advancement into `D-1` finalization
+   - advances scheduled Meta maintenance and finalization work
 4. `nginx`
-   - remains the public reverse proxy in front of `web`
-   - must keep forwarding `/api/*` and dashboard traffic without special rollout routing
+   - remains the reverse proxy in front of `web`
 
-## Runtime Flags
+## Runtime Controls
 
-Use only these rollout controls:
+Only these controls matter for Meta finalization and retention posture:
 
 1. `META_AUTHORITATIVE_FINALIZATION_V2`
-   - `0`: old Meta finalization path remains authoritative
-   - `1`: v2 serves and finalizes globally for every business
+   - `0`: Meta authoritative finalization v2 is globally disabled
+   - `1`: Meta authoritative finalization v2 is globally enabled
 2. `META_RETENTION_EXECUTION_ENABLED`
-   - `0`: retention remains dry-run only for every business
-   - `1`: retention execution is globally enabled for every business
+   - `0`: retention remains dry-run only
+   - `1`: retention delete execution is globally enabled
 3. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
-   - legacy env only
+   - legacy-only environment variable
    - no longer changes runtime behavior under the current global contract
 
-## Global Rebuild Truth Review Workflow
+## Global Operator Review Workflow
 
-Use one global operator workflow before deciding that rebuilt warehouse truth is trustworthy.
+Use one workflow before changing trust or execution posture:
 
-1. Open `/admin/sync-health`.
-2. Read the `Global rebuild truth review` section first.
-3. Treat that section as the global posture for all businesses:
-   - `cold_bootstrap`
-   - `backfill_in_progress`
-   - `quota_limited`
-   - `partial_upstream_coverage`
+1. Open `/admin/sync-health` or run `npm run ops:execution-readiness-review`.
+2. Read `Global rebuild truth review`.
+3. Confirm the current Meta rebuild state:
    - `blocked`
    - `repair_required`
+   - `quota_limited`
+   - `cold_bootstrap`
+   - `backfill_in_progress`
+   - `partial_upstream_coverage`
    - `ready`
-4. Do not treat sparse warehouse rows or one sampled business as proof that Meta is generally ready.
+4. Read the shared global execution-readiness gate:
+   - `not_ready`
+   - `conditionally_ready`
+   - `ready`
+5. Read the explicit execution posture review:
+   - `no_go`
+   - `hold_manual`
+   - `eligible_for_explicit_review`
 
-Provider drilldown remains business-scoped only because the underlying data is business/account-scoped:
+Interpretation rules:
 
-- Google:
-  - open `/api/google-ads/status?businessId=<businessId>`
-  - inspect `operatorTruth.rebuild`
-- Meta:
-  - open `/api/meta/status?businessId=<businessId>`
-  - inspect both `operatorTruth.rebuild` and `protectedPublishedTruth`
+- provider drilldown explains evidence; it does not redefine posture per business
+- `ready` means rebuild evidence is sufficient for explicit review, not automatic enablement
+- the posture review never flips runtime flags automatically
 
-Meta protected published truth interpretation:
+## Provider Drilldown
+
+Use business-scoped drilldown only to explain the global decision:
+
+- `/api/meta/status?businessId=<businessId>`
+  - `operatorTruth.rebuild`
+  - `operatorTruth.reviewWorkflow`
+  - `protectedPublishedTruth`
+  - `retention`
+
+Protected published truth interpretation:
 
 - `present`
-  - rebuilt data currently shows non-zero protected published daily rows
-- `rebuild_incomplete`
-  - publication proof is not yet absent-by-contract; the rebuild is still incomplete
+  - non-zero protected published truth is visible in rebuilt data
 - `publication_missing`
-  - finalized-like progress exists, but required publication is still not visible
+  - finalized-like progress exists, but required publication is still missing
+- `rebuild_incomplete`
+  - absence is still explained by rebuild posture
 - `none_visible`
-  - no non-zero protected published daily rows are currently visible for that business under the current contract
+  - no non-zero protected published truth is currently visible for that business
+- `unavailable`
+  - protected-truth review runtime is unavailable
 
-This is a global review workflow, not a canary ladder and not a "pick the next business" operating model.
+## Locked Meta Truth Contracts
 
-## Global Execution Readiness Gate
+These contracts remain non-negotiable:
 
-After reading the global rebuild review, read the explicit gate that answers the next operator question:
+1. `today` is live-only.
+2. Non-today inside the authoritative horizon serves published verified truth only.
+3. Non-today outside the authoritative horizon keeps live fallback for:
+   - `summary`
+   - `campaigns`
+   - `adsets`
+   - `ad`
+4. `breakdowns` outside `394` days remain `unsupported/degraded`.
+5. Finalize-like completion without required publication is not success.
+6. `blocked` and `repair_required` remain first-class operator truth.
 
-`Are we globally ready to trust stronger execution or stronger warehouse posture yet?`
+## Finalization And Recovery Contract
 
-1. Open `/admin/sync-health`.
-2. Read `globalRebuildReview.executionReadiness`.
-3. Interpret the state conservatively:
-   - `not_ready`
-     - stronger posture would overstate the current rebuild truth
-     - typical blockers include `blocked`, `repair_required`, `quota_limited`, `cold_bootstrap`, `backfill_in_progress`, `publication_missing`, or `rebuild_incomplete`
-   - `conditionally_ready`
-     - hard blockers have cleared, but stronger posture is still not justified yet
-     - typical blockers include `partial_upstream_coverage` or Meta protected published truth still being `none_visible`
-   - `ready`
-     - rebuild truth no longer reports global blockers and Meta protected published truth is visible
-     - this still does not auto-enable execution
-4. Use the gate fields directly:
-   - `holdingProviders`
-   - `dominantBlockers`
-   - `evidenceStillMissing`
-5. Keep the decision global:
-   - provider drilldown explains the blockers
-   - provider drilldown does not redefine the gate business-by-business
+Historical Meta success means published authoritative truth exists for the required surfaces on that account-day.
 
-Execution remains explicit:
+Operator interpretation:
 
-- `META_AUTHORITATIVE_FINALIZATION_V2` stays an explicit global flag
-- `META_RETENTION_EXECUTION_ENABLED` stays an explicit global flag
-- this gate is manual review only and never flips execution automatically
+- `blocked`
+  - finalize-like work completed, but publication is missing or mismatched
+- `repair_required`
+  - a fresh authoritative retry is the correct next step
+- `queued`, `running`, `pending`
+  - still non-terminal while authoritative progress is justified
 
-## Explicit Execution Posture Review Workflow
-
-Use one additive operator artifact after reading the gate:
-
-1. Run `npm run ops:execution-readiness-review` or read `globalRebuildReview.executionPostureReview` on `/admin/sync-health`.
-2. Treat the posture review as the explicit operator decision layer derived from the gate:
-   - `no_go`
-     - keep the current manual posture
-     - do not consider stronger execution or stronger warehouse trust yet
-   - `hold_manual`
-     - hard blockers are cleared, but missing evidence still requires a manual hold
-     - use provider drilldown only to explain the remaining blockers or missing evidence
-   - `eligible_for_explicit_review`
-     - the global gate is `ready`
-     - operators may consider whether stronger posture should be reviewed next
-     - nothing auto-enables from this result
-3. Use the posture review fields directly:
-   - `gateState`
-   - `dominantBlockers`
-   - `evidenceStillMissing`
-   - `currentPosture`
-   - `mustRemainManual`
-   - `forbiddenEvenIfReady`
-4. Keep the distinction explicit:
-   - the gate answers readiness
-   - the posture review answers the operator decision
-   - neither one auto-enables execution
-
-Even when the decision is `eligible_for_explicit_review`:
-
-- `META_RETENTION_EXECUTION_ENABLED` remains separate and explicit
-- `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains separate and explicit
-- stronger warehouse trust still requires an explicit operator decision
-- business-by-business rollout wording remains out of scope
-
-## Phase 7 Executor Success Contract
-
-Historical Meta executor success now has a strict meaning:
-
-1. `meta_authoritative_day_state` is the runtime authority for whether a non-today account-day is actually done.
-2. A historical partition only succeeds when every required surface for that day has a published authoritative pointer.
-3. `fetch completed`, `partition completed`, or a normal worker return are not success by themselves.
-4. If a worker returns without authoritative publication progress, the runtime prefers non-terminal cancel-and-requeue semantics over false success.
-5. If finalize-like work completed but required publication is still missing, treat the day as explicit non-success:
-   - `blocked` for publication-pointer or contract-mismatch style states
-   - `repair_required` when verification says another authoritative attempt is needed
-   - `failed` when the authoritative attempt itself failed
-6. Near the rollover boundary, `D-2` historical advancement must wait for a fully published `D-1`.
-7. Breakdown publication is only required inside the `394` day breakdown horizon.
-
-## Phase 8 Detector And Auto-Heal Contract
-
-The detector and reconciliation path now treat publication mismatches as
-first-class operator states.
-
-1. `blocked`
-   - finalize-like completion exists, but required publication is missing
-   - planner says `published` while the publication pointer is absent
-   - worker/planner/web/publication truth disagrees in a way that makes retry unsafe without diagnosis
-2. `repair_required`
-   - a fresh authoritative retry is the correct next step after validation or reconciliation evidence
-   - current published truth remains active until the replacement is verified and published
-3. Retryable non-terminal states
-   - `queued`, `running`, or `pending` remain non-terminal when authoritative progress is still justified by queue, lease, or manifest evidence
-   - stale leases remain non-terminal until cleanup/reconciliation proves no progress
-4. First operator checks for any suspected mismatch
-   - `npm run meta:state-check -- <businessId>`
-   - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
-   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
-5. Retention posture remains unchanged
-   - `META_RETENTION_EXECUTION_ENABLED` is still disabled by default
-   - this runbook does not authorize retention rollout
-
-## Phase 9 Retention Preparation Contract
-
-Meta retention is now prepared for operator-visible dry-run verification without
-enabling destructive execution by default.
-
-1. Locked horizons
-   - `meta_account_daily`, `meta_campaign_daily`, `meta_adset_daily`, `meta_ad_daily`: `761` days
-   - `meta_breakdown_daily`: `394` days
-2. Published-truth protection
-   - active publication pointers required inside the locked horizon remain protected
-   - active published slice versions and source manifests required by those pointers remain protected
-   - published day-state rows tied to active publication remain protected
-   - published warehouse rows on currently-authoritative account-days remain protected
-3. Horizon-outside residue
-   - core artifacts older than `761` days are treated as deletable residue
-   - breakdown artifacts older than `394` days are treated as deletable residue
-   - breakdown artifacts beyond `394` days are not authoritative requirements for serving or verification
-4. Operator visibility
-   - `/api/meta/status` now exposes a `retention` block with runtime gate, locked policy summary, latest dry-run totals, and per-table protected-vs-deletable evidence
-5. Execution posture
-   - `META_RETENTION_EXECUTION_ENABLED` remains disabled by default
-   - this runbook still does not authorize global delete execution
-
-## Phase 10 Legacy Cleanup Contract
-
-Meta historical truth now has one supported interpretation inside the
-authoritative horizon.
-
-1. Published verification only
-   - non-today inside the authoritative horizon is ready only when published verification succeeds for the required surfaces
-   - raw warehouse row presence, broad coverage, or dirty-date heuristics are not historical truth
-2. No finalize-pending compatibility success
-   - finalize-like completion without a required publication pointer remains `blocked`, `repair_required`, `failed`, or retryable non-terminal work
-   - planner `published` state without a pointer is not historical success
-3. Read-path posture
-   - `today` remains live-only
-   - non-today inside the horizon remains published verified truth only
-   - horizon-outside core reads keep the existing live fallback behavior
-   - breakdowns outside `394` days remain unsupported/degraded
-4. Operator visibility
-   - `/api/meta/status` now reports the historical contract explicitly as `live_only`, `published_verified_truth`, `live_fallback`, and `unsupported_degraded`
-   - retention dry-run evidence remains intact and both retention executors stay disabled by default
-
-## Phase 11 Retention Scoped Execution Contract
-
-Meta retention execution now uses one global execution posture plus an optional scoped proof command.
-
-1. Global posture
-   - `META_RETENTION_EXECUTION_ENABLED` stays disabled by default
-   - when it is enabled, that posture applies globally across all businesses
-2. Scoped proof path
-   - `npm run meta:retention-canary -- <businessId>` remains the explicit operator proof path
-   - `npm run meta:retention-canary -- <businessId> --execute` is allowed only when global execute mode is on
-   - the command still scopes inspection or delete work to the requested business, but that data scope is not a separate rollout posture
-3. Protected truth
-   - active publication pointers inside the locked horizon
-   - active published slice versions referenced by those pointers
-   - active source manifests referenced by published slices
-   - published day-state rows tied to active publication pointers
-   - currently-required core truth inside `761` days
-   - currently-required breakdown truth inside `394` days
-4. Allowed delete scope
-   - core daily residue older than `761` days
-   - breakdown residue older than `394` days
-   - horizon-outside publication pointers, reconciliation rows, and published day-state rows older than the applicable horizon
-   - orphaned unpublished slice versions older than the applicable horizon
-   - orphaned source manifests older than the applicable horizon
-5. Operator evidence
-   - `/api/meta/status?businessId=<businessId>` now exposes `retention.scopedExecution`
-   - the latest scoped run records whether it was dry-run only, gated, skipped, or executed under the global posture
-   - per-table proof reports what was protected, what was deletable, and what was actually deleted
-
-## Preflight
-
-1. Confirm migrations are additive and rollout-safe
-2. Confirm Meta remains on the provider-specific worker runtime
-3. Confirm historical read routes remain read-only
-4. Confirm rollback flags are documented before enabling any rollout flag
-5. Confirm Hetzner components are healthy before changing flags:
-   - `docker compose ps`
-   - `docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q web)"`
-   - `docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q worker)"`
-   - `npm run sync:worker-health -- --provider-scope meta --online-window-minutes 5`
-   - `curl -fsS http://127.0.0.1:3000/api/build-info`
-6. Capture a pre-change snapshot:
-   - `npm run meta:state-check -- <businessId>`
-   - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
-   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
-
-## Global Enablement Plan
-
-### Shadow Mode
-
-Deploy the code and keep `META_AUTHORITATIVE_FINALIZATION_V2=0`.
-
-1. Verify:
-   - web health is green
-   - worker emits fresh heartbeats
-   - cron still reaches `/api/sync/cron`
-   - nginx still serves external traffic normally
-2. Run post-deploy verification commands for one or more representative Meta businesses:
-   - `npm run meta:state-check -- <businessId>`
-   - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
-   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
-3. Do not enable v2 until shadow mode shows no baseline regression.
-
-### Global Enablement
-
-1. Set `META_AUTHORITATIVE_FINALIZATION_V2=1`
-2. Redeploy web and worker
-3. Observe:
-   - `live -> pending_finalization -> finalizing -> finalized_verified`
-   - publication timing
-   - validation outcomes
-   - queue/backlog side effects
-   - `/api/meta/status.operatorTruth.rebuild`
-4. Verify that rebuild truth is honest during catch-up:
-   - `cold_bootstrap` during a fresh warehouse rebuild
-   - `backfill_in_progress` while historical ranges are still catching up
-   - `quota_limited` when provider pressure or retry windows are active
-   - `blocked` / `repair_required` only when publication or verification evidence supports that wording
-5. Re-run the post-deploy verification block after `T0` and `T0 + 24h`.
-
-## Validation Window
-
-1. Capture `T0` state before account-timezone rollover
-2. Capture state during `D-1` finalization
-3. Capture state after verified publication
-4. Repeat at `T0 + 24h`
-5. Record:
-   - source manifest evidence
-   - candidate/publication version changes
-   - reconciliation pass/fail events
-   - manual refresh behavior for historical ranges
-
-## Post-Deploy Verification Commands
-
-Run these from the Hetzner host after each rollout.
-
-### Web
-
-1. `curl -fsS http://127.0.0.1:3000/api/build-info`
-2. `curl -fsSI http://127.0.0.1:3000/about`
-3. `curl -fsSI https://adsecute.com/about`
-
-### Worker
-
-1. `docker compose ps`
-2. `docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q worker)"`
-3. `npm run sync:worker-health -- --provider-scope meta --online-window-minutes 5`
-
-### Cron
-
-1. `crontab -l`
-2. `tail -n 50 /tmp/adsecute-sync-cron.log`
-3. `curl -fsS -X POST http://127.0.0.1:3000/api/sync/cron -H "Authorization: Bearer ${CRON_SECRET}"`
-
-### Nginx
-
-1. `sudo nginx -t`
-2. `sudo systemctl status nginx --no-pager`
-3. `curl -fsSI https://adsecute.com/about`
-
-### Queue Health
+First recovery checks:
 
 1. `npm run meta:state-check -- <businessId>`
+2. `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
+3. `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
+4. `npm run meta:refresh-state -- <businessId>`
+5. `npm run meta:reschedule -- <businessId>`
+6. `npm run meta:cleanup -- <businessId>`
 
-### Authoritative Publish Health
+## Retention Operating Posture
 
-1. `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
+Meta retention is steady-state manual control:
 
-### D-1 Finalize Health
+- `META_RETENTION_EXECUTION_ENABLED` remains the only destructive execution gate
+- `npm run meta:retention-canary -- <businessId>` remains the scoped proof command
+- `npm run meta:retention-canary -- <businessId> --execute` is allowed only when the global execution gate is explicitly on
+- the command name is historical; it is a scoped proof path, not a rollout ladder
 
-1. `npm run meta:verify-day -- <businessId> <providerAccountId> <d1Day>`
+Operators must verify:
 
-### Retention Dry-Run Health
+1. `/api/meta/status?businessId=<businessId>`
+   - `retention`
+   - `retention.scopedExecution`
+2. published truth remains protected
+3. delete scope remains limited to horizon-outside residue or stale orphan artifacts
+4. global posture stays manual unless an explicit later decision changes it
 
-1. Inspect the latest Meta retention proof:
+## Evidence Required Before Any Stronger Posture
 
-```bash
-curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention'
-```
+Do not consider stronger posture until all of this is true:
 
-2. Confirm:
-   - `defaultExecutionDisabled=true`
-   - `policy.coreDailyAuthoritativeDays=761`
-   - `policy.breakdownDailyAuthoritativeDays=394`
-   - `summary.protectedRows` is non-zero for businesses with active published history
-   - deletable rows appear only as horizon-outside residue, not as required currently-published truth
+1. the shared global review no longer reports Meta rebuild blockers
+2. Meta protected published truth is visible on real rebuilt data
+3. `blocked` and `repair_required` cases are cleared or understood
+4. quota pressure and partial coverage are no longer holding the global gate back
+5. retention dry-run or scoped proof still shows only safe delete scope
 
-### Retention Scoped Proof
+## Rollback And Safety
 
-1. Inspect the scoped retention posture before any delete attempt:
+If Meta behavior is incorrect after a deploy or posture change:
 
-```bash
-curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention.scopedExecution'
-```
+1. keep provider truth contracts intact
+2. revert explicit flags instead of improvising business-specific rollout
+3. preserve publication, manifest, and reconciliation evidence
+4. diagnose with the existing operator commands before re-enabling any stronger posture
 
-2. Confirm:
-   - `globalDefaultExecutionDisabled=true`
-   - `globalExecutionEnabled=false`
-   - `executeAllowed=false` until global execution is explicitly enabled
-   - `command="npm run meta:retention-canary -- <businessId>"`
-   - `executeCommand="npm run meta:retention-canary -- <businessId> --execute"`
-3. Run the proof command first without deletes:
+## Optional Future Operational Decisions
 
-```bash
-npm run meta:retention-canary -- <businessId>
-```
+These are optional operations, not missing architecture:
 
-4. To run the scoped execute proof, set:
-   - `META_RETENTION_EXECUTION_ENABLED=true`
-
-5. Then run:
-
-```bash
-npm run meta:retention-canary -- <businessId> --execute
-```
-
-6. After the run, inspect:
-   - `/api/meta/status?businessId=<businessId>` and confirm `retention.scopedExecution.latestRun.executionDisposition=scoped_execute`
-   - `retention.scopedExecution.latestRun.totalDeletedRows`
-   - `retention.scopedExecution.summary.protectedRows`
-   - `retention.scopedExecution.tables[].deleteScope`
-   - `retention.scopedExecution.tables[].deletedRows`
-7. Treat this as scoped evidence only:
-   - the command stays business-scoped because the data is business-scoped
-   - the execution posture itself remains one global contract
-   - keep global execution disabled until rebuild truth is no longer cold, partial, or quota-limited and protected published truth is clearly exercised
-
-Observed follow-up on April 14, 2026:
-
-1. One production Meta business was reviewed as a scoped proof sample under the global contract.
-   - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
-2. Dry-run evidence:
-   - one initial dry-run was skipped because another Meta retention lease was active
-   - the successful dry-run observed `612` deletable `meta_breakdown_daily` rows
-   - the deletable breakdown residue window was `2024-04-26` through `2024-05-04`
-   - `deleteScope` remained `horizon_outside_residue`
-3. First scoped execute attempt:
-   - failed with `FOR UPDATE cannot be applied to the nullable side of an outer join`
-   - the narrow fix was to lock only the base orphan target rows during slice/manifest cleanup
-4. Post-fix rerun:
-   - `retention.scopedExecution.latestRun.executionDisposition=scoped_execute`
-   - `retention.scopedExecution.latestRun.totalDeletedRows=0`
-   - `retention.scopedExecution.tables[].deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
-   - `META_RETENTION_EXECUTION_ENABLED` stayed globally disabled
-   - final status review showed no remaining deletable residue for the reviewed business
-5. Operator decision after the review:
-   - do not enable global Meta retention execution
-   - do not mix Google execute-mode rollout into this follow-up
-6. Remaining blocker before any global execute review:
-   - the reviewed business currently reports `0` protected published rows and `0` active publication pointers in `/api/meta/status.retention.scopedExecution`
-   - this follow-up therefore proves safe scoped posture and operator visibility, but it is not enough evidence to claim protected published-truth exercise or rebuild completeness
-
-### Refresh Behavior
-
-1. Trigger historical refresh:
-
-```bash
-curl -fsS -X POST http://127.0.0.1:3000/api/sync/refresh \
-  -H "Authorization: Bearer ${CRON_SECRET}" \
-  -H "Content-Type: application/json" \
-  -d '{"businessId":"<businessId>","provider":"meta","mode":"finalize_range","startDate":"<day>","endDate":"<day>"}'
-```
-
-2. Verify refresh produced authoritative publish semantics:
-   - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
-   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
-3. Treat refresh as successful only if publish verification passes for the required surfaces.
-4. If the worker returned but publication is still missing, treat the outcome as `blocked` or `repair_required`, not success.
-
-## Standard Operator Commands
-
-Use these commands before considering manual database work:
-
-1. Business-wide state snapshot
-   - `npm run meta:state-check -- <businessId>`
-2. Verify one business/account/day end-to-end
-   - `npm run meta:verify-day -- <businessId> <providerAccountId> <day>`
-3. Verify required publication pointers
-   - `npm run meta:verify-publish -- <businessId> <providerAccountId> <day>`
-4. Force sync-state refresh without deleting data
-   - `npm run meta:refresh-state -- <businessId>`
-5. Reschedule Meta work safely
-   - `npm run meta:reschedule -- <businessId>`
-6. Cleanup stale leases / orchestration state
-   - `npm run meta:cleanup -- <businessId>`
-7. Replay dead-letter work and immediately re-plan
-   - `npm run meta:replay-dead-letter -- <businessId> [scope]`
-8. Inspect retention dry-run posture without enabling deletes
-   - `curl -fsS "http://127.0.0.1:3000/api/meta/status?businessId=<businessId>" | jq '.retention'`
-9. Run the dedicated scoped retention proof
-   - `npm run meta:retention-canary -- <businessId>`
-
-## Verify-Day Procedure
-
-Run `meta:verify-day` when a specific account/day looks wrong or stuck.
-
-The command reports:
-
-- business/account/day
-- source manifest state
-- validation state
-- active publication
-- latest failure reason
-- queued / leased / dead-letter / stale-lease / repair backlog counts
-- refresh recommendation
-
-Interpretation:
-
-1. `verificationState=finalized_verified`
-   - published verified truth is active for the required surfaces for that day
-   - no operator action is required unless user-visible data is still inconsistent
-2. `verificationState=processing`
-   - check queue vs leased counts
-   - if leased is positive, wait for worker or inspect worker heartbeat
-   - if queued is positive and leased is zero, run `meta:refresh-state` then `meta:reschedule`
-   - if detector output says `queued`, `running`, or `stale_lease_pending_proof`, treat this as non-terminal and prefer requeue/reschedule/cleanup semantics over dead-letter assumptions
-3. planner or verify output indicates `blocked`
-   - treat this as an explicit publication or contract mismatch, not a soft success
-   - inspect manifest completion vs publication absence
-   - confirm worker/planner/publication alignment before replaying work
-   - use `meta:verify-publish` before attempting a fresh authoritative retry
-4. `verificationState=failed` or `repair_required`
-   - keep current published truth active
-   - inspect `lastFailure`
-   - follow the recommended recovery action from the command output
-   - prefer a fresh authoritative retry only after the detector recommends `repair_required`
-5. `deadLetters > 0`
-   - run `meta:replay-dead-letter`
-6. `staleLeases > 0`
-   - run `meta:cleanup`
-   - then `meta:verify-day`
-   - only reschedule after there is proof the stale lease is no longer making progress
-
-## Recovery Procedure
-
-Recovery must remain product-safe:
-
-- never use delete-first recovery
-- never invalidate current published truth before a replacement is validated and published
-- never require manual SQL for standard recovery
-
-Preferred order:
-
-1. `meta:state-check`
-2. `meta:verify-day`
-3. `meta:verify-publish`
-4. `meta:cleanup` if stale leases exist and proof of no progress is needed
-5. `meta:refresh-state`
-6. `meta:reschedule`
-7. `meta:replay-dead-letter` if dead letters exist
-8. Re-run `meta:verify-day`
-9. Do not treat a normal worker completion without publish verification as recovery success
-
-## Failure Handling
-
-If rollout produces incorrect behavior:
-
-1. Disable v2 flags
-2. Stop promoting new candidates
-3. Keep current published truth active
-4. Confirm web and worker remain healthy after the flag change:
-   - `curl -fsS http://127.0.0.1:3000/api/build-info`
-   - `npm run sync:worker-health -- --provider-scope meta --online-window-minutes 5`
-5. Use existing Meta recovery tooling:
-   - `meta:cleanup`
-   - `meta:replay-dead-letter`
-   - `meta:refresh-state`
-   - `meta:reschedule`
-   - `meta:verify-day`
-6. Record the failed manifest/candidate/reconciliation evidence for follow-up
-7. If manifest completion exists without publication, classify the incident as `blocked` until the contract mismatch is resolved
-
-## Rollback
-
-Rollback must preserve historical serving continuity.
-
-1. Disable v2 finalization flags
-2. Verify old published truth is still readable
-3. Verify manual refresh no longer reports v2 publication semantics
-4. Keep additive schema objects in place unless a later migration explicitly
-   retires them
-
-Detailed rollback steps:
-
-1. Set `META_AUTHORITATIVE_FINALIZATION_V2=0`
-2. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` may remain unset or be cleared; it is legacy-only and has no runtime effect here
-3. Redeploy web and worker
-4. Confirm both containers return healthy status
-5. Confirm `/api/meta/status` still reports the explicit historical contract truthfully for the rolled-back runtime state
-6. Confirm `meta:state-check` and `meta:verify-day` still distinguish published truth from blocked / repair-required / retryable non-terminal states
-7. Confirm historical refresh no longer claims `finalized_verified` unless published verification actually exists for the rolled-back path
-8. Do not delete authoritative v2 tables during rollback
-9. Preserve manifest/publication/reconciliation evidence for forensic follow-up
-
-## Sign-off
-
-Do not mark rollout complete until:
-
-- shadow mode completed without baseline regressions
-- global `T0` rollout validation passes
-- `T0 + 24h` validation passes
-- admin signals remain understandable
-- no destructive recovery step was required
-- verify-day output is sufficient for day-level triage without manual SQL
+1. explicit review of stronger warehouse trust after the global posture review reports `eligible_for_explicit_review`
+2. explicit review of global Meta retention execute mode after protected published truth is visibly exercised on real rebuilt data
+3. continued steady-state finalization with no flag change if the evidence does not justify stronger posture

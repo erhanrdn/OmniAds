@@ -1,3 +1,8 @@
+import {
+  GLOBAL_OPERATOR_REVIEW_WORKFLOW,
+  type GlobalOperatorReviewWorkflow,
+} from "@/lib/global-operator-review";
+
 export type GlobalRebuildState =
   | "blocked"
   | "repair_required"
@@ -199,11 +204,7 @@ export interface GlobalProviderRebuildReview {
 
 export interface GlobalRebuildTruthReview {
   rolloutModel: "global";
-  workflow: {
-    adminSurface: string;
-    googleStatus: string;
-    metaStatus: string;
-  };
+  workflow: GlobalOperatorReviewWorkflow;
   executionReadiness: GlobalExecutionReadinessReview;
   executionPostureReview: GlobalExecutionPostureReview;
   googleAds: GlobalProviderRebuildReview;
@@ -357,7 +358,7 @@ function buildGoogleRebuildSummary(state: GlobalRebuildState): string {
       return "Google still has only partial upstream coverage on some required surfaces.";
     case "ready":
     default:
-      return "Google rebuild truth is ready for the current warehouse contract.";
+      return "Google rebuild truth is ready for the current warehouse contract. Ready means evidence only and does not auto-enable stronger execution.";
   }
 }
 
@@ -377,7 +378,7 @@ function buildMetaRebuildSummary(state: GlobalRebuildState): string {
       return "Meta still has only partial upstream coverage on required surfaces.";
     case "ready":
     default:
-      return "Meta rebuild truth is ready for the current warehouse contract.";
+      return "Meta rebuild truth is ready for the current warehouse contract. Ready means evidence only and does not auto-enable stronger execution.";
   }
 }
 
@@ -755,7 +756,7 @@ function buildGlobalExecutionReadinessReview(input: {
         : "ready";
   const summary =
     state === "ready"
-      ? "Global execution readiness is ready. Rebuild truth no longer shows global blockers, and Meta protected published truth is visible. Stronger execution remains a separate explicit operator decision."
+      ? "Global execution readiness is ready. Rebuild truth no longer shows global blockers, and Meta protected published truth is visible. Ready here means evidence only; stronger execution remains a separate explicit operator decision."
       : state === "conditionally_ready"
         ? "Global execution readiness is conditionally ready. Hard rebuild blockers are cleared, but remaining evidence still does not justify stronger execution or stronger warehouse trust yet."
         : "Global execution readiness is not ready. Stronger execution or stronger warehouse trust would overstate the current rebuild truth.";
@@ -795,13 +796,13 @@ function buildGlobalExecutionPostureReview(input: {
         : "no_go";
   const summary =
     decision === "eligible_for_explicit_review"
-      ? "Global posture is eligible for explicit operator review. The gate is ready, but execution remains manual and separately controlled."
+      ? "Global posture is eligible for explicit operator review. The gate is ready, but ready here means evidence only; execution remains manual and separately controlled."
       : decision === "hold_manual"
         ? "Global posture must stay manual. The gate is only conditionally ready, so stronger execution or stronger warehouse trust is not justified yet."
         : "Global posture is a no-go. The gate is not ready, so stronger execution or stronger warehouse trust would overstate rebuild truth.";
   const allowedNextStep =
     decision === "eligible_for_explicit_review"
-      ? "Operators may explicitly review whether stronger global execution posture or stronger warehouse trust should be considered next. No runtime behavior changes automatically."
+      ? "Operators may explicitly review, via /admin/sync-health or npm run ops:execution-readiness-review, whether stronger global execution posture or stronger warehouse trust should be considered next. No runtime behavior changes automatically."
       : decision === "hold_manual"
         ? "Keep the current manual posture. Use provider drilldown only to explain the remaining global blockers or missing evidence."
         : "Do not move beyond the current manual posture. Clear the blocking evidence reported by the global gate first.";
@@ -819,7 +820,9 @@ function buildGlobalExecutionPostureReview(input: {
     allowedNextStep,
     mustRemainManual: [
       "Execution remains manual even when the gate is ready; this review never flips runtime behavior automatically.",
+      "Google Ads execution-sensitive mutation paths keep their existing manual approval and operator override controls; this review does not bypass them.",
       `Google Ads destructive execution still depends on GOOGLE_ADS_RETENTION_EXECUTION_ENABLED and is currently ${input.googleExecution.retention.state}.`,
+      `Meta authoritative finalization still depends on META_AUTHORITATIVE_FINALIZATION_V2 and is currently ${input.metaExecution.authoritativeFinalization.state}.`,
       `Meta destructive execution still depends on META_RETENTION_EXECUTION_ENABLED and is currently ${input.metaExecution.retention.state}.`,
       "Stronger warehouse trust remains a separate explicit operator decision even when the gate is ready.",
       "Provider drilldown stays explanatory only; the posture contract remains one global behavior across all businesses.",
@@ -827,6 +830,7 @@ function buildGlobalExecutionPostureReview(input: {
     forbiddenEvenIfReady: [
       "Do not auto-enable GOOGLE_ADS_RETENTION_EXECUTION_ENABLED or META_RETENTION_EXECUTION_ENABLED from this review.",
       "Do not treat ready as permission to silently execute or silently trust a stronger warehouse posture.",
+      "Do not bypass Google Ads manual approval, operator override, or other existing execution boundary controls from this review.",
       "Do not reintroduce business-specific rollout, canary expansion, allowlists, or pick-the-next-business logic.",
       "Do not weaken locked provider truth contracts; Meta today remains live-only, Meta historical truth remains published-verified inside horizon, and Google advisor or hot-window readiness semantics stay unchanged.",
     ],
@@ -970,11 +974,7 @@ export function buildGlobalRebuildTruthReview(input: {
 
   return {
     rolloutModel: "global",
-    workflow: {
-      adminSurface: "/admin/sync-health",
-      googleStatus: "/api/google-ads/status?businessId=<businessId>",
-      metaStatus: "/api/meta/status?businessId=<businessId>",
-    },
+    workflow: GLOBAL_OPERATOR_REVIEW_WORKFLOW,
     executionReadiness,
     executionPostureReview,
     googleAds: {
@@ -984,7 +984,7 @@ export function buildGlobalRebuildTruthReview(input: {
         summary: buildGoogleRebuildSummary(googleState),
         evidence: googleEvidence,
         nextChecks: [
-          "Use /admin/sync-health for the global Google posture and queue evidence.",
+          "Use /admin/sync-health or npm run ops:execution-readiness-review for the shared global operator review.",
           "Use /api/google-ads/status?businessId=<businessId> for business-scoped rebuild truth.",
           "Use npm run google:ads:product-gate -- <businessId> when operator proof for readiness or retention is needed.",
         ],
@@ -997,7 +997,7 @@ export function buildGlobalRebuildTruthReview(input: {
         summary: buildMetaRebuildSummary(metaState),
         evidence: metaEvidence,
         nextChecks: [
-          "Use /admin/sync-health for the global Meta posture and worker/backfill evidence.",
+          "Use /admin/sync-health or npm run ops:execution-readiness-review for the shared global operator review.",
           "Use /api/meta/status?businessId=<businessId> for business-scoped rebuild truth and protected published truth.",
           "Use npm run meta:state-check -- <businessId> and npm run meta:verify-publish -- <businessId> <providerAccountId> <day> when publication proof is needed.",
         ],

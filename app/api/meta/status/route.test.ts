@@ -1241,6 +1241,12 @@ describe("GET /api/meta/status", () => {
     );
     expect(payload.operatorTruth).toMatchObject({
       rolloutModel: "global",
+      reviewWorkflow: {
+        adminSurface: "/admin/sync-health",
+        executionReviewCommand: "npm run ops:execution-readiness-review",
+        readyMeans: "evidence_only",
+        automaticEnablement: false,
+      },
       rebuild: {
         state: "blocked",
         blocked: true,

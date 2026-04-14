@@ -437,15 +437,21 @@ export default function AdminSyncHealthPage() {
             <div>
               <p className="text-sm font-semibold text-gray-900">Global rebuild truth review</p>
               <p className="mt-1 text-sm text-gray-500">
-                One global operator contract across all businesses. Review provider posture here before trusting sparse rebuild coverage.
+                One global operator contract across all businesses. Review provider posture here before trusting sparse rebuild coverage. Ready means evidence only and never auto-enables Google or Meta execution-sensitive behavior.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
                 Workflow {globalRebuildReview.workflow.adminSurface}
               </span>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                Review {globalRebuildReview.workflow.executionReviewCommand}
+              </span>
             </div>
           </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Provider status drilldown remains explanatory only. Use the shared admin surface or review command to decide posture globally.
+          </p>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 lg:col-span-2">

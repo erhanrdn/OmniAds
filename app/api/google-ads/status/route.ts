@@ -61,6 +61,7 @@ import {
   getProviderQuotaBudgetState,
 } from "@/lib/provider-request-governance";
 import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
+import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
   buildGoogleAdsLaneAdmissionPolicy,
   getGoogleAdsExtendedRecoveryBlockReason,
@@ -1858,12 +1859,12 @@ export async function GET(request: NextRequest) {
         ? {
             state: "globally_enabled" as const,
             summary:
-              "Extended Google Ads rebuild execution is globally enabled, subject to quota, breaker, and worker-safety guards.",
+              "Extended Google Ads rebuild execution is globally enabled under explicit operator posture, subject to quota, breaker, and worker-safety guards.",
           }
         : {
             state: "disabled" as const,
             summary:
-              "Extended Google Ads rebuild execution is globally disabled while the warehouse rebuild remains core-first.",
+              "Extended Google Ads rebuild execution is globally disabled while the warehouse rebuild remains core-first and manual posture stays in force.",
           };
   const retentionExecutionPosture = retentionRuntime.executionEnabled
     ? {
@@ -1898,6 +1899,7 @@ export async function GET(request: NextRequest) {
     d1BlockedReason,
     operatorTruth: {
       rolloutModel: "global",
+      reviewWorkflow: GLOBAL_OPERATOR_REVIEW_WORKFLOW,
       execution: {
         sync: syncExecutionPosture,
         retention: retentionExecutionPosture,
@@ -1920,7 +1922,7 @@ export async function GET(request: NextRequest) {
                   ? "Google Ads historical truth is still backfilling."
                   : rebuildState === "partial_upstream_coverage"
                     ? "Google Ads has partial upstream coverage; deeper surfaces remain incomplete."
-                    : "Google Ads rebuild truth is ready for the current contract.",
+                    : "Google Ads rebuild truth is ready for the current contract. Ready means evidence only and does not auto-enable stronger execution or retention.",
       },
     },
     readinessLevel,

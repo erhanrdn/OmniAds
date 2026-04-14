@@ -449,6 +449,12 @@ describe("buildGlobalRebuildTruthReview", () => {
       holdingProviders: [],
       automaticEnablement: false,
     });
+    expect(review.workflow).toMatchObject({
+      adminSurface: "/admin/sync-health",
+      executionReviewCommand: "npm run ops:execution-readiness-review",
+      readyMeans: "evidence_only",
+      automaticEnablement: false,
+    });
     expect(review.executionReadiness.dominantBlockers).toHaveLength(0);
     expect(review.executionPostureReview).toMatchObject({
       decision: "eligible_for_explicit_review",

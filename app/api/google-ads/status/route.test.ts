@@ -453,6 +453,12 @@ describe("GET /api/google-ads/status", () => {
     });
     expect(payload.operatorTruth).toMatchObject({
       rolloutModel: "global",
+      reviewWorkflow: {
+        adminSurface: "/admin/sync-health",
+        executionReviewCommand: "npm run ops:execution-readiness-review",
+        readyMeans: "evidence_only",
+        automaticEnablement: false,
+      },
       execution: {
         sync: { state: "disabled" },
         retention: { state: "dry_run" },

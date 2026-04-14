@@ -22,16 +22,23 @@ async function main() {
   await runMigrations();
 
   const { syncHealth } = await getAdminOperationsHealth();
-  const review = syncHealth.globalRebuildReview?.executionPostureReview;
-  const workflow = syncHealth.globalRebuildReview?.workflow;
+  const globalReview = syncHealth.globalRebuildReview;
+  const review = globalReview?.executionPostureReview;
+  const workflow = globalReview?.workflow;
 
-  if (!review || !workflow) {
-    throw new Error("Global execution posture review is unavailable.");
+  if (!globalReview || !review || !workflow) {
+    throw new Error("Global operator review is unavailable.");
   }
 
   const report = {
     capturedAt: new Date().toISOString(),
     workflow,
+    rebuildTruth: {
+      googleAds: globalReview.googleAds.rebuild,
+      meta: globalReview.meta.rebuild,
+      metaProtectedPublishedTruth: globalReview.meta.protectedPublishedTruth,
+    },
+    executionReadiness: globalReview.executionReadiness,
     decision: review.decision,
     gateState: review.gateState,
     gateSummary: review.gateSummary,
@@ -52,13 +59,40 @@ async function main() {
     return;
   }
 
-  console.log("Global execution posture review");
+  console.log("Global operator review");
   console.log(`Captured at: ${report.capturedAt}`);
   console.log(`Workflow: ${workflow.adminSurface}`);
+  console.log(`Review command: ${workflow.executionReviewCommand}`);
+  console.log(`Ready means: ${workflow.readyMeans}`);
+  console.log(`Auto-enable: ${workflow.automaticEnablement ? "on" : "off"}`);
+  console.log(`Drilldown role: ${workflow.providerDrilldownRole}`);
+  console.log(`Workflow summary: ${workflow.summary}`);
+  console.log("");
+  console.log("Global rebuild truth:");
+  console.log(
+    `- Google Ads: ${globalReview.googleAds.rebuild.state} (${globalReview.googleAds.rebuild.summary})`,
+  );
+  console.log(
+    `- Meta: ${globalReview.meta.rebuild.state} (${globalReview.meta.rebuild.summary})`,
+  );
+  console.log(
+    `- Meta protected published truth: ${globalReview.meta.protectedPublishedTruth.state} (${globalReview.meta.protectedPublishedTruth.summary})`,
+  );
+  console.log("");
+  console.log("Execution readiness:");
+  console.log(`- Gate: ${globalReview.executionReadiness.state}`);
+  console.log(`- Summary: ${globalReview.executionReadiness.summary}`);
+  printList(
+    "Readiness blockers",
+    globalReview.executionReadiness.dominantBlockers.map(
+      (blocker) =>
+        `${blocker.provider}: ${blocker.summary} (${blocker.evidence})`,
+    ),
+  );
+  console.log("");
   console.log(`Decision: ${review.decision}`);
   console.log(`Gate: ${review.gateState}`);
   console.log(`Justified: ${review.strongerPostureJustified ? "yes" : "no"}`);
-  console.log(`Auto-enable: ${review.automaticEnablement ? "on" : "off"}`);
   console.log(`Holding providers: ${review.holdingProviders.join(", ") || "none"}`);
   console.log(`Summary: ${review.summary}`);
   console.log(`Gate summary: ${review.gateSummary}`);

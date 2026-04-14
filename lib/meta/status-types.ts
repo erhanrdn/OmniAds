@@ -152,6 +152,7 @@ export interface MetaStatusResponse {
   needsBootstrap?: boolean;
   operatorTruth?: {
     rolloutModel: "global";
+    reviewWorkflow?: GlobalOperatorReviewWorkflow;
     execution: {
       authoritativeFinalization: {
         state: "disabled" | "globally_enabled";
@@ -450,3 +451,4 @@ export interface MetaStatusResponse {
   } | null;
   pageReadiness?: MetaPageReadiness | null;
 }
+import type { GlobalOperatorReviewWorkflow } from "@/lib/global-operator-review";

@@ -11,6 +11,7 @@ import type {
   ProviderSecondaryReadiness,
   ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
+import type { GlobalOperatorReviewWorkflow } from "@/lib/global-operator-review";
 
 export interface GoogleAdsSyncDetails {
   id?: string | null;
@@ -280,6 +281,7 @@ export interface GoogleAdsStatusResponse {
   } | null;
   operatorTruth?: {
     rolloutModel: "global";
+    reviewWorkflow?: GlobalOperatorReviewWorkflow;
     execution: {
       sync: {
         state: "disabled" | "globally_enabled";
