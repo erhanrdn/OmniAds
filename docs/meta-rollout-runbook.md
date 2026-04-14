@@ -116,6 +116,41 @@ Execution remains explicit:
 - `META_RETENTION_EXECUTION_ENABLED` stays an explicit global flag
 - this gate is manual review only and never flips execution automatically
 
+## Explicit Execution Posture Review Workflow
+
+Use one additive operator artifact after reading the gate:
+
+1. Run `npm run ops:execution-readiness-review` or read `globalRebuildReview.executionPostureReview` on `/admin/sync-health`.
+2. Treat the posture review as the explicit operator decision layer derived from the gate:
+   - `no_go`
+     - keep the current manual posture
+     - do not consider stronger execution or stronger warehouse trust yet
+   - `hold_manual`
+     - hard blockers are cleared, but missing evidence still requires a manual hold
+     - use provider drilldown only to explain the remaining blockers or missing evidence
+   - `eligible_for_explicit_review`
+     - the global gate is `ready`
+     - operators may consider whether stronger posture should be reviewed next
+     - nothing auto-enables from this result
+3. Use the posture review fields directly:
+   - `gateState`
+   - `dominantBlockers`
+   - `evidenceStillMissing`
+   - `currentPosture`
+   - `mustRemainManual`
+   - `forbiddenEvenIfReady`
+4. Keep the distinction explicit:
+   - the gate answers readiness
+   - the posture review answers the operator decision
+   - neither one auto-enables execution
+
+Even when the decision is `eligible_for_explicit_review`:
+
+- `META_RETENTION_EXECUTION_ENABLED` remains separate and explicit
+- `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains separate and explicit
+- stronger warehouse trust still requires an explicit operator decision
+- business-by-business rollout wording remains out of scope
+
 ## Phase 7 Executor Success Contract
 
 Historical Meta executor success now has a strict meaning:

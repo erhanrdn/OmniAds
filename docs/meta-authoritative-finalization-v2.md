@@ -111,6 +111,17 @@ The explicit next operator decision is now global:
 
 This gate is manual-only. It does not enable finalization, retention, or any stronger execution posture automatically.
 
+The explicit operator-facing decision artifact now sits on top of that gate:
+
+- run `npm run ops:execution-readiness-review` or inspect `globalRebuildReview.executionPostureReview` on `/admin/sync-health`
+- interpret the decision literally:
+  - `no_go`
+  - `hold_manual`
+  - `eligible_for_explicit_review`
+- this review is derived from the same global gate and rebuild-truth evidence
+- `eligible_for_explicit_review` still does not auto-enable retention, finalization, or stronger warehouse trust
+- provider drilldown remains explanatory only and does not create business-by-business rollout posture
+
 ## Target State Machine
 
 The v2 target lifecycle for a single Meta account-day slice is:

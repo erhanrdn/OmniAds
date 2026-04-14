@@ -11,6 +11,11 @@ export type GlobalExecutionReadinessState = "not_ready" | "conditionally_ready" 
 
 export type GlobalExecutionReadinessProvider = "google_ads" | "meta";
 
+export type GlobalExecutionPostureDecision =
+  | "no_go"
+  | "hold_manual"
+  | "eligible_for_explicit_review";
+
 export interface GlobalExecutionReadinessBlocker {
   provider: GlobalExecutionReadinessProvider;
   code:
@@ -53,6 +58,31 @@ export interface GlobalExecutionReadinessReview {
   providers: {
     googleAds: ProviderExecutionReadinessReview;
     meta: ProviderExecutionReadinessReview;
+  };
+}
+
+export interface GlobalExecutionPostureReview {
+  decision: GlobalExecutionPostureDecision;
+  summary: string;
+  gateState: GlobalExecutionReadinessState;
+  gateSummary: string;
+  automaticEnablement: false;
+  strongerPostureJustified: boolean;
+  holdingProviders: GlobalExecutionReadinessProvider[];
+  dominantBlockers: GlobalExecutionReadinessBlocker[];
+  evidenceStillMissing: string[];
+  allowedNextStep: string;
+  mustRemainManual: string[];
+  forbiddenEvenIfReady: string[];
+  currentPosture: {
+    googleAds: {
+      sync: ProviderExecutionTruth;
+      retention: ProviderExecutionTruth;
+    };
+    meta: {
+      authoritativeFinalization: ProviderExecutionTruth;
+      retention: ProviderExecutionTruth;
+    };
   };
 }
 
@@ -175,6 +205,7 @@ export interface GlobalRebuildTruthReview {
     metaStatus: string;
   };
   executionReadiness: GlobalExecutionReadinessReview;
+  executionPostureReview: GlobalExecutionPostureReview;
   googleAds: GlobalProviderRebuildReview;
   meta: GlobalProviderRebuildReview & {
     protectedPublishedTruth: {
@@ -745,6 +776,73 @@ function buildGlobalExecutionReadinessReview(input: {
   };
 }
 
+function buildGlobalExecutionPostureReview(input: {
+  executionReadiness: GlobalExecutionReadinessReview;
+  googleExecution: {
+    sync: ProviderExecutionTruth;
+    retention: ProviderExecutionTruth;
+  };
+  metaExecution: {
+    authoritativeFinalization: ProviderExecutionTruth;
+    retention: ProviderExecutionTruth;
+  };
+}): GlobalExecutionPostureReview {
+  const decision: GlobalExecutionPostureDecision =
+    input.executionReadiness.state === "ready"
+      ? "eligible_for_explicit_review"
+      : input.executionReadiness.state === "conditionally_ready"
+        ? "hold_manual"
+        : "no_go";
+  const summary =
+    decision === "eligible_for_explicit_review"
+      ? "Global posture is eligible for explicit operator review. The gate is ready, but execution remains manual and separately controlled."
+      : decision === "hold_manual"
+        ? "Global posture must stay manual. The gate is only conditionally ready, so stronger execution or stronger warehouse trust is not justified yet."
+        : "Global posture is a no-go. The gate is not ready, so stronger execution or stronger warehouse trust would overstate rebuild truth.";
+  const allowedNextStep =
+    decision === "eligible_for_explicit_review"
+      ? "Operators may explicitly review whether stronger global execution posture or stronger warehouse trust should be considered next. No runtime behavior changes automatically."
+      : decision === "hold_manual"
+        ? "Keep the current manual posture. Use provider drilldown only to explain the remaining global blockers or missing evidence."
+        : "Do not move beyond the current manual posture. Clear the blocking evidence reported by the global gate first.";
+
+  return {
+    decision,
+    summary,
+    gateState: input.executionReadiness.state,
+    gateSummary: input.executionReadiness.summary,
+    automaticEnablement: false,
+    strongerPostureJustified: input.executionReadiness.strongerPostureJustified,
+    holdingProviders: input.executionReadiness.holdingProviders,
+    dominantBlockers: input.executionReadiness.dominantBlockers,
+    evidenceStillMissing: input.executionReadiness.evidenceStillMissing,
+    allowedNextStep,
+    mustRemainManual: [
+      "Execution remains manual even when the gate is ready; this review never flips runtime behavior automatically.",
+      `Google Ads destructive execution still depends on GOOGLE_ADS_RETENTION_EXECUTION_ENABLED and is currently ${input.googleExecution.retention.state}.`,
+      `Meta destructive execution still depends on META_RETENTION_EXECUTION_ENABLED and is currently ${input.metaExecution.retention.state}.`,
+      "Stronger warehouse trust remains a separate explicit operator decision even when the gate is ready.",
+      "Provider drilldown stays explanatory only; the posture contract remains one global behavior across all businesses.",
+    ],
+    forbiddenEvenIfReady: [
+      "Do not auto-enable GOOGLE_ADS_RETENTION_EXECUTION_ENABLED or META_RETENTION_EXECUTION_ENABLED from this review.",
+      "Do not treat ready as permission to silently execute or silently trust a stronger warehouse posture.",
+      "Do not reintroduce business-specific rollout, canary expansion, allowlists, or pick-the-next-business logic.",
+      "Do not weaken locked provider truth contracts; Meta today remains live-only, Meta historical truth remains published-verified inside horizon, and Google advisor or hot-window readiness semantics stay unchanged.",
+    ],
+    currentPosture: {
+      googleAds: {
+        sync: input.googleExecution.sync,
+        retention: input.googleExecution.retention,
+      },
+      meta: {
+        authoritativeFinalization: input.metaExecution.authoritativeFinalization,
+        retention: input.metaExecution.retention,
+      },
+    },
+  };
+}
+
 export function buildGlobalRebuildTruthReview(input: {
   googleBusinesses?: GlobalGoogleBusinessRebuildInput[];
   metaBusinesses?: GlobalMetaBusinessRebuildInput[];
@@ -769,6 +867,78 @@ export function buildGlobalRebuildTruthReview(input: {
   const metaEvidence = buildEvidenceSummary(metaStates);
   const googleState = getDominantRebuildState(googleEvidence);
   const metaState = getDominantRebuildState(metaEvidence);
+  const googleExecution =
+    input.googleExecution.sync === "safe_mode"
+      ? {
+          sync: {
+            state: "safe_mode",
+            summary:
+              "Google extended rebuild execution is globally limited by safe mode.",
+          },
+          retention: input.googleExecution.retentionEnabled
+            ? {
+                state: "globally_enabled",
+                summary: "Google retention execution is globally enabled.",
+              }
+            : {
+                state: "dry_run",
+                summary: "Google retention execution remains dry-run only.",
+              },
+        }
+      : input.googleExecution.sync === "global_reopen"
+        ? {
+            sync: {
+              state: "global_reopen",
+              summary:
+                "Google extended rebuild execution is globally reopened under the current safeguards.",
+            },
+            retention: input.googleExecution.retentionEnabled
+              ? {
+                  state: "globally_enabled",
+                  summary: "Google retention execution is globally enabled.",
+                }
+              : {
+                  state: "dry_run",
+                  summary: "Google retention execution remains dry-run only.",
+                },
+          }
+        : {
+            sync: {
+              state: "global_backfill",
+              summary:
+                "Google extended rebuild execution remains in the global backfill posture.",
+            },
+            retention: input.googleExecution.retentionEnabled
+              ? {
+                  state: "globally_enabled",
+                  summary: "Google retention execution is globally enabled.",
+                }
+              : {
+                  state: "dry_run",
+                  summary: "Google retention execution remains dry-run only.",
+                },
+          };
+  const metaExecution = {
+    authoritativeFinalization: input.metaExecution.authoritativeFinalizationEnabled
+      ? {
+          state: "globally_enabled",
+          summary:
+            "Meta authoritative finalization v2 is globally enabled for all businesses.",
+        }
+      : {
+          state: "disabled",
+          summary: "Meta authoritative finalization v2 remains globally disabled.",
+        },
+    retention: input.metaExecution.retentionEnabled
+      ? {
+          state: "globally_enabled",
+          summary: "Meta retention execution is globally enabled.",
+        }
+      : {
+          state: "dry_run",
+          summary: "Meta retention execution remains dry-run only.",
+        },
+  };
   const metaProtectedPublishedTruth = summarizeMetaProtectedPublishedTruth({
     review: input.metaProtectedPublishedTruth,
     rebuildState: metaState,
@@ -792,6 +962,11 @@ export function buildGlobalRebuildTruthReview(input: {
       protectedPublishedTruth: metaProtectedPublishedTruth,
     }),
   });
+  const executionPostureReview = buildGlobalExecutionPostureReview({
+    executionReadiness,
+    googleExecution,
+    metaExecution,
+  });
 
   return {
     rolloutModel: "global",
@@ -801,36 +976,9 @@ export function buildGlobalRebuildTruthReview(input: {
       metaStatus: "/api/meta/status?businessId=<businessId>",
     },
     executionReadiness,
+    executionPostureReview,
     googleAds: {
-      execution: {
-        sync:
-          input.googleExecution.sync === "safe_mode"
-            ? {
-                state: "safe_mode",
-                summary:
-                  "Google extended rebuild execution is globally limited by safe mode.",
-              }
-            : input.googleExecution.sync === "global_reopen"
-              ? {
-                  state: "global_reopen",
-                  summary:
-                    "Google extended rebuild execution is globally reopened under the current safeguards.",
-                }
-              : {
-                  state: "global_backfill",
-                  summary:
-                    "Google extended rebuild execution remains in the global backfill posture.",
-                },
-        retention: input.googleExecution.retentionEnabled
-          ? {
-              state: "globally_enabled",
-              summary: "Google retention execution is globally enabled.",
-            }
-          : {
-              state: "dry_run",
-              summary: "Google retention execution remains dry-run only.",
-            },
-      },
+      execution: googleExecution,
       rebuild: {
         state: googleState,
         summary: buildGoogleRebuildSummary(googleState),
@@ -843,27 +991,7 @@ export function buildGlobalRebuildTruthReview(input: {
       },
     },
     meta: {
-      execution: {
-        authoritativeFinalization: input.metaExecution.authoritativeFinalizationEnabled
-          ? {
-              state: "globally_enabled",
-              summary:
-                "Meta authoritative finalization v2 is globally enabled for all businesses.",
-            }
-          : {
-              state: "disabled",
-              summary: "Meta authoritative finalization v2 remains globally disabled.",
-            },
-        retention: input.metaExecution.retentionEnabled
-          ? {
-              state: "globally_enabled",
-              summary: "Meta retention execution is globally enabled.",
-            }
-          : {
-              state: "dry_run",
-              summary: "Meta retention execution remains dry-run only.",
-            },
-      },
+      execution: metaExecution,
       rebuild: {
         state: metaState,
         summary: buildMetaRebuildSummary(metaState),

@@ -100,22 +100,30 @@ Before treating the rebuilt warehouse as trustworthy enough for stronger executi
 
 1. Open `/admin/sync-health`.
 2. Inspect `globalRebuildReview.executionReadiness`.
-3. Confirm the state is understood literally:
+3. Inspect `globalRebuildReview.executionPostureReview` or run `npm run ops:execution-readiness-review`.
+4. Confirm the gate state is understood literally:
    - `not_ready`
    - `conditionally_ready`
    - `ready`
-4. Inspect:
+5. Confirm the posture decision is understood literally:
+   - `no_go`
+   - `hold_manual`
+   - `eligible_for_explicit_review`
+6. Inspect:
    - `holdingProviders`
    - `dominantBlockers`
    - `evidenceStillMissing`
-5. Confirm the gate remains manual only:
+   - `mustRemainManual`
+   - `forbiddenEvenIfReady`
+7. Confirm the review remains manual only:
    - `automaticEnablement=false`
    - execution remains controlled by the existing explicit flags
 
 Go/no-go:
 
-- `GO` only if the global execution-readiness gate reaches `ready` and the operator still chooses a stronger posture explicitly.
-- `NO-GO` if the gate is `not_ready` or `conditionally_ready`, if Meta protected published truth is still absent, or if the gate would be treated as auto-enable logic.
+- `GO` only if the posture decision becomes `eligible_for_explicit_review` and the operator still chooses a stronger posture explicitly.
+- `HOLD MANUAL` if the posture decision is `hold_manual`.
+- `NO-GO` if the posture decision is `no_go`, if Meta protected published truth is still absent, or if the review would be treated as auto-enable logic.
 
 ## Phase 8 Detector Posture
 

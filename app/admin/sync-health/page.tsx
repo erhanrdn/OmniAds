@@ -451,6 +451,76 @@ export default function AdminSyncHealthPage() {
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
               <div className="flex items-center justify-between gap-3">
                 <div>
+                  <p className="text-sm font-semibold text-gray-900">Explicit execution posture review</p>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Conservative operator decision derived from the shared global gate and rebuild-truth evidence.
+                  </p>
+                </div>
+                <StateBadge state={globalRebuildReview.executionPostureReview.decision} />
+              </div>
+              <p className="mt-3 text-sm text-gray-600">
+                {globalRebuildReview.executionPostureReview.summary}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <MetricPill label="Gate" value={globalRebuildReview.executionPostureReview.gateState} />
+                <MetricPill
+                  label="Justified"
+                  value={globalRebuildReview.executionPostureReview.strongerPostureJustified ? "yes" : "no"}
+                />
+                <MetricPill
+                  label="Auto-enable"
+                  value={globalRebuildReview.executionPostureReview.automaticEnablement ? "on" : "off"}
+                />
+                <MetricPill
+                  label="GAds sync"
+                  value={globalRebuildReview.executionPostureReview.currentPosture.googleAds.sync.state}
+                />
+                <MetricPill
+                  label="GAds retention"
+                  value={globalRebuildReview.executionPostureReview.currentPosture.googleAds.retention.state}
+                />
+                <MetricPill
+                  label="Meta finalize"
+                  value={
+                    globalRebuildReview.executionPostureReview.currentPosture.meta.authoritativeFinalization
+                      .state
+                  }
+                />
+                <MetricPill
+                  label="Meta retention"
+                  value={globalRebuildReview.executionPostureReview.currentPosture.meta.retention.state}
+                />
+              </div>
+              <p className="mt-3 text-sm text-gray-600">
+                {globalRebuildReview.executionPostureReview.allowedNextStep}
+              </p>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Must remain manual
+                  </p>
+                  <ul className="mt-2 space-y-2 text-sm text-gray-600">
+                    {globalRebuildReview.executionPostureReview.mustRemainManual.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Forbidden even if ready
+                  </p>
+                  <ul className="mt-2 space-y-2 text-sm text-gray-600">
+                    {globalRebuildReview.executionPostureReview.forbiddenEvenIfReady.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 lg:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
                   <p className="text-sm font-semibold text-gray-900">Global execution readiness gate</p>
                   <p className="mt-1 text-sm text-gray-600">
                     One global decision for stronger execution or stronger warehouse trust across all businesses.
@@ -1018,11 +1088,15 @@ function MetricPill({
 
 function StateBadge({ state }: { state: string }) {
   const className =
-    state === "ready" || state === "present"
+    state === "ready" || state === "present" || state === "eligible_for_explicit_review"
       ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-      : state === "not_ready" || state === "blocked" || state === "publication_missing"
+      : state === "not_ready" ||
+          state === "blocked" ||
+          state === "publication_missing" ||
+          state === "no_go"
         ? "border border-red-200 bg-red-50 text-red-700"
-        : state === "conditionally_ready" ||
+      : state === "conditionally_ready" ||
+            state === "hold_manual" ||
             state === "repair_required" ||
             state === "quota_limited" ||
             state === "cold_bootstrap" ||

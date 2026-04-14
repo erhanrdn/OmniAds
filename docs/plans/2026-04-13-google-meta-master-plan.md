@@ -234,10 +234,32 @@
      - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains explicit
      - stronger warehouse trust remains a separate operator decision even when the gate becomes `ready`
 
+15. Explicit global execution posture review workflow
+   - the repo now exposes one explicit operator-facing execution posture review artifact on top of the existing gate:
+     - `/admin/sync-health` shows `globalRebuildReview.executionPostureReview`
+     - `npm run ops:execution-readiness-review`
+   - the review is derived directly from the existing global gate and rebuild-truth evidence. It does not add a separate scoring system.
+   - the review emits one conservative decision:
+     - `no_go`
+     - `hold_manual`
+     - `eligible_for_explicit_review`
+   - the review makes the next operator answer explicit in one place:
+     - current gate state
+     - current blockers
+     - current missing evidence
+     - whether stronger posture is justified yet
+     - what still remains manual
+     - what is still forbidden even if the gate is `ready`
+   - `eligible_for_explicit_review` still does not enable anything automatically:
+     - `META_RETENTION_EXECUTION_ENABLED` remains separate and explicit
+     - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains separate and explicit
+     - stronger warehouse trust still requires a later explicit operator decision
+     - provider drilldown remains explanatory only, not business-by-business rollout logic
+
 ### Still Pending
 
 - destructive retention remains intentionally disabled by default under the global posture until operators explicitly decide to enable it after rebuild truth, quota stability, and protected-truth evidence are satisfactory.
-- stronger warehouse trust is still deferred until the new global execution-readiness gate reaches `ready`.
+- stronger warehouse trust is still deferred until the global execution posture review returns `eligible_for_explicit_review` and a later explicit operator decision chooses to act on that.
 - the gate must not be treated as auto-enable logic:
   - execution remains explicit and disabled unless separately enabled later
   - `conditionally_ready` still means the evidence is not strong enough for stronger global trust
@@ -281,6 +303,7 @@
   - Meta/Google Phase 12 is complete.
   - Meta/Google Phase 13 is complete.
   - Meta/Google Phase 14 is complete.
+  - Meta/Google Phase 15 is complete.
 - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled.
 - `META_RETENTION_EXECUTION_ENABLED` remains disabled.
 - The reverted 2026-04-13 warehouse-only current-day experiment is not reintroduced.
@@ -313,14 +336,15 @@
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: operator review for explicit execution posture only after the global execution-readiness gate reaches `ready`.
+- Next recommended PR: any actual posture change remains a separate explicit operator decision only after the execution posture review reports `eligible_for_explicit_review`.
 - Required scope:
   - keep the published-truth historical contract unchanged
   - keep `META_RETENTION_EXECUTION_ENABLED` off until operators explicitly choose a global execute posture
-  - use `/admin/sync-health` as the global decision surface
+  - use `/admin/sync-health` or `npm run ops:execution-readiness-review` as the global decision surface
+  - verify that `globalRebuildReview.executionPostureReview.decision=eligible_for_explicit_review`
   - verify that the gate no longer reports Google or Meta blockers and that Meta protected published truth is visibly exercised
   - keep Google retention execute-mode rollout out of the Meta follow-up unless a separate global decision is being reviewed
-- Intentionally deferred after Phase 14:
+- Intentionally deferred after Phase 15:
   - Google execute-mode raw-hot-table retention verification under a global decision
   - global enablement of `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED`
   - archival/cold export strategy for raw payloads
@@ -329,6 +353,6 @@
 ### Next Recommended Prompt
 
 1. Keep `META_RETENTION_EXECUTION_ENABLED=false` globally and leave Google execute-mode retention untouched.
-2. Wait until `/admin/sync-health` reports `globalRebuildReview.executionReadiness.state=ready`.
+2. Wait until `/admin/sync-health` or `npm run ops:execution-readiness-review` reports `decision=eligible_for_explicit_review`.
 3. Use provider drilldown only to explain any remaining blockers reported by the global gate.
 4. Only after that explicit global review should operators decide whether any execution posture can move beyond the current manual controls.

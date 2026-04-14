@@ -118,6 +118,34 @@ This gate does not change execution by itself:
 - Google drilldown remains business-scoped because the data is business-scoped
 - the decision about stronger posture remains one global manual contract
 
+## Explicit execution posture review workflow
+
+After reading the gate, use the additive operator review artifact:
+
+1. Run `npm run ops:execution-readiness-review` or inspect `globalRebuildReview.executionPostureReview` on `/admin/sync-health`.
+2. Treat the decision literally:
+   - `no_go`
+     - the global gate is still too weak for stronger posture
+   - `hold_manual`
+     - hard blockers are cleared, but missing evidence still keeps the system in the current manual posture
+   - `eligible_for_explicit_review`
+     - Google is no longer holding the global review back
+     - operators may consider whether stronger posture should be reviewed next
+     - this still does not auto-enable execution
+3. Use the review to see:
+   - current gate state
+   - dominant blockers
+   - missing evidence
+   - current control posture
+   - what must remain manual
+   - what is forbidden even if the gate is `ready`
+
+`ready` and `eligible_for_explicit_review` remain separate from enablement:
+
+- `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` still stays explicit
+- `META_RETENTION_EXECUTION_ENABLED` still stays explicit
+- provider drilldown still explains the global decision instead of redefining it per business
+
 ## Raw query storage vs cluster/theme intelligence
 
 These are intentionally different layers.

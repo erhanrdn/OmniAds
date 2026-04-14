@@ -78,6 +78,20 @@ describe("buildGlobalRebuildTruthReview", () => {
         }),
       ]),
     );
+    expect(review.executionPostureReview).toMatchObject({
+      decision: "no_go",
+      gateState: "not_ready",
+      strongerPostureJustified: false,
+      automaticEnablement: false,
+    });
+    expect(review.executionPostureReview.dominantBlockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "google_ads",
+          code: "google_cold_bootstrap",
+        }),
+      ]),
+    );
   });
 
   it("keeps Google quota-limited ahead of backfill readiness when quota evidence is present", () => {
@@ -296,6 +310,18 @@ describe("buildGlobalRebuildTruthReview", () => {
         }),
       ]),
     );
+    expect(review.executionPostureReview).toMatchObject({
+      decision: "hold_manual",
+      gateState: "conditionally_ready",
+      strongerPostureJustified: false,
+      automaticEnablement: false,
+      holdingProviders: ["meta"],
+    });
+    expect(review.executionPostureReview.evidenceStillMissing).toEqual(
+      expect.arrayContaining([
+        "Meta must show non-zero protected published daily truth on real rebuilt data before the gate can become fully ready.",
+      ]),
+    );
   });
 
   it("does not become ready merely because some Google rows exist while historical backfill still remains", () => {
@@ -424,5 +450,37 @@ describe("buildGlobalRebuildTruthReview", () => {
       automaticEnablement: false,
     });
     expect(review.executionReadiness.dominantBlockers).toHaveLength(0);
+    expect(review.executionPostureReview).toMatchObject({
+      decision: "eligible_for_explicit_review",
+      gateState: "ready",
+      strongerPostureJustified: true,
+      automaticEnablement: false,
+      holdingProviders: [],
+      currentPosture: {
+        googleAds: {
+          retention: {
+            state: "dry_run",
+          },
+        },
+        meta: {
+          retention: {
+            state: "dry_run",
+          },
+        },
+      },
+    });
+    expect(review.executionPostureReview.mustRemainManual).toEqual(
+      expect.arrayContaining([
+        "Execution remains manual even when the gate is ready; this review never flips runtime behavior automatically.",
+        "Google Ads destructive execution still depends on GOOGLE_ADS_RETENTION_EXECUTION_ENABLED and is currently dry_run.",
+        "Meta destructive execution still depends on META_RETENTION_EXECUTION_ENABLED and is currently dry_run.",
+      ]),
+    );
+    expect(review.executionPostureReview.forbiddenEvenIfReady).toEqual(
+      expect.arrayContaining([
+        "Do not auto-enable GOOGLE_ADS_RETENTION_EXECUTION_ENABLED or META_RETENTION_EXECUTION_ENABLED from this review.",
+        "Do not treat ready as permission to silently execute or silently trust a stronger warehouse posture.",
+      ]),
+    );
   });
 });
