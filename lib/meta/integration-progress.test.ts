@@ -14,6 +14,8 @@ function buildStatus(
       status: "running",
       readyThroughDate: "2026-04-10",
       progressPercent: 71,
+      completedDays: 10,
+      totalDays: 14,
     },
     coreReadiness: {
       state: "ready",
@@ -35,6 +37,16 @@ function buildStatus(
       missingSurfaces: ["breakdowns.age"],
       blockedSurfaces: [],
       surfaces: {} as never,
+    },
+    pageReadiness: {
+      state: "partial",
+      usable: true,
+      complete: false,
+      selectedRangeMode: "historical_warehouse",
+      reason: "Breakdown data is still being prepared for the selected range.",
+      missingRequiredSurfaces: ["breakdowns.age"],
+      requiredSurfaces: {} as never,
+      optionalSurfaces: {} as never,
     },
     rangeCompletionBySurface: {
       account_daily: {
@@ -97,167 +109,182 @@ function buildStatus(
 }
 
 describe("resolveMetaIntegrationProgress", () => {
-  it("returns null when Meta is disconnected or no account is assigned", () => {
+  it("returns null when Meta is disconnected or the route summary is not visible", () => {
     expect(
-      resolveMetaIntegrationProgress(
-        buildStatus({ connected: false })
-      )
+      resolveMetaIntegrationProgress(buildStatus({ connected: false }))
     ).toBeNull();
+
     expect(
       resolveMetaIntegrationProgress(
-        buildStatus({ assignedAccountIds: [] })
+        buildStatus({
+          integrationSummary: {
+            visible: false,
+            state: "waiting",
+            scope: "not_applicable",
+            attentionNeeded: false,
+            stages: [],
+          },
+        })
       )
     ).toBeNull();
   });
 
-  it("builds a compact stage list for active Meta sync progress", () => {
-    const model = resolveMetaIntegrationProgress(buildStatus());
+  it("prefers the route summary over legacy raw composition", () => {
+    const model = resolveMetaIntegrationProgress(
+      buildStatus({
+        integrationSummary: {
+          visible: true,
+          state: "blocked",
+          scope: "selected_range",
+          attentionNeeded: true,
+          stages: [
+            {
+              key: "connection",
+              state: "ready",
+              percent: null,
+              code: "connected",
+              evidence: {
+                assignedAccountCount: 1,
+                primaryTimezone: "UTC",
+              },
+            },
+            {
+              key: "queue_worker",
+              state: "blocked",
+              percent: null,
+              code: "queue_blocked",
+              evidence: {
+                queueDepth: 3,
+                blockerCount: 1,
+                blockerCodes: ["blocked_publication_mismatch"],
+              },
+            },
+            {
+              key: "core_data",
+              state: "ready",
+              percent: null,
+              code: "core_ready",
+              evidence: {
+                readyThroughDate: "2026-04-05",
+              },
+            },
+            {
+              key: "priority_window",
+              state: "blocked",
+              percent: 43,
+              code: "selected_range_blocked",
+              evidence: {
+                completedDays: 3,
+                totalDays: 7,
+                blockerCount: 1,
+                blockerCodes: ["blocked_publication_mismatch"],
+              },
+            },
+            {
+              key: "extended_surfaces",
+              state: "working",
+              percent: 33,
+              code: "breakdowns_preparing",
+              evidence: {
+                pendingSurfaceCount: 1,
+                pendingSurfaces: ["creative_daily"],
+              },
+            },
+            {
+              key: "attention",
+              state: "blocked",
+              percent: null,
+              code: "attention_needed",
+              evidence: {
+                blockerCount: 1,
+                blockerCodes: ["blocked_publication_mismatch"],
+              },
+            },
+          ],
+        },
+      }),
+      "en"
+    );
 
     expect(model?.stages.map((stage) => stage.title)).toEqual([
       "Connection",
       "Queue / worker",
       "Core data",
-      "Priority range / recent window",
+      "Selected range",
+      "Extended surfaces",
+      "Attention / recovery",
+    ]);
+    expect(model?.stages.find((stage) => stage.key === "priority_window")).toMatchObject({
+      state: "blocked",
+      label: "range blocked",
+      detail: "Selected-range truth needs recovery before it can be trusted.",
+      percent: 43,
+      evidence: "Published truth blocked • 3/7 days",
+    });
+  });
+
+  it("localizes recent-window progress in English", () => {
+    const model = resolveMetaIntegrationProgress(buildStatus(), "en");
+
+    expect(model?.stages.map((stage) => stage.title)).toEqual([
+      "Connection",
+      "Queue / worker",
+      "Core data",
+      "Recent window",
       "Extended surfaces",
     ]);
     expect(model?.stages[0]).toMatchObject({
       state: "ready",
       label: "connected",
+      detail: "Meta account is assigned to this workspace.",
+      evidence: "Primary timezone UTC",
     });
     expect(model?.stages[1]).toMatchObject({
       state: "working",
       label: "worker active",
       evidence: "Queue 8 • Leased 2",
     });
-    expect(model?.stages[2]).toMatchObject({
-      state: "ready",
-      label: "core ready",
-    });
     expect(model?.stages[3]).toMatchObject({
       state: "working",
       label: "recent window preparing",
+      detail: "Recent summary and campaign days are being prepared first.",
       percent: 71,
+      evidence: "10/14 days • Ready through Apr 10, 2026",
     });
     expect(model?.stages[4]).toMatchObject({
       state: "working",
       label: "breakdowns preparing",
-      percent: 33,
       evidence: expect.stringContaining("Pending creatives, ads"),
     });
-    expect(model?.attentionNeeded).toBe(false);
   });
 
-  it("overrides optimistic queue visuals when Meta is paused", () => {
-    const model = resolveMetaIntegrationProgress(
-      buildStatus({
-        state: "paused",
-        latestSync: {
-          status: "pending",
-        },
-        jobHealth: {
-          queueDepth: 12,
-          leasedPartitions: 0,
-          retryableFailedPartitions: 0,
-          deadLetterPartitions: 0,
-        } as never,
-        operations: {
-          progressState: "partial_stuck",
-          blockingReasons: [],
-          repairableActions: [],
-          stallFingerprints: [],
-        },
-      })
-    );
+  it("localizes the Meta card progress block in Turkish", () => {
+    const model = resolveMetaIntegrationProgress(buildStatus(), "tr");
 
-    expect(model?.stages.find((stage) => stage.key === "queue_worker")).toMatchObject({
-      state: "waiting",
-      label: "queue waiting",
-      evidence: "Queue 12",
+    expect(model?.stages.map((stage) => stage.title)).toEqual([
+      "Bağlantı",
+      "Kuyruk / worker",
+      "Çekirdek veri",
+      "Yakın pencere",
+      "Genişletilmiş yüzeyler",
+    ]);
+    expect(model?.stages[0]).toMatchObject({
+      label: "bağlı",
+      detail: "Bu workspace için Meta hesabı atanmış.",
+      evidence: "Birincil saat dilimi UTC",
     });
-    expect(model?.stages.find((stage) => stage.key === "attention")).toMatchObject({
-      state: "waiting",
-      label: "queue waiting",
-      detail: "Queued work is safe. Sync will resume automatically when the worker becomes active again.",
+    expect(model?.stages[1]).toMatchObject({
+      label: "worker aktif",
+      evidence: "Kuyruk 8 • Lease 2",
     });
-  });
-
-  it("shows a blocked priority stage when selected-range truth is not publishable yet", () => {
-    const model = resolveMetaIntegrationProgress(
-      buildStatus({
-        state: "action_required",
-        priorityWindow: {
-          startDate: "2026-04-01",
-          endDate: "2026-04-07",
-          completedDays: 3,
-          totalDays: 7,
-          isActive: false,
-        },
-        selectedRangeTruth: {
-          truthReady: false,
-          state: "blocked",
-          verificationState: "blocked",
-          totalDays: 7,
-          completedCoreDays: 3,
-          blockingReasons: ["validation_failed"],
-          reasonCounts: { validation_failed: 1 },
-        },
-        operations: {
-          progressState: "blocked",
-          blockingReasons: [
-            {
-              code: "blocked_publication_mismatch",
-              detail: "Historical Meta selected-range truth is not yet published.",
-              repairable: false,
-            },
-          ],
-          repairableActions: [],
-          stallFingerprints: [],
-        },
-      })
-    );
-
-    expect(model?.stages.find((stage) => stage.key === "priority_window")).toMatchObject({
-      state: "blocked",
-      label: "priority blocked",
-      percent: 43,
-      evidence: expect.stringContaining("Published truth blocked"),
+    expect(model?.stages[3]).toMatchObject({
+      label: "yakın pencere hazırlanıyor",
+      detail: "Yakın özet ve kampanya günleri önce hazırlanıyor.",
+      evidence: expect.stringContaining("10/14 gün"),
     });
-    expect(model?.stages.find((stage) => stage.key === "attention")).toMatchObject({
-      state: "blocked",
-      label: "attention needed",
-    });
-  });
-
-  it("renders a recovery stage when repairable backlog is progressing", () => {
-    const model = resolveMetaIntegrationProgress(
-      buildStatus({
-        state: "partial",
-        jobHealth: {
-          queueDepth: 4,
-          leasedPartitions: 1,
-          retryableFailedPartitions: 2,
-          deadLetterPartitions: 0,
-        } as never,
-        operations: {
-          progressState: "partial_progressing",
-          blockingReasons: [],
-          repairableActions: [
-            {
-              kind: "requeue_failed",
-              detail: "Requeue retryable Meta failed partitions.",
-              available: true,
-            },
-          ],
-          stallFingerprints: ["repair_loop_without_progress"],
-        },
-      })
-    );
-
-    expect(model?.stages.find((stage) => stage.key === "attention")).toMatchObject({
-      state: "working",
-      label: "recovery running",
-      detail: "Meta is clearing retryable work in the background.",
-      evidence: expect.stringContaining("Recovery available: Retry failed partitions"),
+    expect(model?.stages[4]).toMatchObject({
+      label: "breakdownlar hazırlanıyor",
+      evidence: expect.stringContaining("Bekleyen kreatifler, reklamlar"),
     });
   });
 });

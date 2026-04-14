@@ -119,6 +119,94 @@ export interface MetaExtendedCompleteness {
   surfaces: Record<MetaExtendedSurfaceKey, MetaSurfaceReadiness>;
 }
 
+export type MetaIntegrationSummaryState =
+  | "ready"
+  | "working"
+  | "waiting"
+  | "blocked";
+
+export type MetaIntegrationSummaryScope =
+  | "recent_window"
+  | "selected_range"
+  | "current_day"
+  | "not_applicable";
+
+export type MetaIntegrationSummaryStageKey =
+  | "connection"
+  | "queue_worker"
+  | "core_data"
+  | "priority_window"
+  | "extended_surfaces"
+  | "attention";
+
+export type MetaIntegrationSummaryStageCode =
+  | "connected"
+  | "queue_clear"
+  | "queue_active"
+  | "queue_waiting"
+  | "queue_blocked"
+  | "queue_stale"
+  | "core_ready"
+  | "core_preparing"
+  | "core_waiting"
+  | "core_blocked"
+  | "recent_window_ready"
+  | "recent_window_preparing"
+  | "recent_window_waiting"
+  | "selected_range_ready"
+  | "selected_range_preparing"
+  | "selected_range_waiting"
+  | "selected_range_blocked"
+  | "current_day_ready"
+  | "current_day_preparing"
+  | "current_day_waiting"
+  | "current_day_blocked"
+  | "extended_ready"
+  | "breakdowns_preparing"
+  | "recent_extended_preparing"
+  | "historical_extended_preparing"
+  | "extended_waiting"
+  | "extended_blocked"
+  | "attention_needed"
+  | "recovery_running"
+  | "recovery_available"
+  | "progress_stale";
+
+export interface MetaIntegrationSummaryStageEvidence {
+  assignedAccountCount?: number;
+  primaryTimezone?: string | null;
+  queueDepth?: number;
+  leasedPartitions?: number;
+  retryableFailedPartitions?: number;
+  deadLetterPartitions?: number;
+  readyThroughDate?: string | null;
+  completedDays?: number;
+  totalDays?: number;
+  pendingSurfaceCount?: number;
+  pendingSurfaces?: string[];
+  blockerCount?: number;
+  blockerCodes?: string[];
+  repairSignalCount?: number;
+  repairActionKinds?: string[];
+  stallFingerprintCount?: number;
+}
+
+export interface MetaIntegrationSummaryStage {
+  key: MetaIntegrationSummaryStageKey;
+  state: MetaIntegrationSummaryState;
+  percent: number | null;
+  code: MetaIntegrationSummaryStageCode;
+  evidence: MetaIntegrationSummaryStageEvidence | null;
+}
+
+export interface MetaIntegrationSummary {
+  visible: boolean;
+  state: MetaIntegrationSummaryState;
+  scope: MetaIntegrationSummaryScope;
+  attentionNeeded: boolean;
+  stages: MetaIntegrationSummaryStage[];
+}
+
 export interface MetaStatusResponse {
   state:
     | "not_connected"
@@ -481,5 +569,6 @@ export interface MetaStatusResponse {
     campaignsAvailable: boolean;
   } | null;
   pageReadiness?: MetaPageReadiness | null;
+  integrationSummary?: MetaIntegrationSummary | null;
 }
 import type { GlobalOperatorReviewWorkflow } from "@/lib/global-operator-review";

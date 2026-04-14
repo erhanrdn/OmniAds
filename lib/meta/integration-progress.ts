@@ -1,6 +1,11 @@
-import { formatMetaReadyThroughDate } from "@/lib/meta/ui";
-import { getMetaSyncDescription } from "@/lib/meta/ui";
-import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { buildMetaIntegrationSummary } from "@/lib/meta/integration-summary";
+import { formatMetaReadyThroughDate, getMetaSyncDescription } from "@/lib/meta/ui";
+import type {
+  MetaIntegrationSummary,
+  MetaIntegrationSummaryScope,
+  MetaStatusResponse,
+} from "@/lib/meta/status-types";
+import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 
 export type MetaIntegrationProgressStageState =
   | "ready"
@@ -31,656 +36,612 @@ export interface MetaIntegrationProgressModel {
   attentionNeeded: boolean;
 }
 
-function clampPercent(value: number | null | undefined) {
-  if (!Number.isFinite(value)) return null;
-  return Math.max(0, Math.min(100, Math.round(value ?? 0)));
-}
-
-function percentFromCounts(
-  completed: number | null | undefined,
-  total: number | null | undefined
+function localizePriorityTitle(
+  scope: MetaIntegrationSummaryScope,
+  language: MetaUiLanguage
 ) {
-  if (!Number.isFinite(completed) || !Number.isFinite(total) || (total ?? 0) <= 0) {
-    return null;
+  if (scope === "selected_range") {
+    return language === "tr" ? "Seçili aralık" : "Selected range";
   }
-  return clampPercent(((completed ?? 0) / (total ?? 1)) * 100);
+  if (scope === "current_day") {
+    return language === "tr" ? "Bugün" : "Current day";
+  }
+  return language === "tr" ? "Yakın pencere" : "Recent window";
 }
 
-function earliestDate(values: Array<string | null | undefined>) {
-  return (
-    values
-      .filter((value): value is string => Boolean(value))
-      .sort((left, right) => left.localeCompare(right))[0] ?? null
-  );
+function getStageTitle(
+  key: MetaIntegrationProgressStageKey,
+  scope: MetaIntegrationSummaryScope,
+  language: MetaUiLanguage
+) {
+  if (key === "connection") {
+    return language === "tr" ? "Bağlantı" : "Connection";
+  }
+  if (key === "queue_worker") {
+    return language === "tr" ? "Kuyruk / worker" : "Queue / worker";
+  }
+  if (key === "core_data") {
+    return language === "tr" ? "Çekirdek veri" : "Core data";
+  }
+  if (key === "priority_window") {
+    return localizePriorityTitle(scope, language);
+  }
+  if (key === "extended_surfaces") {
+    return language === "tr" ? "Genişletilmiş yüzeyler" : "Extended surfaces";
+  }
+  return language === "tr" ? "Dikkat / toparlama" : "Attention / recovery";
 }
 
-function minCount(values: Array<number | null | undefined>) {
-  const numeric = values.filter((value): value is number => Number.isFinite(value));
-  if (numeric.length === 0) return null;
-  return Math.min(...numeric);
-}
-
-function buildEvidence(parts: Array<string | null | undefined>) {
-  const rows = parts.filter((value): value is string => Boolean(value));
-  return rows.length > 0 ? rows.join(" • ") : null;
-}
-
-function pluralize(count: number, singular: string, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function humanizePendingSurface(scope: string) {
-  switch (scope) {
-    case "account_daily":
-      return "summary";
-    case "campaign_daily":
-      return "campaigns";
-    case "adset_daily":
-      return "ad sets";
-    case "ad_daily":
-      return "ads";
-    case "creative_daily":
-      return "creatives";
-    case "breakdowns":
-      return "breakdowns";
+function localizeStageLabel(
+  code: MetaIntegrationSummary["stages"][number]["code"],
+  language: MetaUiLanguage
+) {
+  switch (code) {
+    case "connected":
+      return language === "tr" ? "bağlı" : "connected";
+    case "queue_clear":
+      return language === "tr" ? "kuyruk temiz" : "queue clear";
+    case "queue_active":
+      return language === "tr" ? "worker aktif" : "worker active";
+    case "queue_waiting":
+      return language === "tr" ? "kuyruk beklemede" : "queue waiting";
+    case "queue_blocked":
+      return language === "tr" ? "müdahale gerekiyor" : "attention needed";
+    case "queue_stale":
+      return language === "tr" ? "ilerleme doğrulanamıyor" : "progress stale";
+    case "core_ready":
+      return language === "tr" ? "çekirdek hazır" : "core ready";
+    case "core_preparing":
+      return language === "tr" ? "çekirdek hazırlanıyor" : "core preparing";
+    case "core_waiting":
+      return language === "tr" ? "çekirdek beklemede" : "core waiting";
+    case "core_blocked":
+      return language === "tr" ? "çekirdek bloklu" : "core blocked";
+    case "recent_window_ready":
+      return language === "tr" ? "yakın pencere hazır" : "recent window ready";
+    case "recent_window_preparing":
+      return language === "tr"
+        ? "yakın pencere hazırlanıyor"
+        : "recent window preparing";
+    case "recent_window_waiting":
+      return language === "tr" ? "yakın pencere beklemede" : "recent window waiting";
+    case "selected_range_ready":
+      return language === "tr" ? "aralık hazır" : "range ready";
+    case "selected_range_preparing":
+      return language === "tr" ? "aralık hazırlanıyor" : "range preparing";
+    case "selected_range_waiting":
+      return language === "tr" ? "aralık beklemede" : "range waiting";
+    case "selected_range_blocked":
+      return language === "tr" ? "aralık bloklu" : "range blocked";
+    case "current_day_ready":
+      return language === "tr" ? "bugün hazır" : "today ready";
+    case "current_day_preparing":
+      return language === "tr" ? "bugün hazırlanıyor" : "today preparing";
+    case "current_day_waiting":
+      return language === "tr" ? "bugün beklemede" : "today waiting";
+    case "current_day_blocked":
+      return language === "tr" ? "bugün bloklu" : "today blocked";
+    case "extended_ready":
+      return language === "tr" ? "genişletilmiş hazır" : "extended ready";
+    case "breakdowns_preparing":
+      return language === "tr"
+        ? "breakdownlar hazırlanıyor"
+        : "breakdowns preparing";
+    case "recent_extended_preparing":
+      return language === "tr"
+        ? "yakın yüzeyler hazırlanıyor"
+        : "recent surfaces preparing";
+    case "historical_extended_preparing":
+      return language === "tr" ? "geçmiş tamamlanıyor" : "history continuing";
+    case "extended_waiting":
+      return language === "tr"
+        ? "genişletilmiş beklemede"
+        : "extended waiting";
+    case "extended_blocked":
+      return language === "tr" ? "genişletilmiş bloklu" : "extended blocked";
+    case "attention_needed":
+      return language === "tr" ? "müdahale gerekiyor" : "attention needed";
+    case "recovery_running":
+      return language === "tr" ? "toparlama sürüyor" : "recovery running";
+    case "recovery_available":
+      return language === "tr" ? "toparlama mevcut" : "recovery available";
+    case "progress_stale":
+      return language === "tr" ? "ilerleme doğrulanamıyor" : "progress stale";
     default:
-      return scope.replace(/_/g, " ");
+      return code;
   }
 }
 
-function summarizePendingSurfaces(scopes: string[] | null | undefined) {
-  const labels = Array.from(new Set((scopes ?? []).map((scope) => humanizePendingSurface(scope))));
-  if (labels.length === 0) return null;
-  const preview = labels.slice(0, 3).join(", ");
-  return labels.length > 3 ? `Pending ${preview}, and more` : `Pending ${preview}`;
-}
-
-function summarizeRepairAction(kind: string) {
-  switch (kind) {
-    case "replay_dead_letters":
-      return "Replay dead letters";
-    case "requeue_failed":
-      return "Retry failed partitions";
-    case "retry_authoritative_refresh":
-      return "Retry published truth";
-    case "inspect_blocked_publication_mismatch":
-      return "Review blocked published truth";
-    case "inspect_stale_leases":
-      return "Review stale leases";
-    case "refresh_queue":
-      return "Refresh queue";
-    default:
-      return kind.replace(/_/g, " ");
-  }
-}
-
-function summarizeRepairableActions(status: MetaStatusResponse) {
-  const actions = (status.operations?.repairableActions ?? [])
-    .filter((action) => action.available)
-    .map((action) => summarizeRepairAction(action.kind));
-  if (actions.length === 0) return null;
-  const preview = Array.from(new Set(actions)).slice(0, 2).join(", ");
-  return `Recovery available: ${preview}`;
-}
-
-function summarizeStallFingerprint(fingerprint: string) {
-  switch (fingerprint) {
-    case "historical_starvation":
-      return "Historical catch-up stalled";
-    case "dead_letter_blocking_completion":
-      return "Dead letter blocking completion";
-    case "checkpoint_not_advancing":
-      return "Checkpoint not advancing";
-    case "activity_without_coverage_progress":
-      return "Activity without new coverage";
-    case "repair_loop_without_progress":
-      return "Repair loop without progress";
-    default:
-      return fingerprint.replace(/_/g, " ");
-  }
-}
-
-function summarizeStallFingerprints(status: MetaStatusResponse) {
-  const fingerprints = (status.operations?.stallFingerprints ?? []).map((fingerprint) =>
-    summarizeStallFingerprint(fingerprint)
-  );
-  if (fingerprints.length === 0) return null;
-  return fingerprints.slice(0, 2).join(" • ");
-}
-
-function summarizeBlockingReasonCode(code: string) {
+function localizeBlockingReasonCode(code: string, language: MetaUiLanguage) {
   switch (code) {
     case "required_dead_letter_partitions":
-      return "Dead letter present";
+      return language === "tr" ? "Dead letter var" : "Dead letter present";
     case "retryable_failed_partitions":
-      return "Retry backlog";
+      return language === "tr" ? "Retry kuyruğu" : "Retry backlog";
     case "operations_worker_offline":
-      return "Worker offline";
+      return language === "tr" ? "Worker çevrimdışı" : "Worker offline";
     case "operations_lease_denied":
-      return "Lease waiting";
+      return language === "tr" ? "Lease bekliyor" : "Lease waiting";
     case "operations_queue_backlogged":
-      return "Queue backlogged";
+      return language === "tr" ? "Kuyruk birikti" : "Queue backlogged";
     case "blocked_publication_mismatch":
-      return "Published truth blocked";
+      return language === "tr"
+        ? "Yayınlanmış doğrusu bloklu"
+        : "Published truth blocked";
     case "repair_required_authoritative_retry":
-      return "Published truth needs retry";
+      return language === "tr"
+        ? "Yayınlanmış doğrusu yeniden denenmeli"
+        : "Published truth needs retry";
     case "historical_verification_failed":
-      return "Historical truth not ready";
+      return language === "tr" ? "Geçmiş doğrusu hazır değil" : "Historical truth not ready";
     default:
       return code.replace(/_/g, " ");
   }
 }
 
-function summarizeBlockingReasons(status: MetaStatusResponse) {
-  const reasons = status.operations?.blockingReasons ?? [];
-  if (reasons.length === 0) return null;
-  const preview = reasons
-    .slice(0, 2)
-    .map((reason) => summarizeBlockingReasonCode(reason.code))
-    .join(" • ");
-  return preview || null;
+function localizeRepairActionKind(kind: string, language: MetaUiLanguage) {
+  switch (kind) {
+    case "replay_dead_letters":
+      return language === "tr" ? "Dead letter replay" : "Replay dead letters";
+    case "requeue_failed":
+      return language === "tr"
+        ? "Başarısız partition'ları yeniden kuyruğa al"
+        : "Retry failed partitions";
+    case "retry_authoritative_refresh":
+      return language === "tr"
+        ? "Yayınlanmış doğrusunu yeniden dene"
+        : "Retry published truth";
+    case "inspect_blocked_publication_mismatch":
+      return language === "tr"
+        ? "Bloklu yayın farkını incele"
+        : "Review blocked published truth";
+    case "inspect_stale_leases":
+      return language === "tr" ? "Bayat lease'leri incele" : "Review stale leases";
+    case "refresh_queue":
+      return language === "tr" ? "Kuyruğu yenile" : "Refresh queue";
+    default:
+      return kind.replace(/_/g, " ");
+  }
 }
 
-function getCurrentTopReason(status: MetaStatusResponse) {
-  return (
-    status.operations?.blockingReasons?.[0]?.detail ??
-    status.coreReadiness?.reason ??
-    status.extendedCompleteness?.reason ??
-    status.pageReadiness?.reason ??
-    null
+function localizePendingSurface(code: string, language: MetaUiLanguage) {
+  switch (code) {
+    case "account_daily":
+      return language === "tr" ? "özet" : "summary";
+    case "campaign_daily":
+      return language === "tr" ? "kampanyalar" : "campaigns";
+    case "adset_daily":
+      return language === "tr" ? "reklam setleri" : "ad sets";
+    case "ad_daily":
+      return language === "tr" ? "reklamlar" : "ads";
+    case "creative_daily":
+      return language === "tr" ? "kreatifler" : "creatives";
+    case "breakdowns":
+      return language === "tr" ? "breakdownlar" : "breakdowns";
+    default:
+      return code.replace(/_/g, " ");
+  }
+}
+
+function buildPendingSurfaceEvidence(
+  surfaces: string[],
+  language: MetaUiLanguage
+) {
+  if (surfaces.length === 0) return null;
+  const labels = Array.from(new Set(surfaces.map((surface) => localizePendingSurface(surface, language))));
+  const preview = labels.slice(0, 3).join(", ");
+  if (labels.length > 3) {
+    return language === "tr"
+      ? `Bekleyen ${preview} ve fazlası`
+      : `Pending ${preview}, and more`;
+  }
+  return language === "tr" ? `Bekleyen ${preview}` : `Pending ${preview}`;
+}
+
+function buildCountEvidence(
+  completedDays: number | undefined,
+  totalDays: number | undefined,
+  language: MetaUiLanguage
+) {
+  if (
+    !Number.isFinite(completedDays) ||
+    !Number.isFinite(totalDays) ||
+    (totalDays ?? 0) <= 0
+  ) {
+    return null;
+  }
+  return language === "tr"
+    ? `${completedDays}/${totalDays} gün`
+    : `${completedDays}/${totalDays} days`;
+}
+
+function pluralize(
+  count: number,
+  language: MetaUiLanguage,
+  singular: string,
+  plural: string
+) {
+  if (language === "tr") return `${count} ${plural}`;
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function buildQueueEvidence(
+  stage: MetaIntegrationSummary["stages"][number],
+  language: MetaUiLanguage
+) {
+  const evidence = stage.evidence;
+  if (!evidence) return null;
+  const parts: string[] = [];
+  if (typeof evidence.blockerCount === "number" && evidence.blockerCodes?.length) {
+    parts.push(
+      ...Array.from(new Set(evidence.blockerCodes))
+        .slice(0, 2)
+        .map((code) => localizeBlockingReasonCode(code, language))
+    );
+  }
+  if (typeof evidence.queueDepth === "number") {
+    parts.push(language === "tr" ? `Kuyruk ${evidence.queueDepth}` : `Queue ${evidence.queueDepth}`);
+  }
+  if (typeof evidence.leasedPartitions === "number") {
+    parts.push(language === "tr" ? `Lease ${evidence.leasedPartitions}` : `Leased ${evidence.leasedPartitions}`);
+  }
+  if (typeof evidence.retryableFailedPartitions === "number") {
+    parts.push(language === "tr" ? `Retry ${evidence.retryableFailedPartitions}` : `Retry ${evidence.retryableFailedPartitions}`);
+  }
+  if (typeof evidence.deadLetterPartitions === "number") {
+    parts.push(language === "tr" ? `Dead ${evidence.deadLetterPartitions}` : `Dead ${evidence.deadLetterPartitions}`);
+  }
+  return parts.length > 0 ? parts.join(" • ") : null;
+}
+
+function buildAttentionEvidence(
+  stage: MetaIntegrationSummary["stages"][number],
+  language: MetaUiLanguage
+) {
+  const evidence = stage.evidence;
+  if (!evidence) return null;
+  const parts: string[] = [];
+  if (evidence.blockerCodes?.length) {
+    parts.push(
+      ...Array.from(new Set(evidence.blockerCodes))
+        .slice(0, 2)
+        .map((code) => localizeBlockingReasonCode(code, language))
+    );
+  } else if (typeof evidence.blockerCount === "number") {
+    parts.push(
+      pluralize(
+        evidence.blockerCount,
+        language,
+        "blocker",
+        language === "tr" ? "engel" : "blockers"
+      )
+    );
+  }
+
+  if (evidence.repairActionKinds?.length) {
+    const preview = Array.from(new Set(evidence.repairActionKinds))
+      .slice(0, 2)
+      .map((kind) => localizeRepairActionKind(kind, language))
+      .join(", ");
+    parts.push(language === "tr" ? `Toparlama: ${preview}` : `Recovery: ${preview}`);
+  } else if (typeof evidence.repairSignalCount === "number") {
+    parts.push(
+      pluralize(
+        evidence.repairSignalCount,
+        language,
+        "recovery signal",
+        language === "tr" ? "toparlama sinyali" : "recovery signals"
+      )
+    );
+  }
+
+  return parts.length > 0 ? parts.join(" • ") : null;
+}
+
+function buildStageEvidence(
+  stage: MetaIntegrationSummary["stages"][number],
+  language: MetaUiLanguage
+) {
+  const evidence = stage.evidence;
+  if (!evidence) return null;
+
+  if (stage.key === "connection") {
+    if (!evidence.primaryTimezone) return null;
+    return language === "tr"
+      ? `Birincil saat dilimi ${evidence.primaryTimezone}`
+      : `Primary timezone ${evidence.primaryTimezone}`;
+  }
+
+  if (stage.key === "queue_worker") {
+    return buildQueueEvidence(stage, language);
+  }
+
+  if (stage.key === "attention") {
+    return buildAttentionEvidence(stage, language);
+  }
+
+  const parts: string[] = [];
+  const pendingSurfaceEvidence = buildPendingSurfaceEvidence(
+    evidence.pendingSurfaces ?? [],
+    language
   );
-}
+  if (pendingSurfaceEvidence) parts.push(pendingSurfaceEvidence);
 
-function getCoreReadyThroughDate(status: MetaStatusResponse) {
-  return earliestDate([
-    status.warehouse?.coverage?.selectedRange?.readyThroughDate ?? null,
-    status.rangeCompletionBySurface?.account_daily?.readyThroughDate ?? null,
-    status.rangeCompletionBySurface?.campaign_daily?.readyThroughDate ?? null,
-    status.latestSync?.readyThroughDate ?? null,
-  ]);
-}
-
-function getPriorityWindowMetrics(status: MetaStatusResponse) {
-  if (status.priorityWindow) {
-    return {
-      kind: "priority" as const,
-      completedDays: status.priorityWindow.completedDays,
-      totalDays: status.priorityWindow.totalDays,
-      percent: percentFromCounts(
-        status.priorityWindow.completedDays,
-        status.priorityWindow.totalDays
-      ),
-      readyThroughDate:
-        status.selectedRangeTruth?.truthReady
-          ? status.priorityWindow.endDate
-          : status.warehouse?.coverage?.selectedRange?.readyThroughDate ??
-            status.latestSync?.readyThroughDate ??
-            null,
-      active: status.priorityWindow.isActive,
-    };
-  }
-
-  const account = status.rangeCompletionBySurface?.account_daily;
-  const campaign = status.rangeCompletionBySurface?.campaign_daily;
-  const totalDays = Math.max(account?.recentTotalDays ?? 0, campaign?.recentTotalDays ?? 0);
-  const completedDays = minCount([
-    account?.recentCompletedDays ?? 0,
-    campaign?.recentCompletedDays ?? 0,
-  ]) ?? 0;
-
-  return {
-    kind: "recent" as const,
-    completedDays,
-    totalDays,
-    percent: percentFromCounts(completedDays, totalDays),
-    readyThroughDate: earliestDate([
-      account?.readyThroughDate ?? null,
-      campaign?.readyThroughDate ?? null,
-      status.latestSync?.readyThroughDate ?? null,
-    ]),
-    active:
-      Boolean(status.latestSync?.status === "running") ||
-      Boolean(status.latestSync?.status === "pending") ||
-      (status.jobHealth?.leasedPartitions ?? 0) > 0,
-  };
-}
-
-function getExtendedMetrics(status: MetaStatusResponse) {
-  const creative = status.rangeCompletionBySurface?.creative_daily;
-  const ad = status.rangeCompletionBySurface?.ad_daily;
-  const recentTotal = Math.max(creative?.recentTotalDays ?? 0, ad?.recentTotalDays ?? 0);
-  const recentCompleted =
-    minCount([creative?.recentCompletedDays ?? 0, ad?.recentCompletedDays ?? 0]) ?? 0;
-  const historicalTotal = Math.max(
-    creative?.historicalTotalDays ?? 0,
-    ad?.historicalTotalDays ?? 0
-  );
-  const historicalCompleted =
-    minCount([
-      creative?.historicalCompletedDays ?? 0,
-      ad?.historicalCompletedDays ?? 0,
-    ]) ?? 0;
-
-  return {
-    recentTotal,
-    recentCompleted,
-    recentPercent: percentFromCounts(recentCompleted, recentTotal),
-    historicalTotal,
-    historicalCompleted,
-    historicalPercent: percentFromCounts(historicalCompleted, historicalTotal),
-    readyThroughDate: earliestDate([
-      creative?.readyThroughDate ?? null,
-      ad?.readyThroughDate ?? null,
-    ]),
-  };
-}
-
-function buildConnectionStage(status: MetaStatusResponse): MetaIntegrationProgressStage {
-  const assignedCount = status.assignedAccountIds?.length ?? 0;
-  return {
-    key: "connection",
-    title: "Connection",
-    state: "ready",
-    label: "connected",
-    detail:
-      assignedCount > 1
-        ? `${pluralize(assignedCount, "Meta account")} assigned to this workspace.`
-        : "Meta account assigned to this workspace.",
-    percent: null,
-    evidence: status.primaryAccountTimezone
-      ? `Primary timezone ${status.primaryAccountTimezone}`
-      : null,
-  };
-}
-
-function buildQueueStage(status: MetaStatusResponse): MetaIntegrationProgressStage {
-  const queueDepth = status.jobHealth?.queueDepth ?? 0;
-  const leasedPartitions = status.jobHealth?.leasedPartitions ?? 0;
-  const retryableFailedPartitions = status.jobHealth?.retryableFailedPartitions ?? 0;
-  const deadLetterPartitions = status.jobHealth?.deadLetterPartitions ?? 0;
-  const operationsState = status.operations?.progressState ?? null;
-  const hasQueuedWork =
-    queueDepth > 0 ||
-    leasedPartitions > 0 ||
-    retryableFailedPartitions > 0 ||
-    deadLetterPartitions > 0;
-
-  const evidence = buildEvidence([
-    queueDepth > 0 ? `Queue ${queueDepth}` : null,
-    leasedPartitions > 0 ? `Leased ${leasedPartitions}` : null,
-    retryableFailedPartitions > 0 ? `Retry ${retryableFailedPartitions}` : null,
-    deadLetterPartitions > 0 ? `Dead ${deadLetterPartitions}` : null,
-  ]);
-
-  if (
-    status.state === "action_required" ||
-    status.state === "stale" ||
-    operationsState === "blocked" ||
-    deadLetterPartitions > 0
-  ) {
-    return {
-      key: "queue_worker",
-      title: "Queue / worker",
-      state: "blocked",
-      label: status.state === "stale" ? "progress stale" : "attention needed",
-      detail:
-        status.state === "stale"
-          ? "Background progress cannot be verified right now."
-          : "Queue health needs recovery before it can finish cleanly.",
-      percent: null,
-      evidence: buildEvidence([summarizeBlockingReasons(status), evidence]),
-    };
-  }
-
-  if (
-    status.state === "paused" ||
-    operationsState === "partial_stuck" ||
-    (queueDepth > 0 && leasedPartitions === 0)
-  ) {
-    return {
-      key: "queue_worker",
-      title: "Queue / worker",
-      state: "waiting",
-      label: "queue waiting",
-      detail: "Queued Meta work is waiting for the worker to continue.",
-      percent: null,
-      evidence,
-    };
-  }
-
-  if (
-    leasedPartitions > 0 ||
-    operationsState === "syncing" ||
-    operationsState === "partial_progressing" ||
-    status.latestSync?.status === "running" ||
-    status.latestSync?.status === "pending" ||
-    hasQueuedWork
-  ) {
-    return {
-      key: "queue_worker",
-      title: "Queue / worker",
-      state: "working",
-      label: "worker active",
-      detail:
-        queueDepth > 0
-          ? "Meta sync is actively processing queued work."
-          : "Background Meta work is active.",
-      percent: null,
-      evidence,
-    };
-  }
-
-  return {
-    key: "queue_worker",
-    title: "Queue / worker",
-    state: "ready",
-    label: "queue clear",
-    detail: "No queued Meta work is waiting right now.",
-    percent: null,
-    evidence: null,
-  };
-}
-
-function buildCoreStage(status: MetaStatusResponse): MetaIntegrationProgressStage {
-  const coreReadiness = status.coreReadiness;
-  const readyThrough = formatMetaReadyThroughDate(getCoreReadyThroughDate(status), "en");
-  const percent =
-    coreReadiness && !coreReadiness.complete ? clampPercent(coreReadiness.percent) : null;
-
-  if (
-    coreReadiness?.state === "blocked" ||
-    (status.state === "action_required" && !coreReadiness?.usable)
-  ) {
-    return {
-      key: "core_data",
-      title: "Core data",
-      state: "blocked",
-      label: "core blocked",
-      detail:
-        coreReadiness?.summary ??
-        coreReadiness?.reason ??
-        "Summary and campaign data are blocked for the current contract.",
-      percent,
-      evidence: readyThrough,
-    };
-  }
-
-  if (coreReadiness?.usable) {
-    return {
-      key: "core_data",
-      title: "Core data",
-      state: "ready",
-      label: "core ready",
-      detail:
-        coreReadiness.summary ??
-        "Summary and campaign data are ready for the workspace.",
-      percent: null,
-      evidence: readyThrough,
-    };
-  }
-
-  const waiting =
-    status.state === "paused" ||
-    status.operations?.progressState === "partial_stuck";
-
-  return {
-    key: "core_data",
-    title: "Core data",
-    state: waiting ? "waiting" : "working",
-    label: waiting ? "core waiting" : "core preparing",
-    detail:
-      coreReadiness?.summary ??
-      coreReadiness?.reason ??
-      "Summary and campaign data are still preparing.",
-    percent,
-    evidence: readyThrough,
-  };
-}
-
-function buildPriorityStage(status: MetaStatusResponse): MetaIntegrationProgressStage {
-  const metrics = getPriorityWindowMetrics(status);
-  const countEvidence =
-    metrics.totalDays > 0
-      ? `${metrics.completedDays}/${metrics.totalDays} days`
+  const blockerEvidence =
+    evidence.blockerCodes?.length
+      ? Array.from(new Set(evidence.blockerCodes))
+          .slice(0, 2)
+          .map((code) => localizeBlockingReasonCode(code, language))
+          .join(" • ")
       : null;
-  const readyThrough = formatMetaReadyThroughDate(metrics.readyThroughDate, "en");
-  const evidence = buildEvidence([countEvidence, readyThrough]);
-  const selectedRangeState = status.selectedRangeTruth?.verificationState ?? status.selectedRangeTruth?.state ?? null;
-  const selectedRangeBlocked =
-    selectedRangeState === "blocked" ||
-    selectedRangeState === "failed" ||
-    selectedRangeState === "repair_required";
+  if (blockerEvidence) parts.push(blockerEvidence);
 
-  if (metrics.kind === "priority" && selectedRangeBlocked) {
-    return {
-      key: "priority_window",
-      title: "Priority range / recent window",
-      state: "blocked",
-      label: "priority blocked",
-      detail:
-        getCurrentTopReason(status) ??
-        "Published truth for the priority range still needs recovery.",
-      percent: metrics.percent,
-      evidence: buildEvidence([
-        summarizeBlockingReasons(status),
-        evidence,
-      ]),
-    };
-  }
-
-  const ready = metrics.totalDays > 0 && metrics.completedDays >= metrics.totalDays;
-  if (ready) {
-    return {
-      key: "priority_window",
-      title: "Priority range / recent window",
-      state: "ready",
-      label: metrics.kind === "priority" ? "priority ready" : "recent window ready",
-      detail:
-        metrics.kind === "priority"
-          ? "Priority range data is ready."
-          : "Recent summary and campaign days are ready.",
-      percent: null,
-      evidence,
-    };
-  }
-
-  const waiting =
-    status.state === "paused" ||
-    status.operations?.progressState === "partial_stuck";
-
-  return {
-    key: "priority_window",
-    title: "Priority range / recent window",
-    state: waiting ? "waiting" : "working",
-    label:
-      metrics.kind === "priority"
-        ? waiting
-          ? "priority waiting"
-          : "priority preparing"
-        : waiting
-          ? "recent window waiting"
-          : "recent window preparing",
-    detail:
-      metrics.kind === "priority"
-        ? "Priority dates are being prepared first."
-        : "Recent summary and campaign days are being prepared first.",
-    percent: metrics.percent,
-    evidence,
-  };
-}
-
-function buildExtendedStage(status: MetaStatusResponse): MetaIntegrationProgressStage {
-  const extended = status.extendedCompleteness;
-  const metrics = getExtendedMetrics(status);
-  const pendingSurfaces = summarizePendingSurfaces(status.warehouse?.coverage?.pendingSurfaces);
-  const readyThrough = formatMetaReadyThroughDate(metrics.readyThroughDate, "en");
-
-  const recentLag = status.recentExtendedReady === false;
-  const historicalLag = status.historicalExtendedReady === false;
-  const percent =
-    extended && !extended.complete && extended.percent != null
-      ? clampPercent(extended.percent)
-      : recentLag
-        ? metrics.recentPercent
-        : historicalLag
-          ? metrics.historicalPercent
-          : null;
-
-  const evidence = buildEvidence([
-    pendingSurfaces,
-    readyThrough,
-  ]);
-
-  if (extended?.state === "blocked") {
-    return {
-      key: "extended_surfaces",
-      title: "Extended surfaces",
-      state: "blocked",
-      label: "extended blocked",
-      detail:
-        extended.summary ??
-        extended.reason ??
-        "Some extended Meta surfaces are blocked for this contract.",
-      percent,
-      evidence,
-    };
-  }
-
-  if (
-    extended?.complete &&
-    status.recentExtendedReady !== false &&
-    status.historicalExtendedReady !== false &&
-    !pendingSurfaces
-  ) {
-    return {
-      key: "extended_surfaces",
-      title: "Extended surfaces",
-      state: "ready",
-      label: "extended ready",
-      detail: "Breakdowns, ads, and creatives are ready.",
-      percent: null,
-      evidence: readyThrough,
-    };
-  }
-
-  const waiting =
-    status.state === "paused" ||
-    status.operations?.progressState === "partial_stuck";
-  const label =
-    !extended?.complete
-      ? waiting
-        ? "breakdowns waiting"
-        : "breakdowns preparing"
-      : recentLag
-        ? waiting
-          ? "recent surfaces waiting"
-          : "recent surfaces preparing"
-        : historicalLag
-          ? "history continuing"
-          : waiting
-            ? "extended waiting"
-            : "extended preparing";
-  const detail =
-    !extended?.complete
-      ? extended?.summary ??
-        extended?.reason ??
-        "Breakdown surfaces are still preparing."
-      : recentLag
-        ? "Ads and creatives for the recent window are still preparing."
-        : historicalLag
-          ? "Ads and creatives continue backfilling in the background."
-          : "Extended reporting surfaces are still preparing.";
-
-  return {
-    key: "extended_surfaces",
-    title: "Extended surfaces",
-    state: waiting ? "waiting" : "working",
-    label,
-    detail,
-    percent,
-    evidence,
-  };
-}
-
-function shouldRenderAttentionStage(status: MetaStatusResponse) {
-  return (
-    status.state === "action_required" ||
-    status.state === "paused" ||
-    status.state === "stale" ||
-    status.operations?.progressState === "blocked" ||
-    (status.operations?.blockingReasons?.length ?? 0) > 0 ||
-    (status.operations?.stallFingerprints?.length ?? 0) > 0 ||
-    (status.jobHealth?.retryableFailedPartitions ?? 0) > 0 ||
-    (status.jobHealth?.deadLetterPartitions ?? 0) > 0 ||
-    status.d1FinalizeState === "blocked"
+  const countEvidence = buildCountEvidence(
+    evidence.completedDays,
+    evidence.totalDays,
+    language
   );
+  if (countEvidence) parts.push(countEvidence);
+
+  const readyThrough = formatMetaReadyThroughDate(
+    evidence.readyThroughDate,
+    language
+  );
+  if (readyThrough) parts.push(readyThrough);
+
+  return parts.length > 0 ? parts.join(" • ") : null;
 }
 
-function buildAttentionStage(status: MetaStatusResponse): MetaIntegrationProgressStage {
-  const paused = status.state === "paused";
-  const blocked =
-    status.state === "action_required" ||
-    status.state === "stale" ||
-    status.operations?.progressState === "blocked" ||
-    (status.operations?.blockingReasons?.length ?? 0) > 0 ||
-    (status.jobHealth?.deadLetterPartitions ?? 0) > 0 ||
-    status.d1FinalizeState === "blocked";
-  const progressingRepair =
-    !blocked &&
-    (status.jobHealth?.retryableFailedPartitions ?? 0) > 0 &&
-    status.operations?.progressState === "partial_progressing";
+function getConnectionDetail(
+  stage: MetaIntegrationSummary["stages"][number],
+  language: MetaUiLanguage
+) {
+  const assignedCount = stage.evidence?.assignedAccountCount ?? 0;
+  if (assignedCount > 1) {
+    return language === "tr"
+      ? `Bu workspace için ${assignedCount} Meta hesabı atanmış.`
+      : `${assignedCount} Meta accounts are assigned to this workspace.`;
+  }
+  return language === "tr"
+    ? "Bu workspace için Meta hesabı atanmış."
+    : "Meta account is assigned to this workspace.";
+}
 
-  const evidence = buildEvidence([
-    summarizeBlockingReasons(status),
-    summarizeRepairableActions(status),
-    summarizeStallFingerprints(status),
-  ]);
+function getCoreDetail(
+  code: MetaIntegrationSummary["stages"][number]["code"],
+  language: MetaUiLanguage,
+  scope: MetaIntegrationSummaryScope
+) {
+  switch (code) {
+    case "core_ready":
+      if (scope === "current_day") {
+        return language === "tr"
+          ? "Bugünün özet ve kampanya verisi hazır."
+          : "Current-day summary and campaign data are ready.";
+      }
+      if (scope === "selected_range") {
+        return language === "tr"
+          ? "Seçili aralık için özet ve kampanya verisi hazır."
+          : "Summary and campaign data are ready for the selected range.";
+      }
+      return language === "tr"
+        ? "Özet ve kampanya verisi hazır."
+        : "Summary and campaign data are ready.";
+    case "core_waiting":
+      return language === "tr"
+        ? "Meta çekirdek verisi worker'ı bekliyor."
+        : "Core Meta data is waiting for the worker.";
+    case "core_blocked":
+      return language === "tr"
+        ? "Özet ve kampanya verisi bu kapsam için bloklu."
+        : "Summary and campaign data are blocked for this scope.";
+    case "core_preparing":
+    default:
+      if (scope === "current_day") {
+        return language === "tr"
+          ? "Bugünün Meta hesap günü için özet ve kampanya verisi hâlâ hazırlanıyor."
+          : "Summary and campaign data for the current Meta account day are still preparing.";
+      }
+      if (scope === "selected_range") {
+        return language === "tr"
+          ? "Seçili aralık için özet ve kampanya verisi hâlâ hazırlanıyor."
+          : "Summary and campaign data are still being prepared for the selected range.";
+      }
+      return language === "tr"
+        ? "Özet ve kampanya verisi hâlâ hazırlanıyor."
+        : "Summary and campaign data are still preparing.";
+  }
+}
 
-  return {
-    key: "attention",
-    title: "Attention / recovery",
-    state: blocked ? "blocked" : paused ? "waiting" : progressingRepair ? "working" : "waiting",
-    label:
-      blocked
-        ? status.state === "stale"
-          ? "progress stale"
-          : "attention needed"
-        : paused
-          ? "queue waiting"
-          : progressingRepair
-            ? "recovery running"
-            : "recovery available",
-    detail:
-      blocked || paused
-        ? getMetaSyncDescription(status, "en")
-        : (status.jobHealth?.retryableFailedPartitions ?? 0) > 0
-          ? "Meta is clearing retryable work in the background."
-          : "Recovery signals are present for the Meta pipeline.",
-    percent: null,
-    evidence,
-  };
+function getPriorityDetail(
+  code: MetaIntegrationSummary["stages"][number]["code"],
+  language: MetaUiLanguage
+) {
+  switch (code) {
+    case "recent_window_ready":
+      return language === "tr"
+        ? "Yakın özet ve kampanya günleri hazır."
+        : "Recent summary and campaign days are ready.";
+    case "recent_window_waiting":
+      return language === "tr"
+        ? "Yakın özet ve kampanya günleri kuyrukta bekliyor."
+        : "Recent summary and campaign days are queued and waiting.";
+    case "selected_range_ready":
+      return language === "tr"
+        ? "Seçili aralık doğrusu hazır."
+        : "Selected-range truth is ready.";
+    case "selected_range_preparing":
+      return language === "tr"
+        ? "Seçili aralık doğrusu hâlâ hazırlanıyor."
+        : "Selected-range truth is still being prepared.";
+    case "selected_range_waiting":
+      return language === "tr"
+        ? "Seçili aralık doğrusu kuyrukta bekliyor."
+        : "Selected-range truth is queued and waiting.";
+    case "selected_range_blocked":
+      return language === "tr"
+        ? "Seçili aralık doğrusu güvenilmeden önce toparlanmalı."
+        : "Selected-range truth needs recovery before it can be trusted.";
+    case "current_day_ready":
+      return language === "tr"
+        ? "Geçerli Meta hesap günü hazır."
+        : "The current Meta account day is ready.";
+    case "current_day_waiting":
+      return language === "tr"
+        ? "Geçerli Meta hesap günü kuyrukta bekliyor."
+        : "The current Meta account day is queued and waiting.";
+    case "current_day_blocked":
+      return language === "tr"
+        ? "Bugünün Meta doğrusu bloklu ve toparlanmalı."
+        : "Current-day Meta truth is blocked and needs recovery.";
+    case "current_day_preparing":
+      return language === "tr"
+        ? "Geçerli Meta hesap günü hâlâ hazırlanıyor."
+        : "The current Meta account day is still preparing.";
+    case "recent_window_preparing":
+    default:
+      return language === "tr"
+        ? "Yakın özet ve kampanya günleri önce hazırlanıyor."
+        : "Recent summary and campaign days are being prepared first.";
+  }
+}
+
+function getExtendedDetail(
+  code: MetaIntegrationSummary["stages"][number]["code"],
+  language: MetaUiLanguage
+) {
+  switch (code) {
+    case "extended_ready":
+      return language === "tr"
+        ? "Breakdownlar, reklamlar ve kreatifler hazır."
+        : "Breakdowns, ads, and creatives are ready.";
+    case "recent_extended_preparing":
+      return language === "tr"
+        ? "Yakın pencere için reklamlar ve kreatifler hâlâ hazırlanıyor."
+        : "Ads and creatives for the recent window are still preparing.";
+    case "historical_extended_preparing":
+      return language === "tr"
+        ? "Reklamlar ve kreatifler arka planda geçmişi tamamlamayı sürdürüyor."
+        : "Ads and creatives continue backfilling in the background.";
+    case "extended_waiting":
+      return language === "tr"
+        ? "Genişletilmiş Meta yüzeyleri kuyrukta bekliyor."
+        : "Extended Meta surfaces are queued and waiting.";
+    case "extended_blocked":
+      return language === "tr"
+        ? "Bazı genişletilmiş Meta yüzeyleri bu kapsam için bloklu."
+        : "Some extended Meta surfaces are blocked for this scope.";
+    case "breakdowns_preparing":
+    default:
+      return language === "tr"
+        ? "Breakdown yüzeyleri hâlâ hazırlanıyor."
+        : "Breakdown surfaces are still preparing.";
+  }
+}
+
+function getStageDetail(
+  stage: MetaIntegrationSummary["stages"][number],
+  scope: MetaIntegrationSummaryScope,
+  language: MetaUiLanguage,
+  status: MetaStatusResponse
+) {
+  switch (stage.key) {
+    case "connection":
+      return getConnectionDetail(stage, language);
+    case "queue_worker":
+      if (stage.code === "queue_stale" && status.state === "stale") {
+        return getMetaSyncDescription(status, language);
+      }
+      if (stage.code === "queue_waiting" && status.state === "paused") {
+        return getMetaSyncDescription(status, language);
+      }
+      if (stage.code === "queue_blocked") {
+        return language === "tr"
+          ? "Kuyruk sağlığı temiz biçimde tamamlanmadan önce toparlanmalı."
+          : "Queue health needs recovery before it can finish cleanly.";
+      }
+      if (stage.code === "queue_waiting") {
+        return language === "tr"
+          ? "Kuyruktaki Meta işi worker'ın devam etmesini bekliyor."
+          : "Queued Meta work is waiting for the worker to continue.";
+      }
+      if (stage.code === "queue_active") {
+        return typeof stage.evidence?.queueDepth === "number"
+          ? language === "tr"
+            ? "Meta senkronu kuyruktaki işi aktif olarak işliyor."
+            : "Meta sync is actively processing queued work."
+          : language === "tr"
+            ? "Arka plan Meta işi aktif."
+            : "Background Meta work is active.";
+      }
+      if (stage.code === "queue_clear") {
+        return language === "tr"
+          ? "Bekleyen Meta işi yok."
+          : "No queued Meta work is waiting right now.";
+      }
+      return language === "tr"
+        ? "Arka plan ilerlemesi şu anda doğrulanamıyor."
+        : "Background progress cannot be verified right now.";
+    case "core_data":
+      return getCoreDetail(stage.code, language, scope);
+    case "priority_window":
+      return getPriorityDetail(stage.code, language);
+    case "extended_surfaces":
+      return getExtendedDetail(stage.code, language);
+    case "attention":
+      if (
+        stage.code === "attention_needed" &&
+        status.state === "action_required"
+      ) {
+        return getMetaSyncDescription(status, language);
+      }
+      if (stage.code === "queue_waiting" && status.state === "paused") {
+        return getMetaSyncDescription(status, language);
+      }
+      if (stage.code === "progress_stale" && status.state === "stale") {
+        return getMetaSyncDescription(status, language);
+      }
+      if (stage.code === "recovery_running") {
+        return language === "tr"
+          ? "Meta yeniden denenebilir işleri arka planda temizliyor."
+          : "Meta is clearing retryable work in the background.";
+      }
+      if (stage.code === "recovery_available") {
+        return language === "tr"
+          ? "Meta hattında toparlama sinyalleri var."
+          : "Recovery signals are present for the Meta pipeline.";
+      }
+      return language === "tr"
+        ? "Bu senkron temiz biçimde tamamlanmadan önce Meta toparlanmalı."
+        : "Meta needs recovery before this sync can finish cleanly.";
+    default:
+      return "";
+  }
+}
+
+function getIntegrationSummary(status: MetaStatusResponse) {
+  return status.integrationSummary ?? buildMetaIntegrationSummary(status);
 }
 
 export function resolveMetaIntegrationProgress(
-  status: MetaStatusResponse | undefined | null
+  status: MetaStatusResponse | undefined | null,
+  language: MetaUiLanguage = "en"
 ): MetaIntegrationProgressModel | null {
-  if (!status?.connected) return null;
-  if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
+  if (!status) return null;
 
-  const stages: MetaIntegrationProgressStage[] = [
-    buildConnectionStage(status),
-    buildQueueStage(status),
-    buildCoreStage(status),
-    buildPriorityStage(status),
-    buildExtendedStage(status),
-  ];
-
-  if (shouldRenderAttentionStage(status)) {
-    stages.push(buildAttentionStage(status));
-  }
+  const summary = getIntegrationSummary(status);
+  if (!summary.visible) return null;
 
   return {
-    stages,
-    attentionNeeded: stages.some((stage) => stage.key === "attention"),
+    stages: summary.stages.map((stage) => ({
+      key: stage.key,
+      title: getStageTitle(stage.key, summary.scope, language),
+      state: stage.state,
+      label: localizeStageLabel(stage.code, language),
+      detail: getStageDetail(stage, summary.scope, language, status),
+      percent: stage.percent,
+      evidence: buildStageEvidence(stage, language),
+    })),
+    attentionNeeded: summary.attentionNeeded,
   };
 }

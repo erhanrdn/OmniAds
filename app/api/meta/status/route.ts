@@ -13,6 +13,7 @@ import {
   buildMetaExtendedCompleteness,
   rollupMetaPageReadiness,
 } from "@/lib/meta/page-readiness";
+import { buildMetaIntegrationSummary } from "@/lib/meta/integration-summary";
 import { getMetaCurrentDayLiveAvailability } from "@/lib/meta/live";
 import {
   getLatestMetaSyncHealth,
@@ -1676,8 +1677,7 @@ export async function GET(request: NextRequest) {
             ? "No non-zero Meta protected published daily rows are currently visible for this business."
             : "Meta protected published truth review is unavailable.";
 
-  return NextResponse.json(
-    {
+  const response = {
       state,
       credentialState: providerState.credentialState,
       assignmentState: providerState.assignmentState,
@@ -2014,6 +2014,12 @@ export async function GET(request: NextRequest) {
             readyThroughDate: responseReadyThroughDate,
             phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
           },
+  };
+
+  return NextResponse.json(
+    {
+      ...response,
+      integrationSummary: buildMetaIntegrationSummary(response),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

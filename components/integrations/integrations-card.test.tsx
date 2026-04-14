@@ -121,10 +121,11 @@ function buildStatus(): MetaStatusResponse {
 }
 
 describe("IntegrationsCard", () => {
-  it("renders the compact Meta progress block without removing the existing pill and notice", () => {
+  it("renders the compact Meta progress block in English without removing the existing pill and notice", () => {
     const html = renderToStaticMarkup(
       <IntegrationsCard
         provider="meta"
+        language="en"
         description="Connect Ads Manager to import campaigns, ad sets, and spend."
         view={baseView}
         syncNotice="Breakdown data is still being prepared for the selected range."
@@ -144,9 +145,37 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Connection");
     expect(html).toContain("Queue / worker");
     expect(html).toContain("Core data");
-    expect(html).toContain("Priority range / recent window");
+    expect(html).toContain("Recent window");
     expect(html).toContain("Extended surfaces");
     expect(html).toContain("worker active");
     expect(html).toContain("core ready");
+  });
+
+  it("renders the compact Meta progress block in Turkish", () => {
+    const html = renderToStaticMarkup(
+      <IntegrationsCard
+        provider="meta"
+        language="tr"
+        description="Connect Ads Manager to import campaigns, ad sets, and spend."
+        view={baseView}
+        syncNotice="Breakdown verisi hâlâ hazırlanıyor."
+        metaSyncStatus={buildStatus()}
+        metaSyncLoading={false}
+        onConnect={() => undefined}
+        onReconnect={() => undefined}
+        onRetry={() => undefined}
+        onCancel={() => undefined}
+        onDisconnect={() => undefined}
+        onOpenAssignments={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Bağlantı");
+    expect(html).toContain("Kuyruk / worker");
+    expect(html).toContain("Çekirdek veri");
+    expect(html).toContain("Yakın pencere");
+    expect(html).toContain("Genişletilmiş yüzeyler");
+    expect(html).toContain("worker aktif");
+    expect(html).toContain("Bu workspace için Meta hesabı atanmış.");
   });
 });

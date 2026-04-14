@@ -1,95 +1,95 @@
 # 1. Phase
-Meta integrations card visibility hardening completed on 2026-04-14 for the Integrations page. This phase added stage-by-stage Meta sync progress on the card without changing worker throughput, scheduler behavior, or Postgres configuration.
+P2 compact Meta UI summary contract completed on 2026-04-14. This phase moved the Meta card's compact sync truth into a typed `/api/meta/status` summary contract, kept the existing pill and notice intact, and localized the card progress block for English and Turkish without changing worker throughput, scheduler concurrency, queue leasing, retry behavior, Postgres configuration, or the overall admin health page design.
 
 ## 2. Files Reviewed
 - `docs/meta-sync-hardening/report.md`
 - `app/api/meta/status/route.ts`
-- `lib/meta/page-readiness.ts`
 - `lib/meta/status-types.ts`
+- `lib/meta/integration-progress.ts`
+- `lib/meta/page-readiness.ts`
 - `lib/meta/ui.ts`
 - `lib/meta/ui-status.ts`
+- `lib/meta/status-operations.ts`
 - `lib/sync/sync-status-pill.ts`
 - `app/(dashboard)/integrations/page.tsx`
+- `components/integrations/meta-integration-progress.tsx`
 - `components/integrations/integrations-card.tsx`
 - `components/meta/meta-sync-progress.tsx`
-- `lib/meta/status-operations.ts`
-- `lib/sync/provider-status-truth.ts`
 - `app/admin/sync-health/page.tsx`
 - `lib/admin-operations-health.ts`
+- `package.json`
+- `vitest.config.ts`
 - `lib/meta/page-readiness.test.ts`
 - `lib/meta/ui-status.test.ts`
 - `lib/meta/ui.test.ts`
 - `lib/meta/status-operations.test.ts`
 - `lib/sync/sync-status-pill.test.ts`
-- `lib/meta/warehouse-types.ts`
-- `store/integrations-store.ts`
-- `package.json`
-- `vitest.config.ts`
+- `lib/meta/integration-progress.test.ts`
+- `components/integrations/integrations-card.test.tsx`
+- `app/api/meta/status/route.test.ts`
 
 ## 3. Files Changed
-- `lib/meta/integration-progress.ts`
-- `lib/meta/integration-progress.test.ts`
+- `app/api/meta/status/route.ts`
+- `app/api/meta/status/route.test.ts`
+- `app/(dashboard)/integrations/page.tsx`
 - `components/integrations/meta-integration-progress.tsx`
 - `components/integrations/integrations-card.tsx`
 - `components/integrations/integrations-card.test.tsx`
+- `lib/meta/status-types.ts`
+- `lib/meta/integration-summary.ts`
+- `lib/meta/integration-summary.test.ts`
+- `lib/meta/integration-progress.ts`
+- `lib/meta/integration-progress.test.ts`
 - `docs/meta-sync-hardening/report.md`
 
-## 4. What Was Implemented
-- Added `resolveMetaIntegrationProgress(...)` to derive a compact Meta card progress model from existing `MetaStatusResponse` fields only.
-- Built a fixed stage set for the card:
-  - `Connection`
-  - `Queue / worker`
-  - `Core data`
-  - `Priority range / recent window`
-  - `Extended surfaces`
-  - `Attention / recovery` only when needed
-- Each stage now exposes:
-  - `ready | working | waiting | blocked`
-  - short label
-  - short detail text
-  - percent only when grounded by real counts
-  - evidence such as queue depth, ready-through date, pending surfaces, or blocker / recovery summaries
-- Reused existing Meta UI language where possible via existing route summaries and `getMetaSyncDescription(...)` for pause / stale / attention states.
-- Mounted the new progress block only on the Meta integrations card and only when Meta is connected and at least one Meta account is assigned.
-- Preserved the existing Meta sync pill and existing sync notice exactly as separate UI elements.
-- Kept blocked / paused / stale / action_required states from presenting as optimistic by driving queue and attention stages from `operations`, `jobHealth`, `selectedRangeTruth`, and repair signals.
-- Added focused helper coverage plus one narrow render test for the Meta card progress block.
+## 4. Contract Added
+- Added `MetaStatusResponse.integrationSummary`.
+- `integrationSummary` is a compact typed UI-facing contract with:
+  - `visible`
+  - `state`
+  - `scope`
+  - `attentionNeeded`
+  - stable stage keys: `connection`, `queue_worker`, `core_data`, `priority_window`, `extended_surfaces`, `attention`
+- Each stage now carries only compact semantics and evidence:
+  - `state`
+  - `percent`
+  - stable `code`
+  - compact evidence such as assigned account count, primary timezone, queue depth, leased partitions, retry/dead-letter counts, ready-through date, completed/total days, pending surface count/list, blocker count/codes, repair signal count/action kinds
+- Added pure server/client-safe derivation in `lib/meta/integration-summary.ts` and used it from the Meta status route.
 
-## 5. Why This Design
-- It surfaces existing backend truth without expanding the route contract in this phase.
-- It stays compact enough for the integrations grid card while still answering:
-  - whether the pipeline is alive
-  - which layer is complete
-  - what is still preparing
-  - whether the system is busy or stuck
-- It avoids fake certainty by grounding progress only in existing coverage, queue, readiness, and operations fields.
-- It keeps this phase low-risk by extending the card instead of replacing the current pill / notice behavior.
+## 5. Client Consumption Changes
+- `lib/meta/integration-progress.ts` now consumes `status.integrationSummary` first.
+- Safe rollout fallback remains: if the route summary is absent, the client derives the same contract through `buildMetaIntegrationSummary(status)` instead of re-composing English UI truth from scattered raw fields.
+- The Meta card progress renderer now maps compact summary codes into localized card copy instead of depending on raw nested route fields.
+- The Integrations page now threads the current language into the Meta card progress block.
+- The card keeps the existing sync pill, existing sync notice, disconnected/no-assignment hiding behavior, and blocked/paused/stale/action_required overrides.
 
-## 6. Test Commands Run
-- `npm test -- lib/meta/page-readiness.test.ts lib/meta/ui-status.test.ts lib/meta/ui.test.ts lib/meta/status-operations.test.ts lib/sync/sync-status-pill.test.ts lib/meta/integration-progress.test.ts components/integrations/integrations-card.test.tsx`
+## 6. Localization Changes
+- Removed the English-only Meta card progress block behavior.
+- Localized Meta stage titles, labels, details, and evidence in both `en` and `tr`.
+- Kept the route contract language-neutral by sending codes plus compact evidence only.
+- Reused existing Meta wording patterns where practical for paused, stale, and attention states via existing Meta UI helpers.
+- Made the context honest on the card:
+  - default Integrations page fetch renders `recent_window`
+  - selected range renders `selected_range`
+  - current-day requests render `current_day`
+  - disconnected / no assignment resolves to `not_applicable`
 
-## 7. Test Results
-- Passed: `7` test files
-- Passed: `45` tests
-- Included required Meta-focused coverage:
-  - `lib/meta/page-readiness.test.ts`
-  - `lib/meta/ui-status.test.ts`
-  - `lib/meta/ui.test.ts`
-  - `lib/meta/status-operations.test.ts`
-  - `lib/sync/sync-status-pill.test.ts`
-  - `lib/meta/integration-progress.test.ts`
-- Included additional narrow render coverage:
-  - `components/integrations/integrations-card.test.tsx`
+## 7. Test Commands Run
+- `npm test -- lib/meta/page-readiness.test.ts lib/meta/ui-status.test.ts lib/meta/ui.test.ts lib/meta/status-operations.test.ts lib/sync/sync-status-pill.test.ts lib/meta/integration-progress.test.ts components/integrations/integrations-card.test.tsx lib/meta/integration-summary.test.ts app/api/meta/status/route.test.ts`
 
-## 8. Remaining Risks
-- The card still derives compact UI truth on the client from many route fields. That is workable now, but it still leaves client-side composition drift risk.
-- The Integrations page fetch does not pass a user-selected date range, so the new card usually reports the recent priority window rather than a live selected-range contract.
-- The new stage block is English-only. Existing bilingual pill / notice behavior remains intact, but the new stage copy is not yet localized.
+## 8. Test Results
+- Passed: `9` test files
+- Passed: `71` tests
+- Added focused contract coverage in `lib/meta/integration-summary.test.ts`
+- Updated `lib/meta/integration-progress.test.ts` to prove summary-first behavior and EN/TR localization
+- Updated `components/integrations/integrations-card.test.tsx` to validate English and Turkish card rendering
+- Added a narrow `/api/meta/status` shaping assertion for `integrationSummary`
 
-## 9. Recommended Next Phase
-P2 compact UI-facing Meta status summary contract.
+## 9. Remaining Risks
+- The compact summary is currently adopted by the Meta integrations card path, but other compact Meta UI consumers still read raw status fields directly.
+- `integrationSummary.scope` is intentionally compact; deeper consumers that need more than `recent_window | selected_range | current_day | not_applicable` still need raw route fields for finer truth-mode nuance.
+- Unknown future blocker or repair codes fall back to underscore-expanded labels on the client until explicit localization is added.
 
-Reason:
-- This phase proved the card can surface much better truth with existing fields, but the helper still has to compose that truth from many nested route fields.
-- The next phase should add one compact, typed Meta UI summary object to `/api/meta/status` so clients no longer need to infer stage meaning from scattered readiness, coverage, queue, and operations fields.
-- That keeps the current card behavior stable while reducing long-term drift before any later worker throughput or Postgres tuning work begins.
+## 10. Recommended Next Phase
+P3: converge remaining Meta UI consumers on the compact summary contract.

@@ -1,0 +1,300 @@
+import { describe, expect, it } from "vitest";
+import { buildMetaIntegrationSummary } from "@/lib/meta/integration-summary";
+import type { MetaStatusResponse } from "@/lib/meta/status-types";
+
+function buildStatus(
+  overrides: Partial<MetaStatusResponse> = {}
+): MetaStatusResponse {
+  return {
+    state: "syncing",
+    connected: true,
+    assignedAccountIds: ["act_1"],
+    primaryAccountTimezone: "UTC",
+    latestSync: {
+      status: "running",
+      readyThroughDate: "2026-04-10",
+      progressPercent: 71,
+      completedDays: 10,
+      totalDays: 14,
+    },
+    coreReadiness: {
+      state: "ready",
+      usable: true,
+      complete: true,
+      percent: 100,
+      reason: null,
+      summary: "Summary and campaign data are ready.",
+      missingSurfaces: [],
+      blockedSurfaces: [],
+      surfaces: {} as never,
+    },
+    extendedCompleteness: {
+      state: "syncing",
+      complete: false,
+      percent: 33,
+      reason: "Breakdown data is still being prepared.",
+      summary: "Breakdown data is still being prepared.",
+      missingSurfaces: ["breakdowns.age"],
+      blockedSurfaces: [],
+      surfaces: {} as never,
+    },
+    pageReadiness: {
+      state: "partial",
+      usable: true,
+      complete: false,
+      selectedRangeMode: "historical_warehouse",
+      reason: "Breakdown data is still being prepared.",
+      missingRequiredSurfaces: ["breakdowns.age"],
+      requiredSurfaces: {} as never,
+      optionalSurfaces: {} as never,
+    },
+    rangeCompletionBySurface: {
+      account_daily: {
+        recentCompletedDays: 10,
+        recentTotalDays: 14,
+        historicalCompletedDays: 180,
+        historicalTotalDays: 365,
+        readyThroughDate: "2026-04-10",
+      },
+      campaign_daily: {
+        recentCompletedDays: 10,
+        recentTotalDays: 14,
+        historicalCompletedDays: 180,
+        historicalTotalDays: 365,
+        readyThroughDate: "2026-04-10",
+      },
+      adset_daily: {
+        recentCompletedDays: 8,
+        recentTotalDays: 14,
+        historicalCompletedDays: 160,
+        historicalTotalDays: 365,
+        readyThroughDate: "2026-04-08",
+      },
+      creative_daily: {
+        recentCompletedDays: 6,
+        recentTotalDays: 14,
+        historicalCompletedDays: 120,
+        historicalTotalDays: 365,
+        readyThroughDate: "2026-04-06",
+      },
+      ad_daily: {
+        recentCompletedDays: 6,
+        recentTotalDays: 14,
+        historicalCompletedDays: 110,
+        historicalTotalDays: 365,
+        readyThroughDate: "2026-04-05",
+      },
+    },
+    recentExtendedReady: false,
+    historicalExtendedReady: false,
+    warehouse: {
+      coverage: {
+        pendingSurfaces: ["creative_daily", "ad_daily"],
+        breakdowns: {
+          completedDays: 120,
+          totalDays: 365,
+          readyThroughDate: "2026-04-04",
+        },
+      },
+    } as never,
+    jobHealth: {
+      queueDepth: 8,
+      leasedPartitions: 2,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+    } as never,
+    operations: {
+      progressState: "syncing",
+      blockingReasons: [],
+      repairableActions: [],
+      stallFingerprints: [],
+    },
+    ...overrides,
+  };
+}
+
+describe("buildMetaIntegrationSummary", () => {
+  it("returns a hidden not_applicable summary when Meta is disconnected or unassigned", () => {
+    expect(
+      buildMetaIntegrationSummary(buildStatus({ connected: false }))
+    ).toMatchObject({
+      visible: false,
+      scope: "not_applicable",
+      attentionNeeded: false,
+      stages: [],
+    });
+
+    expect(
+      buildMetaIntegrationSummary(buildStatus({ assignedAccountIds: [] }))
+    ).toMatchObject({
+      visible: false,
+      scope: "not_applicable",
+      attentionNeeded: false,
+      stages: [],
+    });
+  });
+
+  it("builds a recent-window summary for the integrations card default fetch", () => {
+    const summary = buildMetaIntegrationSummary(buildStatus());
+
+    expect(summary).toMatchObject({
+      visible: true,
+      scope: "recent_window",
+      state: "working",
+      attentionNeeded: false,
+    });
+    expect(summary.stages.map((stage) => stage.key)).toEqual([
+      "connection",
+      "queue_worker",
+      "core_data",
+      "priority_window",
+      "extended_surfaces",
+    ]);
+    expect(summary.stages[1]).toMatchObject({
+      key: "queue_worker",
+      state: "working",
+      code: "queue_active",
+      evidence: {
+        queueDepth: 8,
+        leasedPartitions: 2,
+      },
+    });
+    expect(summary.stages[3]).toMatchObject({
+      key: "priority_window",
+      state: "working",
+      code: "recent_window_preparing",
+      percent: 71,
+      evidence: {
+        completedDays: 10,
+        totalDays: 14,
+      },
+    });
+    expect(summary.stages[4]).toMatchObject({
+      key: "extended_surfaces",
+      state: "working",
+      code: "breakdowns_preparing",
+      percent: 33,
+      evidence: {
+        pendingSurfaceCount: 2,
+        pendingSurfaces: ["creative_daily", "ad_daily"],
+      },
+    });
+  });
+
+  it("marks blocked selected-range truth and adds the attention stage", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "action_required",
+        priorityWindow: {
+          startDate: "2026-04-01",
+          endDate: "2026-04-07",
+          completedDays: 3,
+          totalDays: 7,
+          isActive: false,
+        },
+        warehouse: {
+          coverage: {
+            selectedRange: {
+              startDate: "2026-04-01",
+              endDate: "2026-04-07",
+              completedDays: 3,
+              totalDays: 7,
+              readyThroughDate: "2026-04-03",
+              isComplete: false,
+            },
+            pendingSurfaces: ["creative_daily", "ad_daily"],
+          },
+        } as never,
+        selectedRangeTruth: {
+          truthReady: false,
+          state: "blocked",
+          verificationState: "blocked",
+          totalDays: 7,
+          completedCoreDays: 3,
+          blockingReasons: ["validation_failed"],
+          reasonCounts: { validation_failed: 1 },
+        },
+        operations: {
+          progressState: "blocked",
+          blockingReasons: [
+            {
+              code: "blocked_publication_mismatch",
+              detail: "Historical Meta selected-range truth is not yet published.",
+              repairable: false,
+            },
+          ],
+          repairableActions: [],
+          stallFingerprints: [],
+        },
+      })
+    );
+
+    expect(summary).toMatchObject({
+      visible: true,
+      scope: "selected_range",
+      state: "blocked",
+      attentionNeeded: true,
+    });
+    expect(summary.stages.find((stage) => stage.key === "priority_window")).toMatchObject({
+      state: "blocked",
+      code: "selected_range_blocked",
+      percent: 43,
+      evidence: {
+        blockerCount: 1,
+        blockerCodes: ["blocked_publication_mismatch"],
+      },
+    });
+    expect(summary.stages.find((stage) => stage.key === "attention")).toMatchObject({
+      state: "blocked",
+      code: "attention_needed",
+    });
+  });
+
+  it("distinguishes current-day scope from selected-range or recent-window work", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        pageReadiness: {
+          state: "syncing",
+          usable: false,
+          complete: false,
+          selectedRangeMode: "current_day_live",
+          reason: "Current-day data is still preparing.",
+          missingRequiredSurfaces: ["campaigns"],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
+        priorityWindow: {
+          startDate: "2026-04-10",
+          endDate: "2026-04-10",
+          completedDays: 0,
+          totalDays: 1,
+          isActive: true,
+        },
+        warehouse: {
+          coverage: {
+            selectedRange: {
+              startDate: "2026-04-10",
+              endDate: "2026-04-10",
+              completedDays: 0,
+              totalDays: 1,
+              readyThroughDate: null,
+              isComplete: false,
+            },
+            pendingSurfaces: ["creative_daily"],
+          },
+        } as never,
+      })
+    );
+
+    expect(summary.scope).toBe("current_day");
+    expect(summary.stages.find((stage) => stage.key === "priority_window")).toMatchObject({
+      state: "working",
+      code: "current_day_preparing",
+      percent: 0,
+      evidence: {
+        completedDays: 0,
+        totalDays: 1,
+      },
+    });
+  });
+});

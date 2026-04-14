@@ -10,6 +10,7 @@ import {
 } from "@/components/sync/sync-status-pill";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 import {
   resolveGoogleAdsSyncStatusPill,
   resolveMetaSyncStatusPill,
@@ -24,6 +25,7 @@ import Image from "next/image";
 
 interface IntegrationsCardProps {
   provider: IntegrationProvider;
+  language?: MetaUiLanguage;
   description: string;
   view: ProviderViewState;
   syncNotice?: string | null;
@@ -42,6 +44,7 @@ interface IntegrationsCardProps {
 
 export function IntegrationsCard({
   provider,
+  language = "en",
   description,
   view,
   syncNotice,
@@ -139,7 +142,7 @@ export function IntegrationsCard({
       ) : null}
 
       {provider === "meta" && !showSyncSkeleton ? (
-        <MetaIntegrationProgress status={metaSyncStatus} />
+        <MetaIntegrationProgress status={metaSyncStatus} language={language} />
       ) : null}
 
       {syncNotice ? (

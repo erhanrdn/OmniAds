@@ -684,6 +684,7 @@ export default function IntegrationsPage() {
                   <IntegrationsCard
                     key={item.provider}
                     provider={item.provider}
+                    language={language}
                     description={DESCRIPTIONS[item.provider]}
                     view={item.view}
                     syncNotice={item.syncNotice}

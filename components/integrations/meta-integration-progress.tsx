@@ -2,16 +2,19 @@
 
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { resolveMetaIntegrationProgress } from "@/lib/meta/integration-progress";
+import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 import { cn } from "@/lib/utils";
 
 export function MetaIntegrationProgress({
   status,
+  language = "en",
   className,
 }: {
   status: MetaStatusResponse | undefined | null;
+  language?: MetaUiLanguage;
   className?: string;
 }) {
-  const progress = resolveMetaIntegrationProgress(status);
+  const progress = resolveMetaIntegrationProgress(status, language);
   if (!progress) return null;
 
   return (

@@ -839,6 +839,66 @@ describe("GET /api/meta/status", () => {
     ]);
   });
 
+  it("adds a compact integrationSummary for recent-window card consumers", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.integrationSummary).toMatchObject({
+      visible: true,
+      scope: "recent_window",
+      attentionNeeded: false,
+      stages: [
+        expect.objectContaining({
+          key: "connection",
+          state: "ready",
+          code: "connected",
+        }),
+        expect.objectContaining({
+          key: "queue_worker",
+          state: "ready",
+          code: "queue_clear",
+        }),
+        expect.objectContaining({
+          key: "core_data",
+          state: "ready",
+          code: "core_ready",
+        }),
+        expect.objectContaining({
+          key: "priority_window",
+          state: "ready",
+          code: "recent_window_ready",
+        }),
+        expect.objectContaining({
+          key: "extended_surfaces",
+          state: "ready",
+          code: "extended_ready",
+        }),
+      ],
+    });
+  });
+
   it("keeps historical core progress while removing creative backlog from the summary", async () => {
     const today = getUtcTodayIso();
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
