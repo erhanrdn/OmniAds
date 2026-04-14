@@ -23,11 +23,18 @@ The app uses `next/font` with Geist and Geist Mono through `next/font/google`.
 This repo can run against a plain local PostgreSQL instance. A typical flow is:
 
 ```bash
-npm run db:migrate
-npm run dev
+npm run local:db:ensure
+npm run db:migrate:local
+npm run dev:local
 ```
 
-If you keep PostgreSQL on an external disk, start it first with your local `pg_ctl` command, then run the app.
+`local:db:ensure` checks that the `adsecuteDB` volume is mounted, warns if it is not, and starts PostgreSQL automatically when it is not already running.
+
+For DB-backed test runs:
+
+```bash
+npm run test:local-db
+```
 
 ## Local Business Subset Sync
 
@@ -39,17 +46,30 @@ Default command:
 npm run db:sync:local-businesses
 ```
 
-By default this refreshes the configured business subset from production into the local database. You can also override the selection:
+By default this runs in `incremental` mode.
+
+- First run: it performs a full bootstrap for the configured business subset.
+- Later runs: it reads the last successful sync timestamp and only fetches new or changed rows, then merges them into the local database.
+
+You can also override the selection:
 
 ```bash
 npm run db:sync:local-businesses -- --business IwaStore --business Grandmix --business TheSwaf
 ```
 
+If you explicitly need the full subset copy:
+
+```bash
+npm run db:sync:local-businesses -- --mode full
+```
+
 Notes:
 
-- The command truncates the local database before reloading the selected subset.
+- Full mode truncates the local database before reloading the selected subset.
+- Incremental mode keeps existing local rows and upserts only the delta since the last successful sync.
 - Source connection settings should live in a local-only env file such as `.env.local.sync`.
 - The script can open an SSH tunnel automatically when the source database is not directly reachable.
+- The script also ensures local PostgreSQL is running before it refreshes data.
 
 ## Learn More
 

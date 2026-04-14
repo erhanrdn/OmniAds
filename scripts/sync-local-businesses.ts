@@ -4,6 +4,7 @@ import path from "node:path";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Client } from "pg";
+import { ensureLocalPostgres } from "@/scripts/local-postgres";
 
 loadEnvConfig(process.cwd());
 loadOptionalEnvFile(path.join(process.cwd(), ".env.local.sync"));
@@ -12,6 +13,51 @@ const DEFAULT_BUSINESS_NAMES = ["IwaStore", "Grandmix", "TheSwaf"];
 const BUSINESS_ROOT_COLUMNS = new Set(["business_id", "preferred_business_id", "active_business_id"]);
 const SOURCE_REMOTE_PORT = Number(process.env.LOCAL_SYNC_SOURCE_REMOTE_PORT?.trim() || "5432");
 const INSERT_BATCH_SIZE = 250;
+const DEFAULT_SYNC_MODE = (process.env.LOCAL_SYNC_MODE?.trim().toLowerCase() || "incremental") as SyncMode;
+const SYNC_STATE_FILE_PATH =
+  process.env.LOCAL_SYNC_STATE_FILE?.trim() || path.join(process.cwd(), ".cache", "local-business-sync-state.json");
+
+const INCREMENTAL_CURSOR_COLUMN_BY_TABLE = new Map<string, string>([
+  ["ai_daily_insights", "created_at"],
+  ["google_ads_raw_snapshots", "updated_at"],
+  ["google_ads_search_query_hot_daily", "updated_at"],
+  ["google_ads_search_term_daily", "updated_at"],
+  ["google_ads_sync_checkpoints", "updated_at"],
+  ["google_ads_sync_jobs", "updated_at"],
+  ["google_ads_sync_partitions", "updated_at"],
+  ["google_ads_sync_runs", "updated_at"],
+  ["meta_authoritative_day_state", "updated_at"],
+  ["meta_config_snapshots", "captured_at"],
+  ["meta_creatives_snapshots", "updated_at"],
+  ["meta_raw_snapshots", "updated_at"],
+  ["meta_sync_checkpoints", "updated_at"],
+  ["meta_sync_jobs", "updated_at"],
+  ["meta_sync_partitions", "updated_at"],
+  ["meta_sync_runs", "updated_at"],
+  ["platform_overview_daily_summary", "updated_at"],
+  ["provider_account_rollover_state", "updated_at"],
+  ["provider_account_snapshots", "updated_at"],
+  ["provider_cooldown_state", "updated_at"],
+  ["provider_quota_usage", "last_called_at"],
+  ["provider_reporting_snapshots", "updated_at"],
+  ["provider_request_audit_daily", "updated_at"],
+  ["provider_sync_jobs", "triggered_at"],
+  ["seo_results_cache", "generated_at"],
+  ["sessions", "created_at"],
+  ["shopify_order_lines", "updated_at"],
+  ["shopify_order_transactions", "processed_at"],
+  ["shopify_orders", "order_updated_at"],
+  ["shopify_raw_snapshots", "updated_at"],
+  ["shopify_reconciliation_runs", "recorded_at"],
+  ["shopify_refunds", "updated_at"],
+  ["shopify_returns", "updated_at"],
+  ["shopify_sales_events", "updated_at"],
+  ["shopify_serving_state_history", "updated_at"],
+  ["shopify_sync_state", "updated_at"],
+  ["sync_reclaim_events", "created_at"],
+]);
+
+type SyncMode = "incremental" | "full";
 
 type TableMeta = {
   name: string;
@@ -33,6 +79,18 @@ type ForeignKeyMeta = {
 type BusinessRecord = {
   id: string;
   name: string;
+};
+
+type SyncOptions = {
+  businessNames: string[];
+  mode: SyncMode;
+  lookbackDays: number | null;
+};
+
+type SyncState = {
+  businessIds: string[];
+  businessNames: string[];
+  lastSuccessfulSyncAt: string;
 };
 
 function parsePostgresTextArray(value: unknown) {
@@ -104,8 +162,79 @@ function parseCliBusinessNames() {
   return [...DEFAULT_BUSINESS_NAMES];
 }
 
+function parseSyncMode(value: string | undefined): SyncMode {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return DEFAULT_SYNC_MODE;
+  if (normalized === "incremental" || normalized === "full") return normalized;
+  throw new Error(`Unsupported sync mode: ${value}. Use "incremental" or "full".`);
+}
+
+function parseSyncOptions(): SyncOptions {
+  const args = process.argv.slice(2);
+  const businessNames = parseCliBusinessNames();
+  let mode = parseSyncMode(undefined);
+  let lookbackDays: number | null = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--mode") {
+      mode = parseSyncMode(args[index + 1]);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--mode=")) {
+      mode = parseSyncMode(arg.slice("--mode=".length));
+      continue;
+    }
+
+    if (arg === "--days") {
+      const parsed = Number(args[index + 1]);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("--days requires a positive number.");
+      }
+      lookbackDays = parsed;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--days=")) {
+      const parsed = Number(arg.slice("--days=".length));
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error("--days requires a positive number.");
+      }
+      lookbackDays = parsed;
+    }
+  }
+
+  return {
+    businessNames,
+    mode,
+    lookbackDays,
+  };
+}
+
 function normalizeBusinessName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function readSyncState() {
+  if (!fs.existsSync(SYNC_STATE_FILE_PATH)) return null;
+  const raw = fs.readFileSync(SYNC_STATE_FILE_PATH, "utf8");
+  return JSON.parse(raw) as SyncState;
+}
+
+function writeSyncState(state: SyncState) {
+  fs.mkdirSync(path.dirname(SYNC_STATE_FILE_PATH), { recursive: true });
+  fs.writeFileSync(SYNC_STATE_FILE_PATH, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function sameBusinessIds(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const leftSorted = [...left].sort();
+  const rightSorted = [...right].sort();
+  return leftSorted.every((value, index) => value === rightSorted[index]);
 }
 
 function quotedIdent(value: string) {
@@ -132,6 +261,11 @@ function buildJoinCondition(
 
 function buildPkProjection(alias: string, pkCols: string[]) {
   return pkCols.map((columnName) => `${alias}.${quotedIdent(columnName)}`).join(", ");
+}
+
+function getIncrementalCursorColumn(table: TableMeta) {
+  if (table.columnDataTypes.updated_at) return "updated_at";
+  return INCREMENTAL_CURSOR_COLUMN_BY_TABLE.get(table.name) ?? null;
 }
 
 function ensureDatabaseUrl(value: string | undefined, envName: string) {
@@ -384,6 +518,25 @@ async function resolveBusinesses(sourceClient: Client, requestedNames: string[])
   return selected;
 }
 
+async function targetHasSelectedBusinesses(targetClient: Client, businessIds: string[]) {
+  const result = await targetClient.query<{ count: string }>(
+    `SELECT COUNT(*)::int AS count
+     FROM ${qualifiedTable("businesses")}
+     WHERE id::text = ANY($1::text[])`,
+    [businessIds],
+  );
+
+  return Number(result.rows[0]?.count ?? "0") === businessIds.length;
+}
+
+function resolveIncrementalSyncSince(state: SyncState | null, options: SyncOptions) {
+  if (options.lookbackDays != null) {
+    return new Date(Date.now() - options.lookbackDays * 24 * 60 * 60 * 1000);
+  }
+
+  return state ? new Date(state.lastSuccessfulSyncAt) : null;
+}
+
 async function createTempSelectionTables(sourceClient: Client, tables: TableMeta[]) {
   for (const table of tables) {
     const pkSelect = table.pkCols.map((columnName) => quotedIdent(columnName)).join(", ");
@@ -404,6 +557,8 @@ async function seedBusinessScopedTables(
   sourceClient: Client,
   tables: TableMeta[],
   selectedBusinessIds: string[],
+  options: SyncOptions,
+  syncSince: Date | null,
 ) {
   for (const table of tables) {
     if (table.name === "businesses") {
@@ -423,14 +578,19 @@ async function seedBusinessScopedTables(
     const whereClause = table.businessRootColumns
       .map((columnName) => `${quotedIdent(columnName)}::text = ANY($1::text[])`)
       .join(" OR ");
+    const cursorColumn = options.mode === "incremental" ? getIncrementalCursorColumn(table) : null;
+    const recentPredicate =
+      options.mode === "incremental" && syncSince && cursorColumn
+        ? ` AND ${quotedIdent(cursorColumn)} IS NOT NULL AND ${quotedIdent(cursorColumn)} >= $2`
+        : "";
 
     await sourceClient.query(
       `INSERT INTO ${quotedIdent(table.tempTableName)} (${table.pkCols.map(quotedIdent).join(", ")})
        SELECT ${table.pkCols.map(quotedIdent).join(", ")}
        FROM ${qualifiedTable(table.name)}
-       WHERE ${whereClause}
+       WHERE (${whereClause})${recentPredicate}
        ON CONFLICT DO NOTHING`,
-      [selectedBusinessIds],
+      recentPredicate ? [selectedBusinessIds, syncSince!.toISOString()] : [selectedBusinessIds],
     );
   }
 }
@@ -517,6 +677,13 @@ async function insertRows(
   if (rows.length === 0) return;
 
   const quotedColumns = table.columns.map(quotedIdent);
+  const updatableColumns = table.columns.filter((columnName) => !table.pkCols.includes(columnName));
+  const conflictSql =
+    updatableColumns.length > 0
+      ? `ON CONFLICT (${table.pkCols.map(quotedIdent).join(", ")}) DO UPDATE SET ${updatableColumns
+          .map((columnName) => `${quotedIdent(columnName)} = EXCLUDED.${quotedIdent(columnName)}`)
+          .join(", ")}`
+      : `ON CONFLICT (${table.pkCols.map(quotedIdent).join(", ")}) DO NOTHING`;
 
   for (let start = 0; start < rows.length; start += INSERT_BATCH_SIZE) {
     const batch = rows.slice(start, start + INSERT_BATCH_SIZE);
@@ -542,7 +709,7 @@ async function insertRows(
     await targetClient.query(
       `INSERT INTO ${qualifiedTable(table.name)} (${quotedColumns.join(", ")})
        VALUES ${valuesSql}
-       ON CONFLICT DO NOTHING`,
+       ${conflictSql}`,
       params,
     );
   }
@@ -587,7 +754,10 @@ async function copyIncludedRows(
 }
 
 async function main() {
-  const requestedBusinessNames = parseCliBusinessNames();
+  ensureLocalPostgres();
+
+  const options = parseSyncOptions();
+  const existingState = readSyncState();
   const sourceDatabaseUrl = ensureDatabaseUrl(
     process.env.LOCAL_SYNC_SOURCE_DATABASE_URL,
     "LOCAL_SYNC_SOURCE_DATABASE_URL",
@@ -608,17 +778,34 @@ async function main() {
       await withClient(targetDatabaseUrl, async (targetClient) => {
         const { tables, foreignKeys } = await getMetadata(sourceClient);
         const tableByName = new Map(tables.map((table) => [table.name, table]));
-        const selectedBusinesses = await resolveBusinesses(sourceClient, requestedBusinessNames);
+        const selectedBusinesses = await resolveBusinesses(sourceClient, options.businessNames);
         const selectedBusinessIds = selectedBusinesses.map((business) => business.id);
+        const targetAlreadyHasBusinesses = await targetHasSelectedBusinesses(
+          targetClient,
+          selectedBusinessIds,
+        );
+        const requiresBootstrapFull =
+          options.mode === "full" ||
+          !existingState ||
+          !sameBusinessIds(existingState.businessIds, selectedBusinessIds) ||
+          !targetAlreadyHasBusinesses;
+        const effectiveMode: SyncMode = requiresBootstrapFull ? "full" : "incremental";
+        const syncSince = effectiveMode === "incremental" ? resolveIncrementalSyncSince(existingState, options) : null;
 
         console.log(
-          `[local-sync] selected businesses: ${selectedBusinesses
-            .map((business) => business.name)
-            .join(", ")}`,
+          `[local-sync] requestedMode=${options.mode} effectiveMode=${effectiveMode} syncSince=${
+            syncSince ? syncSince.toISOString() : "full"
+          } businesses=${selectedBusinesses.map((business) => business.name).join(", ")}`,
         );
 
         await createTempSelectionTables(sourceClient, tables);
-        await seedBusinessScopedTables(sourceClient, tables, selectedBusinessIds);
+        await seedBusinessScopedTables(
+          sourceClient,
+          tables,
+          selectedBusinessIds,
+          { ...options, mode: effectiveMode },
+          syncSince,
+        );
 
         let iteration = 0;
         while (true) {
@@ -641,8 +828,16 @@ async function main() {
           )}`,
         );
 
-        await truncateTarget(targetClient, tables);
+        if (effectiveMode === "full") {
+          await truncateTarget(targetClient, tables);
+        }
         await copyIncludedRows(sourceClient, targetClient, tables, includedCounts);
+
+        writeSyncState({
+          businessIds: selectedBusinessIds,
+          businessNames: selectedBusinesses.map((business) => business.name),
+          lastSuccessfulSyncAt: new Date().toISOString(),
+        });
       });
     });
   } finally {

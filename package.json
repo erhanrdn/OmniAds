@@ -4,11 +4,13 @@
   "private": true,
   "scripts": {
     "test": "vitest run",
+    "test:local-db": "node --import tsx scripts/with-local-postgres.ts -- vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:smoke:local": "npm run build && PLAYWRIGHT_USE_WEBSERVER=1 PLAYWRIGHT_REUSE_EXISTING_SERVER=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:3000 playwright test",
     "test:smoke:live": "PLAYWRIGHT_USE_WEBSERVER=0 PLAYWRIGHT_BASE_URL=https://adsecute.com playwright test",
     "dev": "next dev --webpack --hostname 0.0.0.0 --port 3000",
+    "dev:local": "node --import tsx scripts/with-local-postgres.ts -- next dev --webpack --hostname 0.0.0.0 --port 3000",
     "dev:turbo": "next dev --turbopack --hostname 0.0.0.0 --port 3000",
     "build": "next build --webpack",
     "start": "next start",
@@ -57,7 +59,9 @@
     "overview:summary:materialize": "node --import tsx scripts/materialize-overview-summary-range.ts",
     "reporting:cache:warm": "node --import tsx scripts/warm-user-facing-report-cache.ts",
     "db:migrate": "node --import tsx scripts/run-migrations.ts",
+    "db:migrate:local": "node --import tsx scripts/with-local-postgres.ts -- node --import tsx scripts/run-migrations.ts",
     "db:sync:local-businesses": "node --import tsx scripts/sync-local-businesses.ts",
+    "local:db:ensure": "node --import tsx scripts/ensure-local-postgres.ts",
     "db:architecture:baseline": "node --import tsx scripts/db-architecture-baseline.ts"
   },
   "dependencies": {
