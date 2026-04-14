@@ -510,7 +510,7 @@ function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function normalizeMetaPartitionDate(value: string | Date) {
+export function normalizeMetaPartitionDate(value: string | Date) {
   if (value instanceof Date) return toIsoDate(value);
   const text = String(value ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
@@ -4190,17 +4190,17 @@ export async function recoverMetaD1FinalizePartitions(input: {
     const providerAccountId = String(row.provider_account_id ?? "");
     const target = accountTargetDates.get(providerAccountId);
     if (!target) return false;
-    return String(row.partition_date).slice(0, 10) === target;
+    return normalizeMetaPartitionDate(row.partition_date) === target;
   });
   const pollutedCandidates = candidates.filter((row) => {
     const providerAccountId = String(row.provider_account_id ?? "");
     const target = accountTargetDates.get(providerAccountId);
     if (!target) return false;
-    return String(row.partition_date).slice(0, 10) !== target;
+    return normalizeMetaPartitionDate(row.partition_date) !== target;
   });
   const alreadyPublishedRows = matchingCandidates.filter((row) =>
     publishedTargetKeys.has(
-      `${String(row.provider_account_id)}:${String(row.partition_date).slice(0, 10)}`,
+      `${String(row.provider_account_id)}:${normalizeMetaPartitionDate(row.partition_date)}`,
     ),
   );
   const succeededRunRows = matchingCandidates.filter(
@@ -4232,7 +4232,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
           provider: "meta",
           businessId: input.businessId,
           providerAccountId: String(row.provider_account_id),
-          targetDate: String(row.partition_date).slice(0, 10),
+          targetDate: normalizeMetaPartitionDate(row.partition_date),
         }).catch(() => null),
       ),
     );
@@ -4347,8 +4347,10 @@ export async function recoverMetaD1FinalizePartitions(input: {
           matchingCandidates.find((candidate) => String(candidate.id) === partitionId),
         )
         .filter((candidate): candidate is (typeof matchingCandidates)[number] => Boolean(candidate))
-        .map((candidate) => String(candidate.partition_date).slice(0, 10)),
-      ...pollutedCandidates.map((candidate) => String(candidate.partition_date).slice(0, 10)),
+        .map((candidate) => normalizeMetaPartitionDate(candidate.partition_date)),
+      ...pollutedCandidates.map((candidate) =>
+        normalizeMetaPartitionDate(candidate.partition_date),
+      ),
     ]),
   ).sort();
   const requeueResult =

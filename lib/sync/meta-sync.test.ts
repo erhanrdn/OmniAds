@@ -11,6 +11,7 @@ import {
   getMetaHistoricalCoreFairnessLimit,
   isMetaAuthoritativeHistoricalSource,
   logMetaQueueVisibility,
+  normalizeMetaPartitionDate,
   resolveMetaTruthState,
   resolveMetaHistoricalReplaySource,
   shouldBypassMetaCoverageShortCircuit,
@@ -249,6 +250,20 @@ describe("resolveMetaHistoricalReplaySource", () => {
         ]),
       ),
     ).toBe("historical_recovery");
+  });
+});
+
+describe("normalizeMetaPartitionDate", () => {
+  it("keeps D-1 finalize partition dates stable when pg returns Date objects", () => {
+    expect(
+      normalizeMetaPartitionDate(new Date("2026-04-12T21:00:00.000Z")),
+    ).toBe("2026-04-12");
+  });
+
+  it("accepts ISO-like strings without using locale string coercion", () => {
+    expect(
+      normalizeMetaPartitionDate("2026-04-13T00:00:00.000Z"),
+    ).toBe("2026-04-13");
   });
 });
 
