@@ -20,6 +20,7 @@ const SYNC_RETENTION_REQUIRED_TABLES = [
   "meta_raw_snapshots",
   "meta_sync_partitions",
   "meta_sync_checkpoints",
+  "sync_worker_heartbeats",
   "sync_reclaim_events",
   "sync_runner_leases",
 ] as const;
@@ -36,6 +37,7 @@ export interface SyncRetentionSummary {
   googleCheckpointsDeleted: number;
   metaRawSnapshotsDeleted: number;
   metaCheckpointsDeleted: number;
+  workerHeartbeatsDeleted: number;
   reclaimEventsDeleted: number;
   skippedDueToActiveLease?: boolean;
 }
@@ -56,6 +58,7 @@ function emptyRetentionSummary(
     googleCheckpointsDeleted: 0,
     metaRawSnapshotsDeleted: 0,
     metaCheckpointsDeleted: 0,
+    workerHeartbeatsDeleted: 0,
     reclaimEventsDeleted: 0,
     skippedDueToActiveLease: false,
     ...input,
@@ -78,6 +81,8 @@ async function deleteBatches(
 export async function pruneSyncLifecycleData(input?: {
   rawRetentionDays?: number;
   checkpointRetentionDays?: number;
+  workerHeartbeatRetentionDays?: number;
+  stoppedWorkerHeartbeatRetentionHours?: number;
   reclaimEventRetentionDays?: number;
 }) {
   await assertDbSchemaReady({
@@ -88,6 +93,11 @@ export async function pruneSyncLifecycleData(input?: {
   const rawRetentionDays = input?.rawRetentionDays ?? envNumber("SYNC_RAW_RETENTION_DAYS", 7);
   const checkpointRetentionDays =
     input?.checkpointRetentionDays ?? envNumber("SYNC_CHECKPOINT_RETENTION_DAYS", 14);
+  const workerHeartbeatRetentionDays =
+    input?.workerHeartbeatRetentionDays ?? envNumber("SYNC_WORKER_HEARTBEAT_RETENTION_DAYS", 7);
+  const stoppedWorkerHeartbeatRetentionHours =
+    input?.stoppedWorkerHeartbeatRetentionHours ??
+    envNumber("SYNC_STOPPED_WORKER_HEARTBEAT_RETENTION_HOURS", 24);
   const reclaimEventRetentionDays =
     input?.reclaimEventRetentionDays ?? envNumber("SYNC_RECLAIM_EVENT_RETENTION_DAYS", 30);
   const batchSize = envNumber("SYNC_RETENTION_BATCH_SIZE", 250);
@@ -215,6 +225,56 @@ export async function pruneSyncLifecycleData(input?: {
       batchSize,
     );
 
+    const stoppedWorkerHeartbeatsDeleted = await deleteBatches(
+      () =>
+        execCount(sql`
+          WITH candidates AS (
+            SELECT worker_id
+            FROM sync_worker_heartbeats
+            WHERE status = ANY(${["stopped", "stopping"]}::text[])
+              AND last_heartbeat_at <
+                now() - (${String(stoppedWorkerHeartbeatRetentionHours)} || ' hours')::interval
+            ORDER BY last_heartbeat_at ASC, worker_id ASC
+            LIMIT ${batchSize}
+            FOR UPDATE SKIP LOCKED
+          ),
+          deleted AS (
+            DELETE FROM sync_worker_heartbeats heartbeat
+            USING candidates
+            WHERE heartbeat.worker_id = candidates.worker_id
+            RETURNING 1
+          )
+          SELECT COUNT(*)::int AS count FROM deleted
+        `),
+      batchSize,
+    );
+
+    const staleWorkerHeartbeatsDeleted = await deleteBatches(
+      () =>
+        execCount(sql`
+          WITH candidates AS (
+            SELECT worker_id
+            FROM sync_worker_heartbeats
+            WHERE last_heartbeat_at <
+              now() - (${String(workerHeartbeatRetentionDays)} || ' days')::interval
+            ORDER BY last_heartbeat_at ASC, worker_id ASC
+            LIMIT ${batchSize}
+            FOR UPDATE SKIP LOCKED
+          ),
+          deleted AS (
+            DELETE FROM sync_worker_heartbeats heartbeat
+            USING candidates
+            WHERE heartbeat.worker_id = candidates.worker_id
+            RETURNING 1
+          )
+          SELECT COUNT(*)::int AS count FROM deleted
+        `),
+      batchSize,
+    );
+
+    const workerHeartbeatsDeleted =
+      stoppedWorkerHeartbeatsDeleted + staleWorkerHeartbeatsDeleted;
+
     const reclaimEventsDeleted = await deleteBatches(
       () =>
         execCount(sql`
@@ -242,6 +302,7 @@ export async function pruneSyncLifecycleData(input?: {
       googleCheckpointsDeleted,
       metaRawSnapshotsDeleted,
       metaCheckpointsDeleted,
+      workerHeartbeatsDeleted,
       reclaimEventsDeleted,
     });
   } finally {

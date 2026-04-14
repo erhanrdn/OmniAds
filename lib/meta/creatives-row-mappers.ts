@@ -29,6 +29,7 @@ import {
   mergeDebugSources,
   buildCreativeDebugInfo,
 } from "@/lib/meta/creatives-copy";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export function r2(n: number) {
   return Math.round(n * 100) / 100;
@@ -444,7 +445,7 @@ export function toRawRow(
       : "unknown";
 
   if (debugContext?.enabled) {
-    console.log("[meta-creatives][thumb-trace] row-pipeline", {
+    logRuntimeDebug("meta-creatives", "thumb_trace_row_pipeline", {
       ad_id: adId,
       creative_id: creative?.id ?? null,
       debug_raw_creative_thumbnail_url: debugContext.rawCreativeThumbnailUrl ?? null,
@@ -596,7 +597,7 @@ export function toRawRow(
       );
       const leads = Math.round(parseLeadCount(insight.actions));
       if (hasLeadAction || leads === 0) {
-        console.log("[lead-debug]", {
+        logRuntimeDebug("meta-creatives", "lead_debug", {
           ad_id: insight.ad_id ?? null,
           ad_name: insight.ad_name ?? null,
           actions: (insight.actions ?? []).map((a) => ({
@@ -626,7 +627,7 @@ export function groupRows(
   const debugGrouping = process.env.META_CREATIVES_DEBUG_GROUPING === "1";
   if (groupBy === "adName") {
     if (debugGrouping) {
-      console.log("[meta-creatives] groupRows: mode=adName, returning ad-level rows", {
+      logRuntimeDebug("meta-creatives", "group_rows_mode_ad_name", {
         input_rows: rows.length,
         output_rows: rows.length,
       });
@@ -651,7 +652,7 @@ export function groupRows(
   if (debugGrouping) {
     const groupCounts = Array.from(map.entries()).map(([key, list]) => ({ key, count: list.length }));
     const multiAdGroups = groupCounts.filter((g) => g.count > 1);
-    console.log("[meta-creatives] groupRows: grouping applied", {
+    logRuntimeDebug("meta-creatives", "group_rows_grouping_applied", {
       groupBy,
       input_rows: rows.length,
       unique_groups: map.size,
@@ -687,8 +688,8 @@ export function groupRows(
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
     const sample = list[0];
     const uniqueCurrencies = Array.from(new Set(list.map((item) => item.currency).filter(Boolean)));
-    if (uniqueCurrencies.length > 1 && process.env.NODE_ENV !== "production") {
-      console.log("[meta-creatives] mixed currencies in grouped row", {
+    if (uniqueCurrencies.length > 1) {
+      logRuntimeDebug("meta-creatives", "mixed_currencies_in_grouped_row", {
         groupBy,
         groupKey: key,
         currencies: uniqueCurrencies,

@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { GoogleRequestAuditSource } from "@/lib/google-request-audit";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 interface GovernedProviderRequestInput<T> {
   provider: string;
@@ -335,7 +336,7 @@ async function hydrateFromDbIfNeeded(
         count: row.failure_count,
         status: row.http_status ?? undefined,
       });
-      console.log("[provider-request] hydrated_from_db", {
+      logRuntimeDebug("provider-request", "hydrated_from_db", {
         provider, businessId, requestType,
         cooldownUntil: row.cooldown_until,
       });
@@ -834,7 +835,7 @@ export async function runProviderRequestWithGovernance<T>(
 
   const existingRequest = inflight.get(key) as Promise<T> | undefined;
   if (existingRequest) {
-    console.log("[provider-request] deduped", {
+    logRuntimeDebug("provider-request", "deduped", {
       provider: input.provider,
       businessId: input.businessId,
       requestType: input.requestType,
@@ -850,7 +851,7 @@ export async function runProviderRequestWithGovernance<T>(
     return existingRequest;
   }
 
-  console.log("[provider-request] start", {
+  logRuntimeDebug("provider-request", "start", {
     provider: input.provider,
     businessId: input.businessId,
     requestType: input.requestType,
@@ -868,7 +869,7 @@ export async function runProviderRequestWithGovernance<T>(
     .then((result) => {
       failures.delete(key);
       clearCooldownFromDb(input.provider, input.businessId, input.requestType);
-      console.log("[provider-request] success", {
+      logRuntimeDebug("provider-request", "success", {
         provider: input.provider,
         businessId: input.businessId,
         requestType: input.requestType,

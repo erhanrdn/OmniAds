@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { logServerAuthEvent } from "@/lib/auth-diagnostics";
 import { logStartupError } from "@/lib/startup-diagnostics";
 import type { AppLanguage } from "@/lib/i18n";
 
@@ -175,7 +176,7 @@ export async function createSession(input: {
         RETURNING id
       `) as Array<{ id: string }>;
       const sessionId = rows[0]?.id ?? "";
-      console.log("[auth] session created", {
+      logServerAuthEvent("session_created", {
         userId: input.userId,
         sessionId,
         attempt,

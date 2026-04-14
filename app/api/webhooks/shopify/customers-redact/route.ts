@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 /**
  * POST /api/webhooks/shopify/customers-redact
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
 
   const payload = JSON.parse(result.body);
 
-  console.log("[shopify-webhook] customers/redact received", {
+  logRuntimeDebug("shopify-webhook", "customers_redact_received", {
     shopDomain: payload.shop_domain,
     shopId: payload.shop_id,
     customerId: payload.customer?.id,

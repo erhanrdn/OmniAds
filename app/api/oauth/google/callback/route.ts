@@ -7,6 +7,7 @@ import { sanitizeNextPath } from "@/lib/auth-routing";
 import { scheduleProviderAccountSnapshotRefresh } from "@/lib/provider-account-snapshots";
 import { resolveRequestLanguage } from "@/lib/request-language";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 /**
  * GET /api/oauth/google/callback?code=...&state=...
@@ -240,7 +241,7 @@ export async function GET(request: NextRequest) {
       searchConsoleIntegrationId = searchConsoleIntegration.id;
     }
 
-    console.log("[google-oauth-callback] integration upserted", {
+    logRuntimeDebug("google-oauth-callback", "integration_upserted", {
       businessId,
       integrationId: integration.id,
       providerAccountId,

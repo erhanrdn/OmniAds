@@ -3,6 +3,7 @@ import { getCachedValue, readThroughCache } from "@/lib/server-cache";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 import type {
   MetaAccountMeta,
   MetaAccountRecord,
@@ -172,14 +173,12 @@ export async function fetchAccountInsights(
     ttlMs: 120_000,
     staleWhileRevalidateMs: 300_000,
     loader: async () => {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[meta-creatives] insights query", {
-          account_id: accountId,
-          time_range: { since: startDate, until: endDate },
-          level: "ad",
-          fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,date_start,actions,action_values,purchase_roas",
-        });
-      }
+      logRuntimeDebug("meta-creatives", "insights_query", {
+        account_id: accountId,
+        time_range: { since: startDate, until: endDate },
+        level: "ad",
+        fields: "ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,spend,cpm,cpc,ctr,clicks,date_start,actions,action_values,purchase_roas",
+      });
 
       const url = new URL(`https://graph.facebook.com/v25.0/${accountId}/insights`);
       url.searchParams.set(
@@ -192,12 +191,10 @@ export async function fetchAccountInsights(
       url.searchParams.set("access_token", accessToken);
 
       const payload = await metaGet<{ data?: MetaInsightRecord[] }>(url, "insights", { accountId });
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[meta-creatives] insights response", {
-          account_id: accountId,
-          rows: payload?.data?.length ?? 0,
-        });
-      }
+      logRuntimeDebug("meta-creatives", "insights_response", {
+        account_id: accountId,
+        rows: payload?.data?.length ?? 0,
+      });
       return payload?.data ?? [];
     },
   }).then((result) => result.value);
@@ -553,7 +550,7 @@ export async function fetchCreativeThumbnailMap(
       for (let i = 0; i < uniqueIds.length; i += chunkSize) {
         const idsChunk = uniqueIds.slice(i, i + chunkSize);
         if (debug) {
-          console.log("[meta-creatives][thumb-debug] chunk start", {
+          logRuntimeDebug("meta-creatives", "thumb_debug_chunk_start", {
             chunk_index: i / chunkSize + 1,
             chunk_size: idsChunk.length,
             width,
@@ -570,7 +567,7 @@ export async function fetchCreativeThumbnailMap(
             if (debug) {
               const safeUrl = new URL(url.toString());
               safeUrl.searchParams.set("access_token", "<REDACTED>");
-              console.log("[meta-creatives][thumb-debug] request", {
+              logRuntimeDebug("meta-creatives", "thumb_debug_request", {
                 creative_id: creativeId,
                 url: safeUrl.toString(),
               });
@@ -584,7 +581,7 @@ export async function fetchCreativeThumbnailMap(
               if (!res.ok) {
                 const raw = await res.text().catch(() => "");
                 if (debug) {
-                  console.log("[meta-creatives][thumb-debug] response non-ok", {
+                  logRuntimeDebug("meta-creatives", "thumb_debug_response_non_ok", {
                     creative_id: creativeId,
                     status: res.status,
                     body_sample: raw.slice(0, 220),
@@ -595,7 +592,7 @@ export async function fetchCreativeThumbnailMap(
               const payload = (await res.json().catch(() => null)) as { thumbnail_url?: string | null } | null;
               const thumbnailUrl = normalizeMediaUrl(payload?.thumbnail_url ?? null);
               if (debug) {
-                console.log("[meta-creatives][thumb-debug] response ok", {
+                logRuntimeDebug("meta-creatives", "thumb_debug_response_ok", {
                   creative_id: creativeId,
                   status: res.status,
                   thumbnail_url_present: Boolean(thumbnailUrl),
@@ -605,7 +602,7 @@ export async function fetchCreativeThumbnailMap(
               return { creativeId, thumbnailUrl };
             } catch (error: unknown) {
               if (debug) {
-                console.log("[meta-creatives][thumb-debug] request failed", {
+                logRuntimeDebug("meta-creatives", "thumb_debug_request_failed", {
                   creative_id: creativeId,
                   message: error instanceof Error ? error.message : String(error),
                 });

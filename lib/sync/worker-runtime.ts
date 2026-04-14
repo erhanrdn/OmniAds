@@ -11,6 +11,7 @@ import {
 import { executeGoogleAdsRetentionPolicy } from "@/lib/google-ads/warehouse-retention";
 import { executeMetaRetentionPolicy } from "@/lib/meta/warehouse-retention";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -269,7 +270,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           nextPruneAt =
             Date.now() +
             (result.skippedDueToActiveLease ? pruneRetryIntervalMs : pruneIntervalMs);
-          console.log("[durable-worker] lifecycle_prune", result);
+          logRuntimeInfo("durable-worker", "lifecycle_prune", result);
         })
         .catch((error) => {
           nextPruneAt = Date.now() + pruneRetryIntervalMs;
@@ -288,7 +289,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             (result.skippedDueToActiveLease
               ? googleAdsRetentionRetryIntervalMs
               : googleAdsRetentionIntervalMs);
-          console.log("[durable-worker] google_ads_retention", result);
+          logRuntimeInfo("durable-worker", "google_ads_retention", result);
         })
         .catch((error) => {
           nextGoogleAdsRetentionAt = Date.now() + googleAdsRetentionRetryIntervalMs;
@@ -307,7 +308,7 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
             (result.skippedDueToActiveLease
               ? metaRetentionRetryIntervalMs
               : metaRetentionIntervalMs);
-          console.log("[durable-worker] meta_retention", result);
+          logRuntimeInfo("durable-worker", "meta_retention", result);
         })
         .catch((error) => {
           nextMetaRetentionAt = Date.now() + metaRetentionRetryIntervalMs;

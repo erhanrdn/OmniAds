@@ -10,6 +10,7 @@ import { sanitizeNextPath } from "@/lib/auth-routing";
 import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
 import { normalizeShopifyShopDomain } from "@/lib/shopify/shop-domain";
 import { validateShopifyOAuthCallbackState } from "@/lib/shopify/oauth-state";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 /**
  * GET /api/oauth/shopify/callback?code=...&shop=...&state=...&hmac=...&timestamp=...
@@ -168,7 +169,7 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        console.log("[shopify-oauth-callback] integration upserted", {
+        logRuntimeDebug("shopify-oauth-callback", "integration_upserted", {
           businessId: stateBusinessId,
           integrationId: integration.id,
           shop,
@@ -207,7 +208,7 @@ export async function GET(request: NextRequest) {
       preferredBusinessId: stateBusinessId,
     });
 
-    console.log("[shopify-oauth-callback] pending install context created", {
+    logRuntimeDebug("shopify-oauth-callback", "pending_install_context_created", {
       contextId: context.id,
       shop,
       shopName,

@@ -20,6 +20,7 @@ import {
 } from "@/lib/google-api-routes-support";
 import type { AppLanguage } from "@/lib/i18n";
 import { resolveRequestLanguage } from "@/lib/request-language";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 type GoogleDateRange = "7" | "14" | "30" | "custom";
 
@@ -74,7 +75,7 @@ export async function getGoogleAccountsRoute(request: NextRequest) {
     const assignedAccounts = await getAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
-      console.log("[accounts] No assigned accounts found for business", { businessId });
+      logRuntimeDebug("accounts", "no_assigned_accounts_found", { businessId });
       return NextResponse.json({ data: [], count: 0 });
     }
 

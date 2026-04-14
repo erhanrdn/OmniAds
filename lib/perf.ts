@@ -1,7 +1,10 @@
+import { isRuntimeLogLevelEnabled } from "@/lib/runtime-logging";
+
 type PerfFields = Record<string, unknown>;
 
 function shouldLogPerf() {
-  return process.env.NODE_ENV !== "test";
+  if (process.env.NODE_ENV === "test") return false;
+  return process.env.PERF_DEBUG === "1" || isRuntimeLogLevelEnabled("info");
 }
 
 function normalizeError(error: unknown) {

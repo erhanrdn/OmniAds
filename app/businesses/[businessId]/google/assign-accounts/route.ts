@@ -4,6 +4,7 @@ import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-re
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
@@ -20,7 +21,7 @@ export async function POST(
   { params }: { params: Promise<{ businessId: string }> },
 ) {
   const { businessId } = await params;
-  console.log("[google-assign-accounts] request", { businessId });
+  logRuntimeDebug("google-assign-accounts", "request", { businessId });
 
   if (!businessId) {
     return NextResponse.json(
@@ -58,7 +59,7 @@ export async function POST(
   }
 
   const integration = await getIntegration(businessId, "google");
-  console.log("[google-assign-accounts] integration lookup", {
+  logRuntimeDebug("google-assign-accounts", "integration_lookup", {
     businessId,
     found: Boolean(integration),
   });
@@ -74,7 +75,7 @@ export async function POST(
 
   const body = await request.json().catch(() => null);
   const accountIds = body?.account_ids;
-  console.log("[google-assign-accounts] payload", {
+  logRuntimeDebug("google-assign-accounts", "payload", {
     businessId,
     accountIds,
     isArray: Array.isArray(accountIds),
@@ -193,7 +194,7 @@ export async function POST(
     );
   }
 
-  console.log("[google-assign-accounts] db write success", {
+  logRuntimeDebug("google-assign-accounts", "db_write_success", {
     businessId,
     provider: "google",
     returnedAccountIds: row!.account_ids,

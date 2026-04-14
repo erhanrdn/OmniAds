@@ -3,6 +3,7 @@ import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { refreshOverviewSummaryMaterializationFromMetaAccountRows } from "@/lib/overview-summary-materializer";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
   ProviderReclaimDecision,
@@ -4224,7 +4225,7 @@ export async function completeMetaPartitionAttempt(input: {
   const callerRunIdWasClosed = parseNullableBoolean(row.caller_run_id_was_closed);
   const closedRunningRunIds = parseStringArray(row.closed_running_run_ids);
   if (input.partitionStatus === "succeeded" && closedCheckpointGroups.length > 0) {
-    console.info("[meta-sync] partition_success_closed_open_checkpoints", {
+    logRuntimeInfo("meta-sync", "partition_success_closed_open_checkpoints", {
       partitionId: input.partitionId,
       workerId: input.workerId,
       leaseEpoch: input.leaseEpoch,
@@ -4232,7 +4233,7 @@ export async function completeMetaPartitionAttempt(input: {
     });
   }
   if (closedRunningRunCount > 0) {
-    console.info("[meta-sync] partition_completion_closed_running_runs", {
+    logRuntimeInfo("meta-sync", "partition_completion_closed_running_runs", {
       partitionId: input.partitionId,
       runId: input.runId ?? null,
       recoveredRunId: input.recoveredRunId ?? null,

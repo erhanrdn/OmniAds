@@ -3,6 +3,7 @@ import { GA_CONFIG } from "@/lib/oauth/google-analytics-config";
 import { upsertIntegration } from "@/lib/integrations";
 import { requireBusinessAccess } from "@/lib/access";
 import { resolveRequestLanguage } from "@/lib/request-language";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 /**
  * GET /api/oauth/google-analytics/callback?code=...&state=...
@@ -168,7 +169,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    console.log("[ga4-oauth-callback] integration upserted", {
+    logRuntimeDebug("ga4-oauth-callback", "integration_upserted", {
       businessId,
       integrationId: integration.id,
       providerAccountId,

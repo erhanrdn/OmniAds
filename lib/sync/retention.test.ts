@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbWithTimeout = vi.fn();
-const runMigrations = vi.fn();
+const assertDbSchemaReady = vi.fn();
 const acquireSyncRunnerLease = vi.fn();
 const releaseSyncRunnerLease = vi.fn();
 
@@ -9,8 +9,8 @@ vi.mock("@/lib/db", () => ({
   getDbWithTimeout,
 }));
 
-vi.mock("@/lib/migrations", () => ({
-  runMigrations,
+vi.mock("@/lib/db-schema-readiness", () => ({
+  assertDbSchemaReady,
 }));
 
 vi.mock("@/lib/sync/worker-health", () => ({
@@ -23,7 +23,7 @@ const retention = await import("@/lib/sync/retention");
 describe("pruneSyncLifecycleData", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.mocked(runMigrations).mockResolvedValue(undefined);
+    vi.mocked(assertDbSchemaReady).mockResolvedValue(undefined);
     delete process.env.SYNC_RETENTION_QUERY_TIMEOUT_MS;
     delete process.env.SYNC_RETENTION_BATCH_SIZE;
     delete process.env.SYNC_RETENTION_LEASE_MINUTES;
@@ -42,6 +42,7 @@ describe("pruneSyncLifecycleData", () => {
         googleCheckpointsDeleted: 0,
         metaRawSnapshotsDeleted: 0,
         metaCheckpointsDeleted: 0,
+        workerHeartbeatsDeleted: 0,
         reclaimEventsDeleted: 0,
         skippedDueToActiveLease: true,
       }),
@@ -60,6 +61,9 @@ describe("pruneSyncLifecycleData", () => {
       .mockResolvedValueOnce([{ count: 1 }])
       .mockResolvedValueOnce([{ count: 0 }])
       .mockResolvedValueOnce([{ count: 2 }])
+      .mockResolvedValueOnce([{ count: 1 }])
+      .mockResolvedValueOnce([{ count: 1 }])
+      .mockResolvedValueOnce([{ count: 2 }])
       .mockResolvedValueOnce([{ count: 1 }]);
     vi.mocked(getDbWithTimeout).mockReturnValue(sql as never);
     vi.mocked(acquireSyncRunnerLease).mockResolvedValue(true);
@@ -73,11 +77,12 @@ describe("pruneSyncLifecycleData", () => {
         googleCheckpointsDeleted: 1,
         metaRawSnapshotsDeleted: 0,
         metaCheckpointsDeleted: 0,
+        workerHeartbeatsDeleted: 4,
         reclaimEventsDeleted: 3,
         skippedDueToActiveLease: false,
       }),
     );
-    expect(sql).toHaveBeenCalledTimes(7);
+    expect(sql).toHaveBeenCalledTimes(10);
     expect(releaseSyncRunnerLease).toHaveBeenCalledTimes(1);
   });
 });

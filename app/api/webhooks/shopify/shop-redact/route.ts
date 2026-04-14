@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
 import { getDb } from "@/lib/db";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 /**
  * POST /api/webhooks/shopify/shop-redact
@@ -20,7 +21,7 @@ export async function POST(request: NextRequest) {
   const shopDomain: string | undefined = payload.shop_domain;
   const shopId: string | undefined = payload.shop_id?.toString();
 
-  console.log("[shopify-webhook] shop/redact received", {
+  logRuntimeDebug("shopify-webhook", "shop_redact_received", {
     shopDomain,
     shopId,
   });
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     WHERE shop_id = ${shopDomain}
   `;
 
-  console.log("[shopify-webhook] shop/redact completed", {
+  logRuntimeDebug("shopify-webhook", "shop_redact_completed", {
     shopDomain,
     deletedIntegrations: deleted.length,
   });

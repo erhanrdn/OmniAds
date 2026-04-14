@@ -10,6 +10,7 @@ import {
   getMetaWarehouseTrends,
 } from "@/lib/meta/serving";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export type MetaCanonicalOverviewSummary = Awaited<
   ReturnType<typeof getMetaWarehouseSummary>
@@ -53,7 +54,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
         ...input,
         providerAccountIds,
       });
-      console.info("[meta-canonical] summary_read", {
+      logRuntimeDebug("meta-canonical", "summary_read", {
         businessId: input.businessId,
         startDate: input.startDate,
         endDate: input.endDate,
@@ -83,7 +84,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
         businessId: input.businessId,
         message: error instanceof Error ? error.message : String(error),
       });
-      console.info("[meta-canonical] summary_read", {
+      logRuntimeDebug("meta-canonical", "summary_read", {
         businessId: input.businessId,
         startDate: input.startDate,
         endDate: input.endDate,
@@ -127,7 +128,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
         ...input,
         providerAccountIds,
       });
-      console.info("[meta-canonical] summary_read", {
+      logRuntimeDebug("meta-canonical", "summary_read", {
         businessId: input.businessId,
         startDate: input.startDate,
         endDate: input.endDate,
@@ -168,7 +169,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
         : null,
     readSource: "warehouse_published" as const,
   };
-  console.info("[meta-canonical] summary_read", {
+  logRuntimeDebug("meta-canonical", "summary_read", {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
@@ -209,7 +210,7 @@ export async function getMetaCanonicalOverviewTrends(input: {
       : null,
     readSource: "warehouse_published" as const,
   };
-  console.info("[meta-canonical] trends_read", {
+  logRuntimeDebug("meta-canonical", "trends_read", {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,

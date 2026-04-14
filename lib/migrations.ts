@@ -519,6 +519,7 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_status ON google_ads_advisor_memory (current_status, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_memory_outcome_check ON google_ads_advisor_memory (outcome_check_at)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_scope ON google_ads_advisor_execution_logs (business_id, account_id, created_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_execution_logs_created_at ON google_ads_advisor_execution_logs (created_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_scope ON google_ads_advisor_snapshots (business_id, account_id, generated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_status ON google_ads_advisor_snapshots (status, updated_at DESC)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`.catch(() => {}),
@@ -1266,6 +1267,8 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_worker_heartbeats_status
           ON sync_worker_heartbeats (status, last_heartbeat_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_worker_heartbeats_last_heartbeat
+          ON sync_worker_heartbeats (last_heartbeat_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_reclaim_events (
           id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           provider_scope    TEXT NOT NULL,

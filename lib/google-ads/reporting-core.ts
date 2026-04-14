@@ -26,6 +26,7 @@ import {
   dedupeStrings,
   type RawRow,
 } from "@/lib/google-ads/reporting-support";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export type DateRange = "3" | "7" | "14" | "30" | "90" | "mtd" | "qtd" | "custom";
 export type CompareMode = "none" | "previous_period" | "previous_year" | "custom";
@@ -302,7 +303,7 @@ export async function runNamedQuery(
   context: ReportContext,
   query: GoogleAdsNamedQuery
 ): Promise<QueryExecution> {
-  console.log("[google-ads-reporting] run_named_query", {
+  logRuntimeDebug("google-ads-reporting", "run_named_query", {
     source: context.source,
     requestId: context.requestId,
     businessId: context.businessId,
@@ -323,7 +324,7 @@ export async function runNamedQuery(
   });
 
   const rows = results.flatMap((result) => (result.results ?? []) as RawRow[]);
-  console.log("[google-ads-reporting] query_result", {
+  logRuntimeDebug("google-ads-reporting", "query_result", {
     source: context.source,
     requestId: context.requestId,
     businessId: context.businessId,
@@ -414,7 +415,7 @@ export async function resolveContext(params: {
     };
   }
 
-  console.log("[google-ads-reporting] resolve_context", {
+  logRuntimeDebug("google-ads-reporting", "resolve_context", {
     businessId,
     assignedAccounts,
     requestedAccountId: accountId ?? "all",

@@ -118,6 +118,7 @@ import {
   type RawRow,
   type TrendMetrics,
 } from "@/lib/google-ads/reporting-support";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export async function getGoogleAdsOverviewReport(
   params: ComparativeReportParams
@@ -308,7 +309,7 @@ export async function getGoogleAdsOverviewReport(
   });
   finalizeMeta(meta);
 
-  console.log("[google-ads-reporting] overview_summary", {
+  logRuntimeDebug("google-ads-reporting", "overview_summary", {
     businessId: params.businessId,
     customerIds: context.customerIds,
     kpis,

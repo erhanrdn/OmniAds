@@ -78,6 +78,7 @@ import {
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 import type {
   GoogleAdsExtendedRangeCompletion,
   GoogleAdsPanelRecoveryMode,
@@ -1285,7 +1286,7 @@ export async function GET(request: NextRequest) {
       .filter((value): value is string => Boolean(value))
       .sort((left, right) => left.localeCompare(right))[0] ?? null,
   });
-  console.info("[google-ads-status] advisor-snapshot-gate", {
+  logRuntimeDebug("google-ads-status", "advisor_snapshot_gate", {
     businessId: businessId!,
     advisorWindowStart: recent84Start,
     advisorWindowEnd: initialBackfillEnd,

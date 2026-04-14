@@ -90,6 +90,7 @@ import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 import {
   markProviderDayRolloverFinalizeStarted,
   markProviderDayRolloverFinalizeCompleted,
@@ -149,7 +150,7 @@ export function logMetaQueueVisibility(
   event: MetaQueueVisibilityEvent,
   details: Record<string, unknown>,
 ) {
-  console.info(`[meta-sync] ${event}`, details);
+  logRuntimeInfo("meta-sync", event, details);
 }
 
 async function heartbeatMetaPartitionBeforeCompletion(input: {
@@ -1971,7 +1972,7 @@ async function syncMetaPartitionDay(input: {
           requiredPublishedSurfaces.map((surface) => [surface, input.partitionId]),
         ),
       });
-    console.info("[meta-sync] partition_authoritative_verification", {
+    logRuntimeInfo("meta-sync", "partition_authoritative_verification", {
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       partitionDate: normalizedDay,
@@ -1984,7 +1985,7 @@ async function syncMetaPartitionDay(input: {
         state: plannerState.state,
       })),
     });
-    console.info("[meta-sync] partition_day_result", {
+    logRuntimeInfo("meta-sync", "partition_day_result", {
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
       partitionDate: normalizedDay,
@@ -2010,7 +2011,7 @@ async function syncMetaPartitionDay(input: {
     };
   }
 
-  console.info("[meta-sync] partition_day_result", {
+  logRuntimeInfo("meta-sync", "partition_day_result", {
     businessId: input.businessId,
     providerAccountId: input.providerAccountId,
     partitionDate: normalizedDay,
@@ -2050,7 +2051,7 @@ function logMetaRunObservability(input: {
   runStatusAfter?: string | null;
   pathKind: "primary" | "backfill" | "repair";
 }) {
-  console.info(`[meta-sync] ${input.event}`, {
+  logRuntimeInfo("meta-sync", input.event, {
     partitionId: input.partitionId,
     runId: input.runId ?? null,
     recoveredRunId: input.recoveredRunId ?? null,
@@ -2425,7 +2426,7 @@ async function enqueueMetaMaintenancePartitions(
     });
   }
 
-  console.info("[meta-sync] recent_auto_heal_summary", {
+  logRuntimeInfo("meta-sync", "recent_auto_heal_summary", {
     businessId,
     ...summary,
   });
@@ -2843,7 +2844,7 @@ async function cancelDeprecatedMetaPartition(input: {
     });
   }
 
-  console.info("[meta-sync] partition_cancelled_deprecated_scope", {
+  logRuntimeInfo("meta-sync", "partition_cancelled_deprecated_scope", {
     businessId: input.partition.businessId,
     partitionId: input.partition.id,
     workerId: input.workerId,
@@ -2989,7 +2990,7 @@ async function requeueMetaPartitionWithoutSuccess(input: {
     attemptCount: input.partition.attemptCount,
   }).catch(() => null);
 
-  console.info("[meta-sync] partition_requeued_without_success", {
+  logRuntimeInfo("meta-sync", "partition_requeued_without_success", {
     businessId: input.partition.businessId,
     partitionId: input.partition.id,
     workerId: input.workerId,
@@ -3593,12 +3594,12 @@ export async function consumeMetaQueuedWork(
     () => null,
   );
   if (!credentials?.accountIds?.length) {
-    console.info("[meta-sync] meta_consume_skipped_no_credentials", {
+    logRuntimeInfo("meta-sync", "meta_consume_skipped_no_credentials", {
       businessId,
     });
     return { businessId, attempted: 0, succeeded: 0, failed: 0, skipped: true };
   }
-  console.info("[meta-sync] meta_consume_started", {
+  logRuntimeInfo("meta-sync", "meta_consume_started", {
     businessId,
     accountIds: credentials.accountIds,
   });
@@ -3608,7 +3609,7 @@ export async function consumeMetaQueuedWork(
       canonicalScope: META_PRODUCT_CORE_PARTITION_SCOPE,
     }).catch(() => []);
   if (cancelledObsoletePartitions.length > 0) {
-    console.info("[meta-sync] cancelled_obsolete_core_scope_partitions", {
+    logRuntimeInfo("meta-sync", "cancelled_obsolete_core_scope_partitions", {
       businessId,
       cancelledCount: cancelledObsoletePartitions.length,
     });
@@ -3685,7 +3686,7 @@ export async function consumeMetaQueuedWork(
       extendedHistoricalQueued:
         queueCompositionBeforeEnqueue?.summary.extendedHistoricalQueued ?? 0,
     };
-    console.info("[meta-sync] meta_consume_queue_health", queueHealthPayload);
+    logRuntimeInfo("meta-sync", "meta_consume_queue_health", queueHealthPayload);
     logMetaQueueVisibility("meta_queue_health", queueHealthPayload);
     const hasHistoricalCoreBacklogBeforeEnqueue =
       (queueHealthBeforeEnqueue?.historicalCoreQueueDepth ?? 0) > 0 ||
@@ -3830,7 +3831,7 @@ export async function consumeMetaQueuedWork(
       ...leasedHistoricalCorePartitions,
       ...leasedExtendedHistoricalPartitions,
     ];
-    console.info("[meta-sync] meta_consume_leased_partitions", {
+    logRuntimeInfo("meta-sync", "meta_consume_leased_partitions", {
       businessId,
       maintenanceLeased: leasedMaintenancePartitions.length,
       coreFairnessLimit: fairnessLeasePlan.coreFairnessLimit,
@@ -3851,7 +3852,7 @@ export async function consumeMetaQueuedWork(
       const queueHealth = await getMetaQueueHealth({ businessId }).catch(
         () => null,
       );
-      console.info("[meta-sync] meta_consume_no_partitions", {
+      logRuntimeInfo("meta-sync", "meta_consume_no_partitions", {
         businessId,
         queueDepth: queueHealth?.queueDepth ?? 0,
         leasedPartitions: queueHealth?.leasedPartitions ?? 0,
@@ -3921,7 +3922,7 @@ export async function consumeMetaQueuedWork(
     await refreshMetaSyncStateForBusiness({ businessId, credentials }).catch(
       () => null,
     );
-    console.info("[meta-sync] meta_consume_finished", {
+    logRuntimeInfo("meta-sync", "meta_consume_finished", {
       businessId,
       attempted,
       succeeded,

@@ -3,6 +3,7 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 import { getIntegration } from "@/lib/integrations";
 import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
 
 const META_ASSIGNMENT_REQUIRED_TABLES = ["provider_account_assignments"] as const;
@@ -12,7 +13,7 @@ export async function POST(
   { params }: { params: Promise<{ businessId: string }> }
 ) {
   const { businessId } = await params;
-  console.log("[meta-assign-accounts] request", { businessId });
+  logRuntimeDebug("meta-assign-accounts", "request", { businessId });
 
   if (!businessId) {
     return NextResponse.json(
@@ -46,7 +47,7 @@ export async function POST(
   }
 
   const integration = await getIntegration(businessId, "meta");
-  console.log("[meta-assign-accounts] integration lookup", {
+  logRuntimeDebug("meta-assign-accounts", "integration_lookup", {
     businessId,
     found: Boolean(integration),
   });
@@ -62,7 +63,7 @@ export async function POST(
 
   const body = await request.json().catch(() => null);
   const accountIds = body?.account_ids;
-  console.log("[meta-assign-accounts] payload", {
+  logRuntimeDebug("meta-assign-accounts", "payload", {
     businessId,
     accountIds,
     isArray: Array.isArray(accountIds),
@@ -139,14 +140,14 @@ export async function POST(
     );
   }
 
-  console.log("[meta-assign-accounts] db write success", {
+  logRuntimeDebug("meta-assign-accounts", "db_write_success", {
     businessId,
     provider: "meta",
     returnedAccountIds: row.account_ids,
     updatedAt: row.updated_at,
   });
 
-  console.log("[meta-assign-accounts] response", {
+  logRuntimeDebug("meta-assign-accounts", "response", {
     businessId,
     assigned_accounts: cleaned,
   });

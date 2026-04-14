@@ -106,6 +106,7 @@ import {
   markProviderDayRolloverRecovered,
   syncProviderDayRolloverState,
 } from "@/lib/sync/provider-day-rollover";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 type GenericRow = Record<string, unknown>;
 
@@ -267,7 +268,7 @@ type GoogleAdsPhaseTelemetry = {
 };
 
 export function logGoogleAdsPhaseTelemetry(input: GoogleAdsPhaseTelemetry) {
-  console.info("[google-ads-sync] google_ads_scope_phase_metrics", input);
+  logRuntimeInfo("google-ads-sync", "google_ads_scope_phase_metrics", input);
 }
 
 type GoogleAdsLeaseStepLog = {
@@ -305,7 +306,7 @@ type GoogleAdsLeaseStepLog = {
 };
 
 export function logGoogleAdsLeaseStepResult(input: GoogleAdsLeaseStepLog) {
-  console.info("[google-ads-sync] google_ads_lease_step_result", input);
+  logRuntimeInfo("google-ads-sync", "google_ads_lease_step_result", input);
 }
 
 export type GoogleAdsLeaseableBacklogClassification =
@@ -3386,7 +3387,7 @@ export function scheduleGoogleAdsBackgroundSync(input: {
       GOOGLE_ADS_IN_PROCESS_RUNTIME_ENABLED &&
       !hasGoogleAdsInProcessBackgroundWorkerIdentity()
     ) {
-      console.info("[google-ads-sync] background_sync_skipped_missing_worker_identity", {
+      logRuntimeInfo("google-ads-sync", "background_sync_skipped_missing_worker_identity", {
         businessId: input.businessId,
       });
     }

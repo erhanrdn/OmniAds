@@ -52,6 +52,7 @@ describe("Google Ads warehouse retention policy", () => {
     expect(retention.GOOGLE_ADS_RETENTION_POLICY.creative_daily.retentionDays).toBe(180);
     expect(retention.GOOGLE_ADS_RETENTION_POLICY.raw_search_terms_hot.retentionDays).toBe(120);
     expect(retention.GOOGLE_ADS_RETENTION_POLICY.top_queries_weekly.retentionDays).toBe(365);
+    expect(retention.GOOGLE_ADS_RETENTION_POLICY.advisor_execution_log.retentionDays).toBe(30);
     expect(retention.GOOGLE_ADS_RETENTION_POLICY.raw_search_terms_hot.tableNames).toEqual(
       expect.arrayContaining([
         "google_ads_search_query_hot_daily",
@@ -137,6 +138,12 @@ describe("Google Ads warehouse retention policy", () => {
         expect.objectContaining({
           tableName: "google_ads_search_term_daily",
           cutoffDate: "2025-12-09",
+        }),
+        expect.objectContaining({
+          tableName: "google_ads_advisor_execution_logs",
+          cutoffDate: "2026-03-09",
+          dateColumn: "created_at",
+          executionEnabled: false,
         }),
         expect.objectContaining({
           tableName: "google_ads_decision_action_outcome_logs",

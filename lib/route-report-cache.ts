@@ -2,6 +2,7 @@ import {
   getCachedReport,
   getSnapshotAge,
 } from "@/lib/reporting-cache";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 const DEFAULT_ROUTE_CACHE_TTL_MINUTES = 15;
 // Stale cache bu süreden daha yeni ise servis edilebilir (arka planda refresh tetiklenir)
@@ -93,7 +94,7 @@ export async function getCachedRouteReport<TPayload>(input: {
       });
 
       if (stalePayload !== null && !shouldBypassRouteCachePayload(input.provider, stalePayload)) {
-        console.log("[route-report-cache] stale_hit", {
+        logRuntimeDebug("route-report-cache", "stale_hit", {
           businessId: input.businessId,
           provider: input.provider,
           reportType: input.reportType,

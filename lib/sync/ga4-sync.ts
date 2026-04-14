@@ -21,6 +21,7 @@ import {
   warmGa4EcommerceFallbackCache,
   warmGa4UserFacingRouteReportCache,
 } from "@/lib/user-facing-report-cache-owners";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 const REPORT_TYPE = "ga4_overview";
 
@@ -156,7 +157,7 @@ export async function syncGA4Reports(businessId: string): Promise<GA4SyncResult>
     }
   }
 
-  console.log("[ga4-sync] completed", {
+  logRuntimeInfo("ga4-sync", "completed", {
     businessId,
     attempted: GA4_AUTO_WARM_DATE_WINDOWS.length,
     succeeded,

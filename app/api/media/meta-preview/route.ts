@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 const ALLOWED_META_HOST_SUFFIXES = [
   ".facebook.com",
@@ -78,13 +79,11 @@ export async function GET(req: NextRequest) {
     if (contentLength) headers.set("content-length", contentLength);
     headers.set("cache-control", "private, max-age=900");
 
-    if (process.env.NODE_ENV !== "production") {
-      console.info("[meta-preview-proxy] upstream request success", {
-        src: parsed.toString(),
-        status: upstream.status,
-        contentType: contentType ?? null,
-      });
-    }
+    logRuntimeDebug("meta-preview-proxy", "upstream_request_success", {
+      src: parsed.toString(),
+      status: upstream.status,
+      contentType: contentType ?? null,
+    });
 
     return new NextResponse(upstream.body, {
       status: 200,

@@ -1,6 +1,7 @@
 import { getIntegration } from "@/lib/integrations";
 import { enumerateDays, round2 } from "@/lib/overview-service-support";
 import { getCachedReport, getReportingDateRangeKey } from "@/lib/reporting-cache";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 const SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES = 15;
 const SHOPIFY_ANALYTICS_API_VERSION = process.env.SHOPIFY_ANALYTICS_API_VERSION ?? "2025-10";
@@ -416,7 +417,7 @@ async function getShopifyOrderCommerceMetrics(input: {
     Math.abs(currentRevenueRounded - preReturnRevenueRounded) >= 0.01 ||
     Math.abs(preReturnRevenueRounded - grossMinusRefundsRounded) >= 0.01
   ) {
-    console.info("[shopify-overview] revenue_semantic_delta", {
+    logRuntimeDebug("shopify-overview", "revenue_semantic_delta", {
       shopId: input.shopId,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -440,7 +441,7 @@ async function getShopifyOrderCommerceMetrics(input: {
     );
   });
   if (hasAdjacentLeakageSignal) {
-    console.info("[shopify-overview] daily_attribution_shadow", {
+    logRuntimeDebug("shopify-overview", "daily_attribution_shadow", {
       shopId: input.shopId,
       startDate: input.startDate,
       endDate: input.endDate,

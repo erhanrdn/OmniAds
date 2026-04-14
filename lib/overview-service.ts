@@ -24,6 +24,7 @@ import {
   getMetaCanonicalOverviewTrends,
 } from "@/lib/meta/canonical-overview";
 import { logPerfEvent, measurePerf } from "@/lib/perf";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 import {
   getShopifyOverviewReadCandidate,
   getShopifyOverviewSummaryReadCandidate,
@@ -354,7 +355,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   );
 
   if (candidate.preferredSource === "warehouse" && candidate.warehouse) {
-    console.info("[overview] shopify warehouse read canary selected", {
+    logRuntimeDebug("overview", "shopify_warehouse_read_canary_selected", {
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -395,7 +396,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   }
 
   if (candidate.preferredSource === "ledger" && candidate.ledger) {
-    console.info("[overview] shopify ledger read canary selected", {
+    logRuntimeDebug("overview", "shopify_ledger_read_canary_selected", {
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
@@ -440,7 +441,7 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   }
 
   if (candidate.canaryEnabled) {
-    console.info("[overview] shopify warehouse read canary blocked", {
+    logRuntimeDebug("overview", "shopify_warehouse_read_canary_blocked", {
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,

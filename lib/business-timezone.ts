@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { BusinessTimezoneSource } from "@/lib/business-timezone-types";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 type IntegrationTimezoneCandidateRow = {
   provider: "shopify" | "ga4";
@@ -73,7 +74,7 @@ export async function recomputeBusinessDerivedTimezone(
       timezone_source = ${derived.timezoneSource}
     WHERE id = ${businessId}
   `;
-  console.info("[business-timezone] recomputed", {
+  logRuntimeInfo("business-timezone", "recomputed", {
     businessId,
     timezone: derived.timezone,
     timezoneSource: derived.timezoneSource ?? "unset",

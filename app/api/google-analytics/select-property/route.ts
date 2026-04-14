@@ -13,6 +13,7 @@ import {
   type GA4ResolvedAnalyticsContext,
 } from "@/lib/google-analytics-reporting";
 import { requireBusinessAccess } from "@/lib/access";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 function normalizeGa4PropertyId(value: string): string {
   const trimmed = value.trim();
@@ -199,7 +200,7 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  console.log("[ga4-select-property] property linked", {
+  logRuntimeDebug("ga4-select-property", "property_linked", {
     businessId,
     propertyId: normalizedPropertyId,
     propertyName,

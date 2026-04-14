@@ -20,6 +20,7 @@ import {
 } from "@/lib/sync/report-warmer-boundaries";
 import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { warmShopifyOverviewReportCache } from "@/lib/user-facing-report-cache-owners";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -296,7 +297,7 @@ export async function syncShopifyCommerceReports(
     if (input?.triggerReason !== "runtime_validation") {
       return;
     }
-    console.info("[shopify-sync] runtime_validation_phase", {
+    logRuntimeInfo("shopify-sync", "runtime_validation_phase", {
       businessId,
       phase,
       ...(summary ? { summary } : {}),

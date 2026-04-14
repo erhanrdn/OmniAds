@@ -6,6 +6,7 @@ import { runProviderRequestWithGovernance } from "@/lib/provider-request-governa
 import { classifyGoogleRequestAuditSource } from "@/lib/google-request-audit";
 import { createHash } from "node:crypto";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 interface GaqlSearchResult {
   results?: Array<{
@@ -279,7 +280,7 @@ export async function executeGaqlQuery(params: {
   const cacheStore = getGaqlCacheStore();
   const cached = cacheStore.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
-    console.log("[google-ads-search] cache_hit", {
+    logRuntimeDebug("google-ads-search", "cache_hit", {
       source: params.source ?? "unknown",
       requestId: params.requestId ?? null,
       businessId: params.businessId,
@@ -362,7 +363,7 @@ export async function executeGaqlQuery(params: {
     execute: async () => {
       let lastError: GoogleAdsQueryError | null = null;
 
-      console.log("[google-ads-search] live_start", {
+      logRuntimeDebug("google-ads-search", "live_start", {
         source: params.source ?? "unknown",
         requestId: params.requestId ?? null,
         businessId: params.businessId,
@@ -414,7 +415,7 @@ export async function executeGaqlQuery(params: {
             ? GOOGLE_ADS_SEARCH_CACHE_TTL_MS
             : GOOGLE_ADS_OPTIONAL_SEARCH_CACHE_TTL_MS;
           cacheStore.set(cacheKey, { value: result, expiresAt: Date.now() + ttl });
-          console.log("[google-ads-search] success", {
+          logRuntimeDebug("google-ads-search", "success", {
             source: params.source ?? "unknown",
             requestId: params.requestId ?? null,
             customerId: params.customerId,

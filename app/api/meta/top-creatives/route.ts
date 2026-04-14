@@ -4,6 +4,7 @@ import { getProviderAccountAssignments } from "@/lib/provider-account-assignment
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { CreativeFormat, CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
 import { requireBusinessAccess } from "@/lib/access";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 // ── Meta API types ────────────────────────────────────────────────────────────
 
@@ -254,7 +255,7 @@ export async function GET(request: NextRequest) {
   const endDate = searchParams.get("endDate");
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "6", 10), 20);
 
-  console.log("[meta-top-creatives] request", { businessId, startDate, endDate, limit });
+  logRuntimeDebug("meta-top-creatives", "request", { businessId, startDate, endDate, limit });
 
   if (!businessId) {
     return NextResponse.json(
@@ -274,7 +275,7 @@ export async function GET(request: NextRequest) {
 
   // Step 1: Assigned accounts
   const assignedAccountIds = await fetchAssignedAccountIds(businessId);
-  console.log("[meta-top-creatives] assigned accounts", {
+  logRuntimeDebug("meta-top-creatives", "assigned_accounts", {
     businessId,
     count: assignedAccountIds.length,
   });
@@ -349,7 +350,7 @@ export async function GET(request: NextRequest) {
   allRows.sort((a, b) => b.roas - a.roas || b.spend - a.spend);
   const rows = allRows.slice(0, limit);
 
-  console.log("[meta-top-creatives] response", {
+  logRuntimeDebug("meta-top-creatives", "response", {
     businessId,
     rowCount: rows.length,
     catalogCount: rows.filter((r) => r.is_catalog).length,

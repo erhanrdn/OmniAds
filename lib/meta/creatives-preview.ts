@@ -19,6 +19,7 @@ import type {
 } from "@/lib/meta/creatives-types";
 import { classifyMetaCreative } from "@/lib/meta/creative-taxonomy";
 import { normalizeMediaUrl, extractVideoIdsFromCreative } from "@/lib/meta/creatives-utils";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 type CreativeStaticPreviewRowLike = {
   previewManifest?: CreativePreviewManifest | null;
@@ -802,15 +803,13 @@ export function buildNormalizedPreview(input: {
     preview_resolution_reason: previewDebugResolutionReason,
   };
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[preview-resolve]", {
-      creative_id: creative?.id ?? null,
-      render_mode: renderMode,
-      resolution_stage: previewDebugResolutionStage,
-      preview_resolution_reason: previewDebugResolutionReason,
-      candidates_count: candidates.length,
-    });
-  }
+  logRuntimeDebug("preview-resolve", "resolved", {
+    creative_id: creative?.id ?? null,
+    render_mode: renderMode,
+    resolution_stage: previewDebugResolutionStage,
+    preview_resolution_reason: previewDebugResolutionReason,
+    candidates_count: candidates.length,
+  });
 
   return {
     preview,

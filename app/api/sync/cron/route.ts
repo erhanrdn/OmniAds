@@ -6,6 +6,7 @@ import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 /**
  * POST /api/sync/cron
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  console.log("[sync-cron] completed", {
+  logRuntimeInfo("sync-cron", "completed", {
     businessCount: businesses.length,
     succeeded: results.filter((r) => r.status === "fulfilled").length,
     failed: results.filter((r) => r.status === "rejected").length,

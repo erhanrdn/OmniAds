@@ -1,4 +1,5 @@
 import { GOOGLE_CONFIG } from "@/lib/oauth/google-config";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 export interface GoogleAdsCustomerNormalized {
   id: string;
@@ -52,7 +53,7 @@ function classifyGoogleAdsError(payload: unknown, status: number) {
   const message = getGoogleAdsErrorMessage(payload);
   const upper = message?.toUpperCase() ?? "";
 
-  console.log("[google-ads-accounts] Error", {
+  logRuntimeDebug("google-ads-accounts", "classified_error", {
     status,
     message,
   });
@@ -142,7 +143,7 @@ export async function fetchGoogleAdsAccounts(
     hasDeveloperToken: Boolean(developerToken),
     scopePresent: options?.scopePresent,
   };
-  console.log("[google-ads-accounts] discovery start", diagnostics);
+  logRuntimeDebug("google-ads-accounts", "discovery_start", diagnostics);
 
   const baseCandidates = buildAdsApiBaseCandidates();
   let listResult: GoogleAdsHttpResult | null = null;
@@ -212,7 +213,7 @@ export async function fetchGoogleAdsAccounts(
   }
 
   const resourceNames = readResourceNames(listResult.payload);
-  console.log("[google-ads-accounts] accessible customers loaded", {
+  logRuntimeDebug("google-ads-accounts", "accessible_customers_loaded", {
     count: resourceNames.length,
     sample: resourceNames.slice(0, 5),
   });
@@ -251,7 +252,7 @@ export async function fetchGoogleAdsAccounts(
     );
   });
 
-  console.log("[google-ads-accounts] customer details fetched", {
+  logRuntimeDebug("google-ads-accounts", "customer_details_fetched", {
     requested: customerIds.length,
     succeeded: detailResults.filter((item) => item !== null).length,
   });
@@ -280,7 +281,7 @@ async function fetchCustomerDetails({
   loginCustomerIds: string[];
   adsApiBase: string;
 }): Promise<GoogleAdsCustomerNormalized | null> {
-  console.log("[google-ads-accounts] customer detail discovery start", {
+  logRuntimeDebug("google-ads-accounts", "customer_detail_discovery_start", {
     customerId,
     loginCustomerCandidateCount: loginCustomerIds.length,
   });
@@ -353,7 +354,7 @@ async function fetchCustomerDetails({
     const customer = readCustomerFromSearchPayload(result.payload);
     if (!customer) continue;
 
-    console.log("[google-ads-accounts] customer detail resolved", {
+    logRuntimeDebug("google-ads-accounts", "customer_detail_resolved", {
       customerId,
       loginCustomerId: loginCustomerId ?? null,
       resolvedName: customer.name || null,
@@ -441,7 +442,7 @@ async function googleAdsRequest({
     const isJson =
       contentType.toLowerCase().includes("application/json") || parsed !== null;
 
-    console.log("[google-ads-accounts] request", {
+    logRuntimeDebug("google-ads-accounts", "request", {
       endpoint: logLabel,
       method,
       status: response.status,

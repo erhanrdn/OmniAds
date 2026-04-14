@@ -15,9 +15,14 @@ export type GoogleAdsRetentionTier =
   | "raw_search_terms_hot"
   | "top_queries_weekly"
   | "search_cluster_aggregate"
-  | "decision_action_outcome_log";
+  | "decision_action_outcome_log"
+  | "advisor_execution_log";
 
-export type GoogleAdsRetentionDateColumn = "date" | "week_start" | "occurred_at";
+export type GoogleAdsRetentionDateColumn =
+  | "date"
+  | "week_start"
+  | "occurred_at"
+  | "created_at";
 
 export interface GoogleAdsRetentionPolicyEntry {
   tier: GoogleAdsRetentionTier;
@@ -115,6 +120,7 @@ function isGoogleAdsRetentionRuntimeAvailable(env: NodeJS.ProcessEnv = process.e
 function retentionDateColumnForTable(tableName: string): GoogleAdsRetentionDateColumn {
   if (tableName === "google_ads_top_query_weekly") return "week_start";
   if (tableName === "google_ads_decision_action_outcome_logs") return "occurred_at";
+  if (tableName === "google_ads_advisor_execution_logs") return "created_at";
   return "date";
 }
 
@@ -246,6 +252,14 @@ export const GOOGLE_ADS_RETENTION_POLICY: Record<
     tableNames: ["google_ads_decision_action_outcome_logs"],
     grain: "event",
     storageTemperature: "warm",
+  },
+  advisor_execution_log: {
+    tier: "advisor_execution_log",
+    label: "Advisor execution log",
+    retentionDays: 30,
+    tableNames: ["google_ads_advisor_execution_logs"],
+    grain: "event",
+    storageTemperature: "hot",
   },
 };
 

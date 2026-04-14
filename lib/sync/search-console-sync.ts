@@ -21,6 +21,7 @@ import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { ProviderRequestCooldownError } from "@/lib/provider-request-governance";
 import { runWithGoogleRequestAuditContext } from "@/lib/google-request-audit";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 const DATE_WINDOWS = [
   { days: 30 },
@@ -186,6 +187,11 @@ export async function syncSearchConsoleReports(businessId: string): Promise<Sear
     }
   }
 
-  console.log("[search-console-sync] completed", { businessId, attempted: DATE_WINDOWS.length, succeeded, failed });
+  logRuntimeInfo("search-console-sync", "completed", {
+    businessId,
+    attempted: DATE_WINDOWS.length,
+    succeeded,
+    failed,
+  });
   return { businessId, attempted: DATE_WINDOWS.length, succeeded, failed, skipped: false };
 }

@@ -76,6 +76,7 @@ import type {
 } from "@/lib/google-ads/warehouse-types";
 import type { BaseReportParams, ComparativeReportParams, ReportResult, OverviewReportResult } from "@/lib/google-ads/reporting-core";
 import { buildProviderStateContract } from "@/lib/provider-readiness";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 import {
   getProviderPlatformCurrentDate,
   getTodayIsoForTimeZoneServer,
@@ -1272,7 +1273,7 @@ export async function getGoogleCanonicalOverviewSummary(
     },
     meta,
   };
-  console.info("[google-canonical] summary_read", {
+  logRuntimeDebug("google-canonical", "summary_read", {
     businessId: params.businessId,
     startDate: current.context.startDate,
     endDate: current.context.endDate,
@@ -1436,7 +1437,7 @@ export async function getGoogleCanonicalOverviewTrends(input: {
       });
     }
 
-    console.info("[google-canonical] trends_provider_truth_read_succeeded", {
+    logRuntimeDebug("google-canonical", "trends_provider_truth_read_succeeded", {
       businessId: input.businessId,
       startDate: context.startDate,
       endDate: context.endDate,
@@ -1471,7 +1472,7 @@ export async function getGoogleCanonicalOverviewTrends(input: {
       endDate: context.endDate,
     });
     if (!projectionWindow.historicalOnly) {
-      console.info("[google-canonical] projection_bypassed", {
+      logRuntimeDebug("google-canonical", "projection_bypassed", {
         businessId: input.businessId,
         startDate: context.startDate,
         endDate: context.endDate,
@@ -1511,7 +1512,7 @@ export async function getGoogleCanonicalOverviewTrends(input: {
       manifest: cached?.manifest,
       rows: cached?.rows ?? [],
     });
-    console.info("[google-canonical] projection_evaluated", {
+    logRuntimeDebug("google-canonical", "projection_evaluated", {
       businessId: input.businessId,
       startDate: context.startDate,
       endDate: context.endDate,

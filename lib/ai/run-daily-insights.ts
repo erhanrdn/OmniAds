@@ -6,6 +6,7 @@ import {
 import { saveInsight, saveInsightFailure } from "@/lib/ai/save-insight";
 import type { AppLanguage } from "@/lib/i18n";
 import { getOverviewData } from "@/lib/overview-service";
+import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 interface BusinessRow {
   id: string;
@@ -273,15 +274,20 @@ export async function runDailyInsights(): Promise<DailyInsightRunResult> {
 
     if (single.status === "success") {
       result.succeeded++;
-      console.log(`[ai-daily] Generated insight for ${business.name} (${business.id})`);
+      logRuntimeInfo("ai-daily", "generated_insight", {
+        businessId: business.id,
+        businessName: business.name,
+      });
       continue;
     }
 
     if (single.status === "skipped") {
       result.skipped++;
-      console.log(
-        `[ai-daily] Skipping ${business.name} (${business.id}) — ${single.error ?? "no metrics data"}`,
-      );
+      logRuntimeInfo("ai-daily", "skipped", {
+        businessId: business.id,
+        businessName: business.name,
+        reason: single.error ?? "no metrics data",
+      });
       continue;
     }
 
@@ -296,9 +302,12 @@ export async function runDailyInsights(): Promise<DailyInsightRunResult> {
     );
   }
 
-  console.log(
-    `[ai-daily] Run complete: ${result.succeeded} succeeded, ${result.failed} failed, ${result.skipped} skipped out of ${result.total}`,
-  );
+  logRuntimeInfo("ai-daily", "run_complete", {
+    succeeded: result.succeeded,
+    failed: result.failed,
+    skipped: result.skipped,
+    total: result.total,
+  });
 
   return result;
 }

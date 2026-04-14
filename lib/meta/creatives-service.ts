@@ -85,6 +85,7 @@ import {
   resolveCardThumbnailCreativeIds,
 } from "@/lib/meta/creatives-service-support";
 import { META_CREATIVES_PREVIEW_CONTRACT_VERSION } from "@/lib/meta/creatives-preview";
+import { isRuntimeLogLevelEnabled, logRuntimeDebug } from "@/lib/runtime-logging";
 
 export interface CreativesQueryParams {
   businessId: string;
@@ -155,6 +156,7 @@ export async function buildCreativesResponse(
     perAccountSampleLimit,
     requestStartedAt,
   } = query;
+  const debugLoggingEnabled = isRuntimeLogLevelEnabled("debug");
 
   const snapshotQuery: MetaCreativesSnapshotQuery = {
     businessId,
@@ -193,19 +195,17 @@ export async function buildCreativesResponse(
           hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []) ||
           hasSuspiciousCopyEmptySnapshot
         ) {
-          if (process.env.NODE_ENV !== "production") {
-            console.log("[meta-creatives] bypassing suspicious snapshot", {
-              business_id: businessId,
-              last_synced_at: snapshot.lastSyncedAt,
-              freshness_state: freshness.freshnessState,
-              rows: Array.isArray(snapshotPayload.rows) ? snapshotPayload.rows.length : 0,
-              taxonomy_reason_codes: snapshotTaxonomyHealth.reasonCodes,
-              preview_contract_version: snapshotTaxonomyHealth.previewContractVersion,
-              taxonomy_summary: snapshotTaxonomyHealth.taxonomySummary,
-              suspicious_funnel_metrics: hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []),
-              suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
-            });
-          }
+          logRuntimeDebug("meta-creatives", "bypassing_suspicious_snapshot", {
+            business_id: businessId,
+            last_synced_at: snapshot.lastSyncedAt,
+            freshness_state: freshness.freshnessState,
+            rows: Array.isArray(snapshotPayload.rows) ? snapshotPayload.rows.length : 0,
+            taxonomy_reason_codes: snapshotTaxonomyHealth.reasonCodes,
+            preview_contract_version: snapshotTaxonomyHealth.previewContractVersion,
+            taxonomy_summary: snapshotTaxonomyHealth.taxonomySummary,
+            suspicious_funnel_metrics: hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []),
+            suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
+          });
           triggerSnapshotRefresh(request, snapshotQuery);
         } else {
         if (freshness.freshnessState !== "fresh" && !snapshotWarm) {
@@ -308,7 +308,7 @@ export async function buildCreativesResponse(
         return !ad?.creative?.thumbnail_url && !ad?.creative?.image_url;
       });
       if (enableCreativeBasicsFallback && creativeMissingAdIds.length > 0) {
-        console.log("[meta-creatives] creative enrichment fallback", {
+        logRuntimeDebug("meta-creatives", "creative_enrichment_fallback", {
           account_id: accountId,
           missing_creative_media_ads: creativeMissingAdIds.length,
         });
@@ -445,7 +445,7 @@ export async function buildCreativesResponse(
                   if (fallbackThumb) {
                     mergedCreative.thumbnail_url = fallbackThumb;
                     if (debugThumbnail) {
-                      console.log("[meta-creatives][thumb-debug] fallback applied", {
+                      logRuntimeDebug("meta-creatives", "thumb_debug_fallback_applied", {
                         stage: "hash-seed-merge",
                         account_id: accountId,
                         creative_id: mergedCreative.id,
@@ -467,14 +467,13 @@ export async function buildCreativesResponse(
           : new Map<string, string>();
       accountPerf.adimages_ms += Date.now() - tAdImages;
 
-      // Always log coverage in non-production for diagnostics
-      if (process.env.NODE_ENV !== "production") {
+      if (debugLoggingEnabled) {
         const matchedAds = insightAdIds.filter((id) => adMap.has(id)).length;
         const withCreative = insightAdIds.filter((id) => {
           const ad = adMap.get(id);
           return ad?.creative?.thumbnail_url || ad?.creative?.image_url || ad?.creative?.object_story_spec;
         }).length;
-        console.log("[meta-creatives] account coverage", {
+        logRuntimeDebug("meta-creatives", "account_coverage", {
           account_id: accountMeta.id,
           account_name: accountMeta.name,
           currency: accountMeta.currency,
@@ -552,7 +551,7 @@ export async function buildCreativesResponse(
           if (fallbackThumb) {
             mergedCreative.thumbnail_url = fallbackThumb;
             if (debugThumbnail) {
-              console.log("[meta-creatives][thumb-debug] fallback applied", {
+              logRuntimeDebug("meta-creatives", "thumb_debug_fallback_applied", {
                 stage: "row-merge",
                 account_id: accountId,
                 ad_id: insight.ad_id ?? null,
@@ -568,7 +567,7 @@ export async function buildCreativesResponse(
         const rawCreativeThumbnailUrl = normalizeMediaUrl(baseCreative?.thumbnail_url ?? null);
         const enrichedCreativeThumbnailUrl = normalizeMediaUrl(mergedCreative?.thumbnail_url ?? null);
         if (debugPreview || debugThumbnail) {
-          console.log("[meta-creatives][thumb-trace] enrich-stage", {
+          logRuntimeDebug("meta-creatives", "thumb_trace_enrich_stage", {
             ad_id: insight.ad_id ?? null,
             creative_id: mergedCreative?.id ?? baseCreative?.id ?? null,
             debug_raw_creative_thumbnail_url: rawCreativeThumbnailUrl,
@@ -672,9 +671,7 @@ export async function buildCreativesResponse(
               format: row.format,
             };
             previewAuditSamples.push(sample);
-            if (process.env.NODE_ENV !== "production") {
-              console.log("[meta-creatives] preview source audit sample", sample);
-            }
+            logRuntimeDebug("meta-creatives", "preview_source_audit_sample", sample);
           }
         }
       }
@@ -708,7 +705,7 @@ export async function buildCreativesResponse(
   if (enableMediaRecovery && rowsMissingAllMedia.length > 0) {
     mediaFallbackRowsRequested += rowsMissingAllMedia.length;
     const tMediaFallback = Date.now();
-    console.log("[meta-creatives] media fallback scan", {
+    logRuntimeDebug("meta-creatives", "media_fallback_scan", {
       rows_missing_all_media: rowsMissingAllMedia.length,
     });
     const mediaFallbackMap = await fetchAdCreativeMediaByAdIds(rowsMissingAllMedia, accessToken);
@@ -720,11 +717,11 @@ export async function buildCreativesResponse(
 
       applyRecoveredCreativeMedia(row, fallbackCreative);
     }
-    if (process.env.NODE_ENV !== "production") {
+    if (debugLoggingEnabled) {
       const unresolvedAfterFallback = rawRows.filter(
         (row) => !row.thumbnail_url && !row.image_url && !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_")
       ).length;
-      console.log("[meta-creatives] media fallback result", {
+      logRuntimeDebug("meta-creatives", "media_fallback_result", {
         fallback_map_size: mediaFallbackMap.size,
         unresolved_after_fallback: unresolvedAfterFallback,
       });
@@ -746,7 +743,7 @@ export async function buildCreativesResponse(
     if (unresolvedAdIds.length > 0) {
       mediaDirectFallbackRowsRequested += unresolvedAdIds.length;
       const tDirectFallback = Date.now();
-      console.log("[meta-creatives] media direct fallback scan", {
+      logRuntimeDebug("meta-creatives", "media_direct_fallback_scan", {
         unresolved_ad_ids: unresolvedAdIds.length,
       });
       const directFallbackMap = await fetchAdCreativeMediaDirectByAdIds(unresolvedAdIds, accessToken);
@@ -759,11 +756,11 @@ export async function buildCreativesResponse(
         applyRecoveredCreativeMedia(row, directCreative);
       }
 
-      if (process.env.NODE_ENV !== "production") {
+      if (debugLoggingEnabled) {
         const unresolvedAfterDirectFallback = rawRows.filter(
           (row) => !row.thumbnail_url && !row.image_url && !row.preview_url && row.id && !row.id.startsWith("creative_") && !row.id.startsWith("adset_")
         ).length;
-        console.log("[meta-creatives] media direct fallback result", {
+        logRuntimeDebug("meta-creatives", "media_direct_fallback_result", {
           direct_fallback_map_size: directFallbackMap.size,
           unresolved_after_direct_fallback: unresolvedAfterDirectFallback,
         });
@@ -827,17 +824,15 @@ export async function buildCreativesResponse(
     return acc;
   }, new Map<string, Set<string>>());
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[meta-creatives] before grouping", {
-      businessId,
-      groupBy,
-      format,
-      sort,
-      raw_rows: rawRows.length,
-      scoped_rows: scopedRows.length,
-      unique_creatives: creativeUsageMap.size,
-    });
-  }
+  logRuntimeDebug("meta-creatives", "before_grouping", {
+    businessId,
+    groupBy,
+    format,
+    sort,
+    raw_rows: rawRows.length,
+    scoped_rows: scopedRows.length,
+    unique_creatives: creativeUsageMap.size,
+  });
 
   let rows = groupRows(scopedRows, groupBy, creativeUsageMap);
   rows = sortRows(rows, sort);
@@ -931,9 +926,9 @@ export async function buildCreativesResponse(
     };
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  if (debugLoggingEnabled) {
     const duplicateNames = rows.filter((r, i, arr) => arr.findIndex((x) => x.name === r.name) !== i);
-    console.log("[meta-creatives] after grouping and sorting", {
+    logRuntimeDebug("meta-creatives", "after_grouping_and_sorting", {
       groupBy,
       scoped_input: scopedRows.length,
       final_rows: rows.length,
@@ -981,11 +976,11 @@ export async function buildCreativesResponse(
     });
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  if (debugLoggingEnabled) {
     const withPreview = responseRows.filter((r) => r.preview_url).length;
     const withThumb = responseRows.filter((r) => r.thumbnail_url).length;
     const withImage = responseRows.filter((r) => r.image_url).length;
-    console.log("[meta-creatives] preview summary", {
+    logRuntimeDebug("meta-creatives", "preview_summary", {
       total: responseRows.length,
       preview_url_set: withPreview,
       thumbnail_url_set: withThumb,
@@ -1011,11 +1006,11 @@ export async function buildCreativesResponse(
     });
 
     if (previewAuditSamples.length > 0) {
-      console.log("[meta-creatives] preview source ranking", summarizePreviewAudit(previewAuditSamples));
+      logRuntimeDebug("meta-creatives", "preview_source_ranking", summarizePreviewAudit(previewAuditSamples));
     }
   }
   if (debugPreview) {
-    console.log("[meta-creatives] raw preview fields (first 5)", responseRows.slice(0, 5).map((r) => ({
+    logRuntimeDebug("meta-creatives", "raw_preview_fields_first_5", responseRows.slice(0, 5).map((r) => ({
       id: r.id,
       name: r.name,
       thumbnail_url: r.thumbnail_url,
@@ -1048,9 +1043,9 @@ export async function buildCreativesResponse(
   }
 
   // Debug: Log thumbnail URLs for first 5 creatives
-  if (process.env.NODE_ENV !== "production" && responseRows.length > 0) {
+  if (debugLoggingEnabled && responseRows.length > 0) {
     responseRows.slice(0, 5).forEach((row) => {
-      console.log("meta creative thumbnail", {
+      logRuntimeDebug("meta-creatives", "creative_thumbnail", {
         ad_id: row.id,
         thumbnail_url: row.thumbnail_url ?? null,
         image_url: row.image_url ?? null,
@@ -1107,8 +1102,8 @@ export async function buildCreativesResponse(
           message: error instanceof Error ? error.message : String(error),
         });
       });
-    } else if (process.env.NODE_ENV !== "production") {
-      console.log("[meta-creatives] preserved richer full snapshot", {
+    } else if (debugLoggingEnabled) {
+      logRuntimeDebug("meta-creatives", "preserved_richer_full_snapshot", {
         businessId,
         mediaMode,
         preview_contract_version: META_CREATIVES_PREVIEW_CONTRACT_VERSION,

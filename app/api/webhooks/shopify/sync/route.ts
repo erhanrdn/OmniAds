@@ -18,6 +18,7 @@ import {
   upsertShopifyWebhookDelivery,
 } from "@/lib/shopify/warehouse";
 import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 const SHOPIFY_SYNC_WEBHOOK_REQUIRED_TABLES = [
   "integrations",
@@ -244,7 +245,7 @@ export async function POST(request: NextRequest) {
         },
   }).catch(() => null);
 
-  console.log("[shopify-webhook] sync received", {
+  logRuntimeDebug("shopify-webhook", "sync_received", {
     topic,
     shopDomain,
     orderId: payload.id ?? payload.admin_graphql_api_id ?? null,

@@ -1,6 +1,7 @@
 import type { CacheJobPayload, MediaStorageAdapter } from "./types";
 import { CacheRepository } from "./cache-repository";
 import { LocalStorageAdapter } from "./storage-adapter";
+import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 const DOWNLOAD_TIMEOUT_MS = 15_000;
 const MAX_CONCURRENCY = 3;
@@ -129,24 +130,20 @@ class ThumbnailCacheWorker {
         buffer.length
       );
 
-      if (process.env.NODE_ENV !== "production") {
-        console.log("[media-cache-worker] cached", {
-          creative_id,
-          storageKey,
-          size: buffer.length,
-        });
-      }
+      logRuntimeDebug("media-cache-worker", "cached", {
+        creative_id,
+        storageKey,
+        size: buffer.length,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await CacheRepository.setFailed(row.id, message);
 
-      if (process.env.NODE_ENV !== "production") {
-        console.warn("[media-cache-worker] failed", {
-          creative_id,
-          source_url: source_url.slice(0, 80),
-          error: message,
-        });
-      }
+      logRuntimeDebug("media-cache-worker", "failed", {
+        creative_id,
+        source_url: source_url.slice(0, 80),
+        error: message,
+      });
     }
   }
 }
