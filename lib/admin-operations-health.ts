@@ -10,6 +10,17 @@ import {
 } from "@/lib/google-ads/warehouse";
 import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
 import {
+  buildGlobalRebuildTruthReview,
+  deriveProviderQuotaLimitedBusinessIds,
+  type GlobalRebuildTruthReview,
+} from "@/lib/rebuild-truth-review";
+import { isMetaAuthoritativeFinalizationV2Enabled } from "@/lib/meta/authoritative-finalization-config";
+import {
+  getMetaProtectedPublishedTruthReview,
+  getMetaRetentionRuntimeStatus,
+} from "@/lib/meta/warehouse-retention";
+import { getGoogleAdsRetentionRuntimeStatus } from "@/lib/google-ads/warehouse-retention";
+import {
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
@@ -59,6 +70,7 @@ export interface AdminSyncIssueRow {
 }
 
 export interface AdminSyncHealthPayload {
+  globalRebuildReview?: GlobalRebuildTruthReview;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   summary: {
@@ -178,6 +190,7 @@ export interface AdminSyncHealthPayload {
     integrityBlockedCount?: number;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     stallFingerprints?: ProviderStallFingerprint[];
+    quotaLimitedEvidence?: boolean;
   }>;
   metaBusinesses?: Array<{
     businessId: string;
@@ -230,6 +243,7 @@ export interface AdminSyncHealthPayload {
     integrityIncidentCount?: number;
     integrityBlockedCount?: number;
     d1FinalizeNonTerminalCount?: number;
+    quotaLimitedEvidence?: boolean;
   }>;
 }
 
@@ -756,6 +770,20 @@ export function buildAdminSyncHealth(input: {
       .filter((snapshot): snapshot is MetaAuthoritativeBusinessOpsSnapshot => Boolean(snapshot))
       .map((snapshot) => [snapshot.businessId, snapshot]),
   );
+  const googleQuotaLimitedBusinessIds = new Set(
+    deriveProviderQuotaLimitedBusinessIds({
+      provider: "google_ads",
+      jobs: input.jobs,
+      cooldowns: input.cooldowns,
+    }),
+  );
+  const metaQuotaLimitedBusinessIds = new Set(
+    deriveProviderQuotaLimitedBusinessIds({
+      provider: "meta",
+      jobs: input.jobs,
+      cooldowns: input.cooldowns,
+    }),
+  );
 
   for (const row of input.jobs) {
     const triggeredMs = new Date(row.triggered_at).getTime();
@@ -897,6 +925,12 @@ export function buildAdminSyncHealth(input: {
       googleReclaimSummary.poisonCandidateCount ??
       Number(row.poisoned_checkpoint_count ?? 0);
     const googleCheckpointLagMinutes = computeLagMinutes(googleProgressHeartbeat);
+    const quotaLimitedEvidence =
+      googleQuotaLimitedBusinessIds.has(row.business_id) ||
+      circuitBreakerOpen ||
+      recoveryMode !== "closed" ||
+      quotaPressure >= 0.85 ||
+      quotaErrorCount > 0;
 
     const progressState = classifyGoogleAdsProgressState({
       queueDepth,
@@ -988,6 +1022,7 @@ export function buildAdminSyncHealth(input: {
       integrityBlockedCount: googleIntegritySummary.blockedCount,
       progressState,
       stallFingerprints,
+      quotaLimitedEvidence,
     });
 
     if (
@@ -1250,6 +1285,7 @@ export function buildAdminSyncHealth(input: {
       metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla?.breachedAccounts ??
       input.metaD1FinalizeNonTerminalCounts?.[row.business_id] ??
       0;
+    const quotaLimitedEvidence = metaQuotaLimitedBusinessIds.has(row.business_id);
     const metaCheckpointLagMinutes = computeLagMinutes(metaProgressHeartbeat);
     const progressState = classifyMetaProgressState({
       queueDepth,
@@ -1335,6 +1371,7 @@ export function buildAdminSyncHealth(input: {
       integrityIncidentCount: metaIntegritySummary.incidentCount,
       integrityBlockedCount: metaIntegritySummary.blockedCount,
       d1FinalizeNonTerminalCount,
+      quotaLimitedEvidence,
     });
 
     if (
@@ -2595,6 +2632,23 @@ export async function getAdminOperationsHealth() {
         }),
       ).then((entries) => Object.fromEntries(entries)),
     ]);
+  const googleRetentionRuntime = getGoogleAdsRetentionRuntimeStatus();
+  const metaRetentionRuntime = getMetaRetentionRuntimeStatus();
+  const metaProtectedPublishedTruth =
+    (await getMetaProtectedPublishedTruthReview().catch(() => null)) ?? {
+      runtimeAvailable: false,
+      asOfDate: new Date().toISOString().slice(0, 10),
+      scope: {
+        kind: "all_businesses" as const,
+        businessIds: null,
+      },
+      hasNonZeroProtectedPublishedRows: false,
+      protectedPublishedRows: 0,
+      activePublicationPointerRows: 0,
+      protectedTruthClassesPresent: [],
+      protectedTruthClassesAbsent: [],
+      classes: [],
+    };
 
   const authHealth = buildAdminAuthHealth(authRows);
   const syncHealth = buildAdminSyncHealth({
@@ -2614,6 +2668,24 @@ export async function getAdminOperationsHealth() {
     metaIntegritySummaries,
     metaD1FinalizeNonTerminalCounts,
     workerHealth,
+  });
+  syncHealth.globalRebuildReview = buildGlobalRebuildTruthReview({
+    googleBusinesses: syncHealth.googleAdsBusinesses ?? [],
+    metaBusinesses: syncHealth.metaBusinesses ?? [],
+    googleExecution: {
+      sync:
+        syncHealth.summary.googleAdsSafeModeActive === true
+          ? "safe_mode"
+          : syncHealth.summary.googleAdsGlobalReopenEnabled === true
+            ? "global_reopen"
+            : "global_backfill",
+      retentionEnabled: googleRetentionRuntime.executionEnabled,
+    },
+    metaExecution: {
+      authoritativeFinalizationEnabled: isMetaAuthoritativeFinalizationV2Enabled(),
+      retentionEnabled: metaRetentionRuntime.executionEnabled,
+    },
+    metaProtectedPublishedTruth,
   });
   const revenueRisk = buildAdminRevenueRisk({
     workspaces: revenueWorkspaces,

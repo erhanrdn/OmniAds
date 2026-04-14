@@ -182,13 +182,32 @@
      - partial upstream coverage
      - true blocked / repair-required publication states
    - the DB server change and provider rebuild context are now first-class operator truth:
-     - sparse warehouse coverage during rebuild is not treated as healthy historical truth
-     - quota or rate-limit pressure is surfaced explicitly instead of being collapsed into generic success wording
-     - rebuild lag is separated from true `blocked` / `repair_required` publication problems
+   - sparse warehouse coverage during rebuild is not treated as healthy historical truth
+   - quota or rate-limit pressure is surfaced explicitly instead of being collapsed into generic success wording
+   - rebuild lag is separated from true `blocked` / `repair_required` publication problems
+
+13. Global rebuild truth review workflow
+   - `/admin/sync-health` now exposes one additive global rebuild truth review for Google and Meta instead of pushing operators back into business-by-business rollout language.
+   - the global review reports, in one place:
+     - execution posture
+     - dominant rebuild state
+     - cold bootstrap / backfill / quota / partial-coverage counts
+     - blocked vs repair-required evidence where relevant
+     - Meta protected published truth visibility
+   - Meta now exposes explicit live protected-published-truth review on `/api/meta/status`:
+     - whether non-zero protected published daily rows are visible
+     - which protected truth classes are currently present
+     - whether absence is best explained by rebuild still being incomplete, by publication still being missing, or by no visible protected truth yet
+   - Google remains equally visible through the same global review plus the existing `/api/google-ads/status.operatorTruth.rebuild` contract.
+   - repo wording now treats this as one global operator review workflow, not another rollout phase and not a "pick the next business" operating model.
 
 ### Still Pending
 
 - destructive retention remains intentionally disabled by default under the global posture until operators explicitly decide to enable it after rebuild truth, quota stability, and protected-truth evidence are satisfactory.
+- stronger warehouse trust is still deferred until:
+  - Google global review stops reporting cold bootstrap / backfill / quota / partial-coverage pressure
+  - Meta global review stops reporting rebuild-incomplete or publication-missing posture
+  - Meta protected published truth review shows the expected non-zero rebuilt truth on real data where that truth should exist
 
 ## Operator Follow-up Record
 

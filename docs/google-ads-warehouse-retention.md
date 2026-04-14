@@ -64,6 +64,31 @@ Phases 3 and 4 do not implement archival export. They establish the hot/warm fou
 - Scoped verification commands may inspect a single business, but they do not define a separate rollout posture.
 - The DB server changed and the Google warehouse is rebuilding from provider APIs, so cold bootstrap, backfill, quota pressure, and partial upstream coverage are first-class operator truth.
 
+## Global rebuild truth review workflow
+
+Google rebuild review is now part of one shared operator workflow across providers.
+
+1. Open `/admin/sync-health`.
+2. Read `Global rebuild truth review`.
+3. Inspect the Google block first for:
+   - execution posture
+   - `cold_bootstrap`
+   - `backfill_in_progress`
+   - `quota_limited`
+   - `partial_upstream_coverage`
+   - `blocked`
+   - `ready`
+4. For business-scoped drilldown, open `/api/google-ads/status?businessId=<businessId>` and inspect `operatorTruth.rebuild`.
+
+Interpretation rules stay conservative:
+
+- some rows existing is not strong readiness by itself
+- sparse rebuilt coverage must not be mistaken for full historical support
+- quota pressure remains operator truth even when recent rows are present
+- partial upstream coverage remains operator truth even when core rows look usable
+
+Use `npm run google:ads:product-gate -- <businessId>` or `npm run google:ads:retention-canary -- <businessId>` only as scoped proof paths after reading the global review, not as a business-by-business rollout ladder.
+
 ## Raw query storage vs cluster/theme intelligence
 
 These are intentionally different layers.

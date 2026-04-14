@@ -226,6 +226,83 @@ describe("Meta warehouse retention policy", () => {
     );
   });
 
+  it("aggregates live Meta protected published truth classes from rebuilt data", async () => {
+    process.env.DATABASE_URL = "postgres://example";
+
+    const sqlQuery = vi.fn(async (query: string) => {
+      if (query.includes("FROM meta_account_daily")) {
+        return [{ protected_rows: 12, latest_protected_value: "2026-04-12" }];
+      }
+      if (query.includes("FROM meta_campaign_daily")) {
+        return [{ protected_rows: 8, latest_protected_value: "2026-04-12" }];
+      }
+      if (query.includes("FROM meta_adset_daily")) {
+        return [{ protected_rows: 4, latest_protected_value: "2026-04-11" }];
+      }
+      if (query.includes("FROM meta_ad_daily")) {
+        return [{ protected_rows: 0, latest_protected_value: null }];
+      }
+      if (query.includes("FROM meta_breakdown_daily")) {
+        return [{ protected_rows: 6, latest_protected_value: "2026-04-10" }];
+      }
+      if (query.includes("FROM meta_authoritative_publication_pointers")) {
+        return [{ protected_rows: 5, latest_protected_value: "2026-04-12" }];
+      }
+      if (query.includes("FROM meta_authoritative_slice_versions")) {
+        return [{ protected_rows: 5, latest_protected_value: "2026-04-12" }];
+      }
+      if (query.includes("FROM meta_authoritative_source_manifests")) {
+        return [{ protected_rows: 3, latest_protected_value: "2026-04-12" }];
+      }
+      if (query.includes("FROM meta_authoritative_day_state")) {
+        return [{ protected_rows: 2, latest_protected_value: "2026-04-12" }];
+      }
+      return [{ protected_rows: 0, latest_protected_value: null }];
+    });
+    getDbWithTimeout.mockReturnValue({ query: sqlQuery } as never);
+
+    const review = await retention.getMetaProtectedPublishedTruthReview({
+      asOfDate: "2026-04-13",
+      businessIds: ["biz_truth"],
+    });
+
+    expect(review).toMatchObject({
+      runtimeAvailable: true,
+      scope: {
+        kind: "selected_businesses",
+        businessIds: ["biz_truth"],
+      },
+      hasNonZeroProtectedPublishedRows: true,
+      protectedPublishedRows: 30,
+      activePublicationPointerRows: 10,
+    });
+    expect(review.protectedTruthClassesPresent).toEqual(
+      expect.arrayContaining([
+        "core_daily_rows",
+        "breakdown_daily_rows",
+        "active_publication_pointers",
+        "active_published_slice_versions",
+        "active_source_manifests",
+        "published_day_state",
+      ]),
+    );
+  });
+
+  it("reports Meta protected published truth as unavailable when the runtime is missing", async () => {
+    const review = await retention.getMetaProtectedPublishedTruthReview({
+      asOfDate: "2026-04-13",
+      env: {} as NodeJS.ProcessEnv,
+    });
+
+    expect(review).toMatchObject({
+      runtimeAvailable: false,
+      hasNonZeroProtectedPublishedRows: false,
+      protectedPublishedRows: 0,
+      activePublicationPointerRows: 0,
+    });
+    expect(review.protectedTruthClassesPresent).toEqual([]);
+  });
+
   it("skips runtime execution when another retention lease is active", async () => {
     process.env.DATABASE_URL = "postgres://example";
     vi.mocked(acquireSyncRunnerLease).mockResolvedValue(false);

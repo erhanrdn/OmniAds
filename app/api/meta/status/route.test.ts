@@ -85,6 +85,27 @@ vi.mock("@/lib/sync/meta-sync", () => ({
 }));
 
 vi.mock("@/lib/meta/warehouse-retention", () => ({
+  getMetaProtectedPublishedTruthReview: vi.fn(async () => ({
+    runtimeAvailable: false,
+    asOfDate: "2026-04-13",
+    scope: {
+      kind: "selected_businesses",
+      businessIds: ["biz"],
+    },
+    hasNonZeroProtectedPublishedRows: false,
+    protectedPublishedRows: 0,
+    activePublicationPointerRows: 0,
+    protectedTruthClassesPresent: [],
+    protectedTruthClassesAbsent: [
+      "core_daily_rows",
+      "breakdown_daily_rows",
+      "active_publication_pointers",
+      "active_published_slice_versions",
+      "active_source_manifests",
+      "published_day_state",
+    ],
+    classes: [],
+  })),
   getLatestMetaRetentionCanaryRun: vi.fn(),
   getLatestMetaRetentionRun: vi.fn(),
   getMetaRetentionCanaryRuntimeStatus: vi.fn(() => ({
@@ -282,6 +303,27 @@ describe("GET /api/meta/status", () => {
       canary: null,
     } as never);
     vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue(null as never);
+    vi.mocked(metaRetention.getMetaProtectedPublishedTruthReview).mockResolvedValue({
+      runtimeAvailable: false,
+      asOfDate: "2026-04-13",
+      scope: {
+        kind: "selected_businesses",
+        businessIds: ["biz"],
+      },
+      hasNonZeroProtectedPublishedRows: false,
+      protectedPublishedRows: 0,
+      activePublicationPointerRows: 0,
+      protectedTruthClassesPresent: [],
+      protectedTruthClassesAbsent: [
+        "core_daily_rows",
+        "breakdown_daily_rows",
+        "active_publication_pointers",
+        "active_published_slice_versions",
+        "active_source_manifests",
+        "published_day_state",
+      ],
+      classes: [],
+    } as never);
     vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
       summaryAvailable: true,
       campaignsAvailable: true,
@@ -1017,6 +1059,75 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("exposes live Meta protected published truth review when protected rows are visible", async () => {
+    vi.mocked(metaRetention.getMetaProtectedPublishedTruthReview).mockResolvedValue({
+      runtimeAvailable: true,
+      asOfDate: "2026-04-13",
+      scope: {
+        kind: "selected_businesses",
+        businessIds: ["biz"],
+      },
+      hasNonZeroProtectedPublishedRows: true,
+      protectedPublishedRows: 24,
+      activePublicationPointerRows: 6,
+      protectedTruthClassesPresent: [
+        "core_daily_rows",
+        "active_publication_pointers",
+        "active_published_slice_versions",
+      ],
+      protectedTruthClassesAbsent: [
+        "breakdown_daily_rows",
+        "active_source_manifests",
+        "published_day_state",
+      ],
+      classes: [
+        {
+          key: "core_daily_rows",
+          label: "Protected core daily rows",
+          present: true,
+          observed: true,
+          protectedRows: 24,
+          latestProtectedValue: "2026-04-12",
+        },
+        {
+          key: "active_publication_pointers",
+          label: "Active publication pointers",
+          present: true,
+          observed: true,
+          protectedRows: 6,
+          latestProtectedValue: "2026-04-12",
+        },
+      ],
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operatorTruth).toMatchObject({
+      protectedPublishedTruth: {
+        state: "present",
+        hasNonZeroProtectedPublishedRows: true,
+        protectedPublishedRows: 24,
+        activePublicationPointerRows: 6,
+      },
+    });
+    expect(payload.protectedPublishedTruth).toMatchObject({
+      state: "present",
+      runtimeAvailable: true,
+      hasNonZeroProtectedPublishedRows: true,
+      protectedPublishedRows: 24,
+      activePublicationPointerRows: 6,
+      protectedTruthClassesPresent: [
+        "core_daily_rows",
+        "active_publication_pointers",
+        "active_published_slice_versions",
+      ],
+    });
+  });
+
   it("surfaces blocked publication mismatches as action-required selected-range truth", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
@@ -1080,6 +1191,27 @@ describe("GET /api/meta/status", () => {
       completed_days: 0,
       ready_through_date: null,
     } as never);
+    vi.mocked(metaRetention.getMetaProtectedPublishedTruthReview).mockResolvedValue({
+      runtimeAvailable: true,
+      asOfDate: "2026-04-13",
+      scope: {
+        kind: "selected_businesses",
+        businessIds: ["biz"],
+      },
+      hasNonZeroProtectedPublishedRows: false,
+      protectedPublishedRows: 0,
+      activePublicationPointerRows: 0,
+      protectedTruthClassesPresent: [],
+      protectedTruthClassesAbsent: [
+        "core_daily_rows",
+        "breakdown_daily_rows",
+        "active_publication_pointers",
+        "active_published_slice_versions",
+        "active_source_manifests",
+        "published_day_state",
+      ],
+      classes: [],
+    } as never);
 
     const response = await GET(
       new NextRequest(
@@ -1114,6 +1246,15 @@ describe("GET /api/meta/status", () => {
         blocked: true,
         repairRequired: false,
       },
+      protectedPublishedTruth: {
+        state: "publication_missing",
+        hasNonZeroProtectedPublishedRows: false,
+      },
+    });
+    expect(payload.protectedPublishedTruth).toMatchObject({
+      state: "publication_missing",
+      protectedPublishedRows: 0,
+      activePublicationPointerRows: 0,
     });
   });
 

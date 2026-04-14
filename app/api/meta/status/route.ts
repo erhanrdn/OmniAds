@@ -51,6 +51,7 @@ import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import {
   getMetaRetentionCanaryRuntimeStatus,
   getMetaRetentionDeleteScope,
+  getMetaProtectedPublishedTruthReview,
   getMetaRetentionRunMetadata,
   getMetaRetentionRunRows,
   getLatestMetaRetentionCanaryRun,
@@ -259,6 +260,7 @@ export async function GET(request: NextRequest) {
     workerHealth,
     latestRetentionRun,
     latestRetentionCanaryRun,
+    protectedPublishedTruthReview,
   ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
@@ -274,6 +276,7 @@ export async function GET(request: NextRequest) {
       }).catch(() => null),
       getLatestMetaRetentionRun().catch(() => null),
       getLatestMetaRetentionCanaryRun(businessId!).catch(() => null),
+      getMetaProtectedPublishedTruthReview({ businessIds: [businessId!] }).catch(() => null),
     ]);
   const retentionRuntime = getMetaRetentionRuntimeStatus();
   const retentionCanaryRuntime = getMetaRetentionCanaryRuntimeStatus({
@@ -1446,6 +1449,31 @@ export async function GET(request: NextRequest) {
         state: "dry_run" as const,
         summary: retentionRuntime.gateReason,
       };
+  const protectedPublishedTruthState =
+    protectedPublishedTruthReview == null || !protectedPublishedTruthReview.runtimeAvailable
+      ? "unavailable"
+      : protectedPublishedTruthReview.hasNonZeroProtectedPublishedRows
+        ? "present"
+        : protectedPublishedTruthReview.activePublicationPointerRows === 0 &&
+            selectedRangeVerificationState === "blocked"
+          ? "publication_missing"
+          : rebuildState === "repair_required" ||
+              rebuildState === "quota_limited" ||
+              rebuildState === "cold_bootstrap" ||
+              rebuildState === "backfill_in_progress" ||
+              rebuildState === "partial_upstream_coverage"
+            ? "rebuild_incomplete"
+            : "none_visible";
+  const protectedPublishedTruthSummary =
+    protectedPublishedTruthState === "present"
+      ? "Non-zero Meta protected published daily truth is visible in rebuilt data."
+      : protectedPublishedTruthState === "publication_missing"
+        ? "Protected Meta published truth is absent because required publication is still missing."
+        : protectedPublishedTruthState === "rebuild_incomplete"
+          ? "Protected Meta published truth is not yet visible because rebuild truth is still incomplete."
+          : protectedPublishedTruthState === "none_visible"
+            ? "No non-zero Meta protected published daily rows are currently visible for this business."
+            : "Meta protected published truth review is unavailable.";
 
   return NextResponse.json(
     {
@@ -1498,6 +1526,16 @@ export async function GET(request: NextRequest) {
                       : rebuildState === "partial_upstream_coverage"
                         ? "Meta has partial upstream coverage; some surfaces remain incomplete."
                         : "Meta rebuild truth is ready for the current contract.",
+        },
+        protectedPublishedTruth: {
+          state: protectedPublishedTruthState,
+          hasNonZeroProtectedPublishedRows:
+            protectedPublishedTruthReview?.hasNonZeroProtectedPublishedRows ?? false,
+          protectedPublishedRows:
+            protectedPublishedTruthReview?.protectedPublishedRows ?? 0,
+          activePublicationPointerRows:
+            protectedPublishedTruthReview?.activePublicationPointerRows ?? 0,
+          summary: protectedPublishedTruthSummary,
         },
       },
       assignedAccountIds: accountIds,
@@ -1710,6 +1748,23 @@ export async function GET(request: NextRequest) {
           summary: latestRetentionCanarySummary,
           tables: latestRetentionCanaryTables,
         },
+      },
+      protectedPublishedTruth: {
+        state: protectedPublishedTruthState,
+        runtimeAvailable: protectedPublishedTruthReview?.runtimeAvailable ?? false,
+        asOfDate: protectedPublishedTruthReview?.asOfDate ?? null,
+        hasNonZeroProtectedPublishedRows:
+          protectedPublishedTruthReview?.hasNonZeroProtectedPublishedRows ?? false,
+        protectedPublishedRows:
+          protectedPublishedTruthReview?.protectedPublishedRows ?? 0,
+        activePublicationPointerRows:
+          protectedPublishedTruthReview?.activePublicationPointerRows ?? 0,
+        protectedTruthClassesPresent:
+          protectedPublishedTruthReview?.protectedTruthClassesPresent ?? [],
+        protectedTruthClassesAbsent:
+          protectedPublishedTruthReview?.protectedTruthClassesAbsent ?? [],
+        summary: protectedPublishedTruthSummary,
+        classes: protectedPublishedTruthReview?.classes ?? [],
       },
       extendedRecoveryState,
       recentExtendedReady,

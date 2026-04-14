@@ -73,6 +73,32 @@ published artifact with a durable source manifest and candidate/publication
 boundary. That leaves room for rollover-era stale truth to appear more
 authoritative than it really is.
 
+## Global Rebuild Truth Review
+
+The next operator-facing review step is now explicit and global:
+
+1. Open `/admin/sync-health` and read the `Global rebuild truth review` section.
+2. Confirm whether Meta is still in:
+   - `cold_bootstrap`
+   - `backfill_in_progress`
+   - `quota_limited`
+   - `partial_upstream_coverage`
+   - `blocked`
+   - `repair_required`
+   - `ready`
+3. For a business-level Meta drilldown, open `/api/meta/status?businessId=<businessId>`.
+4. Read:
+   - `operatorTruth.rebuild`
+   - `protectedPublishedTruth`
+
+`protectedPublishedTruth` now answers the practical question that was missing before:
+
+- whether rebuilt live data currently shows non-zero protected published daily rows
+- which protected truth classes are currently present
+- whether absence is best explained by rebuild still being incomplete, publication still being missing, or simply no visible protected truth yet
+
+Do not upgrade operator trust based only on row presence, planner state, or queue movement while the rebuild review still reports an incomplete posture.
+
 ## Target State Machine
 
 The v2 target lifecycle for a single Meta account-day slice is:

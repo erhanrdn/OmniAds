@@ -6,6 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { InlineHelp } from "@/components/admin/inline-help";
 import { formatMetaDateTime } from "@/lib/meta/ui";
 import { getSyncRunbook } from "@/lib/sync/runbooks";
+import type { GlobalRebuildTruthReview } from "@/lib/rebuild-truth-review";
 
 interface SyncIssueRow {
   businessId: string;
@@ -21,6 +22,7 @@ interface SyncIssueRow {
 }
 
 interface SyncHealthPayload {
+  globalRebuildReview?: GlobalRebuildTruthReview;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   summary: {
@@ -336,6 +338,7 @@ export default function AdminSyncHealthPage() {
   const metaBusinesses = payload?.metaBusinesses ?? [];
   const googleAdsHealthStatus = payload?.googleAdsHealthStatus ?? "ok";
   const googleAdsHealthError = payload?.googleAdsHealthError ?? null;
+  const globalRebuildReview = payload?.globalRebuildReview ?? null;
 
   async function runProviderAction(
     businessId: string,
@@ -427,6 +430,88 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
       </div>
+
+      {globalRebuildReview ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Global rebuild truth review</p>
+              <p className="mt-1 text-sm text-gray-500">
+                One global operator contract across all businesses. Review provider posture here before trusting sparse rebuild coverage.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                Workflow {globalRebuildReview.workflow.adminSurface}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-gray-900">Google Ads</p>
+                <StateBadge state={globalRebuildReview.googleAds.rebuild.state} />
+              </div>
+              <p className="mt-2 text-sm text-gray-600">{globalRebuildReview.googleAds.rebuild.summary}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <MetricPill label="Exec" value={globalRebuildReview.googleAds.execution.sync.state} />
+                <MetricPill label="Retention" value={globalRebuildReview.googleAds.execution.retention.state} />
+                <MetricPill label="Blocked" value={globalRebuildReview.googleAds.rebuild.evidence.blockedBusinesses} />
+                <MetricPill label="Quota" value={globalRebuildReview.googleAds.rebuild.evidence.quotaLimitedBusinesses} />
+                <MetricPill label="Cold" value={globalRebuildReview.googleAds.rebuild.evidence.coldBootstrapBusinesses} />
+                <MetricPill label="Backfill" value={globalRebuildReview.googleAds.rebuild.evidence.backfillInProgressBusinesses} />
+                <MetricPill label="Partial" value={globalRebuildReview.googleAds.rebuild.evidence.partialUpstreamCoverageBusinesses} />
+                <MetricPill label="Ready" value={globalRebuildReview.googleAds.rebuild.evidence.readyBusinesses} />
+              </div>
+              <p className="mt-3 text-xs text-gray-500">
+                Drilldown: {globalRebuildReview.workflow.googleStatus}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-gray-900">Meta</p>
+                <StateBadge state={globalRebuildReview.meta.rebuild.state} />
+              </div>
+              <p className="mt-2 text-sm text-gray-600">{globalRebuildReview.meta.rebuild.summary}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <MetricPill label="Finalize" value={globalRebuildReview.meta.execution.authoritativeFinalization.state} />
+                <MetricPill label="Retention" value={globalRebuildReview.meta.execution.retention.state} />
+                <MetricPill label="Blocked" value={globalRebuildReview.meta.rebuild.evidence.blockedBusinesses} />
+                <MetricPill label="Repair" value={globalRebuildReview.meta.rebuild.evidence.repairRequiredBusinesses} />
+                <MetricPill label="Quota" value={globalRebuildReview.meta.rebuild.evidence.quotaLimitedBusinesses} />
+                <MetricPill label="Cold" value={globalRebuildReview.meta.rebuild.evidence.coldBootstrapBusinesses} />
+                <MetricPill label="Backfill" value={globalRebuildReview.meta.rebuild.evidence.backfillInProgressBusinesses} />
+                <MetricPill label="Partial" value={globalRebuildReview.meta.rebuild.evidence.partialUpstreamCoverageBusinesses} />
+                <MetricPill label="Ready" value={globalRebuildReview.meta.rebuild.evidence.readyBusinesses} />
+              </div>
+              <div className="mt-3 rounded-lg border border-white bg-white p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Protected published truth
+                  </p>
+                  <StateBadge state={globalRebuildReview.meta.protectedPublishedTruth.state} />
+                </div>
+                <p className="mt-2 text-sm text-gray-600">
+                  {globalRebuildReview.meta.protectedPublishedTruth.summary}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <MetricPill label="Rows" value={globalRebuildReview.meta.protectedPublishedTruth.protectedPublishedRows} />
+                  <MetricPill label="Pointers" value={globalRebuildReview.meta.protectedPublishedTruth.activePublicationPointerRows} />
+                  <MetricPill label="Classes" value={globalRebuildReview.meta.protectedPublishedTruth.protectedTruthClassesPresent.length} />
+                </div>
+                <p className="mt-3 text-xs text-gray-500">
+                  Present classes {globalRebuildReview.meta.protectedPublishedTruth.protectedTruthClassesPresent.join(", ") || "none"}
+                </p>
+              </div>
+              <p className="mt-3 text-xs text-gray-500">
+                Drilldown: {globalRebuildReview.workflow.metaStatus}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {googleAdsHealthStatus !== "ok" ? (
         <div
@@ -855,11 +940,33 @@ function MetricPill({
   value,
 }: {
   label: string;
-  value: number;
+  value: number | string;
 }) {
   return (
     <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-700">
       {label} {value}
+    </span>
+  );
+}
+
+function StateBadge({ state }: { state: string }) {
+  const className =
+    state === "ready" || state === "present"
+      ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+      : state === "blocked" || state === "publication_missing"
+        ? "border border-red-200 bg-red-50 text-red-700"
+        : state === "repair_required" ||
+            state === "quota_limited" ||
+            state === "cold_bootstrap" ||
+            state === "backfill_in_progress" ||
+            state === "partial_upstream_coverage" ||
+            state === "rebuild_incomplete"
+          ? "border border-amber-200 bg-amber-50 text-amber-800"
+          : "border border-slate-200 bg-slate-50 text-slate-700";
+
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${className}`}>
+      {state}
     </span>
   );
 }

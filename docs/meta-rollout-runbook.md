@@ -1,8 +1,8 @@
 # Meta Authoritative Finalization v2 Rollout Runbook
 
 This runbook defines the standard operator procedures for Meta authoritative
-finalization v2 rollout, verification, recovery, and rollback on the existing
-Hetzner deployment shape.
+finalization v2 global enablement, rebuild review, verification, recovery, and
+rollback on the existing Hetzner deployment shape.
 
 Current posture for this repo:
 
@@ -45,6 +45,44 @@ Use only these rollout controls:
 3. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
    - legacy env only
    - no longer changes runtime behavior under the current global contract
+
+## Global Rebuild Truth Review Workflow
+
+Use one global operator workflow before deciding that rebuilt warehouse truth is trustworthy.
+
+1. Open `/admin/sync-health`.
+2. Read the `Global rebuild truth review` section first.
+3. Treat that section as the global posture for all businesses:
+   - `cold_bootstrap`
+   - `backfill_in_progress`
+   - `quota_limited`
+   - `partial_upstream_coverage`
+   - `blocked`
+   - `repair_required`
+   - `ready`
+4. Do not treat sparse warehouse rows or one sampled business as proof that Meta is generally ready.
+
+Provider drilldown remains business-scoped only because the underlying data is business/account-scoped:
+
+- Google:
+  - open `/api/google-ads/status?businessId=<businessId>`
+  - inspect `operatorTruth.rebuild`
+- Meta:
+  - open `/api/meta/status?businessId=<businessId>`
+  - inspect both `operatorTruth.rebuild` and `protectedPublishedTruth`
+
+Meta protected published truth interpretation:
+
+- `present`
+  - rebuilt data currently shows non-zero protected published daily rows
+- `rebuild_incomplete`
+  - publication proof is not yet absent-by-contract; the rebuild is still incomplete
+- `publication_missing`
+  - finalized-like progress exists, but required publication is still not visible
+- `none_visible`
+  - no non-zero protected published daily rows are currently visible for that business under the current contract
+
+This is a global review workflow, not a canary ladder and not a "pick the next business" operating model.
 
 ## Phase 7 Executor Success Contract
 

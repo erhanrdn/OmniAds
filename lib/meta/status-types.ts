@@ -150,6 +150,48 @@ export interface MetaStatusResponse {
   currentCoreUsable?: boolean;
   historicalArchiveComplete?: boolean;
   needsBootstrap?: boolean;
+  operatorTruth?: {
+    rolloutModel: "global";
+    execution: {
+      authoritativeFinalization: {
+        state: "disabled" | "globally_enabled";
+        summary: string;
+      };
+      retention: {
+        state: "dry_run" | "globally_enabled";
+        summary: string;
+      };
+    };
+    rebuild: {
+      state:
+        | "blocked"
+        | "repair_required"
+        | "quota_limited"
+        | "cold_bootstrap"
+        | "backfill_in_progress"
+        | "partial_upstream_coverage"
+        | "ready";
+      coldBootstrap: boolean;
+      backfillInProgress: boolean;
+      quotaLimited: boolean;
+      partialUpstreamCoverage: boolean;
+      blocked: boolean;
+      repairRequired: boolean;
+      summary: string;
+    };
+    protectedPublishedTruth?: {
+      state:
+        | "present"
+        | "publication_missing"
+        | "rebuild_incomplete"
+        | "none_visible"
+        | "unavailable";
+      hasNonZeroProtectedPublishedRows: boolean;
+      protectedPublishedRows: number;
+      activePublicationPointerRows: number;
+      summary: string;
+    };
+  } | null;
   warehouse?: {
     rowCount: number;
     firstDate: string | null;
@@ -331,6 +373,50 @@ export interface MetaStatusResponse {
       protectedDistinctDays: number | null;
       latestProtectedValue: string | null;
       deletedRows: number;
+    }>;
+  } | null;
+  protectedPublishedTruth?: {
+    state:
+      | "present"
+      | "publication_missing"
+      | "rebuild_incomplete"
+      | "none_visible"
+      | "unavailable";
+    runtimeAvailable: boolean;
+    asOfDate: string | null;
+    hasNonZeroProtectedPublishedRows: boolean;
+    protectedPublishedRows: number;
+    activePublicationPointerRows: number;
+    protectedTruthClassesPresent: Array<
+      | "core_daily_rows"
+      | "breakdown_daily_rows"
+      | "active_publication_pointers"
+      | "active_published_slice_versions"
+      | "active_source_manifests"
+      | "published_day_state"
+    >;
+    protectedTruthClassesAbsent: Array<
+      | "core_daily_rows"
+      | "breakdown_daily_rows"
+      | "active_publication_pointers"
+      | "active_published_slice_versions"
+      | "active_source_manifests"
+      | "published_day_state"
+    >;
+    summary: string;
+    classes: Array<{
+      key:
+        | "core_daily_rows"
+        | "breakdown_daily_rows"
+        | "active_publication_pointers"
+        | "active_published_slice_versions"
+        | "active_source_manifests"
+        | "published_day_state";
+      label: string;
+      present: boolean;
+      observed: boolean;
+      protectedRows: number;
+      latestProtectedValue: string | null;
     }>;
   } | null;
   extendedRecoveryState?: "core_only" | "extended_recovery" | "extended_normal" | null;

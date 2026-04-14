@@ -68,6 +68,32 @@ Use a real Meta business and at least one real assigned Meta ad account.
 9. `npm run meta:retention-canary -- <businessId>`
 10. If needed: `npm run meta:replay-dead-letter -- <businessId> [scope]`
 
+## Global Rebuild Truth Review Gate
+
+Before calling Meta more trustworthy on the rebuilt warehouse, confirm the repo now says so through the shared operator workflow:
+
+1. Open `/admin/sync-health`.
+2. Inspect `globalRebuildReview.meta`.
+3. Confirm the reported state is not:
+   - `cold_bootstrap`
+   - `backfill_in_progress`
+   - `quota_limited`
+   - `partial_upstream_coverage`
+   - `blocked`
+   - `repair_required`
+4. For a business-level proof check, open `/api/meta/status?businessId=<businessId>`.
+5. Inspect `protectedPublishedTruth`.
+6. Interpret it honestly:
+   - `present` means rebuilt data shows non-zero protected published daily rows
+   - `rebuild_incomplete` means current absence is still explained by rebuild posture
+   - `publication_missing` means finalized-like work still does not have visible publication truth
+   - `none_visible` means no non-zero protected published daily rows are currently visible for that business
+
+Go/no-go:
+
+- `GO` only if the global rebuild review is honest and the business-level protected truth review says what is actually visible.
+- `NO-GO` if operators still need manual SQL to answer whether protected published truth is present or if the rebuild review still reports incomplete posture.
+
 ## Phase 8 Detector Posture
 
 Use these interpretations during rollout and release approval:

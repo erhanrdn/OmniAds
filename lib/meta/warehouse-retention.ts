@@ -11,6 +11,10 @@ import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
 } from "@/lib/sync/worker-health";
+import type {
+  MetaProtectedPublishedTruthClassReview,
+  MetaProtectedPublishedTruthReview,
+} from "@/lib/rebuild-truth-review";
 
 export type MetaRetentionTier =
   | "core_authoritative"
@@ -411,6 +415,60 @@ export const META_RETENTION_POLICY: MetaRetentionPolicyEntry[] = [
     dateColumn: "day",
     deleteStrategy: "day_ctid",
     surfaceFilter: BREAKDOWN_SURFACES,
+  },
+];
+
+const META_PROTECTED_PUBLISHED_TRUTH_CLASS_DEFS: Array<{
+  key: MetaProtectedPublishedTruthClassReview["key"];
+  label: string;
+  summaryKeys: string[];
+}> = [
+  {
+    key: "core_daily_rows",
+    label: "Protected core daily rows",
+    summaryKeys: [
+      "meta_account_daily",
+      "meta_campaign_daily",
+      "meta_adset_daily",
+      "meta_ad_daily",
+    ],
+  },
+  {
+    key: "breakdown_daily_rows",
+    label: "Protected breakdown daily rows",
+    summaryKeys: ["meta_breakdown_daily"],
+  },
+  {
+    key: "active_publication_pointers",
+    label: "Active publication pointers",
+    summaryKeys: [
+      "meta_authoritative_publication_pointers:core",
+      "meta_authoritative_publication_pointers:breakdown",
+    ],
+  },
+  {
+    key: "active_published_slice_versions",
+    label: "Active published slice versions",
+    summaryKeys: [
+      "meta_authoritative_slice_versions:core",
+      "meta_authoritative_slice_versions:breakdown",
+    ],
+  },
+  {
+    key: "active_source_manifests",
+    label: "Active source manifests",
+    summaryKeys: [
+      "meta_authoritative_source_manifests:core",
+      "meta_authoritative_source_manifests:breakdown",
+    ],
+  },
+  {
+    key: "published_day_state",
+    label: "Published day-state rows",
+    summaryKeys: [
+      "meta_authoritative_day_state:core",
+      "meta_authoritative_day_state:breakdown",
+    ],
   },
 ];
 
@@ -1271,6 +1329,138 @@ export async function executeMetaRetentionPolicyDryRunOnly(input: {
   return {
     executionEnabled: isMetaRetentionExecutionEnabled(input.env),
     dryRun: await inspectMetaRetentionDryRunRows(input),
+  };
+}
+
+function buildUnobservedMetaProtectedPublishedTruthReview(input: {
+  asOfDate: string;
+  businessIds?: string[] | null;
+}): MetaProtectedPublishedTruthReview {
+  const businessIds = normalizeBusinessIds(input.businessIds);
+  return {
+    runtimeAvailable: false,
+    asOfDate: input.asOfDate,
+    scope:
+      businessIds.length > 0
+        ? {
+            kind: "selected_businesses",
+            businessIds,
+          }
+        : {
+            kind: "all_businesses",
+            businessIds: null,
+          },
+    hasNonZeroProtectedPublishedRows: false,
+    protectedPublishedRows: 0,
+    activePublicationPointerRows: 0,
+    protectedTruthClassesPresent: [],
+    protectedTruthClassesAbsent: META_PROTECTED_PUBLISHED_TRUTH_CLASS_DEFS.map(
+      (entry) => entry.key,
+    ),
+    classes: META_PROTECTED_PUBLISHED_TRUTH_CLASS_DEFS.map((entry) => ({
+      key: entry.key,
+      label: entry.label,
+      present: false,
+      observed: false,
+      protectedRows: 0,
+      latestProtectedValue: null,
+    })),
+  };
+}
+
+export async function getMetaProtectedPublishedTruthReview(input?: {
+  asOfDate?: string | null;
+  env?: NodeJS.ProcessEnv;
+  businessIds?: string[] | null;
+}): Promise<MetaProtectedPublishedTruthReview> {
+  const env = input?.env ?? process.env;
+  const asOfDate = input?.asOfDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+  const businessIds = normalizeBusinessIds(input?.businessIds);
+
+  if (!isMetaRetentionRuntimeAvailable(env)) {
+    return buildUnobservedMetaProtectedPublishedTruthReview({
+      asOfDate,
+      businessIds,
+    });
+  }
+
+  await assertDbSchemaReady({
+    tables: [...META_RETENTION_REQUIRED_TABLES],
+    context: "meta_protected_published_truth_review",
+  });
+
+  const sql = getDbWithTimeout(envNumber("META_RETENTION_QUERY_TIMEOUT_MS", 30_000, env));
+  const inspections = await Promise.all(
+    META_PROTECTED_PUBLISHED_TRUTH_CLASS_DEFS.map(async (classDef) => {
+      const rows = await Promise.all(
+        classDef.summaryKeys.map(async (summaryKey) => {
+          const policyEntry = META_RETENTION_POLICY.find((entry) => entry.summaryKey === summaryKey);
+          if (!policyEntry) {
+            return {
+              observed: false,
+              protectedRows: null,
+              latestProtectedValue: null,
+            };
+          }
+          return inspectMetaRetentionEntryWindow({
+            sql,
+            entry: policyEntry,
+            cutoffDate: addDaysToIsoDate(asOfDate, -policyEntry.retentionDays),
+            businessIds,
+          });
+        }),
+      );
+
+      const protectedRows = rows.reduce(
+        (sum, row) => sum + Math.max(0, Number(row.protectedRows ?? 0)),
+        0,
+      );
+      const latestProtectedValue =
+        rows
+          .map((row) => row.latestProtectedValue ?? null)
+          .filter((value): value is string => Boolean(value))
+          .sort((left, right) => right.localeCompare(left))[0] ?? null;
+      return {
+        key: classDef.key,
+        label: classDef.label,
+        present: protectedRows > 0,
+        observed: rows.every((row) => row.observed),
+        protectedRows,
+        latestProtectedValue,
+      } satisfies MetaProtectedPublishedTruthClassReview;
+    }),
+  );
+
+  const coreRows =
+    inspections.find((row) => row.key === "core_daily_rows")?.protectedRows ?? 0;
+  const breakdownRows =
+    inspections.find((row) => row.key === "breakdown_daily_rows")?.protectedRows ?? 0;
+  const activePublicationPointerRows =
+    inspections.find((row) => row.key === "active_publication_pointers")?.protectedRows ?? 0;
+
+  return {
+    runtimeAvailable: true,
+    asOfDate,
+    scope:
+      businessIds.length > 0
+        ? {
+            kind: "selected_businesses",
+            businessIds,
+          }
+        : {
+            kind: "all_businesses",
+            businessIds: null,
+          },
+    hasNonZeroProtectedPublishedRows: coreRows + breakdownRows > 0,
+    protectedPublishedRows: coreRows + breakdownRows,
+    activePublicationPointerRows,
+    protectedTruthClassesPresent: inspections
+      .filter((row) => row.present)
+      .map((row) => row.key),
+    protectedTruthClassesAbsent: inspections
+      .filter((row) => !row.present)
+      .map((row) => row.key),
+    classes: inspections,
   };
 }
 
