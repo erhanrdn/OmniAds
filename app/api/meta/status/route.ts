@@ -79,6 +79,7 @@ import {
 } from "@/lib/sync/provider-status-truth";
 import type {
   MetaCoreSurfaceKey,
+  MetaStatusResponse,
   MetaSurfaceReadiness,
 } from "@/lib/meta/status-types";
 
@@ -1291,7 +1292,7 @@ export async function GET(request: NextRequest) {
                 : "Breakdown data is still being prepared for the selected range."
             : "Extended Meta breakdown history is still being prepared in the background.");
 
-  const state = !connected
+  const state: MetaStatusResponse["state"] = !connected
     ? "not_connected"
     : accountIds.length === 0
       ? "connected_no_assignment"
@@ -2013,13 +2014,40 @@ export async function GET(request: NextRequest) {
             totalDays: responseTotalDays,
             readyThroughDate: responseReadyThroughDate,
             phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
-          },
+      },
+  };
+
+  const integrationSummaryInput: Parameters<typeof buildMetaIntegrationSummary>[0] = {
+    state,
+    connected,
+    assignedAccountIds: response.assignedAccountIds,
+    primaryAccountTimezone,
+    latestSync: response.latestSync,
+    warehouse: response.warehouse,
+    jobHealth: response.jobHealth,
+    operations: response.operations
+      ? {
+          progressState: response.operations.progressState,
+          blockingReasons: response.operations.blockingReasons,
+          repairableActions: response.operations.repairableActions,
+          stallFingerprints: response.operations.stallFingerprints,
+        }
+      : null,
+    coreReadiness,
+    extendedCompleteness,
+    priorityWindow: response.priorityWindow,
+    selectedRangeTruth,
+    pageReadiness,
+    recentExtendedReady,
+    historicalExtendedReady,
+    rangeCompletionBySurface,
+    d1FinalizeState,
   };
 
   return NextResponse.json(
     {
       ...response,
-      integrationSummary: buildMetaIntegrationSummary(response),
+      integrationSummary: buildMetaIntegrationSummary(integrationSummaryInput),
     },
     { headers: { "Cache-Control": "no-store" } }
   );
