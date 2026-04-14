@@ -1,7 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import { getDbWithTimeout } from "@/lib/db";
+import { classifyMetaDrainState } from "@/lib/meta-sync-benchmark";
 import { runMigrations } from "@/lib/migrations";
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  configureOperationalScriptRuntime,
+  withOperationalStartupLogsSilenced,
+} from "./_operational-runtime";
 
 type ParsedArgs = {
   businessId: string | null;
@@ -60,47 +64,11 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function classifyDrainState(row: {
-  queueDepth: number;
-  leasedPartitions: number;
-  completedLastWindow: number;
-  createdLastWindow: number;
-  latestActivityAt: string | null;
-  windowMinutes: number;
-}) {
-  if (row.queueDepth <= 0) return "clear";
-  const latestActivityMs = row.latestActivityAt ? new Date(row.latestActivityAt).getTime() : NaN;
-  const activityRecent =
-    Number.isFinite(latestActivityMs) &&
-    Date.now() - latestActivityMs <= row.windowMinutes * 60_000;
-  if (
-    row.leasedPartitions > 0 ||
-    row.completedLastWindow > row.createdLastWindow ||
-    activityRecent
-  ) {
-    return "large_but_draining";
-  }
-  return "large_and_not_draining";
-}
-
-async function withStartupLogsSilenced<T>(callback: () => Promise<T>) {
-  const originalInfo = console.info;
-  console.info = (...args: unknown[]) => {
-    if (typeof args[0] === "string" && args[0].startsWith("[startup]")) return;
-    originalInfo(...args);
-  };
-  try {
-    return await callback();
-  } finally {
-    console.info = originalInfo;
-  }
-}
-
 async function main() {
   const runtime = configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
 
-  const payload = await withStartupLogsSilenced(async () => {
+  const payload = await withOperationalStartupLogsSilenced(async () => {
     if (runtime.runtimeMigrationsEnabled) {
       await runMigrations();
     }
@@ -188,7 +156,7 @@ async function main() {
       return {
         ...normalized,
         netDrainEstimate,
-        drainState: classifyDrainState({
+        drainState: classifyMetaDrainState({
           queueDepth: normalized.queueDepth,
           leasedPartitions: normalized.leasedPartitions,
           completedLastWindow: normalized.completedLastWindow,
@@ -198,6 +166,18 @@ async function main() {
         }),
       };
     });
+
+    const overallLatestActivityAt =
+      businesses
+        .map((business) => business.latestActivityAt)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))
+        .at(-1) ?? null;
+    const overallOldestQueuedPartition =
+      businesses
+        .map((business) => business.oldestQueuedPartition)
+        .filter((value): value is string => Boolean(value))
+        .sort((left, right) => left.localeCompare(right))[0] ?? null;
 
     const summary = businesses.reduce(
       (acc, business) => ({
@@ -232,12 +212,14 @@ async function main() {
       windowMinutes: args.windowMinutes,
       summary: {
         ...summary,
-        drainState: classifyDrainState({
+        oldestQueuedPartition: overallOldestQueuedPartition,
+        latestActivityAt: overallLatestActivityAt,
+        drainState: classifyMetaDrainState({
           queueDepth: summary.queueDepth,
           leasedPartitions: summary.leasedPartitions,
           completedLastWindow: summary.completedLastWindow,
           createdLastWindow: summary.createdLastWindow,
-          latestActivityAt: businesses[0]?.latestActivityAt ?? null,
+          latestActivityAt: overallLatestActivityAt,
           windowMinutes: args.windowMinutes,
         }),
       },

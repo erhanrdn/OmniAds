@@ -33,6 +33,8 @@
     "meta:refresh-state": "node --import tsx scripts/meta-refresh-state.ts",
     "meta:reschedule": "node --import tsx scripts/meta-reschedule.ts",
     "meta:soak-snapshot": "node --import tsx scripts/meta-soak-snapshot.ts",
+    "meta:benchmark": "node --import tsx scripts/meta-sync-benchmark.ts",
+    "meta:readiness-snapshot": "node --import tsx scripts/meta-sync-readiness-snapshot.ts",
     "meta:verify-day": "node --import tsx scripts/meta-verify-day.ts",
     "meta:verify-publish": "node --import tsx scripts/meta-verify-publish.ts",
     "meta:retention-canary": "node --import tsx scripts/meta-retention-canary.ts",

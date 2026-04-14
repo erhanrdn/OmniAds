@@ -1,7 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { getDbRuntimeDiagnostics, getDbWithTimeout } from "@/lib/db";
 import { runMigrations } from "@/lib/migrations";
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  configureOperationalScriptRuntime,
+  withOperationalStartupLogsSilenced,
+} from "./_operational-runtime";
 
 type ParsedArgs = {
   businessId: string | null;
@@ -72,24 +75,11 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function withStartupLogsSilenced<T>(callback: () => Promise<T>) {
-  const originalInfo = console.info;
-  console.info = (...args: unknown[]) => {
-    if (typeof args[0] === "string" && args[0].startsWith("[startup]")) return;
-    originalInfo(...args);
-  };
-  try {
-    return await callback();
-  } finally {
-    console.info = originalInfo;
-  }
-}
-
 async function main() {
   const runtime = configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
 
-  const payload = await withStartupLogsSilenced(async () => {
+  const payload = await withOperationalStartupLogsSilenced(async () => {
     if (runtime.runtimeMigrationsEnabled) {
       await runMigrations();
     }

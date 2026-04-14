@@ -41,12 +41,15 @@ npm run test:local-db
 For the self-hosted production or staging path, use the Meta/Postgres runbook and repo-managed diagnostics instead of ad-hoc shell notes:
 
 ```bash
+npm run meta:readiness-snapshot -- --business <businessId>
+npm run meta:benchmark -- --business <businessId> --samples 4 --interval-seconds 300
 npm run meta:db:diagnostics
 npm run meta:drain-rate
 ```
 
 Docs:
 
+- [`docs/meta-sync-hardening/release-acceptance.md`](docs/meta-sync-hardening/release-acceptance.md)
 - [`docs/meta-sync-hardening/postgres-runbook.md`](docs/meta-sync-hardening/postgres-runbook.md)
 - [`docs/self-hosted-db-ops.md`](docs/self-hosted-db-ops.md)
 

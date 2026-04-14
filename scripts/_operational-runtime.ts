@@ -12,6 +12,21 @@ export function configureOperationalScriptRuntime() {
   };
 }
 
+export async function withOperationalStartupLogsSilenced<T>(
+  callback: () => Promise<T>,
+) {
+  const originalInfo = console.info;
+  console.info = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].startsWith("[startup]")) return;
+    originalInfo(...args);
+  };
+  try {
+    return await callback();
+  } finally {
+    console.info = originalInfo;
+  }
+}
+
 function getOperationalLeaseMinutes() {
   const raw = process.env.WORKER_RUNNER_LEASE_MINUTES?.trim();
   if (!raw) return 10;
