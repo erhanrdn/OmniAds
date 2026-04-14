@@ -1055,7 +1055,7 @@ async function executeMetaRetentionEntryDelete(input: {
                     AND pointer.id IS NULL
                   ORDER BY slice.day ASC, slice.id ASC
                   LIMIT $4
-                  FOR UPDATE SKIP LOCKED
+                  FOR UPDATE OF slice SKIP LOCKED
                 ),
                 deleted AS (
                   DELETE FROM meta_authoritative_slice_versions target
@@ -1087,7 +1087,7 @@ async function executeMetaRetentionEntryDelete(input: {
                     AND slice.id IS NULL
                   ORDER BY manifest.day ASC, manifest.id ASC
                   LIMIT $4
-                  FOR UPDATE SKIP LOCKED
+                  FOR UPDATE OF manifest SKIP LOCKED
                 ),
                 deleted AS (
                   DELETE FROM meta_authoritative_source_manifests target

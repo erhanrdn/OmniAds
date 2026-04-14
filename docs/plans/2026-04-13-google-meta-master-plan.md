@@ -170,7 +170,33 @@
 
 ### Still Pending
 
-- global Meta retention execution rollout remains intentionally deferred until real canary evidence is reviewed.
+- global Meta retention execution rollout remains intentionally deferred until a later dedicated step reviews a business that exposes non-zero active published-truth protection evidence.
+
+## Operator Follow-up Record
+
+- Reviewed on April 14, 2026 for one production Meta business only.
+  - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
+- Dry-run proof outcome:
+  - one initial dry-run was skipped because another Meta retention lease was active
+  - the completed dry-run observed `612` deletable `meta_breakdown_daily` rows outside the `394` day breakdown horizon
+  - the deletable residue window was limited to `2024-04-26` through `2024-05-04`
+  - no active publication-pointer-backed protected rows were present for the reviewed business
+- Execute canary outcome:
+  - the first execute attempt surfaced a real SQL bug: `FOR UPDATE cannot be applied to the nullable side of an outer join`
+  - the fix was kept narrow: orphan cleanup now locks only the base delete target rows
+  - targeted tests passed after the fix
+  - the rerun recorded `retention.canary.latestRun.executionDisposition=canary_execute`
+  - the rerun left `META_RETENTION_EXECUTION_ENABLED=false` globally
+  - the final reviewed canary run reported `totalDeletedRows=0` and `deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
+  - the final status review showed no remaining deletable residue for the reviewed business
+- Rollout decision after review:
+  - keep the Meta retention canary isolated to the single reviewed business
+  - do not widen the allowlist yet
+  - do not enable global `META_RETENTION_EXECUTION_ENABLED`
+  - keep Google retention execute rollout deferred and separate
+- Evidence gap that still blocks widening:
+  - the reviewed business currently exposes `0` protected published rows and `0` active publication pointers in `/api/meta/status.retention.canary`
+  - this follow-up therefore proves canary wiring and safe residue posture, but it does not yet prove active published-truth protection on a business where that protection is live
 
 ## Current Repo Baseline
 
@@ -198,6 +224,11 @@
   - `lib/meta/warehouse-retention.test.ts`
 - Result: `5` files, `100` tests passed.
 - TypeScript verification passed: `npx tsc --noEmit --pretty false`
+- Follow-up regression after the April 14, 2026 canary execute bug fix passed:
+  - `app/api/meta/status/route.test.ts`
+  - `lib/meta/retention-canary.test.ts`
+  - `lib/meta/warehouse-retention.test.ts`
+- Result: `3` files, `30` tests passed.
 
 ## Remaining Risks
 
@@ -205,16 +236,18 @@
 - The raw `/api/google-ads/search-terms` surface is intentionally still a `120` day hot/debug surface and is not a long-horizon intelligence API.
 - Search-intelligence serving now reads additive storage and Phase 4 adds delete-safe observability, but a future explicit operator-approved execute canary is still deferred.
 - Meta retention global execution is still intentionally disabled by default; only the dedicated business-scoped canary path can execute deletes.
-- Meta canary safety now has code/test/status proof, but real production rollout evidence still depends on an operator running the canary for an allowlisted business and reviewing the recorded proof.
+- The operator-reviewed follow-up now has one real-business canary record, but the reviewed business currently has no active published-truth protection rows, so widening the canary would still be premature.
+- The first execute attempt showed that a partial-safe delete can happen before a later per-table error is recorded; the follow-up fix removed the specific outer-join lock bug that surfaced during orphan cleanup.
 - Google execute-mode retention rollout is still intentionally deferred and must remain isolated from any Meta retention canary.
 
 ## Next Recommended PR / Prompt
 
-- Next recommended PR: operator-reviewed Meta retention canary rollout follow-up.
+- Next recommended PR: Meta retention canary protection-proof follow-up on a business with non-zero active published truth.
 - Required scope:
   - keep the published-truth historical contract unchanged
-  - run the dedicated canary for one allowlisted Meta business and review `/api/meta/status.retention.canary`
-  - keep global `META_RETENTION_EXECUTION_ENABLED` off until canary evidence is reviewed
+  - keep the canary limited to one allowlisted Meta business at a time
+  - review `/api/meta/status.retention.canary` for non-zero protected published rows before widening
+  - keep global `META_RETENTION_EXECUTION_ENABLED` off until protection evidence is reviewed
   - keep Google retention execute-mode rollout out of the Meta rollout follow-up
 - Intentionally deferred after Phase 11:
   - Google execute-mode raw-hot-table retention canary
@@ -224,8 +257,7 @@
 
 ### Next Recommended Prompt
 
-1. Run `npm run meta:retention-canary -- <businessId> --execute` for one allowlisted Meta business after setting `META_RETENTION_EXECUTE_CANARY_ENABLED=true` and `META_RETENTION_EXECUTE_CANARY_BUSINESSES=<businessId>`.
-2. Review `/api/meta/status?businessId=<businessId>` and confirm `retention.canary.latestRun.executionDisposition=canary_execute`, protected rows are non-zero, and deleted rows are limited to safe residue.
-3. Keep `META_RETENTION_EXECUTION_ENABLED` disabled globally unless explicit rollout evidence says otherwise.
-4. Do not mix Google execute-mode retention enablement into the Meta rollout follow-up.
-5. Preserve the locked Meta published-truth serving contract while evaluating whether to widen the canary allowlist or keep execution isolated.
+1. Keep `META_RETENTION_EXECUTION_ENABLED=false` globally and leave Google execute-mode retention untouched.
+2. Review a later single-business Meta canary only when the target business exposes non-zero active published-truth protection evidence in `/api/meta/status.retention.canary`.
+3. Confirm `retention.canary.latestRun.executionDisposition=canary_execute`, `deleteScope` stays limited to safe residue or orphaned stale artifacts, and no evidence suggests active in-horizon published truth deletion.
+4. If protected published rows are still zero, keep the canary isolated and record the outcome honestly instead of widening the allowlist.

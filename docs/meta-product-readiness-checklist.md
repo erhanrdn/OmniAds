@@ -149,6 +149,28 @@ Go/no-go:
 - `GO` only if the canary proves deletes are limited to safe residue and the status surface makes the outcome operator-visible without manual SQL.
 - `NO-GO` if canary execution requires global enablement, if protected published truth is ambiguous, or if status cannot distinguish dry-run from gated or executed canary posture.
 
+Observed follow-up on April 14, 2026:
+
+1. One production Meta business was reviewed and kept isolated to a single-business canary.
+   - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
+2. Dry-run evidence:
+   - one initial dry-run skipped because another retention lease was active
+   - the completed dry-run observed `612` deletable `meta_breakdown_daily` rows outside the `394` day horizon
+   - the deletable residue window was `2024-04-26` through `2024-05-04`
+3. Execute evidence:
+   - the first execute attempt exposed a SQL bug in orphan cleanup: `FOR UPDATE cannot be applied to the nullable side of an outer join`
+   - the narrow fix locked only the base orphan target rows and the targeted retention/status tests passed afterward
+   - the rerun recorded `retention.canary.latestRun.executionDisposition=canary_execute`
+   - the rerun kept `META_RETENTION_EXECUTION_ENABLED=false` globally
+   - final status review showed no remaining deletable residue for the reviewed business
+4. Current gate decision:
+   - `NO-GO` for widening the Meta canary
+   - the reviewed business currently reports `protectedRows=0` and `0` active publication pointers in `/api/meta/status.retention.canary`
+   - this proves isolated canary execution posture, but it does not yet prove active published-truth protection on a business where that protection is live
+5. Separate deferred work remains unchanged:
+   - `GOOGLE_ADS_RETENTION_EXECUTION_ENABLED` remains disabled
+   - Google execute-mode retention rollout is still separate and deferred
+
 ## T0 Validation
 
 Run this shortly before or during the account-timezone rollover window.

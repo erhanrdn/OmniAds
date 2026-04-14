@@ -353,10 +353,18 @@ Posture locks:
   - active publication pointers, active published slice versions, active source manifests, published day-state rows, and currently-required published truth inside the locked horizon remain protected
   - allowed deletes remain limited to horizon-outside residue and orphaned stale authoritative artifacts
   - `/api/meta/status.retention.canary` now reports the gate, latest canary run posture, and per-table protected-vs-deleted evidence
+- April 14, 2026 operator follow-up outcome:
+  - one production Meta business was reviewed with a single-business canary; repo docs intentionally anonymize it and only record that the live business id ends with `d34c84`
+  - dry-run proof observed `612` deletable breakdown rows outside the `394` day horizon and no active publication-pointer-backed protected rows for that business
+  - the first execute attempt surfaced a real SQL bug in orphan cleanup: `FOR UPDATE cannot be applied to the nullable side of an outer join`
+  - the fix stayed narrow: orphan cleanup now locks only the base slice/manifest rows
+  - the execute rerun finished with `canary_execute` while global `META_RETENTION_EXECUTION_ENABLED` remained disabled
+  - final status review showed no remaining deletable residue for that business
+  - the reviewed business still reports `0` protected published rows in status, so the follow-up is not sufficient evidence to widen rollout
 
 Next recommended step:
 
-- review real operator evidence from the dedicated Meta retention canary before considering any wider rollout, while keeping `META_RETENTION_EXECUTION_ENABLED` default-disabled globally
+- keep `META_RETENTION_EXECUTION_ENABLED` default-disabled globally and review a later single-business canary only when the target business can prove non-zero protected published truth in `/api/meta/status.retention.canary`
 
 ## Compatibility Strategy
 

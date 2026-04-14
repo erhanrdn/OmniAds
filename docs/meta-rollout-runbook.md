@@ -314,6 +314,33 @@ npm run meta:retention-canary -- <businessId> --execute
    - `retention.canary.tables[].deletedRows`
 7. Do not widen the allowlist or touch `META_RETENTION_EXECUTION_ENABLED` until the canary evidence shows only safe residue deletes and no ambiguity around protected published truth.
 
+Observed follow-up on April 14, 2026:
+
+1. One production Meta business was reviewed and kept isolated to a single-business canary.
+   - Repo docs intentionally anonymize the business; the reviewed live business id ends with `d34c84`.
+2. Dry-run evidence:
+   - one initial dry-run was skipped because another Meta retention lease was active
+   - the successful dry-run observed `612` deletable `meta_breakdown_daily` rows
+   - the deletable breakdown residue window was `2024-04-26` through `2024-05-04`
+   - `deleteScope` remained `horizon_outside_residue`
+3. First execute attempt:
+   - failed with `FOR UPDATE cannot be applied to the nullable side of an outer join`
+   - the narrow fix was to lock only the base orphan target rows during slice/manifest cleanup
+4. Post-fix rerun:
+   - `retention.canary.latestRun.executionDisposition=canary_execute`
+   - `retention.canary.latestRun.totalDeletedRows=0`
+   - `retention.canary.tables[].deleteScope` remained limited to `horizon_outside_residue` or `orphaned_stale_artifact`
+   - `META_RETENTION_EXECUTION_ENABLED` stayed globally disabled
+   - final status review showed no remaining deletable residue for the reviewed business
+5. Rollout decision after the review:
+   - keep the Meta canary isolated to one allowlisted business
+   - do not widen the allowlist yet
+   - do not enable global Meta retention execution
+   - do not mix Google execute-mode rollout into this follow-up
+6. Remaining blocker before widening:
+   - the reviewed business currently reports `0` protected published rows and `0` active publication pointers in `/api/meta/status.retention.canary`
+   - this follow-up therefore proves safe canary posture and operator visibility, but it is not enough evidence to widen rollout to additional businesses
+
 ### Refresh Behavior
 
 1. Trigger historical refresh:

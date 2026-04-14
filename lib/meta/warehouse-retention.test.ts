@@ -405,6 +405,7 @@ describe("Meta warehouse retention policy", () => {
     expect(sliceDeleteCall?.[0]).toContain(
       "AND ($3::text[] IS NULL OR slice.business_id = ANY($3::text[]))",
     );
+    expect(sliceDeleteCall?.[0]).toContain("FOR UPDATE OF slice SKIP LOCKED");
 
     const manifestDeleteCall = sqlQuery.mock.calls.find(([query]) =>
       String(query).includes("DELETE FROM meta_authoritative_source_manifests"),
@@ -414,6 +415,7 @@ describe("Meta warehouse retention policy", () => {
     expect(manifestDeleteCall?.[0]).toContain(
       "AND ($3::text[] IS NULL OR manifest.business_id = ANY($3::text[]))",
     );
+    expect(manifestDeleteCall?.[0]).toContain("FOR UPDATE OF manifest SKIP LOCKED");
   });
 
   it("parses and summarizes recorded retention rows for operator surfaces", () => {
