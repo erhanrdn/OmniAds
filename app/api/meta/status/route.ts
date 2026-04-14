@@ -76,7 +76,10 @@ import {
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
 } from "@/lib/sync/provider-status-truth";
-import type { MetaSurfaceReadiness } from "@/lib/meta/status-types";
+import type {
+  MetaCoreSurfaceKey,
+  MetaSurfaceReadiness,
+} from "@/lib/meta/status-types";
 
 function buildMetaDomainReadiness(input: {
   availableSurfaces: string[];
@@ -1106,10 +1109,10 @@ export async function GET(request: NextRequest) {
     requiredSurfaces: pageRequiredSurfaces,
     optionalSurfaces: pageOptionalSurfaces,
   });
-  const providerCoreSurfaces = selectedRangeRequested
+  const providerCoreSurfaces: Record<MetaCoreSurfaceKey, MetaSurfaceReadiness> = selectedRangeRequested
     ? {
-        summary: pageRequiredSurfaces.summary,
-        campaigns: pageRequiredSurfaces.campaigns,
+        summary: { ...pageRequiredSurfaces.summary },
+        campaigns: { ...pageRequiredSurfaces.campaigns },
       }
     : {
         summary: {

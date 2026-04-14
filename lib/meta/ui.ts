@@ -157,20 +157,10 @@ export function getMetaSyncTitle(
       : "Meta dashboard is usable while deep sync continues";
   }
   if (status.latestSync?.phaseLabel) return status.latestSync.phaseLabel;
-  if (status.state === "paused") {
-    return language === "tr"
-      ? "Meta kuyruğu senkron worker'ını bekliyor"
-      : "Meta queue is waiting for the sync worker";
-  }
   if (status.state === "partial") {
     return language === "tr"
       ? "Meta verileri kademeli olarak hazır oluyor"
       : "Meta data is becoming available progressively";
-  }
-  if (status.state === "action_required") {
-    return language === "tr"
-      ? "Meta senkronu için müdahale gerekiyor"
-      : "Meta sync needs attention";
   }
   return language === "tr"
     ? "Meta geçmiş verileri hazırlanıyor"
@@ -215,20 +205,10 @@ export function getMetaSyncDescription(
       ? "Özet ve kampanya görünümü hazır. Yakın tarihler önde tutulur; breakdown ve kreatif yüzeyleri arka planda tamamlanır."
       : "Summary and campaign views are ready. Recent dates are prioritized first while breakdown and creative surfaces continue in the background.";
   }
-  if (status.state === "paused") {
-    return language === "tr"
-      ? "Kuyruktaki işler korunur. Worker yeniden devreye girdiğinde senkron otomatik devam eder."
-      : "Queued work is safe. Sync will resume automatically when the worker becomes active again.";
-  }
   if (status.state === "partial") {
     return language === "tr"
       ? "Hazır olan yakın tarih bölümlerini kullanabilirsiniz; kalan geçmiş veri arka planda hazırlanmaya devam eder."
       : "You can use the recent sections that are ready while older history continues preparing in the background.";
-  }
-  if (status.state === "action_required") {
-    return language === "tr"
-      ? "Arka plan senkronu tamamlanamadı. Entegrasyonu kontrol edin veya senkronu yeniden başlatın."
-      : "Background sync stopped before finishing. Review the integration or restart the sync.";
   }
   return language === "tr"
     ? "Veriler hazırlanırken hazır olan bölümler kademeli olarak açılır."
