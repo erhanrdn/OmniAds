@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderLabel } from "@/components/integrations/oauth";
+import { MetaIntegrationProgress } from "@/components/integrations/meta-integration-progress";
 import {
   SyncStatusPill,
   SyncStatusPillSkeleton,
@@ -135,6 +136,10 @@ export function IntegrationsCard({
         <div className="mt-2">
           <SyncStatusPill pill={syncPill} />
         </div>
+      ) : null}
+
+      {provider === "meta" && !showSyncSkeleton ? (
+        <MetaIntegrationProgress status={metaSyncStatus} />
       ) : null}
 
       {syncNotice ? (
