@@ -168,8 +168,7 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
 
   if (
     (row.evidence.staleLeasePartitions ?? 0) > 0 ||
-    (row.evidence.reclaimCandidateCount ?? 0) > 0 ||
-    (row.evidence.staleRunCount24h ?? 0) > 0
+    (row.evidence.reclaimCandidateCount ?? 0) > 0
   ) {
     return {
       businessId: row.businessId,
@@ -179,7 +178,7 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
       reason:
         (row.evidence.staleLeasePartitions ?? 0) > 0
           ? "Stale Meta leases are present and should be reclaimed before more work is admitted."
-          : "Meta reclaim candidates or stale runs are blocking fresh admission and should be cleaned up first.",
+          : "Active Meta reclaim candidates are blocking fresh admission and should be cleaned up first.",
       beforeEvidence,
       expectedOutcome:
         "Expired or reclaimable Meta work is cleaned up so queued partitions become eligible for fresh admission.",

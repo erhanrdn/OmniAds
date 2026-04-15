@@ -478,8 +478,7 @@ function classifyMetaProgressState(input: {
     blocked:
       input.deadLetterPartitions > 0 ||
       input.staleLeasePartitions > 0 ||
-      input.reclaimCandidateCount > 0 ||
-      input.staleRunCount24h > 0,
+      input.reclaimCandidateCount > 0,
     fullyReady:
       input.recentExtendedReady &&
       input.historicalExtendedReady &&
@@ -1494,8 +1493,7 @@ export function buildAdminSyncHealth(input: {
       blocked:
         deadLetterPartitions > 0 ||
         staleLeasePartitions > 0 ||
-        metaReclaimSummary.reclaimCandidateCount > 0 ||
-        Number(row.stale_run_count_24h ?? 0) > 0,
+        metaReclaimSummary.reclaimCandidateCount > 0,
       hasRepairableBacklog: retryableFailedPartitions > 0,
       staleRunPressure: Number(row.stale_run_count_24h ?? 0),
       progressEvidence: metaProgressEvidence,
@@ -1510,8 +1508,7 @@ export function buildAdminSyncHealth(input: {
       blocked:
         deadLetterPartitions > 0 ||
         staleLeasePartitions > 0 ||
-        metaReclaimSummary.reclaimCandidateCount > 0 ||
-        Number(row.stale_run_count_24h ?? 0) > 0,
+        metaReclaimSummary.reclaimCandidateCount > 0,
     });
     const lagMetrics = buildSyncLagMetrics(
       metaSnapshotsByBusiness.get(row.business_id)?.latestPublishes?.[0] ?? null,

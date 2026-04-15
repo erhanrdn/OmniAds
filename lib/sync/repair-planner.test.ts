@@ -175,7 +175,7 @@ describe("sync repair planner", () => {
     expect(plan.recommendations[0]?.safetyClassification).toBe("safe_guarded");
   });
 
-  it("proposes stale_lease_reclaim when reclaim candidates or stale runs are present", async () => {
+  it("proposes stale_lease_reclaim when reclaim candidates are present", async () => {
     const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
       persist: false,
       releaseGate: {
@@ -193,7 +193,7 @@ describe("sync repair planner", () => {
                 deadLetterPartitions: 0,
                 staleLeasePartitions: 0,
                 reclaimCandidateCount: 2,
-                staleRunCount24h: 1,
+                staleRunCount24h: 0,
                 truthReady: false,
               },
             },
@@ -206,6 +206,39 @@ describe("sync repair planner", () => {
     expect(plan.eligible).toBe(true);
     expect(plan.recommendations[0]?.recommendedAction).toBe("stale_lease_reclaim");
     expect(plan.recommendations[0]?.safetyClassification).toBe("safe_guarded");
+  });
+
+  it("does not propose stale_lease_reclaim for stale runs alone", async () => {
+    const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
+      persist: false,
+      releaseGate: {
+        ...baseReleaseGate,
+        evidence: {
+          canaries: [
+            {
+              businessId: "biz-1",
+              businessName: "Grandmix",
+              pass: false,
+              blockerClass: "queue_blocked",
+              evidence: {
+                queueDepth: 2,
+                leasedPartitions: 0,
+                deadLetterPartitions: 0,
+                staleLeasePartitions: 0,
+                reclaimCandidateCount: 0,
+                staleRunCount24h: 3,
+                truthReady: false,
+              },
+            },
+          ],
+        },
+      },
+      runtimeRegistry: healthyRuntimeRegistry,
+    });
+
+    expect(plan.eligible).toBe(true);
+    expect(plan.recommendations[0]?.recommendedAction).toBe("reschedule");
+    expect(plan.recommendations[0]?.safetyClassification).toBe("safe_idempotent");
   });
 
   it("proposes reschedule for queued work without leases", async () => {

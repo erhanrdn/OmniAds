@@ -615,6 +615,56 @@ describe("buildAdminSyncHealth", () => {
     );
   });
 
+  it("does not treat meta stale-run history as an active blocker by itself", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta-history",
+          business_name: "Meta History",
+          queue_depth: 0,
+          leased_partitions: 0,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: null,
+          latest_partition_activity_at: new Date().toISOString(),
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: new Date().toISOString(),
+          latest_progress_heartbeat_at: new Date().toISOString(),
+          last_successful_page_index: 3,
+          checkpoint_failures: 0,
+          today_account_rows: 12,
+          today_adset_rows: 12,
+          account_completed_days: 400,
+          account_ready_through_date: "2026-03-28",
+          adset_completed_days: 400,
+          adset_ready_through_date: "2026-03-28",
+          creative_completed_days: 365,
+          creative_ready_through_date: "2026-03-28",
+          ad_completed_days: 365,
+          ad_ready_through_date: "2026-03-28",
+          recent_account_completed_days: 14,
+          recent_adset_completed_days: 14,
+          recent_creative_completed_days: 14,
+          recent_ad_completed_days: 14,
+          recent_range_total_days: 14,
+          skipped_active_lease_recoveries: 0,
+          stale_run_count_24h: 2,
+        },
+      ],
+    });
+
+    expect(payload.metaBusinesses?.[0]?.progressState).not.toBe("blocked");
+    expect(payload.metaBusinesses?.[0]?.activityState).not.toBe("blocked");
+    expect(payload.metaBusinesses?.[0]?.blockerClass).not.toBe("queue_blocked");
+    expect(payload.issues.some((issue) => issue.reportType === "stale_runs")).toBe(true);
+  });
+
   it("classifies meta businesses as partial_stuck when backlog is idle without leases", () => {
     const staleActivity = new Date(Date.now() - 30 * 60_000).toISOString();
     const payload = buildAdminSyncHealth({
