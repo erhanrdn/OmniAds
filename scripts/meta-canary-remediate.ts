@@ -83,6 +83,8 @@ async function main() {
   if (args.successMode === "proof" ? result.proofPassed !== true : result.clearancePassed !== true) {
     process.exit(1);
   }
+
+  process.exit(0);
 }
 
 main().catch((error) => {
