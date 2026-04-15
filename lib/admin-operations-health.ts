@@ -76,6 +76,7 @@ import {
   type SyncRepairExecutionRecord,
   type SyncRepairExecutionSummary,
 } from "@/lib/sync/remediation-executions";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { buildSyncLagMetrics, type SyncLagMetrics } from "@/lib/sync/lag-metrics";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
@@ -2790,6 +2791,10 @@ async function readRevenueSubscriptions() {
 
 export async function getAdminOperationsHealth() {
   const runtimeContract = assertRuntimeContractStartup({ service: "web" });
+  const controlPlaneIdentity = resolveSyncControlPlaneKey({
+    buildId: runtimeContract.buildId,
+    providerScope: "meta",
+  });
   await upsertRuntimeContractInstance({
     contract: runtimeContract,
   }).catch(() => null);
@@ -2846,27 +2851,21 @@ export async function getAdminOperationsHealth() {
         buildId: runtimeContract.buildId,
       }).catch(() => null),
       getLatestSyncGateRecords({
-        buildId: runtimeContract.buildId,
-        environment: process.env.NODE_ENV ?? "unknown",
+        buildId: controlPlaneIdentity.buildId,
+        environment: controlPlaneIdentity.environment,
       }).catch(() => ({
         deployGate: null,
         releaseGate: null,
       })),
       getLatestSyncRepairPlan({
-        buildId: runtimeContract.buildId,
-        environment: process.env.NODE_ENV ?? "unknown",
-        providerScope: "meta",
+        ...controlPlaneIdentity,
       }).catch(() => null),
       getLatestSyncRepairExecutionSummary({
-        buildId: runtimeContract.buildId,
-        environment: process.env.NODE_ENV ?? "unknown",
-        providerScope: "meta",
+        ...controlPlaneIdentity,
       }).catch(() => null),
     ]);
   const latestMetaRepairExecutions = await getLatestSyncRepairExecutions({
-    buildId: runtimeContract.buildId,
-    environment: process.env.NODE_ENV ?? "unknown",
-    providerScope: "meta",
+    ...controlPlaneIdentity,
     businessIds: metaHealth.map((row) => row.business_id),
   }).catch(() => []);
   const latestRepairExecutionsByBusiness = Object.fromEntries(

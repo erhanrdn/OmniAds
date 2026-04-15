@@ -322,7 +322,7 @@ jobs:
                 docker compose exec -T worker sh -lc "
                   unset SYNC_WORKER_MODE
                   export NODE_ENV=production
-                  node --import tsx scripts/sync-gate-evaluate.ts --gate ${gate_kind} $*
+                  node --import tsx scripts/sync-gate-evaluate.ts --gate ${gate_kind} --build-id ${DEPLOY_SHA} --environment production $*
                 "
               }
 
@@ -330,7 +330,15 @@ jobs:
                 docker compose exec -T worker sh -lc "
                   unset SYNC_WORKER_MODE
                   export NODE_ENV=production
-                  node --import tsx scripts/sync-repair-plan-evaluate.ts --provider-scope meta
+                  node --import tsx scripts/sync-repair-plan-evaluate.ts --build-id ${DEPLOY_SHA} --environment production --provider-scope meta
+                "
+              }
+
+              verify_sync_control_plane() {
+                docker compose exec -T worker sh -lc "
+                  unset SYNC_WORKER_MODE
+                  export NODE_ENV=production
+                  node --import tsx scripts/sync-control-plane-verify.ts --build-id ${DEPLOY_SHA} --environment production --provider-scope meta
                 "
               }
 
@@ -426,6 +434,7 @@ jobs:
                 evaluate_sync_gate release_gate
                 evaluate_sync_repair_plan
               fi
+              verify_sync_control_plane
               trap - ERR
           EOF
           }
@@ -454,9 +463,34 @@ jobs:
             return 1
           }
 
+          public_control_plane_matches() {
+            url="$1"
+            attempts="$2"
+            sleep_seconds="$3"
+            attempt=1
+
+            while [ "$attempt" -le "$attempts" ]; do
+              if build_info_json="$(curl -fsSL "$url" 2>/dev/null)"; then
+                if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; raise SystemExit(0 if (payload.get("buildId") or "") == expected and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id") else 1)'
+                then
+                  echo "url=${url} control_plane_ready=yes attempt=${attempt}/${attempts}"
+                  return 0
+                fi
+                echo "url=${url} control_plane_ready=no attempt=${attempt}/${attempts}"
+              fi
+
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+
+            return 1
+          }
+
           require_public_build_match() {
             public_build_matches "https://adsecute.com/api/build-info" 12 5
             public_build_matches "https://www.adsecute.com/api/build-info" 12 5
+            public_control_plane_matches "https://adsecute.com/api/build-info" 12 5
+            public_control_plane_matches "https://www.adsecute.com/api/build-info" 12 5
           }
 
           remediate_primary_public_ingress() {

@@ -1,4 +1,3 @@
-import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
@@ -6,6 +5,7 @@ import {
   type SyncBlockerClass,
   type SyncGateRecord,
 } from "@/lib/sync/release-gates";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { getRuntimeRegistryStatus } from "@/lib/sync/runtime-contract";
 
 export type SyncRepairPlanMode = "dry_run";
@@ -284,9 +284,7 @@ export async function getLatestSyncRepairPlan(input?: {
 }) : Promise<SyncRepairPlanRecord | null> {
   await assertRepairPlanTablesReady("sync_repair_plans:get_latest");
   const sql = getDb();
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
-  const providerScope = input?.providerScope ?? "meta";
+  const { buildId, environment, providerScope } = resolveSyncControlPlaneKey(input);
   const rows = await sql`
     SELECT
       id,
@@ -393,9 +391,7 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
   releaseGate?: SyncGateRecord | null;
   runtimeRegistry?: Awaited<ReturnType<typeof getRuntimeRegistryStatus>> | null;
 }) : Promise<SyncRepairPlanRecord> {
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
-  const providerScope = input?.providerScope ?? "meta";
+  const { buildId, environment, providerScope } = resolveSyncControlPlaneKey(input);
   const runtimeRegistry =
     input?.runtimeRegistry ??
     (await getRuntimeRegistryStatus({ buildId }).catch(() => null));

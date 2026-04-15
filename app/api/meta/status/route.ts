@@ -89,6 +89,7 @@ import {
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { getLatestSyncRepairExecution } from "@/lib/sync/remediation-executions";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { buildSyncLagMetrics } from "@/lib/sync/lag-metrics";
 import type {
   MetaCoreSurfaceKey,
@@ -272,6 +273,10 @@ export async function GET(request: NextRequest) {
   const selectedStartDate = url.searchParams.get("startDate");
   const selectedEndDate = url.searchParams.get("endDate");
   const runtimeContract = assertRuntimeContractStartup({ service: "web" });
+  const controlPlaneIdentity = resolveSyncControlPlaneKey({
+    buildId: runtimeContract.buildId,
+    providerScope: "meta",
+  });
   await upsertRuntimeContractInstance({
     contract: runtimeContract,
   }).catch(() => null);
@@ -325,21 +330,17 @@ export async function GET(request: NextRequest) {
         buildId: runtimeContract.buildId,
       }).catch(() => null),
       getLatestSyncGateRecords({
-        buildId: runtimeContract.buildId,
-        environment: process.env.NODE_ENV ?? "unknown",
+        buildId: controlPlaneIdentity.buildId,
+        environment: controlPlaneIdentity.environment,
       }).catch(() => ({
         deployGate: null,
         releaseGate: null,
       })),
       getLatestSyncRepairPlan({
-        buildId: runtimeContract.buildId,
-        environment: process.env.NODE_ENV ?? "unknown",
-        providerScope: "meta",
+        ...controlPlaneIdentity,
       }).catch(() => null),
       getLatestSyncRepairExecution({
-        buildId: runtimeContract.buildId,
-        environment: process.env.NODE_ENV ?? "unknown",
-        providerScope: "meta",
+        ...controlPlaneIdentity,
         businessId: businessId!,
       }).catch(() => null),
     ]);

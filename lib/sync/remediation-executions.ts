@@ -1,6 +1,6 @@
-import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 
 export type SyncRepairExecutionStatus =
   | "running"
@@ -156,6 +156,11 @@ export async function createSyncRepairExecution(input: {
 }) {
   await assertRepairExecutionTablesReady("sync_repair_executions:create");
   const sql = getDb();
+  const { buildId, environment } = resolveSyncControlPlaneKey({
+    buildId: input.buildId,
+    environment: input.environment,
+    providerScope: input.providerScope,
+  });
   const rows = await sql`
     INSERT INTO sync_repair_executions (
       build_id,
@@ -181,8 +186,8 @@ export async function createSyncRepairExecution(input: {
       updated_at
     )
     VALUES (
-      ${input.buildId ?? getCurrentRuntimeBuildId()},
-      ${input.environment ?? process.env.NODE_ENV ?? "unknown"},
+      ${buildId},
+      ${environment},
       ${input.providerScope},
       ${input.businessId},
       ${input.businessName ?? null},
@@ -261,12 +266,13 @@ export async function getLatestSyncRepairExecution(input: {
 }) {
   await assertRepairExecutionTablesReady("sync_repair_executions:get_latest_business");
   const sql = getDb();
+  const { buildId, environment, providerScope } = resolveSyncControlPlaneKey(input);
   const rows = await sql`
     SELECT *
     FROM sync_repair_executions
-    WHERE build_id = ${input.buildId ?? getCurrentRuntimeBuildId()}
-      AND environment = ${input.environment ?? process.env.NODE_ENV ?? "unknown"}
-      AND provider_scope = ${input.providerScope ?? "meta"}
+    WHERE build_id = ${buildId}
+      AND environment = ${environment}
+      AND provider_scope = ${providerScope}
       AND business_id = ${input.businessId}
     ORDER BY started_at DESC, created_at DESC
     LIMIT 1
@@ -282,9 +288,7 @@ export async function getLatestSyncRepairExecutions(input?: {
 }) {
   await assertRepairExecutionTablesReady("sync_repair_executions:get_latest");
   const sql = getDb();
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
-  const providerScope = input?.providerScope ?? "meta";
+  const { buildId, environment, providerScope } = resolveSyncControlPlaneKey(input);
   const businessIds = input?.businessIds ?? null;
   const rows = await sql`
     SELECT DISTINCT ON (business_id) *
@@ -303,9 +307,7 @@ export async function getLatestSyncRepairExecutionSummary(input?: {
   environment?: string;
   providerScope?: string;
 }) {
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
-  const providerScope = input?.providerScope ?? "meta";
+  const { buildId, environment, providerScope } = resolveSyncControlPlaneKey(input);
   const executions = await getLatestSyncRepairExecutions({
     buildId,
     environment,

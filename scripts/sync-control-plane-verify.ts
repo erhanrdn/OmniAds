@@ -1,35 +1,20 @@
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
 type ParsedArgs = {
-  persist: boolean;
-  providerScope: string;
   buildId: string | null;
   environment: string | null;
+  providerScope: string;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
-    persist: true,
-    providerScope: "meta",
     buildId: null,
     environment: null,
+    providerScope: "meta",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--no-persist") {
-      parsed.persist = false;
-      continue;
-    }
-    if (arg === "--provider-scope") {
-      const value = argv[index + 1]?.trim();
-      if (!value) {
-        throw new Error("missing value for --provider-scope");
-      }
-      parsed.providerScope = value;
-      index += 1;
-      continue;
-    }
     if (arg === "--build-id") {
       const value = argv[index + 1]?.trim();
       if (!value) {
@@ -48,6 +33,15 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--provider-scope") {
+      const value = argv[index + 1]?.trim();
+      if (!value) {
+        throw new Error("missing value for --provider-scope");
+      }
+      parsed.providerScope = value;
+      index += 1;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
 
@@ -57,15 +51,21 @@ function parseArgs(argv: string[]): ParsedArgs {
 async function main() {
   configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
-  const environment = args.environment ?? process.env.NODE_ENV?.trim() ?? "production";
-  const { evaluateAndPersistSyncRepairPlan } = await import("@/lib/sync/repair-planner");
-  const result = await evaluateAndPersistSyncRepairPlan({
+  const { getSyncControlPlanePersistenceStatus } = await import(
+    "@/lib/sync/control-plane-persistence"
+  );
+
+  const status = await getSyncControlPlanePersistenceStatus({
     buildId: args.buildId ?? undefined,
-    environment,
+    environment: args.environment ?? undefined,
     providerScope: args.providerScope,
-    persist: args.persist,
   });
-  console.log(JSON.stringify(result, null, 2));
+
+  console.log(JSON.stringify(status, null, 2));
+
+  if (!status.exactRowsPresent) {
+    process.exit(1);
+  }
 }
 
 main().catch((error) => {

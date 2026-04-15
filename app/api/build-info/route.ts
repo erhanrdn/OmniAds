@@ -8,13 +8,19 @@ import {
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { getLatestSyncRepairExecutionSummary } from "@/lib/sync/remediation-executions";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
+import { getSyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
 
 export async function GET() {
   const contract = assertRuntimeContractStartup({ service: "web" });
+  const controlPlaneIdentity = resolveSyncControlPlaneKey({
+    buildId: contract.buildId,
+    providerScope: "meta",
+  });
   await upsertRuntimeContractInstance({
     contract,
   }).catch(() => null);
-  const [registryResult, gateResult, repairPlanResult, remediationSummaryResult] = await Promise.all([
+  const [registryResult, gateResult, repairPlanResult, remediationSummaryResult, persistenceResult] = await Promise.all([
     getRuntimeRegistryStatus({
       buildId: contract.buildId,
     })
@@ -24,8 +30,8 @@ export async function GET() {
         error: error instanceof Error ? error.message : String(error),
       })),
     getLatestSyncGateRecords({
-      buildId: contract.buildId,
-      environment: process.env.NODE_ENV ?? "unknown",
+      buildId: controlPlaneIdentity.buildId,
+      environment: controlPlaneIdentity.environment,
     })
       .then((value) => ({ value, error: null }))
       .catch((error) => ({
@@ -36,9 +42,7 @@ export async function GET() {
         error: error instanceof Error ? error.message : String(error),
       })),
     getLatestSyncRepairPlan({
-      buildId: contract.buildId,
-      environment: process.env.NODE_ENV ?? "unknown",
-      providerScope: "meta",
+      ...controlPlaneIdentity,
     })
       .then((value) => ({ value, error: null }))
       .catch((error) => ({
@@ -46,9 +50,15 @@ export async function GET() {
         error: error instanceof Error ? error.message : String(error),
       })),
     getLatestSyncRepairExecutionSummary({
-      buildId: contract.buildId,
-      environment: process.env.NODE_ENV ?? "unknown",
-      providerScope: "meta",
+      ...controlPlaneIdentity,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
+    getSyncControlPlanePersistenceStatus({
+      ...controlPlaneIdentity,
     })
       .then((value) => ({ value, error: null }))
       .catch((error) => ({
@@ -63,6 +73,8 @@ export async function GET() {
     {
       buildId: getCurrentRuntimeBuildId(),
       nodeEnv: process.env.NODE_ENV ?? "unknown",
+      controlPlaneIdentity,
+      controlPlanePersistence: persistenceResult.value,
       runtimeContract: contract,
       runtimeRegistry: registry,
       deployGate: gates.deployGate,
@@ -74,6 +86,7 @@ export async function GET() {
         syncGates: gateResult.error,
         repairPlan: repairPlanResult.error,
         remediationSummary: remediationSummaryResult.error,
+        controlPlanePersistence: persistenceResult.error,
       },
     },
     {

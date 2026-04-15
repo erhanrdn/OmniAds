@@ -104,15 +104,72 @@ vi.mock("@/lib/sync/remediation-executions", () => ({
   })),
 }));
 
+vi.mock("@/lib/sync/control-plane-persistence", () => ({
+  getSyncControlPlanePersistenceStatus: vi.fn(async () => ({
+    identity: {
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "meta",
+    },
+    exact: {
+      deployGate: {
+        id: "dg-1",
+        buildId: "build-1",
+        environment: "production",
+        gateKind: "deploy_gate",
+        verdict: "pass",
+        emittedAt: "2026-04-15T12:00:00.000Z",
+      },
+      releaseGate: {
+        id: "rg-1",
+        buildId: "build-1",
+        environment: "production",
+        gateKind: "release_gate",
+        verdict: "measure_only",
+        emittedAt: "2026-04-15T12:00:00.000Z",
+      },
+      repairPlan: {
+        id: "rp-1",
+        buildId: "build-1",
+        environment: "production",
+        providerScope: "meta",
+        eligible: true,
+        emittedAt: "2026-04-15T12:00:00.000Z",
+      },
+    },
+    fallbackByBuild: {
+      deployGate: null,
+      releaseGate: null,
+      repairPlan: null,
+    },
+    latest: {
+      deployGate: null,
+      releaseGate: null,
+      repairPlan: null,
+    },
+    missingExact: [],
+    exactRowsPresent: true,
+  })),
+}));
+
 describe("GET /api/build-info", () => {
   it("surfaces pinned gate ids and remediation summary", async () => {
     const response = await GET();
     const payload = await response.json();
 
     expect(payload.buildId).toBe("build-1");
+    expect(payload.controlPlaneIdentity).toEqual({
+      buildId: "build-1",
+      environment: "test",
+      providerScope: "meta",
+    });
     expect(payload.deployGate.id).toBe("dg-1");
     expect(payload.releaseGate.id).toBe("rg-1");
     expect(payload.repairPlan.id).toBe("rp-1");
+    expect(payload.controlPlanePersistence).toMatchObject({
+      exactRowsPresent: true,
+      missingExact: [],
+    });
     expect(payload.remediationSummary).toMatchObject({
       businessCount: 2,
       improvedAny: true,
@@ -126,6 +183,7 @@ describe("GET /api/build-info", () => {
       syncGates: null,
       repairPlan: null,
       remediationSummary: null,
+      controlPlanePersistence: null,
     });
   });
 });

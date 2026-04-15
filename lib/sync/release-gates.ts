@@ -1,4 +1,3 @@
-import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
@@ -15,6 +14,7 @@ import {
   getProviderScopeWorkerObservation,
   getSyncWorkerHealthSummary,
 } from "@/lib/sync/worker-health";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 
 export type SyncGateKind = "deploy_gate" | "release_gate";
 export type SyncGateBaseResult = "pass" | "fail" | "misconfigured";
@@ -139,8 +139,10 @@ export async function getLatestSyncGateRecords(input?: {
 }> {
   await assertGateTablesReady("sync_release_gates:get_latest");
   const sql = getDb();
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
+  const { buildId, environment } = resolveSyncControlPlaneKey({
+    buildId: input?.buildId,
+    environment: input?.environment,
+  });
   let rows = await sql`
     SELECT
       id,
@@ -382,9 +384,11 @@ export async function evaluateDeployGate(input?: {
   overrideReason?: string | null;
   environment?: string;
 }) : Promise<SyncGateRecord> {
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
+  const { buildId, environment } = resolveSyncControlPlaneKey({
+    buildId: input?.buildId,
+    environment: input?.environment,
+  });
   const mode = gateModeForKind("deploy_gate");
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
   const [registry, workerHealth] = await Promise.all([
     getRuntimeRegistryStatus({ buildId }),
     getSyncWorkerHealthSummary({
@@ -469,8 +473,10 @@ export async function evaluateReleaseGate(input?: {
   overrideReason?: string | null;
   environment?: string;
 }) : Promise<SyncGateRecord> {
-  const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
-  const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
+  const { buildId, environment } = resolveSyncControlPlaneKey({
+    buildId: input?.buildId,
+    environment: input?.environment,
+  });
   const mode = gateModeForKind("release_gate");
   const canaryBusinessIds = getSyncReleaseCanaryBusinessIds();
   const missingMandatoryCanaries = ["172d0ab8-495b-4679-a4c6-ffa404c389d3"].filter(

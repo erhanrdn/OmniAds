@@ -6,6 +6,8 @@ type ParsedArgs = {
   enforce: boolean;
   breakGlass: boolean;
   overrideReason: string | null;
+  buildId: string | null;
+  environment: string | null;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -15,6 +17,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     enforce: false,
     breakGlass: false,
     overrideReason: null,
+    buildId: null,
+    environment: null,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -49,6 +53,24 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--build-id") {
+      const value = argv[index + 1]?.trim();
+      if (!value) {
+        throw new Error("missing value for --build-id");
+      }
+      parsed.buildId = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--environment") {
+      const value = argv[index + 1]?.trim();
+      if (!value) {
+        throw new Error("missing value for --environment");
+      }
+      parsed.environment = value;
+      index += 1;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
 
@@ -58,7 +80,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 async function main() {
   configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
-  const environment = process.env.NODE_ENV?.trim() || "production";
+  const environment = args.environment ?? process.env.NODE_ENV?.trim() ?? "production";
   const {
     evaluateDeployGate,
     evaluateReleaseGate,
@@ -72,6 +94,7 @@ async function main() {
     args.gate === "deploy_gate"
       ? {
           deployGate: await evaluateDeployGate({
+            buildId: args.buildId ?? undefined,
             persist: args.persist,
             breakGlass: args.breakGlass,
             overrideReason: args.overrideReason,
@@ -82,7 +105,8 @@ async function main() {
       : args.gate === "release_gate"
         ? {
             deployGate: null,
-            releaseGate: await evaluateReleaseGate({
+          releaseGate: await evaluateReleaseGate({
+              buildId: args.buildId ?? undefined,
               persist: args.persist,
               breakGlass: args.breakGlass,
               overrideReason: args.overrideReason,
@@ -90,6 +114,7 @@ async function main() {
             }),
           }
         : await evaluateAndPersistSyncGates({
+            buildId: args.buildId ?? undefined,
             breakGlass: args.breakGlass,
             overrideReason: args.overrideReason,
             environment,
