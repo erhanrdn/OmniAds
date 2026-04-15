@@ -66,6 +66,10 @@ import {
   getLatestSyncGateRecords,
   type SyncGateRecord,
 } from "@/lib/sync/release-gates";
+import {
+  getLatestSyncRepairPlan,
+  type SyncRepairPlanRecord,
+} from "@/lib/sync/repair-planner";
 import { buildSyncLagMetrics, type SyncLagMetrics } from "@/lib/sync/lag-metrics";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
@@ -115,6 +119,7 @@ export interface AdminSyncHealthPayload {
   runtimeRegistry?: RuntimeRegistryStatus | null;
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
+  repairPlan?: SyncRepairPlanRecord | null;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   dbDiagnostics?: AdminDbDiagnosticsPayload;
@@ -862,6 +867,7 @@ export function buildAdminSyncHealth(input: {
   runtimeRegistry?: RuntimeRegistryStatus | null;
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
+  repairPlan?: SyncRepairPlanRecord | null;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -1947,6 +1953,7 @@ export function buildAdminSyncHealth(input: {
     runtimeRegistry: input.runtimeRegistry ?? null,
     deployGate: input.deployGate ?? null,
     releaseGate: input.releaseGate ?? null,
+    repairPlan: input.repairPlan ?? null,
     googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
     googleAdsHealthError: input.googleAdsHealthError ?? null,
     dbDiagnostics,
@@ -2785,6 +2792,7 @@ export async function getAdminOperationsHealth() {
     workerHealth,
     runtimeRegistry,
     gateRecords,
+    repairPlan,
   ] =
     await Promise.all([
       readAuthRows().catch(() => []),
@@ -2830,6 +2838,11 @@ export async function getAdminOperationsHealth() {
         deployGate: null,
         releaseGate: null,
       })),
+      getLatestSyncRepairPlan({
+        buildId: runtimeContract.buildId,
+        environment: process.env.NODE_ENV ?? "unknown",
+        providerScope: "meta",
+      }).catch(() => null),
     ]);
   const metaD1FinalizeNonTerminalCounts = Object.fromEntries(
     (
@@ -3001,6 +3014,7 @@ export async function getAdminOperationsHealth() {
     runtimeRegistry,
     deployGate: gateRecords.deployGate,
     releaseGate: gateRecords.releaseGate,
+    repairPlan,
   });
   syncHealth.globalRebuildReview = buildGlobalRebuildTruthReview({
     googleBusinesses: syncHealth.googleAdsBusinesses ?? [],

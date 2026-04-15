@@ -59,7 +59,12 @@ async function main() {
   configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
   const environment = process.env.NODE_ENV?.trim() || "production";
-  const { evaluateDeployGate, evaluateReleaseGate, evaluateAndPersistSyncGates } = await import(
+  const {
+    evaluateDeployGate,
+    evaluateReleaseGate,
+    evaluateAndPersistSyncGates,
+    shouldEnforceSyncGateFailure,
+  } = await import(
     "@/lib/sync/release-gates"
   );
 
@@ -97,14 +102,7 @@ async function main() {
   }
 
   const records = [result.deployGate, result.releaseGate].filter(Boolean);
-  const blocking = records.find(
-    (record) =>
-      record &&
-      (record.verdict === "blocked" ||
-        record.baseResult === "fail" ||
-        record.baseResult === "misconfigured"),
-  );
-  if (blocking) {
+  if (shouldEnforceSyncGateFailure(records)) {
     process.exit(1);
   }
 }

@@ -5,13 +5,16 @@ import {
   collectMetaSyncReadinessSnapshot,
   type MetaSyncBenchmarkSnapshot,
 } from "@/lib/meta-sync-benchmark";
-import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 import {
   getRuntimeRegistryStatus,
   getSyncReleaseCanaryBusinessIds,
   readSyncGateMode,
   type SyncGateMode,
 } from "@/lib/sync/runtime-contract";
+import {
+  getProviderScopeWorkerObservation,
+  getSyncWorkerHealthSummary,
+} from "@/lib/sync/worker-health";
 
 export type SyncGateKind = "deploy_gate" | "release_gate";
 export type SyncGateBaseResult = "pass" | "fail" | "misconfigured";
@@ -22,9 +25,15 @@ export type SyncGateVerdict =
   | "measure_only"
   | "warn_only"
   | "blocked";
+export type SyncGateScope =
+  | "runtime_contract"
+  | "service_liveness"
+  | "release_readiness";
 export type SyncBlockerClass =
   | "none"
   | "runtime_contract_invalid"
+  | "service_unavailable"
+  | "heartbeat_missing"
   | "worker_unavailable"
   | "not_release_ready"
   | "queue_blocked"
@@ -34,6 +43,7 @@ export type SyncBlockerClass =
 
 export interface SyncGateRecord {
   gateKind: SyncGateKind;
+  gateScope: SyncGateScope;
   buildId: string;
   environment: string;
   mode: SyncGateMode;
@@ -83,6 +93,7 @@ export async function upsertSyncGateRecord(input: SyncGateRecord) {
       build_id,
       environment,
       gate_kind,
+      gate_scope,
       mode,
       base_result,
       verdict,
@@ -98,6 +109,7 @@ export async function upsertSyncGateRecord(input: SyncGateRecord) {
       ${input.buildId},
       ${input.environment},
       ${input.gateKind},
+      ${input.gateScope},
       ${input.mode},
       ${input.baseResult},
       ${input.verdict},
@@ -111,6 +123,7 @@ export async function upsertSyncGateRecord(input: SyncGateRecord) {
     )
     ON CONFLICT (build_id, environment, gate_kind)
     DO UPDATE SET
+      gate_scope = EXCLUDED.gate_scope,
       mode = EXCLUDED.mode,
       base_result = EXCLUDED.base_result,
       verdict = EXCLUDED.verdict,
@@ -141,6 +154,7 @@ export async function getLatestSyncGateRecords(input?: {
       build_id,
       environment,
       gate_kind,
+      gate_scope,
       mode,
       base_result,
       verdict,
@@ -162,6 +176,7 @@ export async function getLatestSyncGateRecords(input?: {
         build_id,
         environment,
         gate_kind,
+        gate_scope,
         mode,
         base_result,
         verdict,
@@ -184,6 +199,12 @@ export async function getLatestSyncGateRecords(input?: {
     (accumulator, row) => {
       const record: SyncGateRecord = {
         gateKind: String(row.gate_kind) === "release_gate" ? "release_gate" : "deploy_gate",
+        gateScope:
+          row.gate_scope === "runtime_contract"
+            ? "runtime_contract"
+            : row.gate_scope === "service_liveness"
+              ? "service_liveness"
+              : "release_readiness",
         buildId: String(row.build_id),
         environment: String(row.environment),
         mode: row.mode === "warn_only" ? "warn_only" : row.mode === "block" ? "block" : "measure_only",
@@ -277,6 +298,13 @@ function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
       recentTruthState: snapshot.userFacing.recentSelectedRangeTruth.state,
       priorityTruthState: snapshot.userFacing.priorityWindowTruth.state,
       truthReady,
+      retryableFailedPartitions: snapshot.queue.retryableFailedPartitions,
+      deadLetterPartitions: snapshot.queue.deadLetterPartitions,
+      staleLeasePartitions: snapshot.queue.staleLeasePartitions,
+      repairBacklog: snapshot.authoritative.repairBacklog,
+      validationFailures24h: snapshot.authoritative.validationFailures24h,
+      d1FinalizeNonTerminalCount: snapshot.operator.d1FinalizeNonTerminalCount,
+      stallFingerprints: snapshot.operator.stallFingerprints,
     },
   };
 }
@@ -291,14 +319,26 @@ export async function evaluateDeployGate(input?: {
   const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
   const mode = gateModeForKind("deploy_gate");
   const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
-  const [soak, registry] = await Promise.all([
-    runSyncSoakGate(),
+  const [registry, workerHealth] = await Promise.all([
     getRuntimeRegistryStatus({ buildId }),
+    getSyncWorkerHealthSummary({
+      providerScopes: ["meta"],
+      onlineWindowMinutes: 5,
+    }),
   ]);
-  const baseResult: SyncGateBaseResult =
-    soak.result.outcome === "pass" &&
+  const metaWorker = getProviderScopeWorkerObservation({
+    providerScope: "meta",
+    workers: workerHealth.workers,
+    staleThresholdMs: 5 * 60_000,
+  });
+  const servicesHealthy =
     registry.webPresent &&
     registry.workerPresent &&
+    registry.serviceHealth.web?.healthState === "healthy" &&
+    registry.serviceHealth.worker?.healthState === "healthy";
+  const baseResult: SyncGateBaseResult =
+    servicesHealthy &&
+    metaWorker.hasFreshHeartbeat &&
     registry.dbFingerprintMatch &&
     registry.configFingerprintMatch &&
     registry.contractValid
@@ -307,13 +347,15 @@ export async function evaluateDeployGate(input?: {
   const blockerClass: SyncBlockerClass =
     !registry.contractValid || !registry.dbFingerprintMatch || !registry.configFingerprintMatch
       ? "runtime_contract_invalid"
-      : registry.workerPresent === false || registry.webPresent === false
-        ? "worker_unavailable"
-        : soak.result.outcome !== "pass"
-          ? "queue_blocked"
+      : !servicesHealthy
+        ? "service_unavailable"
+        : !metaWorker.hasFreshHeartbeat
+          ? "heartbeat_missing"
           : "none";
   const record: SyncGateRecord = {
     gateKind: "deploy_gate",
+    gateScope:
+      blockerClass === "runtime_contract_invalid" ? "runtime_contract" : "service_liveness",
     buildId,
     environment,
     mode,
@@ -325,13 +367,24 @@ export async function evaluateDeployGate(input?: {
         ? "Synthetic deploy gate passed."
         : `Synthetic deploy gate failed: ${
             registry.issues[0] ??
-            soak.result.blockingChecks[0]?.key ??
-            "unknown"
+            (blockerClass === "heartbeat_missing"
+              ? "meta_heartbeat_missing"
+              : blockerClass === "service_unavailable"
+                ? "service_unavailable"
+                : "unknown")
           }`,
     breakGlass: Boolean(input?.breakGlass),
     overrideReason: input?.overrideReason ?? null,
     evidence: {
-      soakGate: soak.result,
+      buildId,
+      metaHeartbeat: {
+        onlineWorkers: workerHealth.onlineWorkers,
+        workerInstances: workerHealth.workerInstances,
+        lastHeartbeatAt: workerHealth.lastHeartbeatAt,
+        workerId: metaWorker.workerId,
+        hasFreshHeartbeat: metaWorker.hasFreshHeartbeat,
+        heartbeatAgeMs: metaWorker.heartbeatAgeMs,
+      },
       runtimeRegistry: registry,
     },
     emittedAt: nowIso(),
@@ -360,6 +413,7 @@ export async function evaluateReleaseGate(input?: {
   if (canaryBusinessIds.length === 0 || missingMandatoryCanaries.length > 0) {
     const record: SyncGateRecord = {
       gateKind: "release_gate",
+      gateScope: "release_readiness",
       buildId,
       environment,
       mode,
@@ -413,6 +467,7 @@ export async function evaluateReleaseGate(input?: {
       : null;
   const record: SyncGateRecord = {
     gateKind: "release_gate",
+    gateScope: "release_readiness",
     buildId,
     environment,
     mode,
@@ -466,4 +521,14 @@ export async function evaluateAndPersistSyncGates(input?: {
     deployGate,
     releaseGate,
   };
+}
+
+export function shouldEnforceSyncGateFailure(
+  records: Array<Pick<SyncGateRecord, "verdict"> | null | undefined>,
+) {
+  return records.some(
+    (record) =>
+      record != null &&
+      (record.verdict === "blocked" || record.verdict === "misconfigured"),
+  );
 }

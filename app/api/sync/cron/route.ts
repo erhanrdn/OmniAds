@@ -7,6 +7,7 @@ import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
 import { evaluateAndPersistSyncGates } from "@/lib/sync/release-gates";
+import { evaluateAndPersistSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 /**
@@ -115,6 +116,12 @@ export async function POST(request: NextRequest) {
     console.error("[sync-cron] sync_gate_evaluation_failed", error);
     return null;
   });
+  const repairPlan = await evaluateAndPersistSyncRepairPlan({
+    providerScope: "meta",
+  }).catch((error) => {
+    console.error("[sync-cron] sync_repair_plan_failed", error);
+    return null;
+  });
 
   logRuntimeInfo("sync-cron", "completed", {
     businessCount: businesses.length,
@@ -123,6 +130,8 @@ export async function POST(request: NextRequest) {
     soakGateOutcome: soakGate?.outcome ?? null,
     deployGateVerdict: gateVerdicts?.deployGate?.verdict ?? null,
     releaseGateVerdict: gateVerdicts?.releaseGate?.verdict ?? null,
+    repairPlanEligible: repairPlan?.eligible ?? null,
+    repairRecommendationCount: repairPlan?.recommendations.length ?? null,
   });
   return NextResponse.json(
     {
@@ -131,6 +140,7 @@ export async function POST(request: NextRequest) {
       results: summary,
       ...(soakGate ? { soakGate } : {}),
       ...(gateVerdicts ? { gateVerdicts } : {}),
+      ...(repairPlan ? { repairPlan } : {}),
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );

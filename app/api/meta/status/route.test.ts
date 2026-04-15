@@ -117,6 +117,10 @@ vi.mock("@/lib/sync/release-gates", () => ({
   })),
 }));
 
+vi.mock("@/lib/sync/repair-planner", () => ({
+  getLatestSyncRepairPlan: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/meta/status-operations", () => ({
   deriveMetaOperationsBlockReason: vi.fn(() => null),
 }));

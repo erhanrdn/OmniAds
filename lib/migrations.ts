@@ -1352,6 +1352,7 @@ export async function runMigrations(options?: {
           environment       TEXT NOT NULL,
           gate_kind         TEXT NOT NULL
                             CHECK (gate_kind IN ('deploy_gate', 'release_gate')),
+          gate_scope        TEXT NOT NULL DEFAULT 'release_readiness',
           mode              TEXT NOT NULL
                             CHECK (mode IN ('measure_only', 'warn_only', 'block')),
           base_result       TEXT NOT NULL
@@ -1368,8 +1369,29 @@ export async function runMigrations(options?: {
           updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (build_id, environment, gate_kind)
         )`.catch(() => {}),
+        sql`ALTER TABLE sync_release_gates
+          ADD COLUMN IF NOT EXISTS gate_scope TEXT NOT NULL DEFAULT 'release_readiness'`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_build
           ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_repair_plans (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          build_id            TEXT NOT NULL,
+          environment         TEXT NOT NULL,
+          provider_scope      TEXT NOT NULL,
+          plan_mode           TEXT NOT NULL
+                              CHECK (plan_mode IN ('dry_run')),
+          eligible            BOOLEAN NOT NULL DEFAULT FALSE,
+          blocked_reason      TEXT,
+          break_glass         BOOLEAN NOT NULL DEFAULT FALSE,
+          summary             TEXT NOT NULL,
+          payload_json        JSONB NOT NULL DEFAULT '{}'::jsonb,
+          emitted_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (build_id, environment, provider_scope, plan_mode)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_build
+          ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,

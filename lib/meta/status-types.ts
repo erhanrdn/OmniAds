@@ -22,6 +22,7 @@ import type {
 } from "@/lib/sync/provider-status-truth";
 import type { RuntimeContract, RuntimeRegistryStatus } from "@/lib/sync/runtime-contract";
 import type { SyncGateRecord } from "@/lib/sync/release-gates";
+import type { SyncRepairPlanRecord } from "@/lib/sync/repair-planner";
 import type { SyncLagMetrics } from "@/lib/sync/lag-metrics";
 
 export interface MetaSyncDetails {
@@ -237,6 +238,7 @@ export interface MetaStatusResponse {
   runtimeRegistry?: RuntimeRegistryStatus | null;
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
+  repairPlan?: SyncRepairPlanRecord | null;
   syncTruthState?: SyncTruthState | null;
   blockerClass?: SyncBlockerClass | null;
   domainReadiness?: ProviderDomainReadiness | null;

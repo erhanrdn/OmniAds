@@ -8,6 +8,11 @@ vi.mock("@/lib/meta-sync-benchmark", () => ({
   collectMetaSyncReadinessSnapshot: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/worker-health", () => ({
+  getSyncWorkerHealthSummary: vi.fn(),
+  getProviderScopeWorkerObservation: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/runtime-contract", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/sync/runtime-contract")>();
   return {
@@ -19,6 +24,7 @@ vi.mock("@/lib/sync/runtime-contract", async (importOriginal) => {
 const soakGate = await import("@/lib/sync/soak-gate");
 const benchmark = await import("@/lib/meta-sync-benchmark");
 const runtimeContract = await import("@/lib/sync/runtime-contract");
+const workerHealth = await import("@/lib/sync/worker-health");
 const releaseGates = await import("@/lib/sync/release-gates");
 
 describe("sync release gates", () => {
@@ -35,8 +41,34 @@ describe("sync release gates", () => {
       freshnessWindowMinutes: 10,
       contractValid: true,
       serviceHealth: {
-        web: null,
-        worker: null,
+        web: {
+          instanceId: "web:test:1",
+          service: "web",
+          runtimeRole: "web",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "healthy",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
+        worker: {
+          instanceId: "worker:test:1",
+          service: "worker",
+          runtimeRole: "worker",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "healthy",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
       },
       webPresent: true,
       workerPresent: true,
@@ -44,10 +76,25 @@ describe("sync release gates", () => {
       configFingerprintMatch: true,
       issues: [],
     });
+    vi.mocked(workerHealth.getSyncWorkerHealthSummary).mockResolvedValue({
+      onlineWorkers: 1,
+      workerInstances: 1,
+      lastHeartbeatAt: "2026-04-15T00:00:00.000Z",
+      lastProgressHeartbeatAt: null,
+      workers: [],
+    } as never);
+    vi.mocked(workerHealth.getProviderScopeWorkerObservation).mockReturnValue({
+      workerId: "sync-worker:test:meta",
+      workerFreshnessState: "online",
+      lastHeartbeatAt: "2026-04-15T00:00:00.000Z",
+      heartbeatAgeMs: 1_000,
+      hasFreshHeartbeat: true,
+      metaJson: null,
+    } as never);
     vi.mocked(soakGate.runSyncSoakGate).mockResolvedValue({
       health: {} as never,
       result: {
-        outcome: "pass",
+        outcome: "fail",
         checkedAt: "2026-04-15T00:00:00.000Z",
         thresholds: {
           maxStaleRuns24h: 0,
@@ -58,13 +105,13 @@ describe("sync release gates", () => {
           maxCriticalIssues: 0,
         },
         checks: [],
-        blockingChecks: [],
-        issueCount: 0,
-        criticalIssueCount: 0,
+        blockingChecks: [{ key: "queue_depth", ok: false, actual: 99, threshold: 25 }],
+        issueCount: 1,
+        criticalIssueCount: 1,
         unresolvedRunbookKeys: [],
-        topIssue: null,
-        releaseReadiness: "publishable",
-        summary: "ok",
+        topIssue: "queue_depth",
+        releaseReadiness: "blocked",
+        summary: "blocked",
       },
     } as never);
   });
@@ -80,8 +127,34 @@ describe("sync release gates", () => {
       freshnessWindowMinutes: 10,
       contractValid: false,
       serviceHealth: {
-        web: null,
-        worker: null,
+        web: {
+          instanceId: "web:test:1",
+          service: "web",
+          runtimeRole: "web",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "invalid",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
+        worker: {
+          instanceId: "worker:test:1",
+          service: "worker",
+          runtimeRole: "worker",
+          buildId: "dev-build",
+          providerScopes: ["meta"],
+          dbFingerprint: "db",
+          configFingerprint: "cfg",
+          healthState: "healthy",
+          startedAt: "2026-04-15T00:00:00.000Z",
+          lastSeenAt: "2026-04-15T00:00:00.000Z",
+          contract: null,
+          fresh: true,
+        },
       },
       webPresent: true,
       workerPresent: true,
@@ -95,6 +168,35 @@ describe("sync release gates", () => {
     expect(verdict.baseResult).toBe("fail");
     expect(verdict.verdict).toBe("blocked");
     expect(verdict.blockerClass).toBe("runtime_contract_invalid");
+    expect(verdict.gateScope).toBe("runtime_contract");
+  });
+
+  it("keeps deploy gate synthetic even when operator soak health is failing", async () => {
+    const verdict = await releaseGates.evaluateDeployGate({ persist: false });
+
+    expect(verdict.baseResult).toBe("pass");
+    expect(verdict.verdict).toBe("pass");
+    expect(verdict.blockerClass).toBeNull();
+    expect(verdict.gateScope).toBe("service_liveness");
+    expect(verdict.evidence).not.toHaveProperty("soakGate");
+  });
+
+  it("fails deploy gate when fresh Meta heartbeat is absent", async () => {
+    vi.mocked(workerHealth.getProviderScopeWorkerObservation).mockReturnValue({
+      workerId: "sync-worker:test:meta",
+      workerFreshnessState: "stale",
+      lastHeartbeatAt: "2026-04-15T00:00:00.000Z",
+      heartbeatAgeMs: 900_000,
+      hasFreshHeartbeat: false,
+      metaJson: null,
+    } as never);
+
+    const verdict = await releaseGates.evaluateDeployGate({ persist: false });
+
+    expect(verdict.baseResult).toBe("fail");
+    expect(verdict.verdict).toBe("blocked");
+    expect(verdict.blockerClass).toBe("heartbeat_missing");
+    expect(verdict.gateScope).toBe("service_liveness");
   });
 
   it("marks release gate misconfigured when the canary set is empty", async () => {
@@ -105,6 +207,7 @@ describe("sync release gates", () => {
     expect(verdict.baseResult).toBe("misconfigured");
     expect(verdict.verdict).toBe("misconfigured");
     expect(verdict.blockerClass).toBe("misconfigured");
+    expect(verdict.gateScope).toBe("release_readiness");
   });
 
   it("keeps failing canaries read-only under measure_only mode", async () => {
@@ -232,5 +335,25 @@ describe("sync release gates", () => {
     expect(verdict.baseResult).toBe("fail");
     expect(verdict.verdict).toBe("measure_only");
     expect(verdict.blockerClass).toBe("worker_unavailable");
+    expect(verdict.gateScope).toBe("release_readiness");
+  });
+
+  it("enforces only blocked or misconfigured verdicts", () => {
+    expect(
+      releaseGates.shouldEnforceSyncGateFailure([
+        { verdict: "measure_only" },
+        { verdict: "warn_only" },
+      ] as never),
+    ).toBe(false);
+    expect(
+      releaseGates.shouldEnforceSyncGateFailure([
+        { verdict: "blocked" },
+      ] as never),
+    ).toBe(true);
+    expect(
+      releaseGates.shouldEnforceSyncGateFailure([
+        { verdict: "misconfigured" },
+      ] as never),
+    ).toBe(true);
   });
 });

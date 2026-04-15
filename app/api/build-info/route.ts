@@ -6,13 +6,14 @@ import {
   getRuntimeRegistryStatus,
 } from "@/lib/sync/runtime-contract";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
+import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
 
 export async function GET() {
   const contract = assertRuntimeContractStartup({ service: "web" });
   await upsertRuntimeContractInstance({
     contract,
   }).catch(() => null);
-  const [registry, gates] = await Promise.all([
+  const [registry, gates, repairPlan] = await Promise.all([
     getRuntimeRegistryStatus({
       buildId: contract.buildId,
     }).catch(() => null),
@@ -23,6 +24,11 @@ export async function GET() {
       deployGate: null,
       releaseGate: null,
     })),
+    getLatestSyncRepairPlan({
+      buildId: contract.buildId,
+      environment: process.env.NODE_ENV ?? "unknown",
+      providerScope: "meta",
+    }).catch(() => null),
   ]);
   return NextResponse.json(
     {
@@ -32,6 +38,7 @@ export async function GET() {
       runtimeRegistry: registry,
       deployGate: gates.deployGate,
       releaseGate: gates.releaseGate,
+      repairPlan,
     },
     {
       headers: {

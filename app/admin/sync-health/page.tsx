@@ -52,6 +52,7 @@ interface SyncHealthPayload {
     breakGlass: boolean;
     overrideReason: string | null;
     summary: string;
+    gateScope?: "runtime_contract" | "service_liveness" | "release_readiness";
   } | null;
   releaseGate?: {
     verdict: "pass" | "fail" | "misconfigured" | "measure_only" | "warn_only" | "blocked";
@@ -59,6 +60,19 @@ interface SyncHealthPayload {
     breakGlass: boolean;
     overrideReason: string | null;
     summary: string;
+    gateScope?: "runtime_contract" | "service_liveness" | "release_readiness";
+  } | null;
+  repairPlan?: {
+    eligible: boolean;
+    blockedReason: string | null;
+    breakGlass: boolean;
+    summary: string;
+    recommendations: Array<{
+      businessId: string;
+      businessName: string | null;
+      recommendedAction: string;
+      safetyClassification: "safe_idempotent" | "safe_guarded" | "blocked";
+    }>;
   } | null;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
@@ -672,7 +686,7 @@ export default function AdminSyncHealthPage() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <div className="mt-4 grid gap-4 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Runtime contract</p>
               <p className="mt-2 text-sm text-slate-700">
@@ -691,6 +705,7 @@ export default function AdminSyncHealthPage() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {payload?.deployGate ? <StateBadge state={payload.deployGate.verdict} /> : <StateBadge state="unknown" />}
                 {payload?.deployGate ? <MetricPill label="Mode" value={payload.deployGate.mode} /> : null}
+                {payload?.deployGate?.gateScope ? <MetricPill label="Scope" value={payload.deployGate.gateScope} /> : null}
               </div>
               <p className="mt-2 text-sm text-slate-700">{payload?.deployGate?.summary ?? "No deploy gate verdict recorded for this build."}</p>
             </div>
@@ -700,11 +715,31 @@ export default function AdminSyncHealthPage() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {payload?.releaseGate ? <StateBadge state={payload.releaseGate.verdict} /> : <StateBadge state="unknown" />}
                 {payload?.releaseGate ? <MetricPill label="Mode" value={payload.releaseGate.mode} /> : null}
+                {payload?.releaseGate?.gateScope ? <MetricPill label="Scope" value={payload.releaseGate.gateScope} /> : null}
                 {payload?.releaseGate?.breakGlass ? <MetricPill label="Break glass" value="active" /> : null}
               </div>
               <p className="mt-2 text-sm text-slate-700">{payload?.releaseGate?.summary ?? "No release gate verdict recorded for this build."}</p>
               {payload?.releaseGate?.overrideReason ? (
                 <p className="mt-1 text-xs text-slate-500">override reason: {payload.releaseGate.overrideReason}</p>
+              ) : null}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Repair plan</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <StateBadge state={payload?.repairPlan?.eligible ? "ready" : "blocked"} />
+                {payload?.repairPlan?.blockedReason ? (
+                  <MetricPill label="Blocked" value={payload.repairPlan.blockedReason} />
+                ) : null}
+                {payload?.repairPlan?.breakGlass ? <MetricPill label="Break glass" value="active" /> : null}
+              </div>
+              <p className="mt-2 text-sm text-slate-700">
+                {payload?.repairPlan?.summary ?? "No dry-run repair plan recorded for this build."}
+              </p>
+              {payload?.repairPlan?.recommendations?.length ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  top action: {payload.repairPlan.recommendations[0]?.recommendedAction} • count {payload.repairPlan.recommendations.length}
+                </p>
               ) : null}
             </div>
           </div>

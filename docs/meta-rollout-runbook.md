@@ -80,16 +80,23 @@ Two separate gates now exist:
 
 1. `deploy_gate`
    - synthetic
-   - contract + heartbeat + soak
+   - contract + service liveness + fresh Meta heartbeat
+   - must not read queue depth, dead letters, stale runs, or canary backlog
 2. `release_gate`
    - real-business canary evidence
+   - readiness snapshot + drain-rate + benchmark + queue/dead-letter/backlog evidence
    - read-only until promoted beyond `measure_only`
+3. `repair_plan`
+   - dry-run only
+   - persisted audit artifact
+   - never mutates queue state, env posture, deploy posture, or publication policy
 
 Interpretation:
 
 - deploy success is not equivalent to release readiness
 - if `release_gate` is not `pass`, operator truth must remain `not_release_ready`
 - break-glass is manual deploy-only and must record an explicit reason
+- `repair_plan` is advisory until a later explicit allowlist executor exists
 
 ## Global Operator Review Workflow
 
@@ -179,6 +186,19 @@ First recovery checks:
 4. `npm run meta:refresh-state -- <businessId>`
 5. `npm run meta:reschedule -- <businessId>`
 6. `npm run meta:cleanup -- <businessId>`
+
+Dry-run repair planning is now persisted through:
+
+1. `/api/build-info`
+2. `/admin/sync-health`
+3. `node --import tsx scripts/sync-repair-plan-evaluate.ts --provider-scope meta`
+
+Hard-stop conditions for the dry-run planner:
+
+1. runtime contract invalid
+2. web/worker DB or config fingerprint mismatch
+3. release gate misconfigured
+4. break-glass active
 
 ## Retention Operating Posture
 

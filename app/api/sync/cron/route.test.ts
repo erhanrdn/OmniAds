@@ -33,6 +33,10 @@ vi.mock("@/lib/sync/release-gates", () => ({
   evaluateAndPersistSyncGates: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/repair-planner", () => ({
+  evaluateAndPersistSyncRepairPlan: vi.fn(),
+}));
+
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
@@ -41,6 +45,7 @@ const searchConsoleSync = await import("@/lib/sync/search-console-sync");
 const shopifySync = await import("@/lib/sync/shopify-sync");
 const soakGate = await import("@/lib/sync/soak-gate");
 const releaseGates = await import("@/lib/sync/release-gates");
+const repairPlanner = await import("@/lib/sync/repair-planner");
 const { POST } = await import("@/app/api/sync/cron/route");
 
 describe("POST /api/sync/cron", () => {
@@ -64,6 +69,7 @@ describe("POST /api/sync/cron", () => {
       checkedAt: "2026-04-15T00:00:00.000Z",
       deployGate: {
         gateKind: "deploy_gate",
+        gateScope: "service_liveness",
         buildId: "sha",
         environment: "test",
         mode: "measure_only",
@@ -78,6 +84,7 @@ describe("POST /api/sync/cron", () => {
       },
       releaseGate: {
         gateKind: "release_gate",
+        gateScope: "release_readiness",
         buildId: "sha",
         environment: "test",
         mode: "measure_only",
@@ -90,6 +97,18 @@ describe("POST /api/sync/cron", () => {
         evidence: {},
         emittedAt: "2026-04-15T00:00:00.000Z",
       },
+    } as never);
+    vi.mocked(repairPlanner.evaluateAndPersistSyncRepairPlan).mockResolvedValue({
+      buildId: "sha",
+      environment: "test",
+      providerScope: "meta",
+      planMode: "dry_run",
+      eligible: true,
+      blockedReason: null,
+      breakGlass: false,
+      summary: "no-op",
+      recommendations: [],
+      emittedAt: "2026-04-15T00:00:00.000Z",
     } as never);
   });
 
@@ -142,6 +161,7 @@ describe("POST /api/sync/cron", () => {
     expect(response.status).toBe(200);
     expect(payload.soakGate).toBeUndefined();
     expect(payload.gateVerdicts).toBeDefined();
+    expect(payload.repairPlan).toBeDefined();
     expect(soakGate.runSyncSoakGate).not.toHaveBeenCalled();
     expect(payload.results[0].shopify).toEqual({ skipped: true, reason: "disabled" });
   });
