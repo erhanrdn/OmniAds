@@ -409,21 +409,8 @@ jobs:
               }
 
               persist_sync_control_plane() {
-                refresh_args=(
-                  --build-id "${DEPLOY_SHA}"
-                  --environment production
-                  --provider-scope meta
-                )
-
-                if [ "${BREAK_GLASS}" = "true" ]; then
-                  refresh_args+=(--break-glass --override-reason "${OVERRIDE_REASON}")
-                else
-                  refresh_args+=(--enforce-deploy-gate)
-                fi
-
-                docker compose exec -T -e NODE_ENV=production web \
-                  node --import tsx scripts/sync-control-plane-refresh.ts \
-                    "${refresh_args[@]}"
+                persist_sync_control_plane_via_web
+                verify_local_sync_control_plane
               }
 
               verify_service_image() {
