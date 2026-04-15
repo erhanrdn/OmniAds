@@ -13,23 +13,41 @@ export async function GET() {
   await upsertRuntimeContractInstance({
     contract,
   }).catch(() => null);
-  const [registry, gates, repairPlan] = await Promise.all([
+  const [registryResult, gateResult, repairPlanResult] = await Promise.all([
     getRuntimeRegistryStatus({
       buildId: contract.buildId,
-    }).catch(() => null),
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
     getLatestSyncGateRecords({
       buildId: contract.buildId,
       environment: process.env.NODE_ENV ?? "unknown",
-    }).catch(() => ({
-      deployGate: null,
-      releaseGate: null,
-    })),
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: {
+          deployGate: null,
+          releaseGate: null,
+        },
+        error: error instanceof Error ? error.message : String(error),
+      })),
     getLatestSyncRepairPlan({
       buildId: contract.buildId,
       environment: process.env.NODE_ENV ?? "unknown",
       providerScope: "meta",
-    }).catch(() => null),
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
   ]);
+  const registry = registryResult.value;
+  const gates = gateResult.value;
+  const repairPlan = repairPlanResult.value;
   return NextResponse.json(
     {
       buildId: getCurrentRuntimeBuildId(),
@@ -39,6 +57,11 @@ export async function GET() {
       deployGate: gates.deployGate,
       releaseGate: gates.releaseGate,
       repairPlan,
+      controlPlaneErrors: {
+        runtimeRegistry: registryResult.error,
+        syncGates: gateResult.error,
+        repairPlan: repairPlanResult.error,
+      },
     },
     {
       headers: {
