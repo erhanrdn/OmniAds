@@ -657,7 +657,7 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.progressState).toBe("partial_stuck");
   });
 
-  it("keeps business worker truth offline when only an unrelated Meta worker is online", () => {
+  it("keeps matched worker empty when only an unrelated Meta worker is online", () => {
     const staleActivity = new Date(Date.now() - 30 * 60_000).toISOString();
     const payload = buildAdminSyncHealth({
       jobs: [],
@@ -723,14 +723,14 @@ describe("buildAdminSyncHealth", () => {
 
     expect(payload.summary.workerOnline).toBe(true);
     expect(payload.metaBusinesses?.[0]).toMatchObject({
-      workerOnline: false,
+      workerOnline: true,
       workerId: null,
     });
-    expect(payload.metaBusinesses?.[0]?.stallFingerprints).toContain("worker_unavailable");
+    expect(payload.metaBusinesses?.[0]?.stallFingerprints).not.toContain("worker_unavailable");
     expect(
       payload.issues.find((issue) => issue.reportType === "queue_waiting_worker")?.detail,
-    ).toContain("no matched worker heartbeat");
-    expect(payload.dbDiagnostics?.summary.likelyPrimaryConstraint).toBe("worker_unavailable");
+    ).toContain("despite fresh Meta worker availability");
+    expect(payload.dbDiagnostics?.summary.likelyPrimaryConstraint).toBe("unknown");
   });
 
   it("surfaces meta forward-progress evidence and activity state", () => {

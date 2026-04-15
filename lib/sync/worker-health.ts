@@ -69,6 +69,67 @@ export function selectProviderWorkerForBusiness(input: {
   );
 }
 
+export function selectLatestWorkerForProviderScope(input: {
+  providerScope: string;
+  workers?: Array<{
+    workerId: string;
+    workerFreshnessState?: "online" | "stale" | "stopped";
+    lastHeartbeatAt?: string | null;
+    providerScope?: string | null;
+    metaJson?: Record<string, unknown> | null;
+  }>;
+}) {
+  const workers = (input.workers ?? []).filter(
+    (worker) => String(worker.providerScope ?? "") === input.providerScope,
+  );
+  return (
+    [...workers].sort((left, right) => {
+      const leftHeartbeat = normalizeTimestamp(left.lastHeartbeatAt ?? null);
+      const rightHeartbeat = normalizeTimestamp(right.lastHeartbeatAt ?? null);
+      const leftMs = leftHeartbeat ? new Date(leftHeartbeat).getTime() : 0;
+      const rightMs = rightHeartbeat ? new Date(rightHeartbeat).getTime() : 0;
+      return rightMs - leftMs;
+    })[0] ?? null
+  );
+}
+
+export function getProviderScopeWorkerObservation(input: {
+  providerScope: string;
+  staleThresholdMs: number;
+  nowMs?: number;
+  workers?: Array<{
+    workerId: string;
+    workerFreshnessState?: "online" | "stale" | "stopped";
+    lastHeartbeatAt?: string | null;
+    providerScope?: string | null;
+    metaJson?: Record<string, unknown> | null;
+  }>;
+}) {
+  const matchingWorker = selectLatestWorkerForProviderScope({
+    providerScope: input.providerScope,
+    workers: input.workers,
+  });
+  const lastHeartbeatAt = normalizeTimestamp(matchingWorker?.lastHeartbeatAt ?? null);
+  const nowMs = input.nowMs ?? Date.now();
+  const heartbeatAgeMs =
+    lastHeartbeatAt != null
+      ? Math.max(0, nowMs - new Date(lastHeartbeatAt).getTime())
+      : null;
+  const hasFreshHeartbeat =
+    matchingWorker?.workerFreshnessState === "online" ||
+    (heartbeatAgeMs != null &&
+      heartbeatAgeMs <= Math.max(1, input.staleThresholdMs));
+
+  return {
+    workerId: matchingWorker?.workerId ?? null,
+    workerFreshnessState: matchingWorker?.workerFreshnessState ?? null,
+    lastHeartbeatAt,
+    heartbeatAgeMs,
+    hasFreshHeartbeat,
+    metaJson: matchingWorker?.metaJson ?? null,
+  };
+}
+
 export function getProviderBusinessWorkerObservation(input: {
   businessId: string;
   activeLeaseOwner?: string | null;
@@ -425,23 +486,28 @@ export async function getProviderWorkerHealthState(input: {
     workers: health?.workers,
     staleThresholdMs: input.staleThresholdMs,
   });
+  const providerWorker = getProviderScopeWorkerObservation({
+    providerScope: input.providerScope,
+    workers: health?.workers,
+    staleThresholdMs: input.staleThresholdMs,
+  });
   const evaluated = evaluateProviderWorkerHealth({
-    onlineWorkers: matchingWorker.hasFreshHeartbeat ? 1 : 0,
-    lastHeartbeatAt: matchingWorker.lastHeartbeatAt,
+    onlineWorkers: providerWorker.hasFreshHeartbeat ? 1 : 0,
+    lastHeartbeatAt: providerWorker.lastHeartbeatAt,
     runnerLeaseActive: Boolean(leaseHealth?.hasActiveLease),
     staleThresholdMs: input.staleThresholdMs,
   });
   return {
     providerScope: input.providerScope,
     workerHealthy: evaluated.workerHealthy,
-    heartbeatAgeMs: matchingWorker.heartbeatAgeMs,
+    heartbeatAgeMs: providerWorker.heartbeatAgeMs,
     runnerLeaseActive: evaluated.runnerLeaseActive,
-    hasFreshHeartbeat: matchingWorker.hasFreshHeartbeat,
+    hasFreshHeartbeat: providerWorker.hasFreshHeartbeat,
     ownerWorkerId: leaseHealth?.activeLeaseOwner ?? null,
     matchedWorkerId: matchingWorker.workerId,
-    lastHeartbeatAt: matchingWorker.lastHeartbeatAt,
+    lastHeartbeatAt: providerWorker.lastHeartbeatAt,
     latestLeaseUpdatedAt: leaseHealth?.latestLeaseUpdatedAt ?? null,
-    workerFreshnessState: matchingWorker.workerFreshnessState,
+    workerFreshnessState: providerWorker.workerFreshnessState,
     currentBusinessId: matchingWorker.currentBusinessId,
     lastConsumedBusinessId: matchingWorker.lastConsumedBusinessId,
     consumeStage: matchingWorker.consumeStage,

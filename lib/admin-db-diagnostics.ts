@@ -279,7 +279,7 @@ function buildHeadline(input: {
     return "Meta queue is clear and worker DB pressure is not currently evident.";
   }
   if (input.likelyPrimaryConstraint === "worker_unavailable") {
-    return "Meta backlog is not draining because no matched worker heartbeat or active lease is visible for the stalled business backlog.";
+    return "Meta backlog is not draining because no fresh Meta worker heartbeat or active lease is visible for the stalled business backlog.";
   }
   if (input.workerPressureState === "unknown") {
     return "Meta backlog exists, but worker DB pressure is not yet visible in heartbeat diagnostics.";
@@ -359,7 +359,7 @@ export function buildAdminDbDiagnostics(input: {
   }
   if (workerUnavailable) {
     evidence.push(
-      "No matched worker heartbeat or active lease is visible for the stalled Meta backlog.",
+      "No fresh Meta worker heartbeat or active lease is visible for the stalled Meta backlog.",
     );
   }
   if (workerPressureState === "saturated") {

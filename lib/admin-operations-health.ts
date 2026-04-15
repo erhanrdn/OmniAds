@@ -20,6 +20,7 @@ import {
 } from "@/lib/google-ads/warehouse";
 import {
   getProviderBusinessWorkerObservation,
+  getProviderScopeWorkerObservation,
   getSyncWorkerHealthSummary,
 } from "@/lib/sync/worker-health";
 import {
@@ -866,6 +867,11 @@ export function buildAdminSyncHealth(input: {
   let metaD1FinalizeNonTerminalCount = 0;
   const googleAdsBusinesses: NonNullable<AdminSyncHealthPayload["googleAdsBusinesses"]> = [];
   const metaBusinesses: NonNullable<AdminSyncHealthPayload["metaBusinesses"]> = [];
+  const metaProviderWorkerObservation = getProviderScopeWorkerObservation({
+    providerScope: "meta",
+    workers: input.workerHealth?.workers,
+    staleThresholdMs: 3 * 60_000,
+  });
   let latestProgressHeartbeatAt: string | null = null;
   const metaSnapshotsByBusiness = new Map(
     (input.metaAuthoritativeSnapshots ?? [])
@@ -1406,7 +1412,7 @@ export function buildAdminSyncHealth(input: {
       staleThresholdMs: 3 * 60_000,
     });
     const metaWorkerHealthy =
-      metaWorkerObservation.hasFreshHeartbeat || leasedPartitions > 0;
+      metaProviderWorkerObservation.hasFreshHeartbeat || leasedPartitions > 0;
     const metaCheckpointLagMinutes = computeLagMinutes(metaProgressHeartbeat);
     const progressState = classifyMetaProgressState({
       queueDepth,
@@ -1493,8 +1499,9 @@ export function buildAdminSyncHealth(input: {
       activityState,
       progressEvidence: metaProgressEvidence,
       stallFingerprints,
-      workerOnline: metaWorkerObservation.hasFreshHeartbeat,
-      workerLastHeartbeatAt: metaWorkerObservation.lastHeartbeatAt,
+      workerOnline: metaProviderWorkerObservation.hasFreshHeartbeat,
+      workerLastHeartbeatAt:
+        metaProviderWorkerObservation.lastHeartbeatAt ?? metaWorkerObservation.lastHeartbeatAt,
       workerFreshnessState: metaWorkerObservation.workerFreshnessState,
       workerId: metaWorkerObservation.workerId,
       workerConsumeStage: metaWorkerObservation.consumeStage,
@@ -1655,7 +1662,7 @@ export function buildAdminSyncHealth(input: {
       });
       if (!row.latest_partition_activity_at || Date.now() - new Date(row.latest_partition_activity_at).getTime() > 15 * 60 * 1000) {
         issueTypes.push(
-          metaWorkerObservation.hasFreshHeartbeat
+          metaProviderWorkerObservation.hasFreshHeartbeat
             ? "Meta queue not leasing despite fresh worker heartbeat"
             : "Meta worker unavailable"
         );
@@ -1665,9 +1672,9 @@ export function buildAdminSyncHealth(input: {
           provider: "meta",
           reportType: "queue_waiting_worker",
           status: "running",
-          detail: metaWorkerObservation.hasFreshHeartbeat
-            ? `Meta queue has items but this business is not acquiring a lease. queued=${queueDepth}, leased=${leasedPartitions}, worker=${metaWorkerObservation.workerId ?? "matched"}, heartbeat=${metaWorkerObservation.lastHeartbeatAt ?? "none"}, stage=${metaWorkerObservation.consumeStage ?? "unknown"}, latest_activity=${row.latest_partition_activity_at ?? "none"}`
-            : `Meta queue has items but no matched worker heartbeat or runner lease is visible for this business. queued=${queueDepth}, leased=${leasedPartitions}, worker=${metaWorkerObservation.workerId ?? "none"}, heartbeat=${metaWorkerObservation.lastHeartbeatAt ?? "none"}, latest_activity=${row.latest_partition_activity_at ?? "none"}`,
+          detail: metaProviderWorkerObservation.hasFreshHeartbeat
+            ? `Meta queue has items but this business is not acquiring a lease despite fresh Meta worker availability. queued=${queueDepth}, leased=${leasedPartitions}, provider_heartbeat=${metaProviderWorkerObservation.lastHeartbeatAt ?? "none"}, matched_worker=${metaWorkerObservation.workerId ?? "none"}, matched_heartbeat=${metaWorkerObservation.lastHeartbeatAt ?? "none"}, stage=${metaWorkerObservation.consumeStage ?? "unknown"}, latest_activity=${row.latest_partition_activity_at ?? "none"}`
+            : `Meta queue has items but no fresh Meta worker heartbeat or runner lease is visible for this business. queued=${queueDepth}, leased=${leasedPartitions}, matched_worker=${metaWorkerObservation.workerId ?? "none"}, matched_heartbeat=${metaWorkerObservation.lastHeartbeatAt ?? "none"}, latest_activity=${row.latest_partition_activity_at ?? "none"}`,
           triggeredAt: row.latest_partition_activity_at,
           completedAt: row.oldest_queued_partition,
         });
