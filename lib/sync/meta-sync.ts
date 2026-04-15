@@ -1,5 +1,6 @@
 import {
   type MetaCredentials,
+  publishMetaBreakdownAuthoritativeSurface,
   resolveMetaCredentials,
   syncMetaAccountBreakdownWarehouseDay,
   syncMetaAccountCoreWarehouseDay,
@@ -2057,6 +2058,7 @@ async function syncMetaPartitionDay(input: {
       });
     }
     if (shouldSyncBreakdowns) {
+      const breakdownStartedAt = new Date().toISOString();
       const breakdownJobs = [
         {
           breakdowns: "age,gender",
@@ -2072,63 +2074,83 @@ async function syncMetaPartitionDay(input: {
             "breakdown_publisher_platform,platform_position,impression_device",
         },
       ];
-      for (const breakdownJob of breakdownJobs) {
-        try {
-          await syncMetaAccountBreakdownWarehouseDay({
-            credentials,
-            accountId: input.providerAccountId,
-            day: normalizedDay,
-            partitionId: input.partitionId,
-            workerId: input.workerId,
-            leaseEpoch: input.leaseEpoch,
-            attemptCount: input.attemptCount + 1,
-            breakdowns: breakdownJob.breakdowns,
-            endpointName: breakdownJob.endpointName,
-            positiveSpendAdIds: bulkResult.positiveSpendAdIds,
-            source: input.source,
-            publishAuthoritativeSurface:
-              breakdownJob.endpointName ===
-              "breakdown_publisher_platform,platform_position,impression_device",
-            referenceToday,
-            leaseMinutes: META_PARTITION_LEASE_MINUTES,
-          });
-        } catch (error) {
-          await upsertMetaCheckpointOrThrow({
-            partitionId: input.partitionId,
-            businessId: input.businessId,
-            providerAccountId: input.providerAccountId,
-            checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
-            phase: "fetch_raw",
-            status: "failed",
-            pageIndex: 0,
-            nextPageUrl: null,
-            providerCursor: null,
-            rowsFetched: 0,
-            rowsWritten: 0,
-            lastSuccessfulEntityKey: null,
-            lastResponseHeaders: {},
-            attemptCount: input.attemptCount + 1,
-            leaseEpoch: input.leaseEpoch,
-            leaseOwner: input.workerId,
-            startedAt: new Date().toISOString(),
-            finishedAt: new Date().toISOString(),
-          }).catch(() => null);
-          console.warn("[meta-sync] breakdown_sync_failed", {
-            businessId: input.businessId,
-            providerAccountId: input.providerAccountId,
-            partitionDate: normalizedDay,
-            breakdowns: breakdownJob.breakdowns,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          throw error;
-        }
-        await heartbeatMetaPartitionDuringOrchestrationOrThrow({
-          partitionId: input.partitionId,
-          workerId: input.workerId,
-          leaseEpoch: input.leaseEpoch,
-          leaseMinutes: META_PARTITION_LEASE_MINUTES,
-        });
+      const breakdownResults = await Promise.all(
+        breakdownJobs.map(async (breakdownJob) => {
+          try {
+            await syncMetaAccountBreakdownWarehouseDay({
+              credentials,
+              accountId: input.providerAccountId,
+              day: normalizedDay,
+              partitionId: input.partitionId,
+              workerId: input.workerId,
+              leaseEpoch: input.leaseEpoch,
+              attemptCount: input.attemptCount + 1,
+              breakdowns: breakdownJob.breakdowns,
+              endpointName: breakdownJob.endpointName,
+              positiveSpendAdIds: bulkResult.positiveSpendAdIds,
+              source: input.source,
+              publishAuthoritativeSurface: false,
+              referenceToday,
+              leaseMinutes: META_PARTITION_LEASE_MINUTES,
+            });
+            return {
+              breakdownJob,
+              error: null as Error | null,
+            };
+          } catch (error) {
+            await upsertMetaCheckpointOrThrow({
+              partitionId: input.partitionId,
+              businessId: input.businessId,
+              providerAccountId: input.providerAccountId,
+              checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
+              phase: "fetch_raw",
+              status: "failed",
+              pageIndex: 0,
+              nextPageUrl: null,
+              providerCursor: null,
+              rowsFetched: 0,
+              rowsWritten: 0,
+              lastSuccessfulEntityKey: null,
+              lastResponseHeaders: {},
+              attemptCount: input.attemptCount + 1,
+              leaseEpoch: input.leaseEpoch,
+              leaseOwner: input.workerId,
+              startedAt: new Date().toISOString(),
+              finishedAt: new Date().toISOString(),
+            }).catch(() => null);
+            console.warn("[meta-sync] breakdown_sync_failed", {
+              businessId: input.businessId,
+              providerAccountId: input.providerAccountId,
+              partitionDate: normalizedDay,
+              breakdowns: breakdownJob.breakdowns,
+              message: error instanceof Error ? error.message : String(error),
+            });
+            return {
+              breakdownJob,
+              error:
+                error instanceof Error ? error : new Error(String(error)),
+            };
+          }
+        }),
+      );
+      const failedBreakdown = breakdownResults.find((result) => result.error);
+      if (failedBreakdown?.error) {
+        throw failedBreakdown.error;
       }
+      await publishMetaBreakdownAuthoritativeSurface({
+        credentials,
+        accountId: input.providerAccountId,
+        day: normalizedDay,
+        partitionId: input.partitionId,
+        workerId: input.workerId,
+        leaseEpoch: input.leaseEpoch,
+        endpointName:
+          "breakdown_publisher_platform,platform_position,impression_device",
+        source: input.source,
+        referenceToday,
+        leaseMinutes: META_PARTITION_LEASE_MINUTES,
+        startedAt: breakdownStartedAt,
+      });
     }
     await heartbeatMetaPartitionDuringOrchestrationOrThrow({
       partitionId: input.partitionId,

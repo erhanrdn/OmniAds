@@ -8,6 +8,7 @@ vi.mock("@/lib/api/meta", () => ({
   resolveMetaCredentials: vi.fn(),
   syncMetaAccountCoreWarehouseDay: vi.fn(),
   syncMetaAccountBreakdownWarehouseDay: vi.fn(),
+  publishMetaBreakdownAuthoritativeSurface: vi.fn(),
 }));
 
 vi.mock("@/lib/meta/warehouse", async () => {
@@ -123,6 +124,10 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       },
     } as never);
     vi.mocked(apiMeta.syncMetaAccountBreakdownWarehouseDay).mockResolvedValue(undefined);
+    vi.mocked(apiMeta.publishMetaBreakdownAuthoritativeSurface).mockResolvedValue({
+      published: true,
+      stagedRowCount: 3,
+    } as never);
     vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
       completed_days: 0,
       latest_updated_at: null,
@@ -331,7 +336,7 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     );
     expect(
       vi.mocked(apiMeta.syncMetaAccountBreakdownWarehouseDay).mock.calls.every(
-        ([input]) => input.leaseEpoch === 7
+        ([input]) => input.leaseEpoch === 7 && input.publishAuthoritativeSurface === false
       )
     ).toBe(true);
     expect(warehouse.createMetaSyncRun).toHaveBeenCalledWith(
@@ -368,6 +373,41 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     expect(
       vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.invocationCallOrder[0]
     ).toBeLessThan(vi.mocked(warehouse.completeMetaPartitionAttempt).mock.invocationCallOrder[0]!);
+  });
+
+  it("publishes breakdown truth once after all breakdown slices succeed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-04T12:00:00.000Z"));
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+
+    const processed = await processMetaLifecyclePartition({
+      partition: {
+        id: "partition-1",
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        lane: "extended",
+        scope: "account_daily",
+        partitionDate: "2026-04-03",
+        attemptCount: 2,
+        leaseEpoch: 7,
+        source: "recent_recovery",
+      },
+      workerId: "worker-1",
+    });
+
+    expect(processed).toBe(true);
+    expect(apiMeta.syncMetaAccountBreakdownWarehouseDay).toHaveBeenCalledTimes(3);
+    expect(apiMeta.publishMetaBreakdownAuthoritativeSurface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partitionId: "partition-1",
+        workerId: "worker-1",
+        leaseEpoch: 7,
+        endpointName:
+          "breakdown_publisher_platform,platform_position,impression_device",
+      }),
+    );
+
+    vi.useRealTimers();
   });
 
   it("returns false and records lease_conflict when completion loses the current epoch", async () => {
@@ -446,7 +486,6 @@ describe("processMetaLifecyclePartition lease epoch", () => {
     } as never);
     vi.mocked(warehouse.heartbeatMetaPartitionLease)
       .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true)
       .mockResolvedValue(false);
 
     const processed = await processMetaLifecyclePartition({
@@ -475,13 +514,12 @@ describe("processMetaLifecyclePartition lease epoch", () => {
       })
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      "[meta-sync] partition_failed",
+      "[meta-sync] partition_success_completion_denied",
       expect.objectContaining({
-        businessId: "biz-1",
         scope: "account_daily",
         lane: "extended",
-        source: "recent_recovery",
-        message: "lease_conflict:lease_heartbeat_rejected",
+        leaseEpoch: 15,
+        reason: "lease_conflict",
       })
     );
   });

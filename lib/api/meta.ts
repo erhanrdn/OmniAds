@@ -1631,20 +1631,40 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     }
   }
 
-  const campaignStatuses = await fetchCampaignStatuses(
+  const campaignStatusesPromise = fetchCampaignStatuses(
     input.credentials,
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, string>());
-  const adsetConfigs = await fetchMetaAdSetConfigs(
+  const adsetConfigsPromise = fetchMetaAdSetConfigs(
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, RawAdSet>());
-  const campaignConfigs = await fetchMetaCampaignConfigs(
+  const campaignConfigsPromise = fetchMetaCampaignConfigs(
     input.credentials,
     input.accountId,
     input.credentials.accessToken
   ).catch(() => new Map<string, RawCampaign>());
+  const sourceAccountSpendPromise =
+    truthState === "finalized"
+      ? fetchMetaAccountDaySpend({
+          accountId: input.accountId,
+          accessToken: input.credentials.accessToken,
+          since: normalizedDay,
+          until: normalizedDay,
+        })
+      : Promise.resolve<number | null>(null);
+  const [
+    campaignStatuses,
+    adsetConfigs,
+    campaignConfigs,
+    sourceAccountSpend,
+  ] = await Promise.all([
+    campaignStatusesPromise,
+    adsetConfigsPromise,
+    campaignConfigsPromise,
+    sourceAccountSpendPromise,
+  ]);
   seedMissingMetaEntitiesFromConfigs(aggregates, {
     campaignConfigs,
     adsetConfigs,
@@ -1838,14 +1858,6 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       campaignRows,
     }),
   ];
-  const sourceAccountSpend = truthState === "finalized"
-    ? await fetchMetaAccountDaySpend({
-        accountId: input.accountId,
-        accessToken: input.credentials.accessToken,
-        since: normalizedDay,
-        until: normalizedDay,
-      })
-    : null;
   const zeroSpendFinalizedDay =
     truthState === "finalized" && sourceAccountSpend != null
       ? withinMetaTruthTolerance(sourceAccountSpend, 0)
@@ -2935,79 +2947,136 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     finishedAt: new Date().toISOString(),
   });
 
-  if (
-    authoritativeFinalizationV2Enabled &&
-    input.publishAuthoritativeSurface &&
-    normalizedDay < referenceToday
-  ) {
-    const sourceManifest = await createMetaAuthoritativeSourceManifest({
-      businessId: input.credentials.businessId,
-      providerAccountId: input.accountId,
+  if (input.publishAuthoritativeSurface) {
+    await publishMetaBreakdownAuthoritativeSurface({
+      credentials: input.credentials,
+      accountId: input.accountId,
       day: normalizedDay,
-      surface: "breakdown_daily",
-      accountTimezone: profile?.timezone ?? "UTC",
-      sourceKind: input.source ?? "repair_recent_day",
-      sourceWindowKind: resolveMetaAuthoritativeSourceWindowKind({
-        day: normalizedDay,
-        referenceToday,
-        source: input.source,
-      }),
-      runId: sourceRunId,
-      fetchStatus: "completed",
-      freshStartApplied: false,
-      checkpointResetApplied: false,
-      rawSnapshotWatermark: sourceRunId,
-      sourceSpend: null,
-      validationBasisVersion: "meta-authoritative-finalization-v2",
-      metaJson: {
-        partitionId: input.partitionId,
-        workerId: input.workerId,
-        endpointName: input.endpointName,
-        breakdownSurface: "full",
-      },
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      leaseEpoch: input.leaseEpoch,
+      endpointName: input.endpointName,
+      source: input.source,
+      referenceToday,
+      leaseMinutes: input.leaseMinutes,
       startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
-      completedAt: new Date().toISOString(),
+      runId: sourceRunId,
     });
-    const totalBreakdownRows = (
-      await getDb()`
-        SELECT COUNT(*)::int AS count
-        FROM meta_breakdown_daily
-        WHERE business_id = ${input.credentials.businessId}
-          AND provider_account_id = ${input.accountId}
-          AND date = ${normalizedDay}
-      `
-    ) as Array<{ count: number | string }>;
-    const breakdownSliceVersion = await createMetaAuthoritativeSliceVersion({
+  }
+}
+
+export async function publishMetaBreakdownAuthoritativeSurface(input: {
+  credentials: MetaCredentials;
+  accountId: string;
+  day: string;
+  partitionId: string;
+  workerId: string;
+  leaseEpoch: number;
+  endpointName: string;
+  source?: string;
+  referenceToday?: string | null;
+  leaseMinutes?: number;
+  startedAt?: string;
+  runId?: string;
+}) {
+  const normalizedDay = normalizeMetaApiDate(input.day);
+  const profile = input.credentials.accountProfiles[input.accountId];
+  const authoritativeFinalizationV2Enabled =
+    isMetaAuthoritativeFinalizationV2EnabledForBusiness(
+      input.credentials.businessId,
+    );
+  const referenceToday = normalizeMetaApiDate(
+    input.referenceToday ?? getTodayIsoForTimeZone(profile?.timezone ?? null),
+  );
+  if (!authoritativeFinalizationV2Enabled || normalizedDay >= referenceToday) {
+    return {
+      published: false,
+      stagedRowCount: 0,
+    };
+  }
+
+  await heartbeatOwnedMetaPartitionLeaseOrThrow({
+    partitionId: input.partitionId,
+    workerId: input.workerId,
+    leaseEpoch: input.leaseEpoch,
+    leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
+  });
+
+  const sourceRunId = input.runId ?? input.partitionId;
+  const startedAt = input.startedAt ?? new Date().toISOString();
+  const sourceManifest = await createMetaAuthoritativeSourceManifest({
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    day: normalizedDay,
+    surface: "breakdown_daily",
+    accountTimezone: profile?.timezone ?? "UTC",
+    sourceKind: input.source ?? "repair_recent_day",
+    sourceWindowKind: resolveMetaAuthoritativeSourceWindowKind({
+      day: normalizedDay,
+      referenceToday,
+      source: input.source,
+    }),
+    runId: sourceRunId,
+    fetchStatus: "completed",
+    freshStartApplied: false,
+    checkpointResetApplied: false,
+    rawSnapshotWatermark: sourceRunId,
+    sourceSpend: null,
+    validationBasisVersion: "meta-authoritative-finalization-v2",
+    metaJson: {
+      partitionId: input.partitionId,
+      workerId: input.workerId,
+      endpointName: input.endpointName,
+      breakdownSurface: "full",
+    },
+    startedAt,
+    completedAt: new Date().toISOString(),
+  });
+  const totalBreakdownRows = (
+    await getDb()`
+      SELECT COUNT(*)::int AS count
+      FROM meta_breakdown_daily
+      WHERE business_id = ${input.credentials.businessId}
+        AND provider_account_id = ${input.accountId}
+        AND date = ${normalizedDay}
+    `
+  ) as Array<{ count: number | string }>;
+  const stagedRowCount = Number(totalBreakdownRows[0]?.count ?? 0);
+  const breakdownSliceVersion = await createMetaAuthoritativeSliceVersion({
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    day: normalizedDay,
+    surface: "breakdown_daily",
+    manifestId: sourceManifest?.id ?? null,
+    state: "finalizing",
+    truthState: "finalized",
+    validationStatus: "pending",
+    status: "staging",
+    stagedRowCount,
+    aggregatedSpend: null,
+    validationSummary: {
+      publishedAsSurface: true,
+      breakdownTypes: ["age", "country", "placement"],
+    },
+    sourceRunId,
+    stageStartedAt: startedAt,
+  });
+  if (breakdownSliceVersion?.id) {
+    await publishMetaAuthoritativeSliceVersion({
       businessId: input.credentials.businessId,
       providerAccountId: input.accountId,
       day: normalizedDay,
       surface: "breakdown_daily",
-      manifestId: sourceManifest?.id ?? null,
-      state: "finalizing",
-      truthState: "finalized",
-      validationStatus: "pending",
-      status: "staging",
-      stagedRowCount: Number(totalBreakdownRows[0]?.count ?? 0),
-      aggregatedSpend: null,
-      validationSummary: {
-        publishedAsSurface: true,
-        breakdownTypes: ["age", "country", "placement"],
-      },
-      sourceRunId,
-      stageStartedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+      sliceVersionId: breakdownSliceVersion.id,
+      publishedByRunId: sourceRunId,
+      publicationReason: "authoritative_finalize",
     });
-    if (breakdownSliceVersion?.id) {
-      await publishMetaAuthoritativeSliceVersion({
-        businessId: input.credentials.businessId,
-        providerAccountId: input.accountId,
-        day: normalizedDay,
-        surface: "breakdown_daily",
-        sliceVersionId: breakdownSliceVersion.id,
-        publishedByRunId: sourceRunId,
-        publicationReason: "authoritative_finalize",
-      });
-    }
   }
+
+  return {
+    published: Boolean(breakdownSliceVersion?.id),
+    stagedRowCount,
+  };
 }
 
 // ── Time breakdown (for reports) ──────────────────────────────────────────────

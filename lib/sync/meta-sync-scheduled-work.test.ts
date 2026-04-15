@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api/meta", () => ({
   resolveMetaCredentials: vi.fn(),
+  publishMetaBreakdownAuthoritativeSurface: vi.fn(),
   syncMetaAccountBreakdownWarehouseDay: vi.fn(),
   syncMetaAccountCoreWarehouseDay: vi.fn(),
 }));
