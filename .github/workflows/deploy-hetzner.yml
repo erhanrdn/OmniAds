@@ -342,23 +342,7 @@ jobs:
                 printf '%s\n' "${response_json}"
 
                 route_status=0
-                RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 - <<'PY' || route_status=$?
-import json
-import os
-import sys
-
-status = int(os.environ["HTTP_STATUS"])
-payload = json.loads(os.environ["RESPONSE_JSON"] or "{}")
-
-if status not in (200, 503):
-    sys.exit(10)
-
-if status == 503:
-    sys.exit(20)
-
-if payload.get("ok") is not True:
-    sys.exit(30)
-PY
+                RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 -c 'import json, os, sys; status=int(os.environ["HTTP_STATUS"]); payload=json.loads(os.environ["RESPONSE_JSON"] or "{}"); sys.exit(10 if status not in (200, 503) else 20 if status == 503 else 30 if payload.get("ok") is not True else 0)' || route_status=$?
                 if [ "${route_status}" -ne 0 ]; then
                   case "${route_status}" in
                     10)
