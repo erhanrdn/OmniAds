@@ -58,6 +58,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 async function main() {
   configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
+  const environment = process.env.NODE_ENV?.trim() || "production";
   const { evaluateDeployGate, evaluateReleaseGate, evaluateAndPersistSyncGates } = await import(
     "@/lib/sync/release-gates"
   );
@@ -69,6 +70,7 @@ async function main() {
             persist: args.persist,
             breakGlass: args.breakGlass,
             overrideReason: args.overrideReason,
+            environment,
           }),
           releaseGate: null,
         }
@@ -79,11 +81,13 @@ async function main() {
               persist: args.persist,
               breakGlass: args.breakGlass,
               overrideReason: args.overrideReason,
+              environment,
             }),
           }
         : await evaluateAndPersistSyncGates({
             breakGlass: args.breakGlass,
             overrideReason: args.overrideReason,
+            environment,
           });
 
   console.log(JSON.stringify(result, null, 2));

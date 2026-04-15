@@ -136,7 +136,7 @@ export async function getLatestSyncGateRecords(input?: {
   const sql = getDb();
   const buildId = input?.buildId ?? getCurrentRuntimeBuildId();
   const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
-  const rows = await sql`
+  let rows = await sql`
     SELECT
       build_id,
       environment,
@@ -155,6 +155,27 @@ export async function getLatestSyncGateRecords(input?: {
       AND environment = ${environment}
     ORDER BY emitted_at DESC
   ` as Array<Record<string, unknown>>;
+
+  if (rows.length === 0) {
+    rows = await sql`
+      SELECT
+        build_id,
+        environment,
+        gate_kind,
+        mode,
+        base_result,
+        verdict,
+        blocker_class,
+        summary,
+        break_glass,
+        override_reason,
+        evidence_json,
+        emitted_at
+      FROM sync_release_gates
+      WHERE build_id = ${buildId}
+      ORDER BY emitted_at DESC
+    ` as Array<Record<string, unknown>>;
+  }
 
   const records = rows.reduce<{
     deploy_gate: SyncGateRecord | null;

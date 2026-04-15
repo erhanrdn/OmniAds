@@ -350,7 +350,6 @@ export function buildRuntimeContract(input?: {
   });
   const configFingerprint = fingerprint({
     contractVersion: CONTRACT_VERSION,
-    service,
     metaAuthoritativeFinalizationV2: config.metaAuthoritativeFinalizationV2,
     metaRetentionExecutionEnabled: config.metaRetentionExecutionEnabled,
     releaseCanaryBusinesses,
