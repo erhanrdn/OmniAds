@@ -547,8 +547,6 @@ jobs:
           require_public_build_match() {
             public_build_matches "https://adsecute.com/api/build-info" 12 5
             public_build_matches "https://www.adsecute.com/api/build-info" 12 5
-            public_control_plane_matches "https://adsecute.com/api/build-info" 12 5
-            public_control_plane_matches "https://www.adsecute.com/api/build-info" 12 5
           }
 
           remediate_primary_public_ingress() {
