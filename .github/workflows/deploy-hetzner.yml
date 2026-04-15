@@ -316,6 +316,16 @@ jobs:
                 return 1
               }
 
+              evaluate_sync_gate() {
+                gate_kind="$1"
+                shift
+                docker compose exec -T worker sh -lc "
+                  unset SYNC_WORKER_MODE
+                  export NODE_ENV=production
+                  node --import tsx scripts/sync-gate-evaluate.ts --gate ${gate_kind} $*
+                "
+              }
+
               verify_service_image() {
                 service_name="$1"
                 expected_image="$2"
@@ -396,20 +406,15 @@ jobs:
 
               log "Evaluating sync deploy and release gates"
               if [ "${BREAK_GLASS}" = "true" ]; then
-                node --import tsx scripts/sync-gate-evaluate.ts \
-                  --gate deploy_gate \
+                evaluate_sync_gate deploy_gate \
                   --break-glass \
-                  --override-reason "${OVERRIDE_REASON}"
-                node --import tsx scripts/sync-gate-evaluate.ts \
-                  --gate release_gate \
+                  --override-reason "'${OVERRIDE_REASON}'"
+                evaluate_sync_gate release_gate \
                   --break-glass \
-                  --override-reason "${OVERRIDE_REASON}"
+                  --override-reason "'${OVERRIDE_REASON}'"
               else
-                node --import tsx scripts/sync-gate-evaluate.ts \
-                  --gate deploy_gate \
-                  --enforce
-                node --import tsx scripts/sync-gate-evaluate.ts \
-                  --gate release_gate
+                evaluate_sync_gate deploy_gate --enforce
+                evaluate_sync_gate release_gate
               fi
               trap - ERR
           EOF
