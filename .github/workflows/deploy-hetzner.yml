@@ -316,36 +316,36 @@ jobs:
                 return 1
               }
 
-              persist_sync_control_plane_via_web() {
-                cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || \"\")')"
-                if [ -z "${cron_secret}" ]; then
-                  echo "CRON_SECRET is missing from the web runtime."
-                  return 1
+              persist_sync_control_plane_locally() {
+                gate_args=(
+                  node --import tsx scripts/sync-gate-evaluate.ts
+                  --build-id "${DEPLOY_SHA}"
+                  --environment production
+                )
+                if [ "${BREAK_GLASS}" = "true" ]; then
+                  gate_args+=(--break-glass --override-reason "${OVERRIDE_REASON}")
                 fi
 
-                query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1"
-                if [ "${BREAK_GLASS}" = "true" ]; then
-                  encoded_override_reason="$(
-                    python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
-                  )"
-                  query_string="${query_string}&breakGlass=1&overrideReason=${encoded_override_reason}"
-                fi
+                docker compose exec -T -e NODE_ENV=production web "${gate_args[@]}"
+                docker compose exec -T -e NODE_ENV=production web \
+                  node --import tsx scripts/sync-repair-plan-evaluate.ts \
+                    --build-id "${DEPLOY_SHA}" \
+                    --environment production \
+                    --provider-scope meta
 
                 attempt=1
                 max_attempts=6
                 sleep_seconds=5
 
                 while [ "${attempt}" -le "${max_attempts}" ]; do
-                  response_json="$(curl -fsS -X POST "http://127.0.0.1:3000/api/sync/cron?${query_string}" \
-                    -H "Authorization: Bearer ${cron_secret}")"
-                  printf '%s\n' "${response_json}"
-
-                  if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
-                    if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; raise SystemExit(0 if (payload.get("buildId") or "") == expected and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id") else 1)'
-                    then
-                      echo "local_control_plane_ready=yes attempt=${attempt}/${max_attempts}"
-                      return 0
-                    fi
+                  if docker compose exec -T -e NODE_ENV=production web \
+                    node --import tsx scripts/sync-control-plane-verify.ts \
+                      --build-id "${DEPLOY_SHA}" \
+                      --environment production \
+                      --provider-scope meta
+                  then
+                    echo "local_control_plane_ready=yes attempt=${attempt}/${max_attempts}"
+                    return 0
                   fi
 
                   echo "local_control_plane_ready=no attempt=${attempt}/${max_attempts}"
@@ -437,7 +437,7 @@ jobs:
               verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 12 5
 
               log "Persisting current-build sync control plane"
-              persist_sync_control_plane_via_web
+              persist_sync_control_plane_locally
               trap - ERR
           EOF
           }
