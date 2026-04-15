@@ -360,7 +360,9 @@ jobs:
                   esac
                   return 1
                 fi
+              }
 
+              verify_local_sync_control_plane() {
                 attempt=1
                 max_attempts=6
                 sleep_seconds=5
@@ -384,6 +386,38 @@ jobs:
                 done
 
                 return 1
+              }
+
+              persist_sync_control_plane_directly() {
+                gate_args=(
+                  --build-id "${DEPLOY_SHA}"
+                  --environment production
+                )
+                if [ "${BREAK_GLASS}" = "true" ]; then
+                  gate_args+=(--break-glass --override-reason "${OVERRIDE_REASON}")
+                fi
+
+                docker compose exec -T -e NODE_ENV=production web \
+                  node --import tsx scripts/sync-gate-evaluate.ts \
+                    "${gate_args[@]}"
+
+                docker compose exec -T -e NODE_ENV=production web \
+                  node --import tsx scripts/sync-repair-plan-evaluate.ts \
+                    --build-id "${DEPLOY_SHA}" \
+                    --environment production \
+                    --provider-scope meta
+              }
+
+              persist_sync_control_plane() {
+                persist_sync_control_plane_via_web
+
+                if verify_local_sync_control_plane; then
+                  return 0
+                fi
+
+                echo "controlPlaneOnly route did not produce exact current-build rows; retrying with direct web-container writers"
+                persist_sync_control_plane_directly
+                verify_local_sync_control_plane
               }
 
               verify_service_image() {
@@ -465,7 +499,7 @@ jobs:
               verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 12 5
 
               log "Persisting current-build sync control plane"
-              persist_sync_control_plane_via_web
+              persist_sync_control_plane
               trap - ERR
           EOF
           }
