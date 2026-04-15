@@ -175,6 +175,39 @@ describe("sync repair planner", () => {
     expect(plan.recommendations[0]?.safetyClassification).toBe("safe_guarded");
   });
 
+  it("proposes stale_lease_reclaim when reclaim candidates or stale runs are present", async () => {
+    const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
+      persist: false,
+      releaseGate: {
+        ...baseReleaseGate,
+        evidence: {
+          canaries: [
+            {
+              businessId: "biz-1",
+              businessName: "TheSwaf",
+              pass: false,
+              blockerClass: "queue_blocked",
+              evidence: {
+                queueDepth: 0,
+                leasedPartitions: 0,
+                deadLetterPartitions: 0,
+                staleLeasePartitions: 0,
+                reclaimCandidateCount: 2,
+                staleRunCount24h: 1,
+                truthReady: false,
+              },
+            },
+          ],
+        },
+      },
+      runtimeRegistry: healthyRuntimeRegistry,
+    });
+
+    expect(plan.eligible).toBe(true);
+    expect(plan.recommendations[0]?.recommendedAction).toBe("stale_lease_reclaim");
+    expect(plan.recommendations[0]?.safetyClassification).toBe("safe_guarded");
+  });
+
   it("proposes reschedule for queued work without leases", async () => {
     const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
       persist: false,

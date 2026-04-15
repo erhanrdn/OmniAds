@@ -59,6 +59,8 @@ type ReleaseGateCanaryEvidence = {
     retryableFailedPartitions?: number;
     deadLetterPartitions?: number;
     staleLeasePartitions?: number;
+    reclaimCandidateCount?: number;
+    staleRunCount24h?: number;
     repairBacklog?: number;
     validationFailures24h?: number;
     d1FinalizeNonTerminalCount?: number;
@@ -116,6 +118,8 @@ function normalizeCanaryRows(releaseGate: SyncGateRecord | null): ReleaseGateCan
           retryableFailedPartitions: toInt(evidence.retryableFailedPartitions),
           deadLetterPartitions: toInt(evidence.deadLetterPartitions),
           staleLeasePartitions: toInt(evidence.staleLeasePartitions),
+          reclaimCandidateCount: toInt(evidence.reclaimCandidateCount),
+          staleRunCount24h: toInt(evidence.staleRunCount24h),
           repairBacklog: toInt(evidence.repairBacklog),
           validationFailures24h: toInt(evidence.validationFailures24h),
           d1FinalizeNonTerminalCount: toInt(evidence.d1FinalizeNonTerminalCount),
@@ -140,6 +144,8 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
     retryableFailedPartitions: row.evidence.retryableFailedPartitions ?? 0,
     deadLetterPartitions: row.evidence.deadLetterPartitions ?? 0,
     staleLeasePartitions: row.evidence.staleLeasePartitions ?? 0,
+    reclaimCandidateCount: row.evidence.reclaimCandidateCount ?? 0,
+    staleRunCount24h: row.evidence.staleRunCount24h ?? 0,
     repairBacklog: row.evidence.repairBacklog ?? 0,
     validationFailures24h: row.evidence.validationFailures24h ?? 0,
     d1FinalizeNonTerminalCount: row.evidence.d1FinalizeNonTerminalCount ?? 0,
@@ -160,15 +166,23 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
     };
   }
 
-  if ((row.evidence.staleLeasePartitions ?? 0) > 0) {
+  if (
+    (row.evidence.staleLeasePartitions ?? 0) > 0 ||
+    (row.evidence.reclaimCandidateCount ?? 0) > 0 ||
+    (row.evidence.staleRunCount24h ?? 0) > 0
+  ) {
     return {
       businessId: row.businessId,
       businessName: row.businessName,
       blockerClass: row.blockerClass,
       recommendedAction: "stale_lease_reclaim",
-      reason: "Stale Meta leases are present and should be reclaimed before more work is admitted.",
+      reason:
+        (row.evidence.staleLeasePartitions ?? 0) > 0
+          ? "Stale Meta leases are present and should be reclaimed before more work is admitted."
+          : "Meta reclaim candidates or stale runs are blocking fresh admission and should be cleaned up first.",
       beforeEvidence,
-      expectedOutcome: "Expired lease ownership is reclaimed and queued partitions become eligible for fresh admission.",
+      expectedOutcome:
+        "Expired or reclaimable Meta work is cleaned up so queued partitions become eligible for fresh admission.",
       safetyClassification: "safe_guarded",
     };
   }

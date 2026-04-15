@@ -85,6 +85,8 @@ export interface MetaSyncBenchmarkSnapshot {
     stallFingerprints: string[];
     repairBacklog: number;
     validationFailures24h: number;
+    reclaimCandidateCount?: number;
+    staleRunCount24h?: number;
     lastSuccessfulPublishAt: string | null;
     d1FinalizeNonTerminalCount: number;
     workerOnline: boolean | null;
@@ -832,6 +834,8 @@ export async function collectMetaSyncReadinessSnapshot(
       stallFingerprints: [...(metaBusiness.stallFingerprints ?? [])],
       repairBacklog: metaBusiness.repairBacklog ?? 0,
       validationFailures24h: metaBusiness.validationFailures24h ?? 0,
+      reclaimCandidateCount: metaBusiness.reclaimCandidateCount ?? 0,
+      staleRunCount24h: metaBusiness.staleRunCount24h ?? 0,
       lastSuccessfulPublishAt: metaBusiness.lastSuccessfulPublishAt ?? null,
       d1FinalizeNonTerminalCount:
         metaBusiness.d1FinalizeNonTerminalCount ?? 0,

@@ -371,6 +371,8 @@ export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
       staleLeasePartitions: snapshot.queue.staleLeasePartitions,
       repairBacklog: snapshot.authoritative.repairBacklog,
       validationFailures24h: snapshot.authoritative.validationFailures24h,
+      reclaimCandidateCount: snapshot.operator.reclaimCandidateCount ?? 0,
+      staleRunCount24h: snapshot.operator.staleRunCount24h ?? 0,
       d1FinalizeNonTerminalCount: snapshot.operator.d1FinalizeNonTerminalCount,
       stallFingerprints: snapshot.operator.stallFingerprints,
     },
