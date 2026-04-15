@@ -5,6 +5,7 @@ type ParsedArgs = {
   releaseGateId: string;
   repairPlanId: string;
   businessIds: string[];
+  successMode: "proof" | "clearance";
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -13,6 +14,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     releaseGateId: "",
     repairPlanId: "",
     businessIds: [],
+    successMode: "proof",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -41,12 +43,21 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--success-mode") {
+      const value = argv[index + 1]?.trim() ?? "";
+      if (value !== "proof" && value !== "clearance") {
+        throw new Error(`invalid --success-mode: ${value || "<empty>"}`);
+      }
+      parsed.successMode = value;
+      index += 1;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
 
   if (!parsed.expectedBuildId || !parsed.releaseGateId || !parsed.repairPlanId) {
     throw new Error(
-      "usage: node --import tsx scripts/meta-canary-remediate.ts --expected-build-id <sha> --release-gate-id <id> --repair-plan-id <id> [--business-ids <csv>]",
+      "usage: node --import tsx scripts/meta-canary-remediate.ts --expected-build-id <sha> --release-gate-id <id> --repair-plan-id <id> [--business-ids <csv>] [--success-mode <proof|clearance>]",
     );
   }
 
@@ -62,18 +73,14 @@ async function main() {
     releaseGateId: args.releaseGateId,
     repairPlanId: args.repairPlanId,
     businessIds: args.businessIds,
+    successMode: args.successMode,
     workflowRunId: process.env.GITHUB_RUN_ID?.trim() || null,
     workflowActor: process.env.GITHUB_ACTOR?.trim() || null,
   });
 
   console.log(JSON.stringify(result, null, 2));
 
-  const anyIncomplete = result.executions.some(
-    (execution) =>
-      execution.outcomeClassification !== "cleared" ||
-      execution.expectedOutcomeMet !== true,
-  );
-  if (anyIncomplete || result.finalReleaseGate.baseResult !== "pass") {
+  if (args.successMode === "proof" ? result.proofPassed !== true : result.clearancePassed !== true) {
     process.exit(1);
   }
 }

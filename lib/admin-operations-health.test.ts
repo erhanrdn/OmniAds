@@ -1164,6 +1164,8 @@ describe("buildAdminSyncHealth", () => {
           businessName: "TheSwaf",
           sourceReleaseGateId: "rg-1",
           sourceRepairPlanId: "rp-1",
+          postRunReleaseGateId: "rg-2",
+          postRunRepairPlanId: "rp-2",
           recommendedAction: "integrity_repair_enqueue",
           executedAction: "repair_cycle",
           workflowRunId: "run-1",
@@ -1225,6 +1227,10 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.remediationSummary?.businessCount).toBe(1);
     expect(payload.metaBusinesses?.[0]?.latestRemediationExecution).toMatchObject({
       id: "exec-1",
+      sourceReleaseGateId: "rg-1",
+      sourceRepairPlanId: "rp-1",
+      postRunReleaseGateId: "rg-2",
+      postRunRepairPlanId: "rp-2",
       outcomeClassification: "improving_not_cleared",
       recommendedAction: "integrity_repair_enqueue",
       executedAction: "repair_cycle",

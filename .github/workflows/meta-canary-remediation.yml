@@ -7,10 +7,18 @@ on:
         description: Exact deployed build SHA to remediate
         required: true
         type: string
-      business_ids:
-        description: Optional comma-separated business ids; defaults to pinned failing canaries
+      success_mode:
+        description: Proof validates the audited remediation chain; clearance requires full canary recovery
         required: false
-        default: ""
+        default: proof
+        type: choice
+        options:
+          - proof
+          - clearance
+      business_ids:
+        description: Comma-separated business ids
+        required: false
+        default: "172d0ab8-495b-4679-a4c6-ffa404c389d3,5dbc7147-f051-4681-a4d6-20617170074f,f8a3b5ac-588c-462f-8702-11cd24ff3cd2"
         type: string
 
 concurrency:
@@ -67,6 +75,7 @@ jobs:
       - name: Run remediation over SSH
         env:
           EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+          SUCCESS_MODE: ${{ inputs.success_mode }}
           BUSINESS_IDS: ${{ inputs.business_ids }}
           RELEASE_GATE_ID: ${{ steps.control_plane.outputs.release_gate_id }}
           REPAIR_PLAN_ID: ${{ steps.control_plane.outputs.repair_plan_id }}
@@ -118,16 +127,15 @@ jobs:
           )
 
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_HOST}" \
-            "EXPECTED_BUILD_ID='${EXPECTED_BUILD_ID}' RELEASE_GATE_ID='${RELEASE_GATE_ID}' REPAIR_PLAN_ID='${REPAIR_PLAN_ID}' BUSINESS_IDS='${BUSINESS_IDS}' GITHUB_RUN_ID='${GITHUB_RUN_ID}' GITHUB_ACTOR='${GITHUB_ACTOR}' bash -seuo pipefail" <<'EOF'
+            "EXPECTED_BUILD_ID='${EXPECTED_BUILD_ID}' RELEASE_GATE_ID='${RELEASE_GATE_ID}' REPAIR_PLAN_ID='${REPAIR_PLAN_ID}' SUCCESS_MODE='${SUCCESS_MODE}' BUSINESS_IDS='${BUSINESS_IDS}' GITHUB_RUN_ID='${GITHUB_RUN_ID}' GITHUB_ACTOR='${GITHUB_ACTOR}' bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
-
-            docker compose ps worker
 
             docker compose exec -T \
               -e NODE_ENV=production \
               -e EXPECTED_BUILD_ID="${EXPECTED_BUILD_ID}" \
               -e RELEASE_GATE_ID="${RELEASE_GATE_ID}" \
               -e REPAIR_PLAN_ID="${REPAIR_PLAN_ID}" \
+              -e SUCCESS_MODE="${SUCCESS_MODE}" \
               -e BUSINESS_IDS="${BUSINESS_IDS}" \
               -e GITHUB_RUN_ID="${GITHUB_RUN_ID}" \
               -e GITHUB_ACTOR="${GITHUB_ACTOR}" \
@@ -140,13 +148,136 @@ jobs:
                 node --import tsx scripts/meta-canary-remediate.ts \
                   --expected-build-id "${EXPECTED_BUILD_ID}" \
                   --release-gate-id "${RELEASE_GATE_ID}" \
-                  --repair-plan-id "${REPAIR_PLAN_ID}"${business_flag}
+                  --repair-plan-id "${REPAIR_PLAN_ID}" \
+                  --success-mode "${SUCCESS_MODE}"${business_flag}
               '
-          EOF
+          EOF | tee remediation-result.json
 
-      - name: Capture post-run control-plane state
+      - name: Wait for post-run remediation summary
+        if: always()
+        env:
+          EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          attempts=12
+          delay_seconds=5
+
+          for attempt in $(seq 1 "${attempts}"); do
+            curl -fsSL https://adsecute.com/api/build-info > build-info-final.json
+            if python3 - <<'PY'
+              import json, os, sys
+
+              with open("build-info-final.json", "r", encoding="utf-8") as fh:
+                  payload = json.load(fh)
+
+              expected = os.environ["EXPECTED_BUILD_ID"].strip()
+              summary = payload.get("remediationSummary")
+
+              if (
+                  (payload.get("buildId") or "").strip() == expected
+                  and isinstance(summary, dict)
+                  and (summary.get("buildId") or "").strip() == expected
+              ):
+                  sys.exit(0)
+              sys.exit(1)
+          PY
+            then
+              exit 0
+            fi
+
+            if [ "${attempt}" -lt "${attempts}" ]; then
+              sleep "${delay_seconds}"
+            fi
+          done
+
+          echo "Timed out waiting for remediationSummary for build ${EXPECTED_BUILD_ID}."
+          cat build-info-final.json
+          exit 1
+
+      - name: Write remediation summary
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://adsecute.com/api/build-info | jq -C '{buildId,releaseGate,repairPlan,remediationSummary}'
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_path = os.environ["GITHUB_STEP_SUMMARY"]
+          result = {}
+          build_info = {}
+
+          if Path("remediation-result.json").exists():
+              try:
+                  result = json.loads(Path("remediation-result.json").read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  result = {"parseError": "remediation-result.json was not valid JSON"}
+
+          if Path("build-info-final.json").exists():
+              try:
+                  build_info = json.loads(Path("build-info-final.json").read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  build_info = {"parseError": "build-info-final.json was not valid JSON"}
+
+          def get_count(key):
+              return ((result.get("outcomeCounts") or {}).get(key)) if isinstance(result.get("outcomeCounts"), dict) else None
+
+          lines = [
+              "# Meta Canary Remediation",
+              "",
+              f"- successMode: `{result.get('successMode', 'unknown')}`",
+              f"- proofPassed: `{result.get('proofPassed', 'unknown')}`",
+              f"- clearancePassed: `{result.get('clearancePassed', 'unknown')}`",
+              f"- businessImprovementObserved: `{result.get('businessImprovementObserved', 'unknown')}`",
+              f"- buildId: `{result.get('buildId', build_info.get('buildId', 'unknown'))}`",
+              f"- remediationSummaryVisible: `{build_info.get('remediationSummary') is not None}`",
+              "",
+              "## Outcome Counts",
+              "",
+              f"- cleared: `{get_count('cleared')}`",
+              f"- improving_not_cleared: `{get_count('improving_not_cleared')}`",
+              f"- no_change: `{get_count('no_change')}`",
+              f"- worse: `{get_count('worse')}`",
+              f"- manual_follow_up_required: `{get_count('manual_follow_up_required')}`",
+              f"- locked: `{get_count('locked')}`",
+              "",
+              "## Businesses",
+              "",
+              "| Business | Recommended | Executed | Outcome | Queue | Repair backlog | Validation 24h | Truth ready | Activity | Publish |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+          ]
+
+          for execution in result.get("executions", []) if isinstance(result.get("executions"), list) else []:
+              before = execution.get("beforeEvidence") or {}
+              after = execution.get("afterEvidence") or {}
+              lines.append(
+                  "| {business} | {recommended} | {executed} | {outcome} | {queue_before}->{queue_after} | {repair_before}->{repair_after} | {validation_before}->{validation_after} | {truth_before}->{truth_after} | {activity_before}->{activity_after} | {publish_before}->{publish_after} |".format(
+                      business=execution.get("businessName") or execution.get("businessId") or "unknown",
+                      recommended=execution.get("recommendedAction") or "—",
+                      executed=execution.get("executedAction") or "—",
+                      outcome=execution.get("outcomeClassification") or "—",
+                      queue_before=before.get("queueDepth", "—"),
+                      queue_after=after.get("queueDepth", "—"),
+                      repair_before=before.get("repairBacklog", "—"),
+                      repair_after=after.get("repairBacklog", "—"),
+                      validation_before=before.get("validationFailures24h", "—"),
+                      validation_after=after.get("validationFailures24h", "—"),
+                      truth_before=before.get("truthReady", "—"),
+                      truth_after=after.get("truthReady", "—"),
+                      activity_before=before.get("activityState", "—"),
+                      activity_after=after.get("activityState", "—"),
+                      publish_before=before.get("lastSuccessfulPublishAt", "—"),
+                      publish_after=after.get("lastSuccessfulPublishAt", "—"),
+                  )
+              )
+
+          if result.get("proofPassed") and not result.get("businessImprovementObserved"):
+              lines.extend([
+                  "",
+                  "> Remediation proof passed without observed business improvement.",
+              ])
+
+          Path(summary_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY

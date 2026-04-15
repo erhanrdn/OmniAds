@@ -1405,6 +1405,8 @@ export async function runMigrations(options?: {
           business_name           TEXT,
           source_release_gate_id  UUID,
           source_repair_plan_id   UUID,
+          post_run_release_gate_id UUID,
+          post_run_repair_plan_id  UUID,
           recommended_action      TEXT,
           executed_action         TEXT,
           workflow_run_id         TEXT,
@@ -1433,6 +1435,10 @@ export async function runMigrations(options?: {
           created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
         )`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_executions
+          ADD COLUMN IF NOT EXISTS post_run_release_gate_id UUID`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_executions
+          ADD COLUMN IF NOT EXISTS post_run_repair_plan_id UUID`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_build
           ON sync_repair_executions (build_id, environment, provider_scope, started_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_business

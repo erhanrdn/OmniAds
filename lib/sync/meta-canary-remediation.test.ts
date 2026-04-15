@@ -185,6 +185,8 @@ function makeExecution(input?: Record<string, unknown>) {
     businessName: "TheSwaf",
     sourceReleaseGateId: "rg-1",
     sourceRepairPlanId: "rp-1",
+    postRunReleaseGateId: null,
+    postRunRepairPlanId: null,
     recommendedAction: "integrity_repair_enqueue",
     executedAction: null,
     workflowRunId: "run-1",
@@ -203,10 +205,13 @@ function makeExecution(input?: Record<string, unknown>) {
 }
 
 describe("meta canary remediation", () => {
+  let executionStore: Map<string, Record<string, unknown>>;
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-15T12:00:00.000Z"));
     vi.resetAllMocks();
+    executionStore = new Map();
 
     vi.mocked(releaseGates.getSyncGateRecordById).mockResolvedValue(makeReleaseGate());
     vi.mocked(repairPlanner.getSyncRepairPlanById).mockResolvedValue(makeRepairPlan());
@@ -223,20 +228,26 @@ describe("meta canary remediation", () => {
     });
     vi.mocked(providerJobLock.renewProviderJobLock).mockResolvedValue(true);
     vi.mocked(providerJobLock.releaseProviderJobLock).mockResolvedValue(undefined);
-    vi.mocked(remediationExecutions.createSyncRepairExecution).mockImplementation(async (input) =>
-      makeExecution(input as Record<string, unknown>),
-    );
-    vi.mocked(remediationExecutions.updateSyncRepairExecution).mockImplementation(async (_id, input) =>
-      makeExecution({
-        status: input.status ?? "completed",
-        executedAction: input.executedAction ?? "repair_cycle",
-        outcomeClassification: input.outcomeClassification ?? "cleared",
-        expectedOutcomeMet: input.expectedOutcomeMet ?? true,
-        actionResult: input.actionResult ?? {},
-        afterEvidence: input.afterEvidence ?? {},
-        finishedAt: input.finishedAt ?? "2026-04-15T12:00:31.000Z",
-      }),
-    );
+    vi.mocked(remediationExecutions.createSyncRepairExecution).mockImplementation(async (input) => {
+      const execution = makeExecution(input as Record<string, unknown>) as Record<string, unknown> & {
+        id: string;
+      };
+      executionStore.set(execution.id, execution);
+      return execution as never;
+    });
+    vi.mocked(remediationExecutions.updateSyncRepairExecution).mockImplementation(async (id, input) => {
+      const current = executionStore.get(id) ?? (makeExecution() as Record<string, unknown>);
+      const next = makeExecution({
+        ...current,
+        ...input,
+        finishedAt:
+          input.finishedAt === undefined
+            ? (current.finishedAt as string | null | undefined) ?? "2026-04-15T12:00:31.000Z"
+            : input.finishedAt,
+      });
+      executionStore.set(id, next as Record<string, unknown>);
+      return next as never;
+    });
     vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
       buildId: "build-1",
       environment: "production",
@@ -409,7 +420,76 @@ describe("meta canary remediation", () => {
       }),
     );
     expect(result.executions[0]?.executedAction).toBe("repair_cycle");
+    expect(result.executions[0]?.postRunReleaseGateId).toBe("rg-2");
+    expect(result.executions[0]?.postRunRepairPlanId).toBe("rp-1");
     expect(result.finalReleaseGate.id).toBe("rg-2");
+    expect(result.successMode).toBe("proof");
+    expect(result.targetBusinessIds).toEqual(["biz-1"]);
+    expect(result.proofPassed).toBe(true);
+    expect(result.clearancePassed).toBe(true);
+    expect(result.businessImprovementObserved).toBe(true);
+    expect(result.outcomeCounts.cleared).toBe(1);
+    expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
+      "exec-1",
+      expect.objectContaining({
+        postRunReleaseGateId: "rg-2",
+        postRunRepairPlanId: "rp-1",
+      }),
+    );
+  });
+
+  it("passes proof mode without clearance when the audit chain is intact but the business does not improve", async () => {
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue(makeSnapshot());
+    vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "meta",
+      latestStartedAt: "2026-04-15T12:00:00.000Z",
+      latestFinishedAt: "2026-04-15T12:06:00.000Z",
+      improvedAny: false,
+      businessCount: 1,
+      counts: {
+        cleared: 0,
+        improving_not_cleared: 0,
+        no_change: 1,
+        worse: 0,
+        manual_follow_up_required: 0,
+        locked: 0,
+      },
+    });
+    vi.mocked(remediationExecutions.updateSyncRepairExecution).mockImplementation(async (id, input) => {
+      const current = executionStore.get(id) ?? (makeExecution() as Record<string, unknown>);
+      const next = makeExecution({
+        ...current,
+        ...input,
+        outcomeClassification: input.outcomeClassification ?? "no_change",
+        expectedOutcomeMet: input.expectedOutcomeMet ?? false,
+        actionResult: input.actionResult ?? current.actionResult ?? { ok: true },
+        afterEvidence: input.afterEvidence ?? current.afterEvidence ?? { queueDepth: 4 },
+        finishedAt:
+          input.finishedAt === undefined
+            ? (current.finishedAt as string | null | undefined) ?? "2026-04-15T12:00:31.000Z"
+            : input.finishedAt,
+      }) as Record<string, unknown> & { id: string };
+      executionStore.set(id, next);
+      return next as never;
+    });
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      successMode: "proof",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.runAllTimersAsync();
+    const result = await runPromise;
+
+    expect(result.proofPassed).toBe(true);
+    expect(result.clearancePassed).toBe(false);
+    expect(result.businessImprovementObserved).toBe(false);
+    expect(result.outcomeCounts.no_change).toBe(1);
   });
 
   it("maps repair recommendations deterministically", () => {

@@ -72,15 +72,25 @@ export type MetaRemediationExecutedAction =
   | "replay_dead_letter"
   | "stale_lease_reclaim";
 
+export type MetaCanaryRemediationSuccessMode = "proof" | "clearance";
+
+export type MetaCanaryRemediationOutcomeCounts = Record<SyncRepairExecutionOutcome, number>;
+
 export interface MetaCanaryRemediationResult {
   expectedBuildId: string;
   buildId: string;
+  successMode: MetaCanaryRemediationSuccessMode;
+  targetBusinessIds: string[];
   releaseGate: SyncGateRecord;
   finalReleaseGate: SyncGateRecord;
   repairPlan: Awaited<ReturnType<typeof getSyncRepairPlanById>>;
   finalRepairPlan: Awaited<ReturnType<typeof evaluateAndPersistSyncRepairPlan>>;
   remediationSummary: Awaited<ReturnType<typeof getLatestSyncRepairExecutionSummary>>;
   executions: SyncRepairExecutionRecord[];
+  outcomeCounts: MetaCanaryRemediationOutcomeCounts;
+  businessImprovementObserved: boolean;
+  proofPassed: boolean;
+  clearancePassed: boolean;
 }
 
 function parseCsv(value: string | null | undefined) {
@@ -205,6 +215,69 @@ export function classifyCanaryRemediationOutcome(input: {
     outcome: "no_change" as SyncRepairExecutionOutcome,
     expectedOutcomeMet: false,
   };
+}
+
+function emptyOutcomeCounts(): MetaCanaryRemediationOutcomeCounts {
+  return {
+    cleared: 0,
+    improving_not_cleared: 0,
+    no_change: 0,
+    worse: 0,
+    manual_follow_up_required: 0,
+    locked: 0,
+  };
+}
+
+function buildOutcomeCounts(executions: SyncRepairExecutionRecord[]): MetaCanaryRemediationOutcomeCounts {
+  const counts = emptyOutcomeCounts();
+  for (const execution of executions) {
+    if (execution.outcomeClassification) {
+      counts[execution.outcomeClassification] += 1;
+    }
+  }
+  return counts;
+}
+
+function executionHasAuditEvidence(execution: SyncRepairExecutionRecord) {
+  return (
+    execution.sourceReleaseGateId != null &&
+    execution.sourceRepairPlanId != null &&
+    Object.keys(execution.beforeEvidence ?? {}).length > 0 &&
+    Object.keys(execution.actionResult ?? {}).length > 0 &&
+    Object.keys(execution.afterEvidence ?? {}).length > 0 &&
+    execution.postRunReleaseGateId != null &&
+    execution.postRunRepairPlanId != null
+  );
+}
+
+function computeProofPassed(input: {
+  executions: SyncRepairExecutionRecord[];
+  remediationSummary: Awaited<ReturnType<typeof getLatestSyncRepairExecutionSummary>>;
+  finalReleaseGate: SyncGateRecord | null;
+  finalRepairPlan: Awaited<ReturnType<typeof evaluateAndPersistSyncRepairPlan>>;
+}) {
+  return (
+    input.executions.length > 0 &&
+    input.executions.every((execution) => executionHasAuditEvidence(execution)) &&
+    input.finalReleaseGate != null &&
+    input.finalRepairPlan != null &&
+    input.remediationSummary != null
+  );
+}
+
+function computeClearancePassed(input: {
+  executions: SyncRepairExecutionRecord[];
+  finalReleaseGate: SyncGateRecord;
+}) {
+  return (
+    input.executions.length > 0 &&
+    input.executions.every(
+      (execution) =>
+        execution.outcomeClassification === "cleared" &&
+        execution.expectedOutcomeMet === true,
+    ) &&
+    input.finalReleaseGate.baseResult === "pass"
+  );
 }
 
 function validatePinnedRows(input: {
@@ -386,6 +459,7 @@ export async function runMetaCanaryRemediation(input: {
   releaseGateId: string;
   repairPlanId: string;
   businessIds?: string[] | null;
+  successMode?: MetaCanaryRemediationSuccessMode;
   workflowRunId?: string | null;
   workflowActor?: string | null;
 }) : Promise<MetaCanaryRemediationResult> {
@@ -433,6 +507,8 @@ export async function runMetaCanaryRemediation(input: {
     }
   }
 
+  const successMode = input.successMode ?? "proof";
+  const targetBusinessIds = targetRecommendations.map((recommendation) => recommendation.businessId);
   const executions: SyncRepairExecutionRecord[] = [];
 
   for (const recommendation of targetRecommendations) {
@@ -602,15 +678,45 @@ export async function runMetaCanaryRemediation(input: {
     throw new Error("Final gate reevaluation did not return both deploy and release records.");
   }
 
+  const executionsWithPostRunIds = await Promise.all(
+    executions.map(async (execution) => {
+      const updated = await updateSyncRepairExecution(execution.id, {
+        postRunReleaseGateId: finalReleaseGate.id,
+        postRunRepairPlanId: finalRepairPlan.id,
+      });
+      return updated ?? execution;
+    }),
+  );
+
+  const outcomeCounts = buildOutcomeCounts(executionsWithPostRunIds);
+  const businessImprovementObserved =
+    outcomeCounts.cleared > 0 || outcomeCounts.improving_not_cleared > 0;
+  const proofPassed = computeProofPassed({
+    executions: executionsWithPostRunIds,
+    remediationSummary,
+    finalReleaseGate,
+    finalRepairPlan,
+  });
+  const clearancePassed = computeClearancePassed({
+    executions: executionsWithPostRunIds,
+    finalReleaseGate,
+  });
+
   return {
     expectedBuildId: input.expectedBuildId,
     buildId,
+    successMode,
+    targetBusinessIds,
     releaseGate: pinnedReleaseGate,
     finalReleaseGate,
     repairPlan: pinnedRepairPlan,
     finalRepairPlan,
     remediationSummary,
-    executions,
+    executions: executionsWithPostRunIds,
+    outcomeCounts,
+    businessImprovementObserved,
+    proofPassed,
+    clearancePassed,
   };
 }
 

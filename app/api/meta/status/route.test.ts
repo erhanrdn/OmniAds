@@ -2509,6 +2509,8 @@ describe("GET /api/meta/status", () => {
       businessName: "Biz",
       sourceReleaseGateId: "rg-1",
       sourceRepairPlanId: "rp-1",
+      postRunReleaseGateId: "rg-2",
+      postRunRepairPlanId: "rp-2",
       recommendedAction: "integrity_repair_enqueue",
       executedAction: "repair_cycle",
       workflowRunId: "run-1",
@@ -2536,6 +2538,10 @@ describe("GET /api/meta/status", () => {
     expect(response.status).toBe(200);
     expect(payload.latestRemediationExecution).toMatchObject({
       id: "exec-1",
+      sourceReleaseGateId: "rg-1",
+      sourceRepairPlanId: "rp-1",
+      postRunReleaseGateId: "rg-2",
+      postRunRepairPlanId: "rp-2",
       outcomeClassification: "improving_not_cleared",
       recommendedAction: "integrity_repair_enqueue",
       executedAction: "repair_cycle",

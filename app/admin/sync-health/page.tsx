@@ -367,6 +367,10 @@ interface SyncHealthPayload {
       }>;
     } | null;
     latestRemediationExecution?: {
+      sourceReleaseGateId?: string | null;
+      sourceRepairPlanId?: string | null;
+      postRunReleaseGateId?: string | null;
+      postRunRepairPlanId?: string | null;
       recommendedAction: string | null;
       executedAction: string | null;
       status: "running" | "completed" | "failed" | "locked";
@@ -1605,9 +1609,14 @@ export default function AdminSyncHealthPage() {
                         Skipped active lease recoveries {business.skippedActiveLeaseRecoveries ?? 0} • Stale runs 24h {business.staleRunCount24h ?? 0}
                       </p>
                       {business.latestRemediationExecution ? (
-                        <p className="mt-1 text-xs text-gray-500">
-                          Latest remediation {formatRemediationOutcome(business.latestRemediationExecution.outcomeClassification)} • recommended {business.latestRemediationExecution.recommendedAction ?? "—"} • executed {business.latestRemediationExecution.executedAction ?? "—"} • queue {business.latestRemediationExecution.beforeEvidence.queueDepth ?? "—"}→{business.latestRemediationExecution.afterEvidence.queueDepth ?? "—"} • truth {String(business.latestRemediationExecution.beforeEvidence.truthReady ?? "—")}→{String(business.latestRemediationExecution.afterEvidence.truthReady ?? "—")} • activity {business.latestRemediationExecution.beforeEvidence.activityState ?? "—"}→{business.latestRemediationExecution.afterEvidence.activityState ?? "—"}
-                        </p>
+                        <>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Latest remediation {formatRemediationOutcome(business.latestRemediationExecution.outcomeClassification)} • recommended {business.latestRemediationExecution.recommendedAction ?? "—"} • executed {business.latestRemediationExecution.executedAction ?? "—"} • queue {business.latestRemediationExecution.beforeEvidence.queueDepth ?? "—"}→{business.latestRemediationExecution.afterEvidence.queueDepth ?? "—"} • truth {String(business.latestRemediationExecution.beforeEvidence.truthReady ?? "—")}→{String(business.latestRemediationExecution.afterEvidence.truthReady ?? "—")} • activity {business.latestRemediationExecution.beforeEvidence.activityState ?? "—"}→{business.latestRemediationExecution.afterEvidence.activityState ?? "—"}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Gate/plan ids source {business.latestRemediationExecution.sourceReleaseGateId ?? "—"} / {business.latestRemediationExecution.sourceRepairPlanId ?? "—"} → post {business.latestRemediationExecution.postRunReleaseGateId ?? "—"} / {business.latestRemediationExecution.postRunRepairPlanId ?? "—"}
+                          </p>
+                        </>
                       ) : null}
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>

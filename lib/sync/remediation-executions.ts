@@ -25,6 +25,8 @@ export interface SyncRepairExecutionRecord {
   businessName: string | null;
   sourceReleaseGateId: string | null;
   sourceRepairPlanId: string | null;
+  postRunReleaseGateId: string | null;
+  postRunRepairPlanId: string | null;
   recommendedAction: string | null;
   executedAction: string | null;
   workflowRunId: string | null;
@@ -95,6 +97,8 @@ function mapExecutionRow(row: Record<string, unknown>): SyncRepairExecutionRecor
     businessName: toText(row.business_name),
     sourceReleaseGateId: toText(row.source_release_gate_id),
     sourceRepairPlanId: toText(row.source_repair_plan_id),
+    postRunReleaseGateId: toText(row.post_run_release_gate_id),
+    postRunRepairPlanId: toText(row.post_run_repair_plan_id),
     recommendedAction: toText(row.recommended_action),
     executedAction: toText(row.executed_action),
     workflowRunId: toText(row.workflow_run_id),
@@ -140,6 +144,8 @@ export async function createSyncRepairExecution(input: {
   businessName?: string | null;
   sourceReleaseGateId?: string | null;
   sourceRepairPlanId?: string | null;
+  postRunReleaseGateId?: string | null;
+  postRunRepairPlanId?: string | null;
   recommendedAction?: string | null;
   executedAction?: string | null;
   workflowRunId?: string | null;
@@ -170,6 +176,8 @@ export async function createSyncRepairExecution(input: {
       business_name,
       source_release_gate_id,
       source_repair_plan_id,
+      post_run_release_gate_id,
+      post_run_repair_plan_id,
       recommended_action,
       executed_action,
       workflow_run_id,
@@ -193,6 +201,8 @@ export async function createSyncRepairExecution(input: {
       ${input.businessName ?? null},
       ${input.sourceReleaseGateId ?? null},
       ${input.sourceRepairPlanId ?? null},
+      ${input.postRunReleaseGateId ?? null},
+      ${input.postRunRepairPlanId ?? null},
       ${input.recommendedAction ?? null},
       ${input.executedAction ?? null},
       ${input.workflowRunId ?? null},
@@ -218,6 +228,8 @@ export async function updateSyncRepairExecution(
   input: {
     businessName?: string | null;
     executedAction?: string | null;
+    postRunReleaseGateId?: string | null;
+    postRunRepairPlanId?: string | null;
     status?: SyncRepairExecutionStatus;
     outcomeClassification?: SyncRepairExecutionOutcome | null;
     expectedOutcomeMet?: boolean | null;
@@ -234,6 +246,8 @@ export async function updateSyncRepairExecution(
     SET
       business_name = COALESCE(${input.businessName ?? null}, business_name),
       executed_action = COALESCE(${input.executedAction ?? null}, executed_action),
+      post_run_release_gate_id = COALESCE(${input.postRunReleaseGateId ?? null}, post_run_release_gate_id),
+      post_run_repair_plan_id = COALESCE(${input.postRunRepairPlanId ?? null}, post_run_repair_plan_id),
       status = COALESCE(${input.status ?? null}, status),
       outcome_classification = COALESCE(${input.outcomeClassification ?? null}, outcome_classification),
       expected_outcome_met = COALESCE(${input.expectedOutcomeMet ?? null}, expected_outcome_met),
