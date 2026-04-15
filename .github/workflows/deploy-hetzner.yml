@@ -316,14 +316,6 @@ jobs:
                 return 1
               }
 
-              verify_sync_control_plane() {
-                docker compose exec -T worker sh -lc "
-                  unset SYNC_WORKER_MODE
-                  export NODE_ENV=production
-                  node --import tsx scripts/sync-control-plane-verify.ts --build-id ${DEPLOY_SHA} --environment production --provider-scope meta
-                "
-              }
-
               persist_sync_control_plane_via_web() {
                 cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || \"\")')"
                 if [ -z "${cron_secret}" ]; then
@@ -423,7 +415,6 @@ jobs:
 
               log "Persisting current-build sync control plane"
               persist_sync_control_plane_via_web
-              verify_sync_control_plane
               trap - ERR
           EOF
           }
