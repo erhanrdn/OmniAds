@@ -36,31 +36,83 @@ jobs:
         shell: bash
         env:
           EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
         run: |
           set -euo pipefail
 
-          curl -fsSL https://adsecute.com/api/build-info > build-info.json
+          if [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
+            echo "Missing required Hetzner remediation secrets."
+            exit 1
+          fi
+
+          resolve_host() {
+            host="$1"
+            if [ -z "${host}" ]; then
+              return 0
+            fi
+            python3 -c 'import socket, sys; print(socket.gethostbyname(sys.argv[1]))' "${host}" 2>/dev/null || printf '%s\n' "${host}"
+          }
+
+          PRIMARY_HOST="${HETZNER_HOST}"
+          if [ -z "${PRIMARY_HOST}" ]; then
+            PRIMARY_HOST="$(resolve_host "adsecute.com")"
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          ssh-keyscan -H "${PRIMARY_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
+
+          PORT="${HETZNER_PORT:-22}"
+          SSH_OPTS=(
+            -i ~/.ssh/id_ed25519
+            -p "${PORT}"
+            -o BatchMode=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+            -o TCPKeepAlive=yes
+          )
+
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_HOST}" \
+            "EXPECTED_BUILD_ID='${EXPECTED_BUILD_ID}' bash -seuo pipefail" <<'EOF' > control-plane-status.json
+            cd /var/www/adsecute
+
+            docker compose exec -T -e NODE_ENV=production web \
+              node --import tsx scripts/sync-control-plane-verify.ts \
+                --build-id "${EXPECTED_BUILD_ID}" \
+                --environment production \
+                --provider-scope meta
+          EOF
 
           python3 - <<'PY'
           import json, os, sys
 
-          with open("build-info.json", "r", encoding="utf-8") as fh:
+          with open("control-plane-status.json", "r", encoding="utf-8") as fh:
             payload = json.load(fh)
 
           expected_build_id = os.environ["EXPECTED_BUILD_ID"].strip()
-          build_id = (payload.get("buildId") or "").strip()
-          deploy_gate = payload.get("deployGate") or {}
-          release_gate = payload.get("releaseGate") or {}
-          repair_plan = payload.get("repairPlan") or {}
+          identity = payload.get("identity") or {}
+          exact = payload.get("exact") or {}
+          build_id = (identity.get("buildId") or "").strip()
+          deploy_gate = exact.get("deployGate") or {}
+          release_gate = exact.get("releaseGate") or {}
+          repair_plan = exact.get("repairPlan") or {}
 
           if build_id != expected_build_id:
             raise SystemExit(f"Live build {build_id or '<missing>'} does not match expected {expected_build_id}.")
+          if payload.get("exactRowsPresent") is not True:
+            raise SystemExit("Exact current-build control-plane rows are required before remediation.")
           if deploy_gate.get("verdict") != "pass":
             raise SystemExit("deployGate must be pass before remediation.")
           if repair_plan.get("eligible") is not True:
             raise SystemExit("repairPlan must be eligible before remediation.")
-          if deploy_gate.get("breakGlass") or release_gate.get("breakGlass") or repair_plan.get("breakGlass"):
-            raise SystemExit("break-glass must be inactive before remediation.")
 
           release_gate_id = (release_gate.get("id") or "").strip()
           repair_plan_id = (repair_plan.get("id") or "").strip()
