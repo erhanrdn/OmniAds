@@ -165,23 +165,7 @@ jobs:
 
           for attempt in $(seq 1 "${attempts}"); do
             curl -fsSL https://adsecute.com/api/build-info > build-info-final.json
-            if python3 - <<'PY'
-              import json, os, sys
-
-              with open("build-info-final.json", "r", encoding="utf-8") as fh:
-                  payload = json.load(fh)
-
-              expected = os.environ["EXPECTED_BUILD_ID"].strip()
-              summary = payload.get("remediationSummary")
-
-              if (
-                  (payload.get("buildId") or "").strip() == expected
-                  and isinstance(summary, dict)
-                  and (summary.get("buildId") or "").strip() == expected
-              ):
-                  sys.exit(0)
-              sys.exit(1)
-          PY
+            if python3 -c 'import json, os, sys; payload = json.load(open("build-info-final.json", "r", encoding="utf-8")); summary = payload.get("remediationSummary"); expected = os.environ["EXPECTED_BUILD_ID"].strip(); sys.exit(0 if ((payload.get("buildId") or "").strip() == expected and isinstance(summary, dict) and (summary.get("buildId") or "").strip() == expected) else 1)'
             then
               exit 0
             fi

@@ -269,6 +269,15 @@ export async function upsertSyncRepairPlanRecord(input: SyncRepairPlanRecord) {
       ${input.emittedAt},
       now()
     )
+    ON CONFLICT (build_id, environment, provider_scope, plan_mode)
+    DO UPDATE SET
+      eligible = EXCLUDED.eligible,
+      blocked_reason = EXCLUDED.blocked_reason,
+      break_glass = EXCLUDED.break_glass,
+      summary = EXCLUDED.summary,
+      payload_json = EXCLUDED.payload_json,
+      emitted_at = EXCLUDED.emitted_at,
+      updated_at = now()
     RETURNING id
   ` as Array<{ id: string }>;
   return {
