@@ -409,15 +409,21 @@ jobs:
               }
 
               persist_sync_control_plane() {
-                persist_sync_control_plane_via_web
+                refresh_args=(
+                  --build-id "${DEPLOY_SHA}"
+                  --environment production
+                  --provider-scope meta
+                )
 
-                if verify_local_sync_control_plane; then
-                  return 0
+                if [ "${BREAK_GLASS}" = "true" ]; then
+                  refresh_args+=(--break-glass --override-reason "${OVERRIDE_REASON}")
+                else
+                  refresh_args+=(--enforce-deploy-gate)
                 fi
 
-                echo "controlPlaneOnly route did not produce exact current-build rows; retrying with direct web-container writers"
-                persist_sync_control_plane_directly
-                verify_local_sync_control_plane
+                docker compose exec -T -e NODE_ENV=production web \
+                  node --import tsx scripts/sync-control-plane-refresh.ts \
+                    "${refresh_args[@]}"
               }
 
               verify_service_image() {
