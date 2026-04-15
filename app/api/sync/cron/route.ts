@@ -6,6 +6,7 @@ import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
+import { evaluateAndPersistSyncGates } from "@/lib/sync/release-gates";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 /**
@@ -110,14 +111,27 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const gateVerdicts = await evaluateAndPersistSyncGates().catch((error) => {
+    console.error("[sync-cron] sync_gate_evaluation_failed", error);
+    return null;
+  });
+
   logRuntimeInfo("sync-cron", "completed", {
     businessCount: businesses.length,
     succeeded: results.filter((r) => r.status === "fulfilled").length,
     failed: results.filter((r) => r.status === "rejected").length,
     soakGateOutcome: soakGate?.outcome ?? null,
+    deployGateVerdict: gateVerdicts?.deployGate?.verdict ?? null,
+    releaseGateVerdict: gateVerdicts?.releaseGate?.verdict ?? null,
   });
   return NextResponse.json(
-    { ok: true, synced: businesses.length, results: summary, ...(soakGate ? { soakGate } : {}) },
+    {
+      ok: true,
+      synced: businesses.length,
+      results: summary,
+      ...(soakGate ? { soakGate } : {}),
+      ...(gateVerdicts ? { gateVerdicts } : {}),
+    },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );
 }

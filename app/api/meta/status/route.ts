@@ -27,6 +27,7 @@ import {
   getMetaSyncPhaseTimingSummaries,
   getMetaCreativeDailyCoverage,
   getMetaAuthoritativeDayVerification,
+  getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaQueueComposition,
   getMetaQueueHealth,
   getMetaRawSnapshotCoverageByEndpoint,
@@ -53,6 +54,11 @@ import {
 import { addDaysToIsoDateUtc, getProviderPlatformDateBoundaries } from "@/lib/provider-platform-date";
 import { isDemoBusinessId, getDemoMetaStatus } from "@/lib/demo-business";
 import { getProviderWorkerHealthState } from "@/lib/sync/worker-health";
+import {
+  assertRuntimeContractStartup,
+  getRuntimeRegistryStatus,
+  upsertRuntimeContractInstance,
+} from "@/lib/sync/runtime-contract";
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
@@ -78,7 +84,10 @@ import {
   compactRepairableActions,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
+  deriveUnifiedSyncTruth,
 } from "@/lib/sync/provider-status-truth";
+import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
+import { buildSyncLagMetrics } from "@/lib/sync/lag-metrics";
 import type {
   MetaCoreSurfaceKey,
   MetaStatusResponse,
@@ -260,6 +269,10 @@ export async function GET(request: NextRequest) {
   const businessId = url.searchParams.get("businessId");
   const selectedStartDate = url.searchParams.get("startDate");
   const selectedEndDate = url.searchParams.get("endDate");
+  const runtimeContract = assertRuntimeContractStartup({ service: "web" });
+  await upsertRuntimeContractInstance({
+    contract: runtimeContract,
+  }).catch(() => null);
 
   const access = await requireBusinessAccess({ request, businessId });
   if ("error" in access) return access.error;
@@ -279,6 +292,9 @@ export async function GET(request: NextRequest) {
     latestRetentionRun,
     latestRetentionCanaryRun,
     protectedPublishedTruthReview,
+    authoritativeSnapshot,
+    runtimeRegistry,
+    gateRecords,
   ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
@@ -300,6 +316,17 @@ export async function GET(request: NextRequest) {
       getLatestMetaRetentionRun().catch(() => null),
       getLatestMetaRetentionCanaryRun(businessId!).catch(() => null),
       getMetaProtectedPublishedTruthReview({ businessIds: [businessId!] }).catch(() => null),
+      getMetaAuthoritativeBusinessOpsSnapshot({ businessId: businessId! }).catch(() => null),
+      getRuntimeRegistryStatus({
+        buildId: runtimeContract.buildId,
+      }).catch(() => null),
+      getLatestSyncGateRecords({
+        buildId: runtimeContract.buildId,
+        environment: process.env.NODE_ENV ?? "unknown",
+      }).catch(() => ({
+        deployGate: null,
+        releaseGate: null,
+      })),
     ]);
   const retentionRuntime = getMetaRetentionRuntimeStatus();
   const retentionCanaryRuntime = getMetaRetentionCanaryRuntimeStatus({
@@ -1353,6 +1380,16 @@ export async function GET(request: NextRequest) {
     leasedPartitions: queueHealth?.leasedPartitions ?? 0,
     blocked: state === "action_required",
   });
+  const lagMetrics = buildSyncLagMetrics(authoritativeSnapshot?.latestPublishes?.[0] ?? null);
+  const unifiedTruth = deriveUnifiedSyncTruth({
+    activityState: metaActivityState,
+    progressState: metaProgressState,
+    workerOnline: workerHealth?.hasFreshHeartbeat ?? null,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    releaseGateVerdict: gateRecords.releaseGate?.verdict ?? null,
+    runtimeContractValid: runtimeRegistry?.contractValid ?? runtimeContract.validation.pass,
+  });
   const metaBlockingReasons = compactBlockingReasons([
     selectedRangeActionRequired
       ? buildBlockingReason(
@@ -1717,6 +1754,12 @@ export async function GET(request: NextRequest) {
               phases: phaseTimings,
             }
           : null,
+      runtimeContract,
+      runtimeRegistry,
+      deployGate: gateRecords.deployGate,
+      releaseGate: gateRecords.releaseGate,
+      syncTruthState: unifiedTruth.syncTruthState,
+      blockerClass: unifiedTruth.blockerClass === "none" ? null : unifiedTruth.blockerClass,
       domainReadiness,
       connected,
       d1TargetDate,
@@ -1867,11 +1910,25 @@ export async function GET(request: NextRequest) {
             blockReason: operationsBlockReason,
             progressState: metaProgressState,
             activityState: metaActivityState,
+            syncTruthState: unifiedTruth.syncTruthState,
+            blockerClass: unifiedTruth.blockerClass === "none" ? null : unifiedTruth.blockerClass,
             progressEvidence: metaProgressEvidence,
             blockingReasons: metaBlockingReasons,
             repairableActions: metaRepairableActions,
             requiredCoverage: metaRequiredCoverage,
             stallFingerprints: metaStallFingerprints,
+            providerWorker: {
+              workerId: workerHealth.ownerWorkerId ?? null,
+              freshnessState: workerHealth.workerFreshnessState ?? null,
+              lastHeartbeatAt: workerHealth.lastHeartbeatAt ?? null,
+            },
+            businessWorker: {
+              workerId: workerHealth.matchedWorkerId ?? null,
+              freshnessState: workerHealth.workerFreshnessState ?? null,
+              lastHeartbeatAt: workerHealth.lastHeartbeatAt ?? null,
+              currentBusinessId: workerHealth.currentBusinessId ?? null,
+            },
+            lagMetrics,
             secondaryReadiness: [
               {
                 key: "creatives_preview",

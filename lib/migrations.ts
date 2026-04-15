@@ -1324,6 +1324,52 @@ export async function runMigrations(options?: {
         )`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_runner_leases_expiry
           ON sync_runner_leases (provider_scope, lease_expires_at, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_runtime_instances (
+          instance_id         TEXT PRIMARY KEY,
+          service             TEXT NOT NULL
+                              CHECK (service IN ('web', 'worker')),
+          runtime_role        TEXT NOT NULL
+                              CHECK (runtime_role IN ('web', 'worker')),
+          build_id            TEXT NOT NULL,
+          db_fingerprint      TEXT NOT NULL,
+          config_fingerprint  TEXT NOT NULL,
+          provider_scopes     TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+          health_state        TEXT NOT NULL DEFAULT 'healthy'
+                              CHECK (health_state IN ('healthy', 'invalid')),
+          contract_json       JSONB NOT NULL DEFAULT '{}'::jsonb,
+          started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_runtime_instances_service_seen
+          ON sync_runtime_instances (service, last_seen_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_runtime_instances_build
+          ON sync_runtime_instances (build_id, service, last_seen_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_release_gates (
+          id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          build_id          TEXT NOT NULL,
+          environment       TEXT NOT NULL,
+          gate_kind         TEXT NOT NULL
+                            CHECK (gate_kind IN ('deploy_gate', 'release_gate')),
+          mode              TEXT NOT NULL
+                            CHECK (mode IN ('measure_only', 'warn_only', 'block')),
+          base_result       TEXT NOT NULL
+                            CHECK (base_result IN ('pass', 'fail', 'misconfigured')),
+          verdict           TEXT NOT NULL
+                            CHECK (verdict IN ('pass', 'fail', 'misconfigured', 'measure_only', 'warn_only', 'blocked')),
+          blocker_class     TEXT,
+          summary           TEXT NOT NULL,
+          break_glass       BOOLEAN NOT NULL DEFAULT FALSE,
+          override_reason   TEXT,
+          evidence_json     JSONB NOT NULL DEFAULT '{}'::jsonb,
+          emitted_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (build_id, environment, gate_kind)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_build
+          ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,

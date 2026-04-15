@@ -25,6 +25,11 @@ import {
   getSyncWorkerHealthSummary,
 } from "@/lib/sync/worker-health";
 import {
+  assertRuntimeContractStartup,
+  getRuntimeRegistryStatus,
+  upsertRuntimeContractInstance,
+} from "@/lib/sync/runtime-contract";
+import {
   buildGlobalRebuildTruthReview,
   deriveProviderQuotaLimitedBusinessIds,
   type GlobalRebuildTruthReview,
@@ -44,15 +49,24 @@ import {
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
+  deriveUnifiedSyncTruth,
   type ProviderActivityState,
   type ProviderProgressEvidence,
   type ProviderProgressState,
   type ProviderStallFingerprint,
+  type SyncBlockerClass,
+  type SyncTruthState,
 } from "@/lib/sync/provider-status-truth";
 import type {
   MetaAuthoritativeBusinessOpsSnapshot,
   MetaSyncPhaseTimingSummary,
 } from "@/lib/meta/warehouse-types";
+import type { RuntimeContract, RuntimeRegistryStatus } from "@/lib/sync/runtime-contract";
+import {
+  getLatestSyncGateRecords,
+  type SyncGateRecord,
+} from "@/lib/sync/release-gates";
+import { buildSyncLagMetrics, type SyncLagMetrics } from "@/lib/sync/lag-metrics";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
@@ -97,6 +111,10 @@ export interface AdminSyncIssueRow {
 export interface AdminSyncHealthPayload {
   globalRebuildReview?: GlobalRebuildTruthReview;
   syncEffectivenessReview?: SyncEffectivenessReview;
+  runtimeContract?: RuntimeContract | null;
+  runtimeRegistry?: RuntimeRegistryStatus | null;
+  deployGate?: SyncGateRecord | null;
+  releaseGate?: SyncGateRecord | null;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   dbDiagnostics?: AdminDbDiagnosticsPayload;
@@ -142,6 +160,8 @@ export interface AdminSyncHealthPayload {
     metaIntegrityIncidentCount?: number;
     metaIntegrityBlockedCount?: number;
     metaD1FinalizeNonTerminalCount?: number;
+    syncTruthState?: SyncTruthState | null;
+    blockerClass?: SyncBlockerClass | null;
   };
   issues: AdminSyncIssueRow[];
   workerHealth?: {
@@ -264,6 +284,8 @@ export interface AdminSyncHealthPayload {
     historicalExtendedReady?: boolean;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     activityState?: ProviderActivityState;
+    syncTruthState?: SyncTruthState | null;
+    blockerClass?: SyncBlockerClass | null;
     progressEvidence?: ProviderProgressEvidence | null;
     stallFingerprints?: ProviderStallFingerprint[];
     workerOnline?: boolean;
@@ -291,6 +313,7 @@ export interface AdminSyncHealthPayload {
       windowHours: number;
       phases: MetaSyncPhaseTimingSummary[];
     } | null;
+    lagMetrics?: SyncLagMetrics | null;
   }>;
 }
 
@@ -835,6 +858,10 @@ export function buildAdminSyncHealth(input: {
   metaD1FinalizeNonTerminalCounts?: Record<string, number>;
   workerHealth?: Awaited<ReturnType<typeof getSyncWorkerHealthSummary>>;
   webDbDiagnostics?: DbRuntimeDiagnostics | null;
+  runtimeContract?: RuntimeContract | null;
+  runtimeRegistry?: RuntimeRegistryStatus | null;
+  deployGate?: SyncGateRecord | null;
+  releaseGate?: SyncGateRecord | null;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -882,6 +909,8 @@ export function buildAdminSyncHealth(input: {
     workers: input.workerHealth?.workers,
     staleThresholdMs: 3 * 60_000,
   });
+  const runtimeContractValid =
+    input.runtimeRegistry?.contractValid ?? input.runtimeContract?.validation.pass ?? null;
   let latestProgressHeartbeatAt: string | null = null;
   const metaSnapshotsByBusiness = new Map(
     (input.metaAuthoritativeSnapshots ?? [])
@@ -1467,6 +1496,18 @@ export function buildAdminSyncHealth(input: {
         metaReclaimSummary.reclaimCandidateCount > 0 ||
         Number(row.stale_run_count_24h ?? 0) > 0,
     });
+    const lagMetrics = buildSyncLagMetrics(
+      metaSnapshotsByBusiness.get(row.business_id)?.latestPublishes?.[0] ?? null,
+    );
+    const unifiedTruth = deriveUnifiedSyncTruth({
+      activityState,
+      progressState,
+      workerOnline: metaProviderWorkerObservation.hasFreshHeartbeat,
+      queueDepth,
+      leasedPartitions,
+      releaseGateVerdict: input.releaseGate?.verdict ?? null,
+      runtimeContractValid,
+    });
 
     metaBusinesses.push({
       businessId: row.business_id,
@@ -1509,6 +1550,8 @@ export function buildAdminSyncHealth(input: {
       historicalExtendedReady,
       progressState,
       activityState,
+      syncTruthState: unifiedTruth.syncTruthState,
+      blockerClass: unifiedTruth.blockerClass === "none" ? null : unifiedTruth.blockerClass,
       progressEvidence: metaProgressEvidence,
       stallFingerprints,
       workerOnline: metaProviderWorkerObservation.hasFreshHeartbeat,
@@ -1541,6 +1584,7 @@ export function buildAdminSyncHealth(input: {
               phases: metaPhaseTimingSummariesByBusiness[row.business_id] ?? [],
             }
           : null,
+      lagMetrics,
     });
 
     if (
@@ -1870,8 +1914,39 @@ export function buildAdminSyncHealth(input: {
     metaLeasedPartitions,
     metaBusinesses,
   });
+  const summaryTruth = deriveUnifiedSyncTruth({
+    activityState:
+      metaBusinesses.some((business) => business.activityState === "blocked")
+        ? "blocked"
+        : metaBusinesses.some((business) => business.activityState === "stalled")
+          ? "stalled"
+          : metaBusinesses.some((business) => business.activityState === "busy")
+            ? "busy"
+            : metaBusinesses.some((business) => business.activityState === "waiting")
+              ? "waiting"
+              : "ready",
+    progressState:
+      metaBusinesses.some((business) => business.progressState === "blocked")
+        ? "blocked"
+        : metaBusinesses.some((business) => business.progressState === "partial_stuck")
+          ? "partial_stuck"
+          : metaBusinesses.some((business) => business.progressState === "syncing")
+            ? "syncing"
+            : metaBusinesses.some((business) => business.progressState === "partial_progressing")
+              ? "partial_progressing"
+              : "ready",
+    workerOnline: (input.workerHealth?.onlineWorkers ?? 0) > 0,
+    queueDepth: metaQueueDepth,
+    leasedPartitions: metaLeasedPartitions,
+    releaseGateVerdict: input.releaseGate?.verdict ?? null,
+    runtimeContractValid,
+  });
 
   return {
+    runtimeContract: input.runtimeContract ?? null,
+    runtimeRegistry: input.runtimeRegistry ?? null,
+    deployGate: input.deployGate ?? null,
+    releaseGate: input.releaseGate ?? null,
     googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
     googleAdsHealthError: input.googleAdsHealthError ?? null,
     dbDiagnostics,
@@ -1919,6 +1994,8 @@ export function buildAdminSyncHealth(input: {
       metaIntegrityIncidentCount,
       metaIntegrityBlockedCount,
       metaD1FinalizeNonTerminalCount,
+      syncTruthState: summaryTruth.syncTruthState,
+      blockerClass: summaryTruth.blockerClass === "none" ? null : summaryTruth.blockerClass,
     },
     issues: normalizedIssues,
     workerHealth: input.workerHealth,
@@ -2692,8 +2769,23 @@ async function readRevenueSubscriptions() {
 }
 
 export async function getAdminOperationsHealth() {
+  const runtimeContract = assertRuntimeContractStartup({ service: "web" });
+  await upsertRuntimeContractInstance({
+    contract: runtimeContract,
+  }).catch(() => null);
   const sql = getDb();
-  const [authRows, syncJobs, cooldowns, googleAdsHealthResult, metaHealth, revenueWorkspaces, revenueSubscriptions, workerHealth] =
+  const [
+    authRows,
+    syncJobs,
+    cooldowns,
+    googleAdsHealthResult,
+    metaHealth,
+    revenueWorkspaces,
+    revenueSubscriptions,
+    workerHealth,
+    runtimeRegistry,
+    gateRecords,
+  ] =
     await Promise.all([
       readAuthRows().catch(() => []),
       readSyncJobs().catch(() => []),
@@ -2727,6 +2819,16 @@ export async function getAdminOperationsHealth() {
         lastHeartbeatAt: null,
         lastProgressHeartbeatAt: null,
         workers: [],
+      })),
+      getRuntimeRegistryStatus({
+        buildId: runtimeContract.buildId,
+      }).catch(() => null),
+      getLatestSyncGateRecords({
+        buildId: runtimeContract.buildId,
+        environment: process.env.NODE_ENV ?? "unknown",
+      }).catch(() => ({
+        deployGate: null,
+        releaseGate: null,
       })),
     ]);
   const metaD1FinalizeNonTerminalCounts = Object.fromEntries(
@@ -2895,6 +2997,10 @@ export async function getAdminOperationsHealth() {
     metaD1FinalizeNonTerminalCounts,
     workerHealth,
     webDbDiagnostics,
+    runtimeContract,
+    runtimeRegistry,
+    deployGate: gateRecords.deployGate,
+    releaseGate: gateRecords.releaseGate,
   });
   syncHealth.globalRebuildReview = buildGlobalRebuildTruthReview({
     googleBusinesses: syncHealth.googleAdsBusinesses ?? [],

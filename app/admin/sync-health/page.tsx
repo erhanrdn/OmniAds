@@ -25,6 +25,41 @@ interface SyncIssueRow {
 interface SyncHealthPayload {
   globalRebuildReview?: GlobalRebuildTruthReview;
   syncEffectivenessReview?: SyncEffectivenessReview;
+  runtimeContract?: {
+    buildId: string;
+    dbFingerprint: string;
+    configFingerprint: string;
+    validation: {
+      pass: boolean;
+      issues: Array<{
+        code: string;
+        severity: "error" | "warning";
+        message: string;
+      }>;
+    };
+  } | null;
+  runtimeRegistry?: {
+    contractValid: boolean;
+    webPresent: boolean;
+    workerPresent: boolean;
+    dbFingerprintMatch: boolean;
+    configFingerprintMatch: boolean;
+    issues: string[];
+  } | null;
+  deployGate?: {
+    verdict: "pass" | "fail" | "misconfigured" | "measure_only" | "warn_only" | "blocked";
+    mode: "measure_only" | "warn_only" | "block";
+    breakGlass: boolean;
+    overrideReason: string | null;
+    summary: string;
+  } | null;
+  releaseGate?: {
+    verdict: "pass" | "fail" | "misconfigured" | "measure_only" | "warn_only" | "blocked";
+    mode: "measure_only" | "warn_only" | "block";
+    breakGlass: boolean;
+    overrideReason: string | null;
+    summary: string;
+  } | null;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   dbDiagnostics?: {
@@ -150,6 +185,8 @@ interface SyncHealthPayload {
     metaIntegrityIncidentCount?: number;
     metaIntegrityBlockedCount?: number;
     metaD1FinalizeNonTerminalCount?: number;
+    syncTruthState?: string | null;
+    blockerClass?: string | null;
   };
   issues: SyncIssueRow[];
   workerHealth?: {
@@ -617,6 +654,70 @@ export default function AdminSyncHealthPage() {
         <MetricCard label="Meta Leased" value={summary.metaLeasedPartitions ?? 0} help="Meta partitions currently leased or running." />
         <MetricCard label="Meta Dead" value={summary.metaDeadLetterPartitions ?? 0} help="Meta dead-letter partitions that require intervention." />
       </div>
+
+      {(payload?.runtimeContract || payload?.runtimeRegistry || payload?.deployGate || payload?.releaseGate) ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Control plane</p>
+              <p className="mt-1 text-sm text-gray-500">
+                Runtime contract drift, synthetic deploy gate, and read-only release gate verdicts now come from the same backend control system.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {summary.syncTruthState ? <StateBadge state={summary.syncTruthState} /> : null}
+              {payload?.deployGate ? <StateBadge state={payload.deployGate.verdict} /> : null}
+              {payload?.releaseGate ? <StateBadge state={payload.releaseGate.verdict} /> : null}
+              {summary.blockerClass ? <MetricPill label="Blocker" value={summary.blockerClass} /> : null}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Runtime contract</p>
+              <p className="mt-2 text-sm text-slate-700">
+                build <span className="font-mono">{payload?.runtimeContract?.buildId ?? "unknown"}</span>
+              </p>
+              <p className="mt-1 text-sm text-slate-700">
+                db {payload?.runtimeRegistry?.dbFingerprintMatch ? "matched" : "drifted"} • config {payload?.runtimeRegistry?.configFingerprintMatch ? "matched" : "drifted"}
+              </p>
+              <p className="mt-1 text-sm text-slate-700">
+                web {payload?.runtimeRegistry?.webPresent ? "fresh" : "missing"} • worker {payload?.runtimeRegistry?.workerPresent ? "fresh" : "missing"}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Deploy gate</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {payload?.deployGate ? <StateBadge state={payload.deployGate.verdict} /> : <StateBadge state="unknown" />}
+                {payload?.deployGate ? <MetricPill label="Mode" value={payload.deployGate.mode} /> : null}
+              </div>
+              <p className="mt-2 text-sm text-slate-700">{payload?.deployGate?.summary ?? "No deploy gate verdict recorded for this build."}</p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Release gate</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {payload?.releaseGate ? <StateBadge state={payload.releaseGate.verdict} /> : <StateBadge state="unknown" />}
+                {payload?.releaseGate ? <MetricPill label="Mode" value={payload.releaseGate.mode} /> : null}
+                {payload?.releaseGate?.breakGlass ? <MetricPill label="Break glass" value="active" /> : null}
+              </div>
+              <p className="mt-2 text-sm text-slate-700">{payload?.releaseGate?.summary ?? "No release gate verdict recorded for this build."}</p>
+              {payload?.releaseGate?.overrideReason ? (
+                <p className="mt-1 text-xs text-slate-500">override reason: {payload.releaseGate.overrideReason}</p>
+              ) : null}
+            </div>
+          </div>
+
+          {payload?.runtimeRegistry?.issues?.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {payload.runtimeRegistry.issues.map((issue: string) => (
+                <MetricPill key={issue} label="Contract issue" value={issue} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {dbDiagnostics ? (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -1492,6 +1593,7 @@ function StateBadge({ state }: { state: string }) {
     state === "healthy" ||
     state === "clear" ||
     state === "present" ||
+    state === "pass" ||
     state === "eligible_for_explicit_review" ||
     state === "improving" ||
     state === "ready_with_current_support"
@@ -1500,6 +1602,10 @@ function StateBadge({ state }: { state: string }) {
           state === "saturated" ||
           state === "stalled" ||
           state === "blocked" ||
+          state === "fail" ||
+          state === "misconfigured" ||
+          state === "worker_unavailable" ||
+          state === "not_release_ready" ||
           state === "publication_missing" ||
           state === "no_go" ||
           state === "blocked_repair_needed"
@@ -1508,6 +1614,8 @@ function StateBadge({ state }: { state: string }) {
             state === "elevated" ||
             state === "draining" ||
             state === "hold_manual" ||
+            state === "warn_only" ||
+            state === "measure_only" ||
             state === "repair_required" ||
             state === "quota_limited" ||
             state === "cold_bootstrap" ||

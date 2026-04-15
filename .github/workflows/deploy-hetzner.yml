@@ -12,6 +12,16 @@ on:
         required: false
         default: "false"
         type: string
+      break_glass:
+        description: Allow manual break-glass deploy without enforcing the synthetic deploy gate
+        required: false
+        default: "false"
+        type: string
+      override_reason:
+        description: Required reason when break_glass is true
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: deploy-production
@@ -95,6 +105,8 @@ jobs:
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
         env:
           DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
+          BREAK_GLASS: ${{ inputs.break_glass }}
+          OVERRIDE_REASON: ${{ inputs.override_reason }}
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
@@ -103,6 +115,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ "${BREAK_GLASS}" = "true" ] && [ -z "${OVERRIDE_REASON}" ]; then
+            echo "override_reason is required when break_glass=true"
+            exit 1
+          fi
 
           if [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
             echo "Missing required Hetzner deploy secrets."
@@ -175,7 +192,7 @@ jobs:
               "mv '${REMOTE_APP_DIR}/docker-compose.yml.tmp' '${REMOTE_APP_DIR}/docker-compose.yml'"
 
             ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
-              "DEPLOY_SHA='${DEPLOY_SHA}' bash -seuo pipefail" <<'EOF'
+              "DEPLOY_SHA='${DEPLOY_SHA}' BREAK_GLASS='${BREAK_GLASS}' OVERRIDE_REASON='${OVERRIDE_REASON}' bash -seuo pipefail" <<'EOF'
               cd /var/www/adsecute
 
               log() {
@@ -376,6 +393,24 @@ jobs:
               worker_healthy_at="$(current_utc_iso)"
               log "Verifying fresh Meta heartbeat after worker health"
               verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 12 5
+
+              log "Evaluating sync deploy and release gates"
+              if [ "${BREAK_GLASS}" = "true" ]; then
+                node --import tsx scripts/sync-gate-evaluate.ts \
+                  --gate deploy_gate \
+                  --break-glass \
+                  --override-reason "${OVERRIDE_REASON}"
+                node --import tsx scripts/sync-gate-evaluate.ts \
+                  --gate release_gate \
+                  --break-glass \
+                  --override-reason "${OVERRIDE_REASON}"
+              else
+                node --import tsx scripts/sync-gate-evaluate.ts \
+                  --gate deploy_gate \
+                  --enforce
+                node --import tsx scripts/sync-gate-evaluate.ts \
+                  --gate release_gate
+              fi
               trap - ERR
           EOF
           }

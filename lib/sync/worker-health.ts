@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import {
+  buildRuntimeContract,
+  upsertRuntimeContractInstance,
+} from "@/lib/sync/runtime-contract";
 import type {
   ProviderReclaimDisposition,
   ProviderReclaimReasonCode,
@@ -197,6 +201,10 @@ export async function heartbeatSyncWorker(input: {
     ["sync_worker_heartbeats"],
     "sync_worker_health:heartbeat",
   );
+  const runtimeContract = buildRuntimeContract({
+    service: "worker",
+    instanceId: input.workerId,
+  });
   const sql = getDb();
   await sql`
     INSERT INTO sync_worker_heartbeats (
@@ -218,7 +226,16 @@ export async function heartbeatSyncWorker(input: {
       now(),
       ${input.lastBusinessId ?? null},
       ${input.lastPartitionId ?? null},
-      ${JSON.stringify(input.metaJson ?? {})}::jsonb,
+      ${JSON.stringify({
+        ...(input.metaJson ?? {}),
+        runtimeContract: {
+          buildId: runtimeContract.buildId,
+          dbFingerprint: runtimeContract.dbFingerprint,
+          configFingerprint: runtimeContract.configFingerprint,
+          validationPass: runtimeContract.validation.pass,
+          issueCodes: runtimeContract.validation.issues.map((issue) => issue.code),
+        },
+      })}::jsonb,
       now()
     )
     ON CONFLICT (worker_id) DO UPDATE SET
@@ -231,6 +248,10 @@ export async function heartbeatSyncWorker(input: {
       meta_json = EXCLUDED.meta_json,
       updated_at = now()
   `;
+  await upsertRuntimeContractInstance({
+    contract: runtimeContract,
+    healthState: runtimeContract.validation.pass ? "healthy" : "invalid",
+  }).catch(() => null);
 }
 
 export async function acquireSyncRunnerLease(input: {

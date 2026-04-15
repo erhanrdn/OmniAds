@@ -28,6 +28,7 @@ vi.mock("@/lib/provider-account-snapshots", () => ({
 }));
 
 vi.mock("@/lib/meta/warehouse", () => ({
+  getMetaAuthoritativeBusinessOpsSnapshot: vi.fn(),
   getMetaAuthoritativeDayVerification: vi.fn(),
   getLatestMetaSyncHealth: vi.fn(),
   getMetaAccountDailyCoverage: vi.fn(),
@@ -71,6 +72,49 @@ vi.mock("@/lib/demo-business", () => ({
 
 vi.mock("@/lib/sync/worker-health", () => ({
   getProviderWorkerHealthState: vi.fn(),
+}));
+
+vi.mock("@/lib/sync/runtime-contract", () => ({
+  assertRuntimeContractStartup: vi.fn(() => ({
+    contractVersion: 1,
+    service: "web",
+    runtimeRole: "web",
+    instanceId: "web:test:1",
+    buildId: "dev-build",
+    nodeEnv: "test",
+    providerScopes: ["meta"],
+    dbTarget: {
+      host: "localhost",
+      port: 5432,
+      database: "test",
+      searchPath: null,
+      sslMode: null,
+    },
+    dbFingerprint: "db-fingerprint",
+    configFingerprint: "config-fingerprint",
+    config: {
+      metaAuthoritativeFinalizationV2: true,
+      metaRetentionExecutionEnabled: false,
+      releaseCanaryBusinesses: [],
+      releaseCanaryConfigured: false,
+      releaseCanaryHasMandatoryCanary: false,
+      deployGateMode: "measure_only",
+      releaseGateMode: "measure_only",
+    },
+    validation: {
+      pass: true,
+      issues: [],
+    },
+  })),
+  upsertRuntimeContractInstance: vi.fn(async () => null),
+  getRuntimeRegistryStatus: vi.fn(async () => null),
+}));
+
+vi.mock("@/lib/sync/release-gates", () => ({
+  getLatestSyncGateRecords: vi.fn(async () => ({
+    deployGate: null,
+    releaseGate: null,
+  })),
 }));
 
 vi.mock("@/lib/meta/status-operations", () => ({
@@ -218,6 +262,7 @@ describe("GET /api/meta/status", () => {
       },
     });
     vi.mocked(warehouse.getLatestMetaSyncHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaAuthoritativeBusinessOpsSnapshot).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaAccountDailyStats).mockResolvedValue({
       row_count: 10,
       first_date: "2025-04-01",

@@ -16,8 +16,13 @@ import type {
   ProviderRepairableAction,
   ProviderRequiredCoverage,
   ProviderSecondaryReadiness,
+  SyncBlockerClass,
+  SyncTruthState,
   ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
+import type { RuntimeContract, RuntimeRegistryStatus } from "@/lib/sync/runtime-contract";
+import type { SyncGateRecord } from "@/lib/sync/release-gates";
+import type { SyncLagMetrics } from "@/lib/sync/lag-metrics";
 
 export interface MetaSyncDetails {
   id?: string | null;
@@ -228,6 +233,12 @@ export interface MetaStatusResponse {
     windowHours: number;
     phases: MetaSyncPhaseTimingSummary[];
   } | null;
+  runtimeContract?: RuntimeContract | null;
+  runtimeRegistry?: RuntimeRegistryStatus | null;
+  deployGate?: SyncGateRecord | null;
+  releaseGate?: SyncGateRecord | null;
+  syncTruthState?: SyncTruthState | null;
+  blockerClass?: SyncBlockerClass | null;
   domainReadiness?: ProviderDomainReadiness | null;
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;
@@ -430,6 +441,8 @@ export interface MetaStatusResponse {
     blockReason?: string | null;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     activityState?: ProviderActivityState;
+    syncTruthState?: SyncTruthState | null;
+    blockerClass?: SyncBlockerClass | null;
     progressEvidence?: ProviderProgressEvidence | null;
     blockingReasons?: ProviderBlockingReason[];
     repairableActions?: ProviderRepairableAction[];
@@ -442,6 +455,18 @@ export interface MetaStatusResponse {
       extendedRecentQueued: number;
       extendedHistoricalQueued: number;
     } | null;
+    providerWorker?: {
+      workerId: string | null;
+      freshnessState: "online" | "stale" | "stopped" | null;
+      lastHeartbeatAt: string | null;
+    } | null;
+    businessWorker?: {
+      workerId: string | null;
+      freshnessState: "online" | "stale" | "stopped" | null;
+      lastHeartbeatAt: string | null;
+      currentBusinessId: string | null;
+    } | null;
+    lagMetrics?: SyncLagMetrics | null;
     retentionRuntimeAvailable?: boolean;
     retentionExecutionEnabled?: boolean;
     retentionMode?: "dry_run" | "execute";

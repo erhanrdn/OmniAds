@@ -37,9 +37,59 @@ Only these controls matter for Meta finalization and retention posture:
 2. `META_RETENTION_EXECUTION_ENABLED`
    - `0`: retention remains dry-run only
    - `1`: retention delete execution is globally enabled
-3. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
+3. `SYNC_RELEASE_CANARY_BUSINESSES`
+   - explicit release-gate canary set
+   - required for the read-only release gate verdict store
+   - must include `TheSwaf` during Meta stabilization
+4. `SYNC_DEPLOY_GATE_MODE`
+   - `measure_only`, `warn_only`, or `block`
+   - production must declare this explicitly
+5. `SYNC_RELEASE_GATE_MODE`
+   - `measure_only`, `warn_only`, or `block`
+   - production must declare this explicitly
+6. `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES`
    - legacy-only environment variable
    - no longer changes runtime behavior under the current global contract
+
+## Runtime Contract
+
+The control system now treats runtime posture as a contract, not a best-effort fallback.
+
+The contract is visible through:
+
+- `/api/build-info`
+- `/admin/sync-health`
+- `/api/meta/status?businessId=<businessId>`
+
+What must agree:
+
+1. `buildId`
+2. `dbFingerprint`
+3. `configFingerprint`
+4. explicit critical posture env:
+   - `META_AUTHORITATIVE_FINALIZATION_V2`
+   - `META_RETENTION_EXECUTION_ENABLED`
+   - `SYNC_DEPLOY_GATE_MODE`
+   - `SYNC_RELEASE_GATE_MODE`
+
+If web and worker disagree, the runtime contract is invalid and the deploy gate must not be treated as healthy.
+
+## Gate Model
+
+Two separate gates now exist:
+
+1. `deploy_gate`
+   - synthetic
+   - contract + heartbeat + soak
+2. `release_gate`
+   - real-business canary evidence
+   - read-only until promoted beyond `measure_only`
+
+Interpretation:
+
+- deploy success is not equivalent to release readiness
+- if `release_gate` is not `pass`, operator truth must remain `not_release_ready`
+- break-glass is manual deploy-only and must record an explicit reason
 
 ## Global Operator Review Workflow
 

@@ -27,8 +27,14 @@ Important:
 
 - Set `NEXT_PUBLIC_APP_URL` to the final production domain.
 - Add `CRON_SECRET`.
-- Set `META_AUTHORITATIVE_FINALIZATION_V2=0` for the first code deploy.
-- When you are ready for a canary, set `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES=<businessId>` and then flip `META_AUTHORITATIVE_FINALIZATION_V2=1`.
+- Set explicit runtime contract flags in `.env.production`:
+  - `META_AUTHORITATIVE_FINALIZATION_V2`
+  - `META_RETENTION_EXECUTION_ENABLED`
+  - `SYNC_DEPLOY_GATE_MODE`
+  - `SYNC_RELEASE_GATE_MODE`
+  - `SYNC_RELEASE_CANARY_BUSINESSES`
+- `SYNC_RELEASE_CANARY_BUSINESSES` is the release-gate canary set and must include `TheSwaf` during Meta stabilization.
+- `META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES` is legacy-only and no longer controls the live global finalization contract.
 - Keep your existing database values unless you are also migrating the database away from Neon.
 
 ## 3. Pull and run the containers
@@ -44,6 +50,8 @@ docker compose logs -f worker
 docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q web)"
 docker inspect --format '{{json .State.Health}}' "$(docker compose ps -q worker)"
 npm run sync:worker-health -- --provider-scope meta --online-window-minutes 5
+node --import tsx scripts/sync-gate-evaluate.ts --gate deploy_gate --enforce
+node --import tsx scripts/sync-gate-evaluate.ts --gate release_gate
 ```
 
 The app listens internally on `127.0.0.1:3000`.
@@ -117,6 +125,13 @@ Check:
 ## 8. Optional: auto-deploy from GitHub
 
 This repo includes a GitHub Actions workflow at `.github/workflows/deploy-hetzner.yml`.
+
+Manual break-glass is allowed only through `workflow_dispatch` with:
+
+- `break_glass=true`
+- `override_reason=<explicit operator reason>`
+
+That path records a break-glass verdict row and does not hide `not_release_ready`.
 
 Add these repository secrets in GitHub:
 

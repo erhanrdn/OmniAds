@@ -36,11 +36,19 @@ Go/no-go:
 4. Confirm explicit flags match the intended posture:
    - `META_AUTHORITATIVE_FINALIZATION_V2`
    - `META_RETENTION_EXECUTION_ENABLED`
+   - `SYNC_DEPLOY_GATE_MODE`
+   - `SYNC_RELEASE_GATE_MODE`
+   - `SYNC_RELEASE_CANARY_BUSINESSES`
 
 Go/no-go:
 
 - `GO` only if deploy health is clean and the explicit runtime posture matches intent.
 - `NO-GO` if operator posture is ambiguous or hidden behind stale assumptions.
+
+Additional control-system rule:
+
+- `deploy_gate` may pass while `release_gate` is still `measure_only` or `not_release_ready`
+- never collapse these into one green signal
 
 ## Global Operator Review Gate
 
@@ -117,6 +125,7 @@ Confirm the manual-control contract is explicit:
 2. `META_RETENTION_EXECUTION_ENABLED` remains the explicit retention delete control.
 3. The shared review workflow never flips flags automatically.
 4. `ready` is interpreted as evidence only, not automatic execution.
+5. `SYNC_RELEASE_CANARY_BUSINESSES` is separate from the legacy finalization canary env.
 
 Go/no-go:
 

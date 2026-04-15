@@ -658,6 +658,7 @@ export interface MetaAuthoritativeLatestPublishRecord {
   providerAccountId: string;
   day: string;
   surface: MetaWarehouseScope;
+  stageStartedAt?: string | null;
   publishStartedAt?: string | null;
   publishedAt: string | null;
   verificationState: MetaHistoricalVerificationState;

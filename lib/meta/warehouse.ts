@@ -2586,6 +2586,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
         pointer.provider_account_id,
         pointer.day,
         pointer.surface,
+        slice.stage_started_at,
         slice.publish_started_at,
         pointer.published_at,
         manifest.source_kind,
@@ -2622,6 +2623,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
       provider_account_id: string;
       day: string;
       surface: MetaWarehouseScope;
+      stage_started_at: string | null;
       publish_started_at: string | null;
       published_at: string | null;
       source_kind: string | null;
@@ -2854,6 +2856,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
           providerAccountId: row.provider_account_id,
           day: normalizedDay,
           surface: row.surface,
+          stageStartedAt: normalizeTimestamp(row.stage_started_at),
           publishStartedAt: normalizeTimestamp(row.publish_started_at),
           publishedAt: normalizeTimestamp(row.published_at),
           verificationState:

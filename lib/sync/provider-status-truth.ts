@@ -20,6 +20,21 @@ export type ProviderActivityState =
   | "stalled"
   | "blocked";
 
+export type SyncTruthState =
+  | ProviderActivityState
+  | "worker_unavailable"
+  | "not_release_ready";
+
+export type SyncBlockerClass =
+  | "none"
+  | "worker_unavailable"
+  | "queue_blocked"
+  | "stalled"
+  | "not_release_ready"
+  | "runtime_contract_invalid"
+  | "misconfigured"
+  | "unknown";
+
 export type ProviderStallFingerprint =
   | "historical_starvation"
   | "dead_letter_blocking_completion"
@@ -272,6 +287,70 @@ export function buildProviderProgressEvidence(input: {
     lastReplayAt: normalizeEvidenceTimestamp(input.lastReplayAt ?? null),
     lastReclaimAt: normalizeEvidenceTimestamp(input.lastReclaimAt ?? null),
     recentActivityWindowMinutes: input.recentActivityWindowMinutes,
+  };
+}
+
+export function deriveUnifiedSyncTruth(input: {
+  activityState: ProviderActivityState | null | undefined;
+  progressState: ProviderProgressState | null | undefined;
+  workerOnline?: boolean | null;
+  queueDepth?: number | null;
+  leasedPartitions?: number | null;
+  releaseGateVerdict?:
+    | "pass"
+    | "fail"
+    | "misconfigured"
+    | "measure_only"
+    | "warn_only"
+    | "blocked"
+    | null;
+  runtimeContractValid?: boolean | null;
+}) {
+  const queueDepth = Math.max(0, Number(input.queueDepth ?? 0));
+  const leasedPartitions = Math.max(0, Number(input.leasedPartitions ?? 0));
+  const releaseGateVerdict = input.releaseGateVerdict ?? null;
+
+  if (input.runtimeContractValid === false) {
+    return {
+      syncTruthState: "blocked" as SyncTruthState,
+      blockerClass: "runtime_contract_invalid" as SyncBlockerClass,
+    };
+  }
+
+  if (input.workerOnline === false && (queueDepth > 0 || leasedPartitions > 0)) {
+    return {
+      syncTruthState: "worker_unavailable" as SyncTruthState,
+      blockerClass: "worker_unavailable" as SyncBlockerClass,
+    };
+  }
+
+  if (releaseGateVerdict && releaseGateVerdict !== "pass") {
+    return {
+      syncTruthState: "not_release_ready" as SyncTruthState,
+      blockerClass:
+        releaseGateVerdict === "misconfigured"
+          ? ("misconfigured" as SyncBlockerClass)
+          : ("not_release_ready" as SyncBlockerClass),
+    };
+  }
+
+  if (input.activityState === "blocked" || input.progressState === "blocked") {
+    return {
+      syncTruthState: "blocked" as SyncTruthState,
+      blockerClass: "queue_blocked" as SyncBlockerClass,
+    };
+  }
+
+  if (input.activityState === "stalled" || input.progressState === "partial_stuck") {
+    return {
+      syncTruthState: "stalled" as SyncTruthState,
+      blockerClass: "stalled" as SyncBlockerClass,
+    };
+  }
+
+  return {
+    syncTruthState: (input.activityState ?? "waiting") as SyncTruthState,
+    blockerClass: "none" as SyncBlockerClass,
   };
 }
 
