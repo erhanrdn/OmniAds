@@ -40,6 +40,7 @@ const META_REMEDIATION_LOCK = {
 const DEFAULT_POLL_ATTEMPTS = 6;
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_LOCK_MINUTES = 10;
+const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
 
 type CanaryEvidence = {
   businessId: string;
@@ -107,6 +108,24 @@ function parseCsv(value: string | null | undefined) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms.`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function toSafeJson<T>(value: T): T {
@@ -513,6 +532,14 @@ export async function runMetaCanaryRemediation(input: {
 
   for (const recommendation of targetRecommendations) {
     const lockOwner = `${input.workflowRunId ?? "manual"}:${recommendation.businessId}`;
+    console.log(
+      "[meta-canary-remediation] business_start",
+      JSON.stringify({
+        businessId: recommendation.businessId,
+        recommendedAction: recommendation.recommendedAction,
+        successMode,
+      }),
+    );
     const lock = await acquireProviderJobLock({
       businessId: recommendation.businessId,
       ownerToken: lockOwner,
@@ -569,10 +596,28 @@ export async function runMetaCanaryRemediation(input: {
         lockOwner,
         beforeEvidence: toSafeJson(before.evidence),
       });
-      const action = await executeRecommendation({
-        businessId: recommendation.businessId,
-        recommendation,
-      });
+      console.log(
+        "[meta-canary-remediation] action_start",
+        JSON.stringify({
+          businessId: recommendation.businessId,
+          recommendedAction: recommendation.recommendedAction,
+        }),
+      );
+      const action = await withTimeout(
+        executeRecommendation({
+          businessId: recommendation.businessId,
+          recommendation,
+        }),
+        DEFAULT_ACTION_TIMEOUT_MS,
+        `remediation action for ${recommendation.businessId}`,
+      );
+      console.log(
+        "[meta-canary-remediation] action_complete",
+        JSON.stringify({
+          businessId: recommendation.businessId,
+          executedAction: action.executedAction,
+        }),
+      );
       const after = await pollAfterEvidence({
         businessId: recommendation.businessId,
         attempts: DEFAULT_POLL_ATTEMPTS,
@@ -605,6 +650,14 @@ export async function runMetaCanaryRemediation(input: {
       if (completed) {
         executions.push(completed);
       }
+      console.log(
+        "[meta-canary-remediation] business_complete",
+        JSON.stringify({
+          businessId: recommendation.businessId,
+          outcomeClassification: completed?.outcomeClassification ?? classified.outcome,
+          expectedOutcomeMet: completed?.expectedOutcomeMet ?? classified.expectedOutcomeMet,
+        }),
+      );
       finalLockStatus = "done";
     } catch (error) {
       if (execution) {
@@ -647,6 +700,14 @@ export async function runMetaCanaryRemediation(input: {
           }),
         );
       }
+      console.error(
+        "[meta-canary-remediation] business_failed",
+        JSON.stringify({
+          businessId: recommendation.businessId,
+          recommendedAction: recommendation.recommendedAction,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
       finalLockError = error instanceof Error ? error.message : String(error);
     } finally {
       await releaseProviderJobLock({

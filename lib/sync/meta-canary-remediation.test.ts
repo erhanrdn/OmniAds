@@ -492,6 +492,60 @@ describe("meta canary remediation", () => {
     expect(result.outcomeCounts.no_change).toBe(1);
   });
 
+  it("times out long-running repair actions and records manual follow-up instead of hanging forever", async () => {
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue(makeSnapshot());
+    vi.mocked(repairEngine.runMetaRepairCycle).mockImplementation(
+      () => new Promise(() => undefined) as never,
+    );
+    vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "meta",
+      latestStartedAt: "2026-04-15T12:00:00.000Z",
+      latestFinishedAt: "2026-04-15T12:05:01.000Z",
+      improvedAny: false,
+      businessCount: 1,
+      counts: {
+        cleared: 0,
+        improving_not_cleared: 0,
+        no_change: 0,
+        worse: 0,
+        manual_follow_up_required: 1,
+        locked: 0,
+      },
+    });
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      successMode: "proof",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1_000);
+    const result = await runPromise;
+
+    expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
+      "exec-1",
+      expect.objectContaining({
+        status: "failed",
+        outcomeClassification: "manual_follow_up_required",
+        expectedOutcomeMet: false,
+      }),
+    );
+    expect(providerJobLock.releaseProviderJobLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        ownerToken: "run-1:biz-1",
+        status: "failed",
+      }),
+    );
+    expect(result.executions[0]?.outcomeClassification).toBe("manual_follow_up_required");
+    expect(result.proofPassed).toBe(false);
+    expect(result.clearancePassed).toBe(false);
+  });
+
   it("maps repair recommendations deterministically", () => {
     expect(remediation.mapRepairRecommendationToExecutionAction("integrity_repair_enqueue")).toBe("repair_cycle");
     expect(remediation.mapRepairRecommendationToExecutionAction("reschedule")).toBe("reschedule");
