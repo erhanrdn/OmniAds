@@ -316,22 +316,66 @@ jobs:
                 return 1
               }
 
-              persist_sync_control_plane_locally() {
-                gate_args=(
-                  node --import tsx scripts/sync-gate-evaluate.ts
-                  --build-id "${DEPLOY_SHA}"
-                  --environment production
-                )
-                if [ "${BREAK_GLASS}" = "true" ]; then
-                  gate_args+=(--break-glass --override-reason "${OVERRIDE_REASON}")
+              persist_sync_control_plane_via_web() {
+                cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || \"\")')"
+                if [ -z "${cron_secret}" ]; then
+                  echo "CRON_SECRET is missing from the web runtime."
+                  return 1
                 fi
 
-                docker compose exec -T -e NODE_ENV=production web "${gate_args[@]}"
-                docker compose exec -T -e NODE_ENV=production web \
-                  node --import tsx scripts/sync-repair-plan-evaluate.ts \
-                    --build-id "${DEPLOY_SHA}" \
-                    --environment production \
-                    --provider-scope meta
+                query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1"
+                if [ "${BREAK_GLASS}" = "true" ]; then
+                  encoded_override_reason="$(
+                    python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
+                  )"
+                  query_string="${query_string}&breakGlass=1&overrideReason=${encoded_override_reason}"
+                fi
+
+                response_file="$(mktemp)"
+                http_status="$(
+                  curl -sS -o "${response_file}" -w '%{http_code}' -X POST \
+                    "http://127.0.0.1:3000/api/sync/cron?${query_string}" \
+                    -H "Authorization: Bearer ${cron_secret}"
+                )"
+                response_json="$(cat "${response_file}")"
+                rm -f "${response_file}"
+                printf '%s\n' "${response_json}"
+
+                route_status=0
+                RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 - <<'PY' || route_status=$?
+import json
+import os
+import sys
+
+status = int(os.environ["HTTP_STATUS"])
+payload = json.loads(os.environ["RESPONSE_JSON"] or "{}")
+
+if status not in (200, 503):
+    sys.exit(10)
+
+if status == 503:
+    sys.exit(20)
+
+if payload.get("ok") is not True:
+    sys.exit(30)
+PY
+                if [ "${route_status}" -ne 0 ]; then
+                  case "${route_status}" in
+                    10)
+                      echo "controlPlaneOnly route returned unexpected HTTP status ${http_status}"
+                      ;;
+                    20)
+                      echo "controlPlaneOnly route blocked deploy via enforced deployGate"
+                      ;;
+                    30)
+                      echo "controlPlaneOnly route returned ok=false"
+                      ;;
+                    *)
+                      echo "controlPlaneOnly route validation failed"
+                      ;;
+                  esac
+                  return 1
+                fi
 
                 attempt=1
                 max_attempts=6
@@ -437,7 +481,7 @@ jobs:
               verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 12 5
 
               log "Persisting current-build sync control plane"
-              persist_sync_control_plane_locally
+              persist_sync_control_plane_via_web
               trap - ERR
           EOF
           }
