@@ -281,6 +281,25 @@ interface SyncHealthPayload {
     integrityBlockedCount?: number;
     d1FinalizeNonTerminalCount?: number;
     validationFailures24h?: number;
+    phaseTimings?: {
+      windowHours: number;
+      phases: Array<{
+        phase: "fetch_raw" | "transform" | "bulk_upsert" | "finalize" | "publish";
+        runCount: number;
+        timingScope: string | null;
+        latestFinishedAt: string | null;
+        latestDurationMs: number | null;
+        avgDurationMs: number | null;
+        p50DurationMs: number | null;
+        p95DurationMs: number | null;
+        maxDurationMs: number | null;
+        throughputBasis: "rows_fetched" | "rows_written";
+        latestRowsFetched: number;
+        latestRowsWritten: number;
+        latestRowsPerSecond: number | null;
+        p50RowsPerSecond: number | null;
+      }>;
+    } | null;
   }>;
 }
 
@@ -293,6 +312,37 @@ function providerLabel(provider: SyncIssueRow["provider"]) {
 
 function formatDateTime(value: string | null) {
   return formatMetaDateTime(value, "tr") ?? "—";
+}
+
+function formatDurationCompact(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value >= 60_000) return `${(value / 60_000).toFixed(1)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}s`;
+  return `${Math.round(value)}ms`;
+}
+
+function formatRowsPerSecond(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value) || value <= 0) return "—";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k/s`;
+  return `${Math.round(value)}/s`;
+}
+
+function formatPhaseTimingLabel(
+  timing: NonNullable<NonNullable<SyncHealthPayload["metaBusinesses"]>[number]["phaseTimings"]>["phases"][number]
+) {
+  const label =
+    timing.phase === "fetch_raw"
+      ? "fetch"
+      : timing.phase === "bulk_upsert"
+        ? "upsert"
+        : timing.phase;
+  const latestRows =
+    timing.throughputBasis === "rows_fetched"
+      ? timing.latestRowsFetched
+      : timing.latestRowsWritten;
+  return `${label} p50 ${formatDurationCompact(timing.p50DurationMs)} • latest ${formatDurationCompact(
+    timing.latestDurationMs,
+  )} • ${latestRows} rows @ ${formatRowsPerSecond(timing.latestRowsPerSecond)}`;
 }
 
 function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBusinesses"]>[number]) {
@@ -1323,6 +1373,12 @@ export default function AdminSyncHealthPage() {
                       <p className="mt-1 text-xs text-gray-500">
                         Checkpoint {business.latestCheckpointScope ?? "—"} / {business.latestCheckpointPhase ?? "—"} • Last page {business.lastSuccessfulPageIndex ?? "—"} • Updated {formatDateTime(business.latestCheckpointUpdatedAt ?? null)} • Progress {formatDateTime(business.lastProgressHeartbeatAt ?? null)}
                       </p>
+                      {business.phaseTimings?.phases?.length ? (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Phase timings ({business.phaseTimings.windowHours}h){" "}
+                          {business.phaseTimings.phases.map((timing) => formatPhaseTimingLabel(timing)).join(" • ")}
+                        </p>
+                      ) : null}
                       <p className="mt-1 text-xs text-gray-500">
                         Active slow {business.activeSlowPartitions ?? 0} • Reclaim candidates {business.reclaimCandidateCount ?? 0} • Last reclaim reason {business.lastReclaimReason ?? "—"}
                       </p>

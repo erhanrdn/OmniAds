@@ -1252,6 +1252,33 @@ export async function runMigrations(options?: {
           ON meta_sync_checkpoints (partition_id, lease_epoch, updated_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_checkpoints_partition_run
           ON meta_sync_checkpoints (partition_id, checkpoint_scope, run_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_sync_phase_timings (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          partition_id        UUID NOT NULL REFERENCES meta_sync_partitions(id) ON DELETE CASCADE,
+          business_id         TEXT NOT NULL,
+          provider_account_id TEXT NOT NULL,
+          timing_scope        TEXT NOT NULL,
+          run_id              TEXT,
+          phase               TEXT NOT NULL
+                              CHECK (phase IN ('fetch_raw', 'transform', 'bulk_upsert', 'finalize', 'publish')),
+          status              TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled')),
+          rows_fetched        INTEGER NOT NULL DEFAULT 0,
+          rows_written        INTEGER NOT NULL DEFAULT 0,
+          attempt_count       INTEGER NOT NULL DEFAULT 0,
+          lease_epoch         BIGINT,
+          lease_owner         TEXT,
+          lease_expires_at    TIMESTAMPTZ,
+          started_at          TIMESTAMPTZ,
+          finished_at         TIMESTAMPTZ,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (partition_id, timing_scope)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_phase_timings_partition
+          ON meta_sync_phase_timings (partition_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_sync_phase_timings_business
+          ON meta_sync_phase_timings (business_id, provider_account_id, phase, status, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS sync_worker_heartbeats (
           worker_id          TEXT PRIMARY KEY,
           instance_type      TEXT NOT NULL,

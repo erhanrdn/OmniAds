@@ -42,6 +42,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   replaceMetaAdSetDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaBreakdownDailySlice: vi.fn().mockResolvedValue(undefined),
   upsertMetaSyncCheckpoint: vi.fn().mockResolvedValue("checkpoint-id"),
+  upsertMetaSyncPhaseTiming: vi.fn().mockResolvedValue("phase-timing-id"),
   updateMetaSyncJob: vi.fn(),
   upsertMetaAccountDailyRows: vi.fn().mockResolvedValue(undefined),
   upsertMetaAdDailyRows: vi.fn().mockResolvedValue(undefined),
@@ -103,6 +104,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     });
     vi.mocked(warehouse.buildMetaSyncCheckpointHash).mockReturnValue("checkpoint-hash");
     vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
+    vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue("phase-timing-id" as never);
     vi.mocked(configSnapshots.appendMetaConfigSnapshots).mockResolvedValue(undefined);
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
     vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
@@ -325,6 +327,9 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     const coreFinalize = checkpointCalls.find(
       (call) => call.checkpointScope === "core_ad_insights" && call.phase === "finalize"
     );
+    const phaseTimingCalls = vi
+      .mocked(warehouse.upsertMetaSyncPhaseTiming)
+      .mock.calls.map(([arg]) => arg);
 
     expect(accountFinalize).toMatchObject({
       checkpointScope: "account_daily",
@@ -359,6 +364,26 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
       rowsFetched: 1,
       leaseEpoch: 11,
     });
+    expect(phaseTimingCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          timingScope: "fetch_raw:core_ad_insights",
+          phase: "fetch_raw",
+          status: "succeeded",
+          rowsFetched: 1,
+        }),
+        expect.objectContaining({
+          timingScope: "bulk_upsert:core_ad_insights",
+          phase: "bulk_upsert",
+          status: "succeeded",
+        }),
+        expect.objectContaining({
+          timingScope: "finalize:core_ad_insights",
+          phase: "finalize",
+          status: "succeeded",
+        }),
+      ]),
+    );
     expect(checkpointCalls.every((call) => call.leaseEpoch === 11)).toBe(true);
     const heartbeatOrder = vi.mocked(warehouse.heartbeatMetaPartitionLease).mock.invocationCallOrder;
     const accountUpsertOrder = vi.mocked(warehouse.upsertMetaAccountDailyRows).mock.invocationCallOrder[0]!;
@@ -1466,6 +1491,7 @@ describe("syncMetaAccountBreakdownWarehouseDay", () => {
     vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
     vi.mocked(warehouse.persistMetaRawSnapshot).mockResolvedValue("snapshot-id");
     vi.mocked(warehouse.upsertMetaSyncCheckpoint).mockResolvedValue("checkpoint-id");
+    vi.mocked(warehouse.upsertMetaSyncPhaseTiming).mockResolvedValue("phase-timing-id" as never);
   });
 
   it("maps runtime breakdown params to the correct warehouse slice", async () => {

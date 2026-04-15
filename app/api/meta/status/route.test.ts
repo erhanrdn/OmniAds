@@ -38,6 +38,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAdSetDailyCoverage: vi.fn(),
   getMetaCheckpointHealth: vi.fn(),
   getMetaCreativeDailyCoverage: vi.fn(),
+  getMetaSyncPhaseTimingSummaries: vi.fn(),
   getMetaQueueComposition: vi.fn(),
   getMetaQueueHealth: vi.fn(),
   getMetaRawSnapshotCoverageByEndpoint: vi.fn(),
@@ -259,6 +260,7 @@ describe("GET /api/meta/status", () => {
     vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaQueueComposition).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue(null as never);
+    vi.mocked(warehouse.getMetaSyncPhaseTimingSummaries).mockResolvedValue([] as never);
     vi.mocked(warehouse.getMetaSyncJobHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getMetaSyncState).mockResolvedValue([]);
     vi.mocked(warehouse.getMetaAuthoritativeDayVerification).mockResolvedValue({
@@ -394,11 +396,70 @@ describe("GET /api/meta/status", () => {
         executeAllowed: false,
       },
     });
+    expect(payload.phaseTimings).toBeNull();
     expect(payload.dataContract).toEqual({
       todayMode: "live_only",
       historicalInsideHorizon: "published_verified_truth",
       historicalOutsideCoreHorizon: "live_fallback",
       breakdownOutsideHorizon: "unsupported_degraded",
+    });
+  });
+
+  it("includes Meta phase timing telemetry when recent samples exist", async () => {
+    vi.mocked(warehouse.getMetaSyncPhaseTimingSummaries).mockResolvedValue([
+      {
+        phase: "fetch_raw",
+        runCount: 6,
+        timingScope: "fetch_raw:core_ad_insights",
+        latestFinishedAt: "2026-04-13T11:58:00.000Z",
+        latestDurationMs: 1490,
+        avgDurationMs: 1640,
+        p50DurationMs: 1520,
+        p95DurationMs: 2410,
+        maxDurationMs: 2600,
+        throughputBasis: "rows_fetched",
+        latestRowsFetched: 5166,
+        latestRowsWritten: 0,
+        latestRowsPerSecond: 3467,
+        p50RowsPerSecond: 3200,
+      },
+      {
+        phase: "bulk_upsert",
+        runCount: 6,
+        timingScope: "bulk_upsert:core_ad_insights",
+        latestFinishedAt: "2026-04-13T11:58:02.000Z",
+        latestDurationMs: 410,
+        avgDurationMs: 470,
+        p50DurationMs: 430,
+        p95DurationMs: 620,
+        maxDurationMs: 700,
+        throughputBasis: "rows_written",
+        latestRowsFetched: 5166,
+        latestRowsWritten: 122,
+        latestRowsPerSecond: 298,
+        p50RowsPerSecond: 280,
+      },
+    ] as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(payload.phaseTimings).toEqual({
+      windowHours: 24,
+      phases: expect.arrayContaining([
+        expect.objectContaining({
+          phase: "fetch_raw",
+          p50DurationMs: 1520,
+          latestRowsPerSecond: 3467,
+        }),
+        expect.objectContaining({
+          phase: "bulk_upsert",
+          throughputBasis: "rows_written",
+          latestRowsWritten: 122,
+        }),
+      ]),
     });
   });
 

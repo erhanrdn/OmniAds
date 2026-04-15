@@ -52,6 +52,7 @@ import {
   upsertMetaAdSetDailyRows,
   upsertMetaCampaignDailyRows,
   upsertMetaBreakdownDailyRows,
+  upsertMetaSyncPhaseTiming,
 } from "@/lib/meta/warehouse";
 import type {
   MetaAccountDailyRow,
@@ -59,6 +60,8 @@ import type {
   MetaCampaignDailyRow,
   MetaRawSnapshotStatus,
   MetaSyncCheckpointRecord,
+  MetaSyncPhaseTimingPhase,
+  MetaSyncPhaseTimingRecord,
   MetaSyncType,
   MetaWarehouseTruthState,
   MetaWarehouseValidationStatus,
@@ -1084,6 +1087,21 @@ async function upsertOwnedMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord)
   return checkpointId;
 }
 
+function buildMetaPhaseTimingScope(input: {
+  phase: MetaSyncPhaseTimingPhase;
+  scope: string;
+}) {
+  return `${input.phase}:${input.scope}`;
+}
+
+async function upsertOwnedMetaPhaseTimingOrThrow(input: MetaSyncPhaseTimingRecord) {
+  const timingId = await upsertMetaSyncPhaseTiming(input);
+  if (input.leaseOwner && !timingId) {
+    throw new Error("lease_conflict:phase_timing_write_rejected");
+  }
+  return timingId;
+}
+
 async function fetchMetaPagedJson<TItem>(url: string) {
   let response: Response;
   try {
@@ -1512,6 +1530,22 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   let throttleCount = 0;
   let lastUsagePercent = 0;
   const coreCheckpointStartedAt = checkpoint?.startedAt ?? new Date().toISOString();
+  const fetchTimingScope = buildMetaPhaseTimingScope({
+    phase: "fetch_raw",
+    scope: checkpointScope,
+  });
+  const bulkUpsertTimingScope = buildMetaPhaseTimingScope({
+    phase: "bulk_upsert",
+    scope: checkpointScope,
+  });
+  const finalizeTimingScope = buildMetaPhaseTimingScope({
+    phase: "finalize",
+    scope: checkpointScope,
+  });
+  const publishTimingScope = buildMetaPhaseTimingScope({
+    phase: "publish",
+    scope: "core_authoritative",
+  });
 
   await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
@@ -1536,6 +1570,37 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseOwner: input.workerId,
     leaseExpiresAt: null,
     startedAt: coreCheckpointStartedAt,
+  });
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: fetchTimingScope,
+    runId: sourceRunId,
+    phase: "fetch_raw",
+    status: "running",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: coreCheckpointStartedAt,
+  });
+  const bulkUpsertStartedAt = new Date().toISOString();
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: bulkUpsertTimingScope,
+    runId: sourceRunId,
+    phase: "bulk_upsert",
+    status: "running",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: bulkUpsertStartedAt,
   });
 
   while (nextPageUrl) {
@@ -1596,6 +1661,21 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       leaseOwner: input.workerId,
       startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
     });
+    await upsertOwnedMetaPhaseTimingOrThrow({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      timingScope: fetchTimingScope,
+      runId: sourceRunId,
+      phase: "fetch_raw",
+      status: "running",
+      rowsFetched: rowsFetchedTotal + rows.length,
+      rowsWritten: 0,
+      attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
+      leaseOwner: input.workerId,
+      startedAt: coreCheckpointStartedAt,
+    });
     latestSnapshotId = await recordMetaRawSnapshot({
       credentials: input.credentials,
       accountId: input.accountId,
@@ -1630,6 +1710,22 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
       await sleep(META_USAGE_THROTTLE_SLEEP_MS);
     }
   }
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: fetchTimingScope,
+    runId: sourceRunId,
+    phase: "fetch_raw",
+    status: "succeeded",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: coreCheckpointStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
 
   const campaignStatusesPromise = fetchCampaignStatuses(
     input.credentials,
@@ -2320,6 +2416,28 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
   if (truthState === "finalized" && adsetSnapshotRows.length > 0) {
     await appendMetaConfigSnapshots(adsetSnapshotRows);
   }
+  const bulkRowsWritten =
+    (truthState === "finalized"
+      ? accountRows.length + campaignRows.length + adsetRows.length + adRows.length
+      : 0) +
+    persistedCampaignConfigCount +
+    (truthState === "finalized" ? adsetSnapshotRows.length : 0);
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: bulkUpsertTimingScope,
+    runId: sourceRunId,
+    phase: "bulk_upsert",
+    status: "succeeded",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: bulkRowsWritten,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: bulkUpsertStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
   await heartbeatOwnedMetaPartitionLeaseOrThrow({
     partitionId: input.partitionId,
     workerId: input.workerId,
@@ -2327,6 +2445,22 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseMinutes: input.leaseMinutes ?? DEFAULT_META_PARTITION_LEASE_MINUTES,
   });
   if (authoritativeFinalizationV2Enabled) {
+    const publishStartedAt = new Date().toISOString();
+    await upsertOwnedMetaPhaseTimingOrThrow({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      timingScope: publishTimingScope,
+      runId: sourceRunId,
+      phase: "publish",
+      status: "running",
+      rowsFetched: rowsFetchedTotal,
+      rowsWritten: 0,
+      attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
+      leaseOwner: input.workerId,
+      startedAt: publishStartedAt,
+    });
     const accountSpend = accountRows[0]?.spend ?? 0;
     const campaignSpend = sumRowSpend(campaignRows);
     await Promise.all([
@@ -2488,8 +2622,46 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
       });
     }
+    const publishedSurfaceCount = [
+      accountSliceVersion?.id,
+      campaignSliceVersion?.id,
+      adsetSliceVersion?.id,
+      adSliceVersion?.id,
+    ].filter(Boolean).length;
+    await upsertOwnedMetaPhaseTimingOrThrow({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      timingScope: publishTimingScope,
+      runId: sourceRunId,
+      phase: "publish",
+      status: "succeeded",
+      rowsFetched: rowsFetchedTotal,
+      rowsWritten: publishedSurfaceCount,
+      attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
+      leaseOwner: input.workerId,
+      startedAt: publishStartedAt,
+      finishedAt: new Date().toISOString(),
+    });
   }
 
+  const finalizeStartedAt = new Date().toISOString();
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: finalizeTimingScope,
+    runId: sourceRunId,
+    phase: "finalize",
+    status: "running",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: finalizeStartedAt,
+  });
   const [accountDailyCheckpoint, adsetDailyCheckpoint, adDailyCheckpoint] = await Promise.all([
     getMetaSyncCheckpoint({
       partitionId: input.partitionId,
@@ -2618,6 +2790,22 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
     leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
     startedAt: coreCheckpointStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: finalizeTimingScope,
+    runId: sourceRunId,
+    phase: "finalize",
+    status: "succeeded",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 4,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: finalizeStartedAt,
     finishedAt: new Date().toISOString(),
   });
 
@@ -2811,6 +2999,35 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     });
   let pageIndex = checkpoint?.pageIndex ?? 0;
   let rowsFetchedTotal = checkpoint?.rowsFetched ?? 0;
+  const fetchTimingScope = buildMetaPhaseTimingScope({
+    phase: "fetch_raw",
+    scope: checkpointScope,
+  });
+  const bulkUpsertTimingScope = buildMetaPhaseTimingScope({
+    phase: "bulk_upsert",
+    scope: checkpointScope,
+  });
+  const finalizeTimingScope = buildMetaPhaseTimingScope({
+    phase: "finalize",
+    scope: checkpointScope,
+  });
+  const fetchStartedAt = checkpoint?.startedAt ?? new Date().toISOString();
+
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: fetchTimingScope,
+    runId: sourceRunId,
+    phase: "fetch_raw",
+    status: "running",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: fetchStartedAt,
+  });
 
   while (nextPageUrl) {
     await heartbeatOwnedMetaPartitionLeaseOrThrow({
@@ -2858,7 +3075,22 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
       attemptCount: input.attemptCount,
       leaseEpoch: input.leaseEpoch,
       leaseOwner: input.workerId,
-      startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+      startedAt: fetchStartedAt,
+    });
+    await upsertOwnedMetaPhaseTimingOrThrow({
+      partitionId: input.partitionId,
+      businessId: input.credentials.businessId,
+      providerAccountId: input.accountId,
+      timingScope: fetchTimingScope,
+      runId: sourceRunId,
+      phase: "fetch_raw",
+      status: "running",
+      rowsFetched: rowsFetchedTotal + rows.length,
+      rowsWritten: 0,
+      attemptCount: input.attemptCount,
+      leaseEpoch: input.leaseEpoch,
+      leaseOwner: input.workerId,
+      startedAt: fetchStartedAt,
     });
     await recordMetaRawSnapshot({
       credentials: input.credentials,
@@ -2894,6 +3126,22 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
       await sleep(META_USAGE_THROTTLE_SLEEP_MS);
     }
   }
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: fetchTimingScope,
+    runId: sourceRunId,
+    phase: "fetch_raw",
+    status: "succeeded",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: fetchStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
 
   const breakdownType = getMetaBreakdownTypeFromInput(input.breakdowns);
   const breakdownRows = buildMetaBreakdownDailyRows({
@@ -2915,6 +3163,22 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     complete: true,
     validationStatus: "passed",
   });
+  const bulkUpsertStartedAt = new Date().toISOString();
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: bulkUpsertTimingScope,
+    runId: sourceRunId,
+    phase: "bulk_upsert",
+    status: "running",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: bulkUpsertStartedAt,
+  });
   await replaceMetaBreakdownDailySlice({
     slice: {
       businessId: input.credentials.businessId,
@@ -2924,6 +3188,38 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     },
     rows: breakdownRows,
     proof: breakdownProof,
+  });
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: bulkUpsertTimingScope,
+    runId: sourceRunId,
+    phase: "bulk_upsert",
+    status: "succeeded",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: breakdownRows.length,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: bulkUpsertStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
+  const finalizeStartedAt = new Date().toISOString();
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: finalizeTimingScope,
+    runId: sourceRunId,
+    phase: "finalize",
+    status: "running",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: finalizeStartedAt,
   });
   await upsertOwnedMetaCheckpointOrThrow({
     partitionId: input.partitionId,
@@ -2943,7 +3239,23 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
     attemptCount: input.attemptCount,
     leaseEpoch: input.leaseEpoch,
     leaseOwner: input.workerId,
-    startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
+    startedAt: fetchStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: finalizeTimingScope,
+    runId: sourceRunId,
+    phase: "finalize",
+    status: "succeeded",
+    rowsFetched: rowsFetchedTotal,
+    rowsWritten: 1,
+    attemptCount: input.attemptCount,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: finalizeStartedAt,
     finishedAt: new Date().toISOString(),
   });
 
@@ -2961,6 +3273,7 @@ export async function syncMetaAccountBreakdownWarehouseDay(input: {
       leaseMinutes: input.leaseMinutes,
       startedAt: checkpoint?.startedAt ?? new Date().toISOString(),
       runId: sourceRunId,
+      attemptCount: input.attemptCount,
     });
   }
 }
@@ -2978,6 +3291,7 @@ export async function publishMetaBreakdownAuthoritativeSurface(input: {
   leaseMinutes?: number;
   startedAt?: string;
   runId?: string;
+  attemptCount?: number;
 }) {
   const normalizedDay = normalizeMetaApiDate(input.day);
   const profile = input.credentials.accountProfiles[input.accountId];
@@ -3004,6 +3318,26 @@ export async function publishMetaBreakdownAuthoritativeSurface(input: {
 
   const sourceRunId = input.runId ?? input.partitionId;
   const startedAt = input.startedAt ?? new Date().toISOString();
+  const publishTimingStartedAt = new Date().toISOString();
+  const publishTimingScope = buildMetaPhaseTimingScope({
+    phase: "publish",
+    scope: "breakdown_daily",
+  });
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: publishTimingScope,
+    runId: sourceRunId,
+    phase: "publish",
+    status: "running",
+    rowsFetched: 0,
+    rowsWritten: 0,
+    attemptCount: input.attemptCount ?? 0,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: publishTimingStartedAt,
+  });
   const sourceManifest = await createMetaAuthoritativeSourceManifest({
     businessId: input.credentials.businessId,
     providerAccountId: input.accountId,
@@ -3072,6 +3406,22 @@ export async function publishMetaBreakdownAuthoritativeSurface(input: {
       publicationReason: "authoritative_finalize",
     });
   }
+  await upsertOwnedMetaPhaseTimingOrThrow({
+    partitionId: input.partitionId,
+    businessId: input.credentials.businessId,
+    providerAccountId: input.accountId,
+    timingScope: publishTimingScope,
+    runId: sourceRunId,
+    phase: "publish",
+    status: "succeeded",
+    rowsFetched: stagedRowCount,
+    rowsWritten: breakdownSliceVersion?.id ? 1 : 0,
+    attemptCount: input.attemptCount ?? 0,
+    leaseEpoch: input.leaseEpoch,
+    leaseOwner: input.workerId,
+    startedAt: publishTimingStartedAt,
+    finishedAt: new Date().toISOString(),
+  });
 
   return {
     published: Boolean(breakdownSliceVersion?.id),

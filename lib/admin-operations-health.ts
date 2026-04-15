@@ -12,6 +12,7 @@ import {
 import {
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaReclaimClassificationSummary,
+  listMetaSyncPhaseTimingSummariesByBusiness,
   getMetaWarehouseIntegrityIncidents,
 } from "@/lib/meta/warehouse";
 import {
@@ -48,7 +49,10 @@ import {
   type ProviderProgressState,
   type ProviderStallFingerprint,
 } from "@/lib/sync/provider-status-truth";
-import type { MetaAuthoritativeBusinessOpsSnapshot } from "@/lib/meta/warehouse-types";
+import type {
+  MetaAuthoritativeBusinessOpsSnapshot,
+  MetaSyncPhaseTimingSummary,
+} from "@/lib/meta/warehouse-types";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
 type SyncProvider = "google_ads" | "meta" | "ga4" | "search_console";
@@ -283,6 +287,10 @@ export interface AdminSyncHealthPayload {
     adsetReadyThroughDate?: string | null;
     creativeReadyThroughDate?: string | null;
     adReadyThroughDate?: string | null;
+    phaseTimings?: {
+      windowHours: number;
+      phases: MetaSyncPhaseTimingSummary[];
+    } | null;
   }>;
 }
 
@@ -820,6 +828,8 @@ export function buildAdminSyncHealth(input: {
   googleAdsIntegritySummaries?: Record<string, AdminIntegritySummary>;
   metaHealth?: RawMetaHealthRow[];
   metaAuthoritativeSnapshots?: MetaAuthoritativeBusinessOpsSnapshot[];
+  metaPhaseTimingSummariesByBusiness?: Record<string, MetaSyncPhaseTimingSummary[]>;
+  metaPhaseTimingWindowHours?: number;
   metaReclaimSummaries?: Record<string, AdminReclaimSummary>;
   metaIntegritySummaries?: Record<string, AdminIntegritySummary>;
   metaD1FinalizeNonTerminalCounts?: Record<string, number>;
@@ -878,6 +888,8 @@ export function buildAdminSyncHealth(input: {
       .filter((snapshot): snapshot is MetaAuthoritativeBusinessOpsSnapshot => Boolean(snapshot))
       .map((snapshot) => [snapshot.businessId, snapshot]),
   );
+  const metaPhaseTimingSummariesByBusiness = input.metaPhaseTimingSummariesByBusiness ?? {};
+  const metaPhaseTimingWindowHours = Math.max(1, input.metaPhaseTimingWindowHours ?? 24);
   const googleQuotaLimitedBusinessIds = new Set(
     deriveProviderQuotaLimitedBusinessIds({
       provider: "google_ads",
@@ -1522,6 +1534,13 @@ export function buildAdminSyncHealth(input: {
       adsetReadyThroughDate: row.adset_ready_through_date ?? null,
       creativeReadyThroughDate: row.creative_ready_through_date ?? null,
       adReadyThroughDate: row.ad_ready_through_date ?? null,
+      phaseTimings:
+        (metaPhaseTimingSummariesByBusiness[row.business_id]?.length ?? 0) > 0
+          ? {
+              windowHours: metaPhaseTimingWindowHours,
+              phases: metaPhaseTimingSummariesByBusiness[row.business_id] ?? [],
+            }
+          : null,
     });
 
     if (
@@ -2734,13 +2753,20 @@ export async function getAdminOperationsHealth() {
       getMetaAuthoritativeBusinessOpsSnapshot({ businessId: row.business_id }).catch(() => null),
     ),
   );
+  const metaPhaseTimingWindowHours = 24;
   const integrityEndDate = new Date().toISOString().slice(0, 10);
   const integrityStartDate = (() => {
     const date = new Date(`${integrityEndDate}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() - 45);
     return date.toISOString().slice(0, 10);
   })();
-  const [googleAdsReclaimSummaries, googleAdsIntegritySummaries, metaReclaimSummaries, metaIntegritySummaries] =
+  const [
+    googleAdsReclaimSummaries,
+    googleAdsIntegritySummaries,
+    metaReclaimSummaries,
+    metaIntegritySummaries,
+    metaPhaseTimingSummariesByBusiness,
+  ] =
     await Promise.all([
       Promise.all(
         googleAdsHealthResult.rows.map(async (row) => {
@@ -2824,6 +2850,10 @@ export async function getAdminOperationsHealth() {
           ] as const;
         }),
       ).then((entries) => Object.fromEntries(entries)),
+      listMetaSyncPhaseTimingSummariesByBusiness({
+        businessIds: metaHealth.map((row) => row.business_id),
+        windowHours: metaPhaseTimingWindowHours,
+      }).catch(() => ({})),
     ]);
   const googleRetentionRuntime = getGoogleAdsRetentionRuntimeStatus();
   const metaRetentionRuntime = getMetaRetentionRuntimeStatus();
@@ -2858,6 +2888,8 @@ export async function getAdminOperationsHealth() {
     metaAuthoritativeSnapshots: metaAuthoritativeSnapshots.filter(
       (snapshot): snapshot is MetaAuthoritativeBusinessOpsSnapshot => Boolean(snapshot),
     ),
+    metaPhaseTimingSummariesByBusiness,
+    metaPhaseTimingWindowHours,
     metaReclaimSummaries,
     metaIntegritySummaries,
     metaD1FinalizeNonTerminalCounts,

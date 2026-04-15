@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
-import { getDb } from "@/lib/db";
+import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { refreshOverviewSummaryMaterializationFromMetaAccountRows } from "@/lib/overview-summary-materializer";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
@@ -37,7 +37,10 @@ import type {
   MetaSyncJobRecord,
   MetaSyncLane,
   MetaSyncCheckpointRecord,
+  MetaSyncPhaseTimingRecord,
+  MetaSyncPhaseTimingSummary,
   MetaSyncPartitionRecord,
+  MetaSyncPhaseTimingPhase,
   MetaSyncPartitionSource,
   MetaSyncRunRecord,
   MetaSyncStateRecord,
@@ -83,6 +86,7 @@ const META_MUTATION_TABLES = [
   "meta_sync_partitions",
   "meta_sync_runs",
   "meta_sync_checkpoints",
+  "meta_sync_phase_timings",
   "meta_sync_state",
   "meta_raw_snapshots",
   "meta_account_daily",
@@ -4976,6 +4980,349 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
     RETURNING id
   ` as Array<{ id: string }>;
   return rows[0]?.id ?? null;
+}
+
+export async function upsertMetaSyncPhaseTiming(input: MetaSyncPhaseTimingRecord) {
+  await assertMetaMutationTablesReady("meta_warehouse");
+  const sql = getDb();
+  const normalizedLeaseEpoch =
+    input.leaseEpoch == null ? null : Math.max(0, Math.trunc(input.leaseEpoch));
+  const rows = await sql`
+    WITH owner_guard AS (
+      SELECT id
+      FROM meta_sync_partitions
+      WHERE id = ${input.partitionId}
+        AND (
+          ${input.leaseOwner ?? null}::text IS NULL
+          OR (
+            lease_owner = ${input.leaseOwner ?? null}
+            AND ${normalizedLeaseEpoch}::bigint IS NOT NULL
+            AND COALESCE(lease_epoch, 0) = ${normalizedLeaseEpoch}::bigint
+            AND COALESCE(lease_expires_at, now() - interval '1 second') > now()
+          )
+        )
+    )
+    INSERT INTO meta_sync_phase_timings (
+      partition_id,
+      business_id,
+      provider_account_id,
+      timing_scope,
+      run_id,
+      phase,
+      status,
+      rows_fetched,
+      rows_written,
+      attempt_count,
+      lease_epoch,
+      lease_owner,
+      lease_expires_at,
+      started_at,
+      finished_at,
+      updated_at
+    )
+    SELECT
+      ${input.partitionId},
+      ${input.businessId},
+      ${input.providerAccountId},
+      ${input.timingScope},
+      ${input.runId ?? null},
+      ${input.phase},
+      ${input.status},
+      ${input.rowsFetched ?? 0},
+      ${input.rowsWritten ?? 0},
+      ${input.attemptCount},
+      ${normalizedLeaseEpoch},
+      ${input.leaseOwner ?? null},
+      ${input.leaseExpiresAt ?? null},
+      ${input.startedAt ?? null},
+      ${input.finishedAt ?? null},
+      now()
+    FROM owner_guard
+    ON CONFLICT (partition_id, timing_scope)
+    DO UPDATE SET
+      run_id = EXCLUDED.run_id,
+      phase = EXCLUDED.phase,
+      status = EXCLUDED.status,
+      rows_fetched = EXCLUDED.rows_fetched,
+      rows_written = EXCLUDED.rows_written,
+      attempt_count = EXCLUDED.attempt_count,
+      lease_epoch = EXCLUDED.lease_epoch,
+      lease_owner = EXCLUDED.lease_owner,
+      lease_expires_at = EXCLUDED.lease_expires_at,
+      started_at = COALESCE(meta_sync_phase_timings.started_at, EXCLUDED.started_at, now()),
+      finished_at = EXCLUDED.finished_at,
+      updated_at = now()
+    WHERE EXISTS (SELECT 1 FROM owner_guard)
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
+
+function roundMetaPhaseTimingMetric(value: number | null, digits = 1) {
+  if (value == null || !Number.isFinite(value)) return null;
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function normalizeNullableMetric(value: unknown) {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function getMetaSyncPhaseTimingSummaries(input: {
+  businessId: string;
+  providerAccountId?: string | null;
+  windowHours?: number;
+}): Promise<MetaSyncPhaseTimingSummary[]> {
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_phase_timings"],
+    "meta_sync_phase_timing_summaries",
+  );
+  const sql = getDbWithTimeout(30_000);
+  const windowHours = Math.max(1, Math.trunc(input.windowHours ?? 24));
+  const rows = await sql`
+    WITH samples AS (
+      SELECT
+        phase,
+        timing_scope,
+        rows_fetched,
+        rows_written,
+        finished_at,
+        updated_at,
+        GREATEST(
+          EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000.0,
+          1
+        ) AS duration_ms,
+        CASE
+          WHEN phase = 'fetch_raw' THEN rows_fetched
+          ELSE rows_written
+        END AS throughput_rows,
+        CASE
+          WHEN phase = 'fetch_raw' THEN 'rows_fetched'
+          ELSE 'rows_written'
+        END AS throughput_basis
+      FROM meta_sync_phase_timings
+      WHERE business_id = ${input.businessId}
+        AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
+        AND status = 'succeeded'
+        AND started_at IS NOT NULL
+        AND finished_at IS NOT NULL
+        AND updated_at >= now() - (${windowHours} * interval '1 hour')
+    ),
+    aggregates AS (
+      SELECT
+        phase,
+        COUNT(*)::int AS run_count,
+        AVG(duration_ms)::float8 AS avg_duration_ms,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p50_duration_ms,
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p95_duration_ms,
+        MAX(duration_ms)::float8 AS max_duration_ms,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (
+          ORDER BY CASE
+            WHEN throughput_rows > 0 THEN throughput_rows / GREATEST(duration_ms / 1000.0, 0.001)
+            ELSE NULL
+          END
+        )::float8 AS p50_rows_per_second
+      FROM samples
+      GROUP BY phase
+    ),
+    latest AS (
+      SELECT DISTINCT ON (phase)
+        phase,
+        timing_scope,
+        finished_at,
+        rows_fetched,
+        rows_written,
+        throughput_basis,
+        duration_ms::float8 AS latest_duration_ms,
+        CASE
+          WHEN throughput_rows > 0
+            THEN throughput_rows / GREATEST(duration_ms / 1000.0, 0.001)
+          ELSE NULL
+        END::float8 AS latest_rows_per_second
+      FROM samples
+      ORDER BY phase, finished_at DESC, updated_at DESC
+    )
+    SELECT
+      aggregates.phase,
+      aggregates.run_count,
+      aggregates.avg_duration_ms,
+      aggregates.p50_duration_ms,
+      aggregates.p95_duration_ms,
+      aggregates.max_duration_ms,
+      aggregates.p50_rows_per_second,
+      latest.timing_scope,
+      latest.finished_at,
+      latest.rows_fetched,
+      latest.rows_written,
+      latest.latest_duration_ms,
+      latest.latest_rows_per_second,
+      latest.throughput_basis
+    FROM aggregates
+    JOIN latest USING (phase)
+    ORDER BY CASE aggregates.phase
+      WHEN 'fetch_raw' THEN 1
+      WHEN 'bulk_upsert' THEN 2
+      WHEN 'finalize' THEN 3
+      WHEN 'publish' THEN 4
+      ELSE 9
+    END
+  ` as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    phase: String(row.phase) as MetaSyncPhaseTimingPhase,
+    runCount: toNumber(row.run_count),
+    timingScope: row.timing_scope ? String(row.timing_scope) : null,
+    latestFinishedAt: normalizeTimestamp(row.finished_at),
+    latestDurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.latest_duration_ms)),
+    avgDurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.avg_duration_ms)),
+    p50DurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.p50_duration_ms)),
+    p95DurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.p95_duration_ms)),
+    maxDurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.max_duration_ms)),
+    throughputBasis:
+      String(row.throughput_basis) === "rows_fetched" ? "rows_fetched" : "rows_written",
+    latestRowsFetched: toNumber(row.rows_fetched),
+    latestRowsWritten: toNumber(row.rows_written),
+    latestRowsPerSecond: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.latest_rows_per_second)),
+    p50RowsPerSecond: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.p50_rows_per_second)),
+  }));
+}
+
+export async function listMetaSyncPhaseTimingSummariesByBusiness(input: {
+  businessIds: string[];
+  windowHours?: number;
+}): Promise<Record<string, MetaSyncPhaseTimingSummary[]>> {
+  const businessIds = Array.from(
+    new Set(
+      (input.businessIds ?? []).map((businessId) => String(businessId).trim()).filter(Boolean),
+    ),
+  );
+  if (businessIds.length === 0) return {};
+  await assertMetaRequestReadTablesReady(
+    ["meta_sync_phase_timings"],
+    "meta_sync_phase_timing_summaries_by_business",
+  );
+  const sql = getDbWithTimeout(30_000);
+  const windowHours = Math.max(1, Math.trunc(input.windowHours ?? 24));
+  const rows = await sql`
+    WITH samples AS (
+      SELECT
+        business_id::text AS business_id,
+        phase,
+        timing_scope,
+        rows_fetched,
+        rows_written,
+        finished_at,
+        updated_at,
+        GREATEST(
+          EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000.0,
+          1
+        ) AS duration_ms,
+        CASE
+          WHEN phase = 'fetch_raw' THEN rows_fetched
+          ELSE rows_written
+        END AS throughput_rows,
+        CASE
+          WHEN phase = 'fetch_raw' THEN 'rows_fetched'
+          ELSE 'rows_written'
+        END AS throughput_basis
+      FROM meta_sync_phase_timings
+      WHERE business_id = ANY(${businessIds}::text[])
+        AND status = 'succeeded'
+        AND started_at IS NOT NULL
+        AND finished_at IS NOT NULL
+        AND updated_at >= now() - (${windowHours} * interval '1 hour')
+    ),
+    aggregates AS (
+      SELECT
+        business_id,
+        phase,
+        COUNT(*)::int AS run_count,
+        AVG(duration_ms)::float8 AS avg_duration_ms,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p50_duration_ms,
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms)::float8 AS p95_duration_ms,
+        MAX(duration_ms)::float8 AS max_duration_ms,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (
+          ORDER BY CASE
+            WHEN throughput_rows > 0 THEN throughput_rows / GREATEST(duration_ms / 1000.0, 0.001)
+            ELSE NULL
+          END
+        )::float8 AS p50_rows_per_second
+      FROM samples
+      GROUP BY business_id, phase
+    ),
+    latest AS (
+      SELECT DISTINCT ON (business_id, phase)
+        business_id,
+        phase,
+        timing_scope,
+        finished_at,
+        rows_fetched,
+        rows_written,
+        throughput_basis,
+        duration_ms::float8 AS latest_duration_ms,
+        CASE
+          WHEN throughput_rows > 0
+            THEN throughput_rows / GREATEST(duration_ms / 1000.0, 0.001)
+          ELSE NULL
+        END::float8 AS latest_rows_per_second
+      FROM samples
+      ORDER BY business_id, phase, finished_at DESC, updated_at DESC
+    )
+    SELECT
+      aggregates.business_id,
+      aggregates.phase,
+      aggregates.run_count,
+      aggregates.avg_duration_ms,
+      aggregates.p50_duration_ms,
+      aggregates.p95_duration_ms,
+      aggregates.max_duration_ms,
+      aggregates.p50_rows_per_second,
+      latest.timing_scope,
+      latest.finished_at,
+      latest.rows_fetched,
+      latest.rows_written,
+      latest.latest_duration_ms,
+      latest.latest_rows_per_second,
+      latest.throughput_basis
+    FROM aggregates
+    JOIN latest
+      ON latest.business_id = aggregates.business_id
+     AND latest.phase = aggregates.phase
+    ORDER BY aggregates.business_id,
+      CASE aggregates.phase
+        WHEN 'fetch_raw' THEN 1
+        WHEN 'bulk_upsert' THEN 2
+        WHEN 'finalize' THEN 3
+        WHEN 'publish' THEN 4
+        ELSE 9
+      END
+  ` as Array<Record<string, unknown>>;
+
+  return rows.reduce<Record<string, MetaSyncPhaseTimingSummary[]>>((accumulator, row) => {
+    const businessId = String(row.business_id);
+    const summary: MetaSyncPhaseTimingSummary = {
+      phase: String(row.phase) as MetaSyncPhaseTimingPhase,
+      runCount: toNumber(row.run_count),
+      timingScope: row.timing_scope ? String(row.timing_scope) : null,
+      latestFinishedAt: normalizeTimestamp(row.finished_at),
+      latestDurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.latest_duration_ms)),
+      avgDurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.avg_duration_ms)),
+      p50DurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.p50_duration_ms)),
+      p95DurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.p95_duration_ms)),
+      maxDurationMs: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.max_duration_ms)),
+      throughputBasis:
+        String(row.throughput_basis) === "rows_fetched" ? "rows_fetched" : "rows_written",
+      latestRowsFetched: toNumber(row.rows_fetched),
+      latestRowsWritten: toNumber(row.rows_written),
+      latestRowsPerSecond: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.latest_rows_per_second)),
+      p50RowsPerSecond: roundMetaPhaseTimingMetric(normalizeNullableMetric(row.p50_rows_per_second)),
+    };
+    if (!accumulator[businessId]) accumulator[businessId] = [];
+    accumulator[businessId].push(summary);
+    return accumulator;
+  }, {});
 }
 
 export async function getMetaSyncCheckpoint(input: {

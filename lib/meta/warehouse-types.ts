@@ -467,6 +467,10 @@ export type MetaSyncCheckpointPhase =
   | "bulk_upsert"
   | "finalize";
 
+export type MetaSyncPhaseTimingPhase =
+  | MetaSyncCheckpointPhase
+  | "publish";
+
 export type MetaSyncCheckpointStatus =
   | "pending"
   | "running"
@@ -500,6 +504,44 @@ export interface MetaSyncCheckpointRecord {
   finishedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface MetaSyncPhaseTimingRecord {
+  id?: string;
+  partitionId: string;
+  businessId: string;
+  providerAccountId: string;
+  timingScope: string;
+  runId?: string | null;
+  phase: MetaSyncPhaseTimingPhase;
+  status: MetaSyncCheckpointStatus;
+  rowsFetched?: number;
+  rowsWritten?: number;
+  attemptCount: number;
+  leaseEpoch?: number | null;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MetaSyncPhaseTimingSummary {
+  phase: MetaSyncPhaseTimingPhase;
+  runCount: number;
+  timingScope: string | null;
+  latestFinishedAt: string | null;
+  latestDurationMs: number | null;
+  avgDurationMs: number | null;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  maxDurationMs: number | null;
+  throughputBasis: "rows_fetched" | "rows_written";
+  latestRowsFetched: number;
+  latestRowsWritten: number;
+  latestRowsPerSecond: number | null;
+  p50RowsPerSecond: number | null;
 }
 
 export interface MetaBreakdownDailyRow extends MetaWarehouseBaseRow {

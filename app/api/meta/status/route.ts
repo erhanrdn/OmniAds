@@ -24,6 +24,7 @@ import {
   getMetaAdDailyPreviewCoverage,
   getMetaAdSetDailyCoverage,
   getMetaCheckpointHealth,
+  getMetaSyncPhaseTimingSummaries,
   getMetaCreativeDailyCoverage,
   getMetaAuthoritativeDayVerification,
   getMetaQueueComposition,
@@ -274,6 +275,7 @@ export async function GET(request: NextRequest) {
     accountSnapshot,
     legacyJobHealth,
     workerHealth,
+    phaseTimings,
     latestRetentionRun,
     latestRetentionCanaryRun,
     protectedPublishedTruthReview,
@@ -290,6 +292,11 @@ export async function GET(request: NextRequest) {
         providerScope: "meta",
         staleThresholdMs: 3 * 60_000,
       }).catch(() => null),
+      getMetaSyncPhaseTimingSummaries({
+        businessId: businessId!,
+        providerAccountId: null,
+        windowHours: 24,
+      }).catch(() => []),
       getLatestMetaRetentionRun().catch(() => null),
       getLatestMetaRetentionCanaryRun(businessId!).catch(() => null),
       getMetaProtectedPublishedTruthReview({ businessIds: [businessId!] }).catch(() => null),
@@ -1703,6 +1710,13 @@ export async function GET(request: NextRequest) {
       readinessLevel,
       surfaces,
       checkpointHealth,
+      phaseTimings:
+        phaseTimings.length > 0
+          ? {
+              windowHours: 24,
+              phases: phaseTimings,
+            }
+          : null,
       domainReadiness,
       connected,
       d1TargetDate,

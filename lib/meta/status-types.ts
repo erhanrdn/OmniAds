@@ -6,6 +6,7 @@ import type {
 } from "@/lib/provider-readiness";
 import type {
   MetaDirtyRecentReason,
+  MetaSyncPhaseTimingSummary,
   MetaSelectedRangeTruthReadiness,
 } from "@/lib/meta/warehouse-types";
 import type {
@@ -223,6 +224,10 @@ export interface MetaStatusResponse {
   readinessLevel?: ProviderReadinessLevel;
   surfaces?: ProviderSurfaceSummary;
   checkpointHealth?: ProviderCheckpointHealth | null;
+  phaseTimings?: {
+    windowHours: number;
+    phases: MetaSyncPhaseTimingSummary[];
+  } | null;
   domainReadiness?: ProviderDomainReadiness | null;
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;

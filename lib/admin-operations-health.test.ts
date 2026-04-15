@@ -785,6 +785,81 @@ describe("buildAdminSyncHealth", () => {
     });
   });
 
+  it("attaches recent Meta phase timing summaries to each business", () => {
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta-timing",
+          business_name: "Meta Timing",
+          queue_depth: 1,
+          leased_partitions: 1,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 1,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: "2026-03-28",
+          latest_partition_activity_at: "2026-03-28T09:00:00.000Z",
+          latest_checkpoint_scope: "core_ad_insights",
+          latest_checkpoint_phase: "finalize",
+          latest_checkpoint_updated_at: "2026-03-28T09:01:00.000Z",
+          latest_progress_heartbeat_at: "2026-03-28T09:01:00.000Z",
+          last_successful_page_index: 3,
+          checkpoint_failures: 0,
+          today_account_rows: 8,
+          today_adset_rows: 8,
+          account_completed_days: 20,
+          account_ready_through_date: "2026-03-28",
+          adset_completed_days: 20,
+          adset_ready_through_date: "2026-03-28",
+          creative_completed_days: 20,
+          creative_ready_through_date: "2026-03-28",
+          ad_completed_days: 20,
+          ad_ready_through_date: "2026-03-28",
+          recent_account_completed_days: 14,
+          recent_adset_completed_days: 14,
+          recent_creative_completed_days: 14,
+          recent_ad_completed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+      metaPhaseTimingWindowHours: 24,
+      metaPhaseTimingSummariesByBusiness: {
+        "biz-meta-timing": [
+          {
+            phase: "fetch_raw",
+            runCount: 8,
+            timingScope: "fetch_raw:core_ad_insights",
+            latestFinishedAt: "2026-03-28T09:00:59.000Z",
+            latestDurationMs: 1490,
+            avgDurationMs: 1600,
+            p50DurationMs: 1520,
+            p95DurationMs: 2400,
+            maxDurationMs: 2600,
+            throughputBasis: "rows_fetched",
+            latestRowsFetched: 5166,
+            latestRowsWritten: 0,
+            latestRowsPerSecond: 3467,
+            p50RowsPerSecond: 3200,
+          },
+        ],
+      },
+    });
+
+    expect(payload.metaBusinesses?.[0]?.phaseTimings).toEqual({
+      windowHours: 24,
+      phases: [
+        expect.objectContaining({
+          phase: "fetch_raw",
+          p50DurationMs: 1520,
+          latestRowsPerSecond: 3467,
+        }),
+      ],
+    });
+  });
+
   it("keeps lightweight google ads summary when detailed health is degraded", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],
