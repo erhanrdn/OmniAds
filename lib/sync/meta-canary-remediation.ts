@@ -41,6 +41,10 @@ const DEFAULT_POLL_ATTEMPTS = 6;
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_LOCK_MINUTES = 10;
 const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
+const DEFAULT_AFTER_EVIDENCE_TIMEOUT_MS =
+  DEFAULT_POLL_ATTEMPTS * DEFAULT_POLL_INTERVAL_MS + 30_000;
+const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 
 type CanaryEvidence = {
   businessId: string;
@@ -581,7 +585,11 @@ export async function runMetaCanaryRemediation(input: {
     let finalLockStatus: "done" | "failed" = "failed";
     let finalLockError: string | null = null;
     try {
-      const before = await collectBusinessEvidence(recommendation.businessId);
+      const before = await withTimeout(
+        collectBusinessEvidence(recommendation.businessId),
+        DEFAULT_EVIDENCE_TIMEOUT_MS,
+        `before evidence for ${recommendation.businessId}`,
+      );
       execution = await createSyncRepairExecution({
         buildId,
         environment: releaseGate?.environment ?? process.env.NODE_ENV ?? "unknown",
@@ -618,16 +626,24 @@ export async function runMetaCanaryRemediation(input: {
           executedAction: action.executedAction,
         }),
       );
-      const after = await pollAfterEvidence({
-        businessId: recommendation.businessId,
-        attempts: DEFAULT_POLL_ATTEMPTS,
-        intervalMs: DEFAULT_POLL_INTERVAL_MS,
-        lockOwner,
-      });
+      const after = await withTimeout(
+        pollAfterEvidence({
+          businessId: recommendation.businessId,
+          attempts: DEFAULT_POLL_ATTEMPTS,
+          intervalMs: DEFAULT_POLL_INTERVAL_MS,
+          lockOwner,
+        }),
+        DEFAULT_AFTER_EVIDENCE_TIMEOUT_MS,
+        `after evidence for ${recommendation.businessId}`,
+      );
       const diagnostics =
         after.evidence.releasePass || (after.evidence.activityState !== "blocked" && after.evidence.progressState !== "blocked")
           ? null
-          : await collectAuthoritativeDiagnostics(recommendation.businessId);
+          : await withTimeout(
+              collectAuthoritativeDiagnostics(recommendation.businessId),
+              DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
+              `diagnostics for ${recommendation.businessId}`,
+            );
       const actionResult = toSafeJson({
         ...action.result,
         diagnostics,
@@ -661,7 +677,11 @@ export async function runMetaCanaryRemediation(input: {
       finalLockStatus = "done";
     } catch (error) {
       if (execution) {
-        const diagnostics = await collectAuthoritativeDiagnostics(recommendation.businessId).catch(() => null);
+        const diagnostics = await withTimeout(
+          collectAuthoritativeDiagnostics(recommendation.businessId),
+          DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
+          `fallback diagnostics for ${recommendation.businessId}`,
+        ).catch(() => null);
         const failed = await updateSyncRepairExecution(execution.id, {
           status: "failed",
           outcomeClassification: "manual_follow_up_required",
