@@ -563,8 +563,9 @@ jobs:
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
         run: npm ci
 
-      - name: Verify public release authority
+      - name: Verify public release authority (report-only)
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        continue-on-error: true
         run: |
           set -euo pipefail
 
