@@ -42,6 +42,7 @@ export type SyncBlockerClass =
   | "unknown";
 
 export interface SyncGateRecord {
+  id?: string | null;
   gateKind: SyncGateKind;
   gateScope: SyncGateScope;
   buildId: string;
@@ -88,7 +89,7 @@ async function assertGateTablesReady(context: string) {
 export async function upsertSyncGateRecord(input: SyncGateRecord) {
   await assertGateTablesReady("sync_release_gates:upsert");
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     INSERT INTO sync_release_gates (
       build_id,
       environment,
@@ -121,21 +122,12 @@ export async function upsertSyncGateRecord(input: SyncGateRecord) {
       ${input.emittedAt},
       now()
     )
-    ON CONFLICT (build_id, environment, gate_kind)
-    DO UPDATE SET
-      gate_scope = EXCLUDED.gate_scope,
-      mode = EXCLUDED.mode,
-      base_result = EXCLUDED.base_result,
-      verdict = EXCLUDED.verdict,
-      blocker_class = EXCLUDED.blocker_class,
-      summary = EXCLUDED.summary,
-      break_glass = EXCLUDED.break_glass,
-      override_reason = EXCLUDED.override_reason,
-      evidence_json = EXCLUDED.evidence_json,
-      emitted_at = EXCLUDED.emitted_at,
-      updated_at = now()
-  `;
-  return input;
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return {
+    ...input,
+    id: rows[0]?.id ?? input.id ?? null,
+  };
 }
 
 export async function getLatestSyncGateRecords(input?: {
@@ -151,6 +143,7 @@ export async function getLatestSyncGateRecords(input?: {
   const environment = input?.environment ?? process.env.NODE_ENV ?? "unknown";
   let rows = await sql`
     SELECT
+      id,
       build_id,
       environment,
       gate_kind,
@@ -173,6 +166,7 @@ export async function getLatestSyncGateRecords(input?: {
   if (rows.length === 0) {
     rows = await sql`
       SELECT
+        id,
         build_id,
         environment,
         gate_kind,
@@ -198,6 +192,7 @@ export async function getLatestSyncGateRecords(input?: {
   }>(
     (accumulator, row) => {
       const record: SyncGateRecord = {
+        id: row.id ? String(row.id) : null,
         gateKind: String(row.gate_kind) === "release_gate" ? "release_gate" : "deploy_gate",
         gateScope:
           row.gate_scope === "runtime_contract"
@@ -254,7 +249,78 @@ export async function getLatestSyncGateRecords(input?: {
   };
 }
 
-function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
+export async function getSyncGateRecordById(input: {
+  id: string;
+}): Promise<SyncGateRecord | null> {
+  await assertGateTablesReady("sync_release_gates:get_by_id");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      build_id,
+      environment,
+      gate_kind,
+      gate_scope,
+      mode,
+      base_result,
+      verdict,
+      blocker_class,
+      summary,
+      break_glass,
+      override_reason,
+      evidence_json,
+      emitted_at
+    FROM sync_release_gates
+    WHERE id = ${input.id}
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    gateKind: String(row.gate_kind) === "release_gate" ? "release_gate" : "deploy_gate",
+    gateScope:
+      row.gate_scope === "runtime_contract"
+        ? "runtime_contract"
+        : row.gate_scope === "service_liveness"
+          ? "service_liveness"
+          : "release_readiness",
+    buildId: String(row.build_id),
+    environment: String(row.environment),
+    mode: row.mode === "warn_only" ? "warn_only" : row.mode === "block" ? "block" : "measure_only",
+    baseResult:
+      row.base_result === "misconfigured"
+        ? "misconfigured"
+        : row.base_result === "pass"
+          ? "pass"
+          : "fail",
+    verdict:
+      row.verdict === "pass" ||
+      row.verdict === "fail" ||
+      row.verdict === "misconfigured" ||
+      row.verdict === "measure_only" ||
+      row.verdict === "warn_only" ||
+      row.verdict === "blocked"
+        ? row.verdict
+        : "fail",
+    blockerClass: (row.blocker_class as SyncBlockerClass | null) ?? null,
+    summary: String(row.summary ?? ""),
+    breakGlass: Boolean(row.break_glass),
+    overrideReason: row.override_reason ? String(row.override_reason) : null,
+    evidence:
+      row.evidence_json && typeof row.evidence_json === "object"
+        ? (row.evidence_json as Record<string, unknown>)
+        : {},
+    emittedAt:
+      typeof row.emitted_at === "string"
+        ? row.emitted_at
+        : row.emitted_at instanceof Date
+          ? row.emitted_at.toISOString()
+          : nowIso(),
+  };
+}
+
+export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
   const truthReady =
     snapshot.userFacing.recentSelectedRangeTruth.truthReady ||
     snapshot.userFacing.priorityWindowTruth.truthReady;
@@ -353,6 +419,7 @@ export async function evaluateDeployGate(input?: {
           ? "heartbeat_missing"
           : "none";
   const record: SyncGateRecord = {
+    id: null,
     gateKind: "deploy_gate",
     gateScope:
       blockerClass === "runtime_contract_invalid" ? "runtime_contract" : "service_liveness",
@@ -390,7 +457,7 @@ export async function evaluateDeployGate(input?: {
     emittedAt: nowIso(),
   };
   if (input?.persist ?? true) {
-    await upsertSyncGateRecord(record);
+    return upsertSyncGateRecord(record);
   }
   return record;
 }
@@ -412,6 +479,7 @@ export async function evaluateReleaseGate(input?: {
 
   if (canaryBusinessIds.length === 0 || missingMandatoryCanaries.length > 0) {
     const record: SyncGateRecord = {
+      id: null,
       gateKind: "release_gate",
       gateScope: "release_readiness",
       buildId,
@@ -433,7 +501,7 @@ export async function evaluateReleaseGate(input?: {
       emittedAt: nowIso(),
     };
     if (input?.persist ?? true) {
-      await upsertSyncGateRecord(record);
+      return upsertSyncGateRecord(record);
     }
     return record;
   }
@@ -466,6 +534,7 @@ export async function evaluateReleaseGate(input?: {
       ? failing[0].blockerClass
       : null;
   const record: SyncGateRecord = {
+    id: null,
     gateKind: "release_gate",
     gateScope: "release_readiness",
     buildId,
@@ -489,7 +558,7 @@ export async function evaluateReleaseGate(input?: {
     emittedAt: nowIso(),
   };
   if (input?.persist ?? true) {
-    await upsertSyncGateRecord(record);
+    return upsertSyncGateRecord(record);
   }
   return record;
 }

@@ -32,6 +32,7 @@ export interface SyncRepairRecommendation {
 }
 
 export interface SyncRepairPlanRecord {
+  id?: string | null;
   buildId: string;
   environment: string;
   providerScope: string;
@@ -239,7 +240,7 @@ function summarizePlan(input: {
 export async function upsertSyncRepairPlanRecord(input: SyncRepairPlanRecord) {
   await assertRepairPlanTablesReady("sync_repair_plans:upsert");
   const sql = getDb();
-  await sql`
+  const rows = await sql`
     INSERT INTO sync_repair_plans (
       build_id,
       environment,
@@ -268,17 +269,12 @@ export async function upsertSyncRepairPlanRecord(input: SyncRepairPlanRecord) {
       ${input.emittedAt},
       now()
     )
-    ON CONFLICT (build_id, environment, provider_scope, plan_mode)
-    DO UPDATE SET
-      eligible = EXCLUDED.eligible,
-      blocked_reason = EXCLUDED.blocked_reason,
-      break_glass = EXCLUDED.break_glass,
-      summary = EXCLUDED.summary,
-      payload_json = EXCLUDED.payload_json,
-      emitted_at = EXCLUDED.emitted_at,
-      updated_at = now()
-  `;
-  return input;
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return {
+    ...input,
+    id: rows[0]?.id ?? input.id ?? null,
+  };
 }
 
 export async function getLatestSyncRepairPlan(input?: {
@@ -293,6 +289,7 @@ export async function getLatestSyncRepairPlan(input?: {
   const providerScope = input?.providerScope ?? "meta";
   const rows = await sql`
     SELECT
+      id,
       build_id,
       environment,
       provider_scope,
@@ -317,6 +314,7 @@ export async function getLatestSyncRepairPlan(input?: {
       ? (row.payload_json as Record<string, unknown>)
       : {};
   return {
+    id: row.id ? String(row.id) : null,
     buildId: String(row.build_id),
     environment: String(row.environment),
     providerScope: String(row.provider_scope),
@@ -327,6 +325,56 @@ export async function getLatestSyncRepairPlan(input?: {
     summary: String(row.summary ?? ""),
     recommendations: Array.isArray(payload.recommendations)
       ? payload.recommendations as SyncRepairRecommendation[]
+      : [],
+    emittedAt:
+      typeof row.emitted_at === "string"
+        ? row.emitted_at
+        : row.emitted_at instanceof Date
+          ? row.emitted_at.toISOString()
+          : nowIso(),
+  };
+}
+
+export async function getSyncRepairPlanById(input: {
+  id: string;
+}): Promise<SyncRepairPlanRecord | null> {
+  await assertRepairPlanTablesReady("sync_repair_plans:get_by_id");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      build_id,
+      environment,
+      provider_scope,
+      plan_mode,
+      eligible,
+      blocked_reason,
+      break_glass,
+      summary,
+      payload_json,
+      emitted_at
+    FROM sync_repair_plans
+    WHERE id = ${input.id}
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  const payload =
+    row.payload_json && typeof row.payload_json === "object"
+      ? (row.payload_json as Record<string, unknown>)
+      : {};
+  return {
+    id: String(row.id),
+    buildId: String(row.build_id),
+    environment: String(row.environment),
+    providerScope: String(row.provider_scope),
+    planMode: "dry_run",
+    eligible: Boolean(row.eligible),
+    blockedReason: toText(row.blocked_reason),
+    breakGlass: Boolean(row.break_glass),
+    summary: String(row.summary ?? ""),
+    recommendations: Array.isArray(payload.recommendations)
+      ? (payload.recommendations as SyncRepairRecommendation[])
       : [],
     emittedAt:
       typeof row.emitted_at === "string"
@@ -383,6 +431,7 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
         .filter((row): row is SyncRepairRecommendation => Boolean(row))
     : [];
   const record: SyncRepairPlanRecord = {
+    id: null,
     buildId,
     environment,
     providerScope,
@@ -399,7 +448,7 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
     emittedAt: nowIso(),
   };
   if (input?.persist ?? true) {
-    await upsertSyncRepairPlanRecord(record);
+    return upsertSyncRepairPlanRecord(record);
   }
   return record;
 }

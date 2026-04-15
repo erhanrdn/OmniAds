@@ -63,6 +63,7 @@ interface SyncHealthPayload {
     gateScope?: "runtime_contract" | "service_liveness" | "release_readiness";
   } | null;
   repairPlan?: {
+    id?: string | null;
     eligible: boolean;
     blockedReason: string | null;
     breakGlass: boolean;
@@ -73,6 +74,20 @@ interface SyncHealthPayload {
       recommendedAction: string;
       safetyClassification: "safe_idempotent" | "safe_guarded" | "blocked";
     }>;
+  } | null;
+  remediationSummary?: {
+    latestStartedAt: string | null;
+    latestFinishedAt: string | null;
+    improvedAny: boolean;
+    businessCount: number;
+    counts: {
+      cleared: number;
+      improving_not_cleared: number;
+      no_change: number;
+      worse: number;
+      manual_follow_up_required: number;
+      locked: number;
+    };
   } | null;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
@@ -351,6 +366,38 @@ interface SyncHealthPayload {
         p50RowsPerSecond: number | null;
       }>;
     } | null;
+    latestRemediationExecution?: {
+      recommendedAction: string | null;
+      executedAction: string | null;
+      status: "running" | "completed" | "failed" | "locked";
+      outcomeClassification:
+        | "cleared"
+        | "improving_not_cleared"
+        | "no_change"
+        | "worse"
+        | "manual_follow_up_required"
+        | "locked"
+        | null;
+      expectedOutcomeMet: boolean | null;
+      startedAt: string;
+      finishedAt: string | null;
+      beforeEvidence: {
+        queueDepth?: number;
+        truthReady?: boolean | null;
+        activityState?: string | null;
+        lastSuccessfulPublishAt?: string | null;
+        recentSelectedRangePercent?: number;
+        priorityWindowPercent?: number;
+      };
+      afterEvidence: {
+        queueDepth?: number;
+        truthReady?: boolean | null;
+        activityState?: string | null;
+        lastSuccessfulPublishAt?: string | null;
+        recentSelectedRangePercent?: number;
+        priorityWindowPercent?: number;
+      };
+    } | null;
   }>;
 }
 
@@ -359,6 +406,21 @@ function providerLabel(provider: SyncIssueRow["provider"]) {
   if (provider === "meta") return "Meta";
   if (provider === "search_console") return "Search Console";
   return "GA4";
+}
+
+function formatRemediationOutcome(
+  outcome:
+    | "cleared"
+    | "improving_not_cleared"
+    | "no_change"
+    | "worse"
+    | "manual_follow_up_required"
+    | "locked"
+    | null
+    | undefined,
+) {
+  if (!outcome) return "not_run";
+  return outcome.replaceAll("_", " ");
 }
 
 function formatDateTime(value: string | null) {
@@ -741,6 +803,24 @@ export default function AdminSyncHealthPage() {
                   top action: {payload.repairPlan.recommendations[0]?.recommendedAction} • count {payload.repairPlan.recommendations.length}
                 </p>
               ) : null}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remediation</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <StateBadge state={payload?.remediationSummary?.improvedAny ? "busy" : "waiting"} />
+                <MetricPill label="Businesses" value={payload?.remediationSummary?.businessCount ?? 0} />
+                <MetricPill label="Cleared" value={payload?.remediationSummary?.counts.cleared ?? 0} />
+                <MetricPill
+                  label="Improving"
+                  value={payload?.remediationSummary?.counts.improving_not_cleared ?? 0}
+                />
+              </div>
+              <p className="mt-2 text-sm text-slate-700">
+                {payload?.remediationSummary
+                  ? `Latest remediation ${formatDateTime(payload.remediationSummary.latestFinishedAt ?? payload.remediationSummary.latestStartedAt)} • no change ${payload.remediationSummary.counts.no_change} • manual follow-up ${payload.remediationSummary.counts.manual_follow_up_required} • locked ${payload.remediationSummary.counts.locked}`
+                  : "No live remediation execution recorded for this build."}
+              </p>
             </div>
           </div>
 
@@ -1524,6 +1604,11 @@ export default function AdminSyncHealthPage() {
                       <p className="mt-1 text-xs text-gray-500">
                         Skipped active lease recoveries {business.skippedActiveLeaseRecoveries ?? 0} • Stale runs 24h {business.staleRunCount24h ?? 0}
                       </p>
+                      {business.latestRemediationExecution ? (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Latest remediation {formatRemediationOutcome(business.latestRemediationExecution.outcomeClassification)} • recommended {business.latestRemediationExecution.recommendedAction ?? "—"} • executed {business.latestRemediationExecution.executedAction ?? "—"} • queue {business.latestRemediationExecution.beforeEvidence.queueDepth ?? "—"}→{business.latestRemediationExecution.afterEvidence.queueDepth ?? "—"} • truth {String(business.latestRemediationExecution.beforeEvidence.truthReady ?? "—")}→{String(business.latestRemediationExecution.afterEvidence.truthReady ?? "—")} • activity {business.latestRemediationExecution.beforeEvidence.activityState ?? "—"}→{business.latestRemediationExecution.afterEvidence.activityState ?? "—"}
+                        </p>
+                      ) : null}
                       {actionState.businessId === business.businessId && actionState.message ? (
                         <p className="mt-2 text-xs text-emerald-700">{actionState.message}</p>
                       ) : null}

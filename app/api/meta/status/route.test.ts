@@ -121,6 +121,10 @@ vi.mock("@/lib/sync/repair-planner", () => ({
   getLatestSyncRepairPlan: vi.fn(async () => null),
 }));
 
+vi.mock("@/lib/sync/remediation-executions", () => ({
+  getLatestSyncRepairExecution: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/meta/status-operations", () => ({
   deriveMetaOperationsBlockReason: vi.fn(() => null),
 }));
@@ -197,6 +201,7 @@ const live = await import("@/lib/meta/live");
 const constraints = await import("@/lib/meta/constraints");
 const metaSync = await import("@/lib/sync/meta-sync");
 const metaRetention = await import("@/lib/meta/warehouse-retention");
+const remediationExecutions = await import("@/lib/sync/remediation-executions");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -2492,5 +2497,48 @@ describe("GET /api/meta/status", () => {
       "Placement breakdown data is only supported from 2026-04-10 onward for the selected range."
     );
     expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([]);
+  });
+
+  it("surfaces the latest remediation execution for the requested business", async () => {
+    vi.mocked(remediationExecutions.getLatestSyncRepairExecution).mockResolvedValue({
+      id: "exec-1",
+      buildId: "dev-build",
+      environment: "test",
+      providerScope: "meta",
+      businessId: "biz",
+      businessName: "Biz",
+      sourceReleaseGateId: "rg-1",
+      sourceRepairPlanId: "rp-1",
+      recommendedAction: "integrity_repair_enqueue",
+      executedAction: "repair_cycle",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+      lockOwner: "run-1:biz",
+      status: "completed",
+      outcomeClassification: "improving_not_cleared",
+      expectedOutcomeMet: false,
+      beforeEvidence: {
+        queueDepth: 4,
+      },
+      actionResult: {},
+      afterEvidence: {
+        queueDepth: 2,
+      },
+      startedAt: "2026-04-13T11:59:00.000Z",
+      finishedAt: "2026-04-13T12:00:00.000Z",
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.latestRemediationExecution).toMatchObject({
+      id: "exec-1",
+      outcomeClassification: "improving_not_cleared",
+      recommendedAction: "integrity_repair_enqueue",
+      executedAction: "repair_cycle",
+    });
   });
 });

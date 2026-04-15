@@ -70,6 +70,12 @@ import {
   getLatestSyncRepairPlan,
   type SyncRepairPlanRecord,
 } from "@/lib/sync/repair-planner";
+import {
+  getLatestSyncRepairExecutionSummary,
+  getLatestSyncRepairExecutions,
+  type SyncRepairExecutionRecord,
+  type SyncRepairExecutionSummary,
+} from "@/lib/sync/remediation-executions";
 import { buildSyncLagMetrics, type SyncLagMetrics } from "@/lib/sync/lag-metrics";
 
 type AuthProvider = "meta" | "google" | "search_console" | "ga4" | "shopify";
@@ -120,6 +126,7 @@ export interface AdminSyncHealthPayload {
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;
+  remediationSummary?: SyncRepairExecutionSummary | null;
   googleAdsHealthStatus?: "ok" | "degraded" | "failed";
   googleAdsHealthError?: string | null;
   dbDiagnostics?: AdminDbDiagnosticsPayload;
@@ -319,6 +326,7 @@ export interface AdminSyncHealthPayload {
       phases: MetaSyncPhaseTimingSummary[];
     } | null;
     lagMetrics?: SyncLagMetrics | null;
+    latestRemediationExecution?: SyncRepairExecutionRecord | null;
   }>;
 }
 
@@ -868,6 +876,8 @@ export function buildAdminSyncHealth(input: {
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;
+  remediationSummary?: SyncRepairExecutionSummary | null;
+  latestRepairExecutionsByBusiness?: Record<string, SyncRepairExecutionRecord | null>;
 }): AdminSyncHealthPayload {
   const issues: AdminSyncIssueRow[] = [];
   const impactedBusinesses = new Set<string>();
@@ -1591,6 +1601,8 @@ export function buildAdminSyncHealth(input: {
             }
           : null,
       lagMetrics,
+      latestRemediationExecution:
+        input.latestRepairExecutionsByBusiness?.[row.business_id] ?? null,
     });
 
     if (
@@ -1954,6 +1966,7 @@ export function buildAdminSyncHealth(input: {
     deployGate: input.deployGate ?? null,
     releaseGate: input.releaseGate ?? null,
     repairPlan: input.repairPlan ?? null,
+    remediationSummary: input.remediationSummary ?? null,
     googleAdsHealthStatus: input.googleAdsHealthStatus ?? "ok",
     googleAdsHealthError: input.googleAdsHealthError ?? null,
     dbDiagnostics,
@@ -2793,6 +2806,7 @@ export async function getAdminOperationsHealth() {
     runtimeRegistry,
     gateRecords,
     repairPlan,
+    remediationSummary,
   ] =
     await Promise.all([
       readAuthRows().catch(() => []),
@@ -2843,7 +2857,21 @@ export async function getAdminOperationsHealth() {
         environment: process.env.NODE_ENV ?? "unknown",
         providerScope: "meta",
       }).catch(() => null),
+      getLatestSyncRepairExecutionSummary({
+        buildId: runtimeContract.buildId,
+        environment: process.env.NODE_ENV ?? "unknown",
+        providerScope: "meta",
+      }).catch(() => null),
     ]);
+  const latestMetaRepairExecutions = await getLatestSyncRepairExecutions({
+    buildId: runtimeContract.buildId,
+    environment: process.env.NODE_ENV ?? "unknown",
+    providerScope: "meta",
+    businessIds: metaHealth.map((row) => row.business_id),
+  }).catch(() => []);
+  const latestRepairExecutionsByBusiness = Object.fromEntries(
+    latestMetaRepairExecutions.map((execution) => [execution.businessId, execution]),
+  ) as Record<string, SyncRepairExecutionRecord | null>;
   const metaD1FinalizeNonTerminalCounts = Object.fromEntries(
     (
       (await sql`
@@ -3015,6 +3043,8 @@ export async function getAdminOperationsHealth() {
     deployGate: gateRecords.deployGate,
     releaseGate: gateRecords.releaseGate,
     repairPlan,
+    remediationSummary,
+    latestRepairExecutionsByBusiness,
   });
   syncHealth.globalRebuildReview = buildGlobalRebuildTruthReview({
     googleBusinesses: syncHealth.googleAdsBusinesses ?? [],

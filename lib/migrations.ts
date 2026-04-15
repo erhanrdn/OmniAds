@@ -1370,6 +1370,8 @@ export async function runMigrations(options?: {
           UNIQUE (build_id, environment, gate_kind)
         )`.catch(() => {}),
         sql`ALTER TABLE sync_release_gates
+          DROP CONSTRAINT IF EXISTS sync_release_gates_build_id_environment_gate_kind_key`.catch(() => {}),
+        sql`ALTER TABLE sync_release_gates
           ADD COLUMN IF NOT EXISTS gate_scope TEXT NOT NULL DEFAULT 'release_readiness'`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_release_gates_build
           ON sync_release_gates (build_id, environment, gate_kind, emitted_at DESC)`.catch(() => {}),
@@ -1390,8 +1392,51 @@ export async function runMigrations(options?: {
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (build_id, environment, provider_scope, plan_mode)
         )`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_plans
+          DROP CONSTRAINT IF EXISTS sync_repair_plans_build_id_environment_provider_scope_plan_mode_key`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_plans_build
           ON sync_repair_plans (build_id, environment, provider_scope, emitted_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_repair_executions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          build_id                TEXT NOT NULL,
+          environment             TEXT NOT NULL,
+          provider_scope          TEXT NOT NULL,
+          business_id             TEXT NOT NULL,
+          business_name           TEXT,
+          source_release_gate_id  UUID,
+          source_repair_plan_id   UUID,
+          recommended_action      TEXT,
+          executed_action         TEXT,
+          workflow_run_id         TEXT,
+          workflow_actor          TEXT,
+          lock_owner              TEXT,
+          status                  TEXT NOT NULL
+                                  CHECK (status IN ('running', 'completed', 'failed', 'locked')),
+          outcome_classification  TEXT
+                                  CHECK (
+                                    outcome_classification IS NULL OR
+                                    outcome_classification IN (
+                                      'cleared',
+                                      'improving_not_cleared',
+                                      'no_change',
+                                      'worse',
+                                      'manual_follow_up_required',
+                                      'locked'
+                                    )
+                                  ),
+          expected_outcome_met    BOOLEAN,
+          before_evidence_json    JSONB NOT NULL DEFAULT '{}'::jsonb,
+          action_result_json      JSONB NOT NULL DEFAULT '{}'::jsonb,
+          after_evidence_json     JSONB NOT NULL DEFAULT '{}'::jsonb,
+          started_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          finished_at             TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_build
+          ON sync_repair_executions (build_id, environment, provider_scope, started_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_business
+          ON sync_repair_executions (business_id, provider_scope, started_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,

@@ -1132,6 +1132,105 @@ describe("buildAdminSyncHealth", () => {
     );
   });
 
+  it("surfaces remediation summary and latest per-business remediation execution", () => {
+    const now = "2026-04-15T12:00:00.000Z";
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      remediationSummary: {
+        buildId: "build-1",
+        environment: "production",
+        providerScope: "meta",
+        latestStartedAt: now,
+        latestFinishedAt: now,
+        improvedAny: true,
+        businessCount: 1,
+        counts: {
+          cleared: 0,
+          improving_not_cleared: 1,
+          no_change: 0,
+          worse: 0,
+          manual_follow_up_required: 0,
+          locked: 0,
+        },
+      },
+      latestRepairExecutionsByBusiness: {
+        "biz-meta": {
+          id: "exec-1",
+          buildId: "build-1",
+          environment: "production",
+          providerScope: "meta",
+          businessId: "biz-meta",
+          businessName: "TheSwaf",
+          sourceReleaseGateId: "rg-1",
+          sourceRepairPlanId: "rp-1",
+          recommendedAction: "integrity_repair_enqueue",
+          executedAction: "repair_cycle",
+          workflowRunId: "run-1",
+          workflowActor: "codex",
+          lockOwner: "run-1:biz-meta",
+          status: "completed",
+          outcomeClassification: "improving_not_cleared",
+          expectedOutcomeMet: false,
+          beforeEvidence: {
+            queueDepth: 4,
+            truthReady: false,
+            activityState: "blocked",
+          },
+          actionResult: {},
+          afterEvidence: {
+            queueDepth: 2,
+            truthReady: false,
+            activityState: "busy",
+          },
+          startedAt: now,
+          finishedAt: now,
+        },
+      },
+      metaHealth: [
+        {
+          business_id: "biz-meta",
+          business_name: "TheSwaf",
+          queue_depth: 2,
+          leased_partitions: 1,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: "2026-04-15",
+          oldest_queued_partition: "2026-04-15",
+          latest_partition_activity_at: now,
+          latest_checkpoint_scope: "account_daily",
+          latest_checkpoint_phase: "publish",
+          latest_checkpoint_updated_at: now,
+          latest_progress_heartbeat_at: now,
+          last_successful_page_index: 2,
+          checkpoint_failures: 0,
+          reclaim_candidate_count: 0,
+          today_account_rows: 12,
+          today_adset_rows: 12,
+          account_completed_days: 100,
+          adset_completed_days: 100,
+          creative_completed_days: 90,
+          ad_completed_days: 90,
+          recent_account_completed_days: 14,
+          recent_adset_completed_days: 14,
+          recent_creative_completed_days: 14,
+          recent_ad_completed_days: 14,
+          recent_range_total_days: 14,
+        },
+      ],
+    });
+
+    expect(payload.remediationSummary?.businessCount).toBe(1);
+    expect(payload.metaBusinesses?.[0]?.latestRemediationExecution).toMatchObject({
+      id: "exec-1",
+      outcomeClassification: "improving_not_cleared",
+      recommendedAction: "integrity_repair_enqueue",
+      executedAction: "repair_cycle",
+    });
+  });
+
   it("surfaces worker DB pressure evidence from heartbeat diagnostics", () => {
     const payload = buildAdminSyncHealth({
       jobs: [],

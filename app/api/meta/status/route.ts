@@ -88,6 +88,7 @@ import {
 } from "@/lib/sync/provider-status-truth";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
+import { getLatestSyncRepairExecution } from "@/lib/sync/remediation-executions";
 import { buildSyncLagMetrics } from "@/lib/sync/lag-metrics";
 import type {
   MetaCoreSurfaceKey,
@@ -297,6 +298,7 @@ export async function GET(request: NextRequest) {
     runtimeRegistry,
     gateRecords,
     repairPlan,
+    latestRemediationExecution,
   ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
@@ -333,6 +335,12 @@ export async function GET(request: NextRequest) {
         buildId: runtimeContract.buildId,
         environment: process.env.NODE_ENV ?? "unknown",
         providerScope: "meta",
+      }).catch(() => null),
+      getLatestSyncRepairExecution({
+        buildId: runtimeContract.buildId,
+        environment: process.env.NODE_ENV ?? "unknown",
+        providerScope: "meta",
+        businessId: businessId!,
       }).catch(() => null),
     ]);
   const retentionRuntime = getMetaRetentionRuntimeStatus();
@@ -1766,6 +1774,7 @@ export async function GET(request: NextRequest) {
       deployGate: gateRecords.deployGate,
       releaseGate: gateRecords.releaseGate,
       repairPlan,
+      latestRemediationExecution,
       syncTruthState: unifiedTruth.syncTruthState,
       blockerClass: unifiedTruth.blockerClass === "none" ? null : unifiedTruth.blockerClass,
       domainReadiness,
