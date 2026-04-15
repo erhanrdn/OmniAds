@@ -49,6 +49,7 @@ export function selectProviderWorkerForBusiness(input: {
   workers?: Array<{
     workerId: string;
     workerFreshnessState?: "online" | "stale" | "stopped";
+    lastHeartbeatAt?: string | null;
     lastBusinessId: string | null;
     lastConsumedBusinessId?: string | null;
     metaJson?: Record<string, unknown> | null;
@@ -64,9 +65,62 @@ export function selectProviderWorkerForBusiness(input: {
     workers.find((worker) => worker.lastConsumedBusinessId === input.businessId) ??
     workers.find((worker) => worker.lastBusinessId === input.businessId) ??
     workers.find((worker) => getMetaBusinessIds(worker.metaJson ?? null).includes(input.businessId)) ??
-    workers[0] ??
     null
   );
+}
+
+export function getProviderBusinessWorkerObservation(input: {
+  businessId: string;
+  activeLeaseOwner?: string | null;
+  staleThresholdMs: number;
+  nowMs?: number;
+  workers?: Array<{
+    workerId: string;
+    workerFreshnessState?: "online" | "stale" | "stopped";
+    lastHeartbeatAt?: string | null;
+    lastBusinessId: string | null;
+    lastConsumedBusinessId?: string | null;
+    metaJson?: Record<string, unknown> | null;
+  }>;
+}) {
+  const matchingWorker = selectProviderWorkerForBusiness({
+    businessId: input.businessId,
+    activeLeaseOwner: input.activeLeaseOwner ?? null,
+    workers: input.workers,
+  });
+  const lastHeartbeatAt = normalizeTimestamp(matchingWorker?.lastHeartbeatAt ?? null);
+  const nowMs = input.nowMs ?? Date.now();
+  const heartbeatAgeMs =
+    lastHeartbeatAt != null
+      ? Math.max(0, nowMs - new Date(lastHeartbeatAt).getTime())
+      : null;
+  const hasFreshHeartbeat =
+    matchingWorker?.workerFreshnessState === "online" ||
+    (heartbeatAgeMs != null &&
+      heartbeatAgeMs <= Math.max(1, input.staleThresholdMs));
+  const currentBusinessId =
+    matchingWorker?.metaJson &&
+    typeof matchingWorker.metaJson.currentBusinessId === "string" &&
+    matchingWorker.metaJson.currentBusinessId.trim().length > 0
+      ? matchingWorker.metaJson.currentBusinessId.trim()
+      : matchingWorker?.lastConsumedBusinessId ?? null;
+
+  return {
+    workerId: matchingWorker?.workerId ?? null,
+    workerFreshnessState: matchingWorker?.workerFreshnessState ?? null,
+    lastHeartbeatAt,
+    heartbeatAgeMs,
+    hasFreshHeartbeat,
+    currentBusinessId,
+    lastConsumedBusinessId: matchingWorker?.lastConsumedBusinessId ?? null,
+    consumeStage:
+      matchingWorker?.metaJson &&
+      typeof matchingWorker.metaJson.consumeStage === "string"
+        ? matchingWorker.metaJson.consumeStage
+        : null,
+    batchBusinessIds: getMetaBusinessIds(matchingWorker?.metaJson ?? null),
+    metaJson: matchingWorker?.metaJson ?? null,
+  };
 }
 
 export async function heartbeatSyncWorker(input: {
@@ -365,38 +419,34 @@ export async function getProviderWorkerHealthState(input: {
       providerScope: input.providerScope,
     }).catch(() => null),
   ]);
-  const evaluated = evaluateProviderWorkerHealth({
-    onlineWorkers: health?.onlineWorkers ?? 0,
-    lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
-    runnerLeaseActive: Boolean(leaseHealth?.hasActiveLease),
-    staleThresholdMs: input.staleThresholdMs,
-  });
-  const matchingWorker = selectProviderWorkerForBusiness({
+  const matchingWorker = getProviderBusinessWorkerObservation({
     businessId: input.businessId,
     activeLeaseOwner: leaseHealth?.activeLeaseOwner ?? null,
     workers: health?.workers,
+    staleThresholdMs: input.staleThresholdMs,
+  });
+  const evaluated = evaluateProviderWorkerHealth({
+    onlineWorkers: matchingWorker.hasFreshHeartbeat ? 1 : 0,
+    lastHeartbeatAt: matchingWorker.lastHeartbeatAt,
+    runnerLeaseActive: Boolean(leaseHealth?.hasActiveLease),
+    staleThresholdMs: input.staleThresholdMs,
   });
   return {
     providerScope: input.providerScope,
     workerHealthy: evaluated.workerHealthy,
-    heartbeatAgeMs: evaluated.heartbeatAgeMs,
+    heartbeatAgeMs: matchingWorker.heartbeatAgeMs,
     runnerLeaseActive: evaluated.runnerLeaseActive,
-    hasFreshHeartbeat: evaluated.hasFreshHeartbeat,
+    hasFreshHeartbeat: matchingWorker.hasFreshHeartbeat,
     ownerWorkerId: leaseHealth?.activeLeaseOwner ?? null,
-    lastHeartbeatAt: health?.lastHeartbeatAt ?? null,
+    matchedWorkerId: matchingWorker.workerId,
+    lastHeartbeatAt: matchingWorker.lastHeartbeatAt,
     latestLeaseUpdatedAt: leaseHealth?.latestLeaseUpdatedAt ?? null,
-    workerFreshnessState: matchingWorker?.workerFreshnessState ?? null,
-    currentBusinessId:
-      matchingWorker?.metaJson && typeof matchingWorker.metaJson.currentBusinessId === "string"
-        ? matchingWorker.metaJson.currentBusinessId
-        : matchingWorker?.lastConsumedBusinessId ?? null,
-    lastConsumedBusinessId: matchingWorker?.lastConsumedBusinessId ?? null,
-    consumeStage:
-      matchingWorker?.metaJson && typeof matchingWorker.metaJson.consumeStage === "string"
-        ? matchingWorker.metaJson.consumeStage
-        : null,
-    batchBusinessIds: getMetaBusinessIds(matchingWorker?.metaJson ?? null),
-    workerMeta: matchingWorker?.metaJson ?? null,
+    workerFreshnessState: matchingWorker.workerFreshnessState,
+    currentBusinessId: matchingWorker.currentBusinessId,
+    lastConsumedBusinessId: matchingWorker.lastConsumedBusinessId,
+    consumeStage: matchingWorker.consumeStage,
+    batchBusinessIds: matchingWorker.batchBusinessIds,
+    workerMeta: matchingWorker.metaJson,
   };
 }
 

@@ -30,7 +30,9 @@ Measure these first:
 - Meta leased partitions
 - Worker DB waiters, timeout count, retryable DB failures, connection errors
 - Whether the backlog is `draining` or `stalled`
-- Whether the likely primary constraint is `db`, `scheduler_or_queue`, or `mixed`
+- Whether the likely primary constraint is `db`, `worker_unavailable`, `scheduler_or_queue`, or `mixed`
+
+If the acceptance business has backlog, `leasedPartitions=0`, no matched worker heartbeat, and no active runner lease, treat that as a worker-runtime availability problem before tuning Postgres. The repo deploys a separate `worker` runtime alongside `web`; restore the worker service or host first, then retest DB pressure.
 
 ## Repo-Owned Controls
 

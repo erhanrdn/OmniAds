@@ -657,6 +657,82 @@ describe("buildAdminSyncHealth", () => {
     expect(payload.metaBusinesses?.[0]?.progressState).toBe("partial_stuck");
   });
 
+  it("keeps business worker truth offline when only an unrelated Meta worker is online", () => {
+    const staleActivity = new Date(Date.now() - 30 * 60_000).toISOString();
+    const payload = buildAdminSyncHealth({
+      jobs: [],
+      cooldowns: [],
+      metaHealth: [
+        {
+          business_id: "biz-meta-stuck",
+          business_name: "Meta Stuck",
+          queue_depth: 5,
+          leased_partitions: 0,
+          retryable_failed_partitions: 0,
+          stale_lease_partitions: 0,
+          dead_letter_partitions: 0,
+          state_row_count: 2,
+          current_day_reference: "2026-03-28",
+          oldest_queued_partition: "2026-03-20",
+          latest_partition_activity_at: staleActivity,
+          latest_checkpoint_scope: null,
+          latest_checkpoint_phase: null,
+          latest_checkpoint_updated_at: staleActivity,
+          latest_progress_heartbeat_at: null,
+          last_successful_page_index: null,
+          checkpoint_failures: 0,
+          today_account_rows: 12,
+          today_adset_rows: 12,
+          account_completed_days: 50,
+          adset_completed_days: 50,
+          creative_completed_days: 10,
+          ad_completed_days: 10,
+          recent_account_completed_days: 10,
+          recent_adset_completed_days: 10,
+          recent_creative_completed_days: 10,
+          recent_ad_completed_days: 10,
+          recent_range_total_days: 14,
+        },
+      ],
+      workerHealth: {
+        onlineWorkers: 1,
+        workerInstances: 1,
+        lastHeartbeatAt: new Date().toISOString(),
+        lastProgressHeartbeatAt: null,
+        workers: [
+          {
+            workerId: "worker-1:meta",
+            instanceType: "durable_sync_worker",
+            providerScope: "meta",
+            workerFreshnessState: "online",
+            status: "running",
+            lastHeartbeatAt: new Date().toISOString(),
+            lastBusinessId: "other-biz",
+            lastPartitionId: "partition-1",
+            lastConsumedBusinessId: "other-biz",
+            lastConsumeOutcome: "consume_succeeded",
+            lastConsumeFinishedAt: new Date().toISOString(),
+            metaJson: {
+              currentBusinessId: "other-biz",
+              consumeStage: "consume_started",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(payload.summary.workerOnline).toBe(true);
+    expect(payload.metaBusinesses?.[0]).toMatchObject({
+      workerOnline: false,
+      workerId: null,
+    });
+    expect(payload.metaBusinesses?.[0]?.stallFingerprints).toContain("worker_unavailable");
+    expect(
+      payload.issues.find((issue) => issue.reportType === "queue_waiting_worker")?.detail,
+    ).toContain("no matched worker heartbeat");
+    expect(payload.dbDiagnostics?.summary.likelyPrimaryConstraint).toBe("worker_unavailable");
+  });
+
   it("surfaces meta forward-progress evidence and activity state", () => {
     const recent = new Date(Date.now() - 5 * 60_000).toISOString();
     const payload = buildAdminSyncHealth({

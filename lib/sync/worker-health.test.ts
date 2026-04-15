@@ -69,4 +69,26 @@ describe("selectProviderWorkerForBusiness", () => {
 
     expect(worker?.workerId).toBe("worker-2");
   });
+
+  it("does not fall back to the newest unrelated worker when no business match exists", () => {
+    const worker = selectProviderWorkerForBusiness({
+      businessId: "grandmix",
+      workers: [
+        {
+          workerId: "worker-1",
+          lastBusinessId: "other-biz",
+          lastConsumedBusinessId: "other-biz",
+          metaJson: { currentBusinessId: "other-biz" },
+        },
+        {
+          workerId: "worker-2",
+          lastBusinessId: "another-biz",
+          lastConsumedBusinessId: "another-biz",
+          metaJson: { batchBusinessIds: ["foo", "bar"] },
+        },
+      ],
+    });
+
+    expect(worker).toBeNull();
+  });
 });

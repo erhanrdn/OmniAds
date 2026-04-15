@@ -164,6 +164,7 @@ describe("deriveProviderStallFingerprints", () => {
       checkpointLagMinutes: 30,
       latestPartitionActivityAt: null,
       blocked: false,
+      workerHealthy: false,
       progressEvidence: {
         lastCheckpointAdvancedAt: stale,
         lastReadyThroughAdvancedAt: null,
@@ -179,6 +180,7 @@ describe("deriveProviderStallFingerprints", () => {
 
     expect(fingerprints).toContain("historical_starvation");
     expect(fingerprints).toContain("checkpoint_not_advancing");
+    expect(fingerprints).toContain("worker_unavailable");
   });
 
   it("flags dead-letter completion blockers explicitly", () => {

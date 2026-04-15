@@ -25,7 +25,8 @@ export type ProviderStallFingerprint =
   | "dead_letter_blocking_completion"
   | "checkpoint_not_advancing"
   | "activity_without_coverage_progress"
-  | "repair_loop_without_progress";
+  | "repair_loop_without_progress"
+  | "worker_unavailable";
 
 export interface ProviderProgressEvidence {
   lastCheckpointAdvancedAt: string | null;
@@ -381,6 +382,7 @@ export function deriveProviderStallFingerprints(input: {
   checkpointLagMinutes: number | null;
   latestPartitionActivityAt: string | null;
   blocked: boolean;
+  workerHealthy?: boolean | null;
   hasRepairableBacklog?: boolean;
   staleRunPressure?: number;
   progressEvidence?: ProviderProgressEvidence | null;
@@ -409,6 +411,14 @@ export function deriveProviderStallFingerprints(input: {
     input.queueDepth > 0
   ) {
     rows.add("historical_starvation");
+  }
+
+  if (
+    input.queueDepth > 0 &&
+    input.leasedPartitions === 0 &&
+    input.workerHealthy === false
+  ) {
+    rows.add("worker_unavailable");
   }
 
   if (

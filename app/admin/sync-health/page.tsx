@@ -100,7 +100,13 @@ interface SyncHealthPayload {
       webPressureState: "healthy" | "elevated" | "saturated" | "unknown";
       workerPressureState: "healthy" | "elevated" | "saturated" | "unknown";
       metaBacklogState: "clear" | "draining" | "stalled";
-      likelyPrimaryConstraint: "none" | "db" | "scheduler_or_queue" | "mixed" | "unknown";
+      likelyPrimaryConstraint:
+        | "none"
+        | "db"
+        | "worker_unavailable"
+        | "scheduler_or_queue"
+        | "mixed"
+        | "unknown";
       headline: string;
       evidence: string[];
       workerCount: number;
@@ -266,6 +272,11 @@ interface SyncHealthPayload {
       lastReclaimAt: string | null;
       recentActivityWindowMinutes?: number;
     } | null;
+    workerOnline?: boolean;
+    workerLastHeartbeatAt?: string | null;
+    workerFreshnessState?: "online" | "stale" | "stopped" | null;
+    workerId?: string | null;
+    workerConsumeStage?: string | null;
     integrityIncidentCount?: number;
     integrityBlockedCount?: number;
     d1FinalizeNonTerminalCount?: number;
@@ -288,7 +299,11 @@ function getMetaBusinessSignals(business: NonNullable<SyncHealthPayload["metaBus
   const signals: string[] = [];
   if (business.deadLetterPartitions > 0) signals.push("Dead letter present");
   if (business.retryableFailedPartitions > 0) signals.push("Retryable failed backlog");
-  if (business.queueDepth > 0 && business.leasedPartitions === 0) signals.push("Queue waiting for worker");
+  if (business.queueDepth > 0 && business.leasedPartitions === 0) {
+    signals.push(
+      business.workerOnline === false ? "Worker unavailable" : "Queue waiting for worker"
+    );
+  }
   if (business.staleLeasePartitions > 0) signals.push("Stale lease detected");
   if ((business.reclaimCandidateCount ?? 0) > 0) signals.push("Recent reclaim activity");
   if ((business.activeSlowPartitions ?? 0) > 0) signals.push("Active slow leases");
@@ -336,6 +351,7 @@ function getGoogleAdsBusinessSignals(
 
 function formatDbConstraint(value: NonNullable<SyncHealthPayload["dbDiagnostics"]>["summary"]["likelyPrimaryConstraint"]) {
   if (value === "db") return "db ceiling";
+  if (value === "worker_unavailable") return "worker unavailable";
   if (value === "scheduler_or_queue") return "scheduler/queue";
   if (value === "mixed") return "mixed";
   if (value === "none") return "none";
@@ -1292,6 +1308,9 @@ export default function AdminSyncHealthPage() {
                         <MetricPill label="Progress" value={business.progressState ?? "unknown"} />
                         <MetricPill label="Activity" value={business.activityState ?? "waiting"} />
                       </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Worker {business.workerOnline == null ? "unknown" : business.workerOnline ? "online" : "offline"} • Heartbeat {formatDateTime(business.workerLastHeartbeatAt ?? null)} • Matched worker {business.workerId ?? "—"} • Stage {business.workerConsumeStage ?? "—"}
+                      </p>
                       <p className="mt-1 text-xs text-gray-500">
                         Recent window {business.recentRangeTotalDays ?? 14}d • Account {business.recentAccountCompletedDays ?? 0} • Adset {business.recentAdsetCompletedDays ?? 0} • Creative {business.recentCreativeCompletedDays ?? 0} • Ad {business.recentAdCompletedDays ?? 0}
                       </p>

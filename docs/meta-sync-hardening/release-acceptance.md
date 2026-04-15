@@ -63,12 +63,14 @@ Use the maintained outputs exactly this way:
 - `waiting`: queue exists, leases are absent, truth is not blocked, and the operator surface says work is waiting rather than stuck. This is a scheduling or worker-presence question, not proof of progress.
 - `blocked`: operator `progressState=blocked`, selected-range truth is `blocked`, or dead letters / stale leases are present. Do not market through this state.
 - `stalled`: benchmark `observedState=stalled`, operator `activityState=stalled`, or drain-rate `large_and_not_draining`. This means the system is not merely busy.
+- `worker_unavailable`: DB diagnostics show the primary constraint as `worker_unavailable`, or the acceptance business shows backlog with no matched worker heartbeat and no active lease. This is not a UI wording problem; it means the separately deployed worker runtime is absent, down, or not publishing heartbeats for the business.
 
 ## 6. Operator signals that must stay visible
 
 These signals must remain available in `/admin/sync-health` and the maintained scripts:
 
 - Worker online/offline posture and latest heartbeat.
+- Business-matched worker heartbeat truth for the acceptance business, not just provider-global worker counts.
 - Queue depth, leased partitions, dead letters, and oldest queued partition.
 - Per-business Meta progress state, activity state, stall fingerprints, and repair backlog.
 - D-1 finalize nonterminal count and last successful publish time.
@@ -82,6 +84,7 @@ If acceptance fails:
 - `blocked`: run `meta:state-check`, then `meta:verify-day` or `meta:verify-publish`, and use `/admin/sync-health` recovery actions before retesting.
 - `waiting`: inspect worker health, runner lease state, and DB diagnostics. Do not call this healthy unless a follow-up benchmark turns it into `busy` or `ready`.
 - `stalled`: treat it as a release stop. Capture `meta:benchmark`, `meta:drain-rate`, `meta:db:diagnostics`, then repair queue ownership, worker presence, or authoritative publish state before retesting.
+- `worker_unavailable`: verify the deployed `worker` service or host first. This repo expects a separate worker runtime alongside the web runtime. If the acceptance business shows backlog, no matched worker heartbeat, and no active lease, restore the worker process before making DB or queue changes.
 - `db` or `mixed` constraint: follow `docs/meta-sync-hardening/postgres-runbook.md` and change one DB or worker knob at a time, then rerun the same command set.
 
 ## 8. Evidence package to retain outside the repo

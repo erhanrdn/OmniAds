@@ -18,7 +18,10 @@ import {
   getGoogleAdsReclaimClassificationSummary,
   getGoogleAdsWarehouseIntegrityIncidents,
 } from "@/lib/google-ads/warehouse";
-import { getSyncWorkerHealthSummary } from "@/lib/sync/worker-health";
+import {
+  getProviderBusinessWorkerObservation,
+  getSyncWorkerHealthSummary,
+} from "@/lib/sync/worker-health";
 import {
   buildGlobalRebuildTruthReview,
   deriveProviderQuotaLimitedBusinessIds,
@@ -150,6 +153,7 @@ export interface AdminSyncHealthPayload {
       lastHeartbeatAt: string | null;
       lastBusinessId: string | null;
       lastPartitionId: string | null;
+      lastConsumedBusinessId?: string | null;
       metaJson?: Record<string, unknown> | null;
     }>;
   };
@@ -257,6 +261,11 @@ export interface AdminSyncHealthPayload {
     activityState?: ProviderActivityState;
     progressEvidence?: ProviderProgressEvidence | null;
     stallFingerprints?: ProviderStallFingerprint[];
+    workerOnline?: boolean;
+    workerLastHeartbeatAt?: string | null;
+    workerFreshnessState?: "online" | "stale" | "stopped" | null;
+    workerId?: string | null;
+    workerConsumeStage?: string | null;
     sourceManifestCounts?: MetaAuthoritativeBusinessOpsSnapshot["manifestCounts"];
     latestAuthoritativePublishes?: MetaAuthoritativeBusinessOpsSnapshot["latestPublishes"];
     d1FinalizeSla?: MetaAuthoritativeBusinessOpsSnapshot["d1FinalizeSla"];
@@ -1391,6 +1400,13 @@ export function buildAdminSyncHealth(input: {
       input.metaD1FinalizeNonTerminalCounts?.[row.business_id] ??
       0;
     const quotaLimitedEvidence = metaQuotaLimitedBusinessIds.has(row.business_id);
+    const metaWorkerObservation = getProviderBusinessWorkerObservation({
+      businessId: row.business_id,
+      workers: input.workerHealth?.workers,
+      staleThresholdMs: 3 * 60_000,
+    });
+    const metaWorkerHealthy =
+      metaWorkerObservation.hasFreshHeartbeat || leasedPartitions > 0;
     const metaCheckpointLagMinutes = computeLagMinutes(metaProgressHeartbeat);
     const progressState = classifyMetaProgressState({
       queueDepth,
@@ -1421,6 +1437,7 @@ export function buildAdminSyncHealth(input: {
       progressEvidence: metaProgressEvidence,
       blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
       historicalBacklogDepth: queueDepth,
+      workerHealthy: metaWorkerHealthy,
     });
     const activityState = deriveProviderActivityState({
       progressState,
@@ -1476,6 +1493,11 @@ export function buildAdminSyncHealth(input: {
       activityState,
       progressEvidence: metaProgressEvidence,
       stallFingerprints,
+      workerOnline: metaWorkerObservation.hasFreshHeartbeat,
+      workerLastHeartbeatAt: metaWorkerObservation.lastHeartbeatAt,
+      workerFreshnessState: metaWorkerObservation.workerFreshnessState,
+      workerId: metaWorkerObservation.workerId,
+      workerConsumeStage: metaWorkerObservation.consumeStage,
       sourceManifestCounts: metaSnapshotsByBusiness.get(row.business_id)?.manifestCounts,
       latestAuthoritativePublishes: metaSnapshotsByBusiness.get(row.business_id)?.latestPublishes ?? [],
       d1FinalizeSla: metaSnapshotsByBusiness.get(row.business_id)?.d1FinalizeSla,
@@ -1632,14 +1654,20 @@ export function buildAdminSyncHealth(input: {
         completedAt: row.oldest_queued_partition,
       });
       if (!row.latest_partition_activity_at || Date.now() - new Date(row.latest_partition_activity_at).getTime() > 15 * 60 * 1000) {
-        issueTypes.push("Meta queue waiting for worker");
+        issueTypes.push(
+          metaWorkerObservation.hasFreshHeartbeat
+            ? "Meta queue not leasing despite fresh worker heartbeat"
+            : "Meta worker unavailable"
+        );
         issues.push({
           businessId: row.business_id,
           businessName: row.business_name,
           provider: "meta",
           reportType: "queue_waiting_worker",
           status: "running",
-          detail: `Meta queue has items but no active worker. queued=${queueDepth}, leased=${leasedPartitions}, latest_activity=${row.latest_partition_activity_at ?? "none"}`,
+          detail: metaWorkerObservation.hasFreshHeartbeat
+            ? `Meta queue has items but this business is not acquiring a lease. queued=${queueDepth}, leased=${leasedPartitions}, worker=${metaWorkerObservation.workerId ?? "matched"}, heartbeat=${metaWorkerObservation.lastHeartbeatAt ?? "none"}, stage=${metaWorkerObservation.consumeStage ?? "unknown"}, latest_activity=${row.latest_partition_activity_at ?? "none"}`
+            : `Meta queue has items but no matched worker heartbeat or runner lease is visible for this business. queued=${queueDepth}, leased=${leasedPartitions}, worker=${metaWorkerObservation.workerId ?? "none"}, heartbeat=${metaWorkerObservation.lastHeartbeatAt ?? "none"}, latest_activity=${row.latest_partition_activity_at ?? "none"}`,
           triggeredAt: row.latest_partition_activity_at,
           completedAt: row.oldest_queued_partition,
         });

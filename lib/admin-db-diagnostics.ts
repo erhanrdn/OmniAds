@@ -7,6 +7,7 @@ export type AdminMetaBacklogState = "clear" | "draining" | "stalled";
 export type AdminDbPrimaryConstraint =
   | "none"
   | "db"
+  | "worker_unavailable"
   | "scheduler_or_queue"
   | "mixed"
   | "unknown";
@@ -53,6 +54,7 @@ interface AdminMetaBacklogInput {
   leasedPartitions: number;
   progressState?: string | null;
   activityState?: string | null;
+  workerOnline?: boolean | null;
 }
 
 function nowIso() {
@@ -251,8 +253,10 @@ function classifyMetaBacklogState(
 function derivePrimaryConstraint(input: {
   metaBacklogState: AdminMetaBacklogState;
   workerPressureState: AdminDbPressureState;
+  workerUnavailable: boolean;
 }): AdminDbPrimaryConstraint {
   if (input.metaBacklogState === "clear") return "none";
+  if (input.workerUnavailable) return "worker_unavailable";
   if (input.workerPressureState === "unknown") return "unknown";
   if (input.metaBacklogState === "draining" && input.workerPressureState !== "healthy") {
     return "db";
@@ -273,6 +277,9 @@ function buildHeadline(input: {
 }) {
   if (input.metaBacklogState === "clear") {
     return "Meta queue is clear and worker DB pressure is not currently evident.";
+  }
+  if (input.likelyPrimaryConstraint === "worker_unavailable") {
+    return "Meta backlog is not draining because no matched worker heartbeat or active lease is visible for the stalled business backlog.";
   }
   if (input.workerPressureState === "unknown") {
     return "Meta backlog exists, but worker DB pressure is not yet visible in heartbeat diagnostics.";
@@ -309,9 +316,16 @@ export function buildAdminDbDiagnostics(input: {
   const webPressureState = web ? classifyDbPressureState([web], nowMs) : "unknown";
   const workerPressureState = classifyDbPressureState(workers, nowMs);
   const metaBacklogState = classifyMetaBacklogState(input.metaQueueDepth, metaBusinesses);
+  const workerUnavailable = metaBusinesses.some(
+    (business) =>
+      business.queueDepth > 0 &&
+      business.leasedPartitions === 0 &&
+      business.workerOnline === false,
+  );
   const likelyPrimaryConstraint = derivePrimaryConstraint({
     metaBacklogState,
     workerPressureState,
+    workerUnavailable,
   });
   const workerCurrentPoolWaiters = workers.reduce(
     (sum, worker) => sum + worker.pool.waitingCount,
@@ -342,6 +356,11 @@ export function buildAdminDbDiagnostics(input: {
     evidence.push("Meta backlog exists without active drain evidence.");
   } else {
     evidence.push("Meta queue depth is currently zero.");
+  }
+  if (workerUnavailable) {
+    evidence.push(
+      "No matched worker heartbeat or active lease is visible for the stalled Meta backlog.",
+    );
   }
   if (workerPressureState === "saturated") {
     evidence.push(

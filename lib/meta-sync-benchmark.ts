@@ -835,9 +835,8 @@ export async function collectMetaSyncReadinessSnapshot(
       lastSuccessfulPublishAt: metaBusiness.lastSuccessfulPublishAt ?? null,
       d1FinalizeNonTerminalCount:
         metaBusiness.d1FinalizeNonTerminalCount ?? 0,
-      workerOnline: admin.syncHealth.summary.workerOnline ?? null,
-      workerLastHeartbeatAt:
-        admin.syncHealth.summary.workerLastHeartbeatAt ?? null,
+      workerOnline: metaBusiness.workerOnline ?? null,
+      workerLastHeartbeatAt: metaBusiness.workerLastHeartbeatAt ?? null,
       dbConstraint:
         admin.syncHealth.dbDiagnostics?.summary.likelyPrimaryConstraint ?? null,
       dbBacklogState:

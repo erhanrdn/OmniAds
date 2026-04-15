@@ -1432,6 +1432,7 @@ export async function GET(request: NextRequest) {
     checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
     latestPartitionActivityAt: latestMetaActivityAt,
     blocked: state === "action_required",
+    workerHealthy: workerHealth?.workerHealthy ?? null,
     hasRepairableBacklog: (queueHealth?.retryableFailedPartitions ?? 0) > 0,
     staleRunPressure: legacyJobHealth?.staleRunningJobs ?? 0,
     progressEvidence: metaProgressEvidence,

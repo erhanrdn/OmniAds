@@ -204,4 +204,30 @@ describe("buildAdminDbDiagnostics", () => {
     });
     expect(diagnostics.summary.headline).toContain("scheduler");
   });
+
+  it("classifies stalled backlog as worker-unavailable when no matched worker heartbeat exists", () => {
+    const diagnostics = buildAdminDbDiagnostics({
+      web: null,
+      workers: [],
+      metaQueueDepth: 9,
+      metaLeasedPartitions: 0,
+      metaBusinesses: [
+        {
+          queueDepth: 9,
+          leasedPartitions: 0,
+          progressState: "partial_stuck",
+          activityState: "stalled",
+          workerOnline: false,
+        },
+      ],
+      nowMs: new Date("2026-04-14T09:05:00.000Z").getTime(),
+    });
+
+    expect(diagnostics.summary).toMatchObject({
+      workerPressureState: "unknown",
+      metaBacklogState: "stalled",
+      likelyPrimaryConstraint: "worker_unavailable",
+    });
+    expect(diagnostics.summary.headline).toContain("no matched worker heartbeat");
+  });
 });
