@@ -6,7 +6,10 @@ import { syncGA4Reports } from "@/lib/sync/ga4-sync";
 import { syncSearchConsoleReports } from "@/lib/sync/search-console-sync";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 import { runSyncSoakGate } from "@/lib/sync/soak-gate";
-import { evaluateAndPersistSyncGates } from "@/lib/sync/release-gates";
+import {
+  evaluateAndPersistSyncGates,
+  shouldEnforceSyncGateFailure,
+} from "@/lib/sync/release-gates";
 import { evaluateAndPersistSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 
@@ -25,6 +28,11 @@ function shopifySyncEnabled() {
   return raw === "1" || raw === "true";
 }
 
+function isTruthyQueryParam(value: string | null) {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true";
+}
+
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -35,6 +43,67 @@ export async function POST(request: NextRequest) {
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (token !== cronSecret) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const url = new URL(request.url);
+  const controlPlaneOnly = isTruthyQueryParam(url.searchParams.get("controlPlaneOnly"));
+  const requestedBuildId = url.searchParams.get("buildId")?.trim() || undefined;
+  const breakGlass = isTruthyQueryParam(url.searchParams.get("breakGlass"));
+  const enforceDeployGate = isTruthyQueryParam(url.searchParams.get("enforceDeployGate"));
+  const overrideReason = url.searchParams.get("overrideReason")?.trim() || null;
+
+  if (controlPlaneOnly) {
+    const gateVerdicts = await evaluateAndPersistSyncGates({
+      buildId: requestedBuildId,
+      breakGlass,
+      overrideReason,
+    }).catch((error) => {
+      console.error("[sync-cron] control_plane_gate_evaluation_failed", error);
+      return null;
+    });
+
+    if (!gateVerdicts) {
+      return NextResponse.json(
+        {
+          ok: false,
+          controlPlaneOnly: true,
+          error: "gate_evaluation_failed",
+        },
+        { status: 500 },
+      );
+    }
+
+    const repairPlan = await evaluateAndPersistSyncRepairPlan({
+      buildId: requestedBuildId,
+      providerScope: "meta",
+      releaseGate: gateVerdicts.releaseGate,
+    }).catch((error) => {
+      console.error("[sync-cron] control_plane_repair_plan_failed", error);
+      return null;
+    });
+
+    if (!repairPlan) {
+      return NextResponse.json(
+        {
+          ok: false,
+          controlPlaneOnly: true,
+          gateVerdicts,
+          error: "repair_plan_failed",
+        },
+        { status: 500 },
+      );
+    }
+
+    const blocked = enforceDeployGate && shouldEnforceSyncGateFailure([gateVerdicts.deployGate]);
+    return NextResponse.json(
+      {
+        ok: !blocked,
+        controlPlaneOnly: true,
+        gateVerdicts,
+        repairPlan,
+      },
+      { status: blocked ? 503 : 200 },
+    );
   }
 
   const businesses = await getActiveBusinesses().catch((err) => {

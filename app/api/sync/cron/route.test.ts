@@ -31,6 +31,9 @@ vi.mock("@/lib/sync/soak-gate", () => ({
 
 vi.mock("@/lib/sync/release-gates", () => ({
   evaluateAndPersistSyncGates: vi.fn(),
+  shouldEnforceSyncGateFailure: vi.fn((records: Array<{ verdict?: string } | null | undefined>) =>
+    records.some((record) => record?.verdict === "blocked" || record?.verdict === "misconfigured"),
+  ),
 }));
 
 vi.mock("@/lib/sync/repair-planner", () => ({
@@ -179,5 +182,87 @@ describe("POST /api/sync/cron", () => {
     expect(response.status).toBe(200);
     expect(shopifySync.syncShopifyCommerceReports).toHaveBeenCalledWith("biz_1");
     expect(payload.results[0].shopify).toEqual(expect.objectContaining({ success: true, returns: 2 }));
+  });
+
+  it("persists current-build control-plane state without scheduling work", async () => {
+    const request = new NextRequest(
+      "http://localhost/api/sync/cron?controlPlaneOnly=1&buildId=build-123&enforceDeployGate=1",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      },
+    );
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.controlPlaneOnly).toBe(true);
+    expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
+    expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
+    expect(releaseGates.evaluateAndPersistSyncGates).toHaveBeenCalledWith({
+      buildId: "build-123",
+      breakGlass: false,
+      overrideReason: null,
+    });
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith({
+      buildId: "build-123",
+      providerScope: "meta",
+      releaseGate: expect.objectContaining({
+        gateKind: "release_gate",
+      }),
+    });
+  });
+
+  it("returns 503 for control-plane-only mode when deploy gate enforcement fails", async () => {
+    vi.mocked(releaseGates.evaluateAndPersistSyncGates).mockResolvedValueOnce({
+      checkedAt: "2026-04-15T00:00:00.000Z",
+      deployGate: {
+        gateKind: "deploy_gate",
+        gateScope: "service_liveness",
+        buildId: "build-123",
+        environment: "test",
+        mode: "block",
+        baseResult: "fail",
+        verdict: "blocked",
+        blockerClass: "heartbeat_missing",
+        summary: "missing heartbeat",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-15T00:00:00.000Z",
+      },
+      releaseGate: {
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-123",
+        environment: "test",
+        mode: "measure_only",
+        baseResult: "fail",
+        verdict: "measure_only",
+        blockerClass: "not_release_ready",
+        summary: "blocked",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-15T00:00:00.000Z",
+      },
+    } as never);
+
+    const request = new NextRequest(
+      "http://localhost/api/sync/cron?controlPlaneOnly=1&buildId=build-123&enforceDeployGate=1",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      },
+    );
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload.ok).toBe(false);
+    expect(payload.controlPlaneOnly).toBe(true);
+    expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
   });
 });

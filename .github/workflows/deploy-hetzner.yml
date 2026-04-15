@@ -316,30 +316,31 @@ jobs:
                 return 1
               }
 
-              evaluate_sync_gate() {
-                gate_kind="$1"
-                shift
-                docker compose exec -T worker sh -lc "
-                  unset SYNC_WORKER_MODE
-                  export NODE_ENV=production
-                  node --import tsx scripts/sync-gate-evaluate.ts --gate ${gate_kind} --build-id ${DEPLOY_SHA} --environment production $*
-                "
-              }
-
-              evaluate_sync_repair_plan() {
-                docker compose exec -T worker sh -lc "
-                  unset SYNC_WORKER_MODE
-                  export NODE_ENV=production
-                  node --import tsx scripts/sync-repair-plan-evaluate.ts --build-id ${DEPLOY_SHA} --environment production --provider-scope meta
-                "
-              }
-
               verify_sync_control_plane() {
                 docker compose exec -T worker sh -lc "
                   unset SYNC_WORKER_MODE
                   export NODE_ENV=production
                   node --import tsx scripts/sync-control-plane-verify.ts --build-id ${DEPLOY_SHA} --environment production --provider-scope meta
                 "
+              }
+
+              persist_sync_control_plane_via_web() {
+                cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || \"\")')"
+                if [ -z "${cron_secret}" ]; then
+                  echo "CRON_SECRET is missing from the web runtime."
+                  return 1
+                fi
+
+                query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1"
+                if [ "${BREAK_GLASS}" = "true" ]; then
+                  encoded_override_reason="$(
+                    python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
+                  )"
+                  query_string="${query_string}&breakGlass=1&overrideReason=${encoded_override_reason}"
+                fi
+
+                curl -fsS -X POST "http://127.0.0.1:3000/api/sync/cron?${query_string}" \
+                  -H "Authorization: Bearer ${cron_secret}"
               }
 
               verify_service_image() {
@@ -420,20 +421,8 @@ jobs:
               log "Verifying fresh Meta heartbeat after worker health"
               verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 12 5
 
-              log "Evaluating sync deploy and release gates"
-              if [ "${BREAK_GLASS}" = "true" ]; then
-                evaluate_sync_gate deploy_gate \
-                  --break-glass \
-                  --override-reason "'${OVERRIDE_REASON}'"
-                evaluate_sync_gate release_gate \
-                  --break-glass \
-                  --override-reason "'${OVERRIDE_REASON}'"
-                evaluate_sync_repair_plan
-              else
-                evaluate_sync_gate deploy_gate --enforce
-                evaluate_sync_gate release_gate
-                evaluate_sync_repair_plan
-              fi
+              log "Persisting current-build sync control plane"
+              persist_sync_control_plane_via_web
               verify_sync_control_plane
               trap - ERR
           EOF
