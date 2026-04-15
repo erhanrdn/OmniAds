@@ -980,6 +980,80 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("surfaces worker-unavailable queue truth through the compact integration summary", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(workerHealth.getProviderWorkerHealthState).mockResolvedValue({
+      workerHealthy: false,
+      heartbeatAgeMs: null,
+      runnerLeaseActive: false,
+      ownerWorkerId: null,
+      consumeStage: null,
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 11,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: "2026-04-14T15:20:24.080Z",
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: "2024-04-12",
+      historicalCoreQueueDepth: 6,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 5,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+    vi.mocked(warehouse.getMetaCheckpointHealth).mockResolvedValue({
+      latestCheckpointUpdatedAt: "2026-04-14T11:57:01.100Z",
+      checkpointLagMinutes: 360,
+      resumeCapable: true,
+    } as never);
+    vi.mocked(warehouse.getMetaSyncState).mockResolvedValue([] as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.operations).toMatchObject({
+      workerHealthy: false,
+      progressState: "partial_stuck",
+    });
+    expect(payload.integrationSummary).toMatchObject({
+      state: "blocked",
+      stages: expect.arrayContaining([
+        expect.objectContaining({
+          key: "queue_worker",
+          state: "blocked",
+          code: "queue_blocked",
+          evidence: expect.objectContaining({
+            queueDepth: 11,
+          }),
+        }),
+      ]),
+    });
+  });
+
   it("keeps historical core progress while removing creative backlog from the summary", async () => {
     const today = getUtcTodayIso();
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({

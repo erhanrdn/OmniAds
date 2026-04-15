@@ -297,4 +297,51 @@ describe("buildMetaIntegrationSummary", () => {
       },
     });
   });
+
+  it("blocks the queue stage when backlog has no healthy worker or active lease", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "partial",
+        latestSync: {
+          status: "succeeded",
+          readyThroughDate: "2026-04-10",
+          progressPercent: 14,
+          completedDays: 2,
+          totalDays: 14,
+        },
+        jobHealth: {
+          queueDepth: 11,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+        } as never,
+        operations: {
+          workerHealthy: false,
+          progressState: "partial_stuck",
+          blockingReasons: [
+            {
+              code: "operations_worker_offline",
+              detail: "Meta sync operations are currently limited by worker_offline.",
+              repairable: false,
+            },
+          ],
+          repairableActions: [],
+          stallFingerprints: ["worker_unavailable"],
+        },
+      })
+    );
+
+    expect(summary).toMatchObject({
+      visible: true,
+      state: "blocked",
+    });
+    expect(summary.stages.find((stage) => stage.key === "queue_worker")).toMatchObject({
+      state: "blocked",
+      code: "queue_blocked",
+      evidence: {
+        queueDepth: 11,
+        blockerCodes: ["operations_worker_offline"],
+      },
+    });
+  });
 });

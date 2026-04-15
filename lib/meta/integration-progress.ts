@@ -72,10 +72,28 @@ function getStageTitle(
   return language === "tr" ? "Dikkat / toparlama" : "Attention / recovery";
 }
 
+function isWorkerUnavailableStage(
+  stage: MetaIntegrationSummary["stages"][number],
+  status: MetaStatusResponse
+) {
+  return (
+    stage.key === "queue_worker" &&
+    status.operations?.workerHealthy === false &&
+    (status.jobHealth?.queueDepth ?? 0) > 0 &&
+    (status.jobHealth?.leasedPartitions ?? 0) === 0
+  );
+}
+
 function localizeStageLabel(
-  code: MetaIntegrationSummary["stages"][number]["code"],
+  stage: MetaIntegrationSummary["stages"][number],
+  status: MetaStatusResponse,
   language: MetaUiLanguage
 ) {
+  if (isWorkerUnavailableStage(stage, status)) {
+    return language === "tr" ? "worker kullanılamıyor" : "worker unavailable";
+  }
+
+  const code = stage.code;
   switch (code) {
     case "connected":
       return language === "tr" ? "bağlı" : "connected";
@@ -549,6 +567,11 @@ function getStageDetail(
     case "connection":
       return getConnectionDetail(stage, language);
     case "queue_worker":
+      if (isWorkerUnavailableStage(stage, status)) {
+        return language === "tr"
+          ? "Taze bir Meta worker heartbeat'i veya aktif lease görünmüyor. Kuyruktaki Meta işi ilerlemiyor."
+          : "No fresh Meta worker heartbeat or active lease is visible. Queued Meta work is not draining.";
+      }
       if (stage.code === "queue_stale" && status.state === "stale") {
         return getMetaSyncDescription(status, language);
       }
@@ -637,7 +660,7 @@ export function resolveMetaIntegrationProgress(
       key: stage.key,
       title: getStageTitle(stage.key, summary.scope, language),
       state: stage.state,
-      label: localizeStageLabel(stage.code, language),
+      label: localizeStageLabel(stage, status, language),
       detail: getStageDetail(stage, summary.scope, language, status),
       percent: stage.percent,
       evidence: buildStageEvidence(stage, language),

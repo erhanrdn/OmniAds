@@ -2035,14 +2035,7 @@ export async function GET(request: NextRequest) {
     latestSync: response.latestSync,
     warehouse: response.warehouse,
     jobHealth: response.jobHealth,
-    operations: response.operations
-      ? {
-          progressState: response.operations.progressState,
-          blockingReasons: response.operations.blockingReasons,
-          repairableActions: response.operations.repairableActions,
-          stallFingerprints: response.operations.stallFingerprints,
-        }
-      : null,
+    operations: response.operations as MetaStatusResponse["operations"],
     coreReadiness,
     extendedCompleteness,
     priorityWindow: response.priorityWindow,

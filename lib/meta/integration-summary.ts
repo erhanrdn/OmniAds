@@ -279,6 +279,10 @@ function buildQueueStage(
     stallFingerprintCount:
       stallFingerprintCount > 0 ? stallFingerprintCount : undefined,
   });
+  const workerUnavailable =
+    queueDepth > 0 &&
+    leasedPartitions === 0 &&
+    status.operations?.workerHealthy === false;
 
   if (status.state === "stale") {
     return {
@@ -286,6 +290,16 @@ function buildQueueStage(
       state: "blocked",
       percent: null,
       code: "queue_stale",
+      evidence,
+    };
+  }
+
+  if (workerUnavailable) {
+    return {
+      key: "queue_worker",
+      state: "blocked",
+      percent: null,
+      code: "queue_blocked",
       evidence,
     };
   }

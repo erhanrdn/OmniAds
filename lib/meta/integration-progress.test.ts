@@ -258,6 +258,42 @@ describe("resolveMetaIntegrationProgress", () => {
     });
   });
 
+  it("renders worker-unavailable queue truth instead of generic waiting", () => {
+    const model = resolveMetaIntegrationProgress(
+      buildStatus({
+        state: "partial",
+        jobHealth: {
+          queueDepth: 11,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+        } as never,
+        operations: {
+          workerHealthy: false,
+          progressState: "partial_stuck",
+          blockingReasons: [
+            {
+              code: "operations_worker_offline",
+              detail: "Meta sync operations are currently limited by worker_offline.",
+              repairable: false,
+            },
+          ],
+          repairableActions: [],
+          stallFingerprints: ["worker_unavailable"],
+        },
+      }),
+      "en"
+    );
+
+    expect(model?.stages.find((stage) => stage.key === "queue_worker")).toMatchObject({
+      state: "blocked",
+      label: "worker unavailable",
+      detail:
+        "No fresh Meta worker heartbeat or active lease is visible. Queued Meta work is not draining.",
+      evidence: "Worker offline • Queue 11",
+    });
+  });
+
   it("localizes the Meta card progress block in Turkish", () => {
     const model = resolveMetaIntegrationProgress(buildStatus(), "tr");
 

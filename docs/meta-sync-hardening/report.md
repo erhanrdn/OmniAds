@@ -1,123 +1,119 @@
 # 1. Phase
 
-P6: remediate Meta acceptance stall
+hotfix: remediate Meta worker liveness
 
-This phase did not find a repo-owned queue or Postgres bottleneck that explains the live acceptance stall. The live acceptance business remained stalled because the separately deployed Meta worker runtime was not visible at all for that business: no `sync_worker_heartbeats`, no active `sync_runner_leases`, no terminal drain, and no authoritative publish progress. The repo-owned fix in this phase is stronger business-specific worker truth, explicit `worker_unavailable` classification, and clearer operator remediation for the external worker-runtime failure mode.
+This incident did not uncover a new repo-owned scheduler or Postgres bug that explains the live stalled business. The live Meta business is still stalled because no Meta worker heartbeat or runner lease is visible at all. The repo-owned bug fixed here is narrower and important: the compact Meta card truth path was dropping worker-health context and could keep rendering generic queue waiting even when the backend already knew the condition was `worker_unavailable`.
 
 # 2. Files Reviewed
 
-- Docs and release context: `docs/meta-sync-hardening/report.md`, `docs/meta-sync-hardening/release-acceptance.md`, `docs/meta-sync-hardening/postgres-runbook.md`, `README.md`
-- Meta runtime and status truth: `lib/sync/meta-sync.ts`, `lib/sync/provider-status-truth.ts`, `lib/sync/provider-worker-adapters.ts`, `lib/sync/worker-runtime.ts`, `lib/sync/worker-health.ts`, `lib/meta/status-types.ts`, `lib/meta/status-operations.ts`, `app/api/meta/status/route.ts`, `components/meta/meta-sync-progress.tsx`
-- Admin health and diagnostics: `lib/admin-operations-health.ts`, `lib/admin-db-diagnostics.ts`, `app/api/admin/sync-health/route.ts`, `app/admin/sync-health/page.tsx`, `lib/db.ts`, `lib/startup-diagnostics.ts`
-- Operational scripts: `scripts/_operational-runtime.ts`, `scripts/sync-worker.ts`, `scripts/sync-worker-healthcheck.ts`, `scripts/meta-sync-readiness-snapshot.ts`, `scripts/meta-sync-drain-rate.ts`, `scripts/meta-sync-benchmark.ts`, `scripts/meta-sync-db-diagnostics.ts`, `scripts/meta-state-check.ts`, `scripts/meta-terminal-running-runs-report.ts`, `scripts/sync-hardening-acceptance.ts`
-- Supporting runtime and deploy topology: `Dockerfile`, `docker-compose.yml`, `docker-compose.dev.yml`, `.github/workflows/ci.yml`, `.github/workflows/deploy-hetzner.yml`
-- Tests read completely before edits: `lib/sync/meta-sync.test.ts`, `lib/sync/provider-status-truth.test.ts`, `lib/sync/provider-worker-adapters.test.ts`, `lib/admin-operations-health.test.ts`, `app/api/meta/status/route.test.ts`, `lib/sync/meta-sync-lease-epoch.test.ts`, `lib/sync/meta-sync-scheduled-work.test.ts`, `lib/meta-sync-benchmark.test.ts`, `lib/db.test.ts`, `lib/admin-db-diagnostics.test.ts`, `lib/sync/worker-health.test.ts`
+- Runtime and deploy path: `docker-compose.yml`, `.github/workflows/deploy-hetzner.yml`, `scripts/sync-worker-healthcheck.ts`, `lib/sync/worker-health.ts`, `lib/sync/worker-runtime.ts`, `scripts/sync-worker.ts`
+- Meta status truth and card path: `lib/sync/provider-status-truth.ts`, `app/api/meta/status/route.ts`, `lib/meta/status-types.ts`, `lib/meta/integration-summary.ts`, `lib/meta/integration-progress.ts`, `lib/meta/ui-status.ts`, `components/integrations/meta-integration-progress.tsx`
+- Admin/operator truth path: `lib/admin-operations-health.ts`, `app/api/admin/sync-health/route.ts`, `app/admin/sync-health/page.tsx`
+- Incident docs: `docs/meta-sync-hardening/report.md`, `docs/meta-sync-hardening/release-acceptance.md`
+- Exact search-path consumers reviewed for the incident terms: `app/api/meta/status/route.ts`, `lib/meta/integration-summary.ts`, `lib/meta/integration-progress.ts`, `lib/admin-operations-health.ts`, `app/admin/sync-health/page.tsx`, `lib/admin-db-diagnostics.ts`, `app/api/meta/status/route.test.ts`, `lib/meta/integration-summary.test.ts`, `lib/meta/integration-progress.test.ts`
 
-# 3. Recent Relevant Commits Reviewed
+# 3. Live Evidence
 
-- `a125606` `P5: benchmark Meta sync and close release readiness`
-- `0dd5fed` `fixup(P4): finalize report closure`
-- `1c1a462` `P4: harden self-hosted Postgres path`
-- `204ce94` `P3: harden Meta sync throughput`
-- `a6ff37e` `P2: add compact Meta UI summary contract`
-- `5f89deb` `feat: add Meta integration progress components and tests`
-- `071af76` `docs(meta): add comprehensive report on Meta sync architecture and improvement phases`
-- `f98fbcb` `fix(meta): resolve live sync bottleneck holding readiness near zero`
-- `c1d455f` `fix(ops): tighten live sync verification findings`
-- `dcfc4d1` `Optimize production logging and retention`
-- `a7210a4` `feat(dev): automate local postgres and incremental subset sync`
-- `73886da` `feat(dev): add local business subset sync`
+- Live access was available. The acceptance business from the current report remained `TheSwaf` (`172d0ab8-495b-4679-a4c6-ffa404c389d3`).
+- `node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope meta --online-window-minutes 5 --min-online-workers 1` at `2026-04-15T03:38Z` returned `pass=false`, `reason=insufficient_online_workers`, `onlineWorkers=0`, `workerInstances=0`, `lastHeartbeatAt=null`.
+- `npm run meta:readiness-snapshot -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --out /tmp/meta-readiness-hotfix.json` captured at `2026-04-15T03:38:59.535Z` showed:
+  - `progressState=partial_stuck`
+  - `activityState=stalled`
+  - `stallFingerprints=[historical_starvation, worker_unavailable, checkpoint_not_advancing]`
+  - `workerOnline=false`
+  - `workerLastHeartbeatAt=null`
+  - `dbConstraint=worker_unavailable`
+  - `queueDepth=11`
+  - `leasedPartitions=0`
+  - `lastSuccessfulPublishAt=null`
+  - user-facing recent core still at `14%`, ready-through still `2026-04-13`
+- `npm run meta:drain-rate -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --window-minutes 15 --out /tmp/meta-drain-hotfix.json` captured at `2026-04-15T03:38:59.549Z` showed `queueDepth=11`, `leasedPartitions=0`, `completedLastWindow=0`, `createdLastWindow=0`, `reclaimedLastWindow=0`, `netDrainEstimate=0`, `drainState=large_and_not_draining`.
+- `npm run meta:db:diagnostics -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --out /tmp/meta-db-hotfix.json` captured at `2026-04-15T03:38:59.437Z` showed no worker heartbeats, no active runner leases, no blocked locks, no long transactions, and only web-process DB activity.
+- `npm run meta:state-check -- 172d0ab8-495b-4679-a4c6-ffa404c389d3` captured at `2026-04-15T03:44:50.128Z` showed `queued=11`, `leased=0`, `published=0`, `repairBacklog=4`, `sourceManifestCounts.total=0`, and `d1FinalizeSla.breachedAccounts=2`.
+- `npm run meta:verify-day` and `npm run meta:verify-publish` for both breached accounts on `2026-04-13` re-confirmed `sourceManifestState=missing`, `verificationState=processing`, detector reason `authoritative_retry_pending`, `queued=1`, `leased=0`, `repairBacklog=1`, and guidance `refresh_state_then_reschedule`.
+- `npm run meta:benchmark -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --samples 4 --interval-seconds 300 --window-minutes 15 --out /tmp/meta-benchmark-hotfix.json` ran from `2026-04-15T03:43:51.415Z` to `2026-04-15T03:58:51.904Z` and finished with:
+  - `observedState=stalled`
+  - `progressObserved=false`
+  - `queueDepthDelta=0`
+  - `leasedPartitionsDelta=0`
+  - `terminalPartitionsDuringSample=0`
+  - `createdPartitionsDuringSample=0`
+  - `finalOperatorProgressState=partial_stuck`
+  - `finalOperatorActivityState=stalled`
+  - `finalDrainState=large_and_not_draining`
 
-# 4. Live Acceptance Evidence
+# 4. Root Cause
 
-- Live access was available in this Codex environment. The acceptance business from the existing report was `TheSwaf` (`172d0ab8-495b-4679-a4c6-ffa404c389d3`).
-- Pre-fix live readiness snapshot at `2026-04-15T03:01:02.674Z` showed `progressState=partial_stuck`, `activityState=stalled`, `queueDepth=11`, `leasedPartitions=0`, `workerOnline=false`, `workerLastHeartbeatAt=null`, `stallFingerprints=[historical_starvation, checkpoint_not_advancing]`, `dbBacklogState=stalled`, and no `lastSuccessfulPublishAt`.
-- Pre-fix drain-rate at `2026-04-15T03:01:02.685Z` showed `drainState=large_and_not_draining`, `completedLastWindow=0`, `createdLastWindow=0`, `reclaimedLastWindow=0`, and `netDrainEstimate=0`.
-- Pre-fix DB diagnostics at `2026-04-15T03:01:02.573Z` showed no active runner leases, no worker heartbeats, no blocked locks, no long transactions, and no worker DB diagnostics. The database did not present a blocking lock or saturation signature for the acceptance business.
-- Authoritative fallback checks showed the business was not blocked by dead letters or publication mismatch. `meta:state-check` and `meta:verify-day`/`meta:verify-publish` for both breached accounts on `2026-04-13` reported `sourceManifestState=missing`, `verificationState=processing`, detector reason `authoritative_retry_pending`, `repairBacklog=1` per account, and operator guidance `refresh_state_then_reschedule`.
-- Post-fix readiness snapshot at `2026-04-15T03:11:50.589Z` still showed the same live backlog, but now classified it more explicitly: `stallFingerprints=[historical_starvation, worker_unavailable, checkpoint_not_advancing]`, `workerOnline=false`, `workerLastHeartbeatAt=null`, and `dbConstraint=worker_unavailable`.
-- Post-fix drain-rate at `2026-04-15T03:11:50.604Z` was unchanged: `queueDepth=11`, `leasedPartitions=0`, `netDrainEstimate=0`, `drainState=large_and_not_draining`.
-- Post-fix state-check at `2026-04-15T03:12:02.990Z` still showed zero source manifests, zero publishes, `repairBacklog=4`, `d1FinalizeSla.breachedAccounts=2`, and no active partitions beyond queued work.
-- Post-fix benchmark series (`4` samples, `300` second interval) ran from `2026-04-15T03:12:03.056Z` to `2026-04-15T03:27:03.498Z` and finished with `observedState=stalled`, `progressObserved=false`, `queueDepthDelta=0`, `leasedPartitionsDelta=0`, `terminalPartitionsDuringSample=0`, `createdPartitionsDuringSample=0`, `finalOperatorProgressState=partial_stuck`, `finalOperatorActivityState=stalled`, and `finalDrainState=large_and_not_draining`.
+- Exact live blocker classification: `worker_unavailable`.
+- Evidence for that classification:
+  - no Meta worker heartbeat rows
+  - no active Meta runner leases
+  - queue backlog present
+  - no terminal progress over the maintained benchmark window
+  - no DB lock or long-transaction signature
+- Repo-owned cause fixed in this hotfix: `/api/meta/status` was computing worker-unavailable truth in `operations`, but the compact `integrationSummary` path dropped that worker-health context before building the Meta card stages. That let the card degrade to generic queue waiting instead of explicitly surfacing worker unavailability.
+- Remaining non-repo blocker after the fix: the separately deployed Meta worker runtime is still absent, down, or not publishing heartbeats into the current environment. From repo evidence alone this is an external worker/service/host failure, not a missing worker code path in the repository.
 
-# 5. Root Cause Classification
+# 5. Files Changed
 
-- Primary remaining blocker: external worker-runtime / host-operations failure. The live acceptance business has queued Meta work but no visible worker heartbeat and no active runner lease, so the business is not actually being worked.
-- Repo-owned truth gap fixed in this phase: business-specific worker classification previously allowed unrelated provider worker summary to leak into business-level truth, and the DB/benchmark path could stop at `unknown` instead of stating that the worker was unavailable.
-- Evidence against a repo-owned DB/index bottleneck: no blocked locks, no long-running transactions, no dead letters, no stale leases, no active runner leases, and no worker heartbeat diagnostics at all.
-- Evidence against a repo-owned “web-only deploy” bug: the repo already defines and deploys a dedicated worker image and service. The missing signal is not “the code forgot the worker runtime”; it is “the current host/runtime is not delivering a live worker for this business.”
+- `app/api/meta/status/route.ts`
+- `lib/meta/integration-summary.ts`
+- `lib/meta/integration-progress.ts`
+- `app/api/meta/status/route.test.ts`
+- `lib/meta/integration-summary.test.ts`
+- `lib/meta/integration-progress.test.ts`
+- `docs/meta-sync-hardening/report.md`
 
-# 6. Files Changed
+# 6. Runtime / Worker Findings
 
-- `lib/sync/worker-health.ts`: stopped falling back to unrelated workers for business matching and added business-specific worker observation helpers.
-- `lib/sync/worker-health.test.ts`: added regression coverage for the no-unrelated-worker fallback rule.
-- `lib/sync/provider-status-truth.ts`: added `worker_unavailable` as an existing stall-fingerprint extension.
-- `lib/sync/provider-status-truth.test.ts`: added fingerprint coverage for the worker-unavailable stall path.
-- `lib/admin-operations-health.ts`: threaded business-matched Meta worker truth into per-business health rows and sharpened queue-waiting-worker detail.
-- `lib/admin-operations-health.test.ts`: added coverage that a globally online but unrelated Meta worker does not make the stalled business look healthy.
-- `lib/admin-db-diagnostics.ts`: added `worker_unavailable` as an explicit primary constraint when stalled backlog has no matched worker heartbeat or lease.
-- `lib/admin-db-diagnostics.test.ts`: added coverage for the new `worker_unavailable` DB primary constraint.
-- `lib/meta-sync-benchmark.ts`: switched benchmark operator worker fields from global summary truth to business-specific worker truth.
-- `app/api/meta/status/route.ts`: passed worker health into stall-fingerprint derivation so the public Meta status contract can surface `worker_unavailable`.
-- `app/admin/sync-health/page.tsx`: exposed business-matched worker heartbeat/worker/stage details and the new `worker unavailable` signal on the admin surface.
-- `docs/meta-sync-hardening/release-acceptance.md`: codified `worker_unavailable` acceptance handling and the separate worker-runtime expectation.
-- `docs/meta-sync-hardening/postgres-runbook.md`: clarified that backlog with no worker heartbeat or lease is a worker-runtime availability issue before Postgres tuning.
+- `docker-compose.yml` already defines a separate `worker` service next to `web`, with `SYNC_WORKER_MODE=1`.
+- `.github/workflows/deploy-hetzner.yml` already pulls and recreates both `web` and `worker`, verifies exact SHA images, and waits for the worker healthcheck.
+- `scripts/sync-worker.ts` correctly boots `runDurableWorkerRuntime()` with the durable worker adapters.
+- `lib/sync/worker-runtime.ts` emits heartbeats through `heartbeatSyncWorker()` and acquires per-business runner leases through `acquireSyncRunnerLease()`.
+- `scripts/sync-worker-healthcheck.ts` correctly reports the current live worker absence. It is not a false-negative from stale classification; the DB currently shows zero Meta worker instances.
+- The incident evidence does not support `worker alive but blocked on DB / locks / connection pressure`. The live DB diagnostics showed no worker sessions, no blocked locks, and no long transactions.
 
-# 7. Runtime / Deploy Findings
+# 7. Operator Truth Changes
 
-- `Dockerfile` already defines both `web-runner` and `worker-runner` images. The worker path is repo-owned and distinct from the web path.
-- `docker-compose.yml` already defines a dedicated `worker` service alongside `web` and `migrate`, and the worker service runs with `SYNC_WORKER_MODE=1`.
-- The worker service healthcheck already uses `scripts/sync-worker-healthcheck.ts` to require live worker evidence.
-- `.github/workflows/ci.yml` already builds and publishes both web and worker images for runtime-affecting changes.
-- `.github/workflows/deploy-hetzner.yml` already pulls both exact-SHA images, recreates both services, verifies exact image SHAs, and waits for the worker healthcheck when available.
-- Conclusion: this phase did not find a repo-owned omission where the deployed runtime only starts the web process. The live no-heartbeat/no-lease state is consistent with the separate worker runtime being absent, failing, or not attached to the current host environment, not with the repo failing to define that runtime.
+- `/api/meta/status` now passes the full `operations` truth into the compact Meta integration summary instead of stripping worker-health fields.
+- `buildMetaIntegrationSummary()` now marks the queue stage as `blocked` when backlog exists with `workerHealthy=false` and `leasedPartitions=0`.
+- `resolveMetaIntegrationProgress()` now renders that queue stage as explicit worker unavailability, with detail text stating that no fresh heartbeat or active lease is visible and that queued work is not draining.
+- This stays within the existing status system. It does not invent synthetic progress or a second parallel truth model.
 
-# 8. Operator Truth Improvements
+# 8. Test Commands Run
 
-- Business-level worker truth is now matched to the business instead of falling back to the newest unrelated worker heartbeat row.
-- Stalled backlog with no matched worker heartbeat or lease now surfaces `worker_unavailable` as a stall fingerprint and as the DB diagnostics primary constraint.
-- `meta-sync-benchmark` now reports business-specific `workerOnline` and `workerLastHeartbeatAt`, so acceptance output no longer depends on provider-global worker summary.
-- `/admin/sync-health` now shows business-matched worker heartbeat time, worker id, and consume stage on the Meta business row, plus a `Worker unavailable` signal when the queue is stalled without a matched worker.
-- The release-acceptance and Postgres runbook docs now state plainly that Meta requires the separate worker runtime and that backlog plus no matched heartbeat/lease is a worker-service remediation path, not proof of hidden progress.
-
-# 9. Test Commands Run
-
-- `npx vitest run lib/sync/worker-health.test.ts`
-- `npx vitest run lib/sync/provider-status-truth.test.ts`
-- `npx vitest run lib/admin-db-diagnostics.test.ts`
-- `npx vitest run lib/admin-operations-health.test.ts`
-- `npx vitest run app/api/meta/status/route.test.ts`
-- `npx vitest run lib/sync/meta-sync.test.ts lib/sync/provider-worker-adapters.test.ts lib/sync/meta-sync-lease-epoch.test.ts lib/sync/meta-sync-scheduled-work.test.ts`
-- `npx vitest run lib/meta-sync-benchmark.test.ts lib/db.test.ts lib/admin-db-diagnostics.test.ts lib/admin-operations-health.test.ts lib/sync/provider-status-truth.test.ts lib/sync/worker-health.test.ts`
+- `npx vitest run lib/meta/integration-summary.test.ts lib/meta/integration-progress.test.ts app/api/meta/status/route.test.ts`
+- `npx vitest run lib/meta/integration-summary.test.ts lib/meta/integration-progress.test.ts app/api/meta/status/route.test.ts lib/admin-operations-health.test.ts lib/sync/provider-status-truth.test.ts`
 - `npx tsc --noEmit`
-- `npm run meta:readiness-snapshot -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --out /tmp/meta-readiness.json`
-- `npm run meta:drain-rate -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --window-minutes 15 --out /tmp/meta-drain.json`
-- `npm run meta:db:diagnostics -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --out /tmp/meta-db.json`
+- `node --import tsx scripts/sync-worker-healthcheck.ts --provider-scope meta --online-window-minutes 5 --min-online-workers 1`
+- `npm run meta:readiness-snapshot -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --out /tmp/meta-readiness-hotfix.json`
+- `npm run meta:drain-rate -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --window-minutes 15 --out /tmp/meta-drain-hotfix.json`
+- `npm run meta:db:diagnostics -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --out /tmp/meta-db-hotfix.json`
 - `npm run meta:state-check -- 172d0ab8-495b-4679-a4c6-ffa404c389d3`
 - `npm run meta:verify-day -- 172d0ab8-495b-4679-a4c6-ffa404c389d3 act_822913786458311 2026-04-13`
 - `npm run meta:verify-day -- 172d0ab8-495b-4679-a4c6-ffa404c389d3 act_921275999286619 2026-04-13`
 - `npm run meta:verify-publish -- 172d0ab8-495b-4679-a4c6-ffa404c389d3 act_822913786458311 2026-04-13`
 - `npm run meta:verify-publish -- 172d0ab8-495b-4679-a4c6-ffa404c389d3 act_921275999286619 2026-04-13`
-- `npm run meta:benchmark -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --samples 4 --interval-seconds 300 --window-minutes 15 --out /tmp/meta-benchmark.json`
+- `npm run meta:benchmark -- --business 172d0ab8-495b-4679-a4c6-ffa404c389d3 --samples 4 --interval-seconds 300 --window-minutes 15 --out /tmp/meta-benchmark-hotfix.json`
 
-# 10. Test Results
+# 9. Test Results
 
-- All touched-area and broader sync/admin test suites listed above passed.
+- All touched Meta route/card tests passed.
+- The broader related truth/status subset passed.
 - `npx tsc --noEmit` passed.
-- Live acceptance evidence was re-captured successfully in this environment.
-- The business remained stalled after the repo fix, but the patched outputs now classify the stall explicitly as worker unavailability rather than leaving the operator with only a generic non-draining backlog.
-- No repo-owned code path change in this phase drained the live backlog because the remaining blocker is outside the repo-owned scheduler logic and inside the external worker-runtime availability path.
+- Live evidence was re-captured successfully in this environment.
+- The business did not start draining. The maintained benchmark remained `stalled`.
+- The repo-owned result of this hotfix is explicit operator truth: the Meta queue/card path now reports worker unavailable/blocked for this condition instead of generic waiting.
 
-# 11. Remaining Risks
+# 10. Remaining Risks
 
-- The live acceptance business is still not market-ready. It remains stalled until the external worker runtime is restored and begins emitting heartbeats and leasing partitions.
-- The repo cannot heal a missing Hetzner worker service by itself. This phase improves proof and remediation guidance, not host orchestration outside the repository.
-- `pg_stat_statements` is still disabled in the live environment, which reduces DB forensics depth, though it is not the primary blocker in this incident.
-- If a future environment again runs only the web runtime or loses worker DB connectivity, the business will still stall; this phase makes that truth explicit, but it does not remove the need for host-level worker reliability.
+- The live business remains not market-ready until the external worker runtime is restored and starts publishing heartbeats and leasing work.
+- This hotfix improves truth only; it does not repair a missing or failing worker service outside the repo.
+- Because the production-like environment currently has zero Meta worker heartbeats, no code-only validation from this workspace can prove live drain without a host-level worker recovery.
 
-# 12. Recommended Next Steps
+# 11. Recommended Next Steps
 
-- Restore the deployed Meta worker runtime for the current environment first. Confirm the `worker` service/container is running the exact release SHA, passes `scripts/sync-worker-healthcheck.ts`, and writes fresh rows into `sync_worker_heartbeats`.
-- Once a live worker heartbeat is present, rerun the same maintained acceptance command set on `TheSwaf` and require the benchmark to move from `stalled` to `busy` or `ready` before making any market-facing claim.
-- If heartbeat returns but the business still shows `leasedPartitions=0`, use the new business-specific worker truth in `/admin/sync-health`, `meta:state-check`, `meta:verify-day`, and `meta:verify-publish` to distinguish lease denial from publish lag before changing queue state.
-- Treat Postgres tuning as secondary for this incident. Only move into `docs/meta-sync-hardening/postgres-runbook.md` knob changes after the worker runtime is visibly back and the primary constraint stops reading `worker_unavailable`.
+- Restore the deployed Meta `worker` service or worker host first. Confirm fresh rows appear in `sync_worker_heartbeats` for provider scope `meta`.
+- After worker heartbeat returns, rerun the exact maintained acceptance set for `TheSwaf` and require the benchmark to move from `stalled` to `busy` or `ready`.
+- If heartbeat returns but `leasedPartitions` still stay at zero, use the existing admin health and verify-day/verify-publish outputs to distinguish lease denial from authoritative publish lag before changing queue state.
+- Do not tune Postgres for this incident until the primary constraint stops reading `worker_unavailable`.
