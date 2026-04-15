@@ -1152,6 +1152,7 @@ function mapMetaAuthoritativeSliceVersionRow(row: {
   source_run_id: string | null;
   stage_started_at: string | null;
   stage_completed_at: string | null;
+  publish_started_at?: string | null;
   published_at: string | null;
   superseded_at: string | null;
   created_at: string;
@@ -1175,6 +1176,7 @@ function mapMetaAuthoritativeSliceVersionRow(row: {
     sourceRunId: row.source_run_id,
     stageStartedAt: row.stage_started_at,
     stageCompletedAt: row.stage_completed_at,
+    publishStartedAt: row.publish_started_at ?? null,
     publishedAt: row.published_at,
     supersededAt: row.superseded_at,
     createdAt: row.created_at,
@@ -1537,6 +1539,7 @@ async function getExistingMetaAuthoritativeSliceVersionForRun(input: {
     source_run_id: string | null;
     stage_started_at: string | null;
     stage_completed_at: string | null;
+    publish_started_at: string | null;
     published_at: string | null;
     superseded_at: string | null;
     created_at: string;
@@ -1588,6 +1591,7 @@ export async function createMetaAuthoritativeSliceVersion(
           source_run_id,
           stage_started_at,
           stage_completed_at,
+          publish_started_at,
           published_at,
           superseded_at,
           updated_at
@@ -1609,6 +1613,7 @@ export async function createMetaAuthoritativeSliceVersion(
           ${input.sourceRunId ?? null},
           ${input.stageStartedAt ?? null},
           ${input.stageCompletedAt ?? null},
+          ${input.publishStartedAt ?? null},
           ${input.publishedAt ?? null},
           ${input.supersededAt ?? null},
           now()
@@ -1632,6 +1637,7 @@ export async function createMetaAuthoritativeSliceVersion(
         source_run_id: string | null;
         stage_started_at: string | null;
         stage_completed_at: string | null;
+        publish_started_at: string | null;
         published_at: string | null;
         superseded_at: string | null;
         created_at: string;
@@ -1671,6 +1677,7 @@ export async function updateMetaAuthoritativeSliceVersion(input: {
   sourceRunId?: string | null;
   stageStartedAt?: string | null;
   stageCompletedAt?: string | null;
+  publishStartedAt?: string | null;
   publishedAt?: string | null;
   supersededAt?: string | null;
 }) {
@@ -1694,6 +1701,7 @@ export async function updateMetaAuthoritativeSliceVersion(input: {
       source_run_id = COALESCE(${input.sourceRunId ?? null}, source_run_id),
       stage_started_at = COALESCE(${input.stageStartedAt ?? null}, stage_started_at),
       stage_completed_at = COALESCE(${input.stageCompletedAt ?? null}, stage_completed_at),
+      publish_started_at = COALESCE(${input.publishStartedAt ?? null}, publish_started_at),
       published_at = COALESCE(${input.publishedAt ?? null}, published_at),
       superseded_at = COALESCE(${input.supersededAt ?? null}, superseded_at),
       updated_at = now()
@@ -1717,6 +1725,7 @@ export async function updateMetaAuthoritativeSliceVersion(input: {
     source_run_id: string | null;
     stage_started_at: string | null;
     stage_completed_at: string | null;
+    publish_started_at: string | null;
     published_at: string | null;
     superseded_at: string | null;
     created_at: string;
@@ -1760,6 +1769,7 @@ export async function getLatestMetaAuthoritativeSliceVersion(input: {
     source_run_id: string | null;
     stage_started_at: string | null;
     stage_completed_at: string | null;
+    publish_started_at: string | null;
     published_at: string | null;
     superseded_at: string | null;
     created_at: string;
@@ -1809,6 +1819,7 @@ export async function supersedeMetaAuthoritativeSliceVersions(input: {
     source_run_id: string | null;
     stage_started_at: string | null;
     stage_completed_at: string | null;
+    publish_started_at: string | null;
     published_at: string | null;
     superseded_at: string | null;
     created_at: string;
@@ -1825,6 +1836,7 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
   sliceVersionId: string;
   publishedByRunId?: string | null;
   publicationReason: string;
+  publishStartedAt?: string | null;
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
@@ -1859,6 +1871,7 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
           ELSE COALESCE(validation_status, 'pending')
         END,
         status = 'published',
+        publish_started_at = COALESCE(${input.publishStartedAt ?? null}, publish_started_at, now()),
         published_at = now(),
         updated_at = now()
       WHERE id = ${input.sliceVersionId}::uuid
@@ -1935,6 +1948,7 @@ export async function getMetaActivePublishedSliceVersion(input: {
       slice.source_run_id,
       slice.stage_started_at,
       slice.stage_completed_at,
+      slice.publish_started_at,
       slice.superseded_at,
       slice.created_at AS slice_created_at,
       slice.updated_at AS slice_updated_at
@@ -1970,6 +1984,7 @@ export async function getMetaActivePublishedSliceVersion(input: {
     source_run_id: string | null;
     stage_started_at: string | null;
     stage_completed_at: string | null;
+    publish_started_at: string | null;
     superseded_at: string | null;
     slice_created_at: string;
     slice_updated_at: string;
@@ -1995,6 +2010,7 @@ export async function getMetaActivePublishedSliceVersion(input: {
       source_run_id: rows[0].source_run_id,
       stage_started_at: rows[0].stage_started_at,
       stage_completed_at: rows[0].stage_completed_at,
+      publish_started_at: rows[0].publish_started_at,
       published_at: rows[0].published_at,
       superseded_at: rows[0].superseded_at,
       created_at: rows[0].slice_created_at,
@@ -2570,6 +2586,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
         pointer.provider_account_id,
         pointer.day,
         pointer.surface,
+        slice.publish_started_at,
         pointer.published_at,
         manifest.source_kind,
         manifest.fetch_status AS manifest_fetch_status,
@@ -2605,6 +2622,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
       provider_account_id: string;
       day: string;
       surface: MetaWarehouseScope;
+      publish_started_at: string | null;
       published_at: string | null;
       source_kind: string | null;
       manifest_fetch_status: string | null;
@@ -2836,6 +2854,7 @@ export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
           providerAccountId: row.provider_account_id,
           day: normalizedDay,
           surface: row.surface,
+          publishStartedAt: normalizeTimestamp(row.publish_started_at),
           publishedAt: normalizeTimestamp(row.published_at),
           verificationState:
             row.verification_state === "failed" ||
@@ -3065,6 +3084,7 @@ export async function getMetaAuthoritativeDayVerification(input: {
       source_run_id: string | null;
       stage_started_at: string | null;
       stage_completed_at: string | null;
+      publish_started_at: string | null;
       published_at: string | null;
       superseded_at: string | null;
       created_at: string;
@@ -3198,6 +3218,7 @@ export async function getMetaAuthoritativeDayVerification(input: {
     validationState: verification.verificationState,
     activePublication: accountPublication
       ? {
+          publishStartedAt: accountPublication.sliceVersion.publishStartedAt ?? null,
           publishedAt: accountPublication.publication.publishedAt ?? null,
           publicationReason: accountPublication.publication.publicationReason ?? null,
           activeSliceVersionId: accountPublication.publication.activeSliceVersionId ?? null,

@@ -2587,6 +2587,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         sliceVersionId: accountSliceVersion.id,
         publishedByRunId: sourceRunId,
         publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
+        publishStartedAt,
       });
     }
     if (campaignSliceVersion?.id) {
@@ -2598,6 +2599,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         sliceVersionId: campaignSliceVersion.id,
         publishedByRunId: sourceRunId,
         publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
+        publishStartedAt,
       });
     }
     if (adsetSliceVersion?.id) {
@@ -2609,6 +2611,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         sliceVersionId: adsetSliceVersion.id,
         publishedByRunId: sourceRunId,
         publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
+        publishStartedAt,
       });
     }
     if (adSliceVersion?.id) {
@@ -2620,6 +2623,7 @@ export async function syncMetaAccountCoreWarehouseDay(input: {
         sliceVersionId: adSliceVersion.id,
         publishedByRunId: sourceRunId,
         publicationReason: input.freshStart ? "authoritative_refresh" : "authoritative_finalize",
+        publishStartedAt,
       });
     }
     const publishedSurfaceCount = [
@@ -3404,6 +3408,7 @@ export async function publishMetaBreakdownAuthoritativeSurface(input: {
       sliceVersionId: breakdownSliceVersion.id,
       publishedByRunId: sourceRunId,
       publicationReason: "authoritative_finalize",
+      publishStartedAt: publishTimingStartedAt,
     });
   }
   await upsertOwnedMetaPhaseTimingOrThrow({

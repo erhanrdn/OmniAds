@@ -2072,10 +2072,16 @@ describe("meta warehouse ownership safety", () => {
       sliceVersionId: "slice-4",
       publishedByRunId: "run-4",
       publicationReason: "manual_refresh",
+      publishStartedAt: "2026-04-06T00:02:30.000Z",
     });
 
     expect(publication?.activeSliceVersionId).toBe("slice-4");
     expect(templateCalls.some((query) => query.includes("UPDATE meta_authoritative_slice_versions"))).toBe(true);
+    expect(
+      templateCalls.some((query) =>
+        query.includes("publish_started_at = COALESCE"),
+      ),
+    ).toBe(true);
     expect(
       templateCalls.some((query) =>
         query.includes("INSERT INTO meta_authoritative_publication_pointers"),
@@ -2281,6 +2287,7 @@ describe("meta warehouse ownership safety", () => {
         source_run_id: "run-9",
         stage_started_at: "2026-04-06T00:01:00.000Z",
         stage_completed_at: "2026-04-06T00:02:00.000Z",
+        publish_started_at: "2026-04-06T00:02:50.000Z",
         superseded_at: null,
         slice_created_at: "2026-04-06T00:01:00.000Z",
         slice_updated_at: "2026-04-06T00:03:00.000Z",
@@ -2298,6 +2305,7 @@ describe("meta warehouse ownership safety", () => {
     expect(result?.publication.activeSliceVersionId).toBe("slice-9");
     expect(result?.sliceVersion.status).toBe("published");
     expect(result?.sliceVersion.candidateVersion).toBe(9);
+    expect(result?.sliceVersion.publishStartedAt).toBe("2026-04-06T00:02:50.000Z");
   });
 
   it("supersedes older candidate versions for the same publication key", async () => {

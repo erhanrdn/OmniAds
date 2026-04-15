@@ -1757,12 +1757,15 @@ export async function runMigrations(options?: {
           source_run_id           TEXT,
           stage_started_at        TIMESTAMPTZ,
           stage_completed_at      TIMESTAMPTZ,
+          publish_started_at      TIMESTAMPTZ,
           published_at            TIMESTAMPTZ,
           superseded_at           TIMESTAMPTZ,
           created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, day, surface, candidate_version)
         )`.catch(() => {}),
+        sql`ALTER TABLE IF EXISTS meta_authoritative_slice_versions
+          ADD COLUMN IF NOT EXISTS publish_started_at TIMESTAMPTZ`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_slice_versions_lookup
           ON meta_authoritative_slice_versions (business_id, provider_account_id, day DESC, surface, candidate_version DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_authoritative_slice_versions_manifest

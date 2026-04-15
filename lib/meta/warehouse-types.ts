@@ -357,6 +357,7 @@ export interface MetaAuthoritativeSliceVersionRecord {
   sourceRunId?: string | null;
   stageStartedAt?: string | null;
   stageCompletedAt?: string | null;
+  publishStartedAt?: string | null;
   publishedAt?: string | null;
   supersededAt?: string | null;
   createdAt?: string;
@@ -657,6 +658,7 @@ export interface MetaAuthoritativeLatestPublishRecord {
   providerAccountId: string;
   day: string;
   surface: MetaWarehouseScope;
+  publishStartedAt?: string | null;
   publishedAt: string | null;
   verificationState: MetaHistoricalVerificationState;
   sourceKind: string | null;
@@ -724,6 +726,7 @@ export interface MetaAuthoritativeDayVerification {
   sourceManifestState: MetaAuthoritativeSourceManifestStatus | "missing";
   validationState: MetaHistoricalVerificationState;
   activePublication: {
+    publishStartedAt?: string | null;
     publishedAt: string | null;
     publicationReason: string | null;
     activeSliceVersionId: string | null;
