@@ -232,6 +232,10 @@ jobs:
                 python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
               }
 
+              current_utc_iso() {
+                date -u +%Y-%m-%dT%H:%M:%SZ
+              }
+
               check_optional_health() {
                 service_name="$1"
                 max_attempts="${2:-40}"
@@ -261,6 +265,37 @@ jobs:
 
                 docker inspect "${container_id}" --format '{{json .State.Health}}' || true
                 docker logs --tail=120 "${container_id}" || true
+                return 1
+              }
+
+              verify_worker_fresh_heartbeat_after() {
+                min_heartbeat_after="$1"
+                max_attempts="${2:-12}"
+                sleep_seconds="${3:-5}"
+                attempt=1
+
+                while [ "$attempt" -le "${max_attempts}" ]; do
+                  echo "worker_fresh_heartbeat_check min_after=${min_heartbeat_after} attempt=${attempt}/${max_attempts}"
+                  if docker compose exec -T worker \
+                    node --import tsx scripts/sync-worker-healthcheck.ts \
+                      --provider-scope meta \
+                      --online-window-minutes 5 \
+                      --min-online-workers 1 \
+                      --min-heartbeat-after "${min_heartbeat_after}"; then
+                    return 0
+                  fi
+
+                  sleep "${sleep_seconds}"
+                  attempt=$((attempt + 1))
+                done
+
+                docker compose ps worker || true
+                worker_container_id="$(docker compose ps -q worker || true)"
+                if [ -n "${worker_container_id}" ]; then
+                  docker inspect "${worker_container_id}" --format '{{json .State.Health}}' || true
+                  docker logs --tail=120 "${worker_container_id}" || true
+                fi
+
                 return 1
               }
 
@@ -337,6 +372,10 @@ jobs:
               log "Checking optional container health"
               check_optional_health web 20
               check_optional_health worker 40
+
+              worker_healthy_at="$(current_utc_iso)"
+              log "Verifying fresh Meta heartbeat after worker health"
+              verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 12 5
               trap - ERR
           EOF
           }
