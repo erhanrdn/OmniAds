@@ -547,6 +547,86 @@ jobs:
             return 1
           }
 
+          require_public_control_plane_match() {
+            public_control_plane_matches "https://adsecute.com/api/build-info" 12 5
+            public_control_plane_matches "https://www.adsecute.com/api/build-info" 12 5
+          }
+
+          remediate_primary_public_control_plane() {
+            target_host="$1"
+
+            echo "Attempting control-plane remediation on ${target_host}"
+
+            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+              "DEPLOY_SHA='${DEPLOY_SHA}' BREAK_GLASS='${BREAK_GLASS}' OVERRIDE_REASON='${OVERRIDE_REASON}' bash -seuo pipefail" <<'EOF'
+              cd /var/www/adsecute
+
+              cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || "")')"
+              if [ -z "${cron_secret}" ]; then
+                echo "CRON_SECRET is missing from the web runtime."
+                exit 1
+              fi
+
+              query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1"
+              if [ "${BREAK_GLASS}" = "true" ]; then
+                encoded_override_reason="$(
+                  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
+                )"
+                query_string="${query_string}&breakGlass=1&overrideReason=${encoded_override_reason}"
+              fi
+
+              attempts=6
+              delay_seconds=5
+
+              for attempt in $(seq 1 "${attempts}"); do
+                response_file="$(mktemp)"
+                http_status="$(
+                  curl -sS -o "${response_file}" -w '%{http_code}' -X POST \
+                    "http://127.0.0.1:3000/api/sync/cron?${query_string}" \
+                    -H "Authorization: Bearer ${cron_secret}"
+                )"
+                response_json="$(cat "${response_file}")"
+                rm -f "${response_file}"
+                printf '%s\n' "${response_json}"
+
+                route_status=0
+                RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 -c 'import json, os, sys; status=int(os.environ["HTTP_STATUS"]); payload=json.loads(os.environ["RESPONSE_JSON"] or "{}"); sys.exit(10 if status not in (200, 503) else 20 if status == 503 else 30 if payload.get("ok") is not True else 0)' || route_status=$?
+                if [ "${route_status}" -ne 0 ]; then
+                  case "${route_status}" in
+                    10)
+                      echo "controlPlaneOnly route returned unexpected HTTP status ${http_status}"
+                      ;;
+                    20)
+                      echo "controlPlaneOnly route blocked deploy via enforced deployGate"
+                      ;;
+                    30)
+                      echo "controlPlaneOnly route returned ok=false"
+                      ;;
+                    *)
+                      echo "controlPlaneOnly route validation failed"
+                      ;;
+                  esac
+                  exit 1
+                fi
+
+                if docker compose exec -T -e NODE_ENV=production web \
+                  node --import tsx scripts/sync-control-plane-verify.ts \
+                    --build-id "${DEPLOY_SHA}" \
+                    --environment production \
+                    --provider-scope meta
+                then
+                  exit 0
+                fi
+
+                if [ "${attempt}" -lt "${attempts}" ]; then
+                  sleep "${delay_seconds}"
+                fi
+              done
+
+              exit 1
+          EOF
+          }
+
           require_public_build_match() {
             public_build_matches "https://adsecute.com/api/build-info" 12 5
             public_build_matches "https://www.adsecute.com/api/build-info" 12 5
@@ -606,6 +686,18 @@ jobs:
 
             deploy_target "${PUBLIC_DEPLOY_HOST_IP}" "public_fallback"
             require_public_build_match
+          fi
+
+          if ! require_public_control_plane_match; then
+            echo "Public control-plane rows are missing for ${DEPLOY_SHA} after deploy."
+
+            if [ -z "${PRIMARY_DEPLOY_HOST}" ]; then
+              echo "Unable to resolve primary deploy host for control-plane remediation."
+              exit 1
+            fi
+
+            remediate_primary_public_control_plane "${PRIMARY_DEPLOY_HOST}"
+            require_public_control_plane_match
           fi
 
       - name: Setup Node for release verifier
