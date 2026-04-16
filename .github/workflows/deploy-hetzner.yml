@@ -339,6 +339,29 @@ jobs:
                 return 1
               }
 
+              verify_local_release_gate() {
+                attempt=1
+                max_attempts=6
+                sleep_seconds=5
+
+                while [ "${attempt}" -le "${max_attempts}" ]; do
+                  if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)" &&
+                    BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; release_gate=payload.get("releaseGate") or {}; raise SystemExit(0 if ((payload.get("buildId") or "") == expected and release_gate.get("id")) else 1)'
+                  then
+                    echo "local_release_gate_ready=yes attempt=${attempt}/${max_attempts}"
+                    return 0
+                  fi
+
+                  echo "local_release_gate_ready=no attempt=${attempt}/${max_attempts}"
+                  attempt=$((attempt + 1))
+                  if [ "${attempt}" -le "${max_attempts}" ]; then
+                    sleep "${sleep_seconds}"
+                  fi
+                done
+
+                return 1
+              }
+
               persist_sync_control_plane_via_worker() {
                 gate_args=(
                   --build-id "${DEPLOY_SHA}"
@@ -350,7 +373,29 @@ jobs:
 
                 docker compose exec -T -e NODE_ENV=production worker \
                   node --import tsx scripts/sync-gate-evaluate.ts \
+                    --gate deploy_gate \
                     "${gate_args[@]}"
+
+                release_attempt=1
+                release_attempts=6
+                release_delay_seconds=5
+                while [ "${release_attempt}" -le "${release_attempts}" ]; do
+                  docker compose exec -T -e NODE_ENV=production worker \
+                    node --import tsx scripts/sync-gate-evaluate.ts \
+                      --gate release_gate \
+                      "${gate_args[@]}"
+
+                  if verify_local_release_gate; then
+                    break
+                  fi
+
+                  if [ "${release_attempt}" -eq "${release_attempts}" ]; then
+                    return 1
+                  fi
+
+                  release_attempt=$((release_attempt + 1))
+                  sleep "${release_delay_seconds}"
+                done
 
                 docker compose exec -T -e NODE_ENV=production worker \
                   node --import tsx scripts/sync-repair-plan-evaluate.ts \
