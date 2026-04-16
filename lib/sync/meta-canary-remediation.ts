@@ -50,13 +50,15 @@ const META_REMEDIATION_LOCK = {
 const DEFAULT_POLL_ATTEMPTS = 6;
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_LOCK_MINUTES = 10;
-const DEFAULT_ACTION_TIMEOUT_MS = 20 * 60_000;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 const DEFAULT_CONSUME_LEASE_MINUTES = 10;
 const DEFAULT_CONSUME_MAX_PASSES = 80;
 const DEFAULT_CONSUME_MAX_DELAY_MS = 2_000;
-const DEFAULT_CONSUME_MAX_DURATION_MS = 15 * 60_000;
+const DEFAULT_CONSUME_BASE_DURATION_MS = 10 * 60_000;
+const DEFAULT_CONSUME_EXTRA_DURATION_PER_ACCOUNT_MS = 5 * 60_000;
+const DEFAULT_CONSUME_MAX_DURATION_CAP_MS = 30 * 60_000;
+const DEFAULT_ACTION_TIMEOUT_BUFFER_MS = 5 * 60_000;
 
 type CanaryEvidence = {
   businessId: string;
@@ -138,6 +140,21 @@ function getPassingReleaseCanaryBusinessIds(releaseGate: SyncGateRecord) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getMetaRemediationBudget(businessId: string) {
+  const assignments = await getProviderAccountAssignments(businessId, "meta").catch(() => null);
+  const providerAccountCount = Math.max(1, assignments?.account_ids?.length ?? 0);
+  const consumeDurationMs = Math.min(
+    DEFAULT_CONSUME_MAX_DURATION_CAP_MS,
+    DEFAULT_CONSUME_BASE_DURATION_MS +
+      (providerAccountCount - 1) * DEFAULT_CONSUME_EXTRA_DURATION_PER_ACCOUNT_MS,
+  );
+  return {
+    providerAccountCount,
+    consumeDurationMs,
+    actionTimeoutMs: consumeDurationMs + DEFAULT_ACTION_TIMEOUT_BUFFER_MS,
+  };
 }
 
 function enumerateIsoDays(startDate: string, endDate: string) {
@@ -629,6 +646,7 @@ async function executeRecommendation(input: {
   businessId: string;
   recommendation: SyncRepairRecommendation;
   workflowRunId?: string | null;
+  budget: Awaited<ReturnType<typeof getMetaRemediationBudget>>;
 }) {
   const consumeQueuedWork = async () => {
     const workerId = buildRemediationConsumeWorkerId({
@@ -682,7 +700,7 @@ async function executeRecommendation(input: {
         pass <= DEFAULT_CONSUME_MAX_PASSES &&
         consumeResult.hasPendingWork &&
         consumeResult.hasForwardProgress &&
-        Date.now() - consumeStartedAt < DEFAULT_CONSUME_MAX_DURATION_MS;
+        Date.now() - consumeStartedAt < input.budget.consumeDurationMs;
         pass += 1
       ) {
         const delayMs = Math.max(
@@ -695,7 +713,7 @@ async function executeRecommendation(input: {
         if (delayMs > 0) {
           await sleep(delayMs);
         }
-        if (Date.now() - consumeStartedAt >= DEFAULT_CONSUME_MAX_DURATION_MS) {
+        if (Date.now() - consumeStartedAt >= input.budget.consumeDurationMs) {
           break;
         }
         consumeResult = await consumeMetaQueuedWork(input.businessId, {
@@ -710,6 +728,7 @@ async function executeRecommendation(input: {
       return {
         leaseAcquired: true,
         workerId,
+        budget: input.budget,
         durationMs: Date.now() - consumeStartedAt,
         consumeBudgetExhausted:
           consumeResult.hasPendingWork &&
@@ -718,7 +737,7 @@ async function executeRecommendation(input: {
         consumeDurationExhausted:
           consumeResult.hasPendingWork &&
           consumeResult.hasForwardProgress &&
-          Date.now() - consumeStartedAt >= DEFAULT_CONSUME_MAX_DURATION_MS,
+          Date.now() - consumeStartedAt >= input.budget.consumeDurationMs,
         passCount: passResults.length,
         passResults,
         consumeResult: toSafeJson(consumeResult),
@@ -1000,13 +1019,15 @@ export async function runMetaCanaryRemediation(input: {
           recommendedAction: recommendation.recommendedAction,
         }),
       );
+      const actionBudget = await getMetaRemediationBudget(recommendation.businessId);
       const action = await withTimeout(
         executeRecommendation({
           businessId: recommendation.businessId,
           recommendation,
           workflowRunId: input.workflowRunId ?? null,
+          budget: actionBudget,
         }),
-        DEFAULT_ACTION_TIMEOUT_MS,
+        actionBudget.actionTimeoutMs,
         `remediation action for ${recommendation.businessId}`,
       );
       console.log(
