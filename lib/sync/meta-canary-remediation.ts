@@ -42,8 +42,6 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_LOCK_MINUTES = 10;
 const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
-const DEFAULT_AFTER_EVIDENCE_TIMEOUT_MS =
-  DEFAULT_POLL_ATTEMPTS * DEFAULT_POLL_INTERVAL_MS + 30_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 
 type CanaryEvidence = {
@@ -193,6 +191,20 @@ function hasWorsened(before: CanaryEvidence, after: CanaryEvidence) {
     after.d1FinalizeNonTerminalCount > before.d1FinalizeNonTerminalCount ||
     after.recentSelectedRangePercent < before.recentSelectedRangePercent ||
     after.priorityWindowPercent < before.priorityWindowPercent
+  );
+}
+
+function hasMeaningfulAfterEvidenceChange(before: CanaryEvidence, after: CanaryEvidence) {
+  return (
+    after.releasePass ||
+    hasImproved(before, after) ||
+    hasWorsened(before, after) ||
+    after.activityState !== before.activityState ||
+    after.progressState !== before.progressState ||
+    after.blockerClass !== before.blockerClass ||
+    after.workerOnline !== before.workerOnline ||
+    after.recentTruthState !== before.recentTruthState ||
+    after.priorityTruthState !== before.priorityTruthState
   );
 }
 
@@ -456,12 +468,20 @@ export function mapRepairRecommendationToExecutionAction(
 
 async function pollAfterEvidence(input: {
   businessId: string;
+  beforeEvidence: CanaryEvidence;
   attempts: number;
   intervalMs: number;
   lockOwner: string;
 }) {
-  let latest = await collectBusinessEvidence(input.businessId);
+  let latest = await withTimeout(
+    collectBusinessEvidence(input.businessId),
+    DEFAULT_EVIDENCE_TIMEOUT_MS,
+    `after evidence snapshot for ${input.businessId}`,
+  );
   for (let attempt = 1; attempt < input.attempts; attempt += 1) {
+    if (hasMeaningfulAfterEvidenceChange(input.beforeEvidence, latest.evidence)) {
+      return latest;
+    }
     await sleep(input.intervalMs);
     await renewProviderJobLock({
       businessId: input.businessId,
@@ -469,10 +489,11 @@ async function pollAfterEvidence(input: {
       lockMinutes: DEFAULT_LOCK_MINUTES,
       ...META_REMEDIATION_LOCK,
     }).catch(() => false);
-    latest = await collectBusinessEvidence(input.businessId);
-    if (latest.evidence.releasePass) {
-      break;
-    }
+    latest = await withTimeout(
+      collectBusinessEvidence(input.businessId),
+      DEFAULT_EVIDENCE_TIMEOUT_MS,
+      `after evidence snapshot for ${input.businessId}`,
+    );
   }
   return latest;
 }
@@ -626,18 +647,15 @@ export async function runMetaCanaryRemediation(input: {
           executedAction: action.executedAction,
         }),
       );
-      const after = await withTimeout(
-        pollAfterEvidence({
-          businessId: recommendation.businessId,
-          attempts: DEFAULT_POLL_ATTEMPTS,
-          intervalMs: DEFAULT_POLL_INTERVAL_MS,
-          lockOwner,
-        }),
-        DEFAULT_AFTER_EVIDENCE_TIMEOUT_MS,
-        `after evidence for ${recommendation.businessId}`,
-      );
+      const after = await pollAfterEvidence({
+        businessId: recommendation.businessId,
+        beforeEvidence: before.evidence,
+        attempts: DEFAULT_POLL_ATTEMPTS,
+        intervalMs: DEFAULT_POLL_INTERVAL_MS,
+        lockOwner,
+      });
       const diagnostics =
-        after.evidence.releasePass || (after.evidence.activityState !== "blocked" && after.evidence.progressState !== "blocked")
+        after.evidence.releasePass
           ? null
           : await withTimeout(
               collectAuthoritativeDiagnostics(recommendation.businessId),

@@ -492,6 +492,66 @@ describe("meta canary remediation", () => {
     expect(result.outcomeCounts.no_change).toBe(1);
   });
 
+  it("does not turn slow after-evidence polling into manual follow-up when the audit chain is otherwise intact", async () => {
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(makeSnapshot()), 45_000);
+        }) as never,
+    );
+    vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "meta",
+      latestStartedAt: "2026-04-15T12:00:00.000Z",
+      latestFinishedAt: "2026-04-15T12:08:00.000Z",
+      improvedAny: false,
+      businessCount: 1,
+      counts: {
+        cleared: 0,
+        improving_not_cleared: 0,
+        no_change: 1,
+        worse: 0,
+        manual_follow_up_required: 0,
+        locked: 0,
+      },
+    });
+    vi.mocked(remediationExecutions.updateSyncRepairExecution).mockImplementation(async (id, input) => {
+      const current = executionStore.get(id) ?? (makeExecution() as Record<string, unknown>);
+      const next = makeExecution({
+        ...current,
+        ...input,
+        outcomeClassification: input.outcomeClassification ?? "no_change",
+        expectedOutcomeMet: input.expectedOutcomeMet ?? false,
+        actionResult: input.actionResult ?? current.actionResult ?? { ok: true },
+        afterEvidence: input.afterEvidence ?? current.afterEvidence ?? { queueDepth: 4 },
+        finishedAt:
+          input.finishedAt === undefined
+            ? (current.finishedAt as string | null | undefined) ?? "2026-04-15T12:08:00.000Z"
+            : input.finishedAt,
+      }) as Record<string, unknown> & { id: string };
+      executionStore.set(id, next);
+      return next as never;
+    });
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      successMode: "proof",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    const result = await runPromise;
+
+    expect(result.executions[0]?.outcomeClassification).toBe("no_change");
+    expect(result.proofPassed).toBe(true);
+    expect(result.clearancePassed).toBe(false);
+    expect(result.outcomeCounts.manual_follow_up_required).toBe(0);
+    expect(result.outcomeCounts.no_change).toBe(1);
+  });
+
   it("times out long-running repair actions and records manual follow-up instead of hanging forever", async () => {
     vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue(makeSnapshot());
     vi.mocked(repairEngine.runMetaRepairCycle).mockImplementation(
