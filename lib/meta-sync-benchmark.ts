@@ -237,6 +237,32 @@ function shiftIsoDate(date: string, deltaDays: number) {
   return next.toISOString().slice(0, 10);
 }
 
+export function resolveMetaBenchmarkTruthWindows(input: {
+  capturedAt: string;
+  currentDayReference?: string | null;
+  recentDays: number;
+  priorityWindowDays: number;
+}) {
+  const recentDays = clampPositiveInteger(input.recentDays, 14);
+  const priorityWindowDays = clampPositiveInteger(input.priorityWindowDays, 3);
+  const liveReferenceDate =
+    toIsoDate(input.currentDayReference) ?? toIsoDate(input.capturedAt) ?? new Date().toISOString().slice(0, 10);
+  // Release acceptance must be based on the last completed recent window, not the live current day.
+  const recentEndDate = shiftIsoDate(liveReferenceDate, -1);
+  const recentStartDate = shiftIsoDate(recentEndDate, -(recentDays - 1));
+  const priorityEndDate = recentEndDate;
+  const priorityStartDate = shiftIsoDate(priorityEndDate, -(priorityWindowDays - 1));
+
+  return {
+    recentDays,
+    priorityWindowDays,
+    recentEndDate,
+    recentStartDate,
+    priorityEndDate,
+    priorityStartDate,
+  };
+}
+
 function compareIsoDate(left: string | null, right: string | null) {
   if (!left && !right) return 0;
   if (!left) return -1;
@@ -617,8 +643,6 @@ export function summarizeMetaSyncBenchmarkSeries(
 export async function collectMetaSyncReadinessSnapshot(
   input: BenchmarkCollectionArgs,
 ): Promise<MetaSyncBenchmarkSnapshot> {
-  const recentDays = clampPositiveInteger(input.recentDays, 14);
-  const priorityWindowDays = clampPositiveInteger(input.priorityWindowDays, 3);
   const recentWindowMinutes = clampPositiveInteger(input.recentWindowMinutes, 15);
   const capturedAt = new Date().toISOString();
   const admin = await getAdminOperationsHealth();
@@ -631,14 +655,19 @@ export async function collectMetaSyncReadinessSnapshot(
     );
   }
 
-  const recentEndDate =
-    metaBusiness.currentDayReference ?? capturedAt.slice(0, 10);
-  const recentStartDate = shiftIsoDate(recentEndDate, -(recentDays - 1));
-  const priorityEndDate = recentEndDate;
-  const priorityStartDate = shiftIsoDate(
+  const {
+    recentDays,
+    priorityWindowDays,
+    recentEndDate,
+    recentStartDate,
     priorityEndDate,
-    -(priorityWindowDays - 1),
-  );
+    priorityStartDate,
+  } = resolveMetaBenchmarkTruthWindows({
+    capturedAt,
+    currentDayReference: metaBusiness.currentDayReference,
+    recentDays: input.recentDays,
+    priorityWindowDays: input.priorityWindowDays,
+  });
   const recentTotalDays = dayCountInclusive(recentStartDate, recentEndDate);
   const priorityTotalDays = dayCountInclusive(priorityStartDate, priorityEndDate);
   const sql = getDbWithTimeout(60_000);

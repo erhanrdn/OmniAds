@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMetaCoverageSummary,
   classifyMetaDrainState,
+  resolveMetaBenchmarkTruthWindows,
   summarizeMetaSyncBenchmarkSeries,
   type MetaSyncBenchmarkSnapshot,
 } from "@/lib/meta-sync-benchmark";
@@ -223,6 +224,40 @@ describe("classifyMetaDrainState", () => {
         windowMinutes: 15,
       }),
     ).toBe("large_and_not_draining");
+  });
+});
+
+describe("resolveMetaBenchmarkTruthWindows", () => {
+  it("bases recent truth windows on the last completed day when current-day reference is present", () => {
+    expect(
+      resolveMetaBenchmarkTruthWindows({
+        capturedAt: "2026-04-16T00:15:00.000Z",
+        currentDayReference: "2026-04-15",
+        recentDays: 14,
+        priorityWindowDays: 3,
+      }),
+    ).toMatchObject({
+      recentEndDate: "2026-04-14",
+      recentStartDate: "2026-04-01",
+      priorityEndDate: "2026-04-14",
+      priorityStartDate: "2026-04-12",
+    });
+  });
+
+  it("falls back to captured day and still excludes the live current day", () => {
+    expect(
+      resolveMetaBenchmarkTruthWindows({
+        capturedAt: "2026-04-16T09:00:00.000Z",
+        currentDayReference: null,
+        recentDays: 7,
+        priorityWindowDays: 2,
+      }),
+    ).toMatchObject({
+      recentEndDate: "2026-04-15",
+      recentStartDate: "2026-04-09",
+      priorityEndDate: "2026-04-15",
+      priorityStartDate: "2026-04-14",
+    });
   });
 });
 
