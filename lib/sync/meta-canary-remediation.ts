@@ -52,13 +52,15 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_LOCK_MINUTES = 10;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
-const DEFAULT_CONSUME_LEASE_MINUTES = 10;
-const DEFAULT_CONSUME_BASE_MAX_PASSES = 80;
-const DEFAULT_CONSUME_MAX_DELAY_MS = 2_000;
-const DEFAULT_CONSUME_BASE_DURATION_MS = 10 * 60_000;
-const DEFAULT_CONSUME_EXTRA_DURATION_PER_ACCOUNT_MS = 5 * 60_000;
-const DEFAULT_CONSUME_MAX_DURATION_CAP_MS = 30 * 60_000;
-const DEFAULT_ACTION_TIMEOUT_BUFFER_MS = 5 * 60_000;
+const META_REMEDIATION_BUDGET_POLICY = {
+  consumeLeaseMinutes: 10,
+  consumeBaseMaxPasses: 80,
+  consumeMaxDelayMs: 2_000,
+  consumeBaseDurationMs: 10 * 60_000,
+  consumeExtraDurationPerAccountMs: 5 * 60_000,
+  consumeMaxDurationMs: 30 * 60_000,
+  actionTimeoutBufferMs: 5 * 60_000,
+} as const;
 
 type CanaryEvidence = {
   businessId: string;
@@ -112,6 +114,13 @@ export interface MetaCanaryRemediationResult {
   clearancePassed: boolean;
 }
 
+export interface MetaRemediationBudget {
+  providerAccountCount: number;
+  consumeMaxPasses: number;
+  consumeDurationMs: number;
+  actionTimeoutMs: number;
+}
+
 function parseCsv(value: string | null | undefined) {
   if (!value) return [];
   return Array.from(
@@ -144,20 +153,24 @@ function sleep(ms: number) {
 
 async function getMetaRemediationBudget(businessId: string) {
   const assignments = await getProviderAccountAssignments(businessId, "meta").catch(() => null);
-  const providerAccountCount = Math.max(1, assignments?.account_ids?.length ?? 0);
+  return buildMetaRemediationBudget(Math.max(1, assignments?.account_ids?.length ?? 0));
+}
+
+function buildMetaRemediationBudget(providerAccountCount: number): MetaRemediationBudget {
+  const normalizedAccountCount = Math.max(1, providerAccountCount);
   const consumeDurationMs = Math.min(
-    DEFAULT_CONSUME_MAX_DURATION_CAP_MS,
-    DEFAULT_CONSUME_BASE_DURATION_MS +
-      (providerAccountCount - 1) * DEFAULT_CONSUME_EXTRA_DURATION_PER_ACCOUNT_MS,
+    META_REMEDIATION_BUDGET_POLICY.consumeMaxDurationMs,
+    META_REMEDIATION_BUDGET_POLICY.consumeBaseDurationMs +
+      (normalizedAccountCount - 1) * META_REMEDIATION_BUDGET_POLICY.consumeExtraDurationPerAccountMs,
   );
   return {
-    providerAccountCount,
+    providerAccountCount: normalizedAccountCount,
     consumeMaxPasses: Math.max(
-      DEFAULT_CONSUME_BASE_MAX_PASSES,
-      providerAccountCount * DEFAULT_CONSUME_BASE_MAX_PASSES,
+      META_REMEDIATION_BUDGET_POLICY.consumeBaseMaxPasses,
+      normalizedAccountCount * META_REMEDIATION_BUDGET_POLICY.consumeBaseMaxPasses,
     ),
     consumeDurationMs,
-    actionTimeoutMs: consumeDurationMs + DEFAULT_ACTION_TIMEOUT_BUFFER_MS,
+    actionTimeoutMs: consumeDurationMs + META_REMEDIATION_BUDGET_POLICY.actionTimeoutBufferMs,
   };
 }
 
@@ -650,14 +663,14 @@ async function executeRecommendation(input: {
   businessId: string;
   recommendation: SyncRepairRecommendation;
   workflowRunId?: string | null;
-  budget: Awaited<ReturnType<typeof getMetaRemediationBudget>>;
+  budget: MetaRemediationBudget;
 }) {
   const consumeQueuedWork = async () => {
     const workerId = buildRemediationConsumeWorkerId({
       workflowRunId: input.workflowRunId,
       businessId: input.businessId,
     });
-    const leaseMinutes = DEFAULT_CONSUME_LEASE_MINUTES;
+    const leaseMinutes = META_REMEDIATION_BUDGET_POLICY.consumeLeaseMinutes;
     const leaseAcquired = await acquireSyncRunnerLease({
       businessId: input.businessId,
       providerScope: "meta",
@@ -711,7 +724,7 @@ async function executeRecommendation(input: {
           0,
           Math.min(
             consumeResult.nextDelayMs ?? 0,
-            DEFAULT_CONSUME_MAX_DELAY_MS,
+            META_REMEDIATION_BUDGET_POLICY.consumeMaxDelayMs,
           ),
         );
         if (delayMs > 0) {
