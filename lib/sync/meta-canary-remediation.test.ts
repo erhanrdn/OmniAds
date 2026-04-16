@@ -757,7 +757,7 @@ describe("meta canary remediation", () => {
       workflowRunId: "run-1",
       workflowActor: "codex",
     });
-    await vi.advanceTimersByTimeAsync(8 * 60_000 + 1_000);
+    await vi.advanceTimersByTimeAsync(20 * 60_000 + 1_000);
     const result = await runPromise;
 
     expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
