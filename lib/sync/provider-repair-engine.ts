@@ -203,6 +203,7 @@ async function reconcileMetaAuthoritativeRecentWindow(input: {
         verification.verificationState !== "failed"
       ) {
         idlePendingDays += 1;
+        repairDates.add(day);
         continue;
       }
       repairDates.add(day);
