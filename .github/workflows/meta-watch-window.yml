@@ -1,0 +1,115 @@
+name: Meta Watch Window
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact deploy SHA to verify against live Meta acceptance
+        required: true
+        type: string
+  workflow_run:
+    workflows:
+      - Deploy to Hetzner
+    types:
+      - completed
+
+jobs:
+  watch-window:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Resolve expected SHA
+        id: expected
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            expected_sha="${{ inputs.sha }}"
+          else
+            expected_sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          if [ -z "${expected_sha}" ]; then
+            echo "Expected SHA is required."
+            exit 1
+          fi
+
+          echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Meta watch window acceptance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          node --import tsx scripts/meta-watch-window.ts \
+            --expected-build-id "${{ steps.expected.outputs.sha }}" \
+            --base-url "https://adsecute.com" \
+            --attempts 12 \
+            --sleep-ms 5000 \
+            --minimum-successful-runs 3 \
+            --workflow-file "meta-watch-window.yml" \
+            --out-file ".artifacts/meta-watch-window.json"
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          payload = json.loads(pathlib.Path(".artifacts/meta-watch-window.json").read_text())
+          acceptance = payload["acceptance"]
+          previous = payload.get("previousSuccessfulRuns")
+          current = (previous or 0) + 1 if acceptance["accepted"] else previous
+          lines = [
+              "## Meta Watch Window",
+              "",
+              f"- expectedBuildId: `{payload['expectedBuildId']}`",
+              f"- observedBuildId: `{acceptance.get('observedBuildId')}`",
+              f"- accepted: `{acceptance['accepted']}`",
+              f"- acceptedAtAttempt: `{payload.get('acceptedAtAttempt')}`",
+              f"- deployGatePass: `{acceptance['deployGatePass']}`",
+              f"- releaseGatePass: `{acceptance['releaseGatePass']}`",
+              f"- repairPlanEmpty: `{acceptance['repairPlanEmpty']}`",
+              f"- exactRowsPresent: `{acceptance['exactRowsPresent']}`",
+              f"- previousSuccessfulRuns: `{previous}`",
+              f"- currentSuccessfulRunsIncludingThis: `{current}`",
+              f"- minimumSuccessfulRuns: `{payload['minimumSuccessfulRuns']}`",
+              f"- watchWindowSatisfied: `{payload.get('watchWindowSatisfied')}`",
+          ]
+          reasons = acceptance.get("reasons") or []
+          if reasons:
+              lines.extend(["", "Failure reasons:"])
+              lines.extend([f"- `{reason}`" for reason in reasons])
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Upload watch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meta-watch-window-${{ steps.expected.outputs.sha }}
+          path: .artifacts/meta-watch-window.json
+          if-no-files-found: error

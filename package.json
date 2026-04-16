@@ -43,6 +43,7 @@
     "meta:canary-remediate": "node --import tsx scripts/meta-canary-remediate.ts",
     "sync:control-plane-verify": "node --import tsx scripts/sync-control-plane-verify.ts",
     "sync:hardening-acceptance": "node --import tsx scripts/sync-hardening-acceptance.ts",
+    "meta:watch-window": "node --import tsx scripts/meta-watch-window.ts",
     "google:ads:health": "node --import tsx scripts/google-ads-health-snapshot.ts",
     "google:ads:diagnostic-snapshot": "node --import tsx scripts/google-ads-diagnostic-snapshot.ts",
     "google:ads:throughput-probe": "node --import tsx scripts/google-ads-throughput-probe.ts",
