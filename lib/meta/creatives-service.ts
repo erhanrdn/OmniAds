@@ -61,6 +61,7 @@ import {
   toISODate,
   nDaysAgo,
   mergeCreativeData,
+  hasSuspiciousMissingCatalogRevenueMetrics,
   hasSuspiciousMissingFunnelMetrics,
   resolvePreviewOrigin,
   toRawRow,
@@ -157,6 +158,8 @@ export async function buildCreativesResponse(
     requestStartedAt,
   } = query;
   const debugLoggingEnabled = isRuntimeLogLevelEnabled("debug");
+  const shouldEnableCreativeBasicsFallback =
+    enableCreativeBasicsFallback || mediaMode === "metadata";
 
   const snapshotQuery: MetaCreativesSnapshotQuery = {
     businessId,
@@ -193,6 +196,7 @@ export async function buildCreativesResponse(
         if (
           snapshotTaxonomyHealth.isTaxonomyStale ||
           hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []) ||
+          hasSuspiciousMissingCatalogRevenueMetrics(snapshotPayload.rows ?? []) ||
           hasSuspiciousCopyEmptySnapshot
         ) {
           logRuntimeDebug("meta-creatives", "bypassing_suspicious_snapshot", {
@@ -204,6 +208,9 @@ export async function buildCreativesResponse(
             preview_contract_version: snapshotTaxonomyHealth.previewContractVersion,
             taxonomy_summary: snapshotTaxonomyHealth.taxonomySummary,
             suspicious_funnel_metrics: hasSuspiciousMissingFunnelMetrics(snapshotPayload.rows ?? []),
+            suspicious_catalog_revenue_metrics: hasSuspiciousMissingCatalogRevenueMetrics(
+              snapshotPayload.rows ?? []
+            ),
             suspicious_copy_empty: hasSuspiciousCopyEmptySnapshot,
           });
           triggerSnapshotRefresh(request, snapshotQuery);
@@ -307,7 +314,7 @@ export async function buildCreativesResponse(
         const ad = adMap.get(id);
         return !ad?.creative?.thumbnail_url && !ad?.creative?.image_url;
       });
-      if (enableCreativeBasicsFallback && creativeMissingAdIds.length > 0) {
+      if (shouldEnableCreativeBasicsFallback && creativeMissingAdIds.length > 0) {
         logRuntimeDebug("meta-creatives", "creative_enrichment_fallback", {
           account_id: accountId,
           missing_creative_media_ads: creativeMissingAdIds.length,
@@ -320,11 +327,20 @@ export async function buildCreativesResponse(
           const fallback = creativeBasicsMap.get(adId);
           if (!fallback?.creative) continue;
           if (!existing) {
-            adMap.set(adId, { id: adId, creative: fallback.creative });
+            adMap.set(adId, { ...fallback, id: fallback.id ?? adId, creative: fallback.creative });
             continue;
           }
           adMap.set(adId, {
             ...existing,
+            adset: existing.adset
+              ? {
+                  ...fallback.adset,
+                  ...existing.adset,
+                  promoted_object:
+                    existing.adset.promoted_object ?? fallback.adset?.promoted_object ?? null,
+                }
+              : fallback.adset ?? null,
+            promoted_object: existing.promoted_object ?? fallback.promoted_object ?? null,
             creative: mergeCreativeData(existing.creative ?? null, fallback.creative as NonNullable<MetaAdRecord["creative"]>),
           });
         }
@@ -1132,7 +1148,7 @@ export async function buildCreativesResponse(
             previewAuditSamplesCount: previewAuditSamples.length,
             previewAuditValidationRequests,
             enableMediaRecovery,
-            enableCreativeBasicsFallback,
+            enableCreativeBasicsFallback: shouldEnableCreativeBasicsFallback,
             enableCreativeDetails,
             enableThumbnailBackfill,
             enableCardThumbnailBackfill,
@@ -1159,7 +1175,7 @@ export async function buildCreativesResponse(
         previewAuditSamplesCount: previewAuditSamples.length,
         previewAuditValidationRequests,
         enableMediaRecovery,
-        enableCreativeBasicsFallback,
+        enableCreativeBasicsFallback: shouldEnableCreativeBasicsFallback,
         enableCreativeDetails,
         enableThumbnailBackfill,
         enableCardThumbnailBackfill,

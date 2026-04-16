@@ -5,6 +5,7 @@ import {
   nDaysAgo,
   groupRows,
   sortRows,
+  hasSuspiciousMissingCatalogRevenueMetrics,
   hasSuspiciousMissingFunnelMetrics,
   mergeCreativeData,
 } from "@/lib/meta/creatives-row-mappers";
@@ -146,6 +147,28 @@ describe("hasSuspiciousMissingFunnelMetrics", () => {
       makeRow({ id: `row_${i}`, link_clicks: 100, purchases: 3, landing_page_views: 0, initiate_checkout: 0 })
     );
     expect(hasSuspiciousMissingFunnelMetrics(rows)).toBe(false);
+  });
+});
+
+describe("hasSuspiciousMissingCatalogRevenueMetrics", () => {
+  it("returns false when there are no rows", () => {
+    expect(hasSuspiciousMissingCatalogRevenueMetrics([])).toBe(false);
+  });
+
+  it("returns false for healthy catalog rows", () => {
+    expect(
+      hasSuspiciousMissingCatalogRevenueMetrics([
+        makeRow({ is_catalog: true, purchases: 2, purchase_value: 240, roas: 2.4 }),
+      ])
+    ).toBe(false);
+  });
+
+  it("returns true when a catalog row has purchases but no revenue signal", () => {
+    expect(
+      hasSuspiciousMissingCatalogRevenueMetrics([
+        makeRow({ is_catalog: true, spend: 120, purchases: 3, purchase_value: 0, roas: 0 }),
+      ])
+    ).toBe(true);
   });
 });
 

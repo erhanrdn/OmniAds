@@ -54,7 +54,7 @@ type GoodDirection = "high" | "low" | "neutral";
 type ColorFormattingMode = "heatmap" | "none";
 type TableColumnAlign = "left" | "right" | "center";
 
-type TableColumnKey =
+export type TableColumnKey =
   | "spend"
   | "purchaseValue"
   | "roas"
@@ -78,6 +78,8 @@ type TableColumnKey =
   | "video100Rate"
   | "holdRate"
   | "hookScore"
+  | "ctaScore"
+  | "offerScore"
   | "purchaseValueShare"
   | "watchScore"
   | "clickScore"
@@ -132,14 +134,15 @@ interface TableCalcContext {
 
 interface TablePreset {
   presetName: string;
+  summary: string;
   selectedColumns: TableColumnKey[];
   selectedAiTagColumns: TagKey[];
   resultsPerPage: 20 | 50 | 100;
   colorFormatting: ColorFormattingMode;
-  showTags: boolean;
   showActiveStatus: boolean;
   showLaunchDate: boolean;
   showAdLength: boolean;
+  hiddenFromMenu?: boolean;
 }
 
 interface CreativesTableSectionProps {
@@ -206,7 +209,7 @@ interface MetricDistribution {
   sorted: number[];
 }
 
-interface HeatEvaluation {
+export interface HeatEvaluation {
   tone: HeatTone;
   intensity: number;
   reason: string;
@@ -262,7 +265,6 @@ function logPerf(label: string, startMs: number, rowCount: number) {
 const STATIC_COLUMN_SPECS = {
   creativeName: { minWidth: 220, preferredWidth: 240 },
   launchDate: { minWidth: 120, preferredWidth: 120 },
-  tags: { minWidth: 120, preferredWidth: 120 },
   activeStatus: { minWidth: 100, preferredWidth: 110 },
   adLength: { minWidth: 90, preferredWidth: 110 },
 } as const;
@@ -275,7 +277,6 @@ function getDefaultColumnWidths(): Record<string, number> {
   return {
     creativeName: STATIC_COLUMN_SPECS.creativeName.preferredWidth,
     launchDate: STATIC_COLUMN_SPECS.launchDate.preferredWidth,
-    tags: STATIC_COLUMN_SPECS.tags.preferredWidth,
     activeStatus: STATIC_COLUMN_SPECS.activeStatus.preferredWidth,
     adLength: STATIC_COLUMN_SPECS.adLength.preferredWidth,
     ...AI_TAG_COLUMN_KEYS.reduce<Record<string, number>>((acc, key) => {
@@ -291,30 +292,95 @@ function parseLaunchDate(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function scaleMetricToScore(value: number, target: number): number {
+  if (!Number.isFinite(value) || target <= 0) return 0;
+  return clamp((value / target) * 100, 0, 100);
+}
+
+function hasAiTagValue(row: MetaCreativeRow, key: TagKey, value?: string): boolean {
+  const values = row.aiTags?.[key] ?? [];
+  if (!value) return values.length > 0;
+  return values.some((entry) => entry.toLowerCase() === value.toLowerCase());
+}
+
+function calculateCreativeHookScore(row: MetaCreativeRow): number {
+  const videoFirstStop = scaleMetricToScore(row.thumbstop, 28);
+  const videoEarlyHold = scaleMetricToScore(row.video25, 32);
+  const imageClickPull = scaleMetricToScore(row.ctrAll, 2.8);
+  const imageReadMore = scaleMetricToScore(row.seeMoreRate, 18);
+  const base = hasVideoEvidence(row)
+    ? videoFirstStop * 0.7 + videoEarlyHold * 0.3
+    : imageClickPull * 0.65 + imageReadMore * 0.35;
+  const hookSignalBoost = hasAiTagValue(row, "hookTactic") ? 6 : 0;
+  const headlineSignalBoost =
+    hasAiTagValue(row, "headlineTactic", "Question Headline") ||
+    hasAiTagValue(row, "headlineTactic", "Number Headline")
+      ? 4
+      : 0;
+  return clamp(base + hookSignalBoost + headlineSignalBoost, 0, 100);
+}
+
+function calculateCreativeWatchScore(row: MetaCreativeRow): number {
+  if (!hasVideoEvidence(row)) return 0;
+  const hookCarry = scaleMetricToScore(row.thumbstop, 28);
+  const midWatch = scaleMetricToScore(row.video50, 18);
+  const fullWatch = scaleMetricToScore(row.video100, 8);
+  return clamp(hookCarry * 0.2 + midWatch * 0.5 + fullWatch * 0.3, 0, 100);
+}
+
+function calculateCreativeClickScore(row: MetaCreativeRow): number {
+  const ctrAllScore = scaleMetricToScore(row.ctrAll, 2.8);
+  const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
+  const seeMoreScore = scaleMetricToScore(row.seeMoreRate, 18);
+  return clamp(ctrAllScore * 0.45 + linkCtrScore * 0.4 + seeMoreScore * 0.15, 0, 100);
+}
+
+function calculateCreativeCtaScore(row: MetaCreativeRow): number {
+  const linkCtrScore = scaleMetricToScore(calculateCreativeLinkCtr(row), 2.2);
+  const clickToAtcScore = scaleMetricToScore(calculateCreativeClickToAddToCartRate(row), 18);
+  const clickToPurchaseScore = scaleMetricToScore(calculateCreativeClickToPurchaseRate(row), 5.5);
+  const ctaSignalBoost = hasAiTagValue(row, "headlineTactic", "CTA Headline") ? 8 : 0;
+  return clamp(
+    linkCtrScore * 0.35 + clickToAtcScore * 0.4 + clickToPurchaseScore * 0.25 + ctaSignalBoost,
+    0,
+    100
+  );
+}
+
+function calculateCreativeOfferScore(row: MetaCreativeRow): number {
+  const roasScore = scaleMetricToScore(row.roas, 4);
+  const clickToAtcScore = scaleMetricToScore(calculateCreativeClickToAddToCartRate(row), 18);
+  const atcToPurchaseScore = scaleMetricToScore(row.atcToPurchaseRatio, 42);
+  const explicitOfferBoost =
+    hasAiTagValue(row, "offerType") && !hasAiTagValue(row, "offerType", "No Explicit Offer") ? 10 : 0;
+  return clamp(
+    roasScore * 0.35 + clickToAtcScore * 0.25 + atcToPurchaseScore * 0.4 + explicitOfferBoost,
+    0,
+    100
+  );
+}
+
+function calculateCreativeConvertScore(row: MetaCreativeRow): number {
+  const roasScore = scaleMetricToScore(row.roas, 4);
+  const clickToPurchaseScore = scaleMetricToScore(calculateCreativeClickToPurchaseRate(row), 5.5);
+  const atcToPurchaseScore = scaleMetricToScore(row.atcToPurchaseRatio, 42);
+  return clamp(roasScore * 0.45 + clickToPurchaseScore * 0.3 + atcToPurchaseScore * 0.25, 0, 100);
+}
+
 const FACEBOOK_ECOMMERCE_COLUMNS: TableColumnKey[] = [
   "spend",
   "purchaseValue",
   "roas",
   "cpa",
-  "cpcLink",
-  "cpm",
-  "cpcAll",
-  "averageOrderValue",
+  "revenuePer1000Imp",
   "clickToAtcRatio",
   "atcToPurchaseRatio",
-  "purchases",
-  "thumbstopRatio",
-  "linkCtr",
   "clickToPurchaseRatio",
-  "seeMoreRate",
-  "ctrAll",
-  "video25Rate",
-  "video50Rate",
-  "video75Rate",
-  "video100Rate",
-  "clicksAll",
-  "linkClicks",
+  "averageOrderValue",
+  "linkCtr",
   "purchaseValueShare",
+  "ctaScore",
+  "offerScore",
 ];
 
 const META_COPY_PERFORMANCE_COLUMNS: TableColumnKey[] = [
@@ -336,75 +402,77 @@ const META_COPY_PERFORMANCE_COLUMNS: TableColumnKey[] = [
 const PRESETS: TablePreset[] = [
   {
     presetName: "Facebook Ecommerce",
+    summary: "Built for purchase ads. Prioritizes unit economics, post-click flow, and revenue density over vanity engagement.",
     selectedColumns: FACEBOOK_ECOMMERCE_COLUMNS,
-    selectedAiTagColumns: [],
+    selectedAiTagColumns: ["offerType", "messagingAngle", "hookTactic"],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
-    showTags: true,
     showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: false,
   },
   {
     presetName: "Facebook Video",
+    summary: "Built for video creative review. Prioritizes hook strength, watch-through quality, and click carry from motion assets.",
     selectedColumns: [
       "spend",
-      "roas",
+      "thumbstopRatio",
       "video25Rate",
       "video50Rate",
-      "video75Rate",
       "video100Rate",
-      "thumbstopRatio",
+      "hookScore",
       "watchScore",
+      "clickScore",
+      "linkCtr",
     ],
-    selectedAiTagColumns: [],
+    selectedAiTagColumns: ["visualFormat", "hookTactic", "headlineTactic"],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
-    showTags: true,
     showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: true,
   },
   {
     presetName: "Meta Copy Performance",
+    summary: "Copy-specific preset kept for the dedicated copies workflow.",
     selectedColumns: META_COPY_PERFORMANCE_COLUMNS,
     selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
-    showTags: true,
     showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: false,
+    hiddenFromMenu: true,
   },
   {
     presetName: "Creative teams",
-    selectedColumns: ["spend", "purchaseValue", "roas", "hookScore", "watchScore", "clickScore", "convertScore"],
-    selectedAiTagColumns: ["assetType", "messagingAngle"],
+    summary: "Creative-friendly score view. Replaces raw buyer metrics with 0-100 reads on hook, CTA, offer, and conversion fit.",
+    selectedColumns: ["hookScore", "ctaScore", "offerScore", "clickScore", "convertScore"],
+    selectedAiTagColumns: ["visualFormat", "messagingAngle", "hookTactic", "offerType"],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
-    showTags: true,
     showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: false,
   },
   {
     presetName: "Facebook SaaS",
-    selectedColumns: ["spend", "impressions", "ctrAll", "cpcLink", "linkClicks", "leads", "cpl", "messages", "cpMessage"],
-    selectedAiTagColumns: [],
+    summary: "Built for lead-gen and demo funnels. Prioritizes lead efficiency, CTA pull, and demand capture over purchase math.",
+    selectedColumns: ["spend", "impressions", "leads", "cpl", "ctrAll", "cpcLink", "linkClicks", "messages", "cpMessage", "ctaScore"],
+    selectedAiTagColumns: ["intendedAudience", "messagingAngle", "headlineTactic"],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
-    showTags: false,
-    showActiveStatus: true,
+    showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: true,
   },
   {
     presetName: "Customize columns",
+    summary: "Start from a light baseline and assemble your own working view.",
     selectedColumns: ["spend", "purchaseValue", "roas", "purchases"],
     selectedAiTagColumns: [],
     resultsPerPage: 20,
     colorFormatting: "heatmap",
-    showTags: true,
     showActiveStatus: false,
     showLaunchDate: true,
     showAdLength: false,
@@ -434,11 +502,13 @@ const TABLE_COLUMNS: TableColumnDefinition[] = [
   { key: "video75Rate", label: "75% video plays (rate)", description: "75% play rate.", direction: "high", minWidth: 145, preferredWidth: 165, align: "right", format: fmtPercent, getValue: (r) => r.video75 },
   { key: "video100Rate", label: "100% video plays (rate)", description: "100% play rate.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
   { key: "holdRate", label: "Completion proxy (100% plays)", description: "Compatibility proxy that reuses 100% video plays.", direction: "high", minWidth: 190, preferredWidth: 210, align: "right", format: fmtPercent, getValue: (r) => r.video100 },
-  { key: "hookScore", label: "Hook proxy (thumbstop)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 160, preferredWidth: 180, align: "right", format: fmtPercent, getValue: (r) => r.thumbstop },
+  { key: "hookScore", label: "Hook score", description: "0-100 read on first-stop strength using early attention and hook signals.", direction: "high", minWidth: 118, preferredWidth: 132, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeHookScore(r) },
+  { key: "ctaScore", label: "CTA score", description: "0-100 read on how clearly the ad pulls qualified clicks toward action.", direction: "high", minWidth: 110, preferredWidth: 124, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeCtaScore(r) },
+  { key: "offerScore", label: "Offer score", description: "0-100 read on commercial pull using offer presence plus cart and purchase behavior.", direction: "high", minWidth: 118, preferredWidth: 132, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeOfferScore(r) },
   { key: "purchaseValueShare", label: "% purchase value", description: "Share of purchase value.", direction: "high", minWidth: 130, preferredWidth: 145, align: "right", format: fmtPercent, getValue: (r, c) => calculateCreativePurchaseValueShare(r, c.totalPurchaseValue) },
-  { key: "watchScore", label: "Watch proxy (50% plays)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtPercent, getValue: (r) => r.video50 },
-  { key: "clickScore", label: "Click proxy (CTR all x10)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.ctrAll * 10 },
-  { key: "convertScore", label: "Conversion proxy (ROAS x10)", description: "Heuristic proxy, not a model score.", direction: "high", minWidth: 190, preferredWidth: 210, align: "right", format: (n) => n.toFixed(2), getValue: (r) => r.roas * 10 },
+  { key: "watchScore", label: "Watch score", description: "0-100 read on mid-watch and completion quality for video creatives.", direction: "high", minWidth: 118, preferredWidth: 132, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeWatchScore(r) },
+  { key: "clickScore", label: "Click score", description: "0-100 read on click quality using CTR, link CTR, and expansion intent.", direction: "high", minWidth: 118, preferredWidth: 132, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeClickScore(r) },
+  { key: "convertScore", label: "Conversion fit score", description: "0-100 read on commercial efficiency using ROAS and post-click conversion.", direction: "high", minWidth: 150, preferredWidth: 170, align: "right", format: (n) => n.toFixed(0), getValue: (r) => calculateCreativeConvertScore(r) },
   { key: "averageOrderValueWebsite", label: "Average order value (website)", description: "Website AOV.", direction: "high", minWidth: 175, preferredWidth: 195, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
   { key: "averageOrderValueShop", label: "Average order value (Shop)", description: "Shop AOV.", direction: "high", minWidth: 165, preferredWidth: 185, align: "right", format: fmtCurrency, getValue: (r) => calculateCreativeAverageOrderValue(r) },
   { key: "impressions", label: "Impressions", description: "Impression count.", direction: "high", minWidth: 120, preferredWidth: 140, align: "right", format: fmtInteger, getValue: (r) => r.impressions },
@@ -463,6 +533,67 @@ const TABLE_COLUMN_MAP: Record<TableColumnKey, TableColumnDefinition> = TABLE_CO
   },
   {} as Record<TableColumnKey, TableColumnDefinition>
 );
+
+export function buildCreativeTableHeatBenchmark(rows: MetaCreativeRow[]) {
+  const ctx: TableCalcContext = {
+    totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
+    totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
+    totalPurchases: rows.reduce((sum, row) => sum + row.purchases, 0),
+    totalImpressions: rows.reduce((sum, row) => sum + row.impressions, 0),
+    totalLinkClicks: rows.reduce((sum, row) => sum + row.linkClicks, 0),
+  };
+
+  return {
+    ctx,
+    metricDistributions: TABLE_COLUMNS.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>(
+      (acc, column) => {
+        const values = rows
+          .filter((row) => isMetricApplicable(column.key, row))
+          .map((row) => column.getValue(row, ctx))
+          .filter((n) => Number.isFinite(n));
+        acc[column.key] = buildDistribution(values);
+        return acc;
+      },
+      {}
+    ),
+    metricSpendDistributions: TABLE_COLUMNS.reduce<Partial<Record<TableColumnKey, MetricDistribution>>>(
+      (acc, column) => {
+        const values = rows
+          .filter((row) => isMetricApplicable(column.key, row))
+          .map((row) => row.spend)
+          .filter((n) => Number.isFinite(n));
+        acc[column.key] = buildDistribution(values);
+        return acc;
+      },
+      {}
+    ),
+  };
+}
+
+export function evaluateCreativeMetricPreviewHeat(input: {
+  metricId: string;
+  row: MetaCreativeRow;
+  benchmark: ReturnType<typeof buildCreativeTableHeatBenchmark>;
+  baselineLabel?: string;
+}): HeatEvaluation | null {
+  const { metricId, row, benchmark, baselineLabel = "current table baseline" } = input;
+  const tableKey = TOP_TO_TABLE_METRIC_ID[metricId];
+  if (!tableKey) return null;
+  const column = TABLE_COLUMN_MAP[tableKey];
+  if (!column) return null;
+  const value = column.getValue(row, benchmark.ctx);
+
+  return evaluateMetricCell({
+    key: tableKey,
+    value,
+    row,
+    ctx: benchmark.ctx,
+    distribution: benchmark.metricDistributions[tableKey] ?? buildDistribution([value]),
+    roasDistribution: benchmark.metricDistributions.roas,
+    spendDistribution: benchmark.metricSpendDistributions[tableKey] ?? buildDistribution([row.spend]),
+    baselineLabel,
+  });
+}
 
 const AI_TAG_GROUPS: Array<{ label: string; items: Array<{ label: string; value: TagKey }> }> = [
   { label: "Visual", items: [{ label: "Asset Type", value: "assetType" }, { label: "Visual Format", value: "visualFormat" }] },
@@ -499,6 +630,8 @@ const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
   video100Rate: "video100Rate",
   holdRate: "holdRate",
   hookScore: "hookScore",
+  ctaScore: "ctaScore",
+  offerScore: "offerScore",
   purchaseValueShare: "purchaseValueShare",
   watchScore: "watchScore",
   clickScore: "clickScore",
@@ -518,6 +651,16 @@ const TABLE_TO_TOP_METRIC_ID: Partial<Record<TableColumnKey, string>> = {
   messages: "messages",
   cpMessage: "cpMessage",
 };
+
+const TOP_TO_TABLE_METRIC_ID: Partial<Record<string, TableColumnKey>> = Object.entries(TABLE_TO_TOP_METRIC_ID).reduce(
+  (acc, [tableKey, topMetricId]) => {
+    if (topMetricId) {
+      acc[topMetricId] = tableKey as TableColumnKey;
+    }
+    return acc;
+  },
+  {} as Partial<Record<string, TableColumnKey>>
+);
 
 const DEFAULT_TABLE_METRIC_CONFIG: TableMetricConfig = {
   direction: "neutral",
@@ -552,6 +695,8 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
   video100Rate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
   holdRate: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
   hookScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  ctaScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
+  offerScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
   purchaseValueShare: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "weighted", heatStrength: "soft", applicableFormats: ["image", "video"] },
   watchScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["video"], minConfidenceThreshold: { minSpend: 50, minImpressions: 1000, minEstimatedViews: 200 } },
   clickScore: { direction: "higher_better", colorMode: "quantile", spendSensitive: false, footerAggregation: "avg", heatStrength: "soft", applicableFormats: ["image", "video"] },
@@ -647,9 +792,16 @@ export function CreativesTableSection({
     focusRef: tagsSearchRef,
   });
 
-  const filteredPresets = PRESETS.filter((preset) =>
-    preset.presetName.toLowerCase().includes(presetSearch.toLowerCase())
+  const visiblePresets = PRESETS.filter(
+    (preset) => !preset.hiddenFromMenu || preset.presetName === tablePreset.presetName
   );
+  const filteredPresets = visiblePresets.filter((preset) => {
+    const query = presetSearch.toLowerCase();
+    return (
+      preset.presetName.toLowerCase().includes(query) ||
+      preset.summary.toLowerCase().includes(query)
+    );
+  });
   const filteredAiTagGroups = useMemo(() => {
     const query = tagsSearch.trim().toLowerCase();
     if (!query) return AI_TAG_GROUPS;
@@ -677,9 +829,13 @@ export function CreativesTableSection({
     [tablePreset.selectedColumns]
   );
   const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
+  const presetTagSummary = useMemo(
+    () => selectedAiTagColumns.map((tagKey) => prettyTagLabel(tagKey)).join(", "),
+    [selectedAiTagColumns]
+  );
   const heatmapBaselineLabel = "current table baseline";
   const heatmapGuideTitle =
-    "Heatmap compares each metric against the current table selection. Efficiency metrics use a baseline average, engagement metrics use peer bands, and lower cost metrics still read as better when lower. Deeper tint means a larger gap.";
+    "Heatmap compares each metric against the current table selection. Best-performing cells trend greener, weakest cells trend redder, and stronger tint means a larger performance gap. Efficiency metrics use a baseline average, engagement metrics use peer bands, and lower-cost metrics still read as better when lower.";
 
   const sortedRows = useMemo(() => {
     const t = Date.now();
@@ -784,7 +940,6 @@ export function CreativesTableSection({
     const cw = (key: string, min: number, pref: number) => Math.max(min, columnWidths[key] ?? pref);
     let w = cw("creativeName", STATIC_COLUMN_SPECS.creativeName.minWidth, STATIC_COLUMN_SPECS.creativeName.preferredWidth);
     if (tablePreset.showLaunchDate) w += cw("launchDate", STATIC_COLUMN_SPECS.launchDate.minWidth, STATIC_COLUMN_SPECS.launchDate.preferredWidth);
-    if (tablePreset.showTags) w += cw("tags", STATIC_COLUMN_SPECS.tags.minWidth, STATIC_COLUMN_SPECS.tags.preferredWidth);
     if (tablePreset.showActiveStatus) w += cw("activeStatus", STATIC_COLUMN_SPECS.activeStatus.minWidth, STATIC_COLUMN_SPECS.activeStatus.preferredWidth);
     if (tablePreset.showAdLength) w += cw("adLength", STATIC_COLUMN_SPECS.adLength.minWidth, STATIC_COLUMN_SPECS.adLength.preferredWidth);
     for (const tagKey of selectedAiTagColumns) {
@@ -801,7 +956,6 @@ export function CreativesTableSection({
     selectedColumns.length +
     selectedAiTagColumns.length +
     Number(tablePreset.showLaunchDate) +
-    Number(tablePreset.showTags) +
     Number(tablePreset.showActiveStatus) +
     Number(tablePreset.showAdLength);
 
@@ -818,7 +972,14 @@ export function CreativesTableSection({
       "offerType",
     ] as const;
 
-    const motionMetrics: TableColumnKey[] = ["hookScore", "watchScore", "clickScore", "convertScore"];
+    const motionMetrics: TableColumnKey[] = [
+      "hookScore",
+      "ctaScore",
+      "offerScore",
+      "watchScore",
+      "clickScore",
+      "convertScore",
+    ];
 
     const performanceMetrics = TABLE_COLUMNS.map((column) => column.key).filter((key) => !motionMetrics.includes(key));
 
@@ -1000,7 +1161,7 @@ export function CreativesTableSection({
           </button>
 
           {showPresetMenu && (
-            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-64 rounded-xl border bg-background p-3 shadow-lg duration-150">
+            <div className="animate-in fade-in-0 slide-in-from-top-1 absolute left-0 top-10 z-50 w-80 rounded-xl border bg-background p-3 shadow-lg duration-150">
               <div className="mb-2 flex items-center gap-2 rounded-md border px-2 py-1.5">
                 <Search className="h-3.5 w-3.5 text-muted-foreground" />
                 <input
@@ -1018,11 +1179,14 @@ export function CreativesTableSection({
                     type="button"
                     onClick={() => applyPreset(preset)}
                     className={cn(
-                      "w-full rounded-md px-2 py-1.5 text-left text-xs",
+                      "w-full rounded-md px-2 py-2 text-left text-xs",
                       preset.presetName === tablePreset.presetName ? "bg-accent" : "hover:bg-accent/50"
                     )}
                   >
-                    {preset.presetName}
+                    <p className="font-medium text-foreground">{preset.presetName}</p>
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                      {preset.summary}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -1081,7 +1245,6 @@ export function CreativesTableSection({
                 </label>
 
                 {[
-                  { key: "showTags", label: "Show tags" },
                   { key: "showActiveStatus", label: "Show active status" },
                   { key: "showLaunchDate", label: "Show launch date" },
                   { key: "showAdLength", label: "Show ad length" },
@@ -1206,7 +1369,7 @@ export function CreativesTableSection({
         {tablePreset.colorFormatting === "heatmap" ? (
           <div className="flex flex-wrap items-center gap-2">
             <div
-              className="inline-flex flex-wrap items-center gap-3 rounded-full border border-[#D8E2EA] bg-[#F8FBFC] px-3 py-1.5 text-[11px] text-[#5B6B7B]"
+              className="inline-flex flex-wrap items-center gap-3 rounded-full border border-[#DDE7E1] bg-[#FBFDFC] px-3 py-1.5 text-[11px] text-[#5B6B7B]"
               title={heatmapGuideTitle}
             >
               <span className="inline-flex items-center gap-1.5">
@@ -1221,7 +1384,7 @@ export function CreativesTableSection({
                   className="h-2.5 w-2.5 rounded-full"
                   style={{ backgroundColor: toHeatAccentColor("neutral") }}
                 />
-                In range
+                Near baseline
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span
@@ -1230,14 +1393,20 @@ export function CreativesTableSection({
                 />
                 Below baseline
               </span>
-              <span className="text-[#7A8794]">Deeper tint = larger gap</span>
+              <span className="text-[#7A8794]">Stronger tint = larger gap</span>
             </div>
           </div>
         ) : null}
       </div>
 
       {/* B) selection info */}
-      <div className="text-[10px] text-muted-foreground">{selectedRowIds.length} ad groups selected</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="font-medium text-foreground/85">{tablePreset.summary}</span>
+          {presetTagSummary ? <span>Focus tags: {presetTagSummary}</span> : null}
+        </div>
+        <span>{selectedRowIds.length} ad groups selected</span>
+      </div>
 
       {/* C) table */}
       {isResizing && <div className="fixed inset-0 z-[9999] cursor-col-resize select-none" />}
@@ -1320,32 +1489,6 @@ export function CreativesTableSection({
                         STATIC_COLUMN_SPECS.launchDate.minWidth,
                         STATIC_COLUMN_SPECS.launchDate.preferredWidth
                       )
-                    }
-                  >
-                    <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
-                  </button>
-                </th>
-              )}
-
-              {tablePreset.showTags && (
-                <th
-                  className="group relative px-2.5 py-1.5 text-left text-[10px] font-medium tracking-[0.01em] text-[#6B7280]"
-                  style={{
-                    minWidth: STATIC_COLUMN_SPECS.tags.minWidth,
-                    width: getColumnWidth(
-                      "tags",
-                      STATIC_COLUMN_SPECS.tags.minWidth,
-                      STATIC_COLUMN_SPECS.tags.preferredWidth
-                    ),
-                  }}
-                >
-                  Tags
-                  <button
-                    type="button"
-                    aria-label="Resize Tags column"
-                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize opacity-0 transition-opacity group-hover:opacity-100"
-                    onMouseDown={(event) =>
-                      startColumnResize(event, "tags", STATIC_COLUMN_SPECS.tags.minWidth, STATIC_COLUMN_SPECS.tags.preferredWidth)
                     }
                   >
                     <span className="mx-auto block h-full w-px bg-[#D1D5DB]" />
@@ -1574,7 +1717,6 @@ export function CreativesTableSection({
               </td>
 
               {tablePreset.showLaunchDate && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
-              {tablePreset.showTags && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showActiveStatus && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {tablePreset.showAdLength && <td className="px-2.5 py-1.5 text-[9px] text-muted-foreground">-</td>}
               {selectedAiTagColumns.map((tagKey) => (
@@ -1674,6 +1816,8 @@ export function CreativesTableSection({
           hoveredMetric={hoverMetric}
           onHoverMetric={setHoverMetric}
           presetName={tablePreset.presetName}
+          presetSummary={tablePreset.summary}
+          visiblePresets={visiblePresets}
         />
       )}
 
@@ -1758,18 +1902,6 @@ const CreativeTableRow = memo(function CreativeTableRow({
 
       {tablePreset.showLaunchDate && (
         <td className="border-b px-2.5 py-1.5 text-[10px] font-medium">{row.launchDate}</td>
-      )}
-
-      {tablePreset.showTags && (
-        <td className="border-b px-2.5 py-1.5">
-          <div className="flex flex-wrap gap-1">
-            {(row.tags ?? []).slice(0, 3).map((tag) => (
-              <span key={tag} className="rounded-full border bg-muted/20 px-1.5 py-0.5 text-[8px] text-[#6B7280]">
-                {tag}
-              </span>
-            ))}
-          </div>
-        </td>
       )}
 
       {tablePreset.showActiveStatus && (
@@ -1879,6 +2011,8 @@ function MetricModal({
   hoveredMetric,
   onHoverMetric,
   presetName,
+  presetSummary,
+  visiblePresets,
 }: {
   selectedColumns: TableColumnKey[];
   onSelectedColumnsChange: (next: TableColumnKey[]) => void;
@@ -1890,6 +2024,8 @@ function MetricModal({
   hoveredMetric: TableColumnKey | null;
   onHoverMetric: (next: TableColumnKey | null) => void;
   presetName: string;
+  presetSummary: string;
+  visiblePresets: TablePreset[];
 }) {
   const [setAsDefault, setSetAsDefault] = useState(false);
 
@@ -1949,6 +2085,7 @@ function MetricModal({
             </div>
 
             <p className="mt-3 text-[11px] text-muted-foreground">Preset: {presetName}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{presetSummary}</p>
             <p className="mt-1 text-[11px] text-muted-foreground">{PRESET_NOTES}</p>
 
             <label className="mt-3 flex items-center gap-2 text-xs">
@@ -1961,7 +2098,7 @@ function MetricModal({
             </label>
 
             <select className="mt-3 h-8 w-full rounded border bg-background px-2 text-xs" defaultValue={presetName}>
-              {PRESETS.map((preset) => (
+              {visiblePresets.map((preset) => (
                 <option key={preset.presetName} value={preset.presetName}>
                   {preset.presetName}
                 </option>
@@ -1979,7 +2116,7 @@ function MetricModal({
             />
 
             <MetricGroup
-              title="Creative Metrics"
+              title="Creative Scores"
               items={metricGroups.motion}
               onAdd={addMetric}
               onHover={onHoverMetric}
@@ -2142,6 +2279,9 @@ function isMetricApplicable(key: TableColumnKey, row: MetaCreativeRow): boolean 
   if (cfg.applicableFormats.includes("video") && cfg.applicableFormats.length === 1) {
     return hasVideoEvidence(row);
   }
+  if (row.format === "catalog") {
+    return cfg.applicableFormats.includes("catalog") || cfg.applicableFormats.includes("image");
+  }
   return cfg.applicableFormats.includes(row.format);
 }
 
@@ -2201,34 +2341,34 @@ function evaluateByAverage(input: {
   if (directionalDelta >= 0.28) {
     return {
       tone: "strong_positive",
-      intensity: 0.74,
+      intensity: 0.9,
       reason: `Well above comparison baseline (${(directionalDelta * 100).toFixed(0)}%).`,
     };
   }
   if (directionalDelta >= 0.1) {
     return {
       tone: "positive",
-      intensity: 0.5,
+      intensity: 0.6,
       reason: `Above comparison baseline (${(directionalDelta * 100).toFixed(0)}%).`,
     };
   }
   if (absDelta <= 0.08) {
     return {
       tone: "neutral",
-      intensity: 0.16,
+      intensity: 0.14,
       reason: "In line with comparison baseline.",
     };
   }
   if (directionalDelta <= -0.28) {
     return {
       tone: "strong_negative",
-      intensity: 0.72,
+      intensity: 0.9,
       reason: `Well below comparison baseline (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
     };
   }
   return {
     tone: "negative",
-    intensity: 0.46,
+    intensity: 0.54,
     reason: `Below comparison baseline (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
   };
 }
@@ -2263,34 +2403,34 @@ function evaluateByQuantile(input: {
   if (effectiveQuantile >= 0.8) {
     return {
       tone: "strong_positive",
-      intensity: 0.64,
+      intensity: 0.84,
       reason: "Top 20% of the current table selection.",
     };
   }
   if (effectiveQuantile >= 0.6) {
     return {
       tone: "positive",
-      intensity: 0.42,
+      intensity: 0.58,
       reason: "Above the middle range of the current table selection.",
     };
   }
   if (effectiveQuantile >= 0.4) {
     return {
       tone: "neutral",
-      intensity: 0.16,
+      intensity: 0.14,
       reason: "Inside the middle range of the current table selection.",
     };
   }
   if (effectiveQuantile >= 0.2) {
     return {
       tone: "negative",
-      intensity: 0.38,
+      intensity: 0.5,
       reason: "Below the middle range of the current table selection.",
     };
   }
   return {
     tone: "strong_negative",
-    intensity: 0.62,
+    intensity: 0.84,
     reason: "Bottom 20% of the current table selection.",
   };
 }

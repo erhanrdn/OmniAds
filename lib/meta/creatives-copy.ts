@@ -169,12 +169,760 @@ export function normalizeAiTags(rawTags: string[] | undefined): MetaAiTags {
     const key = AI_TAG_LABEL_TO_KEY[rawLabel.trim().toLowerCase()];
     const value = rawValue?.trim();
     if (!key || !value) continue;
+    const canonical = canonicalizeAiTagValue(key, value);
+    if (!canonical) continue;
     const existing = next[key] ?? [];
-    if (!existing.includes(value)) existing.push(value);
+    if (!existing.includes(canonical)) existing.push(canonical);
     next[key] = existing;
   }
 
   return next;
+}
+
+type AiTagResolutionRow = {
+  tags?: string[];
+  ai_tags?: MetaAiTags;
+  name: string;
+  copy_text?: string | null;
+  copy_variants?: string[];
+  headline_variants?: string[];
+  description_variants?: string[];
+  launch_date?: string;
+  is_catalog: boolean;
+  preview: RawCreativeRow["preview"];
+  format: RawCreativeRow["format"];
+  creative_type: RawCreativeRow["creative_type"];
+  creative_delivery_type: RawCreativeRow["creative_delivery_type"];
+  creative_visual_format: RawCreativeRow["creative_visual_format"];
+  creative_primary_type: RawCreativeRow["creative_primary_type"];
+  creative_primary_label?: string | null;
+  creative_secondary_type?: RawCreativeRow["creative_secondary_type"] | null;
+  creative_secondary_label?: string | null;
+};
+
+function collectAiTagTextContext(row: AiTagResolutionRow) {
+  const copyCandidates = uniqueNormalizedText([
+    row.copy_text,
+    ...(row.copy_variants ?? []),
+    ...(row.description_variants ?? []),
+  ]);
+  const headlineCandidates = uniqueNormalizedText([
+    ...(row.headline_variants ?? []),
+    row.name,
+  ]);
+  const allCandidates = uniqueNormalizedText([...copyCandidates, ...headlineCandidates]);
+  const normalizedCandidates = allCandidates.map((value) => value.toLowerCase());
+  const leadingChunk = (source: string | null | undefined) => {
+    if (!source) return "";
+    const firstChunk =
+      source
+        .split(/\n|[.!]/)
+        .map((part) => normalizeCopyText(part))
+        .find((part): part is string => Boolean(part)) ?? source;
+    return firstChunk.toLowerCase();
+  };
+  const hookCandidates = uniqueNormalizedText([
+    leadingChunk(copyCandidates[0]),
+    leadingChunk(headlineCandidates[0]),
+  ]).map((value) => value.toLowerCase());
+  const visualSignalTexts = uniqueNormalizedText([
+    ...allCandidates,
+    row.creative_primary_label,
+    row.creative_secondary_label,
+  ]).map((value) => value.toLowerCase());
+
+  return {
+    copyCandidates,
+    headlineCandidates,
+    allCandidates,
+    normalizedCandidates,
+    hookCandidates,
+    visualSignalTexts,
+  };
+}
+
+function hasAnyPhrase(texts: string[], phrases: string[]): boolean {
+  return texts.some((text) => phrases.some((phrase) => text.includes(phrase)));
+}
+
+function matchesAnyPattern(texts: string[], patterns: RegExp[]): boolean {
+  return texts.some((text) => patterns.some((pattern) => pattern.test(text)));
+}
+
+function normalizeAiTagToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function humanizeAiTagValue(value: string): string {
+  return value
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => {
+      if (part.length <= 3 && /^[a-z0-9]+$/.test(part)) {
+        return part.toUpperCase();
+      }
+      return `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`;
+    })
+    .join(" ");
+}
+
+const AI_TAG_VALUE_ALIASES: Partial<Record<AiTagKey, Record<string, string>>> = {
+  assetType: {
+    static_image: "Static Image",
+    product_image: "Product Image",
+    product_image_with_text: "Product Image with Text",
+    ugc: "UGC",
+  },
+  visualFormat: {
+    product_focus: "Product Focus",
+    lifestyle: "Lifestyle",
+    cinematic_b_roll: "Cinematic B-Roll",
+    behind_the_scenes: "Behind The Scenes",
+    time_lapse: "Time Lapse",
+  },
+  intendedAudience: {
+    first_time_buyer: "First-time Buyer",
+    returning_customer: "Returning Customer",
+    gift_shopper: "Gift Shopper",
+    ecommerce_shopper: "Ecommerce Shopper",
+  },
+  messagingAngle: {
+    problem_solution: "Problem Solution",
+    social_proof: "Social Proof",
+    story_led: "Story-led",
+    utility: "Utility",
+    promo: "Promotional",
+  },
+  seasonality: {
+    black_friday: "Black Friday",
+    cyber_monday: "Cyber Monday",
+    back_to_school: "Back to School",
+    valentines_day: "Valentine's Day",
+    mothers_day: "Mother's Day",
+    fathers_day: "Father's Day",
+  },
+  offerType: {
+    free_shipping: "Free Shipping",
+    free_trial: "Free Trial",
+    limited_offer: "Limited Time",
+    gift_with_purchase: "Gift With Purchase",
+    no_offer: "No Explicit Offer",
+    no_explicit_offer: "No Explicit Offer",
+    none: "No Explicit Offer",
+  },
+  hookTactic: {
+    before_after: "Before/After",
+    question_hook: "Question Hook",
+    list_hook: "List Hook",
+    pattern_interrupt: "Pattern Interrupt",
+    shock_statement: "Shock Statement",
+  },
+  headlineTactic: {
+    how_to: "How To",
+    question_headline: "Question Headline",
+    number_headline: "Number Headline",
+    social_proof_headline: "Social Proof Headline",
+    cta_headline: "CTA Headline",
+    benefit_headline: "Benefit Headline",
+  },
+};
+
+function canonicalizeAiTagValue(key: AiTagKey, value: string): string | null {
+  const normalized = normalizeCopyText(value);
+  if (!normalized) return null;
+  const token = normalizeAiTagToken(normalized);
+  const alias = AI_TAG_VALUE_ALIASES[key]?.[token];
+  if (alias) return alias;
+  if (/^[a-z0-9_-]+$/.test(normalized)) {
+    return humanizeAiTagValue(normalized);
+  }
+  return normalized;
+}
+
+function pushAiTagValue(next: MetaAiTags, key: AiTagKey, value: string) {
+  const canonical = canonicalizeAiTagValue(key, value);
+  if (!canonical) return;
+  const existing = next[key] ?? [];
+  if (!existing.includes(canonical)) {
+    next[key] = [...existing, canonical];
+  }
+}
+
+function pushAiTagValues(next: MetaAiTags, key: AiTagKey, values: string[]) {
+  for (const value of values) {
+    pushAiTagValue(next, key, value);
+  }
+}
+
+function mergeAiTagMaps(target: MetaAiTags, incoming: MetaAiTags | undefined) {
+  if (!incoming) return;
+  for (const [rawKey, rawValues] of Object.entries(incoming)) {
+    const key = rawKey as AiTagKey;
+    if (!Array.isArray(rawValues) || rawValues.length === 0) continue;
+    pushAiTagValues(
+      target,
+      key,
+      rawValues
+        .map((value) => canonicalizeAiTagValue(key, value))
+        .filter((value): value is string => Boolean(value))
+    );
+  }
+}
+
+function hasQuestionShape(text: string): boolean {
+  return (
+    text.includes("?") ||
+    /^(how|what|why|when|where|who|which|can|do|did|is|are|should|would|nasıl|neden|ne|hangi|kim)\b/.test(
+      text
+    )
+  );
+}
+
+function hasNumberListShape(text: string): boolean {
+  return (
+    /^\d+\s*(\+|x)?\b/.test(text) ||
+    /\b\d+\s+(ways|reasons|steps|tips|ideas|signs|hacks|things)\b/.test(text)
+  );
+}
+
+function isCompactLead(text: string): boolean {
+  if (!text) return false;
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  return wordCount <= 18 && text.length <= 110;
+}
+
+function detectOfferTags(texts: string[]): string[] {
+  const values: string[] = [];
+
+  if (
+    hasAnyPhrase(texts, [
+      "free shipping",
+      "ücretsiz kargo",
+      "bedava kargo",
+    ])
+  ) {
+    values.push("Free Shipping");
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "free trial",
+      "ücretsiz deneme",
+      "demo request",
+      "book a demo",
+      "request a demo",
+      "free sample",
+    ])
+  ) {
+    values.push("Free Trial");
+  }
+  if (
+    hasAnyPhrase(texts, ["bundle", "starter kit", "bundle and save"]) ||
+    matchesAnyPattern(texts, [/\b\d+\s?-\s?pack\b/, /\bset of \d+\b/, /\bpaket\b/])
+  ) {
+    values.push("Bundle");
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "buy one get one",
+      "bogo",
+      "1 al 1",
+      "1+1",
+    ])
+  ) {
+    values.push("BOGO");
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "gift with purchase",
+      "purchase gift",
+      "free gift",
+      "gift included",
+    ])
+  ) {
+    values.push("Gift With Purchase");
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "limited time",
+      "today only",
+      "ends tonight",
+      "ending soon",
+      "last chance",
+      "sınırlı süre",
+      "son şans",
+      "yalnızca bugün",
+    ])
+  ) {
+    values.push("Limited Time");
+  }
+  if (
+    matchesAnyPattern(texts, [
+      /(\d+\s?%|\b\d+\spercent\b).{0,12}(off|indirim)/,
+      /\bsave\s+\d+\s?%/,
+      /\bup to\s+\d+\s?%/,
+      /\b\d+\s?% discount\b/,
+    ]) ||
+    hasAnyPhrase(texts, [
+      "discount",
+      "promo code",
+      "coupon",
+      "indirim",
+      "kampanya",
+      "fırsat",
+    ])
+  ) {
+    values.push("Discount");
+  }
+
+  return values.length > 0 ? values : ["No Explicit Offer"];
+}
+
+function detectSeasonalityTags(texts: string[]): string[] {
+  const values: string[] = [];
+  const seasonalityRules: Array<{ value: string; phrases: string[] }> = [
+    { value: "Black Friday", phrases: ["black friday", "bf sale"] },
+    { value: "Cyber Monday", phrases: ["cyber monday"] },
+    { value: "Holiday", phrases: ["holiday", "christmas", "xmas", "new year", "yılbaşı"] },
+    { value: "Ramadan", phrases: ["ramadan", "ramazan"] },
+    { value: "Eid", phrases: ["eid", "bayram"] },
+    { value: "Valentine's Day", phrases: ["valentine", "sevgililer günü"] },
+    { value: "Mother's Day", phrases: ["mother's day", "anneler günü"] },
+    { value: "Father's Day", phrases: ["father's day", "babalar günü"] },
+    { value: "Back to School", phrases: ["back to school", "okula dönüş"] },
+    { value: "Summer", phrases: ["summer", "yaz"] },
+    { value: "Winter", phrases: ["winter", "kış"] },
+    { value: "Spring", phrases: ["spring", "bahar"] },
+    { value: "Fall", phrases: ["fall", "autumn", "sonbahar"] },
+  ];
+
+  for (const rule of seasonalityRules) {
+    if (hasAnyPhrase(texts, rule.phrases)) {
+      values.push(rule.value);
+    }
+  }
+
+  return values;
+}
+
+function detectHeadlineTactic(headlines: string[]): string[] {
+  const normalizedHeadlines = headlines.map((headline) => headline.toLowerCase());
+
+  for (const headline of normalizedHeadlines) {
+    if (/^(how to|how you can|ways to|learn to|nasıl)\b/.test(headline)) {
+      return ["How To"];
+    }
+    if (hasQuestionShape(headline)) {
+      return ["Question Headline"];
+    }
+    if (hasNumberListShape(headline)) {
+      return ["Number Headline"];
+    }
+    if (
+      hasAnyPhrase([headline], [
+        "trusted by",
+        "loved by",
+        "best seller",
+        "best-selling",
+        "top rated",
+        "#1",
+        "çok satan",
+        "en sevilen",
+        "güvenilen",
+      ])
+    ) {
+      return ["Social Proof Headline"];
+    }
+    if (
+      hasAnyPhrase([headline], [
+        "shop now",
+        "buy now",
+        "get yours",
+        "order now",
+        "start now",
+        "book now",
+        "şimdi al",
+        "satın al",
+        "hemen keşfet",
+        "incele",
+      ])
+    ) {
+      return ["CTA Headline"];
+    }
+  }
+
+  return [];
+}
+
+function detectAssetType(row: AiTagResolutionRow): string[] {
+  if (
+    row.is_catalog ||
+    row.format === "catalog" ||
+    row.creative_delivery_type === "catalog" ||
+    row.creative_primary_type === "catalog"
+  ) {
+    return ["Catalog"];
+  }
+  if (row.creative_delivery_type === "flexible" || row.creative_primary_type === "flexible") {
+    return ["Flexible"];
+  }
+  if (
+    row.creative_visual_format === "carousel" ||
+    row.creative_secondary_type === "carousel" ||
+    row.creative_primary_type === "carousel"
+  ) {
+    return ["Carousel"];
+  }
+  if (
+    row.creative_visual_format === "video" ||
+    row.preview.render_mode === "video" ||
+    row.format === "video" ||
+    row.creative_type === "video" ||
+    row.creative_primary_type === "video"
+  ) {
+    return ["Video"];
+  }
+  if (row.creative_visual_format === "mixed" || row.creative_primary_type === "mixed") {
+    return ["Mixed"];
+  }
+  return ["Static Image"];
+}
+
+function detectVisualFormat(row: AiTagResolutionRow, texts: string[]): string[] {
+  if (
+    row.is_catalog ||
+    row.format === "catalog" ||
+    row.creative_delivery_type === "catalog" ||
+    row.creative_primary_type === "catalog"
+  ) {
+    return ["Catalog"];
+  }
+  if (row.creative_delivery_type === "flexible" || row.creative_primary_type === "flexible") {
+    return ["Flexible"];
+  }
+  if (
+    row.creative_visual_format === "carousel" ||
+    row.creative_secondary_type === "carousel" ||
+    row.creative_primary_type === "carousel"
+  ) {
+    return ["Carousel"];
+  }
+  if (
+    row.creative_visual_format === "video" ||
+    row.preview.render_mode === "video" ||
+    row.preview.video_url ||
+    row.format === "video" ||
+    row.creative_type === "video" ||
+    row.creative_primary_type === "video" ||
+    row.creative_secondary_type === "video"
+  ) {
+    return ["Video"];
+  }
+  if (row.creative_visual_format === "mixed" || row.creative_primary_type === "mixed") {
+    return ["Mixed"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "founder",
+      "our founder",
+      "from our founder",
+      "our story",
+      "behind the brand",
+      "meet the founder",
+    ])
+  ) {
+    return ["Founder"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "review",
+      "testimonial",
+      "customers say",
+      "loved by",
+      "before and after",
+      "müşteri yorumu",
+    ])
+  ) {
+    return ["Testimonial"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "how to",
+      "tutorial",
+      "demo",
+      "watch how",
+      "see how",
+      "step by step",
+      "nasıl",
+    ])
+  ) {
+    return ["Demo"];
+  }
+  return ["Image"];
+}
+
+function detectHookTactic(texts: string[]): string[] {
+  for (const text of texts) {
+    if (!text) continue;
+    if (/(before(\s+and\s+|\s*\/?\s*)after|öncesi(\s+ve\s+|\s*\/?\s*)sonrası)/.test(text)) {
+      return ["Before/After"];
+    }
+    if (hasNumberListShape(text) && isCompactLead(text)) {
+      return ["List Hook"];
+    }
+    if (hasQuestionShape(text) && isCompactLead(text)) {
+      return ["Question Hook"];
+    }
+    if (
+      hasAnyPhrase([text], [
+        "stop",
+        "wait",
+        "don't buy",
+        "you are doing it wrong",
+        "nobody tells you",
+        "avoid this",
+        "dur",
+        "bekle",
+        "yanlış yapıyorsun",
+        "kimse sana söylemiyor",
+      ])
+    ) {
+      return ["Pattern Interrupt"];
+    }
+    if (
+      hasAnyPhrase([text], [
+        "shocking",
+        "unbelievable",
+        "finally",
+        "never again",
+        "worst mistake",
+        "şok",
+        "inanılmaz",
+        "asla",
+      ])
+    ) {
+      return ["Shock Statement"];
+    }
+  }
+  return [];
+}
+
+function detectMessagingAngle(texts: string[], offerTags: string[]): string[] {
+  if (
+    hasAnyPhrase(texts, [
+      "problem",
+      "struggling",
+      "fix",
+      "solution",
+      "tired of",
+      "sorun",
+      "çözüm",
+      "problem çöz",
+    ])
+  ) {
+    return ["Problem Solution"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "review",
+      "testimonial",
+      "trusted by",
+      "loved by",
+      "customers say",
+      "müşteri yorumu",
+      "çok seviliyor",
+    ])
+  ) {
+    return ["Social Proof"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "how to",
+      "tutorial",
+      "guide",
+      "learn",
+      "nasıl",
+      "rehber",
+    ])
+  ) {
+    return ["Educational"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "limited time",
+      "last chance",
+      "ending soon",
+      "urgent",
+      "sınırlı süre",
+      "son şans",
+    ])
+  ) {
+    return ["Urgency"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "our story",
+      "why we",
+      "from our founder",
+      "brand story",
+    ])
+  ) {
+    return ["Story-led"];
+  }
+  if (
+    offerTags.some((value) => value !== "No Explicit Offer") &&
+    hasAnyPhrase(texts, [
+      "discount",
+      "promo code",
+      "coupon",
+      "indirim",
+      "kampanya",
+      "free shipping",
+      "limited time",
+      "today only",
+    ])
+  ) {
+    return ["Promotional"];
+  }
+  return [];
+}
+
+function detectAudience(texts: string[], offerTags: string[]): string[] {
+  if (
+    hasAnyPhrase(texts, [
+      "founder",
+      "business owner",
+      "small business",
+      "shop owner",
+      "kurucu",
+      "iş sahibi",
+    ])
+  ) {
+    return ["Founder"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "first order",
+      "first-time buyer",
+      "new customer",
+      "ilk sipariş",
+      "ilk kez",
+      "yeni müşteri",
+    ])
+  ) {
+    return ["First-time Buyer"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "returning customer",
+      "reorder",
+      "subscribe again",
+      "yeniden sipariş",
+      "geri gelen müşteri",
+    ])
+  ) {
+    return ["Returning Customer"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "gift",
+      "gifting",
+      "for her",
+      "for him",
+      "hediye",
+    ])
+  ) {
+    return ["Gift Shopper"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "mom",
+      "moms",
+      "parents",
+      "parent",
+      "anne",
+      "ebeveyn",
+    ])
+  ) {
+    return ["Parent"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "student",
+      "students",
+      "öğrenci",
+    ])
+  ) {
+    return ["Student"];
+  }
+  if (
+    hasAnyPhrase(texts, [
+      "homeowner",
+      "home owners",
+      "ev sahibi",
+    ])
+  ) {
+    return ["Homeowner"];
+  }
+  if (
+    offerTags.some((value) => value !== "No Explicit Offer") &&
+    hasAnyPhrase(texts, [
+      "new customers",
+      "online shoppers",
+      "ecommerce brands",
+      "for shoppers",
+      "online alışveriş",
+      "online shopper",
+    ])
+  ) {
+    return ["Ecommerce Shopper"];
+  }
+  return [];
+}
+
+export function resolveAiTagsForRow(row: AiTagResolutionRow): MetaAiTags {
+  const explicit = normalizeAiTags(row.tags);
+  mergeAiTagMaps(explicit, row.ai_tags);
+
+  const textContext = collectAiTagTextContext(row);
+  const normalizedTexts = textContext.normalizedCandidates;
+  if (!explicit.assetType?.length) {
+    pushAiTagValues(explicit, "assetType", detectAssetType(row));
+  }
+  if (!explicit.offerType?.length) {
+    pushAiTagValues(explicit, "offerType", detectOfferTags(normalizedTexts));
+  }
+  if (!explicit.seasonality?.length) {
+    pushAiTagValues(explicit, "seasonality", detectSeasonalityTags(normalizedTexts));
+  }
+  if (!explicit.headlineTactic?.length) {
+    pushAiTagValues(explicit, "headlineTactic", detectHeadlineTactic(textContext.headlineCandidates));
+  }
+  if (!explicit.visualFormat?.length) {
+    pushAiTagValues(
+      explicit,
+      "visualFormat",
+      detectVisualFormat(row, textContext.visualSignalTexts)
+    );
+  }
+  if (!explicit.hookTactic?.length) {
+    pushAiTagValues(explicit, "hookTactic", detectHookTactic(textContext.hookCandidates));
+  }
+  if (!explicit.messagingAngle?.length) {
+    pushAiTagValues(
+      explicit,
+      "messagingAngle",
+      detectMessagingAngle(normalizedTexts, explicit.offerType ?? [])
+    );
+  }
+  if (!explicit.intendedAudience?.length) {
+    pushAiTagValues(
+      explicit,
+      "intendedAudience",
+      detectAudience(normalizedTexts, explicit.offerType ?? [])
+    );
+  }
+
+  return explicit;
 }
 
 export const CREATIVE_TYPE_LABELS: Record<CreativeType, string> = {

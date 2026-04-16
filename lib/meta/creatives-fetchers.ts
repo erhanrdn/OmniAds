@@ -63,6 +63,8 @@ export function metaCacheKey(parts: Array<string | number | boolean | null | und
     .join(":");
 }
 
+const META_BATCH_ADS_FIELDSET_VERSION = "v2";
+
 export function toAdAccountNodeId(accountId: string): string {
   return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
 }
@@ -94,6 +96,8 @@ export function getCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
+    "object_story_spec{link_data{child_attachments{link,picture,image_url,image_hash}},video_data{video_id},template_data}",
+    "asset_feed_spec{images{hash,image_hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
   ].join(",");
 }
 
@@ -126,6 +130,8 @@ export function getNestedCreativeSummaryFields(): string {
     "name",
     "object_type",
     "video_id",
+    "object_story_spec{link_data{child_attachments{link,picture,image_url,image_hash}},video_data{video_id},template_data}",
+    "asset_feed_spec{images{hash,image_hash},videos{video_id},bodies{text},titles{text},descriptions{text}}",
   ].join(",");
 }
 
@@ -379,6 +385,7 @@ export async function batchFetchAdsByIds(
     "id",
     "name",
     "adset_id",
+    "adset{id,name}",
     ...(mode === "full" ? ["created_time"] : []),
     `creative{${mode === "full" ? getNestedCreativeMediaFields() : getNestedCreativeSummaryFields()}}`,
   ].join(",");
@@ -386,6 +393,7 @@ export async function batchFetchAdsByIds(
   return readThroughCache({
     key: metaCacheKey([
       "meta-batch-ads",
+      META_BATCH_ADS_FIELDSET_VERSION,
       mode,
       hashForCache(accessToken),
       hashForCache(uniqueIds.join(",")),
@@ -704,12 +712,16 @@ export async function fetchAdCreativeMediaByAdIds(
 export async function fetchAdCreativeBasicsByAdIds(
   adIds: string[],
   accessToken: string
-): Promise<Map<string, MetaAdCreativeMediaOnlyRecord>> {
-  const map = new Map<string, MetaAdCreativeMediaOnlyRecord>();
+): Promise<Map<string, MetaAdRecord>> {
+  const map = new Map<string, MetaAdRecord>();
   const uniqueIds = Array.from(new Set(adIds.filter((id) => id.trim().length > 0)));
   if (uniqueIds.length === 0) return map;
 
-  const fields = "id,creative{id}";
+  const fields = [
+    "id",
+    "adset{id,name}",
+    `creative{${getNestedCreativeSummaryFields()}}`,
+  ].join(",");
   const concurrency = 20;
   for (let i = 0; i < uniqueIds.length; i += concurrency) {
     const chunk = uniqueIds.slice(i, i + concurrency);
@@ -720,7 +732,7 @@ export async function fetchAdCreativeBasicsByAdIds(
         url.searchParams.set("thumbnail_width", "150");
         url.searchParams.set("thumbnail_height", "150");
         url.searchParams.set("access_token", accessToken);
-        const payload = await metaGet<MetaAdCreativeMediaOnlyRecord>(url);
+        const payload = await metaGet<MetaAdRecord>(url);
         if (!payload || typeof payload !== "object") return null;
         return { adId, payload: { ...payload, id: payload.id ?? adId } };
       })

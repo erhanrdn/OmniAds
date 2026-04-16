@@ -67,13 +67,22 @@ export function buildDistribution(values: number[]) {
 
 export function toHeatColor(tone: string, intensity: number): string {
   if (intensity <= 0) return "transparent";
-  const alpha = clamp(0.035 + intensity * 0.14, 0.045, 0.18);
+  const normalizedIntensity = clamp(intensity, 0, 1);
+  const easedIntensity = Math.pow(normalizedIntensity, 1.08);
+  const toneWeight: Record<string, number> = {
+    strong_negative: 1.22,
+    negative: 0.96,
+    neutral: 0.7,
+    positive: 0.96,
+    strong_positive: 1.18,
+  };
+  const alpha = clamp(0.032 + easedIntensity * 0.165 * (toneWeight[tone] ?? 0.9), 0.04, 0.23);
   const palette: Record<string, [number, number, number]> = {
-    strong_negative: [190, 72, 81],
-    negative: [224, 122, 130],
-    neutral: [148, 163, 184],
-    positive: [84, 160, 126],
-    strong_positive: [47, 120, 88],
+    strong_negative: [224, 92, 106],
+    negative: [244, 144, 154],
+    neutral: [163, 176, 193],
+    positive: [120, 212, 171],
+    strong_positive: [28, 182, 126],
   };
   const [r, g, b] = palette[tone] ?? palette.neutral;
   return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
@@ -81,11 +90,11 @@ export function toHeatColor(tone: string, intensity: number): string {
 
 export function toHeatAccentColor(tone: string): string {
   const palette: Record<string, [number, number, number]> = {
-    strong_negative: [170, 58, 68],
-    negative: [203, 96, 105],
-    neutral: [148, 163, 184],
-    positive: [66, 145, 109],
-    strong_positive: [29, 108, 74],
+    strong_negative: [214, 74, 89],
+    negative: [232, 118, 129],
+    neutral: [136, 151, 172],
+    positive: [69, 181, 132],
+    strong_positive: [17, 155, 108],
   };
   const [r, g, b] = palette[tone] ?? palette.neutral;
   return `rgb(${r}, ${g}, ${b})`;
@@ -94,20 +103,33 @@ export function toHeatAccentColor(tone: string): string {
 export function toHeatCellStyle(tone: string, intensity: number) {
   if (intensity <= 0) return {};
 
+  const normalizedIntensity = clamp(intensity, 0, 1);
+  const easedIntensity = Math.pow(normalizedIntensity, 1.04);
   const backgroundColor = toHeatColor(tone, intensity);
-  const ringAlpha = clamp(0.06 + intensity * 0.1, 0.08, 0.2);
+  const toneWeight: Record<string, number> = {
+    strong_negative: 1.2,
+    negative: 0.94,
+    neutral: 0.72,
+    positive: 0.94,
+    strong_positive: 1.16,
+  };
+  const ringAlpha = clamp(
+    0.06 + easedIntensity * 0.14 * (toneWeight[tone] ?? 0.9),
+    0.075,
+    0.26
+  );
   const palette: Record<string, [number, number, number]> = {
-    strong_negative: [170, 58, 68],
-    negative: [203, 96, 105],
-    neutral: [148, 163, 184],
-    positive: [66, 145, 109],
-    strong_positive: [29, 108, 74],
+    strong_negative: [214, 74, 89],
+    negative: [232, 118, 129],
+    neutral: [136, 151, 172],
+    positive: [69, 181, 132],
+    strong_positive: [17, 155, 108],
   };
   const [r, g, b] = palette[tone] ?? palette.neutral;
 
   return {
     backgroundColor,
-    boxShadow: `inset 0 0 0 1px rgba(${r}, ${g}, ${b}, ${ringAlpha.toFixed(3)})`,
+    boxShadow: `inset 0 0 0 1px rgba(${r}, ${g}, ${b}, ${ringAlpha.toFixed(3)}), inset 0 1px 0 rgba(255, 255, 255, 0.18)`,
   };
 }
 

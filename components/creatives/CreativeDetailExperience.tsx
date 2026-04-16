@@ -217,7 +217,6 @@ export function CreativeDetailExperience({
   onDateRangeChange,
 }: CreativeDetailExperienceProps) {
   const language = usePreferencesStore((state) => state.language);
-  const creativeOperatorPreset = usePreferencesStore((state) => state.creativeOperatorPreset);
   const creativeTranslations = getTranslations(language).creativeDetail;
   const [aiInterpretationRequested, setAiInterpretationRequested] = useState(false);
   const livePreviewStageRef = useRef<HTMLDivElement | null>(null);
@@ -536,7 +535,44 @@ export function CreativeDetailExperience({
     };
   }, [canShowHtml, livePreviewSrcDoc]);
 
-  if (!open || !row || !report || !decision || !decisionOsCreative) return null;
+  if (!open || !row) return null;
+
+  if (!report || !decision || !decisionOsCreative) {
+    return (
+      <div className="fixed inset-0 z-[90]">
+        <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => onOpenChange(false)} />
+
+        <div className="absolute inset-2 overflow-hidden rounded-2xl border border-white/20 bg-[#f3f6fa] shadow-2xl md:inset-4">
+          <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur md:px-6">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-900">{row.name}</p>
+              <p className="truncate text-xs text-slate-500">{formatCreativeDateLabel(dateRange)}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close creative detail"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </header>
+
+          <main className="flex h-[calc(100%-64px)] items-center justify-center px-6 py-8">
+            <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white/90 p-6 text-center shadow-sm">
+              <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" aria-hidden="true" />
+              <h2 className="text-base font-semibold text-slate-900">Creative detail is loading</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                The creative opened successfully, but the decision support payload for this row is still loading.
+                Preview, decision, and evidence panels will appear as soon as the supporting data is ready.
+              </p>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[90]">
@@ -570,14 +606,7 @@ export function CreativeDetailExperience({
         </header>
 
         <main
-          className={cn(
-            "grid h-[calc(100%-64px)] grid-cols-1",
-            creativeOperatorPreset === "creative_rich"
-              ? "lg:grid-cols-[minmax(0,1.9fr)_minmax(320px,420px)]"
-              : creativeOperatorPreset === "media_limited"
-                ? "lg:grid-cols-[minmax(0,1.25fr)_minmax(380px,560px)]"
-                : "lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,460px)]",
-          )}
+          className="grid h-[calc(100%-64px)] grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(340px,460px)]"
         >
           <section className="min-h-0 overflow-hidden px-3 py-3 md:px-4 md:py-4">
             <div className="mx-auto flex h-full w-full max-w-[1320px] flex-col">

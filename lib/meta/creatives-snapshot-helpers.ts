@@ -24,6 +24,8 @@ import {
   buildCreativePreviewManifest,
   META_CREATIVES_PREVIEW_CONTRACT_VERSION,
 } from "@/lib/meta/creatives-preview";
+import { resolveAiTagsForRow } from "@/lib/meta/creatives-copy";
+import { normalizeCreativeMetricFields } from "@/lib/meta/creatives-service-support";
 
 export const META_CREATIVES_SNAPSHOT_SCHEMA_VERSION = "creatives_snapshot_v2";
 
@@ -302,19 +304,27 @@ export async function buildSnapshotApiResponse(input: {
   const payload = snapshot.payload as MetaCreativesSnapshotPayload;
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   const hydratedRows = await hydrateRowsWithSnapshotCache(rows, input.businessId, input.enableMediaCache);
-  const previewReadyCount = getPreviewReadyCount(hydratedRows);
-  const previewWaitingCount = getPreviewWaitingCount(hydratedRows);
+  const normalizedRows = hydratedRows.map((row) => ({
+    ...row,
+    ...normalizeCreativeMetricFields(row),
+    ai_tags: resolveAiTagsForRow({
+      ...row,
+      ai_tags: row.ai_tags ?? {},
+    }),
+  }));
+  const previewReadyCount = getPreviewReadyCount(normalizedRows);
+  const previewWaitingCount = getPreviewWaitingCount(normalizedRows);
   const freshness = getMetaCreativesSnapshotFreshness(snapshot.lastSyncedAt);
-  const preview_observability = buildPreviewObservabilityStats(hydratedRows);
+  const preview_observability = buildPreviewObservabilityStats(normalizedRows);
   return {
     status: payload.status ?? "ok",
-    rows: hydratedRows,
+    rows: normalizedRows,
     media_mode: input.mediaMode,
     media_hydrated: payload.media_hydrated ?? snapshot.snapshotLevel === "full",
     preview_contract_version:
       payload.preview_contract_version ?? META_CREATIVES_PREVIEW_CONTRACT_VERSION,
     preview_summary:
-      payload.preview_summary ?? buildMetaCreativesSnapshotPreviewSummary(hydratedRows),
+      payload.preview_summary ?? buildMetaCreativesSnapshotPreviewSummary(normalizedRows),
     snapshot_source: "persisted",
     snapshot_level: snapshot.snapshotLevel,
     last_synced_at: snapshot.lastSyncedAt,

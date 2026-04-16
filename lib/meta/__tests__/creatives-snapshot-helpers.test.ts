@@ -3,6 +3,7 @@ import type { MetaCreativeApiRow } from "@/lib/meta/creatives-types";
 import {
   buildMetaCreativesSnapshotPayload,
   buildMetaCreativesSnapshotTaxonomySummary,
+  buildSnapshotApiResponse,
   evaluateMetaCreativesSnapshotTaxonomyHealth,
   META_CREATIVES_SNAPSHOT_SCHEMA_VERSION,
 } from "@/lib/meta/creatives-snapshot-helpers";
@@ -310,5 +311,86 @@ describe("creatives snapshot taxonomy health", () => {
     expect(health.isTaxonomyStale).toBe(false);
     expect(health.reasonCodes).toEqual([]);
     expect(health.previewSummary.top_rows_needing_card_enrichment).toBe(1);
+  });
+
+  it("rehydrates derived AI tags from persisted snapshot rows", async () => {
+    const snapshotPayload = buildMetaCreativesSnapshotPayload({
+      status: "ok",
+      rows: [
+        buildRow({
+          name: "5 reasons customers switch",
+          copy_text: "Before and after results with free shipping today only.",
+          copy_variants: ["Before and after results with free shipping today only."],
+          headline_variants: ["5 reasons customers switch"],
+          ai_tags: {},
+        }),
+      ],
+      mediaHydrated: false,
+    });
+
+    const response = await buildSnapshotApiResponse({
+      snapshot: {
+        payload: snapshotPayload,
+        lastSyncedAt: "2026-04-16T12:00:00.000Z",
+        snapshotLevel: "metadata",
+        refreshStartedAt: null,
+      } as any,
+      businessId: "biz_1",
+      mediaMode: "metadata",
+      enableMediaCache: false,
+    });
+
+    expect(response?.rows[0]?.ai_tags.assetType).toContain("Static Image");
+    expect(response?.rows[0]?.ai_tags.offerType).toEqual(
+      expect.arrayContaining(["Free Shipping", "Limited Time"])
+    );
+    expect(response?.rows[0]?.ai_tags.headlineTactic).toContain("Number Headline");
+    expect(response?.rows[0]?.ai_tags.hookTactic).toContain("Before/After");
+  });
+
+  it("normalizes persisted catalog commerce metrics before returning snapshot rows", async () => {
+    const snapshotPayload = buildMetaCreativesSnapshotPayload({
+      status: "ok",
+      rows: [
+        buildRow({
+          is_catalog: true,
+          spend: 150,
+          purchases: 3,
+          purchase_value: 0,
+          roas: 4,
+          cpa: 0,
+          cpc_link: 0,
+          cpm: 0,
+          ctr_all: 0,
+          link_clicks: 75,
+          add_to_cart: 15,
+          click_to_atc: 0,
+          atc_to_purchase: 0,
+          impressions: 3000,
+        }),
+      ],
+      mediaHydrated: false,
+    });
+
+    const response = await buildSnapshotApiResponse({
+      snapshot: {
+        payload: snapshotPayload,
+        lastSyncedAt: "2026-04-16T12:00:00.000Z",
+        snapshotLevel: "metadata",
+        refreshStartedAt: null,
+      } as any,
+      businessId: "biz_1",
+      mediaMode: "metadata",
+      enableMediaCache: false,
+    });
+
+    expect(response?.rows[0]?.purchase_value).toBe(600);
+    expect(response?.rows[0]?.roas).toBe(4);
+    expect(response?.rows[0]?.cpa).toBe(50);
+    expect(response?.rows[0]?.cpc_link).toBe(2);
+    expect(response?.rows[0]?.cpm).toBe(50);
+    expect(response?.rows[0]?.ctr_all).toBe(2.5);
+    expect(response?.rows[0]?.click_to_atc).toBe(20);
+    expect(response?.rows[0]?.atc_to_purchase).toBe(20);
   });
 });

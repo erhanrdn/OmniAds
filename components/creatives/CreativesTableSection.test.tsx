@@ -13,7 +13,11 @@ vi.mock("@/components/creatives/CreativeRenderSurface", () => ({
     React.createElement("div", null, `preview:${props.name}`),
 }));
 
-const { CreativesTableSection } = await import("@/components/creatives/CreativesTableSection");
+const {
+  CreativesTableSection,
+  buildCreativeTableHeatBenchmark,
+  evaluateCreativeMetricPreviewHeat,
+} = await import("@/components/creatives/CreativesTableSection");
 
 function buildApiRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
   return {
@@ -257,6 +261,64 @@ function buildDecisionOsRow(rowId: string) {
 }
 
 describe("CreativesTableSection", () => {
+  it("keeps preview heat polarity aligned with table evaluation", () => {
+    const highRoasLowCpa = mapApiRowToUiRow(
+      buildApiRow({
+        id: "ad_high",
+        creative_id: "cr_high",
+        name: "High performer",
+        roas: 6.2,
+        cpa: 18,
+        spend: 300,
+        purchase_value: 1860,
+        purchases: 16,
+      })
+    );
+    const lowRoasHighCpa = mapApiRowToUiRow(
+      buildApiRow({
+        id: "ad_low",
+        creative_id: "cr_low",
+        name: "Low performer",
+        roas: 0.8,
+        cpa: 140,
+        spend: 280,
+        purchase_value: 224,
+        purchases: 2,
+      })
+    );
+
+    const benchmark = buildCreativeTableHeatBenchmark([highRoasLowCpa, lowRoasHighCpa]);
+
+    expect(
+      evaluateCreativeMetricPreviewHeat({
+        metricId: "roas",
+        row: highRoasLowCpa,
+        benchmark,
+      })?.tone
+    ).toMatch(/positive/);
+    expect(
+      evaluateCreativeMetricPreviewHeat({
+        metricId: "roas",
+        row: lowRoasHighCpa,
+        benchmark,
+      })?.tone
+    ).toMatch(/negative/);
+    expect(
+      evaluateCreativeMetricPreviewHeat({
+        metricId: "costPerPurchase",
+        row: highRoasLowCpa,
+        benchmark,
+      })?.tone
+    ).toMatch(/positive/);
+    expect(
+      evaluateCreativeMetricPreviewHeat({
+        metricId: "costPerPurchase",
+        row: lowRoasHighCpa,
+        benchmark,
+      })?.tone
+    ).toMatch(/negative/);
+  });
+
   it("keeps the Creative / Ad Name column free of decision-support copy", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const html = renderToStaticMarkup(
@@ -298,11 +360,112 @@ describe("CreativesTableSection", () => {
     );
 
     expect(html).toContain("Above baseline");
-    expect(html).toContain("In range");
+    expect(html).toContain("Near baseline");
     expect(html).toContain("Below baseline");
-    expect(html).toContain("Deeper tint = larger gap");
+    expect(html).toContain("Stronger tint = larger gap");
     expect(html).not.toContain("Above avg");
     expect(html).not.toContain("Near avg");
     expect(html).not.toContain("Below avg");
+  });
+
+  it("does not render the legacy tags column", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    expect(html).not.toContain("Resize Tags column");
+    expect(html).not.toContain(">Tags<");
+  });
+
+  it("shows ecommerce performance metrics for catalog creatives", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        id: "catalog_1",
+        creative_id: "catalog_creative_1",
+        name: "Catalog Creative",
+        is_catalog: true,
+        format: "catalog",
+        creative_type: "feed_catalog",
+        creative_type_label: "Catalog",
+        creative_delivery_type: "catalog",
+        creative_primary_type: "catalog",
+        creative_primary_label: "Catalog",
+        spend: 120,
+        purchase_value: 480,
+        roas: 4,
+        cpa: 30,
+        impressions: 3000,
+        link_clicks: 90,
+        add_to_cart: 18,
+        purchases: 4,
+        click_to_atc: 20,
+        atc_to_purchase: 22.22,
+      })
+    );
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />
+    );
+
+    expect(html).toContain("Catalog Creative");
+    expect(html).toContain("$480.00");
+    expect(html).toContain("4.00");
+    expect(html).toContain("$30.00");
+    expect(html).not.toContain("Metric is not applicable for this creative format.");
+  });
+
+  it("uses creative-team score columns instead of raw media-buying metrics for the Creative teams preset", () => {
+    const row = mapApiRowToUiRow(
+      buildApiRow({
+        ai_tags: {
+          offerType: ["Discount"],
+          hookTactic: ["Before/After"],
+          messagingAngle: ["Problem Solution"],
+        },
+      }),
+    );
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        initialPresetName="Creative teams"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Hook score");
+    expect(html).toContain("CTA score");
+    expect(html).toContain("Offer score");
+    expect(html).toContain("Conversion fit score");
+    expect(html).toContain("Creative-friendly score view");
+    expect(html).toContain("Focus tags:");
+    expect(html).toContain("Offer Type");
+    expect(html).not.toContain("ROAS (return on ad spend)");
   });
 });

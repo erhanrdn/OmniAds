@@ -11,6 +11,7 @@ import {
   reconcileCreativeTaxonomyWithVideoEvidence,
 } from "@/lib/meta/creative-taxonomy";
 import type {
+  CreativeMetricFields,
   CreativeDebugInfo,
   LegacyPreviewState,
   MetaCreativeApiRow,
@@ -20,7 +21,7 @@ import type {
 } from "@/lib/meta/creatives-types";
 import { isLikelyLowResCreativeUrl, isThumbnailLikeUrl } from "@/lib/meta/creatives-preview";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
-import { normalizeAiTags } from "@/lib/meta/creatives-copy";
+import { resolveAiTagsForRow } from "@/lib/meta/creatives-copy";
 import { r2, resolvePreviewOrigin } from "@/lib/meta/creatives-row-mappers";
 
 type PerfSummary = {
@@ -86,6 +87,35 @@ export function collectUnresolvedCreativeIds(rows: RawCreativeRow[]) {
         .filter((creativeId): creativeId is string => typeof creativeId === "string" && creativeId.trim().length > 0)
     )
   ).slice(0, 50);
+}
+
+export function normalizeCreativeMetricFields<T extends CreativeMetricFields>(row: T) {
+  const spend = Number.isFinite(row.spend) ? Math.max(0, row.spend) : 0;
+  const purchases = Number.isFinite(row.purchases) ? Math.max(0, row.purchases) : 0;
+  const impressions = Number.isFinite(row.impressions) ? Math.max(0, row.impressions) : 0;
+  const linkClicks = Number.isFinite(row.link_clicks) ? Math.max(0, row.link_clicks) : 0;
+  const addToCart = Number.isFinite(row.add_to_cart) ? Math.max(0, row.add_to_cart) : 0;
+  const purchaseValue =
+    Number.isFinite(row.purchase_value) && row.purchase_value > 0 ? row.purchase_value : 0;
+  const roasFallbackValue =
+    Number.isFinite(row.roas) && row.roas > 0 && spend > 0 ? row.roas * spend : 0;
+  const normalizedPurchaseValue = purchaseValue > 0 ? purchaseValue : roasFallbackValue;
+
+  return {
+    spend: r2(spend),
+    purchase_value: r2(normalizedPurchaseValue),
+    roas: r2(spend > 0 ? normalizedPurchaseValue / spend : 0),
+    cpa: r2(purchases > 0 ? spend / purchases : 0),
+    cpc_link: r2(linkClicks > 0 ? spend / linkClicks : 0),
+    cpm: r2(impressions > 0 ? (spend / impressions) * 1000 : 0),
+    ctr_all: r2(impressions > 0 ? (linkClicks / impressions) * 100 : 0),
+    purchases: Math.round(purchases),
+    impressions: Math.round(impressions),
+    link_clicks: Math.round(linkClicks),
+    add_to_cart: Math.round(addToCart),
+    click_to_atc: r2(linkClicks > 0 ? (addToCart / linkClicks) * 100 : 0),
+    atc_to_purchase: r2(addToCart > 0 ? (purchases / addToCart) * 100 : 0),
+  };
 }
 
 export function applyRecoveredCreativeMedia(
@@ -416,7 +446,16 @@ export function buildMetaCreativeApiRow(params: {
     preview: finalPreviewPayload,
     launch_date: row.launch_date,
     tags: row.tags,
-    ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
+    ai_tags: resolveAiTagsForRow({
+      ...row,
+      format: legacyCreativeClassification.format,
+      creative_delivery_type: reconciledCreativeTaxonomy.creative_delivery_type,
+      creative_visual_format: reconciledCreativeTaxonomy.creative_visual_format,
+      creative_primary_type: reconciledCreativeTaxonomy.creative_primary_type,
+      creative_primary_label: reconciledCreativeTaxonomy.creative_primary_label,
+      creative_secondary_type: reconciledCreativeTaxonomy.creative_secondary_type,
+      creative_secondary_label: reconciledCreativeTaxonomy.creative_secondary_label,
+    }),
     format: legacyCreativeClassification.format,
     creative_type: legacyCreativeClassification.creative_type,
     creative_type_label: legacyCreativeClassification.creative_type_label,
@@ -481,6 +520,7 @@ export function buildMetaCreativeApiRowLightweight(params: {
   includeDebugFields: boolean;
 }) {
   const { row, includeDebugFields } = params;
+  const normalizedMetrics = normalizeCreativeMetricFields(row);
   const previewUrl = normalizeMediaUrl(row.preview_url ?? row.preview?.image_url ?? row.preview?.poster_url ?? null);
   const thumbnailUrl = normalizeMediaUrl(
     row.table_thumbnail_url ??
@@ -548,7 +588,7 @@ export function buildMetaCreativeApiRowLightweight(params: {
     preview: row.preview,
     launch_date: row.launch_date,
     tags: row.tags,
-    ai_tags: Object.keys(row.ai_tags).length > 0 ? row.ai_tags : normalizeAiTags(row.tags),
+    ai_tags: resolveAiTagsForRow(row),
     format: row.format,
     creative_type: row.creative_type,
     creative_type_label: row.creative_type_label,
@@ -564,25 +604,25 @@ export function buildMetaCreativeApiRowLightweight(params: {
       row.taxonomy_source ??
       (row.creative_primary_type ? "deterministic" : "legacy_fallback"),
     taxonomy_reconciled_by_video_evidence: row.taxonomy_reconciled_by_video_evidence ?? false,
-    spend: r2(Number(row.spend ?? 0)),
-    purchase_value: r2(Number(row.purchase_value ?? 0)),
-    roas: r2(Number(row.roas ?? 0)),
-    cpa: r2(Number(row.cpa ?? 0)),
-    cpc_link: r2(Number(row.cpc_link ?? 0)),
-    cpm: r2(Number(row.cpm ?? 0)),
-    ctr_all: r2(Number(row.ctr_all ?? 0)),
-    purchases: Math.round(Number(row.purchases ?? 0)),
-    impressions: Math.round(Number(row.impressions ?? 0)),
+    spend: normalizedMetrics.spend,
+    purchase_value: normalizedMetrics.purchase_value,
+    roas: normalizedMetrics.roas,
+    cpa: normalizedMetrics.cpa,
+    cpc_link: normalizedMetrics.cpc_link,
+    cpm: normalizedMetrics.cpm,
+    ctr_all: normalizedMetrics.ctr_all,
+    purchases: normalizedMetrics.purchases,
+    impressions: normalizedMetrics.impressions,
     clicks: Math.round(Number(row.clicks ?? row.link_clicks ?? 0)),
-    link_clicks: Math.round(Number(row.link_clicks ?? 0)),
+    link_clicks: normalizedMetrics.link_clicks,
     landing_page_views: Math.round(Number(row.landing_page_views ?? 0)),
-    add_to_cart: Math.round(Number(row.add_to_cart ?? 0)),
+    add_to_cart: normalizedMetrics.add_to_cart,
     initiate_checkout: Math.round(Number(row.initiate_checkout ?? 0)),
     leads: Math.round(Number(row.leads ?? 0)),
     messages: Math.round(Number(row.messages ?? 0)),
     thumbstop: Number(row.thumbstop ?? 0),
-    click_to_atc: r2(Number(row.click_to_atc ?? 0)),
-    atc_to_purchase: r2(Number(row.atc_to_purchase ?? 0)),
+    click_to_atc: normalizedMetrics.click_to_atc,
+    atc_to_purchase: normalizedMetrics.atc_to_purchase,
     video25: Number(row.video25 ?? 0),
     video50: Number(row.video50 ?? 0),
     video75: Number(row.video75 ?? 0),

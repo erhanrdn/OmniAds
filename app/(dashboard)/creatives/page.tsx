@@ -126,8 +126,6 @@ export default function CreativesPage() {
   const selectedBusinessCurrency =
     businesses.find((business) => business.id === selectedBusinessId)?.currency ?? null;
   const language = usePreferencesStore((state) => state.language);
-  const creativeOperatorPreset = usePreferencesStore((state) => state.creativeOperatorPreset);
-  const setCreativeOperatorPreset = usePreferencesStore((state) => state.setCreativeOperatorPreset);
 
   const domains = useIntegrationsStore((state) =>
     selectedBusinessId ? state.domainsByBusinessId[selectedBusinessId] : undefined
@@ -729,26 +727,6 @@ export default function CreativesPage() {
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">Top Creatives</h1>
-          <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1 text-[11px]">
-            {[
-              ["action_first", "Action-first"],
-              ["creative_rich", "Creative-rich"],
-              ["media_limited", "Media-limited"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setCreativeOperatorPreset(value as typeof creativeOperatorPreset)}
-                className={
-                  creativeOperatorPreset === value
-                    ? "rounded-full bg-slate-900 px-2.5 py-1 font-medium text-white"
-                    : "rounded-full px-2.5 py-1 text-slate-600 hover:bg-slate-50"
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
         <p className="text-sm text-muted-foreground">
           Identify the creatives driving the most spend and revenue across your ad accounts. Analyze performance, spot winners, and scale what works.

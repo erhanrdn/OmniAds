@@ -306,6 +306,36 @@ describe("CreativeDetailExperience", () => {
     mockUseQuery.mockClear();
   });
 
+  it("opens a loading shell when decision support data is not ready yet", () => {
+    const row = mapApiRowToUiRow(buildApiRow({ name: "Loading Creative" }));
+    const html = renderToStaticMarkup(
+      <CreativeDetailExperience
+        businessId="biz"
+        row={row}
+        allRows={[row]}
+        creativeHistoryById={new Map()}
+        decisionOs={null}
+        open
+        notes=""
+        dateRange={{
+          preset: "last30Days",
+          customStart: "2026-04-01",
+          customEnd: "2026-04-10",
+          lastDays: 30,
+          sinceDate: "",
+        }}
+        defaultCurrency="USD"
+        onOpenChange={() => {}}
+        onNotesChange={() => {}}
+        onDateRangeChange={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Loading Creative");
+    expect(html).toContain("Creative detail is loading");
+    expect(html).toContain("decision support payload");
+  });
+
   it("treats missing preview truth as the gate and keeps AI commentary bounded", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const html = renderToStaticMarkup(

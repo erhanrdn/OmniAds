@@ -34,6 +34,7 @@ vi.mock("@/lib/meta/creatives-snapshot-helpers", async () => {
 
 const snapshotStore = await import("@/lib/meta-creatives-snapshot");
 const snapshotHelpers = await import("@/lib/meta/creatives-snapshot-helpers");
+const creativesFetchers = await import("@/lib/meta/creatives-fetchers");
 
 function buildRow(overrides: Partial<MetaCreativeApiRow> = {}): MetaCreativeApiRow {
   return {
@@ -355,6 +356,35 @@ describe("buildCreativesResponse snapshot freshness", () => {
     expect(snapshotHelpers.triggerSnapshotRefresh).toHaveBeenCalledTimes(1);
   });
 
+  it("bypasses snapshots with catalog purchases but no revenue signal", async () => {
+    vi.mocked(snapshotStore.getMetaCreativesSnapshot).mockResolvedValue(
+      buildSnapshotRecord({
+        payload: buildMetaCreativesSnapshotPayload({
+          status: "ok",
+          rows: [
+            buildRow({
+              is_catalog: true,
+              spend: 140,
+              purchases: 2,
+              purchase_value: 0,
+              roas: 0,
+              cpa: 0,
+            }),
+          ],
+          mediaHydrated: false,
+        }),
+      })
+    );
+
+    const response = await buildCreativesResponse(
+      buildQuery(),
+      new NextRequest("http://localhost/api/meta/creatives?businessId=biz")
+    );
+
+    expect(response.status).toBe("no_data");
+    expect(snapshotHelpers.triggerSnapshotRefresh).toHaveBeenCalledTimes(1);
+  });
+
   it("does not persist metadata over an existing full preview snapshot", async () => {
     vi.mocked(snapshotStore.getMetaCreativesSnapshot).mockResolvedValue(
       buildSnapshotRecord({
@@ -376,5 +406,107 @@ describe("buildCreativesResponse snapshot freshness", () => {
 
     expect(response.status).toBe("no_data");
     expect(snapshotStore.persistMetaCreativesSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("uses direct creative basics fallback in metadata mode when batch ads miss creative payload", async () => {
+    vi.mocked(snapshotStore.persistMetaCreativesSnapshot).mockResolvedValue(undefined);
+    vi.spyOn(creativesFetchers, "fetchAccountInsights").mockResolvedValue([
+      {
+        ad_id: "ad_1",
+        ad_name: "Advantage+ catalog",
+        adset_id: "adset_1",
+        adset_name: "Ad Set 1",
+        campaign_id: "cmp_1",
+        campaign_name: "Campaign 1",
+        spend: "120",
+        impressions: "1000",
+        clicks: "80",
+        ctr: "8",
+        cpm: "120",
+        cpc: "1.5",
+        inline_link_clicks: "80",
+        date_start: "2026-03-01",
+        actions: [
+          { action_type: "purchase", value: "4" },
+          { action_type: "link_click", value: "80" },
+          { action_type: "landing_page_view", value: "70" },
+          { action_type: "add_to_cart", value: "10" },
+        ],
+        action_values: [{ action_type: "purchase", value: "480" }],
+        purchase_roas: [{ action_type: "purchase", value: "4" }],
+      },
+    ]);
+    vi.spyOn(creativesFetchers, "fetchAccountMeta").mockResolvedValue({
+      id: "act_1",
+      name: "Main",
+      currency: "USD",
+    });
+    vi.spyOn(creativesFetchers, "batchFetchAdsByIds").mockResolvedValue(
+      new Map([
+        [
+          "ad_1",
+          {
+            id: "ad_1",
+            name: "Advantage+ catalog",
+            adset_id: "adset_1",
+            adset: { id: "adset_1", name: "Ad Set 1" },
+            creative: null,
+          },
+        ],
+      ])
+    );
+    const basicsSpy = vi.spyOn(creativesFetchers, "fetchAdCreativeBasicsByAdIds").mockResolvedValue(
+      new Map([
+        [
+          "ad_1",
+          {
+            id: "ad_1",
+            name: "Advantage+ catalog",
+            adset_id: "adset_1",
+            adset: { id: "adset_1", name: "Ad Set 1" },
+            creative: {
+              id: "cr_1",
+              name: "{{product.name}} catalog creative",
+              object_type: "SHARE",
+              object_story_spec: {
+                template_data: {
+                  link: "https://example.com",
+                  name: "{{product.name}}",
+                },
+              },
+            },
+          },
+        ],
+      ])
+    );
+    vi.spyOn(creativesFetchers, "fetchAdImageUrlMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchVideoSourceMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchCreativeThumbnailMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchCreativeDetailsMap").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchAdCreativeMediaByAdIds").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchAdCreativeMediaDirectByAdIds").mockResolvedValue(new Map());
+    vi.spyOn(creativesFetchers, "fetchCreativeDetailPreviewHtml").mockResolvedValue(null);
+
+    const response = await buildCreativesResponse(
+      {
+        ...buildQuery(),
+        snapshotBypass: true,
+        assignedAccountIds: ["act_1"],
+      },
+      new NextRequest("http://localhost/api/meta/creatives?businessId=biz&snapshotBypass=1")
+    );
+
+    expect(basicsSpy).toHaveBeenCalledWith(["ad_1"], "token");
+    expect(response.status).toBe("ok");
+    expect(response.snapshot_source).toBe("live");
+    expect(response.rows[0]).toMatchObject({
+      name: "Advantage+ catalog",
+      is_catalog: true,
+      format: "catalog",
+      creative_delivery_type: "catalog",
+      creative_primary_type: "catalog",
+    });
+    expect(response.rows[0]?.ai_tags?.assetType).toEqual(["Catalog"]);
+    expect(response.rows[0]?.ai_tags?.visualFormat).toEqual(["Catalog"]);
   });
 });

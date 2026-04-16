@@ -284,6 +284,26 @@ export function hasSuspiciousMissingFunnelMetrics(rows: { link_clicks: number; p
   return totals.linkClicks > 0 && totals.purchases > 0 && totals.landingPageViews === 0 && totals.initiateCheckout === 0;
 }
 
+export function hasSuspiciousMissingCatalogRevenueMetrics(
+  rows: Array<{
+    is_catalog: boolean;
+    spend: number;
+    purchases: number;
+    purchase_value: number;
+    roas: number;
+  }>
+): boolean {
+  if (!Array.isArray(rows) || rows.length === 0) return false;
+  return rows.some(
+    (row) =>
+      row.is_catalog &&
+      row.spend > 0 &&
+      row.purchases > 0 &&
+      row.purchase_value <= 0 &&
+      row.roas <= 0
+  );
+}
+
 export function resolvePreviewOrigin(input: {
   cachedThumbnailUrl: string | null;
   finalPreviewUrl: string | null;

@@ -46,11 +46,15 @@ import {
   normalizeRange,
   prettyFieldLabel,
   prettyOperatorLabel,
-  resolveAverageHeatColor,
   resolveCreativeDateRange,
   selectCalendarDate,
   standardDateRangeToCreative,
 } from "@/components/creatives/creatives-top-section-support";
+import { toHeatCellStyle } from "@/components/creatives/creatives-table-support";
+import {
+  buildCreativeTableHeatBenchmark,
+  evaluateCreativeMetricPreviewHeat,
+} from "@/components/creatives/CreativesTableSection";
 import { DateRangePicker } from "@/components/date-range/DateRangePicker";
 import { cn } from "@/lib/utils";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
@@ -1305,22 +1309,20 @@ function PreviewStrip({
 }) {
   const context = useMemo<CreativeMetricContext>(
     () => ({
-      totalSpend: rows.reduce((sum, row) => sum + row.spend, 0),
-      totalPurchaseValue: rows.reduce((sum, row) => sum + row.purchaseValue, 0),
+      totalSpend: (allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows).reduce((sum, row) => sum + row.spend, 0),
+      totalPurchaseValue: (allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows).reduce(
+        (sum, row) => sum + row.purchaseValue,
+        0
+      ),
     }),
-    [rows]
+    [allRowsForHeatmap, rows]
   );
 
-  const metricAverages = useMemo(() => {
-    return metrics.reduce<Record<string, number>>((acc, metric) => {
-      const sourceRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
-      const values = sourceRows
-        .map((row) => metric.getValue(row, context))
-        .filter((value) => Number.isFinite(value));
-      acc[metric.id] = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-      return acc;
-    }, {});
-  }, [allRowsForHeatmap, context, metrics, rows]);
+  const heatBenchmarkRows = allRowsForHeatmap.length > 0 ? allRowsForHeatmap : rows;
+  const heatBenchmark = useMemo(
+    () => buildCreativeTableHeatBenchmark(heatBenchmarkRows),
+    [heatBenchmarkRows]
+  );
 
   const rowSignature = useMemo(() => rows.map((row) => row.id).join("|"), [rows]);
   const [unlockedPreviewCount, setUnlockedPreviewCount] = useState(
@@ -1497,15 +1499,20 @@ function PreviewStrip({
                 <div className="mt-2 space-y-0.5">
                   {metrics.map((metric) => {
                     const value = metric.getValue(row, context);
-                    const average = metricAverages[metric.id] ?? value;
-                    const heat = resolveAverageHeatColor(metric.direction, value, average);
+                    const evaluation = evaluateCreativeMetricPreviewHeat({
+                      metricId: metric.id,
+                      row,
+                      benchmark: heatBenchmark,
+                    });
+                    const heatStyle = evaluation ? toHeatCellStyle(evaluation.tone, evaluation.intensity) : undefined;
 
                     return (
                       <div key={metric.id} className="flex items-center justify-between gap-2 text-[11px]">
                         <p className="truncate text-muted-foreground">{metric.label}</p>
                         <span
                           className="rounded-full px-1.5 py-0.5 font-semibold tabular-nums"
-                          style={{ backgroundColor: heat }}
+                          style={heatStyle}
+                          title={evaluation?.reason}
                         >
                           {metric.format(value, resolvedRowCurrency, defaultCurrency)}
                         </span>

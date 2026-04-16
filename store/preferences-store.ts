@@ -24,7 +24,6 @@ interface PreferencesState {
   tableDensity: TableDensityPreference;
   heatmapEnabled: boolean;
   metaOperatorPreset: OperatorSurfacePreset;
-  creativeOperatorPreset: OperatorSurfacePreset;
   overviewPinsByContext: Record<string, string[]>;
   // Persistent date range selections per surface
   dashboardDateRange: DateRangeValue | null;
@@ -41,7 +40,6 @@ interface PreferencesState {
   setTableDensity: (value: TableDensityPreference) => void;
   setHeatmapEnabled: (value: boolean) => void;
   setMetaOperatorPreset: (value: OperatorSurfacePreset) => void;
-  setCreativeOperatorPreset: (value: OperatorSurfacePreset) => void;
   setOverviewPins: (contextKey: string, metrics: string[]) => void;
   pinOverviewMetric: (contextKey: string, metricKey: string) => void;
   unpinOverviewMetric: (contextKey: string, metricKey: string) => void;
@@ -58,7 +56,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       tableDensity: "comfortable",
       heatmapEnabled: true,
       metaOperatorPreset: "action_first",
-      creativeOperatorPreset: "action_first",
       overviewPinsByContext: {},
       dashboardDateRange: null,
       metaDateRange: null,
@@ -77,7 +74,6 @@ export const usePreferencesStore = create<PreferencesState>()(
       setTableDensity: (value) => set({ tableDensity: value }),
       setHeatmapEnabled: (value) => set({ heatmapEnabled: value }),
       setMetaOperatorPreset: (value) => set({ metaOperatorPreset: value }),
-      setCreativeOperatorPreset: (value) => set({ creativeOperatorPreset: value }),
       setOverviewPins: (contextKey, metrics) =>
         set((state) => ({
           overviewPinsByContext: {

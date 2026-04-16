@@ -40,6 +40,22 @@ describe("classifyMetaCreative", () => {
     expect(taxonomy.creative_primary_type).toBe("catalog");
   });
 
+  it("detects catalog from asset feed catalog signals alone", () => {
+    const taxonomy = classifyMetaCreative({
+      creative: {
+        asset_feed_spec: {
+          catalog_id: "cat_1",
+          product_set_id: "ps_1",
+          images: [{ hash: "img_hash_1" }],
+        },
+      } as never,
+      promotedObject: null,
+    });
+
+    expect(taxonomy.creative_delivery_type).toBe("catalog");
+    expect(taxonomy.creative_primary_type).toBe("catalog");
+  });
+
   it("detects carousel from child attachments", () => {
     const taxonomy = classifyMetaCreative({
       creative: {
