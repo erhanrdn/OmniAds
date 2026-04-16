@@ -54,8 +54,9 @@ const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 const DEFAULT_CONSUME_LEASE_MINUTES = 10;
-const DEFAULT_CONSUME_MAX_PASSES = 6;
+const DEFAULT_CONSUME_MAX_PASSES = 40;
 const DEFAULT_CONSUME_MAX_DELAY_MS = 2_000;
+const DEFAULT_CONSUME_MAX_DURATION_MS = 120_000;
 
 type CanaryEvidence = {
   businessId: string;
@@ -667,6 +668,7 @@ async function executeRecommendation(input: {
 
     try {
       const passResults: unknown[] = [];
+      const consumeStartedAt = Date.now();
       let consumeResult = await consumeMetaQueuedWork(input.businessId, {
         runtimeWorkerId: workerId,
       });
@@ -679,7 +681,8 @@ async function executeRecommendation(input: {
         let pass = 2;
         pass <= DEFAULT_CONSUME_MAX_PASSES &&
         consumeResult.hasPendingWork &&
-        consumeResult.hasForwardProgress;
+        consumeResult.hasForwardProgress &&
+        Date.now() - consumeStartedAt < DEFAULT_CONSUME_MAX_DURATION_MS;
         pass += 1
       ) {
         const delayMs = Math.max(
@@ -691,6 +694,9 @@ async function executeRecommendation(input: {
         );
         if (delayMs > 0) {
           await sleep(delayMs);
+        }
+        if (Date.now() - consumeStartedAt >= DEFAULT_CONSUME_MAX_DURATION_MS) {
+          break;
         }
         consumeResult = await consumeMetaQueuedWork(input.businessId, {
           runtimeWorkerId: workerId,
