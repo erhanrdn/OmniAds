@@ -137,6 +137,37 @@ describe("deriveProviderActivityState", () => {
     ).toBe("busy");
   });
 
+  it("keeps active backlog busy when recent advancement is present", () => {
+    const recent = new Date(Date.now() - 3 * 60_000).toISOString();
+    const progressState = deriveProviderProgressState({
+      queueDepth: 6,
+      leasedPartitions: 1,
+      checkpointLagMinutes: 2,
+      latestPartitionActivityAt: recent,
+      blocked: false,
+      fullyReady: true,
+      progressEvidence: {
+        lastCheckpointAdvancedAt: recent,
+        lastReadyThroughAdvancedAt: recent,
+        lastCompletedAt: recent,
+        backlogDelta: -3,
+        completedPartitionDelta: 2,
+        lastReplayAt: null,
+        lastReclaimAt: null,
+        recentActivityWindowMinutes: 20,
+      },
+    });
+
+    expect(progressState).toBe("syncing");
+    expect(
+      deriveProviderActivityState({
+        progressState,
+        queueDepth: 6,
+        leasedPartitions: 1,
+      }),
+    ).toBe("busy");
+  });
+
   it("separates waiting from stalled backlog", () => {
     expect(
       deriveProviderActivityState({

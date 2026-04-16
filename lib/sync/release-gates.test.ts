@@ -338,6 +338,152 @@ describe("sync release gates", () => {
     expect(verdict.gateScope).toBe("release_readiness");
   });
 
+  it("passes release gate when backlog is active but truth is ready and activity is busy", async () => {
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue({
+      businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+      businessName: "TheSwaf",
+      capturedAt: "2026-04-15T00:00:00.000Z",
+      windows: {
+        recent: { startDate: "2026-04-09", endDate: "2026-04-15", totalDays: 7 },
+        priority: { startDate: "2026-04-13", endDate: "2026-04-15", totalDays: 3 },
+        recentWindowMinutes: 15,
+      },
+      latestSync: null,
+      operator: {
+        progressState: "syncing",
+        activityState: "busy",
+        stallFingerprints: [],
+        repairBacklog: 0,
+        validationFailures24h: 0,
+        lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
+        d1FinalizeNonTerminalCount: 0,
+        workerOnline: true,
+        workerLastHeartbeatAt: "2026-04-15T00:00:00.000Z",
+        dbConstraint: null,
+        dbBacklogState: null,
+      },
+      queue: {
+        queueDepth: 6,
+        leasedPartitions: 1,
+        retryableFailedPartitions: 0,
+        deadLetterPartitions: 0,
+        staleLeasePartitions: 0,
+        oldestQueuedPartition: null,
+        latestActivityAt: "2026-04-15T00:00:00.000Z",
+        pendingByLane: {},
+        pendingByScope: {},
+        laneSourceStatusCounts: [],
+        laneScopeStatusCounts: [],
+      },
+      userFacing: {
+        recentCore: {
+          summary: {
+            completedDays: 7,
+            totalDays: 7,
+            readyThroughDate: "2026-04-15",
+            percent: 100,
+            complete: true,
+          },
+          campaigns: {
+            completedDays: 7,
+            totalDays: 7,
+            readyThroughDate: "2026-04-15",
+            percent: 100,
+            complete: true,
+          },
+          percent: 100,
+          complete: true,
+          readyThroughDate: "2026-04-15",
+        },
+        recentExtended: {
+          adsets: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
+          creatives: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
+          ads: { completedDays: 7, totalDays: 7, readyThroughDate: "2026-04-15", percent: 100, complete: true },
+        },
+        recentSelectedRangeTruth: {
+          startDate: "2026-04-09",
+          endDate: "2026-04-15",
+          totalDays: 7,
+          completedCoreDays: 7,
+          percent: 100,
+          truthReady: true,
+          state: "finalized_verified",
+          verificationState: "finalized_verified",
+          blockingReasons: [],
+          detectorReasonCodes: [],
+          asOf: "2026-04-15T00:00:00.000Z",
+        },
+        priorityWindowTruth: {
+          startDate: "2026-04-13",
+          endDate: "2026-04-15",
+          totalDays: 3,
+          completedCoreDays: 3,
+          percent: 100,
+          truthReady: true,
+          state: "finalized_verified",
+          verificationState: "finalized_verified",
+          blockingReasons: [],
+          detectorReasonCodes: [],
+          asOf: "2026-04-15T00:00:00.000Z",
+        },
+      },
+      syncState: {
+        lastCheckpointUpdatedAt: "2026-04-15T00:00:00.000Z",
+        readyThroughDates: {
+          account_daily: "2026-04-15",
+          campaign_daily: "2026-04-15",
+        },
+      },
+      velocity: {
+        completedLastWindow: 6,
+        cancelledLastWindow: 0,
+        deadLetteredLastWindow: 0,
+        createdLastWindow: 2,
+        failedLastWindow: 0,
+        reclaimedLastWindow: 0,
+        skippedActiveLeaseLastWindow: 0,
+        netDrainEstimate: 4,
+        drainState: "large_but_draining",
+      },
+      counters: {
+        totalSucceeded: 12,
+        totalCancelled: 0,
+        totalDeadLettered: 0,
+        totalPartitions: 6,
+      },
+      authoritative: {
+        publishedProgression: 1,
+        repairBacklog: 0,
+        validationFailures24h: 0,
+        d1SlaBreaches: 0,
+        lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
+      },
+    } as never);
+
+    const verdict = await releaseGates.evaluateReleaseGate({ persist: false });
+
+    expect(verdict.baseResult).toBe("pass");
+    expect(verdict.verdict).toBe("pass");
+    expect(verdict.blockerClass).toBeNull();
+    expect(verdict.gateScope).toBe("release_readiness");
+    expect(verdict.evidence).toMatchObject({
+      canaries: [
+        expect.objectContaining({
+          pass: true,
+          blockerClass: "none",
+          evidence: expect.objectContaining({
+            queueDepth: 6,
+            activityState: "busy",
+            truthReady: true,
+            recentTruthState: "finalized_verified",
+            priorityTruthState: "finalized_verified",
+          }),
+        }),
+      ],
+    });
+  });
+
   it("enforces only blocked or misconfigured verdicts", () => {
     expect(
       releaseGates.shouldEnforceSyncGateFailure([
