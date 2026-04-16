@@ -462,6 +462,9 @@ jobs:
               log "Pulling exact SHA images"
               docker compose pull web worker
 
+              log "Stopping worker before migrations to reduce DB contention"
+              docker compose stop worker || true
+
               log "Running migrations for ${DEPLOY_SHA}"
               run_migrations_service
 
