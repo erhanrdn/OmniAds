@@ -12,9 +12,18 @@ import {
   replayMetaDeadLetterPartitions,
 } from "@/lib/meta/warehouse";
 import { getCurrentRuntimeBuildId } from "@/lib/build-runtime";
-import { enqueueMetaScheduledWork, refreshMetaSyncStateForBusiness } from "@/lib/sync/meta-sync";
+import {
+  consumeMetaQueuedWork,
+  enqueueMetaScheduledWork,
+  refreshMetaSyncStateForBusiness,
+} from "@/lib/sync/meta-sync";
 import { cleanupMetaPartitionOrchestration } from "@/lib/meta/warehouse";
 import { releaseProviderJobLock, acquireProviderJobLock, renewProviderJobLock } from "@/lib/sync/provider-job-lock";
+import {
+  acquireSyncRunnerLease,
+  releaseSyncRunnerLease,
+  renewSyncRunnerLease,
+} from "@/lib/sync/worker-health";
 import { evaluateAndPersistSyncRepairPlan, getSyncRepairPlanById, type SyncRepairRecommendation } from "@/lib/sync/repair-planner";
 import {
   createSyncRepairExecution,
@@ -44,6 +53,7 @@ const DEFAULT_LOCK_MINUTES = 10;
 const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
+const DEFAULT_CONSUME_LEASE_MINUTES = 10;
 
 type CanaryEvidence = {
   businessId: string;
@@ -158,6 +168,13 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
 
 function toSafeJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
+}
+
+function buildRemediationConsumeWorkerId(input: {
+  workflowRunId?: string | null;
+  businessId: string;
+}) {
+  return `meta-remediation:${input.workflowRunId ?? "manual"}:${input.businessId}`;
 }
 
 function getVerificationSurfaceState(
@@ -608,23 +625,94 @@ async function collectBusinessEvidence(businessId: string) {
 async function executeRecommendation(input: {
   businessId: string;
   recommendation: SyncRepairRecommendation;
+  workflowRunId?: string | null;
 }) {
+  const consumeQueuedWork = async () => {
+    const workerId = buildRemediationConsumeWorkerId({
+      workflowRunId: input.workflowRunId,
+      businessId: input.businessId,
+    });
+    const leaseMinutes = DEFAULT_CONSUME_LEASE_MINUTES;
+    const leaseAcquired = await acquireSyncRunnerLease({
+      businessId: input.businessId,
+      providerScope: "meta",
+      leaseOwner: workerId,
+      leaseMinutes,
+    }).catch(() => false);
+    if (!leaseAcquired) {
+      return {
+        leaseAcquired: false,
+        workerId,
+        reason: "runner_lease_unavailable",
+      } as const;
+    }
+
+    let renewalStopped = false;
+    let renewalInFlight: Promise<void> | null = null;
+    const renewalIntervalMs = Math.max(
+      10_000,
+      Math.floor((leaseMinutes * 60_000) / 2),
+    );
+    const renewalTimer = setInterval(() => {
+      if (renewalStopped) return;
+      renewalInFlight = renewSyncRunnerLease({
+        businessId: input.businessId,
+        providerScope: "meta",
+        leaseOwner: workerId,
+        leaseMinutes,
+      }).then(() => undefined, () => undefined);
+    }, renewalIntervalMs);
+
+    try {
+      const consumeResult = await consumeMetaQueuedWork(input.businessId, {
+        runtimeWorkerId: workerId,
+      });
+      return {
+        leaseAcquired: true,
+        workerId,
+        consumeResult: toSafeJson(consumeResult),
+      } as const;
+    } finally {
+      renewalStopped = true;
+      clearInterval(renewalTimer);
+      const pendingRenewal: Promise<void> | null = renewalInFlight;
+      if (pendingRenewal) {
+        await pendingRenewal;
+      }
+      await releaseSyncRunnerLease({
+        businessId: input.businessId,
+        providerScope: "meta",
+        leaseOwner: workerId,
+      }).catch(() => null);
+    }
+  };
+
   switch (input.recommendation.recommendedAction) {
-    case "integrity_repair_enqueue":
+    case "integrity_repair_enqueue": {
+      const repair = await runMetaRepairCycle(input.businessId, {
+        enqueueScheduledWork: true,
+        queueWarehouseRepairs: true,
+      });
+      const consume = await consumeQueuedWork();
       return {
         executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: toSafeJson(
-          await runMetaRepairCycle(input.businessId, {
-            enqueueScheduledWork: true,
-            queueWarehouseRepairs: true,
-          }),
-        ),
+        result: toSafeJson({
+          repair,
+          consume,
+        }),
       };
-    case "reschedule":
+    }
+    case "reschedule": {
+      const scheduled = await enqueueMetaScheduledWork(input.businessId);
+      const consume = await consumeQueuedWork();
       return {
         executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: toSafeJson(await enqueueMetaScheduledWork(input.businessId)),
+        result: toSafeJson({
+          scheduled,
+          consume,
+        }),
       };
+    }
     case "refresh_state":
       await refreshMetaSyncStateForBusiness({ businessId: input.businessId });
       return {
@@ -637,11 +725,13 @@ async function executeRecommendation(input: {
         sources: null,
       });
       const scheduled = await enqueueMetaScheduledWork(input.businessId);
+      const consume = await consumeQueuedWork();
       return {
         executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
         result: toSafeJson({
           replayed,
           scheduled,
+          consume,
         }),
       };
     }
@@ -655,12 +745,16 @@ async function executeRecommendation(input: {
       const scheduled = (queueHealth?.queueDepth ?? 0) > 0
         ? await enqueueMetaScheduledWork(input.businessId)
         : null;
+      const consume = (queueHealth?.queueDepth ?? 0) > 0
+        ? await consumeQueuedWork()
+        : null;
       return {
         executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
         result: toSafeJson({
           cleanup,
           queueHealth,
           scheduled,
+          consume,
         }),
       };
     }
@@ -859,6 +953,7 @@ export async function runMetaCanaryRemediation(input: {
         executeRecommendation({
           businessId: recommendation.businessId,
           recommendation,
+          workflowRunId: input.workflowRunId ?? null,
         }),
         DEFAULT_ACTION_TIMEOUT_MS,
         `remediation action for ${recommendation.businessId}`,

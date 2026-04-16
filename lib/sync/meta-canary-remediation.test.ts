@@ -27,8 +27,15 @@ vi.mock("@/lib/meta/authoritative-ops", () => ({
 }));
 
 vi.mock("@/lib/sync/meta-sync", () => ({
+  consumeMetaQueuedWork: vi.fn(),
   enqueueMetaScheduledWork: vi.fn(),
   refreshMetaSyncStateForBusiness: vi.fn(),
+}));
+
+vi.mock("@/lib/sync/worker-health", () => ({
+  acquireSyncRunnerLease: vi.fn(),
+  renewSyncRunnerLease: vi.fn(),
+  releaseSyncRunnerLease: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/provider-job-lock", () => ({
@@ -74,6 +81,7 @@ const repairPlanner = await import("@/lib/sync/repair-planner");
 const remediationExecutions = await import("@/lib/sync/remediation-executions");
 const releaseGates = await import("@/lib/sync/release-gates");
 const repairEngine = await import("@/lib/sync/provider-repair-engine");
+const workerHealth = await import("@/lib/sync/worker-health");
 const remediation = await import("@/lib/sync/meta-canary-remediation");
 
 function makeSnapshot(input?: {
@@ -309,7 +317,19 @@ describe("meta canary remediation", () => {
     vi.mocked(warehouse.replayMetaDeadLetterPartitions).mockResolvedValue({ replayed: 1 } as never);
     vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({ queueDepth: 0 } as never);
     vi.mocked(metaSync.enqueueMetaScheduledWork).mockResolvedValue({ queued: true } as never);
+    vi.mocked(metaSync.consumeMetaQueuedWork).mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+      hasPendingWork: false,
+      hasForwardProgress: true,
+    } as never);
     vi.mocked(metaSync.refreshMetaSyncStateForBusiness).mockResolvedValue(undefined);
+    vi.mocked(workerHealth.acquireSyncRunnerLease).mockResolvedValue(true);
+    vi.mocked(workerHealth.renewSyncRunnerLease).mockResolvedValue(true);
+    vi.mocked(workerHealth.releaseSyncRunnerLease).mockResolvedValue(true as never);
   });
 
   afterEach(() => {
@@ -421,6 +441,20 @@ describe("meta canary remediation", () => {
     expect(repairEngine.runMetaRepairCycle).toHaveBeenCalledWith("biz-1", {
       enqueueScheduledWork: true,
       queueWarehouseRepairs: true,
+    });
+    expect(workerHealth.acquireSyncRunnerLease).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      providerScope: "meta",
+      leaseOwner: "meta-remediation:run-1:biz-1",
+      leaseMinutes: 10,
+    });
+    expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalledWith("biz-1", {
+      runtimeWorkerId: "meta-remediation:run-1:biz-1",
+    });
+    expect(workerHealth.releaseSyncRunnerLease).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      providerScope: "meta",
+      leaseOwner: "meta-remediation:run-1:biz-1",
     });
     expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
       "exec-1",
