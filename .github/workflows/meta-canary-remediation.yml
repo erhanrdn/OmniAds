@@ -101,7 +101,21 @@ jobs:
               rm -f "${response_file}"
               printf '%s\n' "${response_json}" >&2
 
-              RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 -c 'import json, os, sys; status=int(os.environ["HTTP_STATUS"]); payload=json.loads(os.environ["RESPONSE_JSON"] or "{}"); sys.exit(0 if status == 200 and payload.get("ok") is True else 1)'
+              classification="$(
+                RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 -c 'import json, os; status = int(os.environ["HTTP_STATUS"]); payload = json.loads(os.environ["RESPONSE_JSON"] or "{}"); error = (payload.get("error") or "").strip(); print("ok" if status == 200 and payload.get("ok") is True else "retryable" if error in {"gate_evaluation_failed", "repair_plan_failed"} or status in {500, 503} else "fatal")'
+              )"
+
+              case "${classification}" in
+                ok)
+                  return 0
+                  ;;
+                retryable)
+                  return 2
+                  ;;
+                *)
+                  return 1
+                  ;;
+              esac
             }
 
             attempts=15
@@ -110,14 +124,16 @@ jobs:
             for attempt in $(seq 1 "${attempts}"); do
               build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info)"
 
-              if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD_ID="${EXPECTED_BUILD_ID}" python3 -c 'import json, os, sys; payload = json.loads(os.environ["BUILD_INFO_JSON"]); expected = os.environ["EXPECTED_BUILD_ID"].strip(); identity = payload.get("controlPlaneIdentity") or {}; sys.exit(0 if ((payload.get("buildId") or "").strip() == expected and (identity.get("buildId") or "").strip() == expected and ((payload.get("controlPlanePersistence") or {}).get("exactRowsPresent")) is True) else 1)'
+              if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD_ID="${EXPECTED_BUILD_ID}" python3 -c 'import json, os, sys; payload = json.loads(os.environ["BUILD_INFO_JSON"]); expected = os.environ["EXPECTED_BUILD_ID"].strip(); identity = payload.get("controlPlaneIdentity") or {}; deploy_gate = payload.get("deployGate") or {}; repair_plan = payload.get("repairPlan") or {}; sys.exit(0 if ((payload.get("buildId") or "").strip() == expected and (identity.get("buildId") or "").strip() == expected and ((payload.get("controlPlanePersistence") or {}).get("exactRowsPresent")) is True and (deploy_gate.get("verdict") or "").strip() == "pass" and repair_plan.get("eligible") is True) else 1)'
               then
                 printf '%s\n' "${build_info_json}"
                 exit 0
               fi
 
-              if [ "${attempt}" -eq 1 ]; then
-                persist_current_build_control_plane
+              persist_status=0
+              persist_current_build_control_plane || persist_status=$?
+              if [ "${persist_status}" -eq 1 ]; then
+                exit 1
               fi
 
               if [ "${attempt}" -lt "${attempts}" ]; then
