@@ -568,6 +568,64 @@ describe("meta canary remediation", () => {
     expect(result.executions[0]?.outcomeClassification).toBe("cleared");
   });
 
+  it("scales remediation consume budget for businesses with multiple Meta accounts", async () => {
+    vi.mocked(providerAccountAssignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1", "act_2"],
+    } as never);
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot)
+      .mockResolvedValueOnce(makeSnapshot())
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          queueDepth: 0,
+          recentPercent: 100,
+          priorityPercent: 100,
+          lastSuccessfulPublishAt: "2026-04-15T12:00:31.000Z",
+          pass: true,
+          truthReady: true,
+          activityState: "busy",
+          progressState: "syncing",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          queueDepth: 0,
+          recentPercent: 100,
+          priorityPercent: 100,
+          lastSuccessfulPublishAt: "2026-04-15T12:00:31.000Z",
+          pass: true,
+          truthReady: true,
+          activityState: "busy",
+          progressState: "syncing",
+        }),
+      );
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.runAllTimersAsync();
+    await runPromise;
+
+    expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
+      "exec-1",
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          consume: expect.objectContaining({
+            budget: expect.objectContaining({
+              providerAccountCount: 2,
+              consumeMaxPasses: 160,
+              consumeDurationMs: 15 * 60_000,
+              actionTimeoutMs: 20 * 60_000,
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("passes proof mode without clearance when the audit chain is intact but the business does not improve", async () => {
     vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue(makeSnapshot());
     vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
