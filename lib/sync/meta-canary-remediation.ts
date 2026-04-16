@@ -54,6 +54,8 @@ const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 const DEFAULT_CONSUME_LEASE_MINUTES = 10;
+const DEFAULT_CONSUME_MAX_PASSES = 6;
+const DEFAULT_CONSUME_MAX_DELAY_MS = 2_000;
 
 type CanaryEvidence = {
   businessId: string;
@@ -664,12 +666,46 @@ async function executeRecommendation(input: {
     }, renewalIntervalMs);
 
     try {
-      const consumeResult = await consumeMetaQueuedWork(input.businessId, {
+      const passResults: unknown[] = [];
+      let consumeResult = await consumeMetaQueuedWork(input.businessId, {
         runtimeWorkerId: workerId,
       });
+      passResults.push({
+        pass: 1,
+        result: toSafeJson(consumeResult),
+      });
+
+      for (
+        let pass = 2;
+        pass <= DEFAULT_CONSUME_MAX_PASSES &&
+        consumeResult.hasPendingWork &&
+        consumeResult.hasForwardProgress;
+        pass += 1
+      ) {
+        const delayMs = Math.max(
+          0,
+          Math.min(
+            consumeResult.nextDelayMs ?? 0,
+            DEFAULT_CONSUME_MAX_DELAY_MS,
+          ),
+        );
+        if (delayMs > 0) {
+          await sleep(delayMs);
+        }
+        consumeResult = await consumeMetaQueuedWork(input.businessId, {
+          runtimeWorkerId: workerId,
+        });
+        passResults.push({
+          pass,
+          result: toSafeJson(consumeResult),
+        });
+      }
+
       return {
         leaseAcquired: true,
         workerId,
+        passCount: passResults.length,
+        passResults,
         consumeResult: toSafeJson(consumeResult),
       } as const;
     } finally {

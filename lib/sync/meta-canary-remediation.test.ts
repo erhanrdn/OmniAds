@@ -490,6 +490,84 @@ describe("meta canary remediation", () => {
     );
   });
 
+  it("keeps consuming while queued Meta work still has forward progress", async () => {
+    vi.mocked(metaSync.consumeMetaQueuedWork)
+      .mockResolvedValueOnce({
+        businessId: "biz-1",
+        attempted: 2,
+        succeeded: 2,
+        failed: 0,
+        skipped: false,
+        hasPendingWork: true,
+        hasForwardProgress: true,
+        nextDelayMs: 150,
+      } as never)
+      .mockResolvedValueOnce({
+        businessId: "biz-1",
+        attempted: 2,
+        succeeded: 2,
+        failed: 0,
+        skipped: false,
+        hasPendingWork: false,
+        hasForwardProgress: true,
+        nextDelayMs: 150,
+      } as never);
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot)
+      .mockResolvedValueOnce(makeSnapshot())
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          queueDepth: 0,
+          recentPercent: 100,
+          priorityPercent: 100,
+          lastSuccessfulPublishAt: "2026-04-15T12:00:31.000Z",
+          pass: true,
+          truthReady: true,
+          activityState: "busy",
+          progressState: "syncing",
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          queueDepth: 0,
+          recentPercent: 100,
+          priorityPercent: 100,
+          lastSuccessfulPublishAt: "2026-04-15T12:00:31.000Z",
+          pass: true,
+          truthReady: true,
+          activityState: "busy",
+          progressState: "syncing",
+        }),
+      );
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.runAllTimersAsync();
+    const result = await runPromise;
+
+    expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalledTimes(2);
+    expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
+      "exec-1",
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          consume: expect.objectContaining({
+            leaseAcquired: true,
+            passCount: 2,
+            consumeResult: expect.objectContaining({
+              hasPendingWork: false,
+              succeeded: 2,
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(result.executions[0]?.outcomeClassification).toBe("cleared");
+  });
+
   it("passes proof mode without clearance when the audit chain is intact but the business does not improve", async () => {
     vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue(makeSnapshot());
     vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
