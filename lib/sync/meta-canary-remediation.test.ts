@@ -8,6 +8,10 @@ vi.mock("@/lib/meta-sync-benchmark", () => ({
   collectMetaSyncReadinessSnapshot: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-assignments", () => ({
+  getProviderAccountAssignments: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/warehouse", () => ({
   getMetaAuthoritativeBusinessOpsSnapshot: vi.fn(),
   getMetaAuthoritativeDayVerification: vi.fn(),
@@ -62,6 +66,7 @@ vi.mock("@/lib/sync/provider-repair-engine", () => ({
 }));
 
 const benchmark = await import("@/lib/meta-sync-benchmark");
+const providerAccountAssignments = await import("@/lib/provider-account-assignments");
 const warehouse = await import("@/lib/meta/warehouse");
 const metaSync = await import("@/lib/sync/meta-sync");
 const providerJobLock = await import("@/lib/sync/provider-job-lock");
@@ -120,6 +125,16 @@ function makeSnapshot(input?: {
       priorityWindowTruth: {
         state: input?.truthReady ? "ready" : "processing",
         percent: input?.priorityPercent ?? 33,
+      },
+    },
+    windows: {
+      recent: {
+        startDate: "2026-04-09",
+        endDate: "2026-04-15",
+      },
+      priority: {
+        startDate: "2026-04-13",
+        endDate: "2026-04-15",
       },
     },
     __pass: input?.pass ?? false,
@@ -281,6 +296,9 @@ describe("meta canary remediation", () => {
     vi.mocked(repairEngine.runMetaRepairCycle).mockResolvedValue({
       ok: true,
       queuedRepairs: 2,
+    } as never);
+    vi.mocked(providerAccountAssignments.getProviderAccountAssignments).mockResolvedValue({
+      account_ids: ["act_1"],
     } as never);
     vi.mocked(warehouse.getMetaAuthoritativeBusinessOpsSnapshot).mockResolvedValue({
       d1FinalizeSla: {

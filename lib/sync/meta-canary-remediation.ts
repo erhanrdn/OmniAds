@@ -4,6 +4,7 @@ import {
   buildMetaVerifyDayReport,
 } from "@/lib/meta/authoritative-ops";
 import { collectMetaSyncReadinessSnapshot, type MetaSyncBenchmarkSnapshot } from "@/lib/meta-sync-benchmark";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaAuthoritativeDayVerification,
@@ -112,6 +113,17 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function enumerateIsoDays(startDate: string, endDate: string) {
+  const rows: string[] = [];
+  let cursor = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  while (cursor <= end) {
+    rows.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return rows;
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -132,6 +144,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string) {
 
 function toSafeJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
+}
+
+function getVerificationSurfaceState(
+  surfaceState: Awaited<ReturnType<typeof getMetaAuthoritativeDayVerification>>["surfaces"][number],
+) {
+  const sliceVersion = surfaceState.publication?.sliceVersion ?? null;
+  const published =
+    sliceVersion?.status === "published" &&
+    sliceVersion?.validationStatus === "passed" &&
+    sliceVersion?.state === "finalized_verified";
+  if (published) {
+    return "finalized_verified";
+  }
+  return surfaceState.detectorState ?? "processing";
 }
 
 function buildExecutionEvidence(snapshot: MetaSyncBenchmarkSnapshot): CanaryEvidence {
@@ -404,8 +430,12 @@ function validatePinnedRows(input: {
   }
 }
 
-async function collectAuthoritativeDiagnostics(businessId: string) {
-  const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({ businessId }).catch(() => null);
+async function collectAuthoritativeDiagnostics(input: {
+  businessId: string;
+  recentWindow?: { startDate: string; endDate: string } | null;
+  priorityWindow?: { startDate: string; endDate: string } | null;
+}) {
+  const authoritative = await getMetaAuthoritativeBusinessOpsSnapshot({ businessId: input.businessId }).catch(() => null);
   if (!authoritative) {
     return null;
   }
@@ -413,7 +443,7 @@ async function collectAuthoritativeDiagnostics(businessId: string) {
   const verificationReports = await Promise.all(
     breaches.map(async (account) => {
       const verification = await getMetaAuthoritativeDayVerification({
-        businessId,
+        businessId: input.businessId,
         providerAccountId: account.providerAccountId,
         day: account.expectedDay,
       }).catch(() => null);
@@ -426,9 +456,125 @@ async function collectAuthoritativeDiagnostics(businessId: string) {
       };
     }),
   );
+  const [recentTruthMatrix, priorityTruthMatrix] = await Promise.all([
+    input.recentWindow
+      ? collectTruthWindowMatrix({
+          businessId: input.businessId,
+          startDate: input.recentWindow.startDate,
+          endDate: input.recentWindow.endDate,
+        })
+      : null,
+    input.priorityWindow
+      ? collectTruthWindowMatrix({
+          businessId: input.businessId,
+          startDate: input.priorityWindow.startDate,
+          endDate: input.priorityWindow.endDate,
+        })
+      : null,
+  ]);
   return {
     stateCheck: buildMetaStateCheckOutput(authoritative),
     d1Breaches: verificationReports.filter(Boolean),
+    recentTruthMatrix,
+    priorityTruthMatrix,
+  };
+}
+
+async function collectTruthWindowMatrix(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const assignments = await getProviderAccountAssignments(input.businessId, "meta").catch(() => null);
+  const providerAccountIds = assignments?.account_ids ?? [];
+  const days = enumerateIsoDays(input.startDate, input.endDate);
+  if (providerAccountIds.length === 0 || days.length === 0) {
+    return {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds,
+      expectedSliceCount: 0,
+      publishedSliceCount: 0,
+      firstNonReady: null,
+      sampleNonReady: [],
+      perDay: [],
+    };
+  }
+
+  const verifications = await Promise.all(
+    providerAccountIds.flatMap((providerAccountId) =>
+      days.map(async (day) => ({
+        providerAccountId,
+        day,
+        verification: await getMetaAuthoritativeDayVerification({
+          businessId: input.businessId,
+          providerAccountId,
+          day,
+        }).catch(() => null),
+      })),
+    ),
+  );
+
+  const rows: Array<{
+    providerAccountId: string;
+    day: string;
+    surface: string;
+    state: string;
+    reasonCode: string | null;
+    manifestStatus: string;
+    latestFailureResult: string | null;
+    plannerState: string | null;
+    latestSliceState: string | null;
+    latestSliceStatus: string | null;
+    latestSliceValidationStatus: string | null;
+  }> = [];
+
+  for (const entry of verifications) {
+    const verification = entry.verification;
+    if (!verification) continue;
+    for (const surfaceState of verification.surfaces) {
+      rows.push({
+        providerAccountId: entry.providerAccountId,
+        day: entry.day,
+        surface: surfaceState.surface,
+        state: getVerificationSurfaceState(surfaceState),
+        reasonCode: surfaceState.detectorReasonCode ?? null,
+        manifestStatus: surfaceState.manifest?.fetchStatus ?? "missing",
+        latestFailureResult: surfaceState.latestFailure?.result ?? null,
+        plannerState: surfaceState.plannerState?.state ?? null,
+        latestSliceState: surfaceState.latestSlice?.state ?? null,
+        latestSliceStatus: surfaceState.latestSlice?.status ?? null,
+        latestSliceValidationStatus: surfaceState.latestSlice?.validationStatus ?? null,
+      });
+    }
+  }
+
+  const nonReady = rows.filter((row) => row.state !== "finalized_verified");
+  const perDay = days.map((day) => {
+    const dayRows = rows.filter((row) => row.day === day);
+    const reasonCounts: Record<string, number> = {};
+    for (const row of dayRows) {
+      if (row.state === "finalized_verified") continue;
+      const reasonKey = row.reasonCode ?? row.state;
+      reasonCounts[reasonKey] = (reasonCounts[reasonKey] ?? 0) + 1;
+    }
+    return {
+      day,
+      readySlices: dayRows.filter((row) => row.state === "finalized_verified").length,
+      expectedSlices: dayRows.length,
+      reasonCounts,
+    };
+  });
+
+  return {
+    startDate: input.startDate,
+    endDate: input.endDate,
+    providerAccountIds,
+    expectedSliceCount: rows.length,
+    publishedSliceCount: rows.length - nonReady.length,
+    firstNonReady: nonReady[0] ?? null,
+    sampleNonReady: nonReady.slice(0, 12),
+    perDay,
   };
 }
 
@@ -661,10 +807,11 @@ export async function runMetaCanaryRemediation(input: {
     }
 
     let execution: SyncRepairExecutionRecord | null = null;
+    let before: Awaited<ReturnType<typeof collectBusinessEvidence>> | null = null;
     let finalLockStatus: "done" | "failed" = "failed";
     let finalLockError: string | null = null;
     try {
-      const before = await withTimeout(
+      before = await withTimeout(
         collectBusinessEvidence(recommendation.businessId),
         DEFAULT_EVIDENCE_TIMEOUT_MS,
         `before evidence for ${recommendation.businessId}`,
@@ -716,7 +863,11 @@ export async function runMetaCanaryRemediation(input: {
         after.evidence.releasePass
           ? null
           : await withTimeout(
-              collectAuthoritativeDiagnostics(recommendation.businessId),
+              collectAuthoritativeDiagnostics({
+                businessId: recommendation.businessId,
+                recentWindow: after.snapshot.windows.recent,
+                priorityWindow: after.snapshot.windows.priority,
+              }),
               DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
               `diagnostics for ${recommendation.businessId}`,
             );
@@ -755,7 +906,11 @@ export async function runMetaCanaryRemediation(input: {
     } catch (error) {
       if (execution) {
         const diagnostics = await withTimeout(
-          collectAuthoritativeDiagnostics(recommendation.businessId),
+          collectAuthoritativeDiagnostics({
+            businessId: recommendation.businessId,
+            recentWindow: before?.snapshot?.windows?.recent ?? null,
+            priorityWindow: before?.snapshot?.windows?.priority ?? null,
+          }),
           DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
           `fallback diagnostics for ${recommendation.businessId}`,
         ).catch(() => null);
