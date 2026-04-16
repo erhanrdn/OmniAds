@@ -409,6 +409,130 @@ describe("provider repair engine", () => {
     expect(syncMetaRepairRange).not.toHaveBeenCalled();
   });
 
+  it("requeues idle queued Meta authoritative days so repair sources can take priority", async () => {
+    const metaWarehouse = await import("@/lib/meta/warehouse");
+    getProviderAccountAssignments.mockResolvedValue({
+      account_ids: ["act_1"],
+    });
+    readProviderAccountSnapshot.mockResolvedValue({
+      accounts: [{ id: "act_1", timezone: "UTC" }],
+    });
+    vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({
+      candidateCount: 0,
+      stalePartitionCount: 0,
+      aliveSlowCount: 0,
+      reconciledRunCount: 0,
+      staleRunCount: 0,
+      staleLegacyCount: 0,
+      reclaimReasons: {},
+      preservedByReason: {},
+    } as never);
+    vi.mocked(metaWarehouse.replayMetaDeadLetterPartitions).mockResolvedValue({
+      outcome: "no_matching_partitions",
+      partitions: [],
+      matchedCount: 0,
+      changedCount: 0,
+      skippedActiveLeaseCount: 0,
+      manualTruthDefectCount: 0,
+      manualTruthDefectPartitions: [],
+    } as never);
+    vi.mocked(metaWarehouse.requeueMetaRetryableFailedPartitions).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 1,
+      leasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+    } as never);
+    vi.mocked(metaWarehouse.getMetaWarehouseIntegrityIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaCanonicalDriftIncidents).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.getMetaAuthoritativeDayVerification).mockImplementation(
+      async ({ day }) =>
+        day === "2026-04-12"
+          ? ({
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day: "2026-04-12",
+              verificationState: "processing",
+              sourceManifestState: "missing",
+              validationState: "processing",
+              activePublication: null,
+              surfaces: [
+                {
+                  surface: "account_daily",
+                  manifest: null,
+                  publication: null,
+                  detectorState: "queued",
+                  detectorReasonCode: "authoritative_retry_pending",
+                },
+              ],
+              lastFailure: null,
+              detectorReasonCodes: ["authoritative_retry_pending"],
+              repairBacklog: 1,
+              deadLetters: 0,
+              staleLeases: 0,
+              queuedPartitions: 1,
+              leasedPartitions: 0,
+            } as never)
+          : ({
+              businessId: "biz-1",
+              providerAccountId: "act_1",
+              day,
+              verificationState: "finalized_verified",
+              sourceManifestState: "completed",
+              validationState: "passed",
+              activePublication: null,
+              surfaces: [],
+              lastFailure: null,
+              detectorReasonCodes: [],
+              repairBacklog: 0,
+              deadLetters: 0,
+              staleLeases: 0,
+              queuedPartitions: 0,
+              leasedPartitions: 0,
+            } as never),
+    );
+    vi.mocked(
+      metaWarehouse.reconcileMetaAuthoritativeDayStateFromVerification,
+    ).mockResolvedValue([] as never);
+    vi.mocked(metaWarehouse.upsertMetaAuthoritativeDayState).mockResolvedValue(
+      null as never,
+    );
+    syncMetaRepairRange.mockResolvedValue({
+      businessId: "biz-1",
+      attempted: 1,
+      succeeded: 1,
+      failed: 0,
+      skipped: false,
+    });
+
+    const { runMetaRepairCycle } = await import("@/lib/sync/provider-repair-engine");
+    const result = await runMetaRepairCycle("biz-1", {
+      enqueueScheduledWork: false,
+      queueWarehouseRepairs: true,
+    });
+
+    expect(syncMetaRepairRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+        startDate: "2026-04-12",
+        endDate: "2026-04-12",
+        triggerSource: "repair_recent_day",
+      }),
+    );
+    expect(result.repair.meta).toEqual(
+      expect.objectContaining({
+        recentAuthoritativeWindow: expect.objectContaining({
+          retryableQueuedDays: 1,
+          blockedDays: 0,
+        }),
+        recentAuthoritativeRepairRanges: [
+          { startDate: "2026-04-12", endDate: "2026-04-12" },
+        ],
+        queuedRecentAuthoritativeRepairs: 1,
+      }),
+    );
+  });
+
   it("queues integrity repair windows when warehouse incidents are found", async () => {
     const metaWarehouse = await import("@/lib/meta/warehouse");
     vi.mocked(metaWarehouse.cleanupMetaPartitionOrchestration).mockResolvedValue({

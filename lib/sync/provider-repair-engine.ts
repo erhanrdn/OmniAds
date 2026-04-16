@@ -195,6 +195,7 @@ async function reconcileMetaAuthoritativeRecentWindow(input: {
         activeDetectorStates.has("queued")
       ) {
         retryableQueuedDays += 1;
+        repairDates.add(day);
         continue;
       }
       if (
