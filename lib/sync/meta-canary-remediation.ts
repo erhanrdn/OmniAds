@@ -109,6 +109,20 @@ function parseCsv(value: string | null | undefined) {
   );
 }
 
+function getPassingReleaseCanaryBusinessIds(releaseGate: SyncGateRecord) {
+  const canaries = Array.isArray((releaseGate.evidence as { canaries?: unknown[] } | null | undefined)?.canaries)
+    ? ((releaseGate.evidence as { canaries?: unknown[] }).canaries as unknown[])
+    : [];
+  return new Set(
+    canaries.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const businessId = String((entry as { businessId?: unknown }).businessId ?? "").trim();
+      const pass = (entry as { pass?: unknown }).pass === true;
+      return businessId && pass ? [businessId] : [];
+    }),
+  );
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -747,11 +761,15 @@ export async function runMetaCanaryRemediation(input: {
   }
 
   if (requestedBusinessIds) {
+    const passingCanaryBusinessIds = getPassingReleaseCanaryBusinessIds(pinnedReleaseGate);
     const missingRequestedBusinesses = requestedBusinessIds.filter(
       (businessId) => !targetRecommendations.some((recommendation) => recommendation.businessId === businessId),
     );
-    if (missingRequestedBusinesses.length > 0) {
-      throw new Error(`No pinned repair recommendation exists for ${missingRequestedBusinesses.join(", ")}.`);
+    const unresolvedMissingRequestedBusinesses = missingRequestedBusinesses.filter(
+      (businessId) => !passingCanaryBusinessIds.has(businessId),
+    );
+    if (unresolvedMissingRequestedBusinesses.length > 0) {
+      throw new Error(`No pinned repair recommendation exists for ${unresolvedMissingRequestedBusinesses.join(", ")}.`);
     }
   }
 

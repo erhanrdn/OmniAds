@@ -510,6 +510,50 @@ describe("meta canary remediation", () => {
     expect(result.outcomeCounts.no_change).toBe(1);
   });
 
+  it("ignores explicit requested businesses that already pass the pinned release gate", async () => {
+    vi.mocked(releaseGates.getSyncGateRecordById).mockResolvedValue(
+      makeReleaseGate({
+        evidence: {
+          canaries: [
+            { businessId: "biz-1", pass: false },
+            { businessId: "biz-2", pass: true },
+            { businessId: "biz-3", pass: true },
+          ],
+        },
+      }),
+    );
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot)
+      .mockResolvedValueOnce(makeSnapshot())
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          queueDepth: 0,
+          recentPercent: 100,
+          priorityPercent: 100,
+          lastSuccessfulPublishAt: "2026-04-15T12:00:31.000Z",
+          pass: true,
+          truthReady: true,
+          activityState: "busy",
+          progressState: "syncing",
+        }),
+      );
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      businessIds: ["biz-1", "biz-2", "biz-3"],
+      successMode: "proof",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.runAllTimersAsync();
+    const result = await runPromise;
+
+    expect(result.targetBusinessIds).toEqual(["biz-1"]);
+    expect(repairEngine.runMetaRepairCycle).toHaveBeenCalledTimes(1);
+    expect(result.proofPassed).toBe(true);
+  });
+
   it("does not turn slow after-evidence polling into manual follow-up when the audit chain is otherwise intact", async () => {
     vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockImplementation(
       () =>
