@@ -705,6 +705,7 @@ describe("meta canary remediation", () => {
           releasePass: true,
         },
         actionResult: {},
+        executedAction: "repair_cycle",
       }).outcome,
     ).toBe("cleared");
 
@@ -717,6 +718,7 @@ describe("meta canary remediation", () => {
           recentSelectedRangePercent: 66,
         },
         actionResult: {},
+        executedAction: "repair_cycle",
       }).outcome,
     ).toBe("improving_not_cleared");
 
@@ -725,6 +727,7 @@ describe("meta canary remediation", () => {
         before,
         after: before,
         actionResult: {},
+        executedAction: "repair_cycle",
       }).outcome,
     ).toBe("no_change");
 
@@ -736,8 +739,22 @@ describe("meta canary remediation", () => {
           queueDepth: 8,
         },
         actionResult: {},
+        executedAction: "refresh_state",
       }).outcome,
     ).toBe("worse");
+
+    expect(
+      remediation.classifyCanaryRemediationOutcome({
+        before,
+        after: {
+          ...before,
+          queueDepth: 8,
+          repairBacklog: 3,
+        },
+        actionResult: {},
+        executedAction: "repair_cycle",
+      }).outcome,
+    ).toBe("improving_not_cleared");
 
     expect(
       remediation.classifyCanaryRemediationOutcome({
@@ -748,6 +765,7 @@ describe("meta canary remediation", () => {
             blockingReasons: [{ code: "manual_truth_defect" }],
           },
         },
+        executedAction: "repair_cycle",
       }).outcome,
     ).toBe("manual_follow_up_required");
   });

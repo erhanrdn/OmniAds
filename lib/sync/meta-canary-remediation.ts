@@ -182,9 +182,8 @@ function hasImproved(before: CanaryEvidence, after: CanaryEvidence) {
   );
 }
 
-function hasWorsened(before: CanaryEvidence, after: CanaryEvidence) {
+function hasNonQueueRegression(before: CanaryEvidence, after: CanaryEvidence) {
   return (
-    after.queueDepth > before.queueDepth ||
     after.deadLetterPartitions > before.deadLetterPartitions ||
     after.staleLeasePartitions > before.staleLeasePartitions ||
     after.validationFailures24h > before.validationFailures24h ||
@@ -194,11 +193,50 @@ function hasWorsened(before: CanaryEvidence, after: CanaryEvidence) {
   );
 }
 
+function actionCanQueueMoreWork(action: MetaRemediationExecutedAction) {
+  return (
+    action === "repair_cycle" ||
+    action === "reschedule" ||
+    action === "replay_dead_letter" ||
+    action === "stale_lease_reclaim"
+  );
+}
+
+function hasExpectedQueuedWorkIncrease(input: {
+  before: CanaryEvidence;
+  after: CanaryEvidence;
+  executedAction: MetaRemediationExecutedAction;
+}) {
+  if (!actionCanQueueMoreWork(input.executedAction)) {
+    return false;
+  }
+  return (
+    input.after.queueDepth > input.before.queueDepth ||
+    input.after.repairBacklog > input.before.repairBacklog
+  );
+}
+
+function hasWorsened(input: {
+  before: CanaryEvidence;
+  after: CanaryEvidence;
+  executedAction: MetaRemediationExecutedAction;
+}) {
+  if (hasNonQueueRegression(input.before, input.after)) {
+    return true;
+  }
+  if (input.after.queueDepth > input.before.queueDepth) {
+    return !hasExpectedQueuedWorkIncrease(input);
+  }
+  return false;
+}
+
 function hasMeaningfulAfterEvidenceChange(before: CanaryEvidence, after: CanaryEvidence) {
   return (
     after.releasePass ||
     hasImproved(before, after) ||
-    hasWorsened(before, after) ||
+    after.queueDepth !== before.queueDepth ||
+    after.repairBacklog !== before.repairBacklog ||
+    hasNonQueueRegression(before, after) ||
     after.activityState !== before.activityState ||
     after.progressState !== before.progressState ||
     after.blockerClass !== before.blockerClass ||
@@ -212,6 +250,7 @@ export function classifyCanaryRemediationOutcome(input: {
   before: CanaryEvidence;
   after: CanaryEvidence;
   actionResult: Record<string, unknown>;
+  executedAction: MetaRemediationExecutedAction;
 }) {
   const blockingReasons = Array.isArray(input.actionResult.repair)
     ? []
@@ -240,7 +279,26 @@ export function classifyCanaryRemediationOutcome(input: {
       expectedOutcomeMet: false,
     };
   }
-  if (hasWorsened(input.before, input.after)) {
+  if (
+    hasExpectedQueuedWorkIncrease({
+      before: input.before,
+      after: input.after,
+      executedAction: input.executedAction,
+    }) &&
+    !hasNonQueueRegression(input.before, input.after)
+  ) {
+    return {
+      outcome: "improving_not_cleared" as SyncRepairExecutionOutcome,
+      expectedOutcomeMet: false,
+    };
+  }
+  if (
+    hasWorsened({
+      before: input.before,
+      after: input.after,
+      executedAction: input.executedAction,
+    })
+  ) {
     return {
       outcome: "worse" as SyncRepairExecutionOutcome,
       expectedOutcomeMet: false,
@@ -670,6 +728,7 @@ export async function runMetaCanaryRemediation(input: {
         before: before.evidence,
         after: after.evidence,
         actionResult,
+        executedAction: action.executedAction,
       });
       const completed = await updateSyncRepairExecution(execution.id, {
         businessName: after.snapshot.businessName ?? recommendation.businessName,
