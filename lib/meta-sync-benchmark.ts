@@ -2,6 +2,10 @@ import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
 import { getDbWithTimeout } from "@/lib/db";
 import { dayCountInclusive } from "@/lib/meta/history";
 import {
+  getProviderPlatformDateBoundaries,
+  type ProviderPlatformBoundary,
+} from "@/lib/provider-platform-date";
+import {
   getLatestMetaSyncHealth,
   getMetaAccountDailyCoverage,
   getMetaAdDailyCoverage,
@@ -235,6 +239,29 @@ function shiftIsoDate(date: string, deltaDays: number) {
   const next = new Date(`${date}T00:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + deltaDays);
   return next.toISOString().slice(0, 10);
+}
+
+function earliestProviderCurrentDate(
+  boundaries: Array<Pick<ProviderPlatformBoundary, "currentDate">> | null | undefined,
+) {
+  const normalized = (boundaries ?? [])
+    .map((boundary) => toIsoDate(boundary.currentDate))
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => left.localeCompare(right));
+  return normalized[0] ?? null;
+}
+
+export function resolveMetaBusinessCurrentDayReference(input: {
+  capturedAt: string;
+  currentDayReference?: string | null;
+  providerDateBoundaries?: Array<Pick<ProviderPlatformBoundary, "currentDate">> | null;
+}) {
+  return (
+    earliestProviderCurrentDate(input.providerDateBoundaries) ??
+    toIsoDate(input.currentDayReference) ??
+    toIsoDate(input.capturedAt) ??
+    new Date().toISOString().slice(0, 10)
+  );
 }
 
 export function resolveMetaBenchmarkTruthWindows(input: {
@@ -645,7 +672,13 @@ export async function collectMetaSyncReadinessSnapshot(
 ): Promise<MetaSyncBenchmarkSnapshot> {
   const recentWindowMinutes = clampPositiveInteger(input.recentWindowMinutes, 15);
   const capturedAt = new Date().toISOString();
-  const admin = await getAdminOperationsHealth();
+  const [admin, providerDateBoundaries] = await Promise.all([
+    getAdminOperationsHealth(),
+    getProviderPlatformDateBoundaries({
+      provider: "meta",
+      businessId: input.businessId,
+    }).catch(() => []),
+  ]);
   const metaBusiness = admin.syncHealth.metaBusinesses?.find(
     (business) => business.businessId === input.businessId,
   );
@@ -664,7 +697,11 @@ export async function collectMetaSyncReadinessSnapshot(
     priorityStartDate,
   } = resolveMetaBenchmarkTruthWindows({
     capturedAt,
-    currentDayReference: metaBusiness.currentDayReference,
+    currentDayReference: resolveMetaBusinessCurrentDayReference({
+      capturedAt,
+      currentDayReference: metaBusiness.currentDayReference,
+      providerDateBoundaries,
+    }),
     recentDays: input.recentDays,
     priorityWindowDays: input.priorityWindowDays,
   });

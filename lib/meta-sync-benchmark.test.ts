@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMetaCoverageSummary,
   classifyMetaDrainState,
+  resolveMetaBusinessCurrentDayReference,
   resolveMetaBenchmarkTruthWindows,
   summarizeMetaSyncBenchmarkSeries,
   type MetaSyncBenchmarkSnapshot,
@@ -258,6 +259,31 @@ describe("resolveMetaBenchmarkTruthWindows", () => {
       priorityEndDate: "2026-04-15",
       priorityStartDate: "2026-04-14",
     });
+  });
+});
+
+describe("resolveMetaBusinessCurrentDayReference", () => {
+  it("prefers the earliest provider account current day over a missing warehouse reference", () => {
+    expect(
+      resolveMetaBusinessCurrentDayReference({
+        capturedAt: "2026-04-16T02:00:00.000Z",
+        currentDayReference: null,
+        providerDateBoundaries: [
+          { currentDate: "2026-04-16" },
+          { currentDate: "2026-04-15" },
+        ],
+      }),
+    ).toBe("2026-04-15");
+  });
+
+  it("falls back to the warehouse reference when provider boundaries are unavailable", () => {
+    expect(
+      resolveMetaBusinessCurrentDayReference({
+        capturedAt: "2026-04-16T09:00:00.000Z",
+        currentDayReference: "2026-04-15",
+        providerDateBoundaries: [],
+      }),
+    ).toBe("2026-04-15");
   });
 });
 
