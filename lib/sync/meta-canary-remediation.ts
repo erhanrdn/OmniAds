@@ -53,7 +53,7 @@ const DEFAULT_LOCK_MINUTES = 10;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 const DEFAULT_CONSUME_LEASE_MINUTES = 10;
-const DEFAULT_CONSUME_MAX_PASSES = 80;
+const DEFAULT_CONSUME_BASE_MAX_PASSES = 80;
 const DEFAULT_CONSUME_MAX_DELAY_MS = 2_000;
 const DEFAULT_CONSUME_BASE_DURATION_MS = 10 * 60_000;
 const DEFAULT_CONSUME_EXTRA_DURATION_PER_ACCOUNT_MS = 5 * 60_000;
@@ -152,6 +152,10 @@ async function getMetaRemediationBudget(businessId: string) {
   );
   return {
     providerAccountCount,
+    consumeMaxPasses: Math.max(
+      DEFAULT_CONSUME_BASE_MAX_PASSES,
+      providerAccountCount * DEFAULT_CONSUME_BASE_MAX_PASSES,
+    ),
     consumeDurationMs,
     actionTimeoutMs: consumeDurationMs + DEFAULT_ACTION_TIMEOUT_BUFFER_MS,
   };
@@ -697,7 +701,7 @@ async function executeRecommendation(input: {
 
       for (
         let pass = 2;
-        pass <= DEFAULT_CONSUME_MAX_PASSES &&
+        pass <= input.budget.consumeMaxPasses &&
         consumeResult.hasPendingWork &&
         consumeResult.hasForwardProgress &&
         Date.now() - consumeStartedAt < input.budget.consumeDurationMs;
@@ -733,7 +737,7 @@ async function executeRecommendation(input: {
         consumeBudgetExhausted:
           consumeResult.hasPendingWork &&
           consumeResult.hasForwardProgress &&
-          passResults.length >= DEFAULT_CONSUME_MAX_PASSES,
+          passResults.length >= input.budget.consumeMaxPasses,
         consumeDurationExhausted:
           consumeResult.hasPendingWork &&
           consumeResult.hasForwardProgress &&
