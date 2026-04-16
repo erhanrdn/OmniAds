@@ -54,7 +54,6 @@ import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrati
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
 import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
-import { MetaDecisionOsOverview } from "@/components/meta/meta-decision-os";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { buildMetaCampaignOperatorLookup } from "@/lib/meta/operator-surface";
@@ -1182,97 +1181,94 @@ export default function MetaPage() {
 
       {metaConnected && (
         <>
-          <MetaStatusBanner status={effectiveStatus} language={language} />
-          <MetaDecisionOsOverview
-            decisionOs={decisionOsQuery.data}
-            isLoading={decisionOsQuery.isLoading}
-          />
           {/* ── KPI Row ──────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
-                label="Total Spend"
-                value={
-                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
-                    ? "—"
-                    : fmtK(kpis.totalSpend, sym)
-                }
-                subLabel={
-                  shouldMaskKpisAsPreparing
-                    ? pageMessages.kpi.spendSubLabel
-                    : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
-                }
-                icon={DollarSign}
-                accentClass="border-l-4 border-l-blue-500/60"
-                comparisonLabel={comparisonLabel}
-                changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
-              />
-              <KpiCard
-                label="Total Revenue"
-                value={
-                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
-                    ? "—"
-                    : fmtK(kpis.totalRevenue, sym)
-                }
-                subLabel={
-                  shouldMaskKpisAsPreparing
-                    ? pageMessages.kpi.revenueSubLabel
-                    : "Attributed purchases"
-                }
-                icon={TrendingUp}
-                accentClass="border-l-4 border-l-emerald-500/60"
-                valueClass="text-emerald-600"
-                comparisonLabel={comparisonLabel}
-                changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
-              />
-              <KpiCard
-                label="Avg. CPA"
-                value={
-                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
-                    ? "—"
-                    : fmt$(kpis.avgCpa, sym)
-                }
-                subLabel={
-                  shouldMaskKpisAsPreparing
-                    ? pageMessages.kpi.avgCpaSubLabel
-                    : "Cost per conversion"
-                }
-                icon={Target}
-                accentClass="border-l-4 border-l-violet-500/60"
-                comparisonLabel={comparisonLabel}
-                changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
-                positiveIsGood={false}
-              />
-              <KpiCard
-                label="Blended ROAS"
-                value={
-                  campaignsQuery.isLoading || shouldMaskKpisAsPreparing
-                    ? "—"
-                    : `${kpis.blendedRoas.toFixed(2)}×`
-                }
-                subLabel={
-                  shouldMaskKpisAsPreparing
-                    ? pageMessages.kpi.roasSubLabel
-                    : "All campaigns combined"
-                }
-                icon={BarChart2}
-                accentClass={
-                  kpis.blendedRoas > 2.5
-                    ? "border-l-4 border-l-emerald-500/60"
-                    : kpis.blendedRoas >= 1.5
+              label="Total Spend"
+              value={
+                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                  ? "—"
+                  : fmtK(kpis.totalSpend, sym)
+              }
+              subLabel={
+                shouldMaskKpisAsPreparing
+                  ? pageMessages.kpi.spendSubLabel
+                  : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
+              }
+              icon={DollarSign}
+              accentClass="border-l-4 border-l-blue-500/60"
+              comparisonLabel={comparisonLabel}
+              changePct={comparisonWindow ? computeChangePct(kpis.totalSpend, previousKpis.totalSpend) : null}
+            />
+            <KpiCard
+              label="Total Revenue"
+              value={
+                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                  ? "—"
+                  : fmtK(kpis.totalRevenue, sym)
+              }
+              subLabel={
+                shouldMaskKpisAsPreparing
+                  ? pageMessages.kpi.revenueSubLabel
+                  : "Attributed purchases"
+              }
+              icon={TrendingUp}
+              accentClass="border-l-4 border-l-emerald-500/60"
+              valueClass="text-emerald-600"
+              comparisonLabel={comparisonLabel}
+              changePct={comparisonWindow ? computeChangePct(kpis.totalRevenue, previousKpis.totalRevenue) : null}
+            />
+            <KpiCard
+              label="Avg. CPA"
+              value={
+                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                  ? "—"
+                  : fmt$(kpis.avgCpa, sym)
+              }
+              subLabel={
+                shouldMaskKpisAsPreparing
+                  ? pageMessages.kpi.avgCpaSubLabel
+                  : "Cost per conversion"
+              }
+              icon={Target}
+              accentClass="border-l-4 border-l-violet-500/60"
+              comparisonLabel={comparisonLabel}
+              changePct={comparisonWindow ? computeChangePct(kpis.avgCpa, previousKpis.avgCpa) : null}
+              positiveIsGood={false}
+            />
+            <KpiCard
+              label="Blended ROAS"
+              value={
+                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                  ? "—"
+                  : `${kpis.blendedRoas.toFixed(2)}×`
+              }
+              subLabel={
+                shouldMaskKpisAsPreparing
+                  ? pageMessages.kpi.roasSubLabel
+                  : "All campaigns combined"
+              }
+              icon={BarChart2}
+              accentClass={
+                kpis.blendedRoas > 2.5
+                  ? "border-l-4 border-l-emerald-500/60"
+                  : kpis.blendedRoas >= 1.5
                     ? "border-l-4 border-l-amber-500/60"
                     : "border-l-4 border-l-red-500/60"
-                }
-                valueClass={
-                  kpis.blendedRoas > 2.5
-                    ? "text-emerald-600"
-                    : kpis.blendedRoas >= 1.5
+              }
+              valueClass={
+                kpis.blendedRoas > 2.5
+                  ? "text-emerald-600"
+                  : kpis.blendedRoas >= 1.5
                     ? "text-amber-500"
                     : "text-red-500"
-                }
-                changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
-                comparisonLabel={comparisonLabel}
-              />
+              }
+              changePct={comparisonWindow ? computeChangePct(kpis.blendedRoas, previousKpis.blendedRoas) : null}
+              comparisonLabel={comparisonLabel}
+            />
           </div>
+
+          <MetaStatusBanner status={effectiveStatus} language={language} />
 
           {/* ── Master-detail layout ─────────────────────────────────────── */}
           {campaignsQuery.isLoading && (

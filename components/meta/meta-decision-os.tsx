@@ -506,15 +506,23 @@ function PlacementAnomalyRow({ anomaly }: { anomaly: MetaPlacementAnomaly }) {
 export function MetaDecisionOsOverview({
   decisionOs,
   isLoading,
+  compact = false,
 }: {
   decisionOs: MetaDecisionOsV1Response | null | undefined;
   isLoading: boolean;
+  compact?: boolean;
 }) {
   if (isLoading) {
     return (
-      <div className="space-y-4" data-testid="meta-decision-os-loading">
+      <div className={cn(compact ? "space-y-3" : "space-y-4")} data-testid="meta-decision-os-loading">
         {[0, 1, 2].map((index) => (
-          <div key={index} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
+          <div
+            key={index}
+            className={cn(
+              "animate-pulse rounded-2xl bg-slate-100",
+              compact ? "h-24" : "h-28",
+            )}
+          />
         ))}
       </div>
     );
@@ -539,8 +547,8 @@ export function MetaDecisionOsOverview({
   const detailNoTouchRows = decisionOs.noTouchList.slice(0, 4);
 
   return (
-    <div className="space-y-4" data-testid="meta-decision-os-overview">
-      <OperatorSurfaceSummary model={operatorSurface} maxRowsPerBucket={2} />
+    <div className={cn(compact ? "space-y-3" : "space-y-4")} data-testid="meta-decision-os-overview">
+      <OperatorSurfaceSummary model={operatorSurface} maxRowsPerBucket={2} compact={compact} />
 
       <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-operator-details">
         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">

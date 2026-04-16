@@ -543,13 +543,14 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   });
 
   await page.goto("/creatives");
+  await expect(page.getByTestId("creative-preview-truth-contract")).toHaveCount(0);
+  await page.getByRole("button", { name: "Decision support" }).click();
+  await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
   await expect(page.getByTestId("creative-preview-truth-contract")).toContainText("Preview Truth Contract");
   await expect(page.getByTestId("creative-preview-truth-contract")).toContainText(
     "Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.",
   );
-  await page.getByRole("button", { name: "Decision support" }).click();
-  await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Creative Decision Support");
   await expect(page.getByTestId("creative-decision-os-drawer")).toContainText(
@@ -559,7 +560,7 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   await expect(page.getByTestId("creative-opportunity-board")).toBeVisible();
   await expect(page.getByTestId("creative-historical-analysis")).toBeVisible();
   await page.getByLabel("Close Creative Decision OS").click();
-  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
+  await expect(page.getByTestId("creative-preview-truth-contract")).toHaveCount(0);
   let creativeBaseline: Awaited<ReturnType<typeof captureCreativeDecisionSignature>> | null = null;
   let creativeHistoricalBaseline: string | null = null;
   let creativeHistoricalChanged = false;

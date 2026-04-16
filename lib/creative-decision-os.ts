@@ -3209,8 +3209,8 @@ export function buildCreativeDecisionOs(
       },
       message:
         input.operatingMode?.recommendedMode === "Recovery"
-          ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and block outcomes."
-          : "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
+          ? "Commercial truth is in a recovery posture, so Decision OS biases toward safer hold and stop outcomes."
+          : "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
       operatingMode: input.operatingMode?.recommendedMode ?? null,
       sourceHealth,
       readReliability,

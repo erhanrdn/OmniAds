@@ -61,6 +61,7 @@ import {
 import { getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import {
   buildCreativeQuickFilters,
+  creativeQuickFilterShortLabel,
   type CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 
@@ -383,8 +384,10 @@ export default function CreativesPage() {
     return family ? new Set(family.creativeIds) : null;
   }, [creativeDecisionOs, decisionOsFamilyFilter]);
   const clearCreativeFocusFilters = useCallback(() => {
+    hasUserInteractedSelectionRef.current = true;
     setDecisionOsFamilyFilter(null);
     setActiveQuickFilterKey(null);
+    setSelectionState({ selectedRowIds: [] });
   }, []);
   const activeDecisionOsFamily = useMemo(
     () =>
@@ -413,6 +416,27 @@ export default function CreativesPage() {
         : null,
     [activeQuickFilterKey, quickFilters],
   );
+  const handlePerformanceQuickFilter = useCallback(
+    (key: CreativeQuickFilterKey) => {
+      hasUserInteractedSelectionRef.current = true;
+
+      if (activeQuickFilterKey === key) {
+        setActiveQuickFilterKey(null);
+        setSelectionState({ selectedRowIds: [] });
+        return;
+      }
+
+      const nextFilter = quickFilters.find((filter) => filter.key === key) ?? null;
+      const nextFilterIds = new Set(nextFilter?.creativeIds ?? []);
+      const nextSelectedRowIds = baseFilteredRows
+        .filter((row) => nextFilterIds.has(row.id))
+        .map((row) => row.id);
+
+      setActiveQuickFilterKey(key);
+      setSelectionState({ selectedRowIds: nextSelectedRowIds });
+    },
+    [activeQuickFilterKey, baseFilteredRows, quickFilters],
+  );
   const filteredRows = useMemo(() => {
     if (!activeQuickFilter || activeQuickFilter.creativeIds.length === 0) return baseFilteredRows;
     const quickFilterIds = new Set(activeQuickFilter.creativeIds);
@@ -424,7 +448,9 @@ export default function CreativesPage() {
       (filter) => filter.key === activeQuickFilterKey && filter.count > 0,
     );
     if (!stillAvailable) {
+      hasUserInteractedSelectionRef.current = true;
       setActiveQuickFilterKey(null);
+      setSelectionState({ selectedRowIds: [] });
     }
   }, [activeQuickFilterKey, quickFilters]);
   const creativeHistoryById = useMemo(() => {
@@ -837,9 +863,8 @@ export default function CreativesPage() {
               decisionOs={creativeDecisionOs}
               quickFilters={quickFilters}
               activeQuickFilterKey={activeQuickFilterKey}
-              onToggleQuickFilter={(key) =>
-                setActiveQuickFilterKey((prev) => (prev === key ? null : key))
-              }
+              onToggleQuickFilter={handlePerformanceQuickFilter}
+              showDecisionSupportSurface={false}
               actionsPrefix={
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <Button
@@ -857,7 +882,7 @@ export default function CreativesPage() {
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       {activeQuickFilter ? (
                         <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] font-medium text-sky-800">
-                          Quick filter: {activeQuickFilter.label}
+                          Quick filter: {creativeQuickFilterShortLabel(activeQuickFilter.key)}
                         </span>
                       ) : null}
                       {activeDecisionOsFamily ? (
@@ -978,14 +1003,14 @@ export default function CreativesPage() {
         open={decisionOsDrawerOpen}
         onOpenChange={setDecisionOsDrawerOpen}
         quickFilters={quickFilters}
+        allRows={filteredRows}
+        selectedRows={topPreviewRows}
         activeFamilyId={decisionOsFamilyFilter}
         activeQuickFilterKey={activeQuickFilterKey}
         onSelectFamily={(familyId) => {
           setDecisionOsFamilyFilter(familyId);
         }}
-        onSelectQuickFilter={(key) => {
-          setActiveQuickFilterKey((prev) => (prev === key ? null : key));
-        }}
+        onSelectQuickFilter={handlePerformanceQuickFilter}
         onClearFilters={clearCreativeFocusFilters}
       />
     </div>

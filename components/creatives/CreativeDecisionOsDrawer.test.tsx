@@ -7,6 +7,11 @@ vi.mock("@/components/creatives/CreativeDecisionOsOverview", () => ({
     React.createElement("div", { "data-testid": "creative-decision-os-overview-stub" }, "creative-overview-stub"),
 }));
 
+vi.mock("@/components/creatives/CreativeDecisionSupportSurface", () => ({
+  CreativeDecisionSupportSurface: () =>
+    React.createElement("div", { "data-testid": "creative-decision-support-surface-stub" }, "creative-support-surface-stub"),
+}));
+
 const { CreativeDecisionOsDrawer } = await import(
   "@/components/creatives/CreativeDecisionOsDrawer"
 );
@@ -26,7 +31,7 @@ describe("CreativeDecisionOsDrawer", () => {
             },
             summary: {
               message:
-                "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
+                "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
               operatingMode: "Exploit",
             },
           } as any
@@ -35,6 +40,8 @@ describe("CreativeDecisionOsDrawer", () => {
         open
         onOpenChange={vi.fn()}
         quickFilters={[]}
+        allRows={[]}
+        selectedRows={[]}
         activeFamilyId={null}
         activeQuickFilterKey={null}
         onSelectFamily={vi.fn()}
@@ -45,7 +52,7 @@ describe("CreativeDecisionOsDrawer", () => {
 
     expect(html).toContain("Creative Decision Support");
     expect(html).toContain(
-      "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
+      "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
     );
     expect(html).toContain(
       "The page worklist stays primary. This drawer is support for live-window decision context only.",
@@ -55,6 +62,7 @@ describe("CreativeDecisionOsDrawer", () => {
     expect(html).toContain("Exploit");
     expect(html).toContain("Reset width");
     expect(html).toContain("Close Creative Decision OS");
+    expect(html).toContain("creative-support-surface-stub");
     expect(html).toContain("creative-overview-stub");
   });
 });

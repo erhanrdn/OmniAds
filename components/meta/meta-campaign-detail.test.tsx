@@ -34,6 +34,12 @@ vi.mock("@/components/meta/meta-operating-mode-card", () => ({
 }));
 
 vi.mock("@/components/meta/meta-decision-os", () => ({
+  MetaDecisionOsOverview: (props: { decisionOs: unknown; isLoading: boolean; compact?: boolean }) =>
+    React.createElement(
+      "div",
+      null,
+      `decision-os-overview:${props.isLoading ? "loading" : props.decisionOs ? "ready" : "empty"}:${props.compact ? "compact" : "default"}`,
+    ),
   MetaCampaignDecisionPanel: (props: { campaignDecision: { role: string } | null }) =>
     React.createElement("div", null, props.campaignDecision ? `campaign-decision:${props.campaignDecision.role}` : "campaign-decision:none"),
 }));
@@ -244,6 +250,7 @@ describe("MetaCampaignDetail render contract", () => {
       />
     );
 
+    expect(html).toContain("decision-os-overview:empty:compact");
     expect(html).toContain("Account Drilldown");
     expect(html).toContain("operating-mode-card");
     expect(html).toContain("account-recommendations");

@@ -51,19 +51,28 @@ function confidenceTone(confidence: OperatorSurfaceItem["confidence"]) {
 function OperatorRowCard({
   item,
   authorityLabels,
+  compact = false,
 }: {
   item: OperatorSurfaceItem;
   authorityLabels?: Partial<Record<OperatorAuthorityState, string>>;
+  compact?: boolean;
 }) {
   const tones = toneClasses(item.authorityState);
   const authorityLabel =
     item.authorityLabel ?? authorityLabels?.[item.authorityState] ?? operatorStateLabel(item.authorityState);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div
+      className={cn(
+        "border border-slate-200 bg-white shadow-sm",
+        compact ? "rounded-xl p-2.5" : "rounded-2xl p-3",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-950">{item.title}</p>
+          <p className={cn("truncate font-semibold text-slate-950", compact ? "text-[13px]" : "text-sm")}>
+            {item.title}
+          </p>
           {item.subtitle ? <p className="mt-0.5 truncate text-xs text-slate-500">{item.subtitle}</p> : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -107,7 +116,9 @@ function OperatorRowCard({
         </div>
       ) : null}
 
-      <p className="mt-2 text-sm leading-relaxed text-slate-800">{item.reason}</p>
+      <p className={cn("mt-2 leading-relaxed text-slate-800", compact ? "text-[13px]" : "text-sm")}>
+        {item.reason}
+      </p>
       {item.blocker ? (
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
           Blocker: {item.blocker}
@@ -133,10 +144,12 @@ export function OperatorSurfaceSummary({
   model,
   className,
   maxRowsPerBucket = 3,
+  compact = false,
 }: {
   model: OperatorSurfaceModel | null;
   className?: string;
   maxRowsPerBucket?: number;
+  compact?: boolean;
 }) {
   if (!model) return null;
 
@@ -144,10 +157,14 @@ export function OperatorSurfaceSummary({
   const emphasisLabel = model.authorityLabels?.[model.emphasis] ?? operatorStateLabel(model.emphasis);
 
   return (
-    <section className={cn("space-y-4", className)} data-testid={`${model.surfaceLabel.toLowerCase()}-operator-surface`}>
+    <section
+      className={cn(compact ? "space-y-3" : "space-y-4", className)}
+      data-testid={`${model.surfaceLabel.toLowerCase()}-operator-surface`}
+    >
       <div
         className={cn(
-          "rounded-2xl border p-4 shadow-sm",
+          "rounded-2xl border shadow-sm",
+          compact ? "p-3.5" : "p-4",
           tones.panel,
         )}
       >
@@ -156,8 +173,10 @@ export function OperatorSurfaceSummary({
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
               {model.surfaceLabel} {model.heading}
             </p>
-            <h3 className="mt-1 text-lg font-semibold text-slate-950">{model.headline}</h3>
-            <p className="mt-1 text-sm text-slate-700">{model.note}</p>
+            <h3 className={cn("mt-1 font-semibold text-slate-950", compact ? "text-base" : "text-lg")}>
+              {model.headline}
+            </h3>
+            <p className={cn("mt-1 text-slate-700", compact ? "text-[13px]" : "text-sm")}>{model.note}</p>
             {model.blocker ? <p className="mt-2 text-xs text-slate-600">{model.blocker}</p> : null}
           </div>
           <span
@@ -175,7 +194,13 @@ export function OperatorSurfaceSummary({
       </div>
 
       {model.buckets.map((bucket) => (
-        <div key={bucket.key} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div
+          key={bucket.key}
+          className={cn(
+            "rounded-2xl border border-slate-200 bg-white shadow-sm",
+            compact ? "p-3.5" : "p-4",
+          )}
+        >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -188,9 +213,19 @@ export function OperatorSurfaceSummary({
             </span>
           </div>
           {bucket.rows.length > 0 ? (
-            <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            <div
+              className={cn(
+                "mt-3 grid",
+                compact ? "gap-2.5 2xl:grid-cols-2" : "gap-3 xl:grid-cols-2",
+              )}
+            >
               {bucket.rows.slice(0, maxRowsPerBucket).map((item) => (
-                <OperatorRowCard key={item.id} item={item} authorityLabels={model.authorityLabels} />
+                <OperatorRowCard
+                  key={item.id}
+                  item={item}
+                  authorityLabels={model.authorityLabels}
+                  compact={compact}
+                />
               ))}
             </div>
           ) : null}

@@ -112,21 +112,20 @@ test("reviewer smoke covers Meta recommendations and creative decision surfaces"
   await page.screenshot({ path: testInfo.outputPath("command-center-reviewer.png"), fullPage: true });
 
   await page.goto("/creatives");
-  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
-  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText("Preview Truth Contract");
-  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText(
-    "Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.",
-  );
-  await expect(page.getByTestId("creative-quick-filters-panel")).toContainText("Decision Path");
-  await expect(page.getByTestId("creative-quick-filters")).toContainText(
-    /ACT NOW|NEEDS TRUTH|KEEP TESTING|BLOCKED|PROTECTED/,
-  );
+  await expect(page.getByTestId("creative-preview-truth-contract")).toHaveCount(0);
+  await expect(page.getByTestId("creative-quick-filters-panel")).toHaveCount(0);
+  await expect(page.getByTestId("creative-quick-filters")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Decision support" }).click();
   await expect(page.getByTestId("creative-decision-os-drawer")).toBeVisible();
   await expect(page.getByTestId("creative-decision-os-drawer")).toContainText("Creative Decision Support");
   await expect(page.getByTestId("creative-decision-os-drawer")).toContainText(
     "The page worklist stays primary. This drawer is support for live-window decision context only.",
+  );
+  await expect(page.getByTestId("creative-preview-truth-contract")).toBeVisible();
+  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText("Preview Truth Contract");
+  await expect(page.getByTestId("creative-preview-truth-contract")).toContainText(
+    "Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.",
   );
   await expect(page.getByTestId("creative-decision-os-overview")).toBeVisible();
   await expect(page.getByTestId("creative-preview-truth-summary")).toBeVisible();

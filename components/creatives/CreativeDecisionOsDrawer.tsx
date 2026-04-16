@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import type {
   CreativeQuickFilter,
   CreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
 import { CreativeDecisionOsOverview } from "@/components/creatives/CreativeDecisionOsOverview";
 
 const CREATIVE_DECISION_OS_DRAWER_STORAGE_KEY = "creative-decision-os-drawer-width-v1";
@@ -27,6 +29,8 @@ type CreativeDecisionOsDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   quickFilters: CreativeQuickFilter[];
+  allRows: MetaCreativeRow[];
+  selectedRows: MetaCreativeRow[];
   activeFamilyId: string | null;
   activeQuickFilterKey: CreativeQuickFilterKey | null;
   onSelectFamily: (familyId: string | null) => void;
@@ -40,6 +44,8 @@ export function CreativeDecisionOsDrawer({
   open,
   onOpenChange,
   quickFilters,
+  allRows,
+  selectedRows,
   activeFamilyId,
   activeQuickFilterKey,
   onSelectFamily,
@@ -186,6 +192,15 @@ export function CreativeDecisionOsDrawer({
         </header>
 
         <div className={cn("flex-1 overflow-y-auto px-5 py-5 md:px-6")}>
+          <CreativeDecisionSupportSurface
+            decisionOs={decisionOs}
+            allRows={allRows}
+            selectedRows={selectedRows}
+            quickFilters={quickFilters}
+            activeQuickFilterKey={activeQuickFilterKey}
+            onToggleQuickFilter={onSelectQuickFilter}
+            className="mb-6"
+          />
           <CreativeDecisionOsOverview
             decisionOs={decisionOs}
             quickFilters={quickFilters}

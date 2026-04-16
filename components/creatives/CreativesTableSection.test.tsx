@@ -257,7 +257,7 @@ function buildDecisionOsRow(rowId: string) {
 }
 
 describe("CreativesTableSection", () => {
-  it("keeps degraded preview rows visibly blocked instead of reading like execute-now work", () => {
+  it("keeps the Creative / Ad Name column free of decision-support copy", () => {
     const row = mapApiRowToUiRow(buildApiRow());
     const html = renderToStaticMarkup(
       <CreativesTableSection
@@ -274,9 +274,35 @@ describe("CreativesTableSection", () => {
       />,
     );
 
-    expect(html).toContain("Preview degraded");
-    expect(html).toContain("Blocked");
-    expect(html).toContain("metrics-only");
+    expect(html).toContain("Truth Gated Creative");
+    expect(html).not.toContain("Preview degraded");
+    expect(html).not.toContain("Blocked");
+    expect(html).not.toContain("metrics-only");
     expect(html).not.toContain("Promote now");
+  });
+
+  it("renders the updated heatmap legend copy for the creatives table", () => {
+    const row = mapApiRowToUiRow(buildApiRow());
+    const html = renderToStaticMarkup(
+      <CreativesTableSection
+        rows={[row]}
+        creativeHistoryById={new Map()}
+        defaultCurrency="USD"
+        selectedMetricIds={["spend", "roas"]}
+        onSelectedMetricIdsChange={() => {}}
+        selectedRowIds={[]}
+        onToggleRow={() => {}}
+        onToggleAll={() => {}}
+        onOpenRow={() => {}}
+      />,
+    );
+
+    expect(html).toContain("Above baseline");
+    expect(html).toContain("In range");
+    expect(html).toContain("Below baseline");
+    expect(html).toContain("Deeper tint = larger gap");
+    expect(html).not.toContain("Above avg");
+    expect(html).not.toContain("Near avg");
+    expect(html).not.toContain("Below avg");
   });
 });

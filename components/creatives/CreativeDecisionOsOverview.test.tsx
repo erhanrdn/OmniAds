@@ -78,7 +78,7 @@ function payload() {
         familyScaleCount: 2,
         headline: "1 creative opportunity item is ready once evidence floors stay intact.",
       },
-      message: "Decision OS highlights which creatives to scale, keep in test, refresh, block, or retest.",
+      message: "Decision OS highlights which creatives to scale, test, refresh, hold, retest, or keep evergreen.",
       operatingMode: "Exploit",
       surfaceSummary: {
         actionCoreCount: 4,
@@ -433,15 +433,15 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("candidate active");
     expect(html).toContain("Target ROAS 2.5x");
     expect(html).toContain("Decisions use live windows");
-    expect(html).toContain("Scale-ready");
-    expect(html).toContain("Keep testing");
-    expect(html).toContain("Blocked");
+    expect(html).toContain("Scale");
+    expect(html).toContain("Test");
+    expect(html).toContain("Hold");
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");
     expect(html).toContain("Concept Families");
     expect(html).toContain("Pattern Board");
-    expect(html).toContain("Protected Winners");
+    expect(html).toContain("Evergreen Winners");
     expect(html).toContain("Supply Planning");
     expect(html).toContain("Degraded commercial truth");
     expect(html).toContain("Historical Analysis");

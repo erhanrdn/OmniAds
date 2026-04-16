@@ -5,10 +5,10 @@ import { Trophy, ChevronDown, ChevronRight, X, Search, Plus, SlidersHorizontal, 
 import { createPortal } from "react-dom";
 import { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
-import { OperatorSurfaceSummary } from "@/components/operator/OperatorSurfaceSummary";
+import { CreativeDecisionSupportSurface } from "@/components/creatives/CreativeDecisionSupportSurface";
 import {
-  buildCreativeOperatorSurfaceModel,
   buildCreativePreviewTruthSummary,
+  creativeQuickFilterShortLabel,
   type CreativePreviewTruthSummary,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
@@ -179,6 +179,7 @@ interface CreativesTopSectionProps {
   quickFilters?: CreativeQuickFilter[];
   activeQuickFilterKey?: CreativeQuickFilterKey | null;
   onToggleQuickFilter?: (key: CreativeQuickFilterKey) => void;
+  showDecisionSupportSurface?: boolean;
 }
 
 const GROUP_BY_OPTIONS: Array<{ value: CreativeGroupBy; label: string }> = [
@@ -316,55 +317,60 @@ const PRESET_OPTIONS: Array<{ value: CreativeDatePreset; label: string }> = [
 
 const METRIC_COLOR_TOKENS = ["bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700", "bg-cyan-100 text-cyan-700", "bg-indigo-100 text-indigo-700"];
 
-function quickFilterToneClasses(
-  filter: CreativeQuickFilter,
-  active: boolean,
-) {
+function performanceFilterToneClasses(filter: CreativeQuickFilter, active: boolean) {
   if (filter.tone === "act_now") {
     return active
-      ? "border-emerald-700 bg-emerald-700 text-white"
-      : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100";
+      ? {
+          button: "border-emerald-700 bg-emerald-600 text-white shadow-sm",
+          count: "bg-white/20 text-white",
+        }
+      : {
+          button: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+          count: "bg-emerald-100 text-emerald-800",
+        };
   }
   if (filter.tone === "needs_truth") {
     return active
-      ? "border-amber-600 bg-amber-600 text-white"
-      : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100";
-  }
-  if (filter.tone === "blocked") {
-    return active
-      ? "border-orange-600 bg-orange-600 text-white"
-      : "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100";
+      ? {
+          button: "border-amber-700 bg-amber-600 text-white shadow-sm",
+          count: "bg-white/20 text-white",
+        }
+      : {
+          button: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+          count: "bg-amber-100 text-amber-800",
+        };
   }
   if (filter.tone === "watch") {
     return active
-      ? "border-sky-600 bg-sky-600 text-white"
-      : "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100";
+      ? {
+          button: "border-sky-700 bg-sky-600 text-white shadow-sm",
+          count: "bg-white/20 text-white",
+        }
+      : {
+          button: "border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100",
+          count: "bg-sky-100 text-sky-800",
+        };
+  }
+  if (filter.tone === "blocked") {
+    return active
+      ? {
+          button: "border-orange-700 bg-orange-600 text-white shadow-sm",
+          count: "bg-white/20 text-white",
+        }
+      : {
+          button: "border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100",
+          count: "bg-orange-100 text-orange-800",
+        };
   }
   return active
-    ? "border-slate-700 bg-slate-700 text-white"
-    : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100";
-}
-
-function previewTruthTone(summary: CreativePreviewTruthSummary | null | undefined) {
-  if (!summary || summary.state === "ready") {
-    return {
-      panel: "border-emerald-200 bg-emerald-50/70",
-      badge: "border-emerald-200 bg-emerald-100 text-emerald-900",
-      stat: "border-emerald-200 bg-white",
-    };
-  }
-  if (summary.state === "missing") {
-    return {
-      panel: "border-rose-200 bg-rose-50/70",
-      badge: "border-rose-200 bg-rose-100 text-rose-900",
-      stat: "border-rose-200 bg-white",
-    };
-  }
-  return {
-    panel: "border-amber-200 bg-amber-50/70",
-    badge: "border-amber-200 bg-amber-100 text-amber-900",
-    stat: "border-amber-200 bg-white",
-  };
+    ? {
+        button: "border-slate-700 bg-slate-700 text-white shadow-sm",
+        count: "bg-white/20 text-white",
+      }
+    : {
+        button: "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100",
+        count: "bg-slate-200 text-slate-700",
+      };
 }
 
 const METRIC_DEFS: CreativeMetricDefinition[] = [
@@ -516,26 +522,13 @@ export function CreativesTopSection({
   quickFilters = [],
   activeQuickFilterKey = null,
   onToggleQuickFilter,
+  showDecisionSupportSurface = true,
 }: CreativesTopSectionProps) {
   const metricDefs = useMemo(
     () => selectedMetricIds.map((id) => CREATIVE_METRIC_MAP[id]).filter(Boolean) as CreativeMetricDefinition[],
     [selectedMetricIds]
   );
-  const operatorSurface = useMemo(
-    () =>
-      buildCreativeOperatorSurfaceModel(decisionOs ?? null, {
-        visibleIds: new Set(allRowsForHeatmap.map((row) => row.id)),
-      }),
-    [allRowsForHeatmap, decisionOs]
-  );
   const topRows = useMemo(() => selectedRows, [selectedRows]);
-  const previewTruthSummary = useMemo(
-    () =>
-      buildCreativePreviewTruthSummary(decisionOs ?? null, {
-        creativeIds: allRowsForHeatmap.map((row) => row.id),
-      }),
-    [allRowsForHeatmap, decisionOs]
-  );
   const selectedPreviewTruthSummary = useMemo(
     () =>
       topRows.length > 0
@@ -545,7 +538,6 @@ export function CreativesTopSection({
         : null,
     [decisionOs, topRows]
   );
-  const previewTruthClasses = previewTruthTone(previewTruthSummary);
 
   return (
     <section>
@@ -591,6 +583,40 @@ export function CreativesTopSection({
             onChange={onFiltersChange}
           />
 
+          {quickFilters.length > 0 && onToggleQuickFilter ? (
+            <div
+              className="flex flex-wrap items-center gap-2"
+              data-testid="creative-performance-filters"
+            >
+              {quickFilters.map((filter) => {
+                const active = activeQuickFilterKey === filter.key;
+                const toneClasses = performanceFilterToneClasses(filter, active);
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => onToggleQuickFilter(filter.key)}
+                    data-testid={`creative-performance-filter-${filter.key}`}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition-colors",
+                      toneClasses.button,
+                    )}
+                  >
+                    <span>{creativeQuickFilterShortLabel(filter.key)}</span>
+                    <span
+                      className={cn(
+                        "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                        toneClasses.count,
+                      )}
+                    >
+                      {filter.count.toLocaleString()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
           <div className="ml-auto flex items-center gap-2">
             {actionsPrefix}
             <TopExportDropdown
@@ -606,118 +632,17 @@ export function CreativesTopSection({
         </div>
       </div>
 
-      {(previewTruthSummary || quickFilters.length > 0) ? (
-        <section
-          className={cn("mt-4 rounded-2xl border p-4 shadow-sm", previewTruthClasses.panel)}
-          data-testid="creative-preview-truth-contract"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="max-w-3xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-                Preview Truth Contract
-              </p>
-              <h3 className="mt-1 text-lg font-semibold text-slate-950">
-                {previewTruthSummary?.headline ?? "Preview truth is still being prepared for this review scope."}
-              </h3>
-              <p className="mt-1 text-sm text-slate-700">
-                {previewTruthSummary?.summary ??
-                  "Authoritative creative action depends on preview readiness before the row can read as decisive work."}
-              </p>
-              <p className="mt-2 text-xs text-slate-600">
-                Ready preview media supports decisive action language. Degraded preview keeps review metrics-only. Missing preview blocks authoritative action.
-              </p>
-            </div>
-            <span
-              className={cn(
-                "rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide",
-                previewTruthClasses.badge,
-              )}
-            >
-              {previewTruthSummary?.state === "ready"
-                ? "Preview ready"
-                : previewTruthSummary?.state === "missing"
-                  ? "Preview missing"
-                  : "Preview gated"}
-            </span>
-          </div>
-
-          {previewTruthSummary ? (
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              {[
-                ["Ready", previewTruthSummary.readyCount],
-                ["Degraded", previewTruthSummary.degradedCount],
-                ["Missing", previewTruthSummary.missingCount],
-              ].map(([label, value]) => (
-                <div
-                  key={String(label)}
-                  className={cn("rounded-2xl border px-4 py-3", previewTruthClasses.stat)}
-                >
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-950">{value}</p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {selectedPreviewTruthSummary ? (
-            <div className="mt-4 rounded-2xl border border-white/60 bg-white/80 px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Current workspace
-              </p>
-              <p className="mt-1 text-sm font-semibold text-slate-950">
-                {selectedPreviewTruthSummary.readyCount} ready · {selectedPreviewTruthSummary.degradedCount} degraded · {selectedPreviewTruthSummary.missingCount} missing
-              </p>
-              <p className="mt-1 text-xs text-slate-600">
-                The preview strip and table now follow this truth before they read as clean operator action.
-              </p>
-            </div>
-          ) : null}
-
-          {quickFilters.length > 0 ? (
-            <div className="mt-4 space-y-2" data-testid="creative-quick-filters-panel">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Decision Path
-                  </p>
-                  <p className="mt-1 text-sm text-slate-700">
-                    Scan action first, then truth-capped, test-only, blocked, and protected rows in one order.
-                  </p>
-                </div>
-              </div>
-              <div className="grid gap-2 lg:grid-cols-5" data-testid="creative-quick-filters">
-                {quickFilters.map((filter) => {
-                  const active = activeQuickFilterKey === filter.key;
-                  return (
-                    <button
-                      key={filter.key}
-                      type="button"
-                      onClick={() => onToggleQuickFilter?.(filter.key)}
-                      data-testid={`creative-quick-filter-${filter.key}`}
-                      className={cn(
-                        "rounded-2xl border p-3 text-left transition-colors",
-                        quickFilterToneClasses(filter, active),
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold">{filter.label}</p>
-                          <p className="mt-1 text-xs opacity-85">{filter.summary}</p>
-                        </div>
-                        <span className={cn("rounded-full px-2 py-1 text-[11px] font-semibold", active ? "bg-white/20" : "bg-black/5")}>
-                          {filter.count}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
-        </section>
+      {showDecisionSupportSurface ? (
+        <CreativeDecisionSupportSurface
+          decisionOs={decisionOs}
+          allRows={allRowsForHeatmap}
+          selectedRows={topRows}
+          quickFilters={quickFilters}
+          activeQuickFilterKey={activeQuickFilterKey}
+          onToggleQuickFilter={onToggleQuickFilter}
+          className="mt-4"
+        />
       ) : null}
-
-      <OperatorSurfaceSummary model={operatorSurface} className="mt-4" maxRowsPerBucket={2} />
 
       {showAiActionsRow && (
         <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2">
@@ -1401,10 +1326,43 @@ function PreviewStrip({
   const [unlockedPreviewCount, setUnlockedPreviewCount] = useState(
     previewMode === "media" && rows.length > 0 ? 1 : rows.length
   );
+  const previewGridRef = useRef<HTMLDivElement | null>(null);
+  const previewCardMinWidth = previewMode === "copy" ? 280 : 190;
+  const previewGridGap = 12;
+  const previewRowBatchSize = 2;
+  const [previewColumnCount, setPreviewColumnCount] = useState(1);
+  const [visiblePreviewRowCount, setVisiblePreviewRowCount] = useState(previewRowBatchSize);
 
   useEffect(() => {
     setUnlockedPreviewCount(previewMode === "media" && rows.length > 0 ? 1 : rows.length);
   }, [previewMode, rowSignature, rows.length]);
+
+  useEffect(() => {
+    setVisiblePreviewRowCount(previewRowBatchSize);
+  }, [previewMode, rowSignature]);
+
+  useEffect(() => {
+    const element = previewGridRef.current;
+    if (!element) return;
+
+    const updateColumnCount = () => {
+      const width = element.clientWidth;
+      if (width <= 0) return;
+
+      const nextColumnCount = Math.max(
+        1,
+        Math.floor((width + previewGridGap) / (previewCardMinWidth + previewGridGap))
+      );
+      setPreviewColumnCount((prev) => (prev === nextColumnCount ? prev : nextColumnCount));
+    };
+
+    updateColumnCount();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateColumnCount());
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [previewCardMinWidth, previewStripState, rows.length]);
 
   useEffect(() => {
     if (previewMode !== "media") return;
@@ -1421,14 +1379,22 @@ function PreviewStrip({
     return () => window.clearTimeout(settleTimer);
   }, [previewMode, previewStripState, rows.length, unlockedPreviewCount]);
 
+  const visiblePreviewCardCount = previewColumnCount * visiblePreviewRowCount;
+  const visibleRows = rows.slice(0, visiblePreviewCardCount);
+  const hasMoreRows = rows.length > visiblePreviewCardCount;
+
   if (previewStripState === "data_loading") {
     return (
-      <div className="overflow-x-auto pb-1">
-        <div className="flex min-w-max gap-3">
+      <div
+        className="grid gap-3"
+        style={{
+          gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${previewCardMinWidth}px), 1fr))`,
+        }}
+      >
           {Array.from({ length: 4 }).map((_, index) => (
             <div
               key={`creative-preview-skeleton-${index}`}
-              className="w-[190px] shrink-0 overflow-hidden rounded-xl border bg-background"
+              className="overflow-hidden rounded-xl border bg-background"
             >
               <div className="aspect-square w-full animate-pulse bg-gradient-to-br from-slate-100 to-slate-200" />
               <div className="space-y-2 px-3 pb-3 pt-2.5">
@@ -1438,7 +1404,6 @@ function PreviewStrip({
               </div>
             </div>
           ))}
-        </div>
       </div>
     );
   }
@@ -1469,31 +1434,13 @@ function PreviewStrip({
   }
 
   return (
-    <div className="overflow-x-auto pb-1">
-      {previewTruthSummary ? (
-        <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Selected Preview Truth
-              </p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {previewTruthSummary.headline}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2 text-[11px] text-slate-700">
-              <span>Ready {previewTruthSummary.readyCount}</span>
-              <span>Degraded {previewTruthSummary.degradedCount}</span>
-              <span>Missing {previewTruthSummary.missingCount}</span>
-            </div>
-          </div>
-          <p className="mt-2 text-xs text-slate-600">
-            Decisive action language only applies to ready rows. Degraded rows stay metrics-only, and missing rows stay blocked.
-          </p>
-        </div>
-      ) : null}
-      <div className="flex min-w-max gap-3">
-        {rows.map((row, index) => {
+    <div className="space-y-3">
+      <div
+        ref={previewGridRef}
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${previewColumnCount}, minmax(0, 1fr))` }}
+      >
+        {visibleRows.map((row, index) => {
           const assetFallbacks = getCreativeStaticPreviewSources(row, "grid");
           const assetUpgradeSources = assetFallbacks;
           const assetState = getCreativeStaticPreviewState(row, "grid");
@@ -1514,8 +1461,7 @@ function PreviewStrip({
               type="button"
               onClick={() => onOpenRow(row.id)}
               className={cn(
-                "group shrink-0 overflow-hidden rounded-xl border bg-background text-left transition-shadow hover:shadow-md hover:ring-1 hover:ring-border",
-                previewMode === "copy" ? "w-[280px]" : "w-[190px]"
+                "group min-w-0 overflow-hidden rounded-xl border bg-background text-left transition-shadow hover:shadow-md hover:ring-1 hover:ring-border"
               )}
             >
               {previewMode === "copy" ? (
@@ -1572,6 +1518,17 @@ function PreviewStrip({
           );
         })}
       </div>
+      {hasMoreRows ? (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => setVisiblePreviewRowCount((prev) => prev + previewRowBatchSize)}
+            className="inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            Show more
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -15,6 +15,22 @@ import type {
 } from "@/lib/creative-decision-os";
 
 function formatLifecycleLabel(value: string) {
+  const labels: Record<string, string> = {
+    incubating: "Testing",
+    validating: "Testing",
+    scale_ready: "Scale-ready",
+    stable_winner: "Evergreen winner",
+    fatigued_winner: "Needs refresh",
+    blocked: "On hold",
+    comeback_candidate: "Retest",
+    promote_to_scaling: "Scale",
+    keep_in_test: "Testing",
+    refresh_replace: "Refresh",
+    block_deploy: "On hold",
+    hold_no_touch: "Evergreen",
+    protected_winner: "Evergreen winner",
+  };
+  if (labels[value]) return labels[value];
   return value.replaceAll("_", " ");
 }
 
@@ -195,11 +211,11 @@ export function CreativeDecisionOsOverview({
       <div className="grid gap-3 md:grid-cols-6">
         {[
           ["Total creatives", decisionOs.summary.totalCreatives],
-          ["Scale-ready", decisionOs.summary.scaleReadyCount],
-          ["Keep testing", decisionOs.summary.keepTestingCount],
-          ["Fatigued", decisionOs.summary.fatiguedCount],
-          ["Blocked", decisionOs.summary.blockedCount],
-          ["Comeback", decisionOs.summary.comebackCount],
+          ["Scale", decisionOs.summary.scaleReadyCount],
+          ["Test", decisionOs.summary.keepTestingCount],
+          ["Needs refresh", decisionOs.summary.fatiguedCount],
+          ["Hold", decisionOs.summary.blockedCount],
+          ["Retest", decisionOs.summary.comebackCount],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
@@ -214,8 +230,8 @@ export function CreativeDecisionOsOverview({
           ["Watchlist", decisionOs.summary.surfaceSummary.watchlistCount],
           ["Archive", decisionOs.summary.surfaceSummary.archiveCount],
           ["Degraded", decisionOs.summary.surfaceSummary.degradedCount],
-          ["Truth-capped", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
-          ["Protected winners", decisionOs.summary.protectedWinnerCount],
+          ["Validation needed", decisionOs.summary.surfaceSummary.profitableTruthCappedCount ?? 0],
+          ["Evergreen winners", decisionOs.summary.protectedWinnerCount],
           ["Supply plan", decisionOs.summary.supplyPlanCount],
           ["Opportunities", decisionOs.summary.opportunitySummary.totalCount],
         ].map(([label, value]) => (
@@ -337,7 +353,7 @@ export function CreativeDecisionOsOverview({
           </div>
           <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
             <span>Queue-ready {decisionOs.summary.opportunitySummary.queueEligibleCount}</span>
-            <span>Protected {decisionOs.summary.opportunitySummary.protectedCount}</span>
+            <span>Evergreen {decisionOs.summary.opportunitySummary.protectedCount}</span>
             <span>Family scale {decisionOs.summary.opportunitySummary.familyScaleCount}</span>
           </div>
         </div>
@@ -532,7 +548,7 @@ export function CreativeDecisionOsOverview({
           data-testid="creative-protected-winners"
         >
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-slate-950">Protected Winners</h3>
+            <h3 className="text-sm font-semibold text-slate-950">Evergreen Winners</h3>
             <span className="text-[11px] text-slate-500">
               not queued for promotion
             </span>

@@ -5,6 +5,7 @@ import {
   buildCreativePreviewTruthSummary,
   buildCreativeQuickFilters,
   creativeAuthorityStateLabel,
+  creativeQuickFilterShortLabel,
   resolveCreativeQuickFilterKey,
 } from "@/lib/creative-operator-surface";
 
@@ -152,23 +153,23 @@ describe("creative operator surface", () => {
     const model = buildCreativeOperatorSurfaceModel(fixture);
     expect(model).not.toBeNull();
 
-    const needsTruth = model?.buckets.find((bucket) => bucket.key === "needs_truth");
-    const blocked = model?.buckets.find((bucket) => bucket.key === "blocked");
+    const hold = model?.buckets.find((bucket) => bucket.key === "needs_truth");
 
     expect(buildCreativeOperatorItem(fixture.creatives[0])).toMatchObject({
-      primaryAction: "Promote now",
+      primaryAction: "Scale",
       authorityState: "act_now",
-      authorityLabel: "Act now",
+      authorityLabel: "Scale",
     });
-    expect(needsTruth?.rows[0]).toMatchObject({
+    expect(hold?.label).toBe("Hold");
+    expect(hold?.rows[0]).toMatchObject({
       id: "truth",
-      primaryAction: "Needs truth",
+      primaryAction: "Validate",
       authorityState: "needs_truth",
     });
-    expect(blocked?.rows[0]).toMatchObject({
+    expect(hold?.rows[1]).toMatchObject({
       id: "preview",
-      primaryAction: "Preview missing",
-      authorityState: "blocked",
+      primaryAction: "Needs preview",
+      authorityState: "needs_truth",
     });
     expect(model?.hiddenSummary).toContain("thin-signal");
   });
@@ -240,21 +241,21 @@ describe("creative operator surface", () => {
 
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("act_now");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[1])).toBe("needs_truth");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[2])).toBe("blocked");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[2])).toBe("needs_truth");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[3])).toBe("watch");
-    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("act_now");
+    expect(resolveCreativeQuickFilterKey(fixture.creatives[4])).toBe("blocked");
     expect(resolveCreativeQuickFilterKey(fixture.creatives[5])).toBe("no_action");
 
     const filters = buildCreativeQuickFilters(fixture);
 
     expect(filters.map((filter) => [filter.key, filter.count])).toEqual([
-      ["act_now", 2],
-      ["needs_truth", 1],
+      ["act_now", 1],
       ["watch", 1],
       ["blocked", 1],
+      ["needs_truth", 2],
       ["no_action", 1],
     ]);
-    expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("Preview");
+    expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("Fatigued winners");
   });
 
   it("builds explicit preview truth summaries for the current review scope", () => {
@@ -274,7 +275,17 @@ describe("creative operator surface", () => {
       state: "missing",
       headline: "Preview truth is missing across this review scope.",
     });
-    expect(creativeAuthorityStateLabel("watch")).toBe("Keep testing");
-    expect(creativeAuthorityStateLabel("no_action")).toBe("Protected");
+    expect(creativeAuthorityStateLabel("watch")).toBe("Test");
+    expect(creativeAuthorityStateLabel("no_action")).toBe("Evergreen");
+    expect(creativeAuthorityStateLabel("needs_truth")).toBe("Hold");
+    expect(creativeAuthorityStateLabel("blocked")).toBe("Refresh");
+  });
+
+  it("exposes concise labels for performance quick filters in the top toolbar", () => {
+    expect(creativeQuickFilterShortLabel("act_now")).toBe("Scale");
+    expect(creativeQuickFilterShortLabel("watch")).toBe("Test");
+    expect(creativeQuickFilterShortLabel("blocked")).toBe("Refresh");
+    expect(creativeQuickFilterShortLabel("needs_truth")).toBe("Hold");
+    expect(creativeQuickFilterShortLabel("no_action")).toBe("Evergreen");
   });
 });

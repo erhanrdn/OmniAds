@@ -22,7 +22,7 @@ import type { PlacementChartRow } from "@/components/meta/placement-breakdown-ch
 import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
 import type { CommandCenterAction, CommandCenterResponse } from "@/lib/command-center";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
-import { MetaCampaignDecisionPanel } from "@/components/meta/meta-decision-os";
+import { MetaCampaignDecisionPanel, MetaDecisionOsOverview } from "@/components/meta/meta-decision-os";
 import { buildMetaOperatorItemFromCampaign } from "@/lib/meta/operator-surface";
 import { operatorStateLabel } from "@/lib/operator-surface";
 import { getCommandCenter } from "@/src/services";
@@ -463,16 +463,21 @@ interface AccountOverviewProps {
 function AccountOverview(props: AccountOverviewProps) {
   return (
     <div className="space-y-4 p-6" data-testid="meta-account-overview">
+      <MetaDecisionOsOverview
+        decisionOs={props.decisionOsData}
+        isLoading={props.isDecisionOsLoading}
+        compact
+      />
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
           Account Drilldown
         </p>
         <p className="mt-1 text-sm font-semibold text-slate-950">
-          Use the action surface above to pick the campaign that needs review next.
+          Use the operator surface here to pick the campaign that needs review next.
         </p>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          Workflow links, operating context, and supporting diagnostics stay secondary here so
-          the page-level Meta authority remains the first thing you read.
+          Campaign Drilldown stays on the left, while account-level authority and supporting
+          context now stay together in this detail pane.
         </p>
       </div>
       <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-supporting-context">

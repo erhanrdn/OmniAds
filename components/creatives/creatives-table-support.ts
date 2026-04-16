@@ -67,16 +67,48 @@ export function buildDistribution(values: number[]) {
 
 export function toHeatColor(tone: string, intensity: number): string {
   if (intensity <= 0) return "transparent";
-  const alpha = clamp(intensity * 0.32, 0.06, 0.4);
+  const alpha = clamp(0.035 + intensity * 0.14, 0.045, 0.18);
   const palette: Record<string, [number, number, number]> = {
-    strong_negative: [220, 38, 38],
-    negative: [239, 68, 68],
+    strong_negative: [190, 72, 81],
+    negative: [224, 122, 130],
     neutral: [148, 163, 184],
-    positive: [34, 197, 94],
-    strong_positive: [22, 163, 74],
+    positive: [84, 160, 126],
+    strong_positive: [47, 120, 88],
   };
   const [r, g, b] = palette[tone] ?? palette.neutral;
   return `rgba(${r}, ${g}, ${b}, ${alpha.toFixed(3)})`;
+}
+
+export function toHeatAccentColor(tone: string): string {
+  const palette: Record<string, [number, number, number]> = {
+    strong_negative: [170, 58, 68],
+    negative: [203, 96, 105],
+    neutral: [148, 163, 184],
+    positive: [66, 145, 109],
+    strong_positive: [29, 108, 74],
+  };
+  const [r, g, b] = palette[tone] ?? palette.neutral;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+export function toHeatCellStyle(tone: string, intensity: number) {
+  if (intensity <= 0) return {};
+
+  const backgroundColor = toHeatColor(tone, intensity);
+  const ringAlpha = clamp(0.06 + intensity * 0.1, 0.08, 0.2);
+  const palette: Record<string, [number, number, number]> = {
+    strong_negative: [170, 58, 68],
+    negative: [203, 96, 105],
+    neutral: [148, 163, 184],
+    positive: [66, 145, 109],
+    strong_positive: [29, 108, 74],
+  };
+  const [r, g, b] = palette[tone] ?? palette.neutral;
+
+  return {
+    backgroundColor,
+    boxShadow: `inset 0 0 0 1px rgba(${r}, ${g}, ${b}, ${ringAlpha.toFixed(3)})`,
+  };
 }
 
 export function computeAggregateTotals(rows: MetaCreativeRow[]) {

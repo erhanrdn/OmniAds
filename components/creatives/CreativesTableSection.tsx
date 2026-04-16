@@ -19,7 +19,6 @@ import {
 import { MetaAiTagKey, MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { CreativeRenderSurface } from "@/components/creatives/CreativeRenderSurface";
 import { getAiTagPillStyles } from "@/components/creatives/aiTagPillStyles";
-import { buildCreativeOperatorItem, creativeAuthorityStateLabel } from "@/lib/creative-operator-surface";
 import {
   calculateCreativeAverageOrderValue,
   calculateCreativeClickToAddToCartRate,
@@ -40,12 +39,13 @@ import {
   fmtCurrency,
   fmtInteger,
   fmtPercent,
-  toHeatColor,
+  toHeatAccentColor,
+  toHeatCellStyle,
 } from "@/components/creatives/creatives-table-support";
 import { cn } from "@/lib/utils";
 import { getCreativeStaticPreviewSources, getCreativeStaticPreviewState } from "@/lib/meta/creatives-preview";
 import { useDropdownBehavior } from "@/hooks/use-dropdown-behavior";
-import { type CreativeDecisionOs, type CreativeDecisionOsRow } from "@/src/services";
+import { type CreativeDecisionOs } from "@/src/services";
 import { createPortal } from "react-dom";
 import { getCreativeVisualFormatLabel } from "@/lib/meta/creative-taxonomy";
 import type { CreativeHistoricalWindows } from "@/src/services";
@@ -215,7 +215,6 @@ interface HeatEvaluation {
 
 interface CreativeTableRowProps {
   row: MetaCreativeRow;
-  decisionOsRow?: CreativeDecisionOsRow | null;
   isSelected: boolean;
   highlighted: boolean;
   defaultCurrency: string | null;
@@ -225,6 +224,7 @@ interface CreativeTableRowProps {
   ctx: TableCalcContext;
   metricDistributions: Partial<Record<TableColumnKey, MetricDistribution>>;
   metricSpendDistributions: Partial<Record<TableColumnKey, MetricDistribution>>;
+  heatmapBaselineLabel: string;
   onToggleRow: (rowId: string) => void;
   onOpenRow: (rowId: string) => void;
   onOpenBreakdownRow?: (rowId: string) => void;
@@ -576,7 +576,6 @@ const TABLE_METRIC_CONFIG: Partial<Record<TableColumnKey, TableMetricConfig>> = 
 export function CreativesTableSection({
   rows,
   creativeHistoryById,
-  decisionOs,
   defaultCurrency,
   initialPresetName = "Facebook Ecommerce",
   selectedMetricIds,
@@ -621,10 +620,6 @@ export function CreativesTableSection({
   } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const decisionOsById = useMemo(
-    () => new Map((decisionOs?.creatives ?? []).map((item) => [item.creativeId, item])),
-    [decisionOs]
-  );
 
   useDropdownBehavior({
     id: "table-preset-menu",
@@ -682,6 +677,9 @@ export function CreativesTableSection({
     [tablePreset.selectedColumns]
   );
   const selectedAiTagColumns = tablePreset.selectedAiTagColumns;
+  const heatmapBaselineLabel = "current table baseline";
+  const heatmapGuideTitle =
+    "Heatmap compares each metric against the current table selection. Efficiency metrics use a baseline average, engagement metrics use peer bands, and lower cost metrics still read as better when lower. Deeper tint means a larger gap.";
 
   const sortedRows = useMemo(() => {
     const t = Date.now();
@@ -1205,30 +1203,37 @@ export function CreativesTableSection({
           + Add metric
         </button>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div
-            className="inline-flex items-center gap-2 rounded-full border border-dashed bg-emerald-50/40 px-3 py-1 text-[11px] text-muted-foreground"
-            title={
-              decisionOs
-                ? "Heatmap colors compare each creative against the best available contextual cohort. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than cohort baseline is better."
-                : "Heatmap colors compare each creative against the account average for that metric. Cost metrics (CPA, CPC, CPM) are interpreted in reverse, so lower than average is better."
-            }
-          >
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Above avg
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-slate-400" />
-              Near avg
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-red-500" />
-              Below avg
-            </span>
+        {tablePreset.colorFormatting === "heatmap" ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex flex-wrap items-center gap-3 rounded-full border border-[#D8E2EA] bg-[#F8FBFC] px-3 py-1.5 text-[11px] text-[#5B6B7B]"
+              title={heatmapGuideTitle}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: toHeatAccentColor("positive") }}
+                />
+                Above baseline
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: toHeatAccentColor("neutral") }}
+                />
+                In range
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: toHeatAccentColor("negative") }}
+                />
+                Below baseline
+              </span>
+              <span className="text-[#7A8794]">Deeper tint = larger gap</span>
+            </div>
           </div>
-
-        </div>
+        ) : null}
       </div>
 
       {/* B) selection info */}
@@ -1531,7 +1536,6 @@ export function CreativesTableSection({
               <CreativeTableRow
                 key={row.id}
                 row={row}
-                decisionOsRow={decisionOsById.get(row.id) ?? null}
                 isSelected={selectedRowIdSet.has(row.id)}
                 highlighted={highlightedRowId === row.id}
                 defaultCurrency={defaultCurrency}
@@ -1541,6 +1545,7 @@ export function CreativesTableSection({
                 ctx={ctx}
                 metricDistributions={metricDistributions}
                 metricSpendDistributions={metricSpendDistributions}
+                heatmapBaselineLabel={heatmapBaselineLabel}
                 onToggleRow={onToggleRow}
                 onOpenRow={onOpenRow}
                 onOpenBreakdownRow={onOpenBreakdownRow}
@@ -1679,7 +1684,6 @@ export function CreativesTableSection({
 
 const CreativeTableRow = memo(function CreativeTableRow({
   row,
-  decisionOsRow,
   isSelected,
   highlighted,
   defaultCurrency,
@@ -1689,6 +1693,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
   ctx,
   metricDistributions,
   metricSpendDistributions,
+  heatmapBaselineLabel,
   onToggleRow,
   onOpenRow,
   onOpenBreakdownRow,
@@ -1699,30 +1704,6 @@ const CreativeTableRow = memo(function CreativeTableRow({
   );
   const assetState = getCreativeStaticPreviewState(row, "table");
   const resolvedRowCurrency = resolveCreativeCurrency(row.currency, defaultCurrency);
-  const operatorItem = useMemo(
-    () => (decisionOsRow ? buildCreativeOperatorItem(decisionOsRow) : null),
-    [decisionOsRow]
-  );
-  const primaryDecisionTone =
-    operatorItem?.authorityState === "act_now"
-      ? "bg-emerald-500/10 text-emerald-700"
-      : operatorItem?.authorityState === "blocked"
-        ? "bg-orange-500/10 text-orange-700"
-        : operatorItem?.authorityState === "needs_truth"
-          ? "bg-amber-500/10 text-amber-700"
-          : operatorItem?.authorityState === "no_action"
-            ? "bg-slate-200 text-slate-700"
-            : "bg-sky-500/10 text-sky-700";
-  const authorityTone =
-    operatorItem?.authorityState === "act_now"
-      ? "bg-emerald-50 text-emerald-700"
-      : operatorItem?.authorityState === "blocked"
-        ? "bg-orange-50 text-orange-700"
-        : operatorItem?.authorityState === "needs_truth"
-          ? "bg-amber-50 text-amber-700"
-          : operatorItem?.authorityState === "no_action"
-            ? "bg-slate-100 text-slate-700"
-            : "bg-sky-50 text-sky-700";
 
   return (
     <tr
@@ -1754,48 +1735,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-[10px] font-medium leading-tight">{row.name}</p>
-            {operatorItem ? (
-              <div className="mt-1.5 space-y-1">
-                <div className="flex flex-wrap gap-1">
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.14em]",
-                      primaryDecisionTone,
-                    )}
-                  >
-                    {operatorItem.primaryAction}
-                  </span>
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em]",
-                      authorityTone,
-                    )}
-                  >
-                    {creativeAuthorityStateLabel(operatorItem.authorityState)}
-                  </span>
-                </div>
-                {operatorItem.secondaryLabels && operatorItem.secondaryLabels.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {operatorItem.secondaryLabels.slice(0, 2).map((label) => (
-                      <span
-                        key={`${operatorItem.id}:${label}`}
-                        className="rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.14em] text-slate-600"
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-                <p className="truncate text-[9px] text-slate-500">
-                  {operatorItem.reason}
-                </p>
-                <p className="truncate text-[9px] text-slate-400">
-                  {operatorItem.blocker ??
-                    operatorItem.metrics.map((metric) => `${metric.label} ${metric.value}`).join(" · ")}
-                </p>
-              </div>
-            ) : null}
-            <p className="mt-0.5 truncate text-[9px] text-muted-foreground">
+            <p className="mt-1 truncate text-[9px] text-muted-foreground">
               {row.associatedAdsCount > 1 ? <span className="opacity-60">{row.associatedAdsCount} ads</span> : null}
               <button
                 type="button"
@@ -1858,11 +1798,12 @@ const CreativeTableRow = memo(function CreativeTableRow({
           distribution: metricDistributions[column.key] ?? buildDistribution([value]),
           roasDistribution: metricDistributions.roas,
           spendDistribution: metricSpendDistributions[column.key] ?? buildDistribution([row.spend]),
+          baselineLabel: heatmapBaselineLabel,
         });
-        const bg =
+        const heatStyle =
           tablePreset.colorFormatting === "heatmap"
-            ? toHeatColor(evaluation.tone, evaluation.intensity)
-            : "transparent";
+            ? toHeatCellStyle(evaluation.tone, evaluation.intensity)
+            : undefined;
 
         return (
           <td
@@ -1872,7 +1813,7 @@ const CreativeTableRow = memo(function CreativeTableRow({
               evaluation.applicable === false && "text-muted-foreground",
               column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left"
             )}
-            style={{ backgroundColor: bg }}
+            style={heatStyle}
             title={tablePreset.colorFormatting === "heatmap" ? evaluation.reason : undefined}
           >
             {evaluation.applicable !== false
@@ -2239,16 +2180,16 @@ function evaluateByAverage(input: {
   if (direction === "neutral") {
     return {
       tone: "neutral",
-      intensity: 0.18,
-      reason: "Neutral metric: average-based heatmap is informational only.",
+      intensity: 0.12,
+      reason: "Neutral metric: heatmap is informational only.",
     };
   }
 
   if (average <= 0) {
     return {
       tone: "neutral",
-      intensity: 0.14,
-      reason: "Average baseline is too low for stable comparison.",
+      intensity: 0.1,
+      reason: "comparison baseline is too low for a stable read.",
     };
   }
 
@@ -2257,38 +2198,100 @@ function evaluateByAverage(input: {
     direction === "lower_better" ? -rawDeltaRatio : rawDeltaRatio;
   const absDelta = Math.abs(directionalDelta);
 
-  if (directionalDelta >= 0.35) {
+  if (directionalDelta >= 0.28) {
     return {
       tone: "strong_positive",
-      intensity: 0.92,
-      reason: `Strongly above account average (${(directionalDelta * 100).toFixed(0)}%).`,
+      intensity: 0.74,
+      reason: `Well above comparison baseline (${(directionalDelta * 100).toFixed(0)}%).`,
     };
   }
-  if (directionalDelta >= 0.15) {
+  if (directionalDelta >= 0.1) {
     return {
       tone: "positive",
-      intensity: 0.7,
-      reason: `Above account average (${(directionalDelta * 100).toFixed(0)}%).`,
+      intensity: 0.5,
+      reason: `Above comparison baseline (${(directionalDelta * 100).toFixed(0)}%).`,
     };
   }
-  if (absDelta <= 0.1) {
+  if (absDelta <= 0.08) {
     return {
       tone: "neutral",
-      intensity: 0.22,
-      reason: "Within ±10% of account average.",
+      intensity: 0.16,
+      reason: "In line with comparison baseline.",
     };
   }
-  if (directionalDelta <= -0.35) {
+  if (directionalDelta <= -0.28) {
     return {
       tone: "strong_negative",
-      intensity: 0.9,
-      reason: `Strongly below account average (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
+      intensity: 0.72,
+      reason: `Well below comparison baseline (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
     };
   }
   return {
     tone: "negative",
-    intensity: 0.68,
-    reason: `Below account average (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
+    intensity: 0.46,
+    reason: `Below comparison baseline (${(Math.abs(directionalDelta) * 100).toFixed(0)}%).`,
+  };
+}
+
+function evaluateByQuantile(input: {
+  value: number;
+  distribution: MetricDistribution;
+  direction: MetricDirectionMode;
+}): HeatEvaluation {
+  const { value, distribution, direction } = input;
+
+  if (direction === "neutral") {
+    return {
+      tone: "neutral",
+      intensity: 0.12,
+      reason: "Neutral metric: heatmap is informational only.",
+    };
+  }
+
+  if (distribution.sorted.length < 5) {
+    return evaluateByAverage({
+      value,
+      average: distribution.avg,
+      direction,
+    });
+  }
+
+  const quantile = resolveQuantilePosition(value, distribution);
+  const effectiveQuantile =
+    direction === "lower_better" ? 1 - quantile : quantile;
+
+  if (effectiveQuantile >= 0.8) {
+    return {
+      tone: "strong_positive",
+      intensity: 0.64,
+      reason: "Top 20% of the current table selection.",
+    };
+  }
+  if (effectiveQuantile >= 0.6) {
+    return {
+      tone: "positive",
+      intensity: 0.42,
+      reason: "Above the middle range of the current table selection.",
+    };
+  }
+  if (effectiveQuantile >= 0.4) {
+    return {
+      tone: "neutral",
+      intensity: 0.16,
+      reason: "Inside the middle range of the current table selection.",
+    };
+  }
+  if (effectiveQuantile >= 0.2) {
+    return {
+      tone: "negative",
+      intensity: 0.38,
+      reason: "Below the middle range of the current table selection.",
+    };
+  }
+  return {
+    tone: "strong_negative",
+    intensity: 0.62,
+    reason: "Bottom 20% of the current table selection.",
   };
 }
 
@@ -2323,8 +2326,9 @@ function evaluateMetricCell(input: {
   distribution: MetricDistribution;
   roasDistribution?: MetricDistribution;
   spendDistribution: MetricDistribution;
+  baselineLabel: string;
 }): HeatEvaluation {
-  const { key, value, row, ctx, distribution, roasDistribution, spendDistribution } = input;
+  const { key, value, row, ctx, distribution, roasDistribution, spendDistribution, baselineLabel } = input;
   const cfg = getMetricConfig(key);
   if (!isMetricApplicable(key, row)) {
     return {
@@ -2346,11 +2350,25 @@ function evaluateMetricCell(input: {
 
   const comparisonAverage = getComparisonAverageForMetric({ key, distribution, ctx });
 
-  let evaluation = evaluateByAverage({
-    value,
-    average: comparisonAverage,
-    direction: cfg.direction,
-  });
+  let evaluation =
+    cfg.colorMode === "quantile"
+      ? evaluateByQuantile({
+          value,
+          distribution,
+          direction: cfg.direction,
+        })
+      : evaluateByAverage({
+          value,
+          average: comparisonAverage,
+          direction: cfg.direction,
+        });
+
+  evaluation = {
+    ...evaluation,
+    reason: evaluation.reason
+      .replaceAll("Comparison baseline", `${baselineLabel.charAt(0).toUpperCase()}${baselineLabel.slice(1)}`)
+      .replaceAll("comparison baseline", baselineLabel),
+  };
 
   // Volume metrics should not look "great" if efficiency is weak.
   if ((key === "purchaseValue" || key === "purchases") && roasDistribution) {
@@ -2359,7 +2377,7 @@ function evaluateMetricCell(input: {
       evaluation = {
         tone: downgradeTone(evaluation.tone),
         intensity: evaluation.intensity * 0.72,
-        reason: `${evaluation.reason} Efficiency-adjusted due to below-average ROAS.`,
+        reason: `${evaluation.reason} Softened because ROAS trails the current table baseline.`,
       };
     }
   }
@@ -2376,9 +2394,9 @@ function evaluateMetricCell(input: {
   }
 
   const strengthMultiplier: Record<HeatStrength, number> = {
-    strong: 1,
-    medium: 0.82,
-    soft: 0.62,
+    strong: 0.88,
+    medium: 0.74,
+    soft: 0.58,
   };
 
   if (cfg.minConfidenceThreshold) {
@@ -2410,7 +2428,7 @@ function evaluateMetricCell(input: {
 
   return {
     ...evaluation,
-    intensity: clamp(evaluation.intensity * strengthMultiplier[cfg.heatStrength], 0.06, 0.95),
+    intensity: clamp(evaluation.intensity * strengthMultiplier[cfg.heatStrength], 0.04, 0.82),
     applicable: true,
   };
 }

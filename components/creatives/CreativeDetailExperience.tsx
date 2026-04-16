@@ -1171,7 +1171,7 @@ function lifecycleLabel(state: NonNullable<CreativeDecision["lifecycleState"]> |
   if (state === "emerging_winner") return "Emerging winner";
   if (state === "fatigued_winner") return "Fatigued winner";
   if (state === "test_only") return "Test-only";
-  if (state === "blocked") return "Blocked";
+  if (state === "blocked") return "On Hold";
   return "Volatile";
 }
 
@@ -1180,7 +1180,7 @@ function DecisionBadge({ action }: { action: CreativeDecision["action"] }) {
     scale_hard: "Scale hard",
     scale: "Scale",
     watch: "Watch",
-    test_more: "Test more",
+    test_more: "Test",
     pause: "Pause",
     kill: "Kill",
   };
