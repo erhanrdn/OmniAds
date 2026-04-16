@@ -50,13 +50,13 @@ const META_REMEDIATION_LOCK = {
 const DEFAULT_POLL_ATTEMPTS = 6;
 const DEFAULT_POLL_INTERVAL_MS = 30_000;
 const DEFAULT_LOCK_MINUTES = 10;
-const DEFAULT_ACTION_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_ACTION_TIMEOUT_MS = 8 * 60_000;
 const DEFAULT_EVIDENCE_TIMEOUT_MS = 60_000;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_MS = 60_000;
 const DEFAULT_CONSUME_LEASE_MINUTES = 10;
-const DEFAULT_CONSUME_MAX_PASSES = 40;
+const DEFAULT_CONSUME_MAX_PASSES = 80;
 const DEFAULT_CONSUME_MAX_DELAY_MS = 2_000;
-const DEFAULT_CONSUME_MAX_DURATION_MS = 120_000;
+const DEFAULT_CONSUME_MAX_DURATION_MS = 5 * 60_000;
 
 type CanaryEvidence = {
   businessId: string;
@@ -710,6 +710,15 @@ async function executeRecommendation(input: {
       return {
         leaseAcquired: true,
         workerId,
+        durationMs: Date.now() - consumeStartedAt,
+        consumeBudgetExhausted:
+          consumeResult.hasPendingWork &&
+          consumeResult.hasForwardProgress &&
+          passResults.length >= DEFAULT_CONSUME_MAX_PASSES,
+        consumeDurationExhausted:
+          consumeResult.hasPendingWork &&
+          consumeResult.hasForwardProgress &&
+          Date.now() - consumeStartedAt >= DEFAULT_CONSUME_MAX_DURATION_MS,
         passCount: passResults.length,
         passResults,
         consumeResult: toSafeJson(consumeResult),
