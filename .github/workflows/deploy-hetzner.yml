@@ -368,11 +368,8 @@ jobs:
                 sleep_seconds=5
 
                 while [ "${attempt}" -le "${max_attempts}" ]; do
-                  if docker compose exec -T -e NODE_ENV=production web \
-                    node --import tsx scripts/sync-control-plane-verify.ts \
-                      --build-id "${DEPLOY_SHA}" \
-                      --environment production \
-                      --provider-scope meta
+                  if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)" &&
+                    BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; exact=((payload.get("controlPlanePersistence") or {}).get("exactRowsPresent")) is True; raise SystemExit(0 if ((payload.get("buildId") or "") == expected and exact and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id")) else 1)'
                   then
                     echo "local_control_plane_ready=yes attempt=${attempt}/${max_attempts}"
                     return 0
@@ -561,33 +558,56 @@ jobs:
               "DEPLOY_SHA='${DEPLOY_SHA}' BREAK_GLASS='${BREAK_GLASS}' OVERRIDE_REASON='${OVERRIDE_REASON}' bash -seuo pipefail" <<'EOF'
               cd /var/www/adsecute
 
-              gate_args=(
-                --build-id "${DEPLOY_SHA}"
-                --environment production
-              )
+              cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || "")')"
+              if [ -z "${cron_secret}" ]; then
+                echo "CRON_SECRET is missing from the web runtime."
+                exit 1
+              fi
+
+              query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1"
               if [ "${BREAK_GLASS}" = "true" ]; then
-                gate_args+=(--break-glass --override-reason "${OVERRIDE_REASON}")
+                encoded_override_reason="$(
+                  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
+                )"
+                query_string="${query_string}&breakGlass=1&overrideReason=${encoded_override_reason}"
               fi
 
               attempts=6
               delay_seconds=5
 
               for attempt in $(seq 1 "${attempts}"); do
-                docker compose exec -T -e NODE_ENV=production web \
-                  node --import tsx scripts/sync-gate-evaluate.ts \
-                    "${gate_args[@]}"
+                response_file="$(mktemp)"
+                http_status="$(
+                  curl -sS -o "${response_file}" -w '%{http_code}' -X POST \
+                    "http://127.0.0.1:3000/api/sync/cron?${query_string}" \
+                    -H "Authorization: Bearer ${cron_secret}"
+                )"
+                response_json="$(cat "${response_file}")"
+                rm -f "${response_file}"
+                printf '%s\n' "${response_json}"
 
-                docker compose exec -T -e NODE_ENV=production web \
-                  node --import tsx scripts/sync-repair-plan-evaluate.ts \
-                    --build-id "${DEPLOY_SHA}" \
-                    --environment production \
-                    --provider-scope meta
+                route_status=0
+                RESPONSE_JSON="${response_json}" HTTP_STATUS="${http_status}" python3 -c 'import json, os, sys; status=int(os.environ["HTTP_STATUS"]); payload=json.loads(os.environ["RESPONSE_JSON"] or "{}"); sys.exit(10 if status not in (200, 503) else 20 if status == 503 else 30 if payload.get("ok") is not True else 0)' || route_status=$?
+                if [ "${route_status}" -ne 0 ]; then
+                  case "${route_status}" in
+                    10)
+                      echo "controlPlaneOnly route returned unexpected HTTP status ${http_status}"
+                      ;;
+                    20)
+                      echo "controlPlaneOnly route blocked deploy via enforced deployGate"
+                      ;;
+                    30)
+                      echo "controlPlaneOnly route returned ok=false"
+                      ;;
+                    *)
+                      echo "controlPlaneOnly route validation failed"
+                      ;;
+                  esac
+                  exit 1
+                fi
 
-                if docker compose exec -T -e NODE_ENV=production web \
-                  node --import tsx scripts/sync-control-plane-verify.ts \
-                    --build-id "${DEPLOY_SHA}" \
-                    --environment production \
-                    --provider-scope meta
+                if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)" &&
+                  BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; exact=((payload.get("controlPlanePersistence") or {}).get("exactRowsPresent")) is True; raise SystemExit(0 if ((payload.get("buildId") or "") == expected and exact and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id")) else 1)'
                 then
                   exit 0
                 fi
