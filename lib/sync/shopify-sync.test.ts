@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SHOPIFY_AUTOMATED_OVERVIEW_SNAPSHOT_REPORT_TYPE,
   shouldAutoWarmShopifyOverviewSnapshot,
@@ -71,10 +71,12 @@ const warehouseOverview = await import("@/lib/shopify/warehouse-overview");
 const revenueLedger = await import("@/lib/shopify/revenue-ledger");
 const cacheOwners = await import("@/lib/user-facing-report-cache-owners");
 const { syncShopifyCommerceReports, ensureShopifyProviderReady } = await import("@/lib/sync/shopify-sync");
+const originalAppLogLevel = process.env.APP_LOG_LEVEL;
 
 describe("syncShopifyCommerceReports", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    process.env.APP_LOG_LEVEL = "info";
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
     vi.mocked(admin.resolveShopifyAdminCredentials).mockResolvedValue({
       businessId: "biz_1",
@@ -219,6 +221,14 @@ describe("syncShopifyCommerceReports", () => {
       reportType: SHOPIFY_AUTOMATED_OVERVIEW_SNAPSHOT_REPORT_TYPE,
       wrote: true,
     } as never);
+  });
+
+  afterEach(() => {
+    if (originalAppLogLevel === undefined) {
+      delete process.env.APP_LOG_LEVEL;
+      return;
+    }
+    process.env.APP_LOG_LEVEL = originalAppLogLevel;
   });
 
   it("runs a bounded commerce sync and records sync state", async () => {
