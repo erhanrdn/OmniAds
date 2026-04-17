@@ -88,12 +88,16 @@ async function readLatestConfigHistory(input: {
   if (!(await schemaReady([input.tableName]))) return new Map();
 
   const sql = getDb();
+  const objectiveSelect =
+    input.tableName === "meta_campaign_config_history"
+      ? "objective"
+      : "NULL::text AS objective";
   const rows = await sql.query(
     `
       WITH ranked AS (
         SELECT
           ${input.entityColumn} AS entity_id,
-          objective,
+          ${objectiveSelect},
           optimization_goal,
           bid_strategy_type,
           bid_strategy_label,
