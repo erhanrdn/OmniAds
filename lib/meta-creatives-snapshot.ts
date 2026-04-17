@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 
 export type MetaCreativesSnapshotLevel = "metadata" | "full";
 export type MetaCreativesFreshnessState = "fresh" | "stale" | "expired";
@@ -134,10 +135,12 @@ export async function persistMetaCreativesSnapshot(input: PersistSnapshotInput):
   const sql = getDb();
   const snapshotKey = getMetaCreativesSnapshotKey(input);
   const assignedAccountsHash = hashAssignedAccountIds(input.assignedAccountIds);
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   await sql`
     INSERT INTO meta_creatives_snapshots (
       snapshot_key,
       business_id,
+      business_ref_id,
       assigned_accounts_hash,
       start_date,
       end_date,
@@ -155,6 +158,7 @@ export async function persistMetaCreativesSnapshot(input: PersistSnapshotInput):
     VALUES (
       ${snapshotKey},
       ${input.businessId},
+      ${businessRefIds.get(input.businessId) ?? null},
       ${assignedAccountsHash},
       ${input.start},
       ${input.end},
@@ -170,6 +174,10 @@ export async function persistMetaCreativesSnapshot(input: PersistSnapshotInput):
       now()
     )
     ON CONFLICT (snapshot_key) DO UPDATE SET
+      business_ref_id = COALESCE(
+        meta_creatives_snapshots.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       payload = EXCLUDED.payload,
       snapshot_level = EXCLUDED.snapshot_level,
       row_count = EXCLUDED.row_count,

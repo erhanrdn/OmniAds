@@ -4,6 +4,7 @@ import {
   buildRuntimeContract,
   upsertRuntimeContractInstance,
 } from "@/lib/sync/runtime-contract";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import type {
   ProviderReclaimDisposition,
   ProviderReclaimReasonCode,
@@ -264,10 +265,12 @@ export async function acquireSyncRunnerLease(input: {
     ["sync_runner_leases"],
     "sync_worker_health:acquire_runner_lease",
   );
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const sql = getDb();
   const rows = await sql`
     INSERT INTO sync_runner_leases (
       business_id,
+      business_ref_id,
       provider_scope,
       lease_owner,
       lease_expires_at,
@@ -275,12 +278,14 @@ export async function acquireSyncRunnerLease(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefIds.get(input.businessId) ?? null},
       ${input.providerScope},
       ${input.leaseOwner},
       now() + (${Math.max(1, input.leaseMinutes)} || ' minutes')::interval,
       now()
     )
     ON CONFLICT (business_id, provider_scope) DO UPDATE SET
+      business_ref_id = COALESCE(sync_runner_leases.business_ref_id, EXCLUDED.business_ref_id),
       lease_owner = CASE
         WHEN sync_runner_leases.lease_expires_at <= now() OR sync_runner_leases.lease_owner = ${input.leaseOwner}
           THEN EXCLUDED.lease_owner
@@ -307,10 +312,15 @@ export async function renewSyncRunnerLease(input: {
     ["sync_runner_leases"],
     "sync_worker_health:renew_runner_lease",
   );
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const sql = getDb();
   const rows = await sql`
     UPDATE sync_runner_leases
     SET
+      business_ref_id = COALESCE(
+        sync_runner_leases.business_ref_id,
+        ${businessRefIds.get(input.businessId) ?? null}
+      ),
       lease_expires_at = now() + (${Math.max(1, input.leaseMinutes)} || ' minutes')::interval,
       updated_at = now()
     WHERE business_id = ${input.businessId}

@@ -40,6 +40,14 @@ vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const),
+    );
+  }),
+}));
+
 vi.mock("@/lib/user-facing-report-cache-owners", () => ({
   warmGa4EcommerceFallbackCache: vi.fn(),
   warmGa4UserFacingRouteReportCache: vi.fn(),
@@ -132,6 +140,11 @@ describe("syncGA4Reports", () => {
       failed: 0,
       skipped: false,
     });
+    expect(
+      sql.mock.calls.some(([strings]) =>
+        String((strings as TemplateStringsArray).join(" ")).includes("business_ref_id"),
+      ),
+    ).toBe(true);
   });
 
   it("skips warming when GA4 auth is unavailable", async () => {

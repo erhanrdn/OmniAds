@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import type { AiDailyInsight } from "@/lib/ai/generate-daily-insights";
 import type { AppLanguage } from "@/lib/i18n";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 
 export interface AiDailyInsightRow {
   id: string;
@@ -27,14 +28,16 @@ export async function saveInsight(params: {
   insight: AiDailyInsight;
   rawResponse: unknown;
 }): Promise<AiDailyInsightRow> {
+  const businessRefIds = await resolveBusinessReferenceIds([params.businessId]);
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO ai_daily_insights (
-      business_id, insight_date, locale, summary,
+      business_id, business_ref_id, insight_date, locale, summary,
       risks, opportunities, recommendations,
       raw_response, status
     ) VALUES (
       ${params.businessId},
+      ${businessRefIds.get(params.businessId) ?? null},
       ${params.insightDate},
       ${params.locale},
       ${params.insight.summary},
@@ -45,6 +48,7 @@ export async function saveInsight(params: {
       'success'
     )
     ON CONFLICT (business_id, insight_date, locale) DO UPDATE SET
+      business_ref_id  = COALESCE(ai_daily_insights.business_ref_id, EXCLUDED.business_ref_id),
       summary         = EXCLUDED.summary,
       risks           = EXCLUDED.risks,
       opportunities   = EXCLUDED.opportunities,
@@ -68,14 +72,16 @@ export async function saveInsightFailure(params: {
   errorMessage: string;
   rawResponse?: unknown;
 }): Promise<void> {
+  const businessRefIds = await resolveBusinessReferenceIds([params.businessId]);
   const sql = getDb();
   await sql`
     INSERT INTO ai_daily_insights (
-      business_id, insight_date, locale, summary,
+      business_id, business_ref_id, insight_date, locale, summary,
       risks, opportunities, recommendations,
       raw_response, status, error_message
     ) VALUES (
       ${params.businessId},
+      ${businessRefIds.get(params.businessId) ?? null},
       ${params.insightDate},
       ${params.locale},
       '',
@@ -87,6 +93,7 @@ export async function saveInsightFailure(params: {
       ${params.errorMessage}
     )
     ON CONFLICT (business_id, insight_date, locale) DO UPDATE SET
+      business_ref_id = COALESCE(ai_daily_insights.business_ref_id, EXCLUDED.business_ref_id),
       status        = 'failed',
       error_message = EXCLUDED.error_message,
       raw_response  = COALESCE(EXCLUDED.raw_response, ai_daily_insights.raw_response),

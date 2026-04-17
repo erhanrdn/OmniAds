@@ -8,6 +8,7 @@ import {
   getBusinessCostModel,
   type BusinessCostModel,
 } from "@/lib/business-cost-model";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import {
   BUSINESS_COMMERCIAL_REQUIRED_INPUT_SECTIONS,
   BUSINESS_DECISION_BID_REGIMES,
@@ -1226,11 +1227,14 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
 
   const sanitized = sanitizeBusinessCommercialTruthInput(input.businessId, input.snapshot);
   const sql = getDb();
+  const businessRefIds = await resolveBusinessReferenceIds([sanitized.businessId]);
+  const businessRefId = businessRefIds.get(sanitized.businessId) ?? null;
 
   if (sanitized.targetPack) {
     await sql`
       INSERT INTO business_target_packs (
         business_id,
+        business_ref_id,
         target_cpa,
         target_roas,
         break_even_cpa,
@@ -1245,6 +1249,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       VALUES (
         ${sanitized.businessId},
+        ${businessRefId},
         ${sanitized.targetPack.targetCpa},
         ${sanitized.targetPack.targetRoas},
         ${sanitized.targetPack.breakEvenCpa},
@@ -1259,6 +1264,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       ON CONFLICT (business_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(business_target_packs.business_ref_id, EXCLUDED.business_ref_id),
         target_cpa = EXCLUDED.target_cpa,
         target_roas = EXCLUDED.target_roas,
         break_even_cpa = EXCLUDED.break_even_cpa,
@@ -1280,6 +1286,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
     await sql`
       INSERT INTO business_country_economics (
         business_id,
+        business_ref_id,
         country_code,
         economics_multiplier,
         margin_modifier,
@@ -1293,6 +1300,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       VALUES (
         ${sanitized.businessId},
+        ${businessRefId},
         ${row.countryCode},
         ${row.economicsMultiplier},
         ${row.marginModifier},
@@ -1306,6 +1314,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       ON CONFLICT (business_id, country_code)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          business_country_economics.business_ref_id,
+          EXCLUDED.business_ref_id
+        ),
         economics_multiplier = EXCLUDED.economics_multiplier,
         margin_modifier = EXCLUDED.margin_modifier,
         serviceability = EXCLUDED.serviceability,
@@ -1323,6 +1335,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
     await sql`
       INSERT INTO business_promo_calendar_events (
         business_id,
+        business_ref_id,
         event_id,
         title,
         promo_type,
@@ -1337,6 +1350,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       VALUES (
         ${sanitized.businessId},
+        ${businessRefId},
         ${row.eventId},
         ${row.title},
         ${row.promoType},
@@ -1351,6 +1365,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       ON CONFLICT (business_id, event_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          business_promo_calendar_events.business_ref_id,
+          EXCLUDED.business_ref_id
+        ),
         title = EXCLUDED.title,
         promo_type = EXCLUDED.promo_type,
         severity = EXCLUDED.severity,
@@ -1368,6 +1386,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
     await sql`
       INSERT INTO business_operating_constraints (
         business_id,
+        business_ref_id,
         site_issue_status,
         checkout_issue_status,
         conversion_tracking_issue_status,
@@ -1382,6 +1401,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       VALUES (
         ${sanitized.businessId},
+        ${businessRefId},
         ${sanitized.operatingConstraints.siteIssueStatus},
         ${sanitized.operatingConstraints.checkoutIssueStatus},
         ${sanitized.operatingConstraints.conversionTrackingIssueStatus},
@@ -1396,6 +1416,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       ON CONFLICT (business_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          business_operating_constraints.business_ref_id,
+          EXCLUDED.business_ref_id
+        ),
         site_issue_status = EXCLUDED.site_issue_status,
         checkout_issue_status = EXCLUDED.checkout_issue_status,
         conversion_tracking_issue_status = EXCLUDED.conversion_tracking_issue_status,
@@ -1423,6 +1447,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
     await sql`
       INSERT INTO business_decision_calibration_profiles (
         business_id,
+        business_ref_id,
         channel,
         objective_family,
         bid_regime,
@@ -1440,6 +1465,7 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       VALUES (
         ${sanitized.businessId},
+        ${businessRefId},
         ${profile.channel},
         ${profile.objectiveFamily},
         ${profile.bidRegime},
@@ -1457,6 +1483,10 @@ export async function upsertBusinessCommercialTruthSnapshot(input: {
       )
       ON CONFLICT (business_id, channel, objective_family, bid_regime, archetype)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          business_decision_calibration_profiles.business_ref_id,
+          EXCLUDED.business_ref_id
+        ),
         target_roas_multiplier = EXCLUDED.target_roas_multiplier,
         break_even_roas_multiplier = EXCLUDED.break_even_roas_multiplier,
         target_cpa_multiplier = EXCLUDED.target_cpa_multiplier,

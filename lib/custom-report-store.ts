@@ -7,6 +7,7 @@ import {
 } from "@/lib/custom-reports";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 
 interface CustomReportRow {
   id: string;
@@ -84,10 +85,12 @@ export async function createCustomReport(input: {
   definition: CustomReportDocument;
 }): Promise<CustomReportRecord> {
   await ensureCustomReportTables();
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO custom_reports (
       business_id,
+      business_ref_id,
       name,
       description,
       template_id,
@@ -96,6 +99,7 @@ export async function createCustomReport(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefIds.get(input.businessId) ?? null},
       ${input.name},
       ${input.description ?? null},
       ${input.templateId ?? null},

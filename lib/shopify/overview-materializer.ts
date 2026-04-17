@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import type {
   ShopifyReconciliationRunRecord,
   ShopifyServingStateRecord,
@@ -48,10 +52,21 @@ export async function recordShopifyOverviewReconciliationRun(
     "shopify_overview_materializer:record_reconciliation_run",
   );
   const sql = getDb();
+  const businessRefId = (await resolveBusinessReferenceIds([input.businessId])).get(
+    input.businessId,
+  ) ?? null;
+  const providerAccountRefId = (
+    await ensureProviderAccountReferenceIds({
+      provider: "shopify",
+      accounts: [{ externalAccountId: input.providerAccountId }],
+    })
+  ).get(input.providerAccountId) ?? null;
   await sql`
     INSERT INTO shopify_reconciliation_runs (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       reconciliation_key,
       start_date,
       end_date,
@@ -73,7 +88,9 @@ export async function recordShopifyOverviewReconciliationRun(
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.reconciliationKey},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},
@@ -103,10 +120,21 @@ export async function persistShopifyOverviewServingState(
     "shopify_overview_materializer:persist_serving_state",
   );
   const sql = getDb();
+  const businessRefId = (await resolveBusinessReferenceIds([input.businessId])).get(
+    input.businessId,
+  ) ?? null;
+  const providerAccountRefId = (
+    await ensureProviderAccountReferenceIds({
+      provider: "shopify",
+      accounts: [{ externalAccountId: input.providerAccountId }],
+    })
+  ).get(input.providerAccountId) ?? null;
   await sql`
     INSERT INTO shopify_serving_state (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       canary_key,
       start_date,
       end_date,
@@ -143,7 +171,9 @@ export async function persistShopifyOverviewServingState(
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.canaryKey},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},
@@ -180,6 +210,8 @@ export async function persistShopifyOverviewServingState(
     )
     ON CONFLICT (business_id, provider_account_id, canary_key)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_serving_state.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_serving_state.provider_account_ref_id),
       assessed_at = EXCLUDED.assessed_at,
       start_date = COALESCE(EXCLUDED.start_date, shopify_serving_state.start_date),
       end_date = COALESCE(EXCLUDED.end_date, shopify_serving_state.end_date),
@@ -216,7 +248,9 @@ export async function persistShopifyOverviewServingState(
   await sql`
     INSERT INTO shopify_serving_state_history (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       canary_key,
       start_date,
       end_date,
@@ -253,7 +287,9 @@ export async function persistShopifyOverviewServingState(
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.canaryKey},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},

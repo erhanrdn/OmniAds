@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { GoogleRequestAuditSource } from "@/lib/google-request-audit";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 interface GovernedProviderRequestInput<T> {
@@ -231,67 +232,75 @@ function logProviderRequestAudit(delta: ProviderRequestAuditDelta): void {
     if (!ready) {
       return;
     }
-    const sql = getDb();
-    const failureClass = delta.failureClass ?? null;
-    return sql`
-      INSERT INTO provider_request_audit_daily (
-        business_id,
-        provider,
-        audit_date,
-        request_type,
-        audit_source,
-        audit_path,
-        request_count,
-        error_count,
-        quota_error_count,
-        auth_error_count,
-        permission_error_count,
-        generic_error_count,
-        cooldown_hit_count,
-        deduped_count,
-        last_error_at,
-        last_error_message,
-        updated_at
-      ) VALUES (
-        ${delta.businessId},
-        ${delta.provider},
-        CURRENT_DATE,
-        ${delta.requestType},
-        ${delta.requestSource ?? "unknown"},
-        ${normalizeRequestAuditPath(delta.requestPath)},
-        ${Math.max(0, delta.requestCount ?? 0)},
-        ${Math.max(0, delta.errorCount ?? 0)},
-        ${failureClass === "quota" ? Math.max(0, delta.errorCount ?? 0) : 0},
-        ${failureClass === "auth" ? Math.max(0, delta.errorCount ?? 0) : 0},
-        ${failureClass === "permission" ? Math.max(0, delta.errorCount ?? 0) : 0},
-        ${failureClass === "generic" ? Math.max(0, delta.errorCount ?? 0) : 0},
-        ${Math.max(0, delta.cooldownHitCount ?? 0)},
-        ${Math.max(0, delta.dedupedCount ?? 0)},
-        ${delta.errorCount ? new Date().toISOString() : null},
-        ${delta.errorCount ? delta.errorMessage ?? null : null},
-        now()
-      )
-      ON CONFLICT (business_id, provider, audit_date, request_type, audit_source, audit_path)
-      DO UPDATE SET
-        request_count = provider_request_audit_daily.request_count + EXCLUDED.request_count,
-        error_count = provider_request_audit_daily.error_count + EXCLUDED.error_count,
-        quota_error_count =
-          provider_request_audit_daily.quota_error_count + EXCLUDED.quota_error_count,
-        auth_error_count =
-          provider_request_audit_daily.auth_error_count + EXCLUDED.auth_error_count,
-        permission_error_count =
-          provider_request_audit_daily.permission_error_count + EXCLUDED.permission_error_count,
-        generic_error_count =
-          provider_request_audit_daily.generic_error_count + EXCLUDED.generic_error_count,
-        cooldown_hit_count =
-          provider_request_audit_daily.cooldown_hit_count + EXCLUDED.cooldown_hit_count,
-        deduped_count = provider_request_audit_daily.deduped_count + EXCLUDED.deduped_count,
-        last_error_at =
-          COALESCE(EXCLUDED.last_error_at, provider_request_audit_daily.last_error_at),
-        last_error_message =
-          COALESCE(EXCLUDED.last_error_message, provider_request_audit_daily.last_error_message),
-        updated_at = now()
-    `;
+    return resolveBusinessReferenceIds([delta.businessId]).then((businessRefIds) => {
+      const sql = getDb();
+      const failureClass = delta.failureClass ?? null;
+      return sql`
+        INSERT INTO provider_request_audit_daily (
+          business_id,
+          business_ref_id,
+          provider,
+          audit_date,
+          request_type,
+          audit_source,
+          audit_path,
+          request_count,
+          error_count,
+          quota_error_count,
+          auth_error_count,
+          permission_error_count,
+          generic_error_count,
+          cooldown_hit_count,
+          deduped_count,
+          last_error_at,
+          last_error_message,
+          updated_at
+        ) VALUES (
+          ${delta.businessId},
+          ${businessRefIds.get(delta.businessId) ?? null},
+          ${delta.provider},
+          CURRENT_DATE,
+          ${delta.requestType},
+          ${delta.requestSource ?? "unknown"},
+          ${normalizeRequestAuditPath(delta.requestPath)},
+          ${Math.max(0, delta.requestCount ?? 0)},
+          ${Math.max(0, delta.errorCount ?? 0)},
+          ${failureClass === "quota" ? Math.max(0, delta.errorCount ?? 0) : 0},
+          ${failureClass === "auth" ? Math.max(0, delta.errorCount ?? 0) : 0},
+          ${failureClass === "permission" ? Math.max(0, delta.errorCount ?? 0) : 0},
+          ${failureClass === "generic" ? Math.max(0, delta.errorCount ?? 0) : 0},
+          ${Math.max(0, delta.cooldownHitCount ?? 0)},
+          ${Math.max(0, delta.dedupedCount ?? 0)},
+          ${delta.errorCount ? new Date().toISOString() : null},
+          ${delta.errorCount ? delta.errorMessage ?? null : null},
+          now()
+        )
+        ON CONFLICT (business_id, provider, audit_date, request_type, audit_source, audit_path)
+        DO UPDATE SET
+          business_ref_id = COALESCE(
+            provider_request_audit_daily.business_ref_id,
+            EXCLUDED.business_ref_id
+          ),
+          request_count = provider_request_audit_daily.request_count + EXCLUDED.request_count,
+          error_count = provider_request_audit_daily.error_count + EXCLUDED.error_count,
+          quota_error_count =
+            provider_request_audit_daily.quota_error_count + EXCLUDED.quota_error_count,
+          auth_error_count =
+            provider_request_audit_daily.auth_error_count + EXCLUDED.auth_error_count,
+          permission_error_count =
+            provider_request_audit_daily.permission_error_count + EXCLUDED.permission_error_count,
+          generic_error_count =
+            provider_request_audit_daily.generic_error_count + EXCLUDED.generic_error_count,
+          cooldown_hit_count =
+            provider_request_audit_daily.cooldown_hit_count + EXCLUDED.cooldown_hit_count,
+          deduped_count = provider_request_audit_daily.deduped_count + EXCLUDED.deduped_count,
+          last_error_at =
+            COALESCE(EXCLUDED.last_error_at, provider_request_audit_daily.last_error_at),
+          last_error_message =
+            COALESCE(EXCLUDED.last_error_message, provider_request_audit_daily.last_error_message),
+          updated_at = now()
+      `;
+    });
   }).catch(() => {});
 }
 
@@ -359,25 +368,31 @@ function persistCooldownToDb(
     if (!ready) {
       return;
     }
-    const sql = getDb();
-    return sql`
-      INSERT INTO provider_cooldown_state (
-        business_id, provider, request_type,
-        failed_at, failure_count, error_message, http_status, cooldown_until, updated_at
-      ) VALUES (
-        ${businessId}, ${provider}, ${requestType},
-        ${new Date(state.failedAt).toISOString()}, ${state.count},
-        ${state.message}, ${state.status ?? null},
-        ${cooldownUntil}, now()
-      )
-      ON CONFLICT (business_id, provider, request_type) DO UPDATE SET
-        failed_at     = EXCLUDED.failed_at,
-        failure_count = EXCLUDED.failure_count,
-        error_message = EXCLUDED.error_message,
-        http_status   = EXCLUDED.http_status,
-        cooldown_until = EXCLUDED.cooldown_until,
-        updated_at    = now()
-    `;
+    return resolveBusinessReferenceIds([businessId]).then((businessRefIds) => {
+      const sql = getDb();
+      return sql`
+        INSERT INTO provider_cooldown_state (
+          business_id, business_ref_id, provider, request_type,
+          failed_at, failure_count, error_message, http_status, cooldown_until, updated_at
+        ) VALUES (
+          ${businessId}, ${businessRefIds.get(businessId) ?? null}, ${provider}, ${requestType},
+          ${new Date(state.failedAt).toISOString()}, ${state.count},
+          ${state.message}, ${state.status ?? null},
+          ${cooldownUntil}, now()
+        )
+        ON CONFLICT (business_id, provider, request_type) DO UPDATE SET
+          business_ref_id = COALESCE(
+            provider_cooldown_state.business_ref_id,
+            EXCLUDED.business_ref_id
+          ),
+          failed_at     = EXCLUDED.failed_at,
+          failure_count = EXCLUDED.failure_count,
+          error_message = EXCLUDED.error_message,
+          http_status   = EXCLUDED.http_status,
+          cooldown_until = EXCLUDED.cooldown_until,
+          updated_at    = now()
+      `;
+    });
   }).catch(() => {});
 }
 
@@ -409,17 +424,22 @@ async function upsertExplicitCooldownState(input: {
   if (!(await isProviderCooldownSchemaReady())) {
     return;
   }
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const sql = getDb();
   await sql`
     INSERT INTO provider_cooldown_state (
-      business_id, provider, request_type,
+      business_id, business_ref_id, provider, request_type,
       failed_at, failure_count, error_message, http_status, cooldown_until, updated_at
     ) VALUES (
-      ${input.businessId}, ${input.provider}, ${input.requestType},
+      ${input.businessId}, ${businessRefIds.get(input.businessId) ?? null}, ${input.provider}, ${input.requestType},
       now(), ${Math.max(1, input.failureCount ?? 1)}, ${input.message}, ${input.status ?? null},
       ${input.cooldownUntil}, now()
     )
     ON CONFLICT (business_id, provider, request_type) DO UPDATE SET
+      business_ref_id = COALESCE(
+        provider_cooldown_state.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       failed_at = EXCLUDED.failed_at,
       failure_count = GREATEST(provider_cooldown_state.failure_count, EXCLUDED.failure_count),
       error_message = EXCLUDED.error_message,
@@ -565,18 +585,26 @@ export async function openProviderGlobalCircuitBreaker(input: {
     };
   }
 
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const sql = getDb();
 
   await sql`
     INSERT INTO provider_cooldown_state (
-      business_id, provider, request_type,
+      business_id, business_ref_id, provider, request_type,
       failed_at, failure_count, error_message, http_status, cooldown_until, updated_at
     ) VALUES (
-      ${input.businessId}, ${input.provider}, ${GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE},
+      ${input.businessId},
+      ${businessRefIds.get(input.businessId) ?? null},
+      ${input.provider},
+      ${GLOBAL_CIRCUIT_BREAKER_REQUEST_TYPE},
       ${new Date(failedAt).toISOString()}, ${nextCount}, ${input.message}, ${input.status ?? null},
       ${cooldownUntil}, now()
     )
     ON CONFLICT (business_id, provider, request_type) DO UPDATE SET
+      business_ref_id = COALESCE(
+        provider_cooldown_state.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       failed_at = EXCLUDED.failed_at,
       failure_count = GREATEST(provider_cooldown_state.failure_count, EXCLUDED.failure_count),
       error_message = EXCLUDED.error_message,
@@ -729,15 +757,34 @@ function logQuotaUsage(
     if (!ready) {
       return;
     }
-    const sql = getDb();
-    return sql`
-      INSERT INTO provider_quota_usage (business_id, provider, quota_date, call_count, error_count, last_called_at)
-      VALUES (${businessId}, ${provider}, CURRENT_DATE, 1, ${isError ? 1 : 0}, now())
-      ON CONFLICT (business_id, provider, quota_date) DO UPDATE SET
-        call_count     = provider_quota_usage.call_count + 1,
-        error_count    = provider_quota_usage.error_count + ${isError ? 1 : 0},
-        last_called_at = now()
-    `;
+    return resolveBusinessReferenceIds([businessId]).then((businessRefIds) => {
+      const sql = getDb();
+      return sql`
+        INSERT INTO provider_quota_usage (
+          business_id,
+          business_ref_id,
+          provider,
+          quota_date,
+          call_count,
+          error_count,
+          last_called_at
+        )
+        VALUES (
+          ${businessId},
+          ${businessRefIds.get(businessId) ?? null},
+          ${provider},
+          CURRENT_DATE,
+          1,
+          ${isError ? 1 : 0},
+          now()
+        )
+        ON CONFLICT (business_id, provider, quota_date) DO UPDATE SET
+          business_ref_id = COALESCE(provider_quota_usage.business_ref_id, EXCLUDED.business_ref_id),
+          call_count     = provider_quota_usage.call_count + 1,
+          error_count    = provider_quota_usage.error_count + ${isError ? 1 : 0},
+          last_called_at = now()
+      `;
+    });
   }).catch(() => {});
 }
 

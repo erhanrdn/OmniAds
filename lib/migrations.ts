@@ -108,6 +108,188 @@ function buildGoogleAdsWarehouseIndexQueries(tableName: string) {
   ];
 }
 
+function buildProviderAccountSeedUnionQuery(
+  tableNames: readonly string[],
+  columnName: string,
+) {
+  return tableNames
+    .map(
+      (tableName) => `
+        SELECT NULLIF(TRIM(${columnName}), '') AS external_account_id
+        FROM ${tableName}
+        WHERE ${columnName} IS NOT NULL
+      `,
+    )
+    .join("\nUNION\n");
+}
+
+const META_CANONICAL_PROVIDER_REF_TABLES = [
+  "meta_account_daily",
+  "meta_campaign_daily",
+  "meta_adset_daily",
+  "meta_breakdown_daily",
+  "meta_ad_daily",
+  "meta_creative_daily",
+] as const;
+
+const GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES = [
+  "google_ads_account_daily",
+  "google_ads_campaign_daily",
+  "google_ads_ad_group_daily",
+  "google_ads_ad_daily",
+  "google_ads_keyword_daily",
+  "google_ads_search_term_daily",
+  "google_ads_asset_group_daily",
+  "google_ads_asset_daily",
+  "google_ads_audience_daily",
+  "google_ads_geo_daily",
+  "google_ads_device_daily",
+  "google_ads_product_daily",
+] as const;
+
+const SHOPIFY_CANONICAL_PROVIDER_REF_TABLES = [
+  "shopify_raw_snapshots",
+  "shopify_orders",
+  "shopify_order_lines",
+  "shopify_refunds",
+  "shopify_order_transactions",
+  "shopify_returns",
+  "shopify_customer_events",
+  "shopify_sales_events",
+  "shopify_serving_overrides",
+  "shopify_webhook_deliveries",
+  "shopify_repair_intents",
+  "shopify_reconciliation_runs",
+  "shopify_serving_state",
+  "shopify_serving_state_history",
+] as const;
+
+const META_AUTHORITATIVE_CANONICAL_PROVIDER_REF_TABLES = [
+  "meta_creative_score_snapshots",
+  "meta_authoritative_source_manifests",
+  "meta_authoritative_slice_versions",
+  "meta_authoritative_publication_pointers",
+  "meta_authoritative_reconciliation_events",
+  "meta_authoritative_day_state",
+] as const;
+
+const META_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES = [
+  "meta_config_snapshots",
+] as const;
+
+const GOOGLE_ADS_SEARCH_INTELLIGENCE_CANONICAL_PROVIDER_REF_TABLES = [
+  "google_ads_search_query_hot_daily",
+  "google_ads_top_query_weekly",
+  "google_ads_search_cluster_daily",
+  "google_ads_decision_action_outcome_logs",
+] as const;
+
+const GOOGLE_ADS_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES = [
+  "google_ads_advisor_memory",
+  "google_ads_advisor_execution_logs",
+  "google_ads_advisor_snapshots",
+] as const;
+
+const META_CONTROL_CANONICAL_PROVIDER_REF_TABLES = [
+  "meta_sync_jobs",
+  "meta_sync_partitions",
+  "meta_sync_runs",
+  "meta_sync_checkpoints",
+  "meta_sync_phase_timings",
+  "meta_sync_state",
+  "meta_raw_snapshots",
+] as const;
+
+const GOOGLE_ADS_CONTROL_CANONICAL_PROVIDER_REF_TABLES = [
+  "google_ads_sync_jobs",
+  "google_ads_sync_partitions",
+  "google_ads_sync_runs",
+  "google_ads_sync_checkpoints",
+  "google_ads_sync_state",
+  "google_ads_raw_snapshots",
+] as const;
+
+const SHOPIFY_CONTROL_CANONICAL_PROVIDER_REF_TABLES = [
+  "shopify_sync_state",
+] as const;
+
+const META_PROVIDER_ACCOUNT_SEED_TABLES = [
+  ...META_CANONICAL_PROVIDER_REF_TABLES,
+  ...META_AUTHORITATIVE_CANONICAL_PROVIDER_REF_TABLES,
+  ...META_CONTROL_CANONICAL_PROVIDER_REF_TABLES,
+] as const;
+
+const GOOGLE_PROVIDER_ACCOUNT_SEED_TABLES = [
+  ...GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES,
+  ...GOOGLE_ADS_SEARCH_INTELLIGENCE_CANONICAL_PROVIDER_REF_TABLES,
+  ...GOOGLE_ADS_CONTROL_CANONICAL_PROVIDER_REF_TABLES,
+] as const;
+
+const SHOPIFY_PROVIDER_ACCOUNT_SEED_TABLES = [
+  ...SHOPIFY_CANONICAL_PROVIDER_REF_TABLES,
+  ...SHOPIFY_CONTROL_CANONICAL_PROVIDER_REF_TABLES,
+] as const;
+
+const GENERIC_CANONICAL_PROVIDER_REF_TABLES = [
+  "provider_account_rollover_state",
+] as const;
+
+const BUSINESS_ONLY_CANONICAL_REF_TABLES = [
+  "ai_daily_insights",
+  "business_cost_models",
+  "provider_connections",
+  "provider_account_assignments",
+  "business_provider_accounts",
+  "provider_account_snapshot_runs",
+  "provider_account_snapshots",
+  "business_target_packs",
+  "business_country_economics",
+  "business_promo_calendar_events",
+  "business_operating_constraints",
+  "business_decision_calibration_profiles",
+  "command_center_mutation_receipts",
+  "command_center_saved_views",
+  "command_center_handoffs",
+  "command_center_feedback",
+  "command_center_action_journal",
+  "command_center_action_state",
+  "command_center_action_execution_state",
+  "command_center_action_execution_audit",
+  "custom_reports",
+  "discount_redemptions",
+  "meta_creatives_snapshots",
+  "seo_ai_monthly_analyses",
+  "seo_results_cache",
+  "provider_cooldown_state",
+  "provider_sync_jobs",
+  "provider_quota_usage",
+  "provider_request_audit_daily",
+  "sync_runner_leases",
+  "google_ads_runner_leases",
+] as const;
+
+const CANONICAL_PROVIDER_REF_TABLES = [
+  ...META_CANONICAL_PROVIDER_REF_TABLES,
+  ...GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES,
+  ...META_AUTHORITATIVE_CANONICAL_PROVIDER_REF_TABLES,
+  ...META_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES,
+  ...GOOGLE_ADS_SEARCH_INTELLIGENCE_CANONICAL_PROVIDER_REF_TABLES,
+  ...GOOGLE_ADS_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES,
+  ...META_CONTROL_CANONICAL_PROVIDER_REF_TABLES,
+  ...GOOGLE_ADS_CONTROL_CANONICAL_PROVIDER_REF_TABLES,
+  ...SHOPIFY_CANONICAL_PROVIDER_REF_TABLES,
+  ...SHOPIFY_CONTROL_CANONICAL_PROVIDER_REF_TABLES,
+  ...GENERIC_CANONICAL_PROVIDER_REF_TABLES,
+  "platform_overview_daily_summary",
+] as const;
+
+const CANONICAL_BUSINESS_REF_TABLES = [
+  ...CANONICAL_PROVIDER_REF_TABLES,
+  ...BUSINESS_ONLY_CANONICAL_REF_TABLES,
+  "provider_reporting_snapshots",
+  "platform_overview_summary_ranges",
+] as const;
+
 export async function runMigrations(options?: {
   force?: boolean;
   reason?: string;
@@ -193,6 +375,91 @@ export async function runMigrations(options?: {
           source_reason     TEXT,
           created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_accounts (
+          id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider            TEXT NOT NULL,
+          external_account_id TEXT NOT NULL,
+          account_name        TEXT,
+          currency            TEXT,
+          timezone            TEXT,
+          is_manager          BOOLEAN,
+          metadata            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (provider, external_account_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_connections (
+          id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id            TEXT NOT NULL,
+          provider               TEXT NOT NULL,
+          status                 TEXT NOT NULL DEFAULT 'disconnected',
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          provider_account_id    TEXT,
+          provider_account_name  TEXT,
+          connected_at           TIMESTAMPTZ,
+          disconnected_at        TIMESTAMPTZ,
+          created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS integration_credentials (
+          id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider_connection_id UUID NOT NULL REFERENCES provider_connections(id) ON DELETE CASCADE,
+          access_token          TEXT,
+          refresh_token         TEXT,
+          token_expires_at      TIMESTAMPTZ,
+          scopes                TEXT,
+          error_message         TEXT,
+          metadata              JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (provider_connection_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS business_provider_accounts (
+          id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id            TEXT NOT NULL,
+          provider               TEXT NOT NULL,
+          provider_account_ref_id UUID NOT NULL REFERENCES provider_accounts(id) ON DELETE CASCADE,
+          provider_account_id    TEXT NOT NULL,
+          position               INTEGER NOT NULL DEFAULT 0,
+          created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider, provider_account_ref_id)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_account_snapshot_runs (
+          id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id              TEXT NOT NULL,
+          provider                 TEXT NOT NULL,
+          fetched_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          refresh_failed           BOOLEAN NOT NULL DEFAULT FALSE,
+          last_error               TEXT,
+          refresh_requested_at     TIMESTAMPTZ,
+          last_refresh_attempt_at  TIMESTAMPTZ,
+          next_refresh_after       TIMESTAMPTZ,
+          refresh_in_progress      BOOLEAN NOT NULL DEFAULT FALSE,
+          accounts_hash            TEXT,
+          source_reason            TEXT,
+          last_successful_refresh_at TIMESTAMPTZ,
+          refresh_failure_streak   INTEGER NOT NULL DEFAULT 0,
+          created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider)
+        )`,
+        sql`CREATE TABLE IF NOT EXISTS provider_account_snapshot_items (
+          id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          snapshot_run_id        UUID NOT NULL REFERENCES provider_account_snapshot_runs(id) ON DELETE CASCADE,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          provider_account_id    TEXT NOT NULL,
+          provider_account_name  TEXT NOT NULL,
+          currency               TEXT,
+          timezone               TEXT,
+          is_manager             BOOLEAN,
+          position               INTEGER NOT NULL DEFAULT 0,
+          raw_payload            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (snapshot_run_id, provider_account_id)
         )`,
         sql`CREATE TABLE IF NOT EXISTS provider_account_rollover_state (
           provider                 TEXT NOT NULL,
@@ -451,6 +718,14 @@ export async function runMigrations(options?: {
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider ON provider_account_snapshots (business_id, provider)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_provider_external ON provider_accounts (provider, external_account_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_connections_business_provider ON provider_connections (business_id, provider)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_credentials_connection ON integration_credentials (provider_connection_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_provider_accounts_business_provider_account ON business_provider_accounts (business_id, provider, provider_account_ref_id)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshot_runs_business_provider ON provider_account_snapshot_runs (business_id, provider)`.catch(() => {}),
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshot_items_run_account ON provider_account_snapshot_items (snapshot_run_id, provider_account_id)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_business_provider_accounts_business_provider ON business_provider_accounts (business_id, provider, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshot_items_run_position ON provider_account_snapshot_items (snapshot_run_id, position ASC)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_reporting_snapshots_lookup ON provider_reporting_snapshots (business_id, provider, report_type, date_range_key)`.catch(() => {}),
         sql`
           UPDATE businesses AS business
@@ -524,6 +799,290 @@ export async function runMigrations(options?: {
         sql`CREATE INDEX IF NOT EXISTS idx_google_ads_advisor_snapshots_status ON google_ads_advisor_snapshots (status, updated_at DESC)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users (google_id) WHERE google_id IS NOT NULL`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_id ON users (facebook_id) WHERE facebook_id IS NOT NULL`.catch(() => {}),
+      ]);
+
+      // ── PHASE 2.5: Backfill canonical provider-account backbone ─────────
+      await runMigrationBatchSequentially([
+        sql`
+          INSERT INTO provider_accounts (
+            provider,
+            external_account_id,
+            account_name,
+            currency,
+            timezone,
+            is_manager,
+            metadata,
+            created_at,
+            updated_at
+          )
+          SELECT DISTINCT ON (provider, external_account_id)
+            provider,
+            external_account_id,
+            account_name,
+            currency,
+            timezone,
+            is_manager,
+            metadata,
+            now(),
+            now()
+          FROM (
+            SELECT
+              i.provider,
+              NULLIF(i.provider_account_id, '') AS external_account_id,
+              NULLIF(i.provider_account_name, '') AS account_name,
+              NULL::TEXT AS currency,
+              NULL::TEXT AS timezone,
+              NULL::BOOLEAN AS is_manager,
+              COALESCE(i.metadata, '{}'::jsonb) AS metadata,
+              1 AS source_rank
+            FROM integrations i
+            WHERE NULLIF(i.provider_account_id, '') IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+              s.provider,
+              NULLIF(item->>'id', '') AS external_account_id,
+              NULLIF(item->>'name', '') AS account_name,
+              NULLIF(item->>'currency', '') AS currency,
+              NULLIF(item->>'timezone', '') AS timezone,
+              CASE
+                WHEN item ? 'isManager' THEN (item->>'isManager')::BOOLEAN
+                ELSE NULL
+              END AS is_manager,
+              item AS metadata,
+              2 AS source_rank
+            FROM provider_account_snapshots s
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.accounts_payload, '[]'::jsonb)) AS item
+            WHERE NULLIF(item->>'id', '') IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+              a.provider,
+              NULLIF(account_id, '') AS external_account_id,
+              NULL::TEXT AS account_name,
+              NULL::TEXT AS currency,
+              NULL::TEXT AS timezone,
+              NULL::BOOLEAN AS is_manager,
+              '{}'::jsonb AS metadata,
+              3 AS source_rank
+            FROM provider_account_assignments a
+            CROSS JOIN LATERAL unnest(COALESCE(a.account_ids, ARRAY[]::TEXT[])) AS account_id
+            WHERE NULLIF(account_id, '') IS NOT NULL
+          ) AS source
+          ORDER BY provider, external_account_id, source_rank
+          ON CONFLICT (provider, external_account_id) DO UPDATE SET
+            account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
+            currency = COALESCE(EXCLUDED.currency, provider_accounts.currency),
+            timezone = COALESCE(EXCLUDED.timezone, provider_accounts.timezone),
+            is_manager = COALESCE(EXCLUDED.is_manager, provider_accounts.is_manager),
+            metadata = CASE
+              WHEN EXCLUDED.metadata = '{}'::jsonb THEN provider_accounts.metadata
+              ELSE provider_accounts.metadata || EXCLUDED.metadata
+            END,
+            updated_at = now()
+        `,
+        sql`
+          INSERT INTO provider_connections (
+            business_id,
+            provider,
+            status,
+            provider_account_ref_id,
+            provider_account_id,
+            provider_account_name,
+            connected_at,
+            disconnected_at,
+            created_at,
+            updated_at
+          )
+          SELECT
+            i.business_id,
+            i.provider,
+            i.status,
+            pa.id,
+            NULLIF(i.provider_account_id, ''),
+            NULLIF(i.provider_account_name, ''),
+            i.connected_at,
+            i.disconnected_at,
+            i.created_at,
+            i.updated_at
+          FROM integrations i
+          LEFT JOIN provider_accounts pa
+            ON pa.provider = i.provider
+           AND pa.external_account_id = NULLIF(i.provider_account_id, '')
+          ON CONFLICT (business_id, provider) DO UPDATE SET
+            status = EXCLUDED.status,
+            provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_connections.provider_account_ref_id),
+            provider_account_id = COALESCE(EXCLUDED.provider_account_id, provider_connections.provider_account_id),
+            provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_connections.provider_account_name),
+            connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
+            disconnected_at = COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at),
+            updated_at = EXCLUDED.updated_at
+        `,
+        sql`
+          INSERT INTO integration_credentials (
+            provider_connection_id,
+            access_token,
+            refresh_token,
+            token_expires_at,
+            scopes,
+            error_message,
+            metadata,
+            created_at,
+            updated_at
+          )
+          SELECT
+            pc.id,
+            i.access_token,
+            i.refresh_token,
+            i.token_expires_at,
+            i.scopes,
+            i.error_message,
+            COALESCE(i.metadata, '{}'::jsonb),
+            i.created_at,
+            i.updated_at
+          FROM integrations i
+          JOIN provider_connections pc
+            ON pc.business_id = i.business_id
+           AND pc.provider = i.provider
+          ON CONFLICT (provider_connection_id) DO UPDATE SET
+            access_token = COALESCE(EXCLUDED.access_token, integration_credentials.access_token),
+            refresh_token = COALESCE(EXCLUDED.refresh_token, integration_credentials.refresh_token),
+            token_expires_at = COALESCE(EXCLUDED.token_expires_at, integration_credentials.token_expires_at),
+            scopes = COALESCE(EXCLUDED.scopes, integration_credentials.scopes),
+            error_message = COALESCE(EXCLUDED.error_message, integration_credentials.error_message),
+            metadata = CASE
+              WHEN EXCLUDED.metadata = '{}'::jsonb THEN integration_credentials.metadata
+              ELSE integration_credentials.metadata || EXCLUDED.metadata
+            END,
+            updated_at = EXCLUDED.updated_at
+        `,
+        sql`
+          INSERT INTO business_provider_accounts (
+            business_id,
+            provider,
+            provider_account_ref_id,
+            provider_account_id,
+            position,
+            created_at,
+            updated_at
+          )
+          SELECT
+            a.business_id,
+            a.provider,
+            pa.id,
+            pa.external_account_id,
+            ordinality - 1,
+            a.created_at,
+            a.updated_at
+          FROM provider_account_assignments a
+          CROSS JOIN LATERAL unnest(COALESCE(a.account_ids, ARRAY[]::TEXT[])) WITH ORDINALITY AS account(account_id, ordinality)
+          JOIN provider_accounts pa
+            ON pa.provider = a.provider
+           AND pa.external_account_id = account.account_id
+          ON CONFLICT (business_id, provider, provider_account_ref_id) DO UPDATE SET
+            provider_account_id = EXCLUDED.provider_account_id,
+            position = EXCLUDED.position,
+            updated_at = EXCLUDED.updated_at
+        `,
+        sql`
+          INSERT INTO provider_account_snapshot_runs (
+            business_id,
+            provider,
+            fetched_at,
+            refresh_failed,
+            last_error,
+            refresh_requested_at,
+            last_refresh_attempt_at,
+            next_refresh_after,
+            refresh_in_progress,
+            accounts_hash,
+            source_reason,
+            last_successful_refresh_at,
+            refresh_failure_streak,
+            created_at,
+            updated_at
+          )
+          SELECT
+            business_id,
+            provider,
+            fetched_at,
+            refresh_failed,
+            last_error,
+            refresh_requested_at,
+            last_refresh_attempt_at,
+            next_refresh_after,
+            refresh_in_progress,
+            accounts_hash,
+            source_reason,
+            last_successful_refresh_at,
+            refresh_failure_streak,
+            created_at,
+            updated_at
+          FROM provider_account_snapshots
+          ON CONFLICT (business_id, provider) DO UPDATE SET
+            fetched_at = EXCLUDED.fetched_at,
+            refresh_failed = EXCLUDED.refresh_failed,
+            last_error = EXCLUDED.last_error,
+            refresh_requested_at = COALESCE(EXCLUDED.refresh_requested_at, provider_account_snapshot_runs.refresh_requested_at),
+            last_refresh_attempt_at = COALESCE(EXCLUDED.last_refresh_attempt_at, provider_account_snapshot_runs.last_refresh_attempt_at),
+            next_refresh_after = EXCLUDED.next_refresh_after,
+            refresh_in_progress = EXCLUDED.refresh_in_progress,
+            accounts_hash = EXCLUDED.accounts_hash,
+            source_reason = EXCLUDED.source_reason,
+            last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
+            refresh_failure_streak = EXCLUDED.refresh_failure_streak,
+            updated_at = EXCLUDED.updated_at
+        `,
+        sql`
+          INSERT INTO provider_account_snapshot_items (
+            snapshot_run_id,
+            provider_account_ref_id,
+            provider_account_id,
+            provider_account_name,
+            currency,
+            timezone,
+            is_manager,
+            position,
+            raw_payload,
+            created_at,
+            updated_at
+          )
+          SELECT
+            run.id,
+            pa.id,
+            NULLIF(item->>'id', ''),
+            COALESCE(NULLIF(item->>'name', ''), NULLIF(item->>'id', '')),
+            NULLIF(item->>'currency', ''),
+            NULLIF(item->>'timezone', ''),
+            CASE
+              WHEN item ? 'isManager' THEN (item->>'isManager')::BOOLEAN
+              ELSE NULL
+            END,
+            ordinality - 1,
+            item,
+            now(),
+            now()
+          FROM provider_account_snapshots s
+          JOIN provider_account_snapshot_runs run
+            ON run.business_id = s.business_id
+           AND run.provider = s.provider
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.accounts_payload, '[]'::jsonb)) WITH ORDINALITY AS item(item, ordinality)
+          LEFT JOIN provider_accounts pa
+            ON pa.provider = s.provider
+           AND pa.external_account_id = NULLIF(item.item->>'id', '')
+          WHERE NULLIF(item.item->>'id', '') IS NOT NULL
+          ON CONFLICT (snapshot_run_id, provider_account_id) DO UPDATE SET
+            provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_account_snapshot_items.provider_account_ref_id),
+            provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_account_snapshot_items.provider_account_name),
+            currency = COALESCE(EXCLUDED.currency, provider_account_snapshot_items.currency),
+            timezone = COALESCE(EXCLUDED.timezone, provider_account_snapshot_items.timezone),
+            is_manager = COALESCE(EXCLUDED.is_manager, provider_account_snapshot_items.is_manager),
+            position = EXCLUDED.position,
+            raw_payload = EXCLUDED.raw_payload,
+            updated_at = EXCLUDED.updated_at
+        `,
       ]);
 
       // ── PHASE 3: Tables that depend on users+businesses ───────────────────
@@ -2884,6 +3443,247 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS projection_version INTEGER NOT NULL DEFAULT 1`.catch(() => {}),
         sql`ALTER TABLE platform_overview_summary_ranges
           ADD COLUMN IF NOT EXISTS invalidation_reason TEXT`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS platform_overview_summary_range_accounts (
+          summary_range_id UUID NOT NULL REFERENCES platform_overview_summary_ranges(id) ON DELETE CASCADE,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          provider_account_id TEXT NOT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY (summary_range_id, provider_account_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_range_accounts_range
+          ON platform_overview_summary_range_accounts (summary_range_id, position ASC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_platform_overview_summary_range_accounts_provider_account_ref
+          ON platform_overview_summary_range_accounts (provider_account_ref_id)`.catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
+          sql.query(
+            `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS business_ref_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
+          ).catch(() => {}),
+        ),
+        ...CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL`,
+          ).catch(() => {}),
+        ),
+      ]);
+
+      await runMigrationBatchSequentially([
+        sql.query(
+          `
+            INSERT INTO provider_accounts (
+              provider,
+              external_account_id,
+              created_at,
+              updated_at
+            )
+            SELECT
+              'meta',
+              seed.external_account_id,
+              now(),
+              now()
+            FROM (
+              ${buildProviderAccountSeedUnionQuery(META_PROVIDER_ACCOUNT_SEED_TABLES, "provider_account_id")}
+              UNION
+              ${buildProviderAccountSeedUnionQuery(META_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES, "account_id")}
+            ) AS seed
+            WHERE seed.external_account_id IS NOT NULL
+            ON CONFLICT (provider, external_account_id) DO UPDATE SET
+              updated_at = EXCLUDED.updated_at
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            INSERT INTO provider_accounts (
+              provider,
+              external_account_id,
+              created_at,
+              updated_at
+            )
+            SELECT
+              'google',
+              seed.external_account_id,
+              now(),
+              now()
+            FROM (
+              ${buildProviderAccountSeedUnionQuery(GOOGLE_PROVIDER_ACCOUNT_SEED_TABLES, "provider_account_id")}
+              UNION
+              ${buildProviderAccountSeedUnionQuery(GOOGLE_ADS_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES, "account_id")}
+            ) AS seed
+            WHERE seed.external_account_id IS NOT NULL
+            ON CONFLICT (provider, external_account_id) DO UPDATE SET
+              updated_at = EXCLUDED.updated_at
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            INSERT INTO provider_accounts (
+              provider,
+              external_account_id,
+              created_at,
+              updated_at
+            )
+            SELECT
+              'shopify',
+              seed.external_account_id,
+              now(),
+              now()
+            FROM (
+              ${buildProviderAccountSeedUnionQuery(SHOPIFY_PROVIDER_ACCOUNT_SEED_TABLES, "provider_account_id")}
+            ) AS seed
+            WHERE seed.external_account_id IS NOT NULL
+            ON CONFLICT (provider, external_account_id) DO UPDATE SET
+              updated_at = EXCLUDED.updated_at
+          `,
+        ).catch(() => {}),
+        ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET business_ref_id = business.id
+              FROM businesses AS business
+              WHERE target.business_ref_id IS NULL
+                AND business.id::text = target.business_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...META_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'meta'
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'google'
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...SHOPIFY_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'shopify'
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...META_AUTHORITATIVE_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'meta'
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...META_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'meta'
+                AND provider_account.external_account_id = target.account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...GOOGLE_ADS_SEARCH_INTELLIGENCE_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'google'
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...GOOGLE_ADS_ACCOUNT_ID_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'google'
+                AND provider_account.external_account_id = target.account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...SHOPIFY_CONTROL_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = 'shopify'
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        ...GENERIC_CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `
+              UPDATE ${tableName} AS target
+              SET provider_account_ref_id = provider_account.id
+              FROM provider_accounts AS provider_account
+              WHERE target.provider_account_ref_id IS NULL
+                AND provider_account.provider = CASE
+                  WHEN target.provider = 'google_ads' THEN 'google'
+                  ELSE target.provider
+                END
+                AND provider_account.external_account_id = target.provider_account_id
+            `,
+          ).catch(() => {}),
+        ),
+        sql.query(
+          `
+            UPDATE platform_overview_daily_summary AS target
+            SET provider_account_ref_id = provider_account.id
+            FROM provider_accounts AS provider_account
+            WHERE target.provider_account_ref_id IS NULL
+              AND provider_account.provider = target.provider
+              AND provider_account.external_account_id = target.provider_account_id
+          `,
+        ).catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        ...CANONICAL_BUSINESS_REF_TABLES.map((tableName) =>
+          sql.query(
+            `CREATE INDEX IF NOT EXISTS idx_${tableName}_business_ref ON ${tableName} (business_ref_id)`,
+          ).catch(() => {}),
+        ),
+        ...CANONICAL_PROVIDER_REF_TABLES.map((tableName) =>
+          sql.query(
+            `CREATE INDEX IF NOT EXISTS idx_${tableName}_provider_account_ref ON ${tableName} (provider_account_ref_id)`,
+          ).catch(() => {}),
+        ),
       ]);
 
       // ── Seed superadmin ───────────────────────────────────────────────────

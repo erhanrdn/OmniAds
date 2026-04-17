@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import type { SearchTermPerformanceRow } from "@/lib/google-ads/intelligence-model";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 
 const GOOGLE_ADS_SEARCH_INTELLIGENCE_TABLES = [
   "google_ads_query_dictionary",
@@ -16,6 +20,36 @@ async function assertGoogleAdsSearchIntelligenceTablesReady(context: string) {
     tables: [...GOOGLE_ADS_SEARCH_INTELLIGENCE_TABLES],
     context,
   });
+}
+
+async function resolveGoogleAdsSearchIntelligenceReferenceContext(
+  rows: Array<{
+    businessId: string;
+    providerAccountId?: string | null;
+  }>,
+) {
+  const businessIds = Array.from(
+    new Set(rows.map((row) => row.businessId).filter(Boolean)),
+  );
+  const providerAccountIds = Array.from(
+    new Set(
+      rows
+        .map((row) => row.providerAccountId ?? null)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  return {
+    businessRefIds: await resolveBusinessReferenceIds(businessIds),
+    providerAccountRefIds:
+      providerAccountIds.length > 0
+        ? await ensureProviderAccountReferenceIds({
+            provider: "google",
+            accounts: providerAccountIds.map((externalAccountId) => ({
+              externalAccountId,
+            })),
+          })
+        : new Map<string, string>(),
+  };
 }
 
 export interface GoogleAdsQueryDictionaryEntry {
@@ -542,10 +576,16 @@ export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSear
   if (rows.length === 0) return 0;
   await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
+  const refs = await resolveGoogleAdsSearchIntelligenceReferenceContext(rows);
   for (const row of rows) {
+    const businessRefId = refs.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      refs.providerAccountRefIds.get(row.providerAccountId) ?? null;
     const updatedRows = await sql`
       UPDATE google_ads_search_query_hot_daily
       SET
+        business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+        provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
         account_timezone = ${row.accountTimezone},
         account_currency = ${row.accountCurrency},
         campaign_name = ${row.campaignName},
@@ -576,7 +616,9 @@ export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSear
     await sql`
       INSERT INTO google_ads_search_query_hot_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         account_timezone,
         account_currency,
@@ -600,7 +642,9 @@ export async function upsertGoogleAdsSearchQueryHotDailyRows(rows: GoogleAdsSear
       )
       VALUES (
         ${row.businessId},
+        ${businessRefId},
         ${row.providerAccountId},
+        ${providerAccountRefId},
         ${normalizeIsoDate(row.date)},
         ${row.accountTimezone},
         ${row.accountCurrency},
@@ -631,11 +675,17 @@ export async function upsertGoogleAdsTopQueryWeeklyRows(rows: GoogleAdsTopQueryW
   if (rows.length === 0) return 0;
   await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
+  const refs = await resolveGoogleAdsSearchIntelligenceReferenceContext(rows);
   for (const row of rows) {
+    const businessRefId = refs.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      refs.providerAccountRefIds.get(row.providerAccountId) ?? null;
     await sql`
       INSERT INTO google_ads_top_query_weekly (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         week_start,
         week_end,
         query_hash,
@@ -649,7 +699,9 @@ export async function upsertGoogleAdsTopQueryWeeklyRows(rows: GoogleAdsTopQueryW
       )
       VALUES (
         ${row.businessId},
+        ${businessRefId},
         ${row.providerAccountId},
+        ${providerAccountRefId},
         ${row.weekStart},
         ${row.weekEnd},
         ${row.queryHash},
@@ -663,6 +715,11 @@ export async function upsertGoogleAdsTopQueryWeeklyRows(rows: GoogleAdsTopQueryW
       )
       ON CONFLICT (business_id, provider_account_id, week_start, query_hash)
       DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_top_query_weekly.business_ref_id),
+        provider_account_ref_id = COALESCE(
+          EXCLUDED.provider_account_ref_id,
+          google_ads_top_query_weekly.provider_account_ref_id
+        ),
         week_end = EXCLUDED.week_end,
         query_count_days = EXCLUDED.query_count_days,
         spend = EXCLUDED.spend,
@@ -680,11 +737,17 @@ export async function upsertGoogleAdsSearchClusterDailyRows(rows: GoogleAdsSearc
   if (rows.length === 0) return 0;
   await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
+  const refs = await resolveGoogleAdsSearchIntelligenceReferenceContext(rows);
   for (const row of rows) {
+    const businessRefId = refs.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      refs.providerAccountRefIds.get(row.providerAccountId) ?? null;
     await sql`
       INSERT INTO google_ads_search_cluster_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         cluster_key,
         cluster_label,
@@ -701,7 +764,9 @@ export async function upsertGoogleAdsSearchClusterDailyRows(rows: GoogleAdsSearc
       )
       VALUES (
         ${row.businessId},
+        ${businessRefId},
         ${row.providerAccountId},
+        ${providerAccountRefId},
         ${row.date},
         ${row.clusterKey},
         ${row.clusterLabel},
@@ -718,6 +783,14 @@ export async function upsertGoogleAdsSearchClusterDailyRows(rows: GoogleAdsSearc
       )
       ON CONFLICT (business_id, provider_account_id, date, cluster_key)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          EXCLUDED.business_ref_id,
+          google_ads_search_cluster_daily.business_ref_id
+        ),
+        provider_account_ref_id = COALESCE(
+          EXCLUDED.provider_account_ref_id,
+          google_ads_search_cluster_daily.provider_account_ref_id
+        ),
         cluster_label = EXCLUDED.cluster_label,
         theme_key = EXCLUDED.theme_key,
         dominant_intent_class = EXCLUDED.dominant_intent_class,
@@ -737,10 +810,22 @@ export async function upsertGoogleAdsSearchClusterDailyRows(rows: GoogleAdsSearc
 export async function appendGoogleAdsDecisionActionOutcomeLog(input: GoogleAdsDecisionActionOutcomeLogRow) {
   await assertGoogleAdsSearchIntelligenceTablesReady("google_ads_search_intelligence_storage");
   const sql = getDb();
+  const refs = await resolveGoogleAdsSearchIntelligenceReferenceContext([
+    {
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId ?? null,
+    },
+  ]);
+  const businessRefId = refs.businessRefIds.get(input.businessId) ?? null;
+  const providerAccountRefId = input.providerAccountId
+    ? (refs.providerAccountRefIds.get(input.providerAccountId) ?? null)
+    : null;
   const rows = (await sql`
     INSERT INTO google_ads_decision_action_outcome_logs (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       recommendation_fingerprint,
       decision_family,
       action_type,
@@ -752,7 +837,9 @@ export async function appendGoogleAdsDecisionActionOutcomeLog(input: GoogleAdsDe
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId ?? null},
+      ${providerAccountRefId},
       ${input.recommendationFingerprint},
       ${input.decisionFamily ?? null},
       ${input.actionType},

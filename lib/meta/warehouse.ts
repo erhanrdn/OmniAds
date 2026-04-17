@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import { refreshOverviewSummaryMaterializationFromMetaAccountRows } from "@/lib/overview-summary-materializer";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
@@ -36,6 +40,7 @@ import type {
   MetaRecentAuthoritativeSliceGuard,
   MetaSyncJobRecord,
   MetaSyncLane,
+  MetaSyncType,
   MetaSyncCheckpointRecord,
   MetaSyncPhaseTimingRecord,
   MetaSyncPhaseTimingSummary,
@@ -114,6 +119,22 @@ function normalizeDate(value: unknown) {
     return `${year}-${month}-${day}`;
   }
   return text.slice(0, 10);
+}
+
+function canonicalizeMetaSyncJobType(syncType: MetaSyncType): Extract<
+  MetaSyncType,
+  "initial_backfill" | "incremental_recent" | "today_refresh" | "repair_window" | "reconnect_backfill"
+> {
+  switch (syncType) {
+    case "today_observe":
+      return "today_refresh";
+    case "finalize_day":
+    case "finalize_range":
+    case "repair_recent_day":
+      return "repair_window";
+    default:
+      return syncType;
+  }
 }
 
 function normalizeTimestamp(value: unknown) {
@@ -494,6 +515,44 @@ function chunkRows<T>(rows: T[], size = 250) {
   return chunks;
 }
 
+async function resolveMetaChunkReferenceContext(
+  rows: Array<{
+    businessId: string;
+    providerAccountId: string;
+    accountName?: string | null;
+    accountCurrency?: string | null;
+    accountTimezone?: string | null;
+  }>,
+) {
+  return {
+    businessRefIds: await resolveBusinessReferenceIds(rows.map((row) => row.businessId)),
+    providerAccountRefIds: await ensureProviderAccountReferenceIds({
+      provider: "meta",
+      accounts: rows.map((row) => ({
+        externalAccountId: row.providerAccountId,
+        accountName: row.accountName ?? null,
+        currency: row.accountCurrency ?? null,
+        timezone: row.accountTimezone ?? null,
+      })),
+    }),
+  };
+}
+
+async function resolveMetaRecordReferenceContext(input: {
+  businessId: string;
+  providerAccountId: string;
+  accountName?: string | null;
+  accountCurrency?: string | null;
+  accountTimezone?: string | null;
+}) {
+  const context = await resolveMetaChunkReferenceContext([input]);
+  return {
+    businessRefId: context.businessRefIds.get(input.businessId) ?? null,
+    providerAccountRefId:
+      context.providerAccountRefIds.get(input.providerAccountId) ?? null,
+  };
+}
+
 function enumerateIsoDays(startDate: string, endDate: string) {
   const days: string[] = [];
   const start = new Date(`${normalizeDate(startDate)}T00:00:00Z`);
@@ -615,10 +674,17 @@ export async function upsertMetaAuthoritativeDayState(
 ) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    accountTimezone: input.accountTimezone,
+  });
   const rows = await sql`
     INSERT INTO meta_authoritative_day_state (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       day,
       surface,
       state,
@@ -641,7 +707,9 @@ export async function upsertMetaAuthoritativeDayState(
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${normalizeDate(input.day)},
       ${input.surface},
       ${input.state},
@@ -664,6 +732,11 @@ export async function upsertMetaAuthoritativeDayState(
     )
     ON CONFLICT (business_id, provider_account_id, day, surface)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_authoritative_day_state.business_ref_id),
+      provider_account_ref_id = COALESCE(
+        EXCLUDED.provider_account_ref_id,
+        meta_authoritative_day_state.provider_account_ref_id
+      ),
       state = EXCLUDED.state,
       account_timezone = EXCLUDED.account_timezone,
       active_partition_id = EXCLUDED.active_partition_id,
@@ -1296,10 +1369,17 @@ export async function createMetaAuthoritativeSourceManifest(
 ) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    accountTimezone: input.accountTimezone,
+  });
   const rows = await sql`
     INSERT INTO meta_authoritative_source_manifests (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       day,
       surface,
       account_timezone,
@@ -1319,7 +1399,9 @@ export async function createMetaAuthoritativeSourceManifest(
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${normalizeDate(input.day)},
       ${input.surface},
       ${input.accountTimezone},
@@ -1557,6 +1639,10 @@ export async function createMetaAuthoritativeSliceVersion(
   const sql = getDb();
   const existingForRun = await getExistingMetaAuthoritativeSliceVersionForRun(input);
   if (existingForRun) return existingForRun;
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
 
   let lastError: unknown = null;
   for (
@@ -1576,7 +1662,9 @@ export async function createMetaAuthoritativeSliceVersion(
       const rows = await sql`
         INSERT INTO meta_authoritative_slice_versions (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           day,
           surface,
           manifest_id,
@@ -1598,7 +1686,9 @@ export async function createMetaAuthoritativeSliceVersion(
         )
         VALUES (
           ${input.businessId},
+          ${refs.businessRefId},
           ${input.providerAccountId},
+          ${refs.providerAccountRefId},
           ${normalizeDate(input.day)},
           ${input.surface},
           ${input.manifestId ?? null},
@@ -1787,9 +1877,18 @@ export async function supersedeMetaAuthoritativeSliceVersions(input: {
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const rows = await sql`
     UPDATE meta_authoritative_slice_versions
     SET
+      business_ref_id = COALESCE(business_ref_id, ${refs.businessRefId}),
+      provider_account_ref_id = COALESCE(
+        provider_account_ref_id,
+        ${refs.providerAccountRefId}
+      ),
       state = 'superseded',
       status = 'superseded',
       superseded_at = COALESCE(superseded_at, now()),
@@ -1840,6 +1939,10 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   return runInTransaction(async () => {
     await sql`
       UPDATE meta_authoritative_slice_versions
@@ -1880,7 +1983,9 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
     const rows = await sql`
       INSERT INTO meta_authoritative_publication_pointers (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         day,
         surface,
         active_slice_version_id,
@@ -1891,7 +1996,9 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
       )
       VALUES (
         ${input.businessId},
+        ${refs.businessRefId},
         ${input.providerAccountId},
+        ${refs.providerAccountRefId},
         ${normalizeDate(input.day)},
         ${input.surface},
         ${input.sliceVersionId}::uuid,
@@ -1902,6 +2009,14 @@ export async function publishMetaAuthoritativeSliceVersion(input: {
       )
       ON CONFLICT (business_id, provider_account_id, day, surface)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          EXCLUDED.business_ref_id,
+          meta_authoritative_publication_pointers.business_ref_id
+        ),
+        provider_account_ref_id = COALESCE(
+          EXCLUDED.provider_account_ref_id,
+          meta_authoritative_publication_pointers.provider_account_ref_id
+        ),
         active_slice_version_id = EXCLUDED.active_slice_version_id,
         published_by_run_id = EXCLUDED.published_by_run_id,
         publication_reason = EXCLUDED.publication_reason,
@@ -2024,10 +2139,16 @@ export async function createMetaAuthoritativeReconciliationEvent(
 ) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const rows = await sql`
     INSERT INTO meta_authoritative_reconciliation_events (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       day,
       surface,
       slice_version_id,
@@ -2043,7 +2164,9 @@ export async function createMetaAuthoritativeReconciliationEvent(
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${normalizeDate(input.day)},
       ${input.surface},
       ${input.sliceVersionId ?? null}::uuid,
@@ -3277,12 +3400,17 @@ export function mergeMetaWarehouseState(
 export async function createMetaSyncJob(input: MetaSyncJobRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const canonicalSyncType = canonicalizeMetaSyncJobType(input.syncType);
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const existingRows = await sql`
     SELECT id
     FROM meta_sync_jobs
     WHERE business_id = ${input.businessId}
       AND provider_account_id = ${input.providerAccountId}
-      AND sync_type = ${input.syncType}
+      AND sync_type = ${canonicalSyncType}
       AND scope = ${input.scope}
       AND start_date = ${normalizeDate(input.startDate)}
       AND end_date = ${normalizeDate(input.endDate)}
@@ -3295,7 +3423,9 @@ export async function createMetaSyncJob(input: MetaSyncJobRecord) {
   const rows = await sql`
     INSERT INTO meta_sync_jobs (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       sync_type,
       scope,
       start_date,
@@ -3312,8 +3442,10 @@ export async function createMetaSyncJob(input: MetaSyncJobRecord) {
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
-      ${input.syncType},
+      ${refs.providerAccountRefId},
+      ${canonicalSyncType},
       ${input.scope},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},
@@ -3358,10 +3490,16 @@ export async function updateMetaSyncJob(input: {
 export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const rows = await sql`
     INSERT INTO meta_sync_partitions (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       lane,
       scope,
       partition_date,
@@ -3379,7 +3517,9 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.lane},
       ${input.scope},
       ${normalizeDate(input.partitionDate)},
@@ -3397,6 +3537,8 @@ export async function queueMetaSyncPartition(input: MetaSyncPartitionRecord) {
     )
     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_sync_partitions.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_sync_partitions.provider_account_ref_id),
       priority = GREATEST(meta_sync_partitions.priority, EXCLUDED.priority),
       source = CASE
         WHEN meta_sync_partitions.source = 'finalize_day' THEN meta_sync_partitions.source
@@ -4755,6 +4897,10 @@ export async function cleanupMetaPartitionOrchestration(input: {
 export async function createMetaSyncRun(input: MetaSyncRunRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   await sql`
     UPDATE meta_sync_runs
     SET
@@ -4774,7 +4920,9 @@ export async function createMetaSyncRun(input: MetaSyncRunRecord) {
     INSERT INTO meta_sync_runs (
       partition_id,
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       lane,
       scope,
       partition_date,
@@ -4793,7 +4941,9 @@ export async function createMetaSyncRun(input: MetaSyncRunRecord) {
     VALUES (
       ${input.partitionId},
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.lane},
       ${input.scope},
       ${normalizeDate(input.partitionDate)},
@@ -4813,7 +4963,9 @@ export async function createMetaSyncRun(input: MetaSyncRunRecord) {
       WHERE status = 'running'
     DO UPDATE SET
       business_id = EXCLUDED.business_id,
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_sync_runs.business_ref_id),
       provider_account_id = EXCLUDED.provider_account_id,
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_sync_runs.provider_account_ref_id),
       lane = EXCLUDED.lane,
       scope = EXCLUDED.scope,
       partition_date = EXCLUDED.partition_date,
@@ -4902,6 +5054,10 @@ export function buildMetaSyncCheckpointHash(input: {
 export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const normalizedLeaseEpoch =
     input.leaseEpoch == null ? null : Math.max(0, Math.trunc(input.leaseEpoch));
   const checkpointHash =
@@ -4932,7 +5088,9 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
     INSERT INTO meta_sync_checkpoints (
       partition_id,
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       checkpoint_scope,
       run_id,
       phase,
@@ -4957,7 +5115,9 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
     SELECT
       ${input.partitionId},
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.checkpointScope},
       ${input.runId ?? null},
       ${input.phase},
@@ -4981,6 +5141,8 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
     FROM owner_guard
     ON CONFLICT (partition_id, checkpoint_scope)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_sync_checkpoints.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_sync_checkpoints.provider_account_ref_id),
       phase = EXCLUDED.phase,
       status = EXCLUDED.status,
       run_id = EXCLUDED.run_id,
@@ -5009,6 +5171,10 @@ export async function upsertMetaSyncCheckpoint(input: MetaSyncCheckpointRecord) 
 export async function upsertMetaSyncPhaseTiming(input: MetaSyncPhaseTimingRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const normalizedLeaseEpoch =
     input.leaseEpoch == null ? null : Math.max(0, Math.trunc(input.leaseEpoch));
   const rows = await sql`
@@ -5029,7 +5195,9 @@ export async function upsertMetaSyncPhaseTiming(input: MetaSyncPhaseTimingRecord
     INSERT INTO meta_sync_phase_timings (
       partition_id,
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       timing_scope,
       run_id,
       phase,
@@ -5047,7 +5215,9 @@ export async function upsertMetaSyncPhaseTiming(input: MetaSyncPhaseTimingRecord
     SELECT
       ${input.partitionId},
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.timingScope},
       ${input.runId ?? null},
       ${input.phase},
@@ -5064,6 +5234,8 @@ export async function upsertMetaSyncPhaseTiming(input: MetaSyncPhaseTimingRecord
     FROM owner_guard
     ON CONFLICT (partition_id, timing_scope)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_sync_phase_timings.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_sync_phase_timings.provider_account_ref_id),
       run_id = EXCLUDED.run_id,
       phase = EXCLUDED.phase,
       status = EXCLUDED.status,
@@ -5522,10 +5694,16 @@ export async function releaseMetaLeasedPartitionsForWorker(input: {
 export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   await sql`
     INSERT INTO meta_sync_state (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       scope,
       historical_target_start,
       historical_target_end,
@@ -5541,7 +5719,9 @@ export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.scope},
       ${normalizeDate(input.historicalTargetStart)},
       ${normalizeDate(input.historicalTargetEnd)},
@@ -5557,6 +5737,8 @@ export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
     )
     ON CONFLICT (business_id, provider_account_id, scope)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_sync_state.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_sync_state.provider_account_ref_id),
       historical_target_start = EXCLUDED.historical_target_start,
       historical_target_end = EXCLUDED.historical_target_end,
       effective_target_start = EXCLUDED.effective_target_start,
@@ -5574,10 +5756,18 @@ export async function upsertMetaSyncState(input: MetaSyncStateRecord) {
 export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
+  const refs = await resolveMetaRecordReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    accountCurrency: input.accountCurrency ?? null,
+    accountTimezone: input.accountTimezone ?? null,
+  });
   const rows = await sql`
     INSERT INTO meta_raw_snapshots (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       partition_id,
       checkpoint_id,
       run_id,
@@ -5600,7 +5790,9 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.partitionId ?? null},
       ${input.checkpointId ?? null},
       ${input.runId ?? null},
@@ -6651,13 +6843,27 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows)) {
+    const businessRefIds = await resolveBusinessReferenceIds(
+      chunk.map((row) => row.businessId),
+    );
+    const providerAccountRefIds = await ensureProviderAccountReferenceIds({
+      provider: "meta",
+      accounts: chunk.map((row) => ({
+        externalAccountId: row.providerAccountId,
+        accountName: row.accountName,
+        currency: row.accountCurrency,
+        timezone: row.accountTimezone,
+      })),
+    });
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 24 : 19);
+        const offset = index * (supportsTruthLifecycle ? 26 : 21);
         values.push(
           row.businessId,
+          businessRefIds.get(row.businessId) ?? null,
           row.providerAccountId,
+          providerAccountRefIds.get(row.providerAccountId) ?? null,
           normalizeDate(row.date),
           row.accountName,
           row.accountTimezone,
@@ -6684,16 +6890,18 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},now())`;
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},now())`;
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},now())`;
       })
       .join(", ");
     const query = supportsTruthLifecycle
       ? `
         INSERT INTO meta_account_daily (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           date,
           account_name,
           account_timezone,
@@ -6720,6 +6928,8 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
         )
         VALUES ${placeholders}
         ON CONFLICT (business_id, provider_account_id, date) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_account_daily.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_account_daily.provider_account_ref_id),
           account_name = EXCLUDED.account_name,
           account_timezone = EXCLUDED.account_timezone,
           account_currency = EXCLUDED.account_currency,
@@ -6751,7 +6961,9 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
       : `
         INSERT INTO meta_account_daily (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           date,
           account_name,
           account_timezone,
@@ -6773,6 +6985,8 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
         )
         VALUES ${placeholders}
         ON CONFLICT (business_id, provider_account_id, date) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_account_daily.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_account_daily.provider_account_ref_id),
           account_name = EXCLUDED.account_name,
           account_timezone = EXCLUDED.account_timezone,
           account_currency = EXCLUDED.account_currency,
@@ -6808,13 +7022,23 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows, 200)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 42 : 37);
+        const offset = index * (supportsTruthLifecycle ? 44 : 39);
         values.push(
           row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
           row.providerAccountId,
+          referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
           normalizeDate(row.date),
           row.campaignId,
           row.campaignNameCurrent,
@@ -6859,16 +7083,18 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},now())`;
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},$${offset + 43},$${offset + 44},now())`;
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},now())`;
       })
       .join(", ");
     const query = supportsTruthLifecycle
       ? `
       INSERT INTO meta_campaign_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         campaign_id,
         campaign_name_current,
@@ -6913,6 +7139,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, campaign_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_campaign_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_campaign_daily.provider_account_ref_id),
         campaign_name_current = EXCLUDED.campaign_name_current,
         campaign_name_historical = EXCLUDED.campaign_name_historical,
         campaign_status = EXCLUDED.campaign_status,
@@ -6961,7 +7189,9 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
       : `
       INSERT INTO meta_campaign_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         campaign_id,
         campaign_name_current,
@@ -7001,6 +7231,8 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, campaign_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_campaign_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_campaign_daily.provider_account_ref_id),
         campaign_name_current = EXCLUDED.campaign_name_current,
         campaign_name_historical = EXCLUDED.campaign_name_historical,
         campaign_status = EXCLUDED.campaign_status,
@@ -7046,13 +7278,23 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
   const sql = getDb();
   const supportsTruthLifecycle = await hasMetaTruthLifecycleColumns();
   for (const chunk of chunkRows(rows, 200)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * (supportsTruthLifecycle ? 41 : 36);
+        const offset = index * (supportsTruthLifecycle ? 43 : 38);
         values.push(
           row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
           row.providerAccountId,
+          referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
           normalizeDate(row.date),
           row.campaignId,
           row.adsetId,
@@ -7096,16 +7338,18 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
             row.validationStatus ?? "passed",
             row.sourceRunId ?? null
           );
-          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},now())`;
+          return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},$${offset + 39},$${offset + 40},$${offset + 41},$${offset + 42},$${offset + 43},now())`;
         }
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33},$${offset + 34},$${offset + 35},$${offset + 36},$${offset + 37},$${offset + 38},now())`;
       })
       .join(", ");
     const query = supportsTruthLifecycle
       ? `
       INSERT INTO meta_adset_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         campaign_id,
         adset_id,
@@ -7149,6 +7393,8 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, adset_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_adset_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_adset_daily.provider_account_ref_id),
         campaign_id = EXCLUDED.campaign_id,
         adset_name_current = EXCLUDED.adset_name_current,
         adset_name_historical = EXCLUDED.adset_name_historical,
@@ -7196,7 +7442,9 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
       : `
       INSERT INTO meta_adset_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         campaign_id,
         adset_id,
@@ -7235,6 +7483,8 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, adset_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_adset_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_adset_daily.provider_account_ref_id),
         campaign_id = EXCLUDED.campaign_id,
         adset_name_current = EXCLUDED.adset_name_current,
         adset_name_historical = EXCLUDED.adset_name_historical,
@@ -7414,12 +7664,22 @@ export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   for (const chunk of chunkRows(rows, 250)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
     const values: unknown[] = [];
     const placeholders = chunk.map((row, index) => {
-      const offset = index * 25;
+      const offset = index * 27;
       values.push(
         row.businessId,
+        referenceContext.businessRefIds.get(row.businessId) ?? null,
         row.providerAccountId,
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
         normalizeDate(row.date),
         row.breakdownType,
         row.breakdownKey,
@@ -7444,16 +7704,18 @@ export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]
         row.validationStatus ?? "passed",
         row.sourceRunId ?? null,
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},now())`;
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},now())`;
     }).join(", ");
     await sql.query(
       `INSERT INTO meta_breakdown_daily (
-        business_id, provider_account_id, date, breakdown_type, breakdown_key, breakdown_label,
+        business_id, business_ref_id, provider_account_id, provider_account_ref_id, date, breakdown_type, breakdown_key, breakdown_label,
         account_timezone, account_currency, spend, impressions, clicks, reach, frequency,
         conversions, revenue, roas, cpa, ctr, cpc, source_snapshot_id, truth_state, truth_version,
         finalized_at, validation_status, source_run_id, updated_at
       ) VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, breakdown_type, breakdown_key) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_breakdown_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_breakdown_daily.provider_account_ref_id),
         breakdown_label = EXCLUDED.breakdown_label,
         account_timezone = EXCLUDED.account_timezone,
         account_currency = EXCLUDED.account_currency,
@@ -7485,13 +7747,23 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   for (const chunk of chunkRows(rows, 150)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 31;
+        const offset = index * 33;
         values.push(
           row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
           row.providerAccountId,
+          referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
           normalizeDate(row.date),
           row.campaignId,
           row.adsetId,
@@ -7522,14 +7794,16 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
           JSON.stringify(row.payloadJson ?? null)
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31}::jsonb,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30},$${offset + 31},$${offset + 32},$${offset + 33}::jsonb,now())`;
       })
       .join(", ");
     await sql.query(
       `
       INSERT INTO meta_ad_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         campaign_id,
         adset_id,
@@ -7563,6 +7837,8 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_ad_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_ad_daily.provider_account_ref_id),
         campaign_id = EXCLUDED.campaign_id,
         adset_id = EXCLUDED.adset_id,
         ad_name_current = EXCLUDED.ad_name_current,
@@ -7607,13 +7883,23 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
   for (const chunk of chunkRows(rows, 150)) {
+    const referenceContext = await resolveMetaChunkReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        accountCurrency: row.accountCurrency,
+        accountTimezone: row.accountTimezone,
+      })),
+    );
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 28;
+        const offset = index * 30;
         values.push(
           row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
           row.providerAccountId,
+          referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
           normalizeDate(row.date),
           row.campaignId,
           row.adsetId,
@@ -7641,7 +7927,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
           row.metricSchemaVersion ?? META_CANONICAL_METRIC_SCHEMA_VERSION,
           JSON.stringify(row.payloadJson ?? null)
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28}::jsonb,now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},$${offset + 30}::jsonb,now())`;
       })
       .join(", ");
 
@@ -7649,7 +7935,9 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
       `
       INSERT INTO meta_creative_daily (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         date,
         campaign_id,
         adset_id,
@@ -7680,6 +7968,8 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
       )
       VALUES ${placeholders}
       ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_daily.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_creative_daily.provider_account_ref_id),
         campaign_id = EXCLUDED.campaign_id,
         adset_id = EXCLUDED.adset_id,
         ad_id = EXCLUDED.ad_id,

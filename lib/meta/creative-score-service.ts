@@ -5,6 +5,10 @@ import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getMetaCreativesApiPayload } from "@/lib/meta/creatives-api";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import { buildHeuristicCreativeDecisions } from "@/lib/ai/generate-creative-decisions";
 import type { AiCreativeHistoricalWindow, AiCreativeHistoricalWindows } from "@/src/services/data-service-ai";
 
@@ -268,6 +272,24 @@ async function writeScoreRows(input: {
   }).catch(() => null);
   const sql = getDb();
   const decisionsById = buildDecisionCacheRows(input.selectedRows, input.historyById);
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
+  const businessRefId = businessRefIds.get(input.businessId) ?? null;
+  const providerAccountIds = Array.from(
+    new Set(
+      input.selectedRows
+        .map((row) => row.accountId ?? null)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const providerAccountRefIds =
+    providerAccountIds.length > 0
+      ? await ensureProviderAccountReferenceIds({
+          provider: "meta",
+          accounts: providerAccountIds.map((externalAccountId) => ({
+            externalAccountId,
+          })),
+        })
+      : new Map<string, string>();
 
   if (!readiness?.ready) {
     return decisionsById;
@@ -276,10 +298,16 @@ async function writeScoreRows(input: {
   await Promise.all(
     input.selectedRows.map((row) => {
       const decision = decisionsById.get(row.id);
+      const providerAccountId = row.accountId ?? "__unknown__";
+      const providerAccountRefId = row.accountId
+        ? (providerAccountRefIds.get(row.accountId) ?? null)
+        : null;
       return sql`
         INSERT INTO meta_creative_score_snapshots (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           creative_id,
           as_of_date,
           selected_start_date,
@@ -294,7 +322,9 @@ async function writeScoreRows(input: {
         )
         VALUES (
           ${input.businessId},
-          ${row.accountId ?? "__unknown__"},
+          ${businessRefId},
+          ${providerAccountId},
+          ${providerAccountRefId},
           ${row.id},
           ${input.selectedEndDate},
           ${input.selectedStartDate},
@@ -309,6 +339,11 @@ async function writeScoreRows(input: {
         )
         ON CONFLICT (business_id, provider_account_id, creative_id, as_of_date, selected_start_date, selected_end_date, rule_version)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_score_snapshots.business_ref_id),
+          provider_account_ref_id = COALESCE(
+            EXCLUDED.provider_account_ref_id,
+            meta_creative_score_snapshots.provider_account_ref_id
+          ),
           window_metrics = EXCLUDED.window_metrics,
           selected_row_json = EXCLUDED.selected_row_json,
           weighted_score = EXCLUDED.weighted_score,

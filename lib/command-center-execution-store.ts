@@ -3,6 +3,7 @@ import {
   assertDbSchemaReady,
   getDbSchemaReadiness,
 } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import type {
   CommandCenterActionStatus,
   CommandCenterSourceSystem,
@@ -26,6 +27,11 @@ const COMMAND_CENTER_EXECUTION_TABLES = [
   "command_center_action_execution_state",
   "command_center_action_execution_audit",
 ] as const;
+
+async function resolveCommandCenterExecutionBusinessRefId(businessId: string) {
+  const businessRefIds = await resolveBusinessReferenceIds([businessId]);
+  return businessRefIds.get(businessId) ?? null;
+}
 
 function isUndefinedColumnError(error: unknown, columnNames: string[]) {
   if (!error || typeof error !== "object") return false;
@@ -674,9 +680,11 @@ export async function upsertCommandCenterExecutionState(input: {
   });
 
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterExecutionBusinessRefId(input.businessId);
   await sql`
     INSERT INTO command_center_action_execution_state (
       business_id,
+      business_ref_id,
       action_fingerprint,
       execution_status,
       support_mode,
@@ -709,6 +717,7 @@ export async function upsertCommandCenterExecutionState(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.actionFingerprint},
       ${input.executionStatus},
       ${input.supportMode},
@@ -741,6 +750,10 @@ export async function upsertCommandCenterExecutionState(input: {
     )
     ON CONFLICT (business_id, action_fingerprint)
     DO UPDATE SET
+      business_ref_id = COALESCE(
+        command_center_action_execution_state.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       execution_status = EXCLUDED.execution_status,
       support_mode = EXCLUDED.support_mode,
       source_system = EXCLUDED.source_system,
@@ -812,9 +825,11 @@ export async function appendCommandCenterExecutionAudit(input: {
   });
 
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterExecutionBusinessRefId(input.businessId);
   await sql`
     INSERT INTO command_center_action_execution_audit (
       business_id,
+      business_ref_id,
       action_fingerprint,
       client_mutation_id,
       operation,
@@ -843,6 +858,7 @@ export async function appendCommandCenterExecutionAudit(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.actionFingerprint},
       ${input.clientMutationId},
       ${input.operation},

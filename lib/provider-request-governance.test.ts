@@ -10,6 +10,14 @@ vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const),
+    );
+  }),
+}));
+
 const schemaReadiness = await import("@/lib/db-schema-readiness");
 const requestGovernance = await import("@/lib/provider-request-governance");
 
@@ -104,11 +112,22 @@ describe("provider request governance", () => {
     const auditQuery = sql.mock.calls.find(([strings]) =>
       collectQueryText(strings as TemplateStringsArray).includes("INSERT INTO provider_request_audit_daily"),
     );
+    const cooldownQuery = sql.mock.calls.find(([strings]) =>
+      collectQueryText(strings as TemplateStringsArray).includes("INSERT INTO provider_cooldown_state"),
+    );
+    const quotaQuery = sql.mock.calls.find(([strings]) =>
+      collectQueryText(strings as TemplateStringsArray).includes("INSERT INTO provider_quota_usage"),
+    );
 
     expect(auditQuery).toBeTruthy();
     expect(auditQuery?.[1]).toBe("biz_audit");
-    expect(auditQuery?.[2]).toBe("ga4");
-    expect(auditQuery?.[4]).toBe("live_report");
-    expect(auditQuery?.[5]).toBe("/api/analytics/overview");
+    expect(collectQueryText(auditQuery?.[0] as TemplateStringsArray)).toContain("business_ref_id");
+    expect(auditQuery?.[3]).toBe("ga4");
+    expect(auditQuery?.[5]).toBe("live_report");
+    expect(auditQuery?.[6]).toBe("/api/analytics/overview");
+    expect(cooldownQuery).toBeTruthy();
+    expect(collectQueryText(cooldownQuery?.[0] as TemplateStringsArray)).toContain("business_ref_id");
+    expect(quotaQuery).toBeTruthy();
+    expect(collectQueryText(quotaQuery?.[0] as TemplateStringsArray)).toContain("business_ref_id");
   });
 });

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 
-export type OverviewSummaryProvider = "meta" | "google";
+export type OverviewSummaryProvider = "meta" | "google" | "shopify";
 
 export interface OverviewSummaryDailyRow {
   businessId: string;

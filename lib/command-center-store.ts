@@ -3,6 +3,7 @@ import {
   assertDbSchemaReady,
   getDbSchemaReadiness,
 } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import { canEdit, type MembershipRole } from "@/lib/auth";
 import { isDemoBusinessId } from "@/lib/demo-business";
 import { isReviewerEmail } from "@/lib/reviewer-access";
@@ -54,6 +55,11 @@ const COMMAND_CENTER_FEEDBACK_TABLES = [
   "command_center_feedback",
   "command_center_mutation_receipts",
 ] as const;
+
+async function resolveCommandCenterBusinessRefId(businessId: string) {
+  const businessRefIds = await resolveBusinessReferenceIds([businessId]);
+  return businessRefIds.get(businessId) ?? null;
+}
 
 const COMMAND_CENTER_FEEDBACK_OUTCOMES = new Set<CommandCenterFeedbackOutcome>([
   "calibration_candidate",
@@ -197,15 +203,18 @@ export async function writeCommandCenterMutationReceipt(input: {
   });
 
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterBusinessRefId(input.businessId);
   await sql`
     INSERT INTO command_center_mutation_receipts (
       business_id,
+      business_ref_id,
       client_mutation_id,
       mutation_scope,
       payload_json
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.clientMutationId},
       ${input.mutationScope},
       ${JSON.stringify(input.payload)}
@@ -479,21 +488,28 @@ export async function createCommandCenterSavedView(input: {
   const sql = getDb();
   const viewKey = buildCommandCenterViewKey(input.name);
   const sanitizedDefinition = sanitizeCommandCenterSavedViewDefinition(input.definition);
+  const businessRefId = await resolveCommandCenterBusinessRefId(input.businessId);
   const rows = (await sql`
     INSERT INTO command_center_saved_views (
       business_id,
+      business_ref_id,
       view_key,
       name,
       definition_json
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${viewKey},
       ${input.name.trim()},
       ${JSON.stringify(sanitizedDefinition)}
     )
     ON CONFLICT (business_id, view_key)
     DO UPDATE SET
+      business_ref_id = COALESCE(
+        command_center_saved_views.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       name = EXCLUDED.name,
       definition_json = EXCLUDED.definition_json,
       updated_at = now()
@@ -682,9 +698,11 @@ export async function createCommandCenterHandoff(input: {
   });
 
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterBusinessRefId(input.businessId);
   const rows = (await sql`
     INSERT INTO command_center_handoffs (
       business_id,
+      business_ref_id,
       shift,
       summary,
       blockers_json,
@@ -695,6 +713,7 @@ export async function createCommandCenterHandoff(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.shift},
       ${input.summary.trim()},
       ${JSON.stringify(input.blockers.filter(Boolean))},
@@ -969,11 +988,13 @@ export async function createCommandCenterFeedback(input: {
   });
 
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterBusinessRefId(input.businessId);
   let rows: Array<{ id: string }>;
   try {
     rows = (await sql`
       INSERT INTO command_center_feedback (
         business_id,
+        business_ref_id,
         client_mutation_id,
         feedback_type,
         outcome,
@@ -990,6 +1011,7 @@ export async function createCommandCenterFeedback(input: {
       )
       VALUES (
         ${input.businessId},
+        ${businessRefId},
         ${input.clientMutationId},
         ${input.feedbackType},
         ${input.outcome},
@@ -1012,6 +1034,7 @@ export async function createCommandCenterFeedback(input: {
     rows = (await sql`
       INSERT INTO command_center_feedback (
         business_id,
+        business_ref_id,
         client_mutation_id,
         feedback_type,
         scope,
@@ -1025,6 +1048,7 @@ export async function createCommandCenterFeedback(input: {
       )
       VALUES (
         ${input.businessId},
+        ${businessRefId},
         ${input.clientMutationId},
         ${input.feedbackType},
         ${input.scope},
@@ -1089,9 +1113,11 @@ async function writeCommandCenterJournal(input: {
     context: "command_center:write_journal",
   });
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterBusinessRefId(input.businessId);
   await sql`
     INSERT INTO command_center_action_journal (
       business_id,
+      business_ref_id,
       action_fingerprint,
       action_title,
       source_system,
@@ -1105,6 +1131,7 @@ async function writeCommandCenterJournal(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.action.actionFingerprint},
       ${input.action.title},
       ${input.action.sourceSystem},
@@ -1136,9 +1163,11 @@ async function upsertCommandCenterActionState(input: {
     context: "command_center:upsert_action_state",
   });
   const sql = getDb();
+  const businessRefId = await resolveCommandCenterBusinessRefId(input.businessId);
   const rows = (await sql`
     INSERT INTO command_center_action_state (
       business_id,
+      business_ref_id,
       action_fingerprint,
       source_system,
       source_type,
@@ -1154,6 +1183,7 @@ async function upsertCommandCenterActionState(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.action.actionFingerprint},
       ${input.action.sourceSystem},
       ${input.action.sourceType},
@@ -1169,6 +1199,10 @@ async function upsertCommandCenterActionState(input: {
     )
     ON CONFLICT (business_id, action_fingerprint)
     DO UPDATE SET
+      business_ref_id = COALESCE(
+        command_center_action_state.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       source_system = EXCLUDED.source_system,
       source_type = EXCLUDED.source_type,
       action_title = EXCLUDED.action_title,

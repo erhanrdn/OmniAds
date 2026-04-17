@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import {
   getNormalizedSearchParamsKey,
   shouldBypassRouteCachePayload,
@@ -55,10 +56,14 @@ export async function writeCachedReportSnapshot<TPayload>(input: {
   }
   const sql = getDb();
   const payloadJson = JSON.stringify(sanitizeForJson(input.payload));
+  const businessRefId = (await resolveBusinessReferenceIds([input.businessId])).get(
+    input.businessId,
+  ) ?? null;
 
   await sql`
     INSERT INTO provider_reporting_snapshots (
       business_id,
+      business_ref_id,
       provider,
       report_type,
       date_range_key,
@@ -67,6 +72,7 @@ export async function writeCachedReportSnapshot<TPayload>(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.provider},
       ${input.reportType},
       ${input.dateRangeKey},
@@ -74,6 +80,7 @@ export async function writeCachedReportSnapshot<TPayload>(input: {
       now()
     )
     ON CONFLICT (business_id, provider, report_type, date_range_key) DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, provider_reporting_snapshots.business_ref_id),
       payload = EXCLUDED.payload,
       updated_at = now()
   `;

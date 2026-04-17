@@ -4,6 +4,10 @@ import {
   normalizeTargetRoasValue,
   type MetaConfigSnapshotPayload,
 } from "@/lib/meta/configuration";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 
 export type MetaConfigEntityLevel = "campaign" | "adset";
 
@@ -287,10 +291,21 @@ export async function appendMetaConfigSnapshots(
       context: "meta_config_snapshots:append",
     });
     const sql = getDb();
+    const [businessRefIds, providerAccountRefIds] = await Promise.all([
+      resolveBusinessReferenceIds(rows.map((row) => row.businessId)),
+      ensureProviderAccountReferenceIds({
+        provider: "meta",
+        accounts: rows.map((row) => ({
+          externalAccountId: row.accountId,
+        })),
+      }),
+    ]);
     const payload = JSON.stringify(
       rows.map((row) => ({
         business_id: row.businessId,
+        business_ref_id: businessRefIds.get(row.businessId) ?? null,
         account_id: row.accountId,
+        provider_account_ref_id: providerAccountRefIds.get(row.accountId) ?? null,
         entity_level: row.entityLevel,
         entity_id: row.entityId,
         payload: sanitizeForJson(row.payload),
@@ -300,20 +315,26 @@ export async function appendMetaConfigSnapshots(
     await sql`
       INSERT INTO meta_config_snapshots (
         business_id,
+        business_ref_id,
         account_id,
+        provider_account_ref_id,
         entity_level,
         entity_id,
         payload
       )
       SELECT
         item.business_id,
+        item.business_ref_id,
         item.account_id,
+        item.provider_account_ref_id,
         item.entity_level,
         item.entity_id,
         item.payload
       FROM jsonb_to_recordset(${payload}::jsonb) AS item(
         business_id text,
+        business_ref_id text,
         account_id text,
+        provider_account_ref_id text,
         entity_level text,
         entity_id text,
         payload jsonb

@@ -54,6 +54,15 @@ describe("runMigrations", () => {
         timeoutMs: 120_000,
       }),
     );
+    expect(queries.join("\n")).toContain("provider_connections");
+    expect(queries.join("\n")).toContain("integration_credentials");
+    expect(queries.join("\n")).toContain("provider_accounts");
+    expect(queries.join("\n")).toContain("business_provider_accounts");
+    expect(queries.join("\n")).toContain("provider_account_snapshot_runs");
+    expect(queries.join("\n")).toContain("provider_account_snapshot_items");
+    expect(queries.join("\n")).toContain("platform_overview_summary_range_accounts");
+    expect(queries.join("\n")).toContain("business_ref_id");
+    expect(queries.join("\n")).toContain("provider_account_ref_id");
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");

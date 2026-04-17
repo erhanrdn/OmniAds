@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import type { SeoAiAnalysis } from "@/lib/seo/intelligence";
 
 export interface SeoMonthlyAiAnalysisRecord {
@@ -50,10 +51,12 @@ export async function saveSeoMonthlyAiAnalysisSuccess(params: {
     tables: ["seo_ai_monthly_analyses"],
     context: "seo_monthly_ai_analysis_success",
   });
+  const businessRefIds = await resolveBusinessReferenceIds([params.businessId]);
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO seo_ai_monthly_analyses (
       business_id,
+      business_ref_id,
       analysis_month,
       period_start,
       period_end,
@@ -64,6 +67,7 @@ export async function saveSeoMonthlyAiAnalysisSuccess(params: {
       updated_at
     ) VALUES (
       ${params.businessId},
+      ${businessRefIds.get(params.businessId) ?? null},
       ${params.analysisMonth}::date,
       ${params.periodStart}::date,
       ${params.periodEnd}::date,
@@ -74,6 +78,10 @@ export async function saveSeoMonthlyAiAnalysisSuccess(params: {
       now()
     )
     ON CONFLICT (business_id, analysis_month) DO UPDATE SET
+      business_ref_id = COALESCE(
+        seo_ai_monthly_analyses.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       period_start = EXCLUDED.period_start,
       period_end = EXCLUDED.period_end,
       analysis = EXCLUDED.analysis,
@@ -99,10 +107,12 @@ export async function saveSeoMonthlyAiAnalysisFailure(params: {
     tables: ["seo_ai_monthly_analyses"],
     context: "seo_monthly_ai_analysis_failure",
   });
+  const businessRefIds = await resolveBusinessReferenceIds([params.businessId]);
   const sql = getDb();
   const rows = (await sql`
     INSERT INTO seo_ai_monthly_analyses (
       business_id,
+      business_ref_id,
       analysis_month,
       period_start,
       period_end,
@@ -113,6 +123,7 @@ export async function saveSeoMonthlyAiAnalysisFailure(params: {
       updated_at
     ) VALUES (
       ${params.businessId},
+      ${businessRefIds.get(params.businessId) ?? null},
       ${params.analysisMonth}::date,
       ${params.periodStart}::date,
       ${params.periodEnd}::date,
@@ -123,6 +134,10 @@ export async function saveSeoMonthlyAiAnalysisFailure(params: {
       now()
     )
     ON CONFLICT (business_id, analysis_month) DO UPDATE SET
+      business_ref_id = COALESCE(
+        seo_ai_monthly_analyses.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       period_start = EXCLUDED.period_start,
       period_end = EXCLUDED.period_end,
       raw_response = COALESCE(EXCLUDED.raw_response, seo_ai_monthly_analyses.raw_response),

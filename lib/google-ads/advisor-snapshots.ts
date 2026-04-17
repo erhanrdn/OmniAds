@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import type {
   GoogleAdvisorHistoricalSupport,
   GoogleAdvisorResponse,
@@ -124,7 +128,24 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
     tables: ["google_ads_advisor_snapshots"],
     context: "google_ads_advisor_snapshot_upsert",
   });
+  const [businessRefIds, providerAccountRefIds] = await Promise.all([
+    resolveBusinessReferenceIds([input.businessId]),
+    input.accountId
+      ? ensureProviderAccountReferenceIds({
+          provider: "google",
+          accounts: [
+            {
+              externalAccountId: input.accountId,
+            },
+          ],
+        })
+      : Promise.resolve(new Map<string, string>()),
+  ]);
   const sql = getDb();
+  const businessRefId = businessRefIds.get(input.businessId) ?? null;
+  const providerAccountRefId = input.accountId
+    ? (providerAccountRefIds.get(input.accountId) ?? null)
+    : null;
   const advisorPayload = normalizeGoogleAdsDecisionSnapshotPayload({
     advisorPayload: input.advisorPayload,
     analysisMode: "snapshot",
@@ -136,7 +157,9 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
   const rows = (await sql`
     INSERT INTO google_ads_advisor_snapshots (
       business_id,
+      business_ref_id,
       account_id,
+      provider_account_ref_id,
       analysis_version,
       analysis_mode,
       as_of_date,
@@ -151,7 +174,9 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.accountId ?? null},
+      ${providerAccountRefId},
       ${GOOGLE_ADVISOR_SNAPSHOT_ANALYSIS_VERSION},
       'snapshot',
       ${input.asOfDate},
@@ -166,6 +191,14 @@ export async function upsertGoogleAdsAdvisorSnapshot(input: {
     )
     ON CONFLICT (business_id, account_id, as_of_date, analysis_version)
     DO UPDATE SET
+      business_ref_id = COALESCE(
+        google_ads_advisor_snapshots.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
+      provider_account_ref_id = COALESCE(
+        google_ads_advisor_snapshots.provider_account_ref_id,
+        EXCLUDED.provider_account_ref_id
+      ),
       advisor_payload = EXCLUDED.advisor_payload,
       historical_support_json = EXCLUDED.historical_support_json,
       source_max_updated_at = EXCLUDED.source_max_updated_at,

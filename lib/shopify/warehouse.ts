@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import type {
   ShopifyOrderTransactionWarehouseRow,
   ShopifyCustomerEventWarehouseRow,
@@ -112,6 +116,67 @@ function chunkRows<T>(rows: T[], size = 100) {
   return chunks;
 }
 
+async function resolveShopifyCanonicalReferenceContext(
+  rows: Array<{
+    businessId: string;
+    providerAccountId: string;
+    shopId?: string | null;
+  }>,
+) {
+  return {
+    businessRefIds: await resolveBusinessReferenceIds(rows.map((row) => row.businessId)),
+    providerAccountRefIds: await ensureProviderAccountReferenceIds({
+      provider: "shopify",
+      accounts: rows.map((row) => ({
+        externalAccountId: row.providerAccountId,
+        accountName: row.shopId ?? null,
+      })),
+    }),
+  };
+}
+
+async function resolveSingleShopifyCanonicalReferenceContext(input: {
+  businessId: string;
+  providerAccountId: string;
+  shopId?: string | null;
+}) {
+  const context = await resolveShopifyCanonicalReferenceContext([input]);
+  return {
+    businessRefId: context.businessRefIds.get(input.businessId) ?? null,
+    providerAccountRefId:
+      context.providerAccountRefIds.get(input.providerAccountId) ?? null,
+  };
+}
+
+async function resolveOptionalShopifyCanonicalReferenceContext(input: {
+  businessId?: string | null;
+  providerAccountId?: string | null;
+  shopId?: string | null;
+}) {
+  const businessId = input.businessId ?? null;
+  const providerAccountId = input.providerAccountId ?? null;
+  const [businessRefIds, providerAccountRefIds] = await Promise.all([
+    businessId ? resolveBusinessReferenceIds([businessId]) : Promise.resolve(new Map<string, string>()),
+    providerAccountId
+      ? ensureProviderAccountReferenceIds({
+          provider: "shopify",
+          accounts: [
+            {
+              externalAccountId: providerAccountId,
+              accountName: input.shopId ?? null,
+            },
+          ],
+        })
+      : Promise.resolve(new Map<string, string>()),
+  ]);
+  return {
+    businessRefId: businessId ? (businessRefIds.get(businessId) ?? null) : null,
+    providerAccountRefId: providerAccountId
+      ? (providerAccountRefIds.get(providerAccountId) ?? null)
+      : null,
+  };
+}
+
 function sanitizeRuntimeValidationSqlCommentValue(value: unknown, fallback = "na") {
   const text = String(value ?? "").trim();
   const cleaned = text.replace(/[^a-zA-Z0-9:_-]+/g, "_").slice(0, 80);
@@ -143,10 +208,16 @@ export function buildShopifyRawSnapshotHash(input: {
 export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:insert_raw_snapshot");
   const sql = getDb();
+  const refs = await resolveSingleShopifyCanonicalReferenceContext({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+  });
   const rows = (await sql`
     INSERT INTO shopify_raw_snapshots (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       endpoint_name,
       entity_scope,
       start_date,
@@ -161,7 +232,9 @@ export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) 
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.endpointName},
       ${input.entityScope},
       ${normalizeDate(input.startDate)},
@@ -186,11 +259,24 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
   let written = 0;
 
   for (const chunk of chunkRows(rows)) {
+    const referenceContext = await resolveShopifyCanonicalReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        shopId: row.shopId,
+      })),
+    );
     for (const row of chunk) {
+      const businessRefId =
+        referenceContext.businessRefIds.get(row.businessId) ?? null;
+      const providerAccountRefId =
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
       await sql`
         INSERT INTO shopify_orders (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           shop_id,
           order_id,
           order_name,
@@ -221,7 +307,9 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
         )
         VALUES (
           ${row.businessId},
+          ${businessRefId},
           ${row.providerAccountId},
+          ${providerAccountRefId},
           ${row.shopId},
           ${row.orderId},
           ${row.orderName ?? null},
@@ -252,6 +340,8 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, order_id)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_orders.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_orders.provider_account_ref_id),
           order_name = EXCLUDED.order_name,
           customer_id = EXCLUDED.customer_id,
           currency_code = EXCLUDED.currency_code,
@@ -292,11 +382,24 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
   let written = 0;
 
   for (const chunk of chunkRows(rows)) {
+    const referenceContext = await resolveShopifyCanonicalReferenceContext(
+      chunk.map((row) => ({
+        businessId: row.businessId,
+        providerAccountId: row.providerAccountId,
+        shopId: row.shopId,
+      })),
+    );
     for (const row of chunk) {
+      const businessRefId =
+        referenceContext.businessRefIds.get(row.businessId) ?? null;
+      const providerAccountRefId =
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
       await sql`
         INSERT INTO shopify_order_lines (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           shop_id,
           order_id,
           line_item_id,
@@ -315,7 +418,9 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
         )
         VALUES (
           ${row.businessId},
+          ${businessRefId},
           ${row.providerAccountId},
+          ${providerAccountRefId},
           ${row.shopId},
           ${row.orderId},
           ${row.lineItemId},
@@ -334,6 +439,8 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, order_id, line_item_id)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_order_lines.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_order_lines.provider_account_ref_id),
           product_id = EXCLUDED.product_id,
           variant_id = EXCLUDED.variant_id,
           sku = EXCLUDED.sku,
@@ -359,12 +466,25 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_refunds");
   const sql = getDb();
   let written = 0;
+  const referenceContext = await resolveShopifyCanonicalReferenceContext(
+    rows.map((row) => ({
+      businessId: row.businessId,
+      providerAccountId: row.providerAccountId,
+      shopId: row.shopId,
+    })),
+  );
 
   for (const row of rows) {
+    const businessRefId =
+      referenceContext.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
     await sql`
       INSERT INTO shopify_refunds (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         shop_id,
         order_id,
         refund_id,
@@ -380,7 +500,9 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
       )
       VALUES (
         ${row.businessId},
+        ${businessRefId},
         ${row.providerAccountId},
+        ${providerAccountRefId},
         ${row.shopId},
         ${row.orderId},
         ${row.refundId},
@@ -396,6 +518,8 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
       )
       ON CONFLICT (business_id, provider_account_id, shop_id, refund_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_refunds.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_refunds.provider_account_ref_id),
         order_id = EXCLUDED.order_id,
         refunded_at = EXCLUDED.refunded_at,
         refunded_date_local = EXCLUDED.refunded_date_local,
@@ -427,8 +551,19 @@ export async function upsertShopifyOrderTransactions(
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_transactions");
   const sql = getDb();
   let written = 0;
+  const referenceContext = await resolveShopifyCanonicalReferenceContext(
+    rows.map((row) => ({
+      businessId: row.businessId,
+      providerAccountId: row.providerAccountId,
+      shopId: row.shopId,
+    })),
+  );
 
   for (const [index, row] of rows.entries()) {
+    const businessRefId =
+      referenceContext.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
     const summary = {
       pageCount: input?.runtimeValidation?.pageCount ?? null,
       rowIndex: index + 1,
@@ -461,7 +596,9 @@ export async function upsertShopifyOrderTransactions(
         `${runtimeValidationComment}
         INSERT INTO shopify_order_transactions (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           shop_id,
           order_id,
           transaction_id,
@@ -477,10 +614,12 @@ export async function upsertShopifyOrderTransactions(
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9,
-          $10, $11, $12::jsonb, $13, now()
+          $10, $11, $12, $13, $14::jsonb, $15, now()
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_order_transactions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_order_transactions.provider_account_ref_id),
           order_id = EXCLUDED.order_id,
           kind = EXCLUDED.kind,
           status = EXCLUDED.status,
@@ -493,7 +632,9 @@ export async function upsertShopifyOrderTransactions(
           updated_at = now()`,
         [
           row.businessId,
+          businessRefId,
           row.providerAccountId,
+          providerAccountRefId,
           row.shopId,
           row.orderId,
           row.transactionId,
@@ -511,7 +652,9 @@ export async function upsertShopifyOrderTransactions(
       await sql`
         INSERT INTO shopify_order_transactions (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           shop_id,
           order_id,
           transaction_id,
@@ -527,7 +670,9 @@ export async function upsertShopifyOrderTransactions(
         )
         VALUES (
           ${row.businessId},
+          ${businessRefId},
           ${row.providerAccountId},
+          ${providerAccountRefId},
           ${row.shopId},
           ${row.orderId},
           ${row.transactionId},
@@ -543,6 +688,8 @@ export async function upsertShopifyOrderTransactions(
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_order_transactions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_order_transactions.provider_account_ref_id),
           order_id = EXCLUDED.order_id,
           kind = EXCLUDED.kind,
           status = EXCLUDED.status,
@@ -567,12 +714,25 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_returns");
   const sql = getDb();
   let written = 0;
+  const referenceContext = await resolveShopifyCanonicalReferenceContext(
+    rows.map((row) => ({
+      businessId: row.businessId,
+      providerAccountId: row.providerAccountId,
+      shopId: row.shopId,
+    })),
+  );
 
   for (const row of rows) {
+    const businessRefId =
+      referenceContext.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
     await sql`
       INSERT INTO shopify_returns (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         shop_id,
         order_id,
         return_id,
@@ -587,7 +747,9 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
       )
       VALUES (
         ${row.businessId},
+        ${businessRefId},
         ${row.providerAccountId},
+        ${providerAccountRefId},
         ${row.shopId},
         ${row.orderId ?? null},
         ${row.returnId},
@@ -602,6 +764,8 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
       )
       ON CONFLICT (business_id, provider_account_id, shop_id, return_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_returns.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_returns.provider_account_ref_id),
         order_id = EXCLUDED.order_id,
         status = EXCLUDED.status,
         created_at_provider = EXCLUDED.created_at_provider,
@@ -631,9 +795,20 @@ export async function upsertShopifySalesEvents(
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_sales_events");
   const sql = getDb();
+  const referenceContext = await resolveShopifyCanonicalReferenceContext(
+    rows.map((row) => ({
+      businessId: row.businessId,
+      providerAccountId: row.providerAccountId,
+      shopId: row.shopId,
+    })),
+  );
   let written = 0;
 
   for (const [index, row] of rows.entries()) {
+    const businessRefId =
+      referenceContext.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
     const summary = {
       pageCount: input?.runtimeValidation?.pageCount ?? null,
       rowIndex: index + 1,
@@ -662,7 +837,9 @@ export async function upsertShopifySalesEvents(
         `${runtimeValidationComment}
         INSERT INTO shopify_sales_events (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           shop_id,
           event_id,
           source_kind,
@@ -682,10 +859,12 @@ export async function upsertShopifySalesEvents(
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9,
-          $10, $11, $12, $13, $14, $15, $16::jsonb, $17, now()
+          $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, now()
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_sales_events.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_sales_events.provider_account_ref_id),
           source_kind = EXCLUDED.source_kind,
           source_id = EXCLUDED.source_id,
           order_id = EXCLUDED.order_id,
@@ -702,7 +881,9 @@ export async function upsertShopifySalesEvents(
           updated_at = now()`,
         [
           row.businessId,
+          businessRefId,
           row.providerAccountId,
+          providerAccountRefId,
           row.shopId,
           row.eventId,
           row.sourceKind,
@@ -724,7 +905,9 @@ export async function upsertShopifySalesEvents(
       await sql`
         INSERT INTO shopify_sales_events (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           shop_id,
           event_id,
           source_kind,
@@ -744,7 +927,9 @@ export async function upsertShopifySalesEvents(
         )
         VALUES (
           ${row.businessId},
+          ${businessRefId},
           ${row.providerAccountId},
+          ${providerAccountRefId},
           ${row.shopId},
           ${row.eventId},
           ${row.sourceKind},
@@ -764,6 +949,8 @@ export async function upsertShopifySalesEvents(
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
         DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_sales_events.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_sales_events.provider_account_ref_id),
           source_kind = EXCLUDED.source_kind,
           source_id = EXCLUDED.source_id,
           order_id = EXCLUDED.order_id,
@@ -820,10 +1007,13 @@ export async function getShopifyServingOverride(input: {
 export async function upsertShopifyServingOverride(input: ShopifyServingOverrideRecord) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_serving_override");
   const sql = getDb();
+  const refs = await resolveSingleShopifyCanonicalReferenceContext(input);
   await sql`
     INSERT INTO shopify_serving_overrides (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       override_key,
       start_date,
       end_date,
@@ -834,7 +1024,9 @@ export async function upsertShopifyServingOverride(input: ShopifyServingOverride
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.overrideKey},
       ${normalizeDate(input.startDate)},
       ${normalizeDate(input.endDate)},
@@ -845,6 +1037,11 @@ export async function upsertShopifyServingOverride(input: ShopifyServingOverride
     )
     ON CONFLICT (business_id, provider_account_id, override_key)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_serving_overrides.business_ref_id),
+      provider_account_ref_id = COALESCE(
+        EXCLUDED.provider_account_ref_id,
+        shopify_serving_overrides.provider_account_ref_id
+      ),
       start_date = EXCLUDED.start_date,
       end_date = EXCLUDED.end_date,
       mode = EXCLUDED.mode,
@@ -857,10 +1054,13 @@ export async function upsertShopifyServingOverride(input: ShopifyServingOverride
 export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDeliveryRecord) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_webhook_delivery");
   const sql = getDb();
+  const refs = await resolveOptionalShopifyCanonicalReferenceContext(input);
   await sql`
     INSERT INTO shopify_webhook_deliveries (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       topic,
       shop_domain,
       webhook_id,
@@ -875,7 +1075,9 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
     )
     VALUES (
       ${input.businessId ?? null},
+      ${refs.businessRefId},
       ${input.providerAccountId ?? null},
+      ${refs.providerAccountRefId},
       ${input.topic},
       ${input.shopDomain},
       ${input.webhookId ?? null},
@@ -891,7 +1093,12 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
     ON CONFLICT (shop_domain, topic, payload_hash)
     DO UPDATE SET
       business_id = COALESCE(EXCLUDED.business_id, shopify_webhook_deliveries.business_id),
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_webhook_deliveries.business_ref_id),
       provider_account_id = COALESCE(EXCLUDED.provider_account_id, shopify_webhook_deliveries.provider_account_id),
+      provider_account_ref_id = COALESCE(
+        EXCLUDED.provider_account_ref_id,
+        shopify_webhook_deliveries.provider_account_ref_id
+      ),
       webhook_id = COALESCE(EXCLUDED.webhook_id, shopify_webhook_deliveries.webhook_id),
       processed_at = COALESCE(EXCLUDED.processed_at, shopify_webhook_deliveries.processed_at),
       processing_state = EXCLUDED.processing_state,
@@ -904,10 +1111,13 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
 export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_repair_intent");
   const sql = getDb();
+  const refs = await resolveSingleShopifyCanonicalReferenceContext(input);
   const rows = (await sql`
     INSERT INTO shopify_repair_intents (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       entity_type,
       entity_id,
       topic,
@@ -923,7 +1133,9 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.entityType},
       ${input.entityId},
       ${input.topic},
@@ -939,6 +1151,11 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
     )
     ON CONFLICT (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_repair_intents.business_ref_id),
+      provider_account_ref_id = COALESCE(
+        EXCLUDED.provider_account_ref_id,
+        shopify_repair_intents.provider_account_ref_id
+      ),
       event_timestamp = COALESCE(EXCLUDED.event_timestamp, shopify_repair_intents.event_timestamp),
       event_age_days = COALESCE(EXCLUDED.event_age_days, shopify_repair_intents.event_age_days),
       escalation_level = GREATEST(shopify_repair_intents.escalation_level, EXCLUDED.escalation_level),
@@ -1160,13 +1377,26 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_customer_events");
   const sql = getDb();
+  const referenceContext = await resolveShopifyCanonicalReferenceContext(
+    rows.map((row) => ({
+      businessId: row.businessId,
+      providerAccountId: row.providerAccountId,
+      shopId: row.shopId,
+    })),
+  );
   let written = 0;
 
   for (const row of rows) {
+    const businessRefId =
+      referenceContext.businessRefIds.get(row.businessId) ?? null;
+    const providerAccountRefId =
+      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
     await sql`
       INSERT INTO shopify_customer_events (
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         shop_id,
         event_id,
         event_type,
@@ -1181,7 +1411,9 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
       )
       VALUES (
         ${row.businessId},
+        ${businessRefId},
         ${row.providerAccountId},
+        ${providerAccountRefId},
         ${row.shopId},
         ${row.eventId},
         ${row.eventType},
@@ -1196,6 +1428,11 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
       )
       ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_customer_events.business_ref_id),
+        provider_account_ref_id = COALESCE(
+          EXCLUDED.provider_account_ref_id,
+          shopify_customer_events.provider_account_ref_id
+        ),
         event_type = EXCLUDED.event_type,
         occurred_at = EXCLUDED.occurred_at,
         customer_id = EXCLUDED.customer_id,
