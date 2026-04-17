@@ -1,6 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import { clearAllProviderAccountAssignmentsForProvider } from "@/lib/provider-account-assignments";
 import { clearCachedReportSnapshots } from "@/lib/reporting-cache-writer";
+import { clearAllProviderAccountSnapshotsForProvider } from "@/lib/provider-account-snapshots";
+import { disconnectAllIntegrationsForProvider } from "@/lib/integrations";
 
 const META_PURGE_TABLES = [
   "provider_reporting_snapshots",
@@ -13,8 +16,9 @@ const META_PURGE_TABLES = [
   "meta_account_daily",
   "meta_raw_snapshots",
   "meta_sync_jobs",
-  "provider_account_assignments",
-  "integrations",
+  "business_provider_accounts",
+  "provider_account_snapshot_runs",
+  "provider_connections",
 ] as const;
 const META_LEGACY_CACHE_TABLES = [
   "provider_reporting_snapshots",
@@ -176,31 +180,24 @@ export async function purgeAllMetaDataAndDisconnect(): Promise<MetaCleanupSummar
     SELECT COUNT(*)::int AS count FROM deleted
   `);
 
-  const providerAssignmentsDeleted = await execCount(sql`
-    WITH deleted AS (
-      DELETE FROM provider_account_assignments
+  const [providerAssignmentsDeletedRows, integrationsDisconnectedRows] = await Promise.all([
+    sql<{ count: number }>`
+      SELECT COUNT(*)::int AS count
+      FROM business_provider_accounts
       WHERE provider = 'meta'
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS count FROM deleted
-  `);
+    `,
+    sql<{ count: number }>`
+      SELECT COUNT(*)::int AS count
+      FROM provider_connections
+      WHERE provider = 'meta'
+    `,
+  ]);
+  const providerAssignmentsDeleted = Number(providerAssignmentsDeletedRows[0]?.count ?? 0);
+  const integrationsDisconnected = Number(integrationsDisconnectedRows[0]?.count ?? 0);
 
-  const integrationsDisconnected = await execCount(sql`
-    WITH updated AS (
-      UPDATE integrations SET
-        status           = 'disconnected',
-        access_token     = NULL,
-        refresh_token    = NULL,
-        token_expires_at = NULL,
-        error_message    = NULL,
-        metadata         = '{}'::jsonb,
-        disconnected_at  = now(),
-        updated_at       = now()
-      WHERE provider = 'meta'
-      RETURNING 1
-    )
-    SELECT COUNT(*)::int AS count FROM updated
-  `);
+  await clearAllProviderAccountSnapshotsForProvider("meta");
+  await clearAllProviderAccountAssignmentsForProvider("meta");
+  await disconnectAllIntegrationsForProvider("meta");
 
   return {
     providerReportingSnapshotsDeleted,

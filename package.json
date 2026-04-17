@@ -73,6 +73,7 @@
     "overview:summary:materialize": "node --import tsx scripts/materialize-overview-summary-range.ts",
     "reporting:cache:warm": "node --import tsx scripts/warm-user-facing-report-cache.ts",
     "db:migrate": "node --import tsx scripts/run-migrations.ts",
+    "db:migrate:drop-legacy-core": "DB_DROP_LEGACY_CORE_TABLES=1 ENABLE_RUNTIME_MIGRATIONS=1 node --import tsx scripts/run-migrations.ts",
     "db:migrate:local": "node --import tsx scripts/with-local-postgres.ts -- node --import tsx scripts/run-migrations.ts",
     "db:sync:local-businesses": "node --import tsx scripts/sync-local-businesses.ts",
     "local:db:ensure": "node --import tsx scripts/ensure-local-postgres.ts",

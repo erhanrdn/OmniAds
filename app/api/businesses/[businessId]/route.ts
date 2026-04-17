@@ -10,8 +10,9 @@ const BUSINESS_DELETE_REQUIRED_TABLES = [
   "memberships",
   "invites",
   "business_cost_models",
-  "provider_account_assignments",
-  "integrations",
+  "business_provider_accounts",
+  "provider_connections",
+  "provider_account_snapshot_runs",
   "creative_share_snapshots",
   "businesses",
   "sessions",
@@ -120,8 +121,9 @@ export async function DELETE(
   await sql`DELETE FROM memberships WHERE business_id = ${businessId}`;
   await sql`DELETE FROM invites WHERE business_id = ${businessId}`;
   await sql`DELETE FROM business_cost_models WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM provider_account_assignments WHERE business_id = ${businessId}`;
-  await sql`DELETE FROM integrations WHERE business_id = ${businessId}`;
+  await sql`DELETE FROM provider_account_snapshot_runs WHERE business_id = ${businessId}`;
+  await sql`DELETE FROM business_provider_accounts WHERE business_id = ${businessId}`;
+  await sql`DELETE FROM provider_connections WHERE business_id = ${businessId}`;
   await sql`
     DELETE FROM creative_share_snapshots
     WHERE payload->>'businessId' = ${businessId}

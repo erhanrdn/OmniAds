@@ -12,6 +12,18 @@ export function configureOperationalScriptRuntime() {
   };
 }
 
+export async function runOperationalMigrationsIfEnabled(input?: {
+  runtimeMigrationsEnabled?: boolean;
+}) {
+  const runtimeMigrationsEnabled =
+    input?.runtimeMigrationsEnabled ??
+    configureOperationalScriptRuntime().runtimeMigrationsEnabled;
+  if (!runtimeMigrationsEnabled) return false;
+  const { runMigrations } = await import("@/lib/migrations");
+  await runMigrations();
+  return true;
+}
+
 export async function withOperationalStartupLogsSilenced<T>(
   callback: () => Promise<T>,
 ) {

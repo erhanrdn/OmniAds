@@ -1,8 +1,8 @@
-import { loadEnvConfig } from "@next/env";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
-import { runMigrations } from "@/lib/migrations";
-
-loadEnvConfig(process.cwd());
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 function printList(title: string, items: string[]) {
   console.log(`${title}:`);
@@ -17,9 +17,10 @@ function printList(title: string, items: string[]) {
 }
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const json = process.argv.includes("--json");
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled(runtime);
 
   const { syncHealth } = await getAdminOperationsHealth();
   const globalReview = syncHealth.globalRebuildReview;

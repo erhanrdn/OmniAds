@@ -13,6 +13,23 @@ The current repo state already enforces these hardening outcomes:
 - Automated vs manual freshness boundaries are explicit and operator-visible.
 - Runtime validation evidence exists for passive `GET` non-mutation and explicit owner advancement.
 - Direct production release guidance, verification, rollback, and release execution evidence exist in the repo.
+- Core integration authority now lives in the canonical backbone: `provider_accounts`, `provider_connections`, `integration_credentials`, `business_provider_accounts`, `provider_account_snapshot_runs`, and `provider_account_snapshot_items`.
+- Legacy tables `integrations`, `provider_account_assignments`, and `provider_account_snapshots` are retained compatibility surface only. They are no longer request-path source-of-truth tables and are scheduled for removal in the second maintenance window.
+
+## Canonical core backbone
+
+The current authoritative integration/account model is:
+
+`businesses -> provider_connections -> integration_credentials`
+
+`businesses -> business_provider_accounts -> provider_accounts`
+
+`businesses -> provider_account_snapshot_runs -> provider_account_snapshot_items -> provider_accounts`
+
+Rules:
+- Request/runtime code reads the canonical backbone only.
+- Legacy core tables may remain populated for compatibility/reporting until the second maintenance window, but they are not authoritative.
+- New DB work must prefer FK-backed `business_ref_id` and `provider_account_ref_id` columns over text-only joins whenever the table already supports them.
 
 ## Request-path rule
 
@@ -128,10 +145,14 @@ The target architecture still allows narrow live exceptions, but they must be ex
 4. Break large mixed-concern modules after the seams are stable.
    - `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` remain the highest-value cleanup targets.
 
+5. Complete provider warehouse normalization in isolated epics.
+   - Meta first, then Google Ads, then Shopify.
+   - Each provider slice should separate dimension/history/config tables from daily metric facts without changing route response contracts.
+
 ## Non-goals of the current policy
 
 - No endpoint response-shape changes.
-- No table rename/drop.
-- No schema or migration rewrites.
-- No cutover from live lane to warehouse lane.
-- No behavior-changing refactor.
+- No same-window destructive cleanup during stabilization observation.
+- No monolithic schema rewrite.
+- No cutover from live lane to warehouse lane in one step.
+- No behavior-changing refactor outside explicitly planned provider normalization slices.

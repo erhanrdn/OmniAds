@@ -1,18 +1,19 @@
-import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
 import { buildGoogleAdsAdvisorProgress } from "@/lib/google-ads/advisor-progress";
-import { runMigrations } from "@/lib/migrations";
-
-loadEnvConfig(process.cwd());
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const businessId = process.argv[2];
   if (!businessId) {
     console.error("usage: node --import tsx scripts/google-ads-health-snapshot.ts <businessId>");
     process.exit(1);
   }
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled(runtime);
   const sql = getDb();
 
   const [partitions, states, recent90Rows, recent90PartitionRows] = (await Promise.all([

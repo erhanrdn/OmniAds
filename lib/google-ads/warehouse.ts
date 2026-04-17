@@ -6,7 +6,10 @@ import {
   resolveBusinessReferenceIds,
 } from "@/lib/provider-account-reference-store";
 import { refreshOverviewSummaryMaterializationFromGoogleAccountRows } from "@/lib/overview-summary-materializer";
+import { clearAllProviderAccountAssignmentsForProvider } from "@/lib/provider-account-assignments";
+import { clearAllProviderAccountSnapshotsForProvider } from "@/lib/provider-account-snapshots";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
+import { disconnectAllIntegrationsForProvider } from "@/lib/integrations";
 import type {
   ProviderReclaimDecision,
   ProviderReclaimDisposition,
@@ -4855,8 +4858,8 @@ export async function resetGoogleAdsState() {
   const sql = getDb();
   await sql`DELETE FROM provider_reporting_snapshots WHERE provider = 'google_ads' OR provider = 'google_ads_gaql'`;
   await sql`DELETE FROM provider_sync_jobs WHERE provider = 'google_ads'`;
-  await sql`DELETE FROM provider_account_assignments WHERE provider = 'google'`;
-  await sql`DELETE FROM provider_account_snapshots WHERE provider = 'google'`;
+  await clearAllProviderAccountAssignmentsForProvider("google");
+  await clearAllProviderAccountSnapshotsForProvider("google");
   await sql`DELETE FROM google_ads_product_daily`;
   await sql`DELETE FROM google_ads_device_daily`;
   await sql`DELETE FROM google_ads_geo_daily`;
@@ -4875,17 +4878,5 @@ export async function resetGoogleAdsState() {
   await sql`DELETE FROM google_ads_sync_partitions`;
   await sql`DELETE FROM google_ads_runner_leases`;
   await sql`DELETE FROM google_ads_sync_jobs`;
-  await sql`
-    UPDATE integrations
-    SET
-      status = 'disconnected',
-      access_token = NULL,
-      refresh_token = NULL,
-      token_expires_at = NULL,
-      error_message = NULL,
-      metadata = '{}'::jsonb,
-      disconnected_at = now(),
-      updated_at = now()
-    WHERE provider = 'google'
-  `;
+  await disconnectAllIntegrationsForProvider("google");
 }

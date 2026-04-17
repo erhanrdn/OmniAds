@@ -35,7 +35,7 @@ export async function GET(
       `,
       sql`
         SELECT provider, status, created_at
-        FROM integrations
+        FROM provider_connections
         WHERE business_id = ${businessId}::text
         ORDER BY provider
       `,

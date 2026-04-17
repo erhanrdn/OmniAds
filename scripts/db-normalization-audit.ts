@@ -28,8 +28,6 @@ type CoreLegacyState = {
   businessProviderAccountsRows: number;
   snapshotRunsRows: number;
   snapshotItemsRows: number;
-  assignmentRowsWithAccounts: number;
-  snapshotRowsWithAccounts: number;
 };
 
 function toNumber(value: unknown) {
@@ -124,20 +122,6 @@ async function collectCoreLegacyState(): Promise<CoreLegacyState> {
     snapshotItemsRows: await safeCount(
       "SELECT COUNT(*)::bigint AS value FROM provider_account_snapshot_items",
     ),
-    assignmentRowsWithAccounts: await safeCount(
-      `
-        SELECT COUNT(*)::bigint AS value
-        FROM provider_account_assignments
-        WHERE COALESCE(array_length(account_ids, 1), 0) > 0
-      `,
-    ),
-    snapshotRowsWithAccounts: await safeCount(
-      `
-        SELECT COUNT(*)::bigint AS value
-        FROM provider_account_snapshots
-        WHERE COALESCE(jsonb_array_length(accounts_payload), 0) > 0
-      `,
-    ),
   };
 }
 
@@ -179,11 +163,12 @@ function buildMarkdown(input: {
   }
 
   lines.push("## Legacy Compatibility State");
+  lines.push(`- integrations rows retained: ${input.coreLegacyState.integrationsRows}`);
   lines.push(
-    `- provider_account_assignments rows with account_ids: ${input.coreLegacyState.assignmentRowsWithAccounts}`,
+    `- provider_account_assignments rows retained: ${input.coreLegacyState.providerAssignmentsRows}`,
   );
   lines.push(
-    `- provider_account_snapshots rows with accounts_payload: ${input.coreLegacyState.snapshotRowsWithAccounts}`,
+    `- provider_account_snapshots rows retained: ${input.coreLegacyState.providerSnapshotsRows}`,
   );
 
   return lines.join("\n");

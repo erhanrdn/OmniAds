@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIntegration } from "@/lib/integrations";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  getProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { CreativeFormat, CreativePreviewState, normalizeCreativePreview } from "@/lib/meta-creative-preview";
 import { requireBusinessAccess } from "@/lib/access";
@@ -116,7 +119,7 @@ function nDaysAgo(n: number) {
 
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["provider_account_assignments"],
+    tables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
   });
   if (!readiness.ready) {
     return [];

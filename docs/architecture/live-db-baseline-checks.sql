@@ -14,9 +14,12 @@ WITH tracked_tables AS (
       ('core', 'memberships'),
       ('core', 'sessions'),
       ('core', 'invites'),
-      ('core', 'integrations'),
-      ('core', 'provider_account_assignments'),
-      ('core', 'provider_account_snapshots'),
+      ('core', 'provider_accounts'),
+      ('core', 'provider_connections'),
+      ('core', 'integration_credentials'),
+      ('core', 'business_provider_accounts'),
+      ('core', 'provider_account_snapshot_runs'),
+      ('core', 'provider_account_snapshot_items'),
       ('core', 'business_cost_models'),
       ('core', 'shopify_subscriptions'),
       ('core', 'shopify_install_contexts'),
@@ -135,9 +138,12 @@ WITH tracked_tables AS (
       ('core', 'memberships'),
       ('core', 'sessions'),
       ('core', 'invites'),
-      ('core', 'integrations'),
-      ('core', 'provider_account_assignments'),
-      ('core', 'provider_account_snapshots'),
+      ('core', 'provider_accounts'),
+      ('core', 'provider_connections'),
+      ('core', 'integration_credentials'),
+      ('core', 'business_provider_accounts'),
+      ('core', 'provider_account_snapshot_runs'),
+      ('core', 'provider_account_snapshot_items'),
       ('core', 'business_cost_models'),
       ('core', 'shopify_subscriptions'),
       ('core', 'shopify_install_contexts'),
@@ -236,22 +242,22 @@ ORDER BY family;
 -- 2) Duplicate natural-key checks
 -- -----------------------------------------------------------------------------
 WITH duplicate_checks AS (
-  SELECT 'integrations' AS table_name, business_id || '|' || provider AS natural_key, COUNT(*) AS row_count
-  FROM integrations
+  SELECT 'provider_connections' AS table_name, business_id || '|' || provider AS natural_key, COUNT(*) AS row_count
+  FROM provider_connections
   GROUP BY 1, 2
   HAVING COUNT(*) > 1
 
   UNION ALL
 
-  SELECT 'provider_account_assignments', business_id || '|' || provider, COUNT(*)
-  FROM provider_account_assignments
+  SELECT 'business_provider_accounts', business_id || '|' || provider || '|' || provider_account_id, COUNT(*)
+  FROM business_provider_accounts
   GROUP BY 1, 2
   HAVING COUNT(*) > 1
 
   UNION ALL
 
-  SELECT 'provider_account_snapshots', business_id || '|' || provider, COUNT(*)
-  FROM provider_account_snapshots
+  SELECT 'provider_account_snapshot_runs', business_id || '|' || provider, COUNT(*)
+  FROM provider_account_snapshot_runs
   GROUP BY 1, 2
   HAVING COUNT(*) > 1
 
@@ -361,14 +367,20 @@ ORDER BY table_name, row_count DESC, natural_key;
 -- 3) Null-anomaly checks on core / hot warehouse tables
 -- -----------------------------------------------------------------------------
 WITH null_anomalies AS (
-  SELECT 'integrations' AS table_name, COUNT(*) AS null_rows
-  FROM integrations
+  SELECT 'provider_connections' AS table_name, COUNT(*) AS null_rows
+  FROM provider_connections
   WHERE business_id IS NULL OR provider IS NULL
 
   UNION ALL
 
-  SELECT 'provider_account_assignments', COUNT(*)
-  FROM provider_account_assignments
+  SELECT 'business_provider_accounts', COUNT(*)
+  FROM business_provider_accounts
+  WHERE business_id IS NULL OR provider IS NULL OR provider_account_id IS NULL
+
+  UNION ALL
+
+  SELECT 'provider_account_snapshot_runs', COUNT(*)
+  FROM provider_account_snapshot_runs
   WHERE business_id IS NULL OR provider IS NULL
 
   UNION ALL

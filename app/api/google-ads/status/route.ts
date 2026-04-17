@@ -3,8 +3,14 @@ import { requireBusinessAccess } from "@/lib/access";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getIntegrationMetadata } from "@/lib/integrations";
-import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
+  readProviderAccountSnapshot,
+} from "@/lib/provider-account-snapshots";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  getProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
 import {
   GOOGLE_ADS_WAREHOUSE_HISTORY_DAYS,
   addDaysToIsoDate,
@@ -488,8 +494,8 @@ export async function GET(request: NextRequest) {
   const statusDegradedReasons: string[] = [];
   const statusSchemaReadiness = await getDbSchemaReadiness({
     tables: [
-      "provider_account_assignments",
-      "provider_account_snapshots",
+      ...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+      ...PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
       "provider_quota_usage",
       "provider_cooldown_state",
       "google_ads_sync_runs",

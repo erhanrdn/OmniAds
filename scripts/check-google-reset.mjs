@@ -4,13 +4,13 @@ const sql = createSqlClient(process.env.DATABASE_URL);
 
 try {
   const integrations = await sql.query(
-    "SELECT provider, status, count(*)::int AS count FROM integrations WHERE provider='google' GROUP BY provider, status ORDER BY status"
+    "SELECT provider, status, count(*)::int AS count FROM provider_connections WHERE provider='google' GROUP BY provider, status ORDER BY status"
   );
   const assignments = await sql.query(
-    "SELECT count(*)::int AS count FROM provider_account_assignments WHERE provider='google'"
+    "SELECT count(*)::int AS count FROM business_provider_accounts WHERE provider='google'"
   );
   const snapshots = await sql.query(
-    "SELECT count(*)::int AS count FROM provider_account_snapshots WHERE provider='google'"
+    "SELECT count(*)::int AS count FROM provider_account_snapshot_runs WHERE provider='google'"
   );
   const legacySnapshots = await sql.query(
     "SELECT count(*)::int AS count FROM provider_reporting_snapshots WHERE provider IN ('google_ads','google_ads_gaql')"

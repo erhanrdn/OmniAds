@@ -5,7 +5,7 @@ import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { upsertShopifyCustomerEvents } from "@/lib/shopify/warehouse";
 
 const SHOPIFY_CUSTOMER_EVENTS_REQUIRED_TABLES = [
-  "integrations",
+  "provider_connections",
   "shopify_customer_events",
 ] as const;
 
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     const sql = getDb();
     const integrationRows = (await sql`
       SELECT business_id, provider_account_id
-      FROM integrations
+      FROM provider_connections
       WHERE provider = 'shopify'
         AND status = 'connected'
         AND provider_account_id = ${shopDomain}

@@ -2,6 +2,21 @@
 
 Scope: current repository state on `main`, including the implemented request-path hardening, explicit serving-write ownership, runtime validation evidence, and release closeout docs.
 
+Canonical core authority:
+- `provider_accounts`
+- `provider_connections`
+- `integration_credentials`
+- `business_provider_accounts`
+- `provider_account_snapshot_runs`
+- `provider_account_snapshot_items`
+
+Retired compatibility surface:
+- `integrations`
+- `provider_account_assignments`
+- `provider_account_snapshots`
+
+The retired compatibility tables may still exist during stabilization, but they are not authoritative request-path sources.
+
 Legend:
 - `Request path` means the table is touched by UI-triggered API requests, including protected `GET` routes.
 - `Indirect GET` means the table is reached through helper modules used by `GET` routes, even when the route itself does not issue SQL directly.
@@ -16,9 +31,12 @@ Legend:
 | `memberships` | User-to-business authorization. | `lib/account-store`, invite acceptance/team routes | `lib/access`, auth routing, admin/team pages | Unique `(user_id, business_id)` | Yes (all protected business routes) |
 | `sessions` | Session tokens and active business state. | `lib/auth`, auth routes, session admin routes | `lib/auth`, `lib/access` | Unique `token_hash`; index on `user_id` | Yes |
 | `invites` | Pending workspace invites and acceptance state. | `lib/account-store`, team invite routes | `lib/account-store`, invite/token routes | Unique `token`; business/email indexes | Yes |
-| `integrations` | Provider connection state and encrypted tokens. | `lib/integrations`, OAuth callbacks, Search Console/GA4 selection flows | `lib/overview-service`, `lib/meta/*`, `lib/google-ads/*`, `lib/shopify/*`, integrations UI | Unique `(business_id, provider)` | Yes |
-| `provider_account_assignments` | Selected provider accounts per business. | account-assignment routes, reset/cleanup helpers | overview/meta/google routes, serving layers, sync | Unique `(business_id, provider)` | Yes |
-| `provider_account_snapshots` | Discovered provider accounts plus refresh metadata. | `lib/provider-account-snapshots`, bootstrap and sync helpers | provider status routes, warehouse context, integrations UI | Unique `(business_id, provider)`; `next_refresh_after` index | Yes |
+| `provider_accounts` | Canonical provider account dimension shared across integrations, assignments, snapshots, and FK-backed warehouse rows. | `lib/integrations`, `lib/provider-account-assignments`, `lib/provider-account-snapshots`, ref-repair flows | integration/account helpers, warehouse backfill and serving joins | Unique `(provider, external_account_id)` | Yes |
+| `provider_connections` | Authoritative provider connection state per business/provider. | `lib/integrations`, OAuth callbacks, Search Console/GA4 selection flows | `lib/overview-service`, `lib/meta/*`, `lib/google-ads/*`, `lib/shopify/*`, admin health, integrations UI | Unique `(business_id, provider)` | Yes |
+| `integration_credentials` | Encrypted tokens, scopes, errors, and provider metadata attached to a provider connection. | `lib/integrations`, OAuth callbacks, selection/finalize flows, secret backfill | `lib/integrations`, `lib/business-timezone`, provider status/helpers | Unique `(provider_connection_id)` | Yes |
+| `business_provider_accounts` | Authoritative selected provider accounts per business/provider. | account-assignment routes, reset/cleanup helpers, benchmarks | overview/meta/google routes, serving layers, sync, readiness checks | Unique `(business_id, provider, provider_account_ref_id)` | Yes |
+| `provider_account_snapshot_runs` | Snapshot refresh state and fetched-at/error metadata per business/provider. | `lib/provider-account-snapshots`, bootstrap and sync helpers | provider status routes, admin health, integrations UI | Unique `(business_id, provider)` | Yes |
+| `provider_account_snapshot_items` | Snapshot-discovered provider accounts captured for a snapshot run, including raw payload archive and ordering. | `lib/provider-account-snapshots`, bootstrap and sync helpers | provider status routes, admin health, integrations UI | Unique `(snapshot_run_id, provider_account_id)` | Yes |
 | `business_cost_models` | Manual COGS/shipping/fee/fixed-cost inputs. | `lib/business-cost-model`, overview cost-model sheet | `app/api/overview-summary/route.ts`, Google serving helpers | Unique `(business_id)` | Yes |
 | `shopify_subscriptions` | Shopify billing/subscription linkage. | `lib/shopify/billing/*` | billing routes, admin health, pricing checks | Unique `shop_id`; business/user indexes | Yes |
 | `shopify_install_contexts` | Temporary Shopify install/OAuth context. | `lib/shopify/install-context`, Shopify OAuth routes | same modules during finalize/callback | Unique `token`; expiry index | Yes (OAuth/install) |
@@ -148,6 +166,7 @@ Legend:
 - Mutation, admin, and webhook routes are also expected to use readiness gating only; HTTP handlers must defer all schema bootstrap to `npm run db:migrate` / `scripts/run-migrations.ts`.
 - Passive `GET` routes no longer persist to `platform_overview_*`, `provider_reporting_snapshots`, `seo_results_cache`, `shopify_serving_state`, or `shopify_reconciliation_runs`; those writes must happen in sync, worker, admin, or explicit generation lanes.
 - Shared read helpers (`lib/overview-summary-store.ts`, `lib/reporting-cache.ts`, `lib/route-report-cache.ts`, `lib/seo/results-cache.ts`, `lib/shopify/read-adapter.ts`, `lib/shopify/overview.ts`) are intentionally write-free for these surfaces; ownership is recorded in `docs/architecture/serving-write-ownership-map.md`.
-- The hottest request-path pivots are `memberships`, `integrations`, `provider_account_assignments`, `provider_account_snapshots`, `meta_account_daily`, `google_ads_account_daily`, `shopify_orders`, `shopify_refunds`, `shopify_returns`, `platform_overview_*`, and `shopify_serving_state`.
+- The hottest request-path pivots are `memberships`, `provider_connections`, `integration_credentials`, `business_provider_accounts`, `provider_account_snapshot_runs`, `provider_account_snapshot_items`, `meta_account_daily`, `google_ads_account_daily`, `shopify_orders`, `shopify_refunds`, `shopify_returns`, `platform_overview_*`, and `shopify_serving_state`.
 - `provider_reporting_snapshots`, `platform_overview_*`, and `shopify_*serving*` are serving/projection tables, not source-of-truth tables.
 - `meta_*_daily` and `google_ads_*_daily` are the historical warehouse truth tables currently mixed with live exceptions in request-time orchestration.
+- `integrations`, `provider_account_assignments`, and `provider_account_snapshots` remain only as retired compatibility surface until the second maintenance window drops them.

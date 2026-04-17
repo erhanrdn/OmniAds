@@ -9,6 +9,11 @@ type IntegrationTimezoneCandidateRow = {
   metadata: Record<string, unknown> | null;
 };
 
+const BUSINESS_TIMEZONE_REQUIRED_TABLES = [
+  "provider_connections",
+  "integration_credentials",
+] as const;
+
 export interface DerivedBusinessTimezone {
   timezone: string | null;
   timezoneSource: BusinessTimezoneSource;
@@ -46,17 +51,22 @@ export async function resolveDerivedBusinessTimezone(
   businessId: string,
 ): Promise<DerivedBusinessTimezone> {
   const readiness = await getDbSchemaReadiness({
-    tables: ["integrations"],
+    tables: [...BUSINESS_TIMEZONE_REQUIRED_TABLES],
   });
   if (!readiness.ready) {
     return { timezone: null, timezoneSource: null };
   }
   const sql = getDb();
   const rows = (await sql`
-    SELECT provider, status, metadata
-    FROM integrations
-    WHERE business_id = ${businessId}
-      AND provider IN ('shopify', 'ga4')
+    SELECT
+      pc.provider,
+      pc.status,
+      COALESCE(ic.metadata, '{}'::jsonb) AS metadata
+    FROM provider_connections pc
+    LEFT JOIN integration_credentials ic
+      ON ic.provider_connection_id = pc.id
+    WHERE pc.business_id = ${businessId}
+      AND pc.provider IN ('shopify', 'ga4')
   `) as IntegrationTimezoneCandidateRow[];
 
   return deriveBusinessTimezoneFromIntegrations(rows);

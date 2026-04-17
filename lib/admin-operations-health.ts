@@ -2113,19 +2113,21 @@ async function readAuthRows() {
   const sql = getDb();
   return (await sql`
     SELECT
-      i.business_id,
+      pc.business_id,
       b.name AS business_name,
-      i.provider,
-      i.status,
-      i.refresh_token,
-      i.token_expires_at,
-      i.scopes,
-      i.error_message,
-      i.updated_at
-    FROM integrations i
-    JOIN businesses b ON b.id::text = i.business_id
-    WHERE i.provider IN ('meta', 'google', 'search_console', 'ga4', 'shopify')
-      AND i.status <> 'disconnected'
+      pc.provider,
+      pc.status,
+      ic.refresh_token,
+      ic.token_expires_at,
+      ic.scopes,
+      ic.error_message,
+      pc.updated_at
+    FROM provider_connections pc
+    LEFT JOIN integration_credentials ic
+      ON ic.provider_connection_id = pc.id
+    JOIN businesses b ON b.id::text = pc.business_id
+    WHERE pc.provider IN ('meta', 'google', 'search_console', 'ga4', 'shopify')
+      AND pc.status <> 'disconnected'
   `) as RawAuthIntegrationRow[];
 }
 
@@ -2758,11 +2760,11 @@ async function readRevenueWorkspaces() {
       u.name AS owner_name,
       u.email AS owner_email,
       b.created_at,
-      COUNT(DISTINCT i.id) FILTER (WHERE i.status = 'connected') AS connected_integrations,
+      COUNT(DISTINCT pc.id) FILTER (WHERE pc.status = 'connected') AS connected_integrations,
       BOOL_OR(ss.status = 'active') AS has_active_subscription
     FROM businesses b
     JOIN users u ON u.id = b.owner_id
-    LEFT JOIN integrations i ON i.business_id = b.id::text
+    LEFT JOIN provider_connections pc ON pc.business_id = b.id::text
     LEFT JOIN shopify_subscriptions ss ON ss.business_id = b.id
     WHERE COALESCE(b.is_demo_business, false) = false
     GROUP BY b.id, u.id

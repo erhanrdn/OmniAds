@@ -108,6 +108,25 @@ function buildGoogleAdsWarehouseIndexQueries(tableName: string) {
   ];
 }
 
+function legacyCoreCompatTablesEnabled() {
+  return process.env.DB_ENABLE_LEGACY_CORE_COMPAT_TABLES?.trim() === "1";
+}
+
+function legacyCoreTableDropEnabled() {
+  return process.env.DB_DROP_LEGACY_CORE_TABLES?.trim() === "1";
+}
+
+async function doesTableExist(
+  sql: ReturnType<typeof createMigrationDb>,
+  tableName: string,
+): Promise<boolean> {
+  const rows = (await sql.query<{ exists: boolean }>(
+    "SELECT to_regclass($1) IS NOT NULL AS exists",
+    [`public.${tableName}`],
+  )) as Array<{ exists?: boolean }>;
+  return rows[0]?.exists === true;
+}
+
 function buildProviderAccountSeedUnionQuery(
   tableNames: readonly string[],
   columnName: string,
@@ -238,10 +257,8 @@ const BUSINESS_ONLY_CANONICAL_REF_TABLES = [
   "ai_daily_insights",
   "business_cost_models",
   "provider_connections",
-  "provider_account_assignments",
   "business_provider_accounts",
   "provider_account_snapshot_runs",
-  "provider_account_snapshots",
   "business_target_packs",
   "business_country_economics",
   "business_promo_calendar_events",
@@ -322,6 +339,18 @@ export async function runMigrations(options?: {
       );
 
       await sql.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+      const legacyCompatEnabled =
+        legacyCoreCompatTablesEnabled() && !legacyCoreTableDropEnabled();
+      const legacyCoreDropEnabled = legacyCoreTableDropEnabled();
+      const [legacyIntegrationsExists, legacyAssignmentsExists, legacySnapshotsExists] =
+        await Promise.all([
+          doesTableExist(sql, "integrations"),
+          doesTableExist(sql, "provider_account_assignments"),
+          doesTableExist(sql, "provider_account_snapshots"),
+        ]);
+      const legacyIntegrationsAvailable = legacyCompatEnabled || legacyIntegrationsExists;
+      const legacyAssignmentsAvailable = legacyCompatEnabled || legacyAssignmentsExists;
+      const legacySnapshotsAvailable = legacyCompatEnabled || legacySnapshotsExists;
 
       // ── PHASE 1: Tables with no FK dependencies (ordered batch) ───────────
       await runMigrationBatchSequentially([
@@ -334,7 +363,8 @@ export async function runMigrations(options?: {
           language      TEXT NOT NULL DEFAULT 'en',
           created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
         )`,
-        sql`CREATE TABLE IF NOT EXISTS integrations (
+        ...(legacyCompatEnabled
+          ? [sql`CREATE TABLE IF NOT EXISTS integrations (
           id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id           TEXT NOT NULL,
           provider              TEXT NOT NULL,
@@ -350,16 +380,20 @@ export async function runMigrations(options?: {
           disconnected_at       TIMESTAMPTZ,
           created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`,
-        sql`CREATE TABLE IF NOT EXISTS provider_account_assignments (
+        )`]
+          : []),
+        ...(legacyCompatEnabled
+          ? [sql`CREATE TABLE IF NOT EXISTS provider_account_assignments (
           id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id TEXT NOT NULL,
           provider    TEXT NOT NULL,
           account_ids TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
           created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`,
-        sql`CREATE TABLE IF NOT EXISTS provider_account_snapshots (
+        )`]
+          : []),
+        ...(legacyCompatEnabled
+          ? [sql`CREATE TABLE IF NOT EXISTS provider_account_snapshots (
           id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id      TEXT NOT NULL,
           provider         TEXT NOT NULL,
@@ -375,7 +409,8 @@ export async function runMigrations(options?: {
           source_reason     TEXT,
           created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`,
+        )`]
+          : []),
         sql`CREATE TABLE IF NOT EXISTS provider_accounts (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           provider            TEXT NOT NULL,
@@ -711,13 +746,23 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE businesses ALTER COLUMN timezone DROP NOT NULL`.catch(() => {}),
         sql`ALTER TABLE businesses ALTER COLUMN timezone DROP DEFAULT`.catch(() => {}),
         sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS timezone_source TEXT`.catch(() => {}),
-        sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`,
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider ON integrations (business_id, provider)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_integrations_business_id ON integrations (business_id)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider ON provider_account_assignments (business_id, provider)`.catch(() => {}),
-        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider ON provider_account_snapshots (business_id, provider)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(() => {}),
-        sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(() => {}),
+        ...(legacyIntegrationsAvailable
+          ? [
+              sql`ALTER TABLE integrations ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`,
+              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_biz_provider ON integrations (business_id, provider)`.catch(() => {}),
+              sql`CREATE INDEX IF NOT EXISTS idx_integrations_business_id ON integrations (business_id)`.catch(() => {}),
+            ]
+          : []),
+        ...(legacyAssignmentsAvailable
+          ? [sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_assignments_biz_provider ON provider_account_assignments (business_id, provider)`.catch(() => {})]
+          : []),
+        ...(legacySnapshotsAvailable
+          ? [
+              sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_account_snapshots_biz_provider ON provider_account_snapshots (business_id, provider)`.catch(() => {}),
+              sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_business ON provider_account_snapshots (business_id)`.catch(() => {}),
+              sql`CREATE INDEX IF NOT EXISTS idx_provider_account_snapshots_next_refresh ON provider_account_snapshots (next_refresh_after)`.catch(() => {}),
+            ]
+          : []),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_accounts_provider_external ON provider_accounts (provider, external_account_id)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_connections_business_provider ON provider_connections (business_id, provider)`.catch(() => {}),
         sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_credentials_connection ON integration_credentials (provider_connection_id)`.catch(() => {}),
@@ -748,12 +793,30 @@ export async function runMigrations(options?: {
                 ELSE NULL
               END AS timezone_source
             FROM businesses b
-            LEFT JOIN integrations shopify
-              ON shopify.business_id = b.id
+            LEFT JOIN (
+              SELECT
+                pc.business_id,
+                pc.provider,
+                pc.status,
+                COALESCE(ic.metadata, '{}'::jsonb) AS metadata
+              FROM provider_connections pc
+              LEFT JOIN integration_credentials ic
+                ON ic.provider_connection_id = pc.id
+            ) shopify
+              ON shopify.business_id = b.id::text
              AND shopify.provider = 'shopify'
              AND shopify.status = 'connected'
-            LEFT JOIN integrations ga4
-              ON ga4.business_id = b.id
+            LEFT JOIN (
+              SELECT
+                pc.business_id,
+                pc.provider,
+                pc.status,
+                COALESCE(ic.metadata, '{}'::jsonb) AS metadata
+              FROM provider_connections pc
+              LEFT JOIN integration_credentials ic
+                ON ic.provider_connection_id = pc.id
+            ) ga4
+              ON ga4.business_id = b.id::text
              AND ga4.provider = 'ga4'
              AND ga4.status = 'connected'
           ) AS derived
@@ -802,8 +865,60 @@ export async function runMigrations(options?: {
       ]);
 
       // ── PHASE 2.5: Backfill canonical provider-account backbone ─────────
+      const providerAccountLegacySeedSources: string[] = [];
+      if (legacyIntegrationsAvailable) {
+        providerAccountLegacySeedSources.push(`
+          SELECT
+            i.provider,
+            NULLIF(i.provider_account_id, '') AS external_account_id,
+            NULLIF(i.provider_account_name, '') AS account_name,
+            NULL::TEXT AS currency,
+            NULL::TEXT AS timezone,
+            NULL::BOOLEAN AS is_manager,
+            COALESCE(i.metadata, '{}'::jsonb) AS metadata,
+            1 AS source_rank
+          FROM integrations i
+          WHERE NULLIF(i.provider_account_id, '') IS NOT NULL
+        `);
+      }
+      if (legacySnapshotsAvailable) {
+        providerAccountLegacySeedSources.push(`
+          SELECT
+            s.provider,
+            NULLIF(item->>'id', '') AS external_account_id,
+            NULLIF(item->>'name', '') AS account_name,
+            NULLIF(item->>'currency', '') AS currency,
+            NULLIF(item->>'timezone', '') AS timezone,
+            CASE
+              WHEN item ? 'isManager' THEN (item->>'isManager')::BOOLEAN
+              ELSE NULL
+            END AS is_manager,
+            item AS metadata,
+            2 AS source_rank
+          FROM provider_account_snapshots s
+          CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.accounts_payload, '[]'::jsonb)) AS item
+          WHERE NULLIF(item->>'id', '') IS NOT NULL
+        `);
+      }
+      if (legacyAssignmentsAvailable) {
+        providerAccountLegacySeedSources.push(`
+          SELECT
+            a.provider,
+            NULLIF(account_id, '') AS external_account_id,
+            NULL::TEXT AS account_name,
+            NULL::TEXT AS currency,
+            NULL::TEXT AS timezone,
+            NULL::BOOLEAN AS is_manager,
+            '{}'::jsonb AS metadata,
+            3 AS source_rank
+          FROM provider_account_assignments a
+          CROSS JOIN LATERAL unnest(COALESCE(a.account_ids, ARRAY[]::TEXT[])) AS account_id
+          WHERE NULLIF(account_id, '') IS NOT NULL
+        `);
+      }
       await runMigrationBatchSequentially([
-        sql`
+        ...(providerAccountLegacySeedSources.length > 0
+          ? [sql.query(`
           INSERT INTO provider_accounts (
             provider,
             external_account_id,
@@ -826,51 +941,9 @@ export async function runMigrations(options?: {
             now(),
             now()
           FROM (
-            SELECT
-              i.provider,
-              NULLIF(i.provider_account_id, '') AS external_account_id,
-              NULLIF(i.provider_account_name, '') AS account_name,
-              NULL::TEXT AS currency,
-              NULL::TEXT AS timezone,
-              NULL::BOOLEAN AS is_manager,
-              COALESCE(i.metadata, '{}'::jsonb) AS metadata,
-              1 AS source_rank
-            FROM integrations i
-            WHERE NULLIF(i.provider_account_id, '') IS NOT NULL
-
-            UNION ALL
-
-            SELECT
-              s.provider,
-              NULLIF(item->>'id', '') AS external_account_id,
-              NULLIF(item->>'name', '') AS account_name,
-              NULLIF(item->>'currency', '') AS currency,
-              NULLIF(item->>'timezone', '') AS timezone,
-              CASE
-                WHEN item ? 'isManager' THEN (item->>'isManager')::BOOLEAN
-                ELSE NULL
-              END AS is_manager,
-              item AS metadata,
-              2 AS source_rank
-            FROM provider_account_snapshots s
-            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(s.accounts_payload, '[]'::jsonb)) AS item
-            WHERE NULLIF(item->>'id', '') IS NOT NULL
-
-            UNION ALL
-
-            SELECT
-              a.provider,
-              NULLIF(account_id, '') AS external_account_id,
-              NULL::TEXT AS account_name,
-              NULL::TEXT AS currency,
-              NULL::TEXT AS timezone,
-              NULL::BOOLEAN AS is_manager,
-              '{}'::jsonb AS metadata,
-              3 AS source_rank
-            FROM provider_account_assignments a
-            CROSS JOIN LATERAL unnest(COALESCE(a.account_ids, ARRAY[]::TEXT[])) AS account_id
-            WHERE NULLIF(account_id, '') IS NOT NULL
+            ${providerAccountLegacySeedSources.join("\nUNION ALL\n")}
           ) AS source
+          WHERE external_account_id IS NOT NULL
           ORDER BY provider, external_account_id, source_rank
           ON CONFLICT (provider, external_account_id) DO UPDATE SET
             account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
@@ -882,8 +955,10 @@ export async function runMigrations(options?: {
               ELSE provider_accounts.metadata || EXCLUDED.metadata
             END,
             updated_at = now()
-        `,
-        sql`
+        `)]
+          : []),
+        ...(legacyIntegrationsAvailable
+          ? [sql`
           INSERT INTO provider_connections (
             business_id,
             provider,
@@ -919,8 +994,10 @@ export async function runMigrations(options?: {
             connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
             disconnected_at = COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at),
             updated_at = EXCLUDED.updated_at
-        `,
-        sql`
+        `]
+          : []),
+        ...(legacyIntegrationsAvailable
+          ? [sql`
           INSERT INTO integration_credentials (
             provider_connection_id,
             access_token,
@@ -957,8 +1034,10 @@ export async function runMigrations(options?: {
               ELSE integration_credentials.metadata || EXCLUDED.metadata
             END,
             updated_at = EXCLUDED.updated_at
-        `,
-        sql`
+        `]
+          : []),
+        ...(legacyAssignmentsAvailable
+          ? [sql`
           INSERT INTO business_provider_accounts (
             business_id,
             provider,
@@ -985,8 +1064,10 @@ export async function runMigrations(options?: {
             provider_account_id = EXCLUDED.provider_account_id,
             position = EXCLUDED.position,
             updated_at = EXCLUDED.updated_at
-        `,
-        sql`
+        `]
+          : []),
+        ...(legacySnapshotsAvailable
+          ? [sql`
           INSERT INTO provider_account_snapshot_runs (
             business_id,
             provider,
@@ -1034,8 +1115,10 @@ export async function runMigrations(options?: {
             last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
             refresh_failure_streak = EXCLUDED.refresh_failure_streak,
             updated_at = EXCLUDED.updated_at
-        `,
-        sql`
+        `]
+          : []),
+        ...(legacySnapshotsAvailable
+          ? [sql`
           INSERT INTO provider_account_snapshot_items (
             snapshot_run_id,
             provider_account_ref_id,
@@ -1082,7 +1165,8 @@ export async function runMigrations(options?: {
             position = EXCLUDED.position,
             raw_payload = EXCLUDED.raw_payload,
             updated_at = EXCLUDED.updated_at
-        `,
+        `]
+          : []),
       ]);
 
       // ── PHASE 3: Tables that depend on users+businesses ───────────────────
@@ -1260,14 +1344,18 @@ export async function runMigrations(options?: {
         sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS platform TEXT`,
         sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`,
         sql`ALTER TABLE businesses ADD COLUMN IF NOT EXISTS plan_override TEXT`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_requested_at TIMESTAMPTZ`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS last_refresh_attempt_at TIMESTAMPTZ`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS next_refresh_after TIMESTAMPTZ`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_in_progress BOOLEAN NOT NULL DEFAULT FALSE`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS accounts_hash TEXT`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS source_reason TEXT`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS last_successful_refresh_at TIMESTAMPTZ`,
-        sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_failure_streak INTEGER NOT NULL DEFAULT 0`,
+        ...(legacySnapshotsAvailable
+          ? [
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_requested_at TIMESTAMPTZ`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS last_refresh_attempt_at TIMESTAMPTZ`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS next_refresh_after TIMESTAMPTZ`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_in_progress BOOLEAN NOT NULL DEFAULT FALSE`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS accounts_hash TEXT`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS source_reason TEXT`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS last_successful_refresh_at TIMESTAMPTZ`,
+              sql`ALTER TABLE provider_account_snapshots ADD COLUMN IF NOT EXISTS refresh_failure_streak INTEGER NOT NULL DEFAULT 0`,
+            ]
+          : []),
         sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE SET NULL`,
         sql`ALTER TABLE shopify_subscriptions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
         sql`ALTER TABLE google_ads_advisor_memory ADD COLUMN IF NOT EXISTS applied_at TIMESTAMPTZ`.catch(() => {}),
@@ -3685,6 +3773,14 @@ export async function runMigrations(options?: {
           ).catch(() => {}),
         ),
       ]);
+
+      if (legacyCoreDropEnabled) {
+        await runMigrationBatchSequentially([
+          sql`DROP TABLE IF EXISTS provider_account_snapshots`.catch(() => {}),
+          sql`DROP TABLE IF EXISTS provider_account_assignments`.catch(() => {}),
+          sql`DROP TABLE IF EXISTS integrations`.catch(() => {}),
+        ]);
+      }
 
       // ── Seed superadmin ───────────────────────────────────────────────────
       await sql`UPDATE users SET is_superadmin = true WHERE lower(email) = 'emrahbilaloglu@gmail.com'`;

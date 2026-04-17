@@ -1,7 +1,8 @@
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import { runOperationalMigrationsIfEnabled } from "./_operational-runtime";
 
 async function main() {
-  configureOperationalScriptRuntime();
+  const runtime = configureOperationalScriptRuntime();
   const { getMetaAuthoritativeBusinessOpsSnapshot } =
     await import("@/lib/meta/warehouse");
   const { buildMetaSoakSnapshotOutput } =
@@ -23,7 +24,7 @@ async function main() {
   let progressDiff: { states?: Array<Record<string, unknown>>; partitions?: Array<Record<string, unknown>> } | null = null;
 
   if (sinceIso) {
-    await runMigrations();
+    await runOperationalMigrationsIfEnabled(runtime);
     const sql = getDb();
     const [states, partitions] = (await Promise.all([
       sql`

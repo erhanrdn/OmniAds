@@ -19,18 +19,18 @@ describe("provider account assignments", () => {
     vi.clearAllMocks();
   });
 
-  it("dual-writes normalized and legacy assignment rows", async () => {
+  it("writes canonical assignment rows and reads back the aggregate", async () => {
     const queries: string[] = [];
-    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       queries.push(query);
-      if (query.includes("INSERT INTO provider_account_assignments")) {
+      if (query.includes("FROM business_provider_accounts")) {
         return [
           {
-            id: "legacy-assignment",
-            business_id: values[0],
-            provider: values[1],
-            account_ids: values[2],
+            id: "assignment-1",
+            business_id: "biz_1",
+            provider: "google",
+            account_ids: ["acc_1", "acc_2"],
             created_at: "2026-01-01T00:00:00.000Z",
             updated_at: "2026-01-01T00:00:00.000Z",
           },
@@ -47,10 +47,9 @@ describe("provider account assignments", () => {
       accountIds: ["acc_1", "acc_2"],
     });
 
-    expect(result.id).toBe("legacy-assignment");
+    expect(result.id).toBe("assignment-1");
     expect(queries.join("\n")).toContain("INSERT INTO provider_accounts");
     expect(queries.join("\n")).toContain("INSERT INTO business_provider_accounts");
-    expect(queries.join("\n")).toContain("INSERT INTO provider_account_assignments");
     expect(queries.join("\n")).toContain("business_ref_id");
   });
 

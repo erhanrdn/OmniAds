@@ -1,8 +1,8 @@
-import { loadEnvConfig } from "@next/env";
 import { buildGoogleErrorBudgetAudit } from "@/lib/google-error-budget-audit";
-import { runMigrations } from "@/lib/migrations";
-
-loadEnvConfig(process.cwd());
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 function formatPercent(value: number) {
   return `${(value * 100).toFixed(1)}%`;
@@ -17,9 +17,10 @@ function printBreakdown(label: string, breakdown: Record<string, number>) {
 }
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const json = process.argv.includes("--json");
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled(runtime);
   const audit = await buildGoogleErrorBudgetAudit();
 
   if (json) {

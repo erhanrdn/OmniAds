@@ -18,6 +18,8 @@ describe("runMigrations", () => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env.ENABLE_RUNTIME_MIGRATIONS = "true";
+    delete process.env.DB_DROP_LEGACY_CORE_TABLES;
+    delete process.env.DB_ENABLE_LEGACY_CORE_COMPAT_TABLES;
   });
 
   it("uses the explicit timeout override DB client when provided", async () => {
@@ -67,5 +69,44 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("idx_meta_creative_daily_business_account_date_creative");
     expect(queries.join("\n")).toContain("idx_google_ads_account_daily_business_account_date");
     expect(queries.join("\n")).toContain("idx_shopify_orders_business_account_created_local");
+  });
+
+  it("drops only retired legacy core tables when the cleanup switch is enabled", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(
+      vi.fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      }),
+      {
+        query: vi.fn(async (query: string) => {
+          queries.push(query);
+          if (query.includes("SELECT to_regclass")) {
+            return [{ exists: true }];
+          }
+          return [];
+        }),
+      }
+    );
+    process.env.DB_DROP_LEGACY_CORE_TABLES = "1";
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(db.getDbWithTimeout).mockReturnValue(sql as never);
+
+    const migrations = await import("@/lib/migrations");
+    await migrations.runMigrations({
+      force: true,
+      reason: "legacy-cleanup-test",
+    });
+
+    const joinedQueries = queries.join("\n");
+    expect(joinedQueries).toContain("DROP TABLE IF EXISTS provider_account_snapshots");
+    expect(joinedQueries).toContain("DROP TABLE IF EXISTS provider_account_assignments");
+    expect(joinedQueries).toContain("DROP TABLE IF EXISTS integrations");
+    expect(joinedQueries).not.toContain("DROP TABLE IF EXISTS provider_connections");
+    expect(joinedQueries).not.toContain("DROP TABLE IF EXISTS integration_credentials");
+    expect(joinedQueries).not.toContain("DROP TABLE IF EXISTS provider_account_snapshot_runs");
+    expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS integrations");
+    expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS provider_account_assignments");
+    expect(joinedQueries).not.toContain("CREATE TABLE IF NOT EXISTS provider_account_snapshots");
   });
 });

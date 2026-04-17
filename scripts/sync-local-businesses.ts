@@ -36,7 +36,7 @@ const INCREMENTAL_CURSOR_COLUMN_BY_TABLE = new Map<string, string>([
   ["meta_sync_runs", "updated_at"],
   ["platform_overview_daily_summary", "updated_at"],
   ["provider_account_rollover_state", "updated_at"],
-  ["provider_account_snapshots", "updated_at"],
+  ["provider_account_snapshot_runs", "updated_at"],
   ["provider_cooldown_state", "updated_at"],
   ["provider_quota_usage", "last_called_at"],
   ["provider_reporting_snapshots", "updated_at"],

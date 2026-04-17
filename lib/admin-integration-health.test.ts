@@ -16,7 +16,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: null,
         next_refresh_after: null,
         refresh_in_progress: false,
-        accounts_payload: [{ id: "1" }],
+        snapshot_account_count: 1,
       },
       {
         provider: "google",
@@ -27,7 +27,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: null,
         next_refresh_after: null,
         refresh_in_progress: false,
-        accounts_payload: [{ id: "1" }],
+        snapshot_account_count: 1,
       },
     ];
 
@@ -50,7 +50,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: "Resource has been exhausted due to quota",
         next_refresh_after: "2026-03-21T16:00:00.000Z",
         refresh_in_progress: false,
-        accounts_payload: [{ id: "1" }],
+        snapshot_account_count: 1,
       },
     ];
 
@@ -76,7 +76,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: null,
         next_refresh_after: null,
         refresh_in_progress: false,
-        accounts_payload: [{ id: "1" }],
+        snapshot_account_count: 1,
       },
     ];
 
@@ -98,7 +98,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: null,
         next_refresh_after: null,
         refresh_in_progress: false,
-        accounts_payload: [{ id: "1" }],
+        snapshot_account_count: 1,
       },
     ];
 
@@ -117,7 +117,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: null,
         next_refresh_after: null,
         refresh_in_progress: false,
-        accounts_payload: [{ id: "1" }],
+        snapshot_account_count: 1,
       },
     ];
 
@@ -141,7 +141,7 @@ describe("buildAdminIntegrationHealthPayload", () => {
         last_error: null,
         next_refresh_after: null,
         refresh_in_progress: false,
-        accounts_payload: null,
+        snapshot_account_count: 0,
       },
     ];
 

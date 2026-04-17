@@ -21,7 +21,7 @@ import { verifyShopifyWebhook } from "@/lib/shopify/webhook-verification";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 
 const SHOPIFY_SYNC_WEBHOOK_REQUIRED_TABLES = [
-  "integrations",
+  "provider_connections",
   "shopify_webhook_deliveries",
   "shopify_repair_intents",
   "shopify_serving_state",
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
   const integrationRows = shopDomain
     ? ((await sql`
         SELECT business_id, provider_account_id
-        FROM integrations
+        FROM provider_connections
         WHERE provider = 'shopify'
           AND status = 'connected'
           AND provider_account_id = ${shopDomain}

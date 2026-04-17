@@ -2,7 +2,10 @@ import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getDemoMetaBreakdowns } from "@/lib/demo-business";
 import { getIntegration } from "@/lib/integrations";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  getProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
 import { getMetaBreakdownGuardrail } from "@/lib/meta/constraints";
 import { getMetaHistoricalVerificationReason } from "@/lib/meta/historical-verification";
 import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta/readiness";
@@ -37,7 +40,7 @@ function nDaysAgo(days: number) {
 async function fetchAssignedAccountIds(businessId: string): Promise<string[]> {
   try {
     const readiness = await getDbSchemaReadiness({
-      tables: ["provider_account_assignments"],
+      tables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
     });
     if (!readiness.ready) return [];
     const row = await getProviderAccountAssignments(businessId, "meta");

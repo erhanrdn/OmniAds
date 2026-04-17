@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 import { getIntegration } from "@/lib/integrations";
-import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
-import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  upsertProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
+  readProviderAccountSnapshot,
+} from "@/lib/provider-account-snapshots";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 
 const GOOGLE_ACCOUNT_SNAPSHOT_FRESHNESS_MS = 60 * 60_000;
-const GOOGLE_ASSIGNMENT_REQUIRED_TABLES = ["provider_account_assignments"] as const;
 
 /**
  * POST /businesses/:businessId/google/assign-accounts
@@ -134,7 +139,10 @@ export async function POST(
   }
 
   const readiness = await getDbSchemaReadiness({
-    tables: [...GOOGLE_ASSIGNMENT_REQUIRED_TABLES],
+    tables: [
+      ...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+      ...PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
+    ],
   }).catch(() => null);
   if (!readiness?.ready) {
     return NextResponse.json(
@@ -168,13 +176,21 @@ export async function POST(
       message: firstMessage,
     });
 
-    if (isMissingRelationError(firstError, [...GOOGLE_ASSIGNMENT_REQUIRED_TABLES])) {
+    if (
+      isMissingRelationError(firstError, [
+        ...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+        ...PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
+      ])
+    ) {
       return NextResponse.json(
         {
           error: "schema_not_ready",
           message:
             "Google Ads account assignments are unavailable until request-external migrations are applied.",
-          missingTables: [...GOOGLE_ASSIGNMENT_REQUIRED_TABLES],
+          missingTables: [
+            ...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+            ...PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES,
+          ],
           checkedAt: new Date().toISOString(),
         },
         { status: 503 },

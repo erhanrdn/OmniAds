@@ -7,7 +7,10 @@ import {
 import { getGa4EcommerceFallbackData, type Ga4EcommerceFallback } from "@/lib/ga4-ecommerce-fallback";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { getIntegration, getIntegrationMetadata } from "@/lib/integrations";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  getProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
 import {
   enumerateDays,
   nDaysAgo,
@@ -176,7 +179,7 @@ async function getMetaAccessContext(businessId: string): Promise<MetaAccessConte
     let assignedAccountIds: string[] = [];
     try {
       const readiness = await getDbSchemaReadiness({
-        tables: ["provider_account_assignments"],
+        tables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
       });
       if (readiness.ready) {
         const row = await getProviderAccountAssignments(businessId, "meta");

@@ -1,11 +1,11 @@
-import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 import { getMetaQueueComposition } from "@/lib/meta/warehouse";
 import { getMetaAuthoritativeBusinessOpsSnapshot } from "@/lib/meta/warehouse";
 import { buildMetaStateCheckOutput } from "@/lib/meta/authoritative-ops";
-
-loadEnvConfig(process.cwd());
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 const SCOPES = ["account_daily", "adset_daily", "creative_daily", "ad_daily"] as const;
 
@@ -33,13 +33,14 @@ function normalizeTimestampValue(value: unknown) {
 }
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const businessId = process.argv[2];
   if (!businessId) {
     console.error("usage: node --import tsx scripts/meta-state-check.ts <businessId>");
     process.exit(1);
   }
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled(runtime);
   const sql = getDb();
   const [queueComposition, authoritativeSnapshot, results] = await Promise.all([
     getMetaQueueComposition({ businessId }).catch(() => null),

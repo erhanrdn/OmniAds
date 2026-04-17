@@ -86,8 +86,8 @@ describe("db normalization support", () => {
       baselineChecks: {
         file: { path: "docs/architecture/live-db-baseline-checks.sql", sha256: "a", sizeBytes: 1 },
         tableCoverage: { rows: [], familyCounts: [] },
-        duplicateNaturalKeys: [{ table_name: "integrations", row_count: 1 }],
-        nullAnomalies: [{ table_name: "integrations", null_rows: 0 }],
+        duplicateNaturalKeys: [{ table_name: "provider_connections", row_count: 1 }],
+        nullAnomalies: [{ table_name: "provider_connections", null_rows: 0 }],
         coverageGaps: [],
         projectionParity: [],
         providerSanityAggregates: [],
@@ -176,4 +176,3 @@ describe("db normalization support", () => {
     expect(comparison.benchmarks.write?.[0]?.delta?.averageMs).toBe(-4);
   });
 });
-

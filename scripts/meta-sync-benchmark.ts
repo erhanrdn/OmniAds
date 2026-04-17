@@ -3,9 +3,9 @@ import {
   collectMetaSyncReadinessSnapshot,
   summarizeMetaSyncBenchmarkSeries,
 } from "@/lib/meta-sync-benchmark";
-import { runMigrations } from "@/lib/migrations";
 import {
   configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
   withOperationalStartupLogsSilenced,
 } from "./_operational-runtime";
 
@@ -170,9 +170,7 @@ async function main() {
   }
 
   const payload = await withOperationalStartupLogsSilenced(async () => {
-    if (runtime.runtimeMigrationsEnabled) {
-      await runMigrations();
-    }
+    await runOperationalMigrationsIfEnabled(runtime);
 
     const samples = [];
     for (let index = 0; index < args.samples; index += 1) {

@@ -1,13 +1,14 @@
-import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
 import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
-import { runMigrations } from "@/lib/migrations";
-
-loadEnvConfig(process.cwd());
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 const REQUIRED_SCOPES = ["campaign_daily", "search_term_daily", "product_daily"] as const;
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const businessId = process.argv[2];
   const startDate = process.argv[3];
   const endDate = process.argv[4];
@@ -18,7 +19,7 @@ async function main() {
     process.exit(1);
   }
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled(runtime);
   const sql = getDb();
 
   const coverage = await Promise.all(

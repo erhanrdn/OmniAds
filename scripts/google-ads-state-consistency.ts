@@ -1,8 +1,8 @@
-import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
-
-loadEnvConfig(process.cwd());
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 const SCOPES = [
   "account_daily",
@@ -17,13 +17,14 @@ const SCOPES = [
 ] as const;
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime();
   const businessId = process.argv[2];
   if (!businessId) {
     console.error("usage: node --import tsx scripts/google-ads-state-consistency.ts <businessId>");
     process.exit(1);
   }
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled(runtime);
   const sql = getDb();
 
   const results = await Promise.all(

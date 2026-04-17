@@ -1,8 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import { getDbRuntimeDiagnostics, getDbWithTimeout } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 import {
   configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
   withOperationalStartupLogsSilenced,
 } from "./_operational-runtime";
 
@@ -80,9 +80,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   const payload = await withOperationalStartupLogsSilenced(async () => {
-    if (runtime.runtimeMigrationsEnabled) {
-      await runMigrations();
-    }
+    await runOperationalMigrationsIfEnabled(runtime);
 
     const businessFilter = args.businessId ?? null;
     const sql = getDbWithTimeout(60_000);

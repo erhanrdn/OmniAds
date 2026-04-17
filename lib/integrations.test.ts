@@ -40,24 +40,16 @@ describe("backfillIntegrationSecretsEncryption", () => {
     ];
     const updates: Array<{ id: string; accessToken: string | null; refreshToken: string | null }> =
       [];
-    const normalizedUpdates: Array<{ businessId: string; provider: string }> = [];
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = strings.join(" ");
-      if (query.includes("SELECT id, business_id, provider, access_token, refresh_token")) {
+      if (query.includes("FROM integration_credentials ic")) {
         return selects.shift() ?? [];
       }
-      if (query.includes("UPDATE integrations")) {
+      if (query.includes("UPDATE integration_credentials")) {
         updates.push({
           accessToken: values[0] as string | null,
           refreshToken: values[1] as string | null,
           id: values[2] as string,
-        });
-        return [];
-      }
-      if (query.includes("UPDATE integration_credentials")) {
-        normalizedUpdates.push({
-          businessId: values[2] as string,
-          provider: values[3] as string,
         });
         return [];
       }
@@ -72,7 +64,6 @@ describe("backfillIntegrationSecretsEncryption", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]?.id).toBe("2");
     expect(updates[0]?.accessToken).toMatch(/^enc:v1:/);
-    expect(normalizedUpdates).toEqual([{ businessId: "biz_1", provider: "google" }]);
   });
 
   it("writes canonical business refs for provider connections", async () => {
@@ -106,23 +97,16 @@ describe("backfillIntegrationSecretsEncryption", () => {
           },
         ];
       }
-      if (query.includes("INSERT INTO integrations")) {
+      if (query.includes("INSERT INTO integration_credentials")) {
         return [
           {
-            id: "integration-1",
-            business_id: "biz_1",
-            provider: "google",
-            status: "connected",
-            provider_account_id: "acct_1",
-            provider_account_name: "Account 1",
+            provider_connection_id: "connection-1",
             access_token: null,
             refresh_token: null,
             token_expires_at: null,
             scopes: null,
             error_message: null,
             metadata: {},
-            connected_at: "2026-01-01T00:00:00.000Z",
-            updated_at: "2026-01-01T00:00:00.000Z",
           },
         ];
       }
@@ -140,16 +124,14 @@ describe("backfillIntegrationSecretsEncryption", () => {
     });
 
     expect(queries.join("\n")).toContain("INSERT INTO provider_connections");
+    expect(queries.join("\n")).toContain("INSERT INTO integration_credentials");
     expect(queries.join("\n")).toContain("business_ref_id");
   });
 
-  it("recomputes timezone for every business disconnected from legacy integrations", async () => {
+  it("recomputes timezone for every business disconnected from canonical integrations", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
       if (query.includes("SELECT DISTINCT business_id") && query.includes("FROM provider_connections")) {
-        return [];
-      }
-      if (query.includes("UPDATE integrations") && query.includes("RETURNING business_id")) {
         return [
           { business_id: "biz_1" },
           { business_id: "biz_1" },

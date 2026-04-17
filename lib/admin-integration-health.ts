@@ -70,7 +70,7 @@ export interface RawAdminIntegrationHealthRow {
   last_error: string | null;
   next_refresh_after: string | null;
   refresh_in_progress: boolean | null;
-  accounts_payload: unknown[] | null;
+  snapshot_account_count: number;
 }
 
 function formatRelativeDuration(targetAt: string | null) {
@@ -128,7 +128,7 @@ function getIssueType(row: RawAdminIntegrationHealthRow) {
     !Number.isFinite(fetchedAtMs) ||
     Date.now() - fetchedAtMs > 6 * 60 * 60_000;
   const isFailed = row.refresh_failed === true;
-  const isMissing = !hasSnapshot || !Array.isArray(row.accounts_payload);
+  const isMissing = !hasSnapshot || row.snapshot_account_count <= 0;
   const classifiedFailure = isFailed ? classifyIntegrationIssue(row.last_error) : null;
 
   if (row.refresh_in_progress) return "Refresh in progress";
@@ -244,22 +244,27 @@ async function readIntegrationHealthRows(): Promise<RawAdminIntegrationHealthRow
   try {
     return (await sql`
       SELECT
-        i.provider,
-        i.business_id,
+        pc.provider,
+        pc.business_id,
         b.name AS business_name,
         s.fetched_at,
         s.refresh_failed,
         s.last_error,
         s.next_refresh_after,
         s.refresh_in_progress,
-        s.accounts_payload
-      FROM integrations i
-      JOIN businesses b ON b.id::text = i.business_id
-      LEFT JOIN provider_account_snapshots s
-        ON s.business_id = i.business_id
-       AND s.provider = i.provider
-      WHERE i.status = 'connected'
-        AND i.provider IN ('meta', 'google')
+        COALESCE(items.snapshot_account_count, 0)::int AS snapshot_account_count
+      FROM provider_connections pc
+      JOIN businesses b ON b.id::text = pc.business_id
+      LEFT JOIN provider_account_snapshot_runs s
+        ON s.business_id = pc.business_id
+       AND s.provider = pc.provider
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS snapshot_account_count
+        FROM provider_account_snapshot_items
+        WHERE snapshot_run_id = s.id
+      ) items ON TRUE
+      WHERE pc.status = 'connected'
+        AND pc.provider IN ('meta', 'google')
     `) as RawAdminIntegrationHealthRow[];
   } catch (error) {
     console.error("[admin integration health]", error);

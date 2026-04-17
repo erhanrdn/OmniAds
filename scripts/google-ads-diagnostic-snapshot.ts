@@ -1,6 +1,5 @@
 import { writeFile } from "node:fs/promises";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
 import {
@@ -10,7 +9,10 @@ import {
   getGoogleAdsIncidentPolicy,
   getGoogleAdsRecent90CompletionState,
 } from "@/lib/sync/google-ads-sync";
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 type ParsedArgs = {
   businessId: string | null;
@@ -194,9 +196,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   const payload = await withStartupLogsSilenced(async () => {
-    if (runtime.runtimeMigrationsEnabled) {
-      await runMigrations();
-    }
+    await runOperationalMigrationsIfEnabled(runtime);
     const sql = getDb();
 
     const businessFilter = args.businessId ?? null;
@@ -234,7 +234,7 @@ async function main() {
         business.name AS business_name,
         integration.status,
         integration.updated_at
-      FROM integrations integration
+      FROM provider_connections integration
       JOIN businesses business
         ON business.id::text = integration.business_id
       WHERE integration.provider = 'google'

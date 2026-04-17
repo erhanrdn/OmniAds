@@ -124,9 +124,6 @@ async function cleanupBenchmarkRows(input: {
     await sql.query("DELETE FROM business_provider_accounts WHERE business_id = $1", [businessId]).catch(() => null);
     await sql.query("DELETE FROM integration_credentials WHERE provider_connection_id IN (SELECT id FROM provider_connections WHERE business_id = $1)", [businessId]).catch(() => null);
     await sql.query("DELETE FROM provider_connections WHERE business_id = $1", [businessId]).catch(() => null);
-    await sql.query("DELETE FROM provider_account_assignments WHERE business_id = $1", [businessId]).catch(() => null);
-    await sql.query("DELETE FROM provider_account_snapshots WHERE business_id = $1", [businessId]).catch(() => null);
-    await sql.query("DELETE FROM integrations WHERE business_id = $1", [businessId]).catch(() => null);
     await sql.query("DELETE FROM meta_account_daily WHERE business_id = $1", [businessId]).catch(() => null);
     await sql.query("DELETE FROM google_ads_campaign_daily WHERE business_id = $1", [businessId]).catch(() => null);
     await sql.query("DELETE FROM shopify_order_lines WHERE business_id = $1", [businessId]).catch(() => null);
@@ -495,32 +492,64 @@ async function main() {
 
     const explainPlans = [
       await captureExplainPlan(
-        "legacy_integrations_upsert",
+        "provider_connection_credentials_upsert",
         `
-          INSERT INTO integrations (
-            business_id,
-            provider,
-            status,
-            provider_account_id,
-            provider_account_name,
+          WITH connection AS (
+            INSERT INTO provider_connections (
+              business_id,
+              provider,
+              status,
+              provider_account_ref_id,
+              provider_account_id,
+              provider_account_name,
+              updated_at
+            )
+            VALUES ($1,$2,$3,NULL,$4,$5,now())
+            ON CONFLICT (business_id, provider) DO UPDATE SET
+              status = EXCLUDED.status,
+              provider_account_id = EXCLUDED.provider_account_id,
+              provider_account_name = EXCLUDED.provider_account_name,
+              updated_at = EXCLUDED.updated_at
+            RETURNING id
+          )
+          INSERT INTO integration_credentials (
+            provider_connection_id,
             access_token,
             refresh_token,
             scopes,
+            error_message,
             metadata,
             updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,now())
-          ON CONFLICT (business_id, provider) DO UPDATE SET
-            status = EXCLUDED.status,
-            provider_account_id = EXCLUDED.provider_account_id,
-            provider_account_name = EXCLUDED.provider_account_name,
-            access_token = EXCLUDED.access_token,
-            refresh_token = EXCLUDED.refresh_token,
-            scopes = EXCLUDED.scopes,
-            metadata = COALESCE(integrations.metadata, '{}'::jsonb) || EXCLUDED.metadata,
-            updated_at = now()
+          SELECT
+            id,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10::jsonb,
+            now()
+          FROM connection
+          ON CONFLICT (provider_connection_id) DO UPDATE SET
+            access_token = COALESCE(EXCLUDED.access_token, integration_credentials.access_token),
+            refresh_token = COALESCE(EXCLUDED.refresh_token, integration_credentials.refresh_token),
+            scopes = COALESCE(EXCLUDED.scopes, integration_credentials.scopes),
+            error_message = COALESCE(EXCLUDED.error_message, integration_credentials.error_message),
+            metadata = COALESCE(integration_credentials.metadata, '{}'::jsonb) || EXCLUDED.metadata,
+            updated_at = EXCLUDED.updated_at
         `,
-        [`${marker}-explain`, "google", "connected", "acc-explain", "Explain", "token-a", "token-b", "scope", JSON.stringify({ explain: true })],
+        [
+          `${marker}-explain`,
+          "google",
+          "connected",
+          "acc-explain",
+          "Explain",
+          "token-a",
+          "token-b",
+          "scope",
+          null,
+          JSON.stringify({ explain: true }),
+        ],
       ),
       await captureExplainPlan(
         "meta_account_daily_upsert",

@@ -19,13 +19,32 @@ type ArchiveResult = {
 };
 
 const ORPHAN_SOURCE_TABLES = [
+  "integrations",
+  "provider_account_snapshots",
   "provider_connections",
   "provider_account_assignments",
   "business_provider_accounts",
+  "provider_account_snapshot_runs",
 ] as const;
+
+async function doesTableExist(tableName: (typeof ORPHAN_SOURCE_TABLES)[number]) {
+  const sql = getDbWithTimeout(60_000);
+  const [row] = (await sql.query<{ exists: boolean | null }>(
+    "SELECT to_regclass($1) IS NOT NULL AS exists",
+    [`public.${tableName}`],
+  )) as Array<{ exists: boolean | null }>;
+  return row?.exists === true;
+}
 
 async function countAndArchiveSource(tableName: (typeof ORPHAN_SOURCE_TABLES)[number]) {
   const sql = getDbWithTimeout(600_000);
+  if (!(await doesTableExist(tableName))) {
+    return {
+      sourceTable: tableName,
+      archivedRows: 0,
+      deletedRows: 0,
+    } satisfies ArchiveResult;
+  }
 
   const [counts] = (await sql.query<{
     archived_rows: number | string | null;

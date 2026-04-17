@@ -1,5 +1,4 @@
 import { getDb } from "@/lib/db";
-import { isMissingRelationError } from "@/lib/db-schema-readiness";
 import {
   decryptIntegrationSecret,
   encryptIntegrationSecret,
@@ -37,6 +36,11 @@ export interface IntegrationRow {
   created_at: string;
   updated_at: string;
 }
+
+export const INTEGRATION_REQUIRED_TABLES = [
+  "provider_connections",
+  "integration_credentials",
+] as const;
 
 export type IntegrationMetadataRow = Omit<IntegrationRow, "access_token" | "refresh_token"> & {
   access_token: null;
@@ -114,97 +118,71 @@ async function readIntegrationRowsByBusiness(
   provider?: IntegrationProviderType,
 ): Promise<IntegrationRow[]> {
   const sql = getDb();
-  let normalizedRows: Array<NormalizedIntegrationConnectionRow & NormalizedIntegrationCredentialRow> =
-    [];
-  try {
-    normalizedRows = provider
-      ? ((await sql`
-          SELECT
-            pc.id,
-            pc.business_id,
-            pc.provider,
-            pc.status,
-            pc.provider_account_id,
-            pc.provider_account_name,
-            pc.connected_at,
-            pc.disconnected_at,
-            pc.created_at,
-            pc.updated_at,
-            ic.access_token,
-            ic.refresh_token,
-            ic.token_expires_at,
-            ic.scopes,
-            ic.error_message,
-            COALESCE(ic.metadata, '{}'::jsonb) AS metadata
-          FROM provider_connections pc
-          LEFT JOIN integration_credentials ic
-            ON ic.provider_connection_id = pc.id
-          WHERE pc.business_id = ${businessId}
-            AND pc.provider = ${provider}
-          ORDER BY pc.provider
-        `) as Array<NormalizedIntegrationConnectionRow & NormalizedIntegrationCredentialRow>)
-      : ((await sql`
-          SELECT
-            pc.id,
-            pc.business_id,
-            pc.provider,
-            pc.status,
-            pc.provider_account_id,
-            pc.provider_account_name,
-            pc.connected_at,
-            pc.disconnected_at,
-            pc.created_at,
-            pc.updated_at,
-            ic.access_token,
-            ic.refresh_token,
-            ic.token_expires_at,
-            ic.scopes,
-            ic.error_message,
-            COALESCE(ic.metadata, '{}'::jsonb) AS metadata
-          FROM provider_connections pc
-          LEFT JOIN integration_credentials ic
-            ON ic.provider_connection_id = pc.id
-          WHERE pc.business_id = ${businessId}
-          ORDER BY pc.provider
-        `) as Array<NormalizedIntegrationConnectionRow & NormalizedIntegrationCredentialRow>);
-  } catch (error) {
-    if (!isMissingRelationError(error, ["provider_connections", "integration_credentials"])) {
-      throw error;
-    }
-  }
-
-  if (normalizedRows.length > 0) {
-    return normalizedRows.map((row) =>
-      hydrateIntegrationRowFromNormalized({
-        connection: row,
-        credentials: {
-          provider_connection_id: row.id,
-          access_token: row.access_token,
-          refresh_token: row.refresh_token,
-          token_expires_at: row.token_expires_at,
-          scopes: row.scopes,
-          error_message: row.error_message,
-          metadata: row.metadata,
-        },
-      }),
-    );
-  }
-
-  const legacyRows = provider
+  const normalizedRows = provider
     ? ((await sql`
-        SELECT *
-        FROM integrations
-        WHERE business_id = ${businessId}
-          AND provider = ${provider}
-        ORDER BY provider
-      `) as IntegrationRow[])
+        SELECT
+          pc.id,
+          pc.business_id,
+          pc.provider,
+          pc.status,
+          pc.provider_account_id,
+          pc.provider_account_name,
+          pc.connected_at,
+          pc.disconnected_at,
+          pc.created_at,
+          pc.updated_at,
+          ic.access_token,
+          ic.refresh_token,
+          ic.token_expires_at,
+          ic.scopes,
+          ic.error_message,
+          COALESCE(ic.metadata, '{}'::jsonb) AS metadata
+        FROM provider_connections pc
+        LEFT JOIN integration_credentials ic
+          ON ic.provider_connection_id = pc.id
+        WHERE pc.business_id = ${businessId}
+          AND pc.provider = ${provider}
+        ORDER BY pc.provider
+      `) as Array<NormalizedIntegrationConnectionRow & NormalizedIntegrationCredentialRow>)
     : ((await sql`
-        SELECT *
-        FROM integrations
-        WHERE business_id = ${businessId}
-        ORDER BY provider
-      `) as IntegrationRow[]);
-  return legacyRows.map(hydrateIntegrationRow);
+        SELECT
+          pc.id,
+          pc.business_id,
+          pc.provider,
+          pc.status,
+          pc.provider_account_id,
+          pc.provider_account_name,
+          pc.connected_at,
+          pc.disconnected_at,
+          pc.created_at,
+          pc.updated_at,
+          ic.access_token,
+          ic.refresh_token,
+          ic.token_expires_at,
+          ic.scopes,
+          ic.error_message,
+          COALESCE(ic.metadata, '{}'::jsonb) AS metadata
+        FROM provider_connections pc
+        LEFT JOIN integration_credentials ic
+          ON ic.provider_connection_id = pc.id
+        WHERE pc.business_id = ${businessId}
+        ORDER BY pc.provider
+      `) as Array<NormalizedIntegrationConnectionRow & NormalizedIntegrationCredentialRow>);
+
+  return normalizedRows.map((row) =>
+    hydrateIntegrationRowFromNormalized({
+      connection: row,
+      credentials: {
+        provider_connection_id: row.id,
+        access_token: row.access_token,
+        refresh_token: row.refresh_token,
+        token_expires_at: row.token_expires_at,
+        scopes: row.scopes,
+        error_message: row.error_message,
+        metadata: row.metadata,
+      },
+    }),
+  );
 }
 
 async function readIntegrationByBusiness(
@@ -300,157 +278,122 @@ export async function upsertIntegration(params: {
   const refreshToken = encryptIntegrationSecret(params.refreshToken ?? null);
 
   let providerAccountRefId: string | null = null;
-  try {
-    if (params.providerAccountId) {
-      const providerAccounts = (await sql`
-        INSERT INTO provider_accounts (
-          provider,
-          external_account_id,
-          account_name,
-          metadata,
-          created_at,
-          updated_at
-        ) VALUES (
-          ${params.provider},
-          ${params.providerAccountId},
-          ${params.providerAccountName ?? null},
-          ${metadataJson}::jsonb,
-          ${now},
-          ${now}
-        )
-        ON CONFLICT (provider, external_account_id) DO UPDATE SET
-          account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
-          metadata = CASE
-            WHEN EXCLUDED.metadata = '{}'::jsonb THEN provider_accounts.metadata
-            ELSE provider_accounts.metadata || EXCLUDED.metadata
-          END,
-          updated_at = EXCLUDED.updated_at
-        RETURNING id
-      `) as Array<{ id: string }>;
-      providerAccountRefId = providerAccounts[0]?.id ?? null;
-    }
-
-    const businessRefIds = await resolveBusinessReferenceIds([params.businessId]);
-    const connections = (await sql`
-      INSERT INTO provider_connections (
-        business_id,
-        business_ref_id,
+  if (params.providerAccountId) {
+    const providerAccounts = (await sql`
+      INSERT INTO provider_accounts (
         provider,
-        status,
-        provider_account_ref_id,
-        provider_account_id,
-        provider_account_name,
-        connected_at,
-        disconnected_at,
+        external_account_id,
+        account_name,
+        metadata,
         created_at,
         updated_at
       ) VALUES (
-        ${params.businessId},
-        ${businessRefIds.get(params.businessId) ?? null},
         ${params.provider},
-        ${params.status},
-        ${providerAccountRefId},
-        ${params.providerAccountId ?? null},
+        ${params.providerAccountId},
         ${params.providerAccountName ?? null},
-        ${params.status === "connected" ? now : null},
-        NULL,
+        ${metadataJson}::jsonb,
         ${now},
         ${now}
       )
-      ON CONFLICT (business_id, provider) DO UPDATE SET
-        business_ref_id = COALESCE(provider_connections.business_ref_id, EXCLUDED.business_ref_id),
-        status = EXCLUDED.status,
-        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_connections.provider_account_ref_id),
-        provider_account_id = COALESCE(EXCLUDED.provider_account_id, provider_connections.provider_account_id),
-        provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_connections.provider_account_name),
-        connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
-        disconnected_at = COALESCE(provider_connections.disconnected_at, EXCLUDED.disconnected_at),
+      ON CONFLICT (provider, external_account_id) DO UPDATE SET
+        account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
+        metadata = CASE
+          WHEN EXCLUDED.metadata = '{}'::jsonb THEN provider_accounts.metadata
+          ELSE provider_accounts.metadata || EXCLUDED.metadata
+        END,
         updated_at = EXCLUDED.updated_at
-      RETURNING *
-    `) as NormalizedIntegrationConnectionRow[];
-    const connection = connections[0];
-
-    if (connection) {
-      await sql`
-        INSERT INTO integration_credentials (
-          provider_connection_id,
-          access_token,
-          refresh_token,
-          token_expires_at,
-          scopes,
-          error_message,
-          metadata,
-          created_at,
-          updated_at
-        ) VALUES (
-          ${connection.id},
-          ${accessToken},
-          ${refreshToken},
-          ${params.tokenExpiresAt?.toISOString() ?? null},
-          ${params.scopes ?? null},
-          ${params.errorMessage ?? null},
-          ${metadataJson}::jsonb,
-          ${now},
-          ${now}
-        )
-        ON CONFLICT (provider_connection_id) DO UPDATE SET
-          access_token = COALESCE(EXCLUDED.access_token, integration_credentials.access_token),
-          refresh_token = COALESCE(EXCLUDED.refresh_token, integration_credentials.refresh_token),
-          token_expires_at = COALESCE(EXCLUDED.token_expires_at, integration_credentials.token_expires_at),
-          scopes = COALESCE(EXCLUDED.scopes, integration_credentials.scopes),
-          error_message = COALESCE(EXCLUDED.error_message, integration_credentials.error_message),
-          metadata = CASE
-            WHEN EXCLUDED.metadata = '{}'::jsonb THEN integration_credentials.metadata
-            ELSE integration_credentials.metadata || EXCLUDED.metadata
-          END,
-          updated_at = EXCLUDED.updated_at
-      `;
-    }
-  } catch (error) {
-    if (!isMissingRelationError(error, ["provider_accounts", "provider_connections", "integration_credentials"])) {
-      throw error;
-    }
+      RETURNING id
+    `) as Array<{ id: string }>;
+    providerAccountRefId = providerAccounts[0]?.id ?? null;
   }
 
-  const rows = (await sql`
-    INSERT INTO integrations (
-      business_id, provider, status,
-      provider_account_id, provider_account_name,
-      access_token, refresh_token, token_expires_at,
-      scopes, error_message, metadata, connected_at, updated_at
+  const businessRefIds = await resolveBusinessReferenceIds([params.businessId]);
+  const connections = (await sql`
+    INSERT INTO provider_connections (
+      business_id,
+      business_ref_id,
+      provider,
+      status,
+      provider_account_ref_id,
+      provider_account_id,
+      provider_account_name,
+      connected_at,
+      disconnected_at,
+      created_at,
+      updated_at
     ) VALUES (
       ${params.businessId},
+      ${businessRefIds.get(params.businessId) ?? null},
       ${params.provider},
       ${params.status},
+      ${providerAccountRefId},
       ${params.providerAccountId ?? null},
       ${params.providerAccountName ?? null},
+      ${params.status === "connected" ? now : null},
+      ${params.status === "disconnected" ? now : null},
+      ${now},
+      ${now}
+    )
+    ON CONFLICT (business_id, provider) DO UPDATE SET
+      business_ref_id = COALESCE(provider_connections.business_ref_id, EXCLUDED.business_ref_id),
+      status = EXCLUDED.status,
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_connections.provider_account_ref_id),
+      provider_account_id = COALESCE(EXCLUDED.provider_account_id, provider_connections.provider_account_id),
+      provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_connections.provider_account_name),
+      connected_at = COALESCE(provider_connections.connected_at, EXCLUDED.connected_at),
+      disconnected_at = CASE
+        WHEN EXCLUDED.status = 'disconnected'
+          THEN COALESCE(EXCLUDED.disconnected_at, provider_connections.disconnected_at, now())
+        ELSE provider_connections.disconnected_at
+      END,
+      updated_at = EXCLUDED.updated_at
+    RETURNING *
+  `) as NormalizedIntegrationConnectionRow[];
+  const connection = connections[0];
+  if (!connection) {
+    throw new Error("Failed to upsert provider connection.");
+  }
+
+  const credentials = (await sql`
+    INSERT INTO integration_credentials (
+      provider_connection_id,
+      access_token,
+      refresh_token,
+      token_expires_at,
+      scopes,
+      error_message,
+      metadata,
+      created_at,
+      updated_at
+    ) VALUES (
+      ${connection.id},
       ${accessToken},
       ${refreshToken},
       ${params.tokenExpiresAt?.toISOString() ?? null},
       ${params.scopes ?? null},
       ${params.errorMessage ?? null},
       ${metadataJson}::jsonb,
-      ${params.status === "connected" ? now : null},
+      ${now},
       ${now}
     )
-    ON CONFLICT (business_id, provider) DO UPDATE SET
-      status = EXCLUDED.status,
-      provider_account_id = COALESCE(EXCLUDED.provider_account_id, integrations.provider_account_id),
-      provider_account_name = COALESCE(EXCLUDED.provider_account_name, integrations.provider_account_name),
-      access_token = COALESCE(EXCLUDED.access_token, integrations.access_token),
-      refresh_token = COALESCE(EXCLUDED.refresh_token, integrations.refresh_token),
-      token_expires_at = COALESCE(EXCLUDED.token_expires_at, integrations.token_expires_at),
-      scopes = COALESCE(EXCLUDED.scopes, integrations.scopes),
-      error_message = COALESCE(EXCLUDED.error_message, integrations.error_message),
+    ON CONFLICT (provider_connection_id) DO UPDATE SET
+      access_token = COALESCE(EXCLUDED.access_token, integration_credentials.access_token),
+      refresh_token = COALESCE(EXCLUDED.refresh_token, integration_credentials.refresh_token),
+      token_expires_at = COALESCE(EXCLUDED.token_expires_at, integration_credentials.token_expires_at),
+      scopes = COALESCE(EXCLUDED.scopes, integration_credentials.scopes),
+      error_message = COALESCE(EXCLUDED.error_message, integration_credentials.error_message),
       metadata = CASE
-        WHEN EXCLUDED.metadata = '{}'::jsonb THEN integrations.metadata
-        ELSE integrations.metadata || EXCLUDED.metadata
+        WHEN EXCLUDED.metadata = '{}'::jsonb THEN integration_credentials.metadata
+        ELSE integration_credentials.metadata || EXCLUDED.metadata
       END,
-      connected_at = COALESCE(integrations.connected_at, EXCLUDED.connected_at),
       updated_at = EXCLUDED.updated_at
     RETURNING *
-  `) as IntegrationRow[];
-  const integration = hydrateIntegrationRow(rows[0] as IntegrationRow);
+  `) as Array<NormalizedIntegrationCredentialRow>;
+
+  const integration = hydrateIntegrationRowFromNormalized({
+    connection,
+    credentials: credentials[0] ?? null,
+  });
   if (params.provider === "shopify" || params.provider === "ga4") {
     await recomputeBusinessDerivedTimezone(params.businessId).catch((error: unknown) => {
       console.warn("[integrations] business_timezone_recompute_failed", {
@@ -469,50 +412,32 @@ export async function disconnectIntegration(
   provider: IntegrationProviderType,
 ): Promise<void> {
   const sql = getDb();
-  try {
-    const connectionRows = (await sql`
-      SELECT id
-      FROM provider_connections
-      WHERE business_id = ${businessId} AND provider = ${provider}
-      LIMIT 1
-    `) as Array<{ id: string }>;
-    const connectionId = connectionRows[0]?.id ?? null;
-    if (connectionId) {
-      await sql`
-        UPDATE provider_connections SET
-          status           = 'disconnected',
-          disconnected_at  = now(),
-          updated_at       = now()
-        WHERE id = ${connectionId}
-      `;
-      await sql`
-        UPDATE integration_credentials SET
-          access_token     = NULL,
-          refresh_token    = NULL,
-          token_expires_at = NULL,
-          error_message    = NULL,
-          metadata         = '{}'::jsonb,
-          updated_at       = now()
-        WHERE provider_connection_id = ${connectionId}
-      `;
-    }
-  } catch (error) {
-    if (!isMissingRelationError(error, ["provider_connections", "integration_credentials"])) {
-      throw error;
-    }
-  }
-  await sql`
-    UPDATE integrations SET
-      status           = 'disconnected',
-      access_token     = NULL,
-      refresh_token    = NULL,
-      token_expires_at = NULL,
-      error_message    = NULL,
-      metadata         = '{}'::jsonb,
-      disconnected_at  = now(),
-      updated_at       = now()
+  const connectionRows = (await sql`
+    SELECT id
+    FROM provider_connections
     WHERE business_id = ${businessId} AND provider = ${provider}
-  `;
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  const connectionId = connectionRows[0]?.id ?? null;
+  if (connectionId) {
+    await sql`
+      UPDATE provider_connections SET
+        status           = 'disconnected',
+        disconnected_at  = now(),
+        updated_at       = now()
+      WHERE id = ${connectionId}
+    `;
+    await sql`
+      UPDATE integration_credentials SET
+        access_token     = NULL,
+        refresh_token    = NULL,
+        token_expires_at = NULL,
+        error_message    = NULL,
+        metadata         = '{}'::jsonb,
+        updated_at       = now()
+      WHERE provider_connection_id = ${connectionId}
+    `;
+  }
   if (provider === "shopify" || provider === "ga4") {
     await recomputeBusinessDerivedTimezone(businessId).catch((error: unknown) => {
       console.warn("[integrations] business_timezone_recompute_failed", {
@@ -528,58 +453,35 @@ export async function disconnectAllIntegrationsForProvider(
   provider: IntegrationProviderType
 ): Promise<void> {
   const sql = getDb();
-  let impactedRows: Array<{ business_id: string }> = [];
   const impactedBusinessIds = new Set<string>();
-  try {
-    impactedRows = (await sql`
-      SELECT DISTINCT business_id
-      FROM provider_connections
-      WHERE provider = ${provider}
-    `) as Array<{ business_id: string }>;
-    for (const row of impactedRows) {
-      if (row.business_id) impactedBusinessIds.add(row.business_id);
-    }
-    await sql`
-      UPDATE provider_connections SET
-        status           = 'disconnected',
-        disconnected_at  = now(),
-        updated_at       = now()
-      WHERE provider = ${provider}
-    `;
-    await sql`
-      UPDATE integration_credentials ic
-      SET
-        access_token     = NULL,
-        refresh_token    = NULL,
-        token_expires_at = NULL,
-        error_message    = NULL,
-        metadata         = '{}'::jsonb,
-        updated_at       = now()
-      FROM provider_connections pc
-      WHERE pc.id = ic.provider_connection_id
-        AND pc.provider = ${provider}
-    `;
-  } catch (error) {
-    if (!isMissingRelationError(error, ["provider_connections", "integration_credentials"])) {
-      throw error;
-    }
+  const impactedRows = (await sql`
+    SELECT DISTINCT business_id
+    FROM provider_connections
+    WHERE provider = ${provider}
+  `) as Array<{ business_id: string }>;
+  for (const row of impactedRows) {
+    if (row.business_id) impactedBusinessIds.add(row.business_id);
   }
-  const disconnectedRows = (await sql`
-    UPDATE integrations SET
+  await sql`
+    UPDATE provider_connections SET
       status           = 'disconnected',
+      disconnected_at  = now(),
+      updated_at       = now()
+    WHERE provider = ${provider}
+  `;
+  await sql`
+    UPDATE integration_credentials ic
+    SET
       access_token     = NULL,
       refresh_token    = NULL,
       token_expires_at = NULL,
       error_message    = NULL,
       metadata         = '{}'::jsonb,
-      disconnected_at  = now(),
       updated_at       = now()
-    WHERE provider = ${provider}
-    RETURNING business_id
-  `) as Array<{ business_id: string }>;
-  for (const row of disconnectedRows) {
-    if (row.business_id) impactedBusinessIds.add(row.business_id);
-  }
+    FROM provider_connections pc
+    WHERE pc.id = ic.provider_connection_id
+      AND pc.provider = ${provider}
+  `;
   if (provider === "shopify" || provider === "ga4") {
     await Promise.all(
       [...impactedBusinessIds].map((businessId) =>
@@ -602,40 +504,27 @@ export async function setIntegrationError(
   errorMessage: string,
 ): Promise<void> {
   const sql = getDb();
-  try {
-    const connectionRows = (await sql`
-      SELECT id
-      FROM provider_connections
-      WHERE business_id = ${businessId} AND provider = ${provider}
-      LIMIT 1
-    `) as Array<{ id: string }>;
-    const connectionId = connectionRows[0]?.id ?? null;
-    if (connectionId) {
-      await sql`
-        UPDATE provider_connections SET
-          status     = 'error',
-          updated_at = now()
-        WHERE id = ${connectionId}
-      `;
-      await sql`
-        UPDATE integration_credentials SET
-          error_message = ${errorMessage},
-          updated_at    = now()
-        WHERE provider_connection_id = ${connectionId}
-      `;
-    }
-  } catch (error) {
-    if (!isMissingRelationError(error, ["provider_connections", "integration_credentials"])) {
-      throw error;
-    }
-  }
-  await sql`
-    UPDATE integrations SET
-      status        = 'error',
-      error_message = ${errorMessage},
-      updated_at    = now()
+  const connectionRows = (await sql`
+    SELECT id
+    FROM provider_connections
     WHERE business_id = ${businessId} AND provider = ${provider}
-  `;
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  const connectionId = connectionRows[0]?.id ?? null;
+  if (connectionId) {
+    await sql`
+      UPDATE provider_connections SET
+        status     = 'error',
+        updated_at = now()
+      WHERE id = ${connectionId}
+    `;
+    await sql`
+      UPDATE integration_credentials SET
+        error_message = ${errorMessage},
+        updated_at    = now()
+      WHERE provider_connection_id = ${connectionId}
+    `;
+  }
 }
 
 export async function mergeIntegrationMetadata(params: {
@@ -645,35 +534,22 @@ export async function mergeIntegrationMetadata(params: {
 }): Promise<void> {
   const sql = getDb();
   const metadataJson = JSON.stringify(params.metadata ?? {});
-  try {
-    const connectionRows = (await sql`
-      SELECT id
-      FROM provider_connections
-      WHERE business_id = ${params.businessId}
-        AND provider = ${params.provider}
-      LIMIT 1
-    `) as Array<{ id: string }>;
-    const connectionId = connectionRows[0]?.id ?? null;
-    if (connectionId) {
-      await sql`
-        UPDATE integration_credentials
-        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${metadataJson}::jsonb,
-            updated_at = now()
-        WHERE provider_connection_id = ${connectionId}
-      `;
-    }
-  } catch (error) {
-    if (!isMissingRelationError(error, ["provider_connections", "integration_credentials"])) {
-      throw error;
-    }
-  }
-  await sql`
-    UPDATE integrations
-    SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(params.metadata ?? {})}::jsonb,
-        updated_at = now()
+  const connectionRows = (await sql`
+    SELECT id
+    FROM provider_connections
     WHERE business_id = ${params.businessId}
       AND provider = ${params.provider}
-  `;
+    LIMIT 1
+  `) as Array<{ id: string }>;
+  const connectionId = connectionRows[0]?.id ?? null;
+  if (connectionId) {
+    await sql`
+      UPDATE integration_credentials
+      SET metadata = COALESCE(metadata, '{}'::jsonb) || ${metadataJson}::jsonb,
+          updated_at = now()
+      WHERE provider_connection_id = ${connectionId}
+    `;
+  }
 }
 
 export async function backfillIntegrationSecretsEncryption(input?: {
@@ -686,13 +562,20 @@ export async function backfillIntegrationSecretsEncryption(input?: {
 
   while (true) {
     const rows = (await sql`
-      SELECT id, business_id, provider, access_token, refresh_token
-      FROM integrations
+      SELECT
+        ic.id,
+        pc.business_id,
+        pc.provider,
+        ic.access_token,
+        ic.refresh_token
+      FROM integration_credentials ic
+      JOIN provider_connections pc
+        ON pc.id = ic.provider_connection_id
       WHERE
-        (access_token IS NOT NULL AND access_token NOT LIKE 'enc:v1:%')
+        (ic.access_token IS NOT NULL AND ic.access_token NOT LIKE 'enc:v1:%')
         OR
-        (refresh_token IS NOT NULL AND refresh_token NOT LIKE 'enc:v1:%')
-      ORDER BY id ASC
+        (ic.refresh_token IS NOT NULL AND ic.refresh_token NOT LIKE 'enc:v1:%')
+      ORDER BY ic.id ASC
       LIMIT ${batchSize}
     `) as Array<{
       id: string;
@@ -723,30 +606,13 @@ export async function backfillIntegrationSecretsEncryption(input?: {
       }
 
       await sql`
-        UPDATE integrations
+        UPDATE integration_credentials
         SET
           access_token = ${nextAccessToken},
           refresh_token = ${nextRefreshToken},
           updated_at = now()
         WHERE id = ${row.id}
       `;
-      try {
-        await sql`
-          UPDATE integration_credentials ic
-          SET
-            access_token = ${nextAccessToken},
-            refresh_token = ${nextRefreshToken},
-            updated_at = now()
-          FROM provider_connections pc
-          WHERE pc.id = ic.provider_connection_id
-            AND pc.business_id = ${row.business_id}
-            AND pc.provider = ${row.provider}
-        `;
-      } catch (error) {
-        if (!isMissingRelationError(error, ["provider_connections", "integration_credentials"])) {
-          throw error;
-        }
-      }
       updated += 1;
     }
 

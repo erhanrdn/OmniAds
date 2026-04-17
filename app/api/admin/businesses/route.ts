@@ -40,12 +40,12 @@ export async function GET(request: NextRequest) {
           u.id AS owner_id, u.name AS owner_name, u.email AS owner_email,
           ss.plan_id, ss.status AS subscription_status,
           COUNT(DISTINCT m.user_id) AS member_count,
-          COUNT(DISTINCT i.id) AS integration_count
+          COUNT(DISTINCT pc.id) AS integration_count
         FROM businesses b
         JOIN users u ON u.id = b.owner_id
         LEFT JOIN shopify_subscriptions ss ON ss.business_id = b.id AND ss.status = 'active'
         LEFT JOIN memberships m ON m.business_id = b.id AND m.status = 'active'
-        LEFT JOIN integrations i ON i.business_id = b.id::text AND i.status = 'connected'
+        LEFT JOIN provider_connections pc ON pc.business_id = b.id::text AND pc.status = 'connected'
         ${where}
         GROUP BY b.id, u.id, ss.plan_id, ss.status
         ORDER BY b.created_at DESC

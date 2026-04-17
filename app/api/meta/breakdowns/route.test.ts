@@ -20,6 +20,10 @@ vi.mock("@/lib/integrations", () => ({
 }));
 
 vi.mock("@/lib/provider-account-assignments", () => ({
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES: [
+    "business_provider_accounts",
+    "provider_accounts",
+  ],
   getProviderAccountAssignments: vi.fn(),
 }));
 

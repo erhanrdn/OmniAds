@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { isDemoBusiness } from "@/lib/business-mode.server";
 import { getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
 import { getIntegration } from "@/lib/integrations";
-import { upsertProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  upsertProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 import { syncMetaInitial } from "@/lib/sync/meta-sync";
-
-const META_ASSIGNMENT_REQUIRED_TABLES = ["provider_account_assignments"] as const;
 
 export async function POST(
   request: NextRequest,
@@ -81,7 +82,7 @@ export async function POST(
 
   const cleaned = Array.from(new Set(accountIds.map((id) => id.trim()).filter(Boolean)));
   const readiness = await getDbSchemaReadiness({
-    tables: [...META_ASSIGNMENT_REQUIRED_TABLES],
+    tables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
   }).catch(() => null);
   if (!readiness?.ready) {
     return NextResponse.json(
@@ -114,13 +115,13 @@ export async function POST(
       message: firstMessage,
     });
 
-    if (isMissingRelationError(firstError, [...META_ASSIGNMENT_REQUIRED_TABLES])) {
+    if (isMissingRelationError(firstError, [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES])) {
       return NextResponse.json(
         {
           error: "schema_not_ready",
           message:
             "Meta account assignments are unavailable until request-external migrations are applied.",
-          missingTables: [...META_ASSIGNMENT_REQUIRED_TABLES],
+          missingTables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
           checkedAt: new Date().toISOString(),
         },
         { status: 503 },

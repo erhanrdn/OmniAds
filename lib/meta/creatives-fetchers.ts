@@ -1,6 +1,9 @@
 import { createHash } from "crypto";
 import { getCachedValue, readThroughCache } from "@/lib/server-cache";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import {
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES,
+  getProviderAccountAssignments,
+} from "@/lib/provider-account-assignments";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import { normalizeMediaUrl } from "@/lib/meta/creatives-utils";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
@@ -154,7 +157,7 @@ export async function fetchAssignedAccountIds(businessId: string): Promise<strin
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes("does not exist") || message.includes("relation")) {
           const readiness = await getDbSchemaReadiness({
-            tables: ["provider_account_assignments"],
+            tables: [...PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES],
           }).catch(() => null);
           if (!readiness?.ready) {
             return [];
