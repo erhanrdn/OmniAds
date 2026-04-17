@@ -8,8 +8,16 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const),
+    );
+  }),
+}));
+
 const db = await import("@/lib/db");
-const { renewSyncRunnerLease } = await import("@/lib/sync/worker-health");
+const { acquireSyncRunnerLease, renewSyncRunnerLease } = await import("@/lib/sync/worker-health");
 
 describe("renewSyncRunnerLease", () => {
   beforeEach(() => {
@@ -28,6 +36,7 @@ describe("renewSyncRunnerLease", () => {
     });
 
     expect(renewed).toBe(true);
+    expect(String(sql.mock.calls[0]?.[0]?.join(" ") ?? "")).toContain("business_ref_id");
   });
 
   it("returns false when ownership is already lost", async () => {
@@ -42,5 +51,20 @@ describe("renewSyncRunnerLease", () => {
     });
 
     expect(renewed).toBe(false);
+  });
+
+  it("writes canonical business refs when acquiring a lease", async () => {
+    const sql = vi.fn().mockResolvedValue([{ lease_owner: "worker-1" }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const acquired = await acquireSyncRunnerLease({
+      businessId: "biz-1",
+      providerScope: "google_ads",
+      leaseOwner: "worker-1",
+      leaseMinutes: 2,
+    });
+
+    expect(acquired).toBe(true);
+    expect(String(sql.mock.calls[0]?.[0]?.join(" ") ?? "")).toContain("business_ref_id");
   });
 });

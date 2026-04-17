@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { getDb } from "@/lib/db";
-import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { isMissingRelationError } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 
 export interface ProviderAccountSnapshotItem {
   id: string;
@@ -25,6 +26,39 @@ interface ProviderAccountSnapshotRow {
   source_reason: string | null;
   last_successful_refresh_at: string | null;
   refresh_failure_streak: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface NormalizedProviderAccountSnapshotRunRow {
+  id: string;
+  business_id: string;
+  provider: string;
+  fetched_at: string;
+  refresh_failed: boolean;
+  last_error: string | null;
+  refresh_requested_at: string | null;
+  last_refresh_attempt_at: string | null;
+  next_refresh_after: string | null;
+  refresh_in_progress: boolean;
+  accounts_hash: string | null;
+  source_reason: string | null;
+  last_successful_refresh_at: string | null;
+  refresh_failure_streak: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface NormalizedProviderAccountSnapshotItemRow {
+  snapshot_run_id: string;
+  provider_account_ref_id: string | null;
+  provider_account_id: string;
+  provider_account_name: string;
+  currency: string | null;
+  timezone: string | null;
+  is_manager: boolean | null;
+  position: number;
+  raw_payload: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -116,8 +150,11 @@ function getSnapshotKey(businessId: string, provider: string) {
   return `${businessId}:${provider}`;
 }
 
-function toIso(value: Date | null) {
-  return value ? value.toISOString() : null;
+function toIso(value: Date | string | null) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : String(value);
 }
 
 function isFresh(row: ProviderAccountSnapshotRow, freshnessMs: number) {
@@ -127,6 +164,54 @@ function isFresh(row: ProviderAccountSnapshotRow, freshnessMs: number) {
 
 function computeAccountsHash(accounts: ProviderAccountSnapshotItem[]) {
   return createHash("sha1").update(JSON.stringify(accounts)).digest("hex");
+}
+
+function mapSnapshotItemFromRow(row: NormalizedProviderAccountSnapshotItemRow): ProviderAccountSnapshotItem {
+  return {
+    id: row.provider_account_id,
+    name: row.provider_account_name,
+    currency: row.currency ?? undefined,
+    timezone: row.timezone ?? undefined,
+    isManager: row.is_manager ?? undefined,
+  };
+}
+
+function buildLegacySnapshotRow(input: {
+  businessId: string;
+  provider: string;
+  accounts: ProviderAccountSnapshotItem[];
+  fetchedAt: string;
+  refreshFailed: boolean;
+  lastError: string | null;
+  refreshRequestedAt: string | null;
+  lastRefreshAttemptAt: string | null;
+  nextRefreshAfter: string | null;
+  refreshInProgress: boolean;
+  accountsHash: string | null;
+  sourceReason: string | null;
+  lastSuccessfulRefreshAt: string | null;
+  refreshFailureStreak: number;
+  createdAt: string;
+  updatedAt: string;
+}): ProviderAccountSnapshotRow {
+  return {
+    business_id: input.businessId,
+    provider: input.provider,
+    accounts_payload: input.accounts,
+    fetched_at: input.fetchedAt,
+    refresh_failed: input.refreshFailed,
+    last_error: input.lastError,
+    refresh_requested_at: input.refreshRequestedAt,
+    last_refresh_attempt_at: input.lastRefreshAttemptAt,
+    next_refresh_after: input.nextRefreshAfter,
+    refresh_in_progress: input.refreshInProgress,
+    accounts_hash: input.accountsHash,
+    source_reason: input.sourceReason,
+    last_successful_refresh_at: input.lastSuccessfulRefreshAt,
+    refresh_failure_streak: input.refreshFailureStreak,
+    created_at: input.createdAt,
+    updated_at: input.updatedAt,
+  };
 }
 
 function getRetryAfterMs(row: ProviderAccountSnapshotRow | null) {
@@ -241,13 +326,77 @@ async function getSnapshotRow(
   businessId: string,
   provider: string
 ): Promise<ProviderAccountSnapshotRow | null> {
-  const readiness = await getDbSchemaReadiness({
-    tables: ["provider_account_snapshots"],
-  }).catch(() => null);
-  if (!readiness?.ready) {
-    return null;
-  }
   const sql = getDb();
+  try {
+    const rows = (await sql`
+      SELECT
+        id,
+        business_id,
+        provider,
+        fetched_at,
+        refresh_failed,
+        last_error,
+        refresh_requested_at,
+        last_refresh_attempt_at,
+        next_refresh_after,
+        refresh_in_progress,
+        accounts_hash,
+        source_reason,
+        last_successful_refresh_at,
+        refresh_failure_streak,
+        created_at,
+        updated_at
+      FROM provider_account_snapshot_runs
+      WHERE business_id = ${businessId}
+        AND provider = ${provider}
+      LIMIT 1
+    `) as Array<NormalizedProviderAccountSnapshotRunRow>;
+
+    const run = rows[0];
+    if (run) {
+      const items = (await sql`
+        SELECT
+          snapshot_run_id,
+          provider_account_ref_id,
+          provider_account_id,
+          provider_account_name,
+          currency,
+          timezone,
+          is_manager,
+          position,
+          raw_payload,
+          created_at,
+          updated_at
+        FROM provider_account_snapshot_items
+        WHERE snapshot_run_id = ${run.id}
+        ORDER BY position ASC, created_at ASC
+      `) as Array<NormalizedProviderAccountSnapshotItemRow>;
+
+      return buildLegacySnapshotRow({
+        businessId: run.business_id,
+        provider: run.provider,
+        accounts: items.map(mapSnapshotItemFromRow),
+        fetchedAt: run.fetched_at,
+        refreshFailed: run.refresh_failed,
+        lastError: run.last_error,
+        refreshRequestedAt: run.refresh_requested_at,
+        lastRefreshAttemptAt: run.last_refresh_attempt_at,
+        nextRefreshAfter: run.next_refresh_after,
+        refreshInProgress: run.refresh_in_progress,
+        accountsHash: run.accounts_hash,
+        sourceReason: run.source_reason,
+        lastSuccessfulRefreshAt: run.last_successful_refresh_at,
+        refreshFailureStreak: run.refresh_failure_streak,
+        createdAt: run.created_at,
+        updatedAt: run.updated_at,
+      });
+    }
+  } catch (error) {
+    if (!isMissingRelationError(error, ["provider_account_snapshot_runs", "provider_account_snapshot_items"])) {
+      throw error;
+    }
+  }
+
   const rows = (await sql`
     SELECT
       business_id,
@@ -275,31 +424,192 @@ async function getSnapshotRow(
   return rows[0] ?? null;
 }
 
-async function upsertSnapshotRow(input: {
+async function persistSnapshotState(input: {
   businessId: string;
   provider: string;
   accounts: ProviderAccountSnapshotItem[];
-  refreshFailed: boolean;
-  lastError: string | null;
+  fetchedAt?: Date | string | null;
   refreshRequestedAt?: Date | null;
   lastRefreshAttemptAt?: Date | null;
   nextRefreshAfter?: Date | null;
   refreshInProgress?: boolean;
+  refreshFailed?: boolean;
+  lastError?: string | null;
   sourceReason?: string | null;
   lastSuccessfulRefreshAt?: Date | null;
   refreshFailureStreak?: number;
 }) {
-  const readiness = await getDbSchemaReadiness({
-    tables: ["provider_account_snapshots"],
-  }).catch(() => null);
-  if (!readiness?.ready) {
-    return;
-  }
   const sql = getDb();
   const accountsHash = computeAccountsHash(input.accounts);
+  const now = new Date().toISOString();
+  const fetchedAt = toIso(input.fetchedAt ?? null) ?? now;
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
+  const businessRefId = businessRefIds.get(input.businessId) ?? null;
+  try {
+    const runRows = (await sql`
+      INSERT INTO provider_account_snapshot_runs (
+        business_id,
+        business_ref_id,
+        provider,
+        fetched_at,
+        refresh_failed,
+        last_error,
+        refresh_requested_at,
+        last_refresh_attempt_at,
+        next_refresh_after,
+        refresh_in_progress,
+        accounts_hash,
+        source_reason,
+        last_successful_refresh_at,
+        refresh_failure_streak,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${input.businessId},
+        ${businessRefId},
+        ${input.provider},
+        ${fetchedAt},
+        ${input.refreshFailed ?? false},
+        ${input.lastError ?? null},
+        ${toIso(input.refreshRequestedAt ?? null)},
+        ${toIso(input.lastRefreshAttemptAt ?? null)},
+        ${toIso(input.nextRefreshAfter ?? null)},
+        ${input.refreshInProgress ?? false},
+        ${accountsHash},
+        ${input.sourceReason ?? null},
+        ${toIso(input.lastSuccessfulRefreshAt ?? null)},
+        ${input.refreshFailureStreak ?? 0},
+        ${now},
+        ${now}
+      )
+      ON CONFLICT (business_id, provider) DO UPDATE SET
+        business_ref_id = COALESCE(
+          provider_account_snapshot_runs.business_ref_id,
+          EXCLUDED.business_ref_id
+        ),
+        fetched_at = EXCLUDED.fetched_at,
+        refresh_failed = EXCLUDED.refresh_failed,
+        last_error = EXCLUDED.last_error,
+        refresh_requested_at = COALESCE(EXCLUDED.refresh_requested_at, provider_account_snapshot_runs.refresh_requested_at),
+        last_refresh_attempt_at = COALESCE(EXCLUDED.last_refresh_attempt_at, provider_account_snapshot_runs.last_refresh_attempt_at),
+        next_refresh_after = EXCLUDED.next_refresh_after,
+        refresh_in_progress = EXCLUDED.refresh_in_progress,
+        accounts_hash = EXCLUDED.accounts_hash,
+        source_reason = EXCLUDED.source_reason,
+        last_successful_refresh_at = COALESCE(EXCLUDED.last_successful_refresh_at, provider_account_snapshot_runs.last_successful_refresh_at),
+        refresh_failure_streak = EXCLUDED.refresh_failure_streak,
+        updated_at = EXCLUDED.updated_at
+      RETURNING id
+    `) as Array<{ id: string }>;
+    const runId = runRows[0]?.id ?? null;
+
+    if (runId) {
+      await sql`
+        DELETE FROM provider_account_snapshot_items
+        WHERE snapshot_run_id = ${runId}
+      `;
+
+      if (input.accounts.length > 0) {
+        await sql`
+          INSERT INTO provider_accounts (
+            provider,
+            external_account_id,
+            account_name,
+            currency,
+            timezone,
+            is_manager,
+            metadata,
+            created_at,
+            updated_at
+          )
+          SELECT
+            ${input.provider},
+            NULLIF(item.item->>'id', ''),
+            COALESCE(NULLIF(item.item->>'name', ''), NULLIF(item.item->>'id', '')),
+            NULLIF(item.item->>'currency', ''),
+            NULLIF(item.item->>'timezone', ''),
+            CASE
+              WHEN item.item ? 'isManager' THEN (item.item->>'isManager')::BOOLEAN
+              ELSE NULL
+            END,
+            item.item,
+            ${now},
+            ${now}
+          FROM jsonb_array_elements(${JSON.stringify(input.accounts)}::jsonb) WITH ORDINALITY AS item(item, ordinality)
+          WHERE NULLIF(item.item->>'id', '') IS NOT NULL
+          ON CONFLICT (provider, external_account_id) DO UPDATE SET
+            account_name = COALESCE(EXCLUDED.account_name, provider_accounts.account_name),
+            currency = COALESCE(EXCLUDED.currency, provider_accounts.currency),
+            timezone = COALESCE(EXCLUDED.timezone, provider_accounts.timezone),
+            is_manager = COALESCE(EXCLUDED.is_manager, provider_accounts.is_manager),
+            metadata = CASE
+              WHEN EXCLUDED.metadata = '{}'::jsonb THEN provider_accounts.metadata
+              ELSE provider_accounts.metadata || EXCLUDED.metadata
+            END,
+            updated_at = EXCLUDED.updated_at
+        `;
+
+        await sql`
+          INSERT INTO provider_account_snapshot_items (
+            snapshot_run_id,
+            provider_account_ref_id,
+            provider_account_id,
+            provider_account_name,
+            currency,
+            timezone,
+            is_manager,
+            position,
+            raw_payload,
+            created_at,
+            updated_at
+          )
+          SELECT
+            ${runId},
+            pa.id,
+            NULLIF(item.item->>'id', ''),
+            COALESCE(NULLIF(item.item->>'name', ''), NULLIF(item.item->>'id', '')),
+            NULLIF(item.item->>'currency', ''),
+            NULLIF(item.item->>'timezone', ''),
+            CASE
+              WHEN item.item ? 'isManager' THEN (item.item->>'isManager')::BOOLEAN
+              ELSE NULL
+            END,
+            item.ordinality - 1,
+            item.item,
+            ${now},
+            ${now}
+          FROM jsonb_array_elements(${JSON.stringify(input.accounts)}::jsonb) WITH ORDINALITY AS item(item, ordinality)
+          LEFT JOIN provider_accounts pa
+            ON pa.provider = ${input.provider}
+           AND pa.external_account_id = NULLIF(item.item->>'id', '')
+          WHERE NULLIF(item.item->>'id', '') IS NOT NULL
+          ON CONFLICT (snapshot_run_id, provider_account_id) DO UPDATE SET
+            provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, provider_account_snapshot_items.provider_account_ref_id),
+            provider_account_name = COALESCE(EXCLUDED.provider_account_name, provider_account_snapshot_items.provider_account_name),
+            currency = COALESCE(EXCLUDED.currency, provider_account_snapshot_items.currency),
+            timezone = COALESCE(EXCLUDED.timezone, provider_account_snapshot_items.timezone),
+            is_manager = COALESCE(EXCLUDED.is_manager, provider_account_snapshot_items.is_manager),
+            position = EXCLUDED.position,
+            raw_payload = EXCLUDED.raw_payload,
+            updated_at = EXCLUDED.updated_at
+        `;
+      }
+    }
+  } catch (error) {
+    if (!isMissingRelationError(error, [
+      "provider_account_snapshot_runs",
+      "provider_account_snapshot_items",
+      "provider_accounts",
+    ])) {
+      throw error;
+    }
+  }
+
   await sql`
     INSERT INTO provider_account_snapshots (
       business_id,
+      business_ref_id,
       provider,
       accounts_payload,
       fetched_at,
@@ -317,11 +627,12 @@ async function upsertSnapshotRow(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.provider},
       ${JSON.stringify(input.accounts)}::jsonb,
-      now(),
-      ${input.refreshFailed},
-      ${input.lastError},
+      ${fetchedAt},
+      ${input.refreshFailed ?? false},
+      ${input.lastError ?? null},
       ${toIso(input.refreshRequestedAt ?? null)},
       ${toIso(input.lastRefreshAttemptAt ?? null)},
       ${toIso(input.nextRefreshAfter ?? null)},
@@ -333,6 +644,10 @@ async function upsertSnapshotRow(input: {
       now()
     )
     ON CONFLICT (business_id, provider) DO UPDATE SET
+      business_ref_id = COALESCE(
+        provider_account_snapshots.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       accounts_payload = EXCLUDED.accounts_payload,
       fetched_at = now(),
       refresh_failed = EXCLUDED.refresh_failed,
@@ -349,9 +664,58 @@ async function upsertSnapshotRow(input: {
   `;
 }
 
+async function upsertSnapshotRow(input: {
+  businessId: string;
+  provider: string;
+  accounts: ProviderAccountSnapshotItem[];
+  refreshFailed: boolean;
+  lastError: string | null;
+  refreshRequestedAt?: Date | null;
+  lastRefreshAttemptAt?: Date | null;
+  nextRefreshAfter?: Date | null;
+  refreshInProgress?: boolean;
+  sourceReason?: string | null;
+  lastSuccessfulRefreshAt?: Date | null;
+  refreshFailureStreak?: number;
+}) {
+  await persistSnapshotState(input);
+}
+
+export async function writeProviderAccountSnapshot(input: {
+  businessId: string;
+  provider: string;
+  accountsPayload: ProviderAccountSnapshotItem[];
+  refreshFailed: boolean;
+  lastError: string | null;
+  refreshRequestedAt?: Date | null;
+  lastRefreshAttemptAt?: Date | null;
+  nextRefreshAfter?: Date | null;
+  refreshInProgress?: boolean;
+  sourceReason?: string | null;
+  lastSuccessfulRefreshAt?: Date | null;
+  refreshFailureStreak?: number;
+}) {
+  await upsertSnapshotRow({
+    businessId: input.businessId,
+    provider: input.provider,
+    accounts: input.accountsPayload,
+    refreshFailed: input.refreshFailed,
+    lastError: input.lastError,
+    refreshRequestedAt: input.refreshRequestedAt,
+    lastRefreshAttemptAt: input.lastRefreshAttemptAt,
+    nextRefreshAfter: input.nextRefreshAfter,
+    refreshInProgress: input.refreshInProgress,
+    sourceReason: input.sourceReason,
+    lastSuccessfulRefreshAt: input.lastSuccessfulRefreshAt,
+    refreshFailureStreak: input.refreshFailureStreak,
+  });
+}
+
 async function updateSnapshotLifecycle(input: {
   businessId: string;
   provider: string;
+  accounts?: ProviderAccountSnapshotItem[];
+  fetchedAt?: Date | string | null;
   refreshRequestedAt?: Date | null;
   lastRefreshAttemptAt?: Date | null;
   nextRefreshAfter?: Date | null;
@@ -362,58 +726,11 @@ async function updateSnapshotLifecycle(input: {
   lastSuccessfulRefreshAt?: Date | null;
   refreshFailureStreak?: number;
 }) {
-  const readiness = await getDbSchemaReadiness({
-    tables: ["provider_account_snapshots"],
-  }).catch(() => null);
-  if (!readiness?.ready) {
-    return;
-  }
-  const sql = getDb();
-  await sql`
-    INSERT INTO provider_account_snapshots (
-      business_id,
-      provider,
-      accounts_payload,
-      fetched_at,
-      refresh_failed,
-      last_error,
-      refresh_requested_at,
-      last_refresh_attempt_at,
-      next_refresh_after,
-      refresh_in_progress,
-      source_reason,
-      last_successful_refresh_at,
-      refresh_failure_streak,
-      updated_at
-    )
-    VALUES (
-      ${input.businessId},
-      ${input.provider},
-      '[]'::jsonb,
-      now(),
-      ${input.refreshFailed ?? false},
-      ${input.lastError ?? null},
-      ${toIso(input.refreshRequestedAt ?? null)},
-      ${toIso(input.lastRefreshAttemptAt ?? null)},
-      ${toIso(input.nextRefreshAfter ?? null)},
-      ${input.refreshInProgress ?? false},
-      ${input.sourceReason ?? null},
-      ${toIso(input.lastSuccessfulRefreshAt ?? null)},
-      ${input.refreshFailureStreak ?? 0},
-      now()
-    )
-    ON CONFLICT (business_id, provider) DO UPDATE SET
-      refresh_failed = COALESCE(${input.refreshFailed}, provider_account_snapshots.refresh_failed),
-      last_error = COALESCE(${input.lastError}, provider_account_snapshots.last_error),
-      refresh_requested_at = COALESCE(${toIso(input.refreshRequestedAt ?? null)}, provider_account_snapshots.refresh_requested_at),
-      last_refresh_attempt_at = COALESCE(${toIso(input.lastRefreshAttemptAt ?? null)}, provider_account_snapshots.last_refresh_attempt_at),
-      next_refresh_after = COALESCE(${toIso(input.nextRefreshAfter ?? null)}, provider_account_snapshots.next_refresh_after),
-      refresh_in_progress = COALESCE(${input.refreshInProgress}, provider_account_snapshots.refresh_in_progress),
-      source_reason = COALESCE(${input.sourceReason ?? null}, provider_account_snapshots.source_reason),
-      last_successful_refresh_at = COALESCE(${toIso(input.lastSuccessfulRefreshAt ?? null)}, provider_account_snapshots.last_successful_refresh_at),
-      refresh_failure_streak = COALESCE(${input.refreshFailureStreak}, provider_account_snapshots.refresh_failure_streak),
-      updated_at = now()
-  `;
+  await persistSnapshotState({
+    ...input,
+    accounts: input.accounts ?? [],
+    fetchedAt: input.fetchedAt ?? null,
+  });
 }
 
 function toSnapshotMeta(input: {
@@ -512,6 +829,8 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
     await updateSnapshotLifecycle({
       businessId: input.businessId,
       provider: input.provider,
+      accounts: existingSnapshot?.accounts_payload ?? [],
+      fetchedAt: existingSnapshot?.fetched_at ?? null,
       refreshRequestedAt: now,
       lastRefreshAttemptAt: now,
       nextRefreshAfter: null,

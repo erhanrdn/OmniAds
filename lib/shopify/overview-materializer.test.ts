@@ -8,6 +8,20 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/db-schema-readiness", () => ({
   assertDbSchemaReady: vi.fn(),
+  isMissingRelationError: vi.fn(() => false),
+}));
+
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
+    return new Map(
+      accounts.map((account) => [account.externalAccountId, `provider-ref-${account.externalAccountId}`] as const),
+    );
+  }),
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const),
+    );
+  }),
 }));
 
 const schemaReadiness = await import("@/lib/db-schema-readiness");

@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness, isMissingRelationError } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 
 export interface BusinessCostModel {
   businessId: string;
@@ -71,9 +72,13 @@ export async function upsertBusinessCostModel(input: {
     context: "business_cost_model_upsert",
   });
   const sql = getDb();
+  const businessRefId =
+    (await resolveBusinessReferenceIds([input.businessId])).get(input.businessId) ??
+    null;
   const rows = (await sql`
     INSERT INTO business_cost_models (
       business_id,
+      business_ref_id,
       cogs_percent,
       shipping_percent,
       fee_percent,
@@ -83,6 +88,7 @@ export async function upsertBusinessCostModel(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.cogsPercent},
       ${input.shippingPercent},
       ${input.feePercent},
@@ -92,6 +98,10 @@ export async function upsertBusinessCostModel(input: {
     )
     ON CONFLICT (business_id)
     DO UPDATE SET
+      business_ref_id = COALESCE(
+        business_cost_models.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       cogs_percent = EXCLUDED.cogs_percent,
       shipping_percent = EXCLUDED.shipping_percent,
       fee_percent = EXCLUDED.fee_percent,

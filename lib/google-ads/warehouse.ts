@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { getDb, getDbWithTimeout } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import { refreshOverviewSummaryMaterializationFromGoogleAccountRows } from "@/lib/overview-summary-materializer";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import type {
@@ -130,6 +134,35 @@ const GOOGLE_ADS_MUTATION_TABLES = [
   "google_ads_device_daily",
   "google_ads_product_daily",
 ] as const;
+
+async function resolveGoogleAdsControlPlaneReferenceIds(input: {
+  businessId: string;
+  providerAccountId: string;
+  accountName?: string | null;
+  accountCurrency?: string | null;
+  accountTimezone?: string | null;
+}) {
+  const [businessRefIds, providerAccountRefIds] = await Promise.all([
+    resolveBusinessReferenceIds([input.businessId]),
+    ensureProviderAccountReferenceIds({
+      provider: "google",
+      accounts: [
+        {
+          externalAccountId: input.providerAccountId,
+          accountName: input.accountName ?? null,
+          currency: input.accountCurrency ?? null,
+          timezone: input.accountTimezone ?? null,
+        },
+      ],
+    }),
+  ]);
+
+  return {
+    businessRefId: businessRefIds.get(input.businessId) ?? null,
+    providerAccountRefId:
+      providerAccountRefIds.get(input.providerAccountId) ?? null,
+  };
+}
 
 function normalizeDate(value: unknown) {
   if (value instanceof Date) {
@@ -611,6 +644,11 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
   // Legacy-only: retained for reset/debug visibility. Queue/status truth must not depend on this table.
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsControlPlaneReferenceIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+    });
   const staleRepairSupersededMessage = input.triggerSource.startsWith(
     "manual_targeted_repair:",
   )
@@ -623,6 +661,8 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
     await sql`
       UPDATE google_ads_sync_jobs
       SET
+        business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+        provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
         status = 'cancelled',
         last_error = COALESCE(last_error, ${staleRepairSupersededMessage}),
         finished_at = now(),
@@ -640,7 +680,9 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
   const insertedRows = (await sql`
     INSERT INTO google_ads_sync_jobs (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       sync_type,
       scope,
       start_date,
@@ -657,7 +699,9 @@ export async function createGoogleAdsSyncJob(input: GoogleAdsSyncJobRecord) {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.syncType},
       ${input.scope},
       ${normalizeDate(input.startDate)},
@@ -756,6 +800,7 @@ export async function acquireGoogleAdsRunnerLease(input: {
   leaseMinutes?: number;
 }) {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
+  const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const sql = getDb();
   await expireStaleGoogleAdsRunnerLeases({
     businessId: input.businessId,
@@ -764,6 +809,7 @@ export async function acquireGoogleAdsRunnerLease(input: {
   const rows = (await sql`
     INSERT INTO google_ads_runner_leases (
       business_id,
+      business_ref_id,
       lane,
       lease_owner,
       lease_expires_at,
@@ -771,6 +817,7 @@ export async function acquireGoogleAdsRunnerLease(input: {
     )
     VALUES (
       ${input.businessId},
+      ${businessRefIds.get(input.businessId) ?? null},
       ${input.lane},
       ${input.leaseOwner},
       now() + (${input.leaseMinutes ?? 5} || ' minutes')::interval,
@@ -778,6 +825,10 @@ export async function acquireGoogleAdsRunnerLease(input: {
     )
     ON CONFLICT (business_id, lane)
     DO UPDATE SET
+      business_ref_id = COALESCE(
+        google_ads_runner_leases.business_ref_id,
+        EXCLUDED.business_ref_id
+      ),
       lease_owner = CASE
         WHEN google_ads_runner_leases.lease_expires_at <= now() THEN EXCLUDED.lease_owner
         ELSE google_ads_runner_leases.lease_owner
@@ -867,6 +918,11 @@ export async function queueGoogleAdsSyncPartition(
 ) {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsControlPlaneReferenceIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+    });
   const priorityResetSources = [
     "selected_range",
     "finalize_day",
@@ -879,7 +935,9 @@ export async function queueGoogleAdsSyncPartition(
   const rows = (await sql`
     INSERT INTO google_ads_sync_partitions (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       lane,
       scope,
       partition_date,
@@ -897,7 +955,9 @@ export async function queueGoogleAdsSyncPartition(
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.lane},
       ${input.scope},
       ${normalizeDate(input.partitionDate)},
@@ -915,6 +975,8 @@ export async function queueGoogleAdsSyncPartition(
     )
     ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_sync_partitions.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_sync_partitions.provider_account_ref_id),
       priority = GREATEST(google_ads_sync_partitions.priority, EXCLUDED.priority),
       source = CASE
         WHEN google_ads_sync_partitions.source = 'selected_range' THEN google_ads_sync_partitions.source
@@ -2293,9 +2355,16 @@ export async function getGoogleAdsPartitionDates(input: {
 export async function createGoogleAdsSyncRun(input: GoogleAdsSyncRunRecord) {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsControlPlaneReferenceIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+    });
   await sql`
     UPDATE google_ads_sync_runs
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
       status = 'cancelled',
       error_class = COALESCE(error_class, 'superseded_attempt'),
       error_message = COALESCE(error_message, 'partition attempt was superseded by a newer worker'),
@@ -2312,7 +2381,9 @@ export async function createGoogleAdsSyncRun(input: GoogleAdsSyncRunRecord) {
     INSERT INTO google_ads_sync_runs (
       partition_id,
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       lane,
       scope,
       partition_date,
@@ -2331,7 +2402,9 @@ export async function createGoogleAdsSyncRun(input: GoogleAdsSyncRunRecord) {
     VALUES (
       ${input.partitionId},
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.lane},
       ${input.scope},
       ${normalizeDate(input.partitionDate)},
@@ -2408,6 +2481,11 @@ export async function upsertGoogleAdsSyncState(
 ) {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsControlPlaneReferenceIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+    });
   const existing =
     (
       await getGoogleAdsSyncState({
@@ -2423,7 +2501,9 @@ export async function upsertGoogleAdsSyncState(
   await sql`
     INSERT INTO google_ads_sync_state (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       scope,
       historical_target_start,
       historical_target_end,
@@ -2439,7 +2519,9 @@ export async function upsertGoogleAdsSyncState(
     )
     VALUES (
       ${next.businessId},
+      ${businessRefId},
       ${next.providerAccountId},
+      ${providerAccountRefId},
       ${next.scope},
       ${normalizeDate(next.historicalTargetStart)},
       ${normalizeDate(next.historicalTargetEnd)},
@@ -2455,6 +2537,8 @@ export async function upsertGoogleAdsSyncState(
     )
     ON CONFLICT (business_id, provider_account_id, scope)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_sync_state.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_sync_state.provider_account_ref_id),
       historical_target_start = EXCLUDED.historical_target_start,
       historical_target_end = EXCLUDED.historical_target_end,
       effective_target_start = EXCLUDED.effective_target_start,
@@ -2474,10 +2558,19 @@ export async function persistGoogleAdsRawSnapshot(
 ) {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsControlPlaneReferenceIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      accountCurrency: input.accountCurrency ?? null,
+      accountTimezone: input.accountTimezone ?? null,
+    });
   const rows = (await sql`
     INSERT INTO google_ads_raw_snapshots (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       partition_id,
       checkpoint_id,
       endpoint_name,
@@ -2499,7 +2592,9 @@ export async function persistGoogleAdsRawSnapshot(
     )
     VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.partitionId ?? null},
       ${input.checkpointId ?? null},
       ${input.endpointName},
@@ -2529,6 +2624,11 @@ export async function upsertGoogleAdsSyncCheckpoint(
 ) {
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsControlPlaneReferenceIds({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+    });
   const checkpointHash =
     input.checkpointHash ??
     buildGoogleAdsSyncCheckpointHash({
@@ -2557,7 +2657,9 @@ export async function upsertGoogleAdsSyncCheckpoint(
     INSERT INTO google_ads_sync_checkpoints (
       partition_id,
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       checkpoint_scope,
       is_paginated,
       phase,
@@ -2588,7 +2690,9 @@ export async function upsertGoogleAdsSyncCheckpoint(
     SELECT
       ${input.partitionId},
       ${input.businessId},
+      ${businessRefId},
       ${input.providerAccountId},
+      ${providerAccountRefId},
       ${input.checkpointScope},
       ${input.isPaginated ?? false},
       ${input.phase},
@@ -2618,6 +2722,8 @@ export async function upsertGoogleAdsSyncCheckpoint(
     FROM owner_guard
     ON CONFLICT (partition_id, checkpoint_scope)
     DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_sync_checkpoints.business_ref_id),
+      provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_sync_checkpoints.provider_account_ref_id),
       is_paginated = EXCLUDED.is_paginated,
       phase = EXCLUDED.phase,
       status = EXCLUDED.status,
@@ -2873,12 +2979,26 @@ export async function upsertGoogleAdsDailyRows(
         duplicateExamples,
       });
     }
+    const businessRefIds = await resolveBusinessReferenceIds(
+      dedupedBatch.map((row) => row.businessId),
+    );
+    const providerAccountRefIds = await ensureProviderAccountReferenceIds({
+      provider: "google",
+      accounts: dedupedBatch.map((row) => ({
+        externalAccountId: row.providerAccountId,
+        accountName: scope === "account_daily" ? row.entityLabel ?? null : null,
+        currency: row.accountCurrency,
+        timezone: row.accountTimezone,
+      })),
+    });
     const values: unknown[] = [];
     const tuples = dedupedBatch.map((row, index) => {
-      const offset = index * 27;
+      const offset = index * 29;
       values.push(
         row.businessId,
+        businessRefIds.get(row.businessId) ?? null,
         row.providerAccountId,
+        providerAccountRefIds.get(row.providerAccountId) ?? null,
         normalizeDate(row.date),
         row.accountTimezone,
         row.accountCurrency,
@@ -2905,14 +3025,16 @@ export async function upsertGoogleAdsDailyRows(
         row.interactionRate,
         row.sourceSnapshotId,
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},now())`;
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17}::jsonb,$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},now())`;
     });
 
     await sql.query(
       `
         INSERT INTO ${table} (
           business_id,
+          business_ref_id,
           provider_account_id,
+          provider_account_ref_id,
           date,
           account_timezone,
           account_currency,
@@ -2942,6 +3064,8 @@ export async function upsertGoogleAdsDailyRows(
         )
         VALUES ${tuples.join(",")}
         ON CONFLICT (business_id, provider_account_id, date, entity_key) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, ${table}.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, ${table}.provider_account_ref_id),
           entity_label = EXCLUDED.entity_label,
           campaign_id = EXCLUDED.campaign_id,
           campaign_name = EXCLUDED.campaign_name,

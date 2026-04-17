@@ -8,6 +8,15 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
+    return new Map(accounts.map((account) => [account.externalAccountId, `provider-ref-${account.externalAccountId}`] as const));
+  }),
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const));
+  }),
+}));
+
 vi.mock("@/lib/sync/worker-health", () => ({
   recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
 }));
@@ -23,6 +32,7 @@ const {
   createMetaAuthoritativeReconciliationEvent,
   createMetaAuthoritativeSliceVersion,
   createMetaAuthoritativeSourceManifest,
+  createMetaSyncJob,
   createMetaSyncRun,
   getMetaAuthoritativeBusinessOpsSnapshot,
   getMetaAuthoritativeDayVerification,
@@ -37,8 +47,10 @@ const {
   getMetaRecentAuthoritativeSliceGuard,
   leaseMetaSyncPartitions,
   markMetaPartitionRunning,
+  persistMetaRawSnapshot,
   publishMetaAuthoritativeSliceVersion,
   replaceMetaBreakdownDailySlice,
+  upsertMetaBreakdownDailyRows,
   replayMetaDeadLetterPartitions,
   releaseMetaLeasedPartitionsForWorker,
   reserveNextMetaAuthoritativeCandidateVersion,
@@ -682,7 +694,7 @@ describe("meta warehouse ownership safety", () => {
     ]);
 
     expect(capturedValues).toHaveLength(1);
-    expect(capturedValues[0]?.[22]).toBe(0);
+    expect(capturedValues[0]?.[24]).toBe(0);
   });
 
   it("casts warehouse range dates to text when truth lifecycle columns are enabled", async () => {
@@ -817,7 +829,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($29,$30,$31");
+    expect(queries.join("\n")).toContain("), ($31,$32,$33");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET");
   });
 
@@ -893,7 +905,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($32,$33,$34");
+    expect(queries.join("\n")).toContain("), ($34,$35,$36");
     expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET");
   });
 
@@ -3152,6 +3164,106 @@ describe("meta warehouse ownership safety", () => {
       vi.useRealTimers();
     }
   });
+  it("writes canonical ref ids for authoritative state and publication tables", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaAuthoritativeDayState({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      state: "queued",
+      accountTimezone: "UTC",
+      failureStreak: 0,
+      autohealCount: 0,
+    });
+
+    await createMetaAuthoritativeSourceManifest({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      accountTimezone: "UTC",
+      sourceKind: "warehouse",
+      sourceWindowKind: "historical",
+      fetchStatus: "completed",
+    });
+
+    await createMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      candidateVersion: 1,
+      state: "finalized_verified",
+      truthState: "finalized",
+      validationStatus: "passed",
+      status: "published",
+    });
+
+    await publishMetaAuthoritativeSliceVersion({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      sliceVersionId: "slice-1",
+      publicationReason: "test",
+    });
+
+    await createMetaAuthoritativeReconciliationEvent({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      day: "2026-04-07",
+      surface: "campaign_daily",
+      eventKind: "parity_check",
+      severity: "info",
+      result: "passed",
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+    expect(query).toContain("meta_authoritative_day_state");
+    expect(query).toContain("meta_authoritative_source_manifests");
+    expect(query).toContain("meta_authoritative_slice_versions");
+    expect(query).toContain("meta_authoritative_publication_pointers");
+    expect(query).toContain("meta_authoritative_reconciliation_events");
+  });
+
+  it("writes canonical ref ids for raw snapshots", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "snapshot-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await persistMetaRawSnapshot({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      endpointName: "campaigns",
+      entityScope: "campaign",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      payloadJson: { data: [] },
+      payloadHash: "hash-1",
+      requestContext: {},
+      providerHttpStatus: 200,
+      status: "fetched",
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+    expect(query).toContain("meta_raw_snapshots");
+  });
 });
 
 describe("meta warehouse config columns", () => {
@@ -3250,6 +3362,450 @@ describe("meta warehouse config columns", () => {
     expect(queries.some((text) => text.includes("optimization_goal"))).toBe(true);
     expect(queries.some((text) => text.includes("bid_strategy_type"))).toBe(true);
     expect(queries.some((text) => text.includes("is_bid_value_mixed"))).toBe(true);
+  });
+
+  it("writes canonical ref columns in campaign, adset, breakdown, ad, and creative upserts", async () => {
+    const query = vi.fn().mockResolvedValue(undefined);
+    const sql = vi.fn() as unknown as { query: typeof query };
+    sql.query = query;
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaCampaignDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        campaignNameCurrent: "Campaign 1",
+        campaignNameHistorical: "Campaign 1",
+        campaignStatus: "ACTIVE",
+        objective: null,
+        buyingType: null,
+        optimizationGoal: "Purchase",
+        bidStrategyType: "bid_cap",
+        bidStrategyLabel: "Bid Cap",
+        manualBidAmount: 5,
+        bidValue: 5,
+        bidValueFormat: "currency",
+        dailyBudget: 10,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+      },
+    ]);
+
+    await upsertMetaAdSetDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: "Purchase",
+        bidStrategyType: "bid_cap",
+        bidStrategyLabel: "Bid Cap",
+        manualBidAmount: 5,
+        bidValue: 5,
+        bidValueFormat: "currency",
+        dailyBudget: 10,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+      },
+    ]);
+
+    await upsertMetaBreakdownDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        breakdownLabel: "25-34",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+      },
+    ]);
+
+    await upsertMetaAdDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        adNameCurrent: "Ad 1",
+        adNameHistorical: "Ad 1",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+        payloadJson: { adId: "ad-1" },
+      },
+    ]);
+
+    await upsertMetaCreativeDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "creative-1",
+        creativeName: "Creative 1",
+        headline: "Headline",
+        primaryText: "Primary text",
+        destinationUrl: "https://example.com",
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 0,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+        payloadJson: { creativeId: "creative-1" },
+      },
+    ]);
+
+    const queries = query.mock.calls.map(([text]) => String(text));
+    const expectedTables = [
+      "meta_campaign_daily",
+      "meta_adset_daily",
+      "meta_breakdown_daily",
+      "meta_ad_daily",
+      "meta_creative_daily",
+    ];
+
+    for (const table of expectedTables) {
+      const tableQuery = queries.find((text) => text.includes(`INSERT INTO ${table}`));
+      expect(tableQuery).toContain("business_ref_id");
+      expect(tableQuery).toContain("provider_account_ref_id");
+    }
+  });
+
+  it("emits full truth lifecycle placeholders for adset upserts", async () => {
+    vi.resetModules();
+    const dbModule = await import("@/lib/db");
+    const { upsertMetaAdSetDailyRows } = await import("@/lib/meta/warehouse");
+
+    const query = vi.fn().mockResolvedValue(undefined);
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const queryText = strings.join(" ");
+      if (queryText.includes("information_schema.columns")) {
+        return [{ present: true }];
+      }
+      return [];
+    }) as unknown as { query: typeof query };
+    sql.query = query;
+    vi.mocked(dbModule.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaAdSetDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: "Purchase",
+        bidStrategyType: "bid_cap",
+        bidStrategyLabel: "Bid Cap",
+        manualBidAmount: 5,
+        bidValue: 5,
+        bidValueFormat: "currency",
+        dailyBudget: 10,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-03T00:00:00.000Z",
+        validationStatus: "passed",
+        sourceRunId: "run-1",
+      },
+    ]);
+
+    const adsetQuery = query.mock.calls
+      .map(([text]) => String(text))
+      .find((text) => text.includes("INSERT INTO meta_adset_daily"));
+
+    expect(adsetQuery).toContain("$42");
+    expect(adsetQuery).toContain("$43");
+    expect(adsetQuery).toContain("source_run_id");
+  });
+
+  it("emits full payload placeholders for ad and creative upserts", async () => {
+    vi.resetModules();
+    const dbModule = await import("@/lib/db");
+    const {
+      upsertMetaAdDailyRows,
+      upsertMetaCreativeDailyRows,
+    } = await import("@/lib/meta/warehouse");
+
+    const query = vi.fn().mockResolvedValue(undefined);
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const queryText = strings.join(" ");
+      if (queryText.includes("information_schema.columns")) {
+        return [{ present: true }];
+      }
+      return [];
+    }) as unknown as { query: typeof query };
+    sql.query = query;
+    vi.mocked(dbModule.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaAdDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        adNameCurrent: "Ad 1",
+        adNameHistorical: "Ad 1",
+        adStatus: "ACTIVE",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        linkClicks: 1,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-03T00:00:00.000Z",
+        validationStatus: "passed",
+        sourceRunId: "run-1",
+        payloadJson: { adId: "ad-1" },
+      },
+    ]);
+
+    await upsertMetaCreativeDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adId: "ad-1",
+        creativeId: "creative-1",
+        creativeName: "Creative 1",
+        headline: "Headline",
+        primaryText: "Primary text",
+        destinationUrl: "https://example.com",
+        thumbnailUrl: null,
+        assetType: "image",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 0,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        linkClicks: 1,
+        sourceSnapshotId: null,
+        sourceRunId: "run-1",
+        payloadJson: { creativeId: "creative-1" },
+      },
+    ]);
+
+    const queries = query.mock.calls.map(([text]) => String(text));
+    const adQuery = queries.find((text) => text.includes("INSERT INTO meta_ad_daily"));
+    const creativeQuery = queries.find((text) => text.includes("INSERT INTO meta_creative_daily"));
+
+    expect(adQuery).toContain("$32");
+    expect(adQuery).toContain("$33::jsonb");
+    expect(creativeQuery).toContain("$29");
+    expect(creativeQuery).toContain("$30::jsonb");
+  });
+
+  it("emits full lifecycle placeholders for breakdown upserts", async () => {
+    vi.resetModules();
+    const dbModule = await import("@/lib/db");
+    const { upsertMetaBreakdownDailyRows } = await import("@/lib/meta/warehouse");
+
+    const query = vi.fn().mockResolvedValue(undefined);
+    const sql = vi.fn(async () => []) as unknown as { query: typeof query };
+    sql.query = query;
+    vi.mocked(dbModule.getDb).mockReturnValue(sql as never);
+
+    await upsertMetaBreakdownDailyRows([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        breakdownLabel: "25-34",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 1,
+        impressions: 2,
+        clicks: 3,
+        reach: 4,
+        frequency: null,
+        conversions: 0,
+        revenue: 0,
+        roas: 0,
+        cpa: null,
+        ctr: null,
+        cpc: null,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-03T00:00:00.000Z",
+        validationStatus: "passed",
+        sourceRunId: "run-1",
+      },
+    ]);
+
+    const breakdownQuery = query.mock.calls
+      .map(([text]) => String(text))
+      .find((text) => text.includes("INSERT INTO meta_breakdown_daily"));
+
+    expect(breakdownQuery).toContain("$26");
+    expect(breakdownQuery).toContain("$27");
+    expect(breakdownQuery).toContain("source_run_id");
+  });
+
+  it("canonicalizes fine-grained sync types before inserting sync jobs", async () => {
+    vi.resetAllMocks();
+
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const queryText = strings.join(" ");
+      if (queryText.includes("information_schema.tables")) return [{ present: true }];
+      if (queryText.includes("information_schema.columns")) return [{ present: true }];
+      if (queryText.includes("FROM businesses")) return [{ id: "business-ref-biz-1" }];
+      if (queryText.includes("FROM provider_accounts")) return [{ id: "provider-ref-act_1" }];
+      if (queryText.includes("FROM meta_sync_jobs")) return [];
+      if (queryText.includes("INSERT INTO meta_sync_jobs")) {
+        expect(values[4]).toBe("today_refresh");
+        return [{ id: "job-1" }];
+      }
+      return [];
+    }) as ReturnType<typeof vi.fn> & { query?: ReturnType<typeof vi.fn> };
+
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const jobId = await createMetaSyncJob({
+      businessId: "biz-1",
+      providerAccountId: "act_1",
+      syncType: "today_observe",
+      scope: "account_daily",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      status: "pending",
+      progressPercent: 0,
+      triggerSource: "today_observe",
+      retryCount: 0,
+      lastError: null,
+    });
+
+    expect(jobId).toBe("job-1");
   });
 
   it("maps the historical config columns back out of campaign and adset daily reads", async () => {

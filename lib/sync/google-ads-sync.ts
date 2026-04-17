@@ -98,6 +98,10 @@ import type {
 } from "@/lib/google-ads/warehouse-types";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
+import {
   getProviderPlatformCurrentDate,
 } from "@/lib/provider-platform-date";
 import {
@@ -2845,11 +2849,26 @@ async function queueGoogleAdsD1FinalizePartitions(input: {
     context: "google_ads_sync:queue_d1_finalize",
   });
   const sql = getDb();
+  const businessRefId =
+    (await resolveBusinessReferenceIds([input.businessId])).get(input.businessId) ??
+    null;
+  const providerAccountRefId =
+    (
+      await ensureProviderAccountReferenceIds({
+        provider: "google",
+        accounts: [{ externalAccountId: input.providerAccountId }],
+      })
+    ).get(input.providerAccountId) ?? null;
   await sql`
     UPDATE google_ads_sync_partitions
     SET
       source = 'finalize_day',
       priority = GREATEST(priority, ${GOOGLE_ADS_D1_FINALIZE_PRIORITY}),
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      provider_account_ref_id = COALESCE(
+        provider_account_ref_id,
+        ${providerAccountRefId}
+      ),
       updated_at = now()
     WHERE business_id = ${input.businessId}
       AND provider_account_id = ${input.providerAccountId}
@@ -2897,6 +2916,9 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const finalizeSlaMs = Math.max(1, input.finalizeSlaMinutes ?? 20) * 60_000;
+  const businessRefId =
+    (await resolveBusinessReferenceIds([input.businessId])).get(input.businessId) ??
+    null;
   const accounts = await syncProviderDayRolloverState({
     provider: "google_ads",
     businessId: input.businessId,
@@ -2914,6 +2936,12 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
       queuedFinalizePartitions: 0,
     };
   }
+  const providerAccountRefIds = await ensureProviderAccountReferenceIds({
+    provider: "google",
+    accounts: accounts.map((account) => ({
+      externalAccountId: account.providerAccountId,
+    })),
+  });
 
   const candidates = (await sql`
     SELECT
@@ -3022,10 +3050,22 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
         lease_owner = NULL,
         lease_expires_at = NULL,
         finished_at = COALESCE(finished_at, now()),
+        business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
         last_error = COALESCE(last_error, 'stale D-1 finalize ownership reclaimed automatically'),
         updated_at = now()
       WHERE id = ANY(${stalledPartitionIds}::uuid[])
     `;
+    if (providerAccountRefIds.size > 0) {
+      await sql`
+        UPDATE google_ads_sync_partitions AS partition
+        SET provider_account_ref_id = provider_account.id
+        FROM provider_accounts AS provider_account
+        WHERE partition.id = ANY(${stalledPartitionIds}::uuid[])
+          AND partition.provider_account_ref_id IS NULL
+          AND provider_account.provider = 'google'
+          AND provider_account.external_account_id = partition.provider_account_id
+      `;
+    }
     await recordSyncReclaimEvents({
       providerScope: "google_ads",
       businessId: input.businessId,

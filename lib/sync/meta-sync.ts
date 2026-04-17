@@ -80,6 +80,10 @@ import {
 } from "@/lib/meta/history";
 import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
+import {
   buildProviderProgressEvidence,
   deriveProviderStallFingerprints,
   hasRecentProviderAdvancement,
@@ -4443,7 +4447,17 @@ export async function recoverMetaD1FinalizePartitions(input: {
   const sql = getDb();
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
   const finalizeSlaMs = Math.max(1, input.finalizeSlaMinutes ?? 20) * 60_000;
+  const businessRefId =
+    (await resolveBusinessReferenceIds([input.businessId])).get(input.businessId) ??
+    null;
   const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
+  const providerAccountRefIds = await ensureProviderAccountReferenceIds({
+    provider: "meta",
+    accounts: (credentials?.accountIds ?? []).map((providerAccountId) => ({
+      externalAccountId: providerAccountId,
+      timezone: credentials?.accountProfiles?.[providerAccountId]?.timezone ?? null,
+    })),
+  });
   const accountTargetDates = new Map(
     (credentials?.accountIds ?? []).map((providerAccountId) => {
       const timezone =
@@ -4558,10 +4572,22 @@ export async function recoverMetaD1FinalizePartitions(input: {
         lease_owner = NULL,
         lease_expires_at = NULL,
         finished_at = COALESCE(finished_at, now()),
+        business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
         last_error = NULL,
         updated_at = now()
       WHERE id = ANY(${autoSucceededPartitionIds}::uuid[])
     `;
+    if (providerAccountRefIds.size > 0) {
+      await sql`
+        UPDATE meta_sync_partitions AS partition
+        SET provider_account_ref_id = provider_account.id
+        FROM provider_accounts AS provider_account
+        WHERE partition.id = ANY(${autoSucceededPartitionIds}::uuid[])
+          AND partition.provider_account_ref_id IS NULL
+          AND provider_account.provider = 'meta'
+          AND provider_account.external_account_id = partition.provider_account_id
+      `;
+    }
     await Promise.all(
       [...alreadyPublishedRows, ...succeededRunRows].map((row) =>
         markProviderDayRolloverFinalizeCompleted({
@@ -4621,6 +4647,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
         lease_owner = NULL,
         lease_expires_at = NULL,
         finished_at = COALESCE(finished_at, now()),
+        business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
         last_error = CASE
           WHEN id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(last_error, 'historical finalize_day partition reclassified automatically')
           ELSE COALESCE(last_error, 'stale D-1 finalize lease reclaimed automatically')
@@ -4628,9 +4655,25 @@ export async function recoverMetaD1FinalizePartitions(input: {
         updated_at = now()
       WHERE id = ANY(${reclaimedPartitionIds}::uuid[])
     `;
+    if (providerAccountRefIds.size > 0) {
+      await sql`
+        UPDATE meta_sync_partitions AS partition
+        SET provider_account_ref_id = provider_account.id
+        FROM provider_accounts AS provider_account
+        WHERE partition.id = ANY(${reclaimedPartitionIds}::uuid[])
+          AND partition.provider_account_ref_id IS NULL
+          AND provider_account.provider = 'meta'
+          AND provider_account.external_account_id = partition.provider_account_id
+      `;
+    }
     const reconciledRuns = await sql`
       UPDATE meta_sync_runs run
       SET
+        business_ref_id = COALESCE(run.business_ref_id, ${businessRefId}),
+        provider_account_ref_id = COALESCE(
+          run.provider_account_ref_id,
+          provider_account.id
+        ),
         status = 'cancelled',
         error_class = CASE
           WHEN run.partition_id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(error_class, 'historical_finalize_reclassified')
@@ -4653,7 +4696,12 @@ export async function recoverMetaD1FinalizePartitions(input: {
           END
         ),
         updated_at = now()
-      WHERE run.business_id = ${input.businessId}
+      FROM meta_sync_partitions partition
+      LEFT JOIN provider_accounts provider_account
+        ON provider_account.provider = 'meta'
+        AND provider_account.external_account_id = partition.provider_account_id
+      WHERE run.partition_id = partition.id
+        AND run.business_id = ${input.businessId}
         AND run.partition_id = ANY(${reclaimedPartitionIds}::uuid[])
         AND run.status = 'running'
       RETURNING run.id

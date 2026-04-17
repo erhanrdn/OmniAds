@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 
 function normalizeDate(value: unknown) {
   if (!value) return null;
@@ -18,6 +22,24 @@ function normalizeTimestamp(value: unknown) {
   const parsed = new Date(text);
   if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
   return text;
+}
+
+async function resolveShopifySyncStateReferenceContext(input: {
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const [businessRefIds, providerAccountRefIds] = await Promise.all([
+    resolveBusinessReferenceIds([input.businessId]),
+    ensureProviderAccountReferenceIds({
+      provider: "shopify",
+      accounts: [{ externalAccountId: input.providerAccountId }],
+    }),
+  ]);
+  return {
+    businessRefId: businessRefIds.get(input.businessId) ?? null,
+    providerAccountRefId:
+      providerAccountRefIds.get(input.providerAccountId) ?? null,
+  };
 }
 
 export interface ShopifySyncStateRecord {
@@ -88,10 +110,13 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
     context: "shopify_sync_state_upsert",
   });
   const sql = getDb();
+  const refs = await resolveShopifySyncStateReferenceContext(input);
   await sql`
     INSERT INTO shopify_sync_state (
       business_id,
+      business_ref_id,
       provider_account_id,
+      provider_account_ref_id,
       sync_target,
       historical_target_start,
       historical_target_end,
@@ -109,7 +134,9 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
     )
     VALUES (
       ${input.businessId},
+      ${refs.businessRefId},
       ${input.providerAccountId},
+      ${refs.providerAccountRefId},
       ${input.syncTarget},
       ${normalizeDate(input.historicalTargetStart)},
       ${normalizeDate(input.historicalTargetEnd)},
@@ -126,6 +153,11 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       now()
     )
     ON CONFLICT (business_id, provider_account_id, sync_target) DO UPDATE SET
+      business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_sync_state.business_ref_id),
+      provider_account_ref_id = COALESCE(
+        EXCLUDED.provider_account_ref_id,
+        shopify_sync_state.provider_account_ref_id
+      ),
       historical_target_start = COALESCE(EXCLUDED.historical_target_start, shopify_sync_state.historical_target_start),
       historical_target_end = COALESCE(EXCLUDED.historical_target_end, shopify_sync_state.historical_target_end),
       ready_through_date = COALESCE(EXCLUDED.ready_through_date, shopify_sync_state.ready_through_date),

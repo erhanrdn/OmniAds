@@ -51,6 +51,14 @@ vi.mock("@/lib/business-cost-model", () => ({
   getBusinessCostModel: vi.fn(async () => null),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const),
+    );
+  }),
+}));
+
 const businessCommercial = await import("@/lib/business-commercial");
 
 describe("upsertBusinessCommercialTruthSnapshot", () => {
@@ -147,6 +155,7 @@ describe("upsertBusinessCommercialTruthSnapshot", () => {
           query.includes("DO UPDATE SET"),
       ),
     ).toBe(true);
+    expect(queryLog.some((query) => query.includes("business_ref_id"))).toBe(true);
   });
 
   it("normalizes database timestamps before building coverage summaries", async () => {

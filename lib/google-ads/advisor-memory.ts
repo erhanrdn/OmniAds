@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 import type {
   GoogleCompletionMode,
   GoogleExecutionStatus,
@@ -217,6 +221,32 @@ async function assertAdvisorExecutionLogTableReady(context: string) {
     tables: [...GOOGLE_ADVISOR_EXECUTION_LOG_TABLES],
     context,
   });
+}
+
+async function resolveGoogleAdsAdvisorReferenceContext(input: {
+  businessId: string;
+  accountId?: string | null;
+}) {
+  const [businessRefIds, providerAccountRefIds] = await Promise.all([
+    resolveBusinessReferenceIds([input.businessId]),
+    input.accountId
+      ? ensureProviderAccountReferenceIds({
+          provider: "google",
+          accounts: [
+            {
+              externalAccountId: input.accountId,
+            },
+          ],
+        })
+      : Promise.resolve(new Map<string, string>()),
+  ]);
+
+  return {
+    businessRefId: businessRefIds.get(input.businessId) ?? null,
+    providerAccountRefId: input.accountId
+      ? (providerAccountRefIds.get(input.accountId) ?? null)
+      : null,
+  };
 }
 
 function bucketWeight(bucket: GoogleRecommendation["doBucket"]) {
@@ -887,6 +917,8 @@ export async function updateAdvisorMemoryAction(input: {
     return;
   }
   await assertAdvisorMemoryTablesReady("google_advisor_memory_action");
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   const nextStatus =
     input.action === "dismissed"
@@ -915,6 +947,8 @@ export async function updateAdvisorMemoryAction(input: {
   await sql`
     UPDATE google_ads_advisor_memory
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
       user_action = ${input.action === "unsuppress" ? null : input.action},
       dismiss_reason = ${input.action === "dismissed" ? (input.dismissReason ?? null) : null},
       suppress_until = ${
@@ -995,10 +1029,14 @@ export async function updateAdvisorExecutionState(input: {
     return;
   }
   await assertAdvisorMemoryTablesReady("google_advisor_execution_state");
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
       execution_status = ${input.executionStatus},
       executed_at = CASE
         WHEN ${input.executionStatus} = 'pending' THEN COALESCE(executed_at, now())
@@ -1054,10 +1092,14 @@ export async function updateAdvisorCompletionState(input: {
     return;
   }
   await assertAdvisorMemoryTablesReady("google_advisor_completion_state");
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
       completion_mode = ${input.completionMode},
       completed_step_count = COALESCE(${input.completedStepCount ?? null}, completed_step_count),
       total_step_count = COALESCE(${input.totalStepCount ?? null}, total_step_count),
@@ -1110,10 +1152,14 @@ export async function recordAdvisorOutcome(input: {
     return;
   }
   await assertAdvisorMemoryTablesReady("google_advisor_record_outcome");
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   await sql`
     UPDATE google_ads_advisor_memory
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      provider_account_ref_id = COALESCE(provider_account_ref_id, ${providerAccountRefId}),
       prior_status = current_status,
       current_status = COALESCE(${nextStatus}, current_status),
       user_action = COALESCE(user_action, 'applied'),
@@ -1282,11 +1328,15 @@ export async function logAdvisorExecutionEvent(input: {
 }) {
   if (!isDbConfigured()) return;
   await assertAdvisorExecutionLogTableReady("google_advisor_execution_log");
+  const { businessRefId, providerAccountRefId } =
+    await resolveGoogleAdsAdvisorReferenceContext(input);
   const sql = getDb();
   await sql`
     INSERT INTO google_ads_advisor_execution_logs (
       business_id,
+      business_ref_id,
       account_id,
+      provider_account_ref_id,
       recommendation_fingerprint,
       mutate_action_type,
       operation,
@@ -1296,7 +1346,9 @@ export async function logAdvisorExecutionEvent(input: {
       error_message
     ) VALUES (
       ${input.businessId},
+      ${businessRefId},
       ${input.accountId},
+      ${providerAccountRefId},
       ${input.recommendationFingerprint},
       ${input.mutateActionType},
       ${input.operation},

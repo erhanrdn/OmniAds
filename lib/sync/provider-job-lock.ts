@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 
 export interface ProviderJobLockKey {
   businessId: string;
@@ -24,6 +25,11 @@ function getLockMinutes(input?: number) {
   return Math.max(1, Math.floor(input));
 }
 
+async function resolveProviderSyncJobBusinessRefId(businessId: string) {
+  const businessRefIds = await resolveBusinessReferenceIds([businessId]);
+  return businessRefIds.get(businessId) ?? null;
+}
+
 export async function acquireProviderJobLock(input: ProviderJobLockKey & {
   ownerToken: string;
   lockMinutes?: number;
@@ -31,6 +37,7 @@ export async function acquireProviderJobLock(input: ProviderJobLockKey & {
   await assertProviderJobLockTablesReady("provider_sync_jobs:acquire_lock");
   const sql = getDb();
   const lockMinutes = getLockMinutes(input.lockMinutes);
+  const businessRefId = await resolveProviderSyncJobBusinessRefId(input.businessId);
   const rows = await sql`
     WITH active AS (
       SELECT id
@@ -46,6 +53,7 @@ export async function acquireProviderJobLock(input: ProviderJobLockKey & {
     upserted AS (
       INSERT INTO provider_sync_jobs (
         business_id,
+        business_ref_id,
         provider,
         report_type,
         date_range_key,
@@ -59,6 +67,7 @@ export async function acquireProviderJobLock(input: ProviderJobLockKey & {
       )
       VALUES (
         ${input.businessId},
+        ${businessRefId},
         ${input.provider},
         ${input.reportType},
         ${input.dateRangeKey},
@@ -72,6 +81,7 @@ export async function acquireProviderJobLock(input: ProviderJobLockKey & {
       )
       ON CONFLICT (business_id, provider, report_type, date_range_key)
       DO UPDATE SET
+        business_ref_id = COALESCE(provider_sync_jobs.business_ref_id, EXCLUDED.business_ref_id),
         status = 'running',
         triggered_at = now(),
         started_at = now(),
@@ -100,9 +110,11 @@ export async function renewProviderJobLock(input: ProviderJobLockKey & {
   await assertProviderJobLockTablesReady("provider_sync_jobs:renew_lock");
   const sql = getDb();
   const lockMinutes = getLockMinutes(input.lockMinutes);
+  const businessRefId = await resolveProviderSyncJobBusinessRefId(input.businessId);
   const rows = await sql`
     UPDATE provider_sync_jobs
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
       lock_expires_at = now() + (${lockMinutes} || ' minutes')::interval,
       updated_at = now()
     WHERE business_id = ${input.businessId}
@@ -123,9 +135,11 @@ export async function releaseProviderJobLock(input: ProviderJobLockKey & {
 }) {
   await assertProviderJobLockTablesReady("provider_sync_jobs:release_lock");
   const sql = getDb();
+  const businessRefId = await resolveProviderSyncJobBusinessRefId(input.businessId);
   await sql`
     UPDATE provider_sync_jobs
     SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
       status = ${input.status},
       completed_at = now(),
       lock_expires_at = now(),

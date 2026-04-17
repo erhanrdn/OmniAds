@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import type { PlanId } from "@/lib/pricing/plans";
 
 export interface DiscountCodeRow {
@@ -167,9 +168,27 @@ export async function redeemDiscountCode(input: {
   amountOff: number;
 }): Promise<void> {
   const sql = getDb();
+  const businessRefId = input.businessId
+    ? (await resolveBusinessReferenceIds([input.businessId])).get(input.businessId) ??
+      null
+    : null;
   await sql`
-    INSERT INTO discount_redemptions (code_id, user_id, business_id, plan_id, amount_off)
-    VALUES (${input.codeId}, ${input.userId}, ${input.businessId}, ${input.planId}, ${input.amountOff})
+    INSERT INTO discount_redemptions (
+      code_id,
+      user_id,
+      business_id,
+      business_ref_id,
+      plan_id,
+      amount_off
+    )
+    VALUES (
+      ${input.codeId},
+      ${input.userId},
+      ${input.businessId},
+      ${businessRefId},
+      ${input.planId},
+      ${input.amountOff}
+    )
   `;
   await sql`UPDATE discount_codes SET uses = uses + 1 WHERE id = ${input.codeId}`;
 }

@@ -9,11 +9,20 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/db-schema-readiness", () => ({
   assertDbSchemaReady: vi.fn(),
   getDbSchemaReadiness: vi.fn(),
+  isMissingRelationError: vi.fn(() => false),
 }));
 
 vi.mock("@/lib/route-report-cache", () => ({
   getNormalizedSearchParamsKey: vi.fn(() => "range-key"),
   shouldBypassRouteCachePayload: vi.fn(() => false),
+}));
+
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const),
+    );
+  }),
 }));
 
 const schemaReadiness = await import("@/lib/db-schema-readiness");

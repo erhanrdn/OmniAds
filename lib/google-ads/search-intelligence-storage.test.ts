@@ -9,6 +9,19 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
+    return new Map(
+      accounts.map((account) => [account.externalAccountId, `${account.externalAccountId}-ref`] as const),
+    );
+  }),
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const),
+    );
+  }),
+}));
+
 const db = await import("@/lib/db");
 const storage = await import("@/lib/google-ads/search-intelligence-storage");
 
@@ -328,5 +341,46 @@ describe("Google Ads search intelligence storage", () => {
       totalRows: 7,
     });
     expect(sql).toHaveBeenCalled();
+  });
+
+  it("writes canonical ref ids for search intelligence aggregates and outcome logs", async () => {
+    const calls: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      calls.push(strings.join(" "));
+      if (strings.join(" ").includes("SELECT *") && strings.join(" ").includes("google_ads_search_query_hot_daily")) {
+        return [buildPersistedHotDailyRow()];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await storage.persistGoogleAdsSearchIntelligenceFoundation({
+      businessId: "biz",
+      providerAccountId: "acct",
+      date: "2026-04-08",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      rows: [buildSearchRow()],
+      sourceSnapshotId: "snap_1",
+    });
+
+    await storage.appendGoogleAdsDecisionActionOutcomeLog({
+      businessId: "biz",
+      providerAccountId: "acct",
+      recommendationFingerprint: "fingerprint-1",
+      decisionFamily: null,
+      actionType: "outcome",
+      outcomeStatus: null,
+      summary: "ok",
+      payloadJson: { ok: true },
+    });
+
+    const query = calls.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+    expect(query).toContain("google_ads_search_query_hot_daily");
+    expect(query).toContain("google_ads_top_query_weekly");
+    expect(query).toContain("google_ads_search_cluster_daily");
+    expect(query).toContain("google_ads_decision_action_outcome_logs");
   });
 });

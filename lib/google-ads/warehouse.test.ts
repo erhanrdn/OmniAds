@@ -46,6 +46,15 @@ vi.mock("@/lib/migrations", () => ({
   runMigrations: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
+    return new Map(accounts.map((account) => [account.externalAccountId, `${account.externalAccountId}-ref`] as const));
+  }),
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const));
+  }),
+}));
+
 vi.mock("@/lib/sync/worker-health", () => ({
   recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
 }));
@@ -53,6 +62,7 @@ vi.mock("@/lib/sync/worker-health", () => ({
 const db = await import("@/lib/db");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
+  acquireGoogleAdsRunnerLease,
   backfillGoogleAdsRunningCheckpointsForTerminalPartition,
   backfillGoogleAdsRunningRunsForTerminalPartition,
   cleanupGoogleAdsPartitionOrchestration,
@@ -61,9 +71,14 @@ const {
   heartbeatGoogleAdsPartitionLease,
   leaseGoogleAdsSyncPartitions,
   markGoogleAdsPartitionRunning,
+  persistGoogleAdsRawSnapshot,
   replayGoogleAdsDeadLetterPartitions,
   releaseGoogleAdsLeasedPartitionsForWorker,
   upsertGoogleAdsSyncCheckpoint,
+  createGoogleAdsSyncJob,
+  createGoogleAdsSyncRun,
+  queueGoogleAdsSyncPartition,
+  upsertGoogleAdsSyncState,
 } = await import("@/lib/google-ads/warehouse");
 
 describe("dedupeGoogleAdsWarehouseRows", () => {
@@ -952,5 +967,191 @@ describe("google ads warehouse ownership safety", () => {
     expect(cleanupQuery).toContain(
       "COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch",
     );
+  });
+});
+
+describe("google ads control-plane ref writes", () => {
+  it("writes canonical ref ids for sync jobs", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await createGoogleAdsSyncJob({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      syncType: "incremental_recent",
+      scope: "campaign_daily",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      status: "running",
+      progressPercent: 0,
+      triggerSource: "scheduled",
+      retryCount: 0,
+      lastError: null,
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+  });
+
+  it("writes canonical ref ids for sync partitions", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await queueGoogleAdsSyncPartition({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      lane: "core",
+      scope: "campaign_daily",
+      partitionDate: "2026-04-01",
+      status: "queued",
+      priority: 1,
+      source: "recent",
+      attemptCount: 0,
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+    expect(query).toContain("ON CONFLICT (business_id, provider_account_id, lane, scope, partition_date)");
+  });
+
+  it("writes canonical ref ids for sync runs", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await createGoogleAdsSyncRun({
+      partitionId: "partition-1",
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      lane: "core",
+      scope: "campaign_daily",
+      partitionDate: "2026-04-01",
+      status: "running",
+      workerId: "worker-1",
+      attemptCount: 1,
+      rowCount: 0,
+      durationMs: 0,
+      metaJson: {},
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+  });
+
+  it("writes canonical ref ids for sync checkpoints and state", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertGoogleAdsSyncCheckpoint({
+      partitionId: "partition-1",
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      checkpointScope: "campaign_daily",
+      phase: "bulk_upsert",
+      status: "running",
+      pageIndex: 0,
+      attemptCount: 1,
+      leaseOwner: "worker-1",
+      leaseEpoch: 7,
+    });
+
+    await upsertGoogleAdsSyncState({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      scope: "campaign_daily",
+      historicalTargetStart: "2026-01-01",
+      historicalTargetEnd: "2026-04-01",
+      effectiveTargetStart: "2026-01-01",
+      effectiveTargetEnd: "2026-04-01",
+      readyThroughDate: null,
+      lastSuccessfulPartitionDate: null,
+      latestBackgroundActivityAt: null,
+      latestSuccessfulSyncAt: null,
+      completedDays: 0,
+      deadLetterCount: 0,
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+  });
+
+  it("writes canonical ref ids for raw snapshots", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      return [{ id: "snapshot-1" }];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await persistGoogleAdsRawSnapshot({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      endpointName: "campaign_search_terms",
+      entityScope: "campaign",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      accountTimezone: "UTC",
+      accountCurrency: "USD",
+      payloadJson: { rows: [] },
+      payloadHash: "hash-1",
+      requestContext: {},
+      providerHttpStatus: 200,
+      status: "fetched",
+    });
+
+    const query = queries.join("\n");
+    expect(query).toContain("business_ref_id");
+    expect(query).toContain("provider_account_ref_id");
+    expect(query).toContain("google_ads_raw_snapshots");
+  });
+
+  it("writes canonical business refs for runner leases", async () => {
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      queries.push(strings.join(" "));
+      if (strings.join(" ").includes("INSERT INTO google_ads_runner_leases")) {
+        return [
+          {
+            business_id: "biz-1",
+            lane: "core",
+            lease_owner: "worker-1",
+            lease_expires_at: "2026-04-16T00:05:00.000Z",
+            created_at: "2026-04-16T00:00:00.000Z",
+            updated_at: "2026-04-16T00:00:00.000Z",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await acquireGoogleAdsRunnerLease({
+      businessId: "biz-1",
+      lane: "core",
+      leaseOwner: "worker-1",
+      leaseMinutes: 5,
+    });
+
+    expect(queries.join("\n")).toContain("business_ref_id");
+    expect(queries.join("\n")).toContain("google_ads_runner_leases");
   });
 });

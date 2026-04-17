@@ -4,6 +4,10 @@ import {
   getProviderPlatformDateBoundaries,
   type ProviderPlatformBoundary,
 } from "@/lib/provider-platform-date";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 
 export type ProviderDayRolloverProvider = "meta" | "google_ads";
 
@@ -65,6 +69,26 @@ function normalizeTimestamp(value: unknown) {
 
 function platformProviderFor(input: ProviderDayRolloverProvider) {
   return input === "google_ads" ? "google" : "meta";
+}
+
+async function resolveProviderDayRolloverReferenceContext(input: {
+  provider: ProviderDayRolloverProvider;
+  businessId: string;
+  providerAccountId: string;
+}) {
+  const provider = platformProviderFor(input.provider);
+  const [businessRefIds, providerAccountRefIds] = await Promise.all([
+    resolveBusinessReferenceIds([input.businessId]),
+    ensureProviderAccountReferenceIds({
+      provider,
+      accounts: [{ externalAccountId: input.providerAccountId }],
+    }),
+  ]);
+  return {
+    businessRefId: businessRefIds.get(input.businessId) ?? null,
+    providerAccountRefId:
+      providerAccountRefIds.get(input.providerAccountId) ?? null,
+  };
 }
 
 async function assertProviderDayRolloverTablesReady(context: string) {
@@ -134,13 +158,20 @@ export async function syncProviderDayRolloverState(input: {
     const providerAccountId = String(boundary.providerAccountId ?? "");
     if (!providerAccountId) continue;
     const existing = existingByAccount.get(providerAccountId) ?? null;
+    const refs = await resolveProviderDayRolloverReferenceContext({
+      provider: input.provider,
+      businessId: input.businessId,
+      providerAccountId,
+    });
     const rolloverDetected =
       existing == null || existing.lastObservedCurrentDate !== boundary.currentDate;
     await sql`
       INSERT INTO provider_account_rollover_state (
         provider,
         business_id,
+        business_ref_id,
         provider_account_id,
+        provider_account_ref_id,
         last_observed_current_date,
         current_d1_target_date,
         rollover_detected_at,
@@ -151,7 +182,9 @@ export async function syncProviderDayRolloverState(input: {
       VALUES (
         ${input.provider},
         ${input.businessId},
+        ${refs.businessRefId},
         ${providerAccountId},
+        ${refs.providerAccountRefId},
         ${boundary.currentDate},
         ${boundary.previousDate},
         CASE WHEN ${rolloverDetected} THEN now() ELSE NULL END,
@@ -161,6 +194,14 @@ export async function syncProviderDayRolloverState(input: {
       )
       ON CONFLICT (provider, business_id, provider_account_id)
       DO UPDATE SET
+        business_ref_id = COALESCE(
+          EXCLUDED.business_ref_id,
+          provider_account_rollover_state.business_ref_id
+        ),
+        provider_account_ref_id = COALESCE(
+          EXCLUDED.provider_account_ref_id,
+          provider_account_rollover_state.provider_account_ref_id
+        ),
         last_observed_current_date = EXCLUDED.last_observed_current_date,
         current_d1_target_date = EXCLUDED.current_d1_target_date,
         rollover_detected_at = CASE
@@ -208,9 +249,15 @@ export async function markProviderDayRolloverFinalizeStarted(input: {
 }) {
   await assertProviderDayRolloverTablesReady("provider_day_rollover:mark_finalize_started");
   const sql = getDb();
+  const refs = await resolveProviderDayRolloverReferenceContext(input);
   await sql`
     UPDATE provider_account_rollover_state
     SET
+      business_ref_id = COALESCE(business_ref_id, ${refs.businessRefId}),
+      provider_account_ref_id = COALESCE(
+        provider_account_ref_id,
+        ${refs.providerAccountRefId}
+      ),
       current_d1_target_date = ${input.targetDate},
       d1_finalize_started_at = now(),
       d1_finalize_completed_at = CASE
@@ -232,9 +279,15 @@ export async function markProviderDayRolloverFinalizeCompleted(input: {
 }) {
   await assertProviderDayRolloverTablesReady("provider_day_rollover:mark_finalize_completed");
   const sql = getDb();
+  const refs = await resolveProviderDayRolloverReferenceContext(input);
   await sql`
     UPDATE provider_account_rollover_state
     SET
+      business_ref_id = COALESCE(business_ref_id, ${refs.businessRefId}),
+      provider_account_ref_id = COALESCE(
+        provider_account_ref_id,
+        ${refs.providerAccountRefId}
+      ),
       current_d1_target_date = ${input.targetDate},
       d1_finalize_started_at = COALESCE(d1_finalize_started_at, now()),
       d1_finalize_completed_at = now(),
@@ -253,9 +306,15 @@ export async function markProviderDayRolloverRecovered(input: {
 }) {
   await assertProviderDayRolloverTablesReady("provider_day_rollover:mark_recovered");
   const sql = getDb();
+  const refs = await resolveProviderDayRolloverReferenceContext(input);
   await sql`
     UPDATE provider_account_rollover_state
     SET
+      business_ref_id = COALESCE(business_ref_id, ${refs.businessRefId}),
+      provider_account_ref_id = COALESCE(
+        provider_account_ref_id,
+        ${refs.providerAccountRefId}
+      ),
       current_d1_target_date = ${input.targetDate},
       last_recovery_at = now(),
       updated_at = now()

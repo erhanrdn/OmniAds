@@ -5,10 +5,15 @@ import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
 import type { MetaAccountDailyRow } from "@/lib/meta/warehouse-types";
 import type { OverviewSummaryDailyRow } from "@/lib/overview-summary-store";
+import {
+  ensureProviderAccountReferenceIds,
+  resolveBusinessReferenceIds,
+} from "@/lib/provider-account-reference-store";
 
 const OVERVIEW_SUMMARY_PROJECTION_TABLES = [
   "platform_overview_daily_summary",
   "platform_overview_summary_ranges",
+  "platform_overview_summary_range_accounts",
 ] as const;
 
 function normalizeDate(value: string | Date) {
@@ -43,6 +48,34 @@ function countRangeDays(startDate: string, endDate: string) {
   const start = new Date(`${normalizeDate(startDate)}T00:00:00Z`).getTime();
   const end = new Date(`${normalizeDate(endDate)}T00:00:00Z`).getTime();
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
+}
+
+async function resolveOverviewSummaryReferenceContext(rows: OverviewSummaryDailyRow[]) {
+  const businessRefIds = await resolveBusinessReferenceIds(
+    rows.map((row) => row.businessId),
+  );
+  const providerReferenceEntries = await Promise.all(
+    [...new Set(rows.map((row) => row.provider))]
+      .filter((provider): provider is "meta" | "google" | "shopify" =>
+        provider === "meta" || provider === "google" || provider === "shopify",
+      )
+      .map(async (provider) => [
+        provider,
+        await ensureProviderAccountReferenceIds({
+          provider,
+          accounts: rows
+            .filter((row) => row.provider === provider)
+            .map((row) => ({
+              externalAccountId: row.providerAccountId,
+            })),
+        }),
+      ] as const),
+  );
+
+  return {
+    businessRefIds,
+    providerAccountRefIdsByProvider: new Map(providerReferenceEntries),
+  };
 }
 
 async function isOverviewSummarySchemaReady() {
@@ -92,16 +125,23 @@ export async function materializeOverviewSummaryRows(rows: OverviewSummaryDailyR
     return;
   }
   const sql = getDb();
+  const referenceContext = await resolveOverviewSummaryReferenceContext(rows);
 
   for (const chunk of chunkRows(rows, 200)) {
     const values: unknown[] = [];
     const placeholders = chunk
       .map((row, index) => {
-        const offset = index * 10;
+        const offset = index * 12;
+        const providerAccountRefId =
+          referenceContext.providerAccountRefIdsByProvider
+            .get(row.provider)
+            ?.get(row.providerAccountId) ?? null;
         values.push(
           row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
           row.provider,
           row.providerAccountId,
+          providerAccountRefId,
           normalizeDate(row.date),
           row.spend,
           row.revenue,
@@ -110,15 +150,17 @@ export async function materializeOverviewSummaryRows(rows: OverviewSummaryDailyR
           row.clicks,
           row.sourceUpdatedAt,
         );
-        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4}::date,$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},now())`;
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6}::date,$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},now())`;
       })
       .join(", ");
     await sql.query(
       `
         INSERT INTO platform_overview_daily_summary (
           business_id,
+          business_ref_id,
           provider,
           provider_account_id,
+          provider_account_ref_id,
           date,
           spend,
           revenue,
@@ -130,6 +172,8 @@ export async function materializeOverviewSummaryRows(rows: OverviewSummaryDailyR
         )
         VALUES ${placeholders}
         ON CONFLICT (business_id, provider, provider_account_id, date) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, platform_overview_daily_summary.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, platform_overview_daily_summary.provider_account_ref_id),
           spend = EXCLUDED.spend,
           revenue = EXCLUDED.revenue,
           purchases = EXCLUDED.purchases,
@@ -161,10 +205,20 @@ export async function materializeOverviewSummaryRange(input: {
     return;
   }
   const sql = getDb();
-  await sql.query(
+  const businessRefId = (await resolveBusinessReferenceIds([input.businessId])).get(
+    input.businessId,
+  ) ?? null;
+  const providerAccountRefIds = await ensureProviderAccountReferenceIds({
+    provider: input.provider,
+    accounts: input.providerAccountIds.map((providerAccountId) => ({
+      externalAccountId: providerAccountId,
+    })),
+  });
+  const rangeRows = await sql.query<{ id: string }>(
     `
       INSERT INTO platform_overview_summary_ranges (
         business_id,
+        business_ref_id,
         provider,
         provider_account_ids_hash,
         start_date,
@@ -179,8 +233,9 @@ export async function materializeOverviewSummaryRange(input: {
         hydrated_at,
         updated_at
       )
-      VALUES ($1,$2,$3,$4::date,$5::date,$6,$7,$8,$9,$10,$11,NULL,now(),now())
+      VALUES ($1,$2,$3,$4,$5::date,$6::date,$7,$8,$9,$10,$11,$12,NULL,now(),now())
       ON CONFLICT (business_id, provider, provider_account_ids_hash, start_date, end_date) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, platform_overview_summary_ranges.business_ref_id),
         row_count = EXCLUDED.row_count,
         expected_row_count = EXCLUDED.expected_row_count,
         coverage_complete = EXCLUDED.coverage_complete,
@@ -190,9 +245,11 @@ export async function materializeOverviewSummaryRange(input: {
         invalidation_reason = EXCLUDED.invalidation_reason,
         hydrated_at = now(),
         updated_at = now()
+      RETURNING id
     `,
     [
       input.businessId,
+      businessRefId,
       input.provider,
       hashAccountIds(input.providerAccountIds),
       normalizeDate(input.startDate),
@@ -205,6 +262,51 @@ export async function materializeOverviewSummaryRange(input: {
       input.projectionVersion ?? 1,
     ],
   );
+  const summaryRangeId = rangeRows[0]?.id ?? null;
+  if (!summaryRangeId) {
+    return;
+  }
+  await sql.query(
+    `
+      DELETE FROM platform_overview_summary_range_accounts
+      WHERE summary_range_id = $1
+    `,
+    [summaryRangeId],
+  );
+  if (input.providerAccountIds.length > 0) {
+    const membershipValues: unknown[] = [];
+    const membershipPlaceholders = input.providerAccountIds
+      .map((providerAccountId, index) => {
+        const offset = index * 4;
+        membershipValues.push(
+          summaryRangeId,
+          providerAccountRefIds.get(providerAccountId) ?? null,
+          providerAccountId,
+          index,
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},now(),now())`;
+      })
+      .join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO platform_overview_summary_range_accounts (
+          summary_range_id,
+          provider_account_ref_id,
+          provider_account_id,
+          position,
+          created_at,
+          updated_at
+        )
+        VALUES ${membershipPlaceholders}
+        ON CONFLICT (summary_range_id, provider_account_id) DO UPDATE SET
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, platform_overview_summary_range_accounts.provider_account_ref_id),
+          position = EXCLUDED.position,
+          updated_at = now()
+      `,
+      membershipValues,
+    );
+  }
 }
 
 export async function clearOverviewSummaryRangeManifests(input: {

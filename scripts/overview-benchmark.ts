@@ -12,6 +12,8 @@ type ScenarioResult = {
   averageMs: number;
   minMs: number;
   maxMs: number;
+  p50Ms: number;
+  p95Ms: number;
   sampleCardinality: number | null;
   baselineMs: number | null;
   deltaMs: number | null;
@@ -26,6 +28,13 @@ type ScenarioObservation = {
 };
 
 type BaselineMap = Record<string, number>;
+
+function describeScenarioError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message.replace(/\s+/g, " ").trim();
+  }
+  return String(error).replace(/\s+/g, " ").trim();
+}
 
 function parseArgs(argv: string[]) {
   const parsed = new Map<string, string>();
@@ -44,6 +53,22 @@ function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }
 
+function percentile(values: number[], percentileValue: number) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  if (sorted.length === 1) return Number(sorted[0]?.toFixed(2) ?? 0);
+  const rank = percentileValue * (sorted.length - 1);
+  const lowerIndex = Math.floor(rank);
+  const upperIndex = Math.ceil(rank);
+  const lowerValue = sorted[lowerIndex] ?? 0;
+  const upperValue = sorted[upperIndex] ?? lowerValue;
+  if (lowerIndex === upperIndex) {
+    return Number(lowerValue.toFixed(2));
+  }
+  const weight = rank - lowerIndex;
+  return Number((lowerValue + (upperValue - lowerValue) * weight).toFixed(2));
+}
+
 async function measureScenario(
   name: string,
   iterations: number,
@@ -57,12 +82,19 @@ async function measureScenario(
 
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const startedAt = performance.now();
-    const result = await operation();
-    const durationMs = performance.now() - startedAt;
-    durations.push(durationMs);
-    sampleCardinalities.push(result.sampleCardinality);
-    validityNotes.push(result.validityNote);
-    if (result.sourceKey) sourceKeys.add(result.sourceKey);
+    try {
+      const result = await operation();
+      const durationMs = performance.now() - startedAt;
+      durations.push(durationMs);
+      sampleCardinalities.push(result.sampleCardinality);
+      validityNotes.push(result.validityNote);
+      if (result.sourceKey) sourceKeys.add(result.sourceKey);
+    } catch (error) {
+      const durationMs = performance.now() - startedAt;
+      durations.push(durationMs);
+      sampleCardinalities.push(null);
+      validityNotes.push(`error:${describeScenarioError(error)}`);
+    }
   }
 
   const sampleCardinality = sampleCardinalities[0] ?? null;
@@ -83,6 +115,8 @@ async function measureScenario(
     averageMs,
     minMs: Number(Math.min(...durations).toFixed(2)),
     maxMs: Number(Math.max(...durations).toFixed(2)),
+    p50Ms: percentile(durations, 0.5),
+    p95Ms: percentile(durations, 0.95),
     sampleCardinality,
     baselineMs,
     deltaMs,

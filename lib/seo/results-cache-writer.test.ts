@@ -10,6 +10,14 @@ vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `business-ref-${businessId}`] as const),
+    );
+  }),
+}));
+
 const schemaReadiness = await import("@/lib/db-schema-readiness");
 const { writeSeoResultsCacheEntry } = await import("@/lib/seo/results-cache-writer");
 
@@ -36,5 +44,6 @@ describe("seo results cache writer", () => {
     expect(String(sql.mock.calls[0]?.[0]?.join(" ") ?? "")).toContain(
       "INSERT INTO seo_results_cache",
     );
+    expect(String(sql.mock.calls[0]?.[0]?.join(" ") ?? "")).toContain("business_ref_id");
   });
 });

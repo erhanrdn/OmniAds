@@ -13,6 +13,7 @@ import { ProviderRequestCooldownError } from "@/lib/provider-request-governance"
 import { getNormalizedSearchParamsKey } from "@/lib/route-report-cache";
 import { getDb } from "@/lib/db";
 import { getDbSchemaReadiness } from "@/lib/db-schema-readiness";
+import { resolveBusinessReferenceIds } from "@/lib/provider-account-reference-store";
 import {
   GA4_AUTO_WARM_DATE_WINDOWS,
   GA4_AUTO_WARM_DETAIL_REQUESTS,
@@ -50,11 +51,23 @@ async function upsertSyncJob(
       return;
     }
     const sql = getDb();
+    const businessRefIds = await resolveBusinessReferenceIds([businessId]);
+    const businessRefId = businessRefIds.get(businessId) ?? null;
     if (status === "running") {
       await sql`
-        INSERT INTO provider_sync_jobs (business_id, provider, report_type, date_range_key, status, triggered_at, started_at)
-        VALUES (${businessId}, 'ga4', ${reportType}, ${dateRangeKey}, 'running', now(), now())
+        INSERT INTO provider_sync_jobs (
+          business_id,
+          business_ref_id,
+          provider,
+          report_type,
+          date_range_key,
+          status,
+          triggered_at,
+          started_at
+        )
+        VALUES (${businessId}, ${businessRefId}, 'ga4', ${reportType}, ${dateRangeKey}, 'running', now(), now())
         ON CONFLICT (business_id, provider, report_type, date_range_key) DO UPDATE SET
+          business_ref_id = COALESCE(provider_sync_jobs.business_ref_id, EXCLUDED.business_ref_id),
           status       = 'running',
           started_at   = now(),
           triggered_at = now(),
@@ -63,6 +76,7 @@ async function upsertSyncJob(
     } else {
       await sql`
         UPDATE provider_sync_jobs SET
+          business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
           status       = ${status},
           completed_at = now(),
           error_message = ${errorMessage ?? null}

@@ -12,6 +12,19 @@ vi.mock("@/lib/provider-platform-date", () => ({
   getProviderPlatformDateBoundaries: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  ensureProviderAccountReferenceIds: vi.fn(async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) => {
+    return new Map(
+      accounts.map((account) => [account.externalAccountId, `${account.externalAccountId}-ref`] as const),
+    );
+  }),
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const),
+    );
+  }),
+}));
+
 const migrations = await import("@/lib/migrations");
 const db = await import("@/lib/db");
 const platformDate = await import("@/lib/provider-platform-date");
@@ -24,10 +37,12 @@ describe("provider day rollover state", () => {
   });
 
   it("detects rollover on first observation and stores provider-account D-1 target", async () => {
+    const queries: string[] = [];
     const sql = vi
-      .fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+      .fn(async (strings: TemplateStringsArray) => {
+        queries.push(strings.join(" "));
+        return [];
+      });
     vi.mocked(db.getDb).mockReturnValue(sql as never);
     vi.mocked(platformDate.getProviderPlatformDateBoundaries).mockResolvedValue([
       {
@@ -54,6 +69,8 @@ describe("provider day rollover state", () => {
         rolloverDetected: true,
       }),
     ]);
+    expect(queries.join("\n")).toContain("business_ref_id");
+    expect(queries.join("\n")).toContain("provider_account_ref_id");
   });
 
   it("does not flag rollover when the same provider date is observed again", async () => {

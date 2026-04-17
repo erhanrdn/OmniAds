@@ -88,6 +88,8 @@ const targetWriteRules = [
   {
     allowedFiles: new Set([
       "lib/overview-summary-materializer.ts",
+      "scripts/db-normalization-support.ts",
+      "scripts/db-write-benchmark.ts",
     ]),
     patterns: [
       /\bINSERT\s+INTO\s+platform_overview_daily_summary\b/i,
@@ -100,6 +102,8 @@ const targetWriteRules = [
       "lib/reporting-cache-writer.ts",
       "lib/google-ads/warehouse.ts",
       "scripts/reset-google-ads-stack.ts",
+      "scripts/db-normalization-support.ts",
+      "scripts/db-write-benchmark.ts",
     ]),
     patterns: [
       /\bINSERT\s+INTO\s+provider_reporting_snapshots\b/i,

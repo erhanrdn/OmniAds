@@ -40,6 +40,14 @@ vi.mock("@/lib/db-schema-readiness", () => ({
   getDbSchemaReadiness: vi.fn(),
 }));
 
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const),
+    );
+  }),
+}));
+
 const searchConsole = await import("@/lib/search-console");
 const intelligence = await import("@/lib/seo/intelligence");
 const findings = await import("@/lib/seo/findings");
@@ -96,6 +104,11 @@ describe("syncSearchConsoleReports", () => {
       failed: 0,
       skipped: false,
     });
+    expect(
+      sql.mock.calls.some(([strings]) =>
+        String((strings as TemplateStringsArray).join(" ")).includes("business_ref_id"),
+      ),
+    ).toBe(true);
   });
 
   it("skips warming when Search Console auth is unavailable", async () => {
