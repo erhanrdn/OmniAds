@@ -266,7 +266,7 @@ jobs:
                 "${container_id}:/app/docs/architecture/live-db-baseline-checks.sql"
             }
 
-            copy_worker_dir_to_host() {
+            copy_worker_file_to_host() {
               src="$1"
               dest="$2"
               container_id="$(current_worker_container_id)"
@@ -274,10 +274,8 @@ jobs:
                 echo "Worker container is missing; cannot copy ${src}"
                 return 1
               fi
-              rm -rf "${dest}"
-              mkdir -p "${dest}"
-              docker exec "${container_id}" sh -lc "tar -C '${src}' -cf - ." \
-                | tar -C "${dest}" -xf -
+              mkdir -p "$(dirname "${dest}")"
+              docker exec "${container_id}" sh -lc "cat '${src}'" > "${dest}"
             }
 
             run_worker_script() {
@@ -298,8 +296,9 @@ jobs:
             log "Running before capture and audit"
             run_worker_script "rm -rf '${WORKER_TMP_DIR}' && mkdir -p '${WORKER_TMP_DIR}' && node --import tsx scripts/db-normalization-capture.ts --stage before --run-dir '${WORKER_TMP_DIR}'"
             run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
-            copy_worker_dir_to_host "${WORKER_TMP_DIR}/before" "${REMOTE_RUN_DIR}/before"
-            copy_worker_dir_to_host "${WORKER_TMP_DIR}/audit" "${REMOTE_RUN_DIR}/audit-before"
+            copy_worker_file_to_host "${WORKER_TMP_DIR}/before/capture.json" "${REMOTE_RUN_DIR}/before/capture.json"
+            copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-before/audit.json"
+            copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-before/audit.md"
 
             log "Triggering production DB backup"
             maybe_sudo systemctl start adsecute-db-core-backup.service
@@ -355,8 +354,9 @@ jobs:
             log "Running after capture and audit"
             run_worker_script "rm -rf '${WORKER_TMP_DIR}/after' '${WORKER_TMP_DIR}/audit' && node --import tsx scripts/db-normalization-capture.ts --stage after --run-dir '${WORKER_TMP_DIR}'"
             run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
-            copy_worker_dir_to_host "${WORKER_TMP_DIR}/after" "${REMOTE_RUN_DIR}/after"
-            copy_worker_dir_to_host "${WORKER_TMP_DIR}/audit" "${REMOTE_RUN_DIR}/audit-after"
+            copy_worker_file_to_host "${WORKER_TMP_DIR}/after/capture.json" "${REMOTE_RUN_DIR}/after/capture.json"
+            copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-after/audit.json"
+            copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-after/audit.md"
             log "Listing remote artifact bundle"
             find "${REMOTE_RUN_DIR}" -maxdepth 4 -type f | sort
           EOF
