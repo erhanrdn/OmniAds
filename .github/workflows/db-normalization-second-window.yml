@@ -399,6 +399,13 @@ jobs:
               docker compose exec -T worker sh -lc "$1"
             }
 
+            run_worker_script_to_host_log() {
+              worker_command="$1"
+              host_log_path="$2"
+              mkdir -p "$(dirname "${host_log_path}")"
+              docker compose exec -T worker sh -lc "${worker_command}" > "${host_log_path}" 2>&1
+            }
+
             assert_host_file() {
               file_path="$1"
               if [ ! -s "${file_path}" ]; then
@@ -440,8 +447,8 @@ jobs:
             assert_host_file "${REMOTE_RUN_DIR}/baseline-before.txt"
 
             log "Running before capture and audit"
-            run_worker_script "rm -rf '${WORKER_TMP_DIR}' && mkdir -p '${WORKER_TMP_DIR}' && node --import tsx scripts/db-normalization-capture.ts --stage before --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/capture-before.log' 2>&1"
-            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/audit-before.log' 2>&1"
+            run_worker_script_to_host_log "rm -rf '${WORKER_TMP_DIR}' && mkdir -p '${WORKER_TMP_DIR}' && node --import tsx scripts/db-normalization-capture.ts --stage before --run-dir '${WORKER_TMP_DIR}'" "${REMOTE_RUN_DIR}/logs/capture-before.log"
+            run_worker_script_to_host_log "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'" "${REMOTE_RUN_DIR}/logs/audit-before.log"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/before/capture.json" "${REMOTE_RUN_DIR}/before/capture.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-before/audit.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-before/audit.md"
@@ -508,8 +515,8 @@ jobs:
             assert_host_file "${REMOTE_RUN_DIR}/baseline-after.txt"
 
             log "Running after capture and audit"
-            run_worker_script "rm -rf '${WORKER_TMP_DIR}/after' '${WORKER_TMP_DIR}/audit' && node --import tsx scripts/db-normalization-capture.ts --stage after --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/capture-after.log' 2>&1"
-            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/audit-after.log' 2>&1"
+            run_worker_script_to_host_log "rm -rf '${WORKER_TMP_DIR}/after' '${WORKER_TMP_DIR}/audit' && node --import tsx scripts/db-normalization-capture.ts --stage after --run-dir '${WORKER_TMP_DIR}'" "${REMOTE_RUN_DIR}/logs/capture-after.log"
+            run_worker_script_to_host_log "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'" "${REMOTE_RUN_DIR}/logs/audit-after.log"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/after/capture.json" "${REMOTE_RUN_DIR}/after/capture.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-after/audit.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-after/audit.md"
