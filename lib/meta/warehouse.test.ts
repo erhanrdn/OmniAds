@@ -654,9 +654,11 @@ describe("meta warehouse ownership safety", () => {
 
   it("writes zero link_clicks for sparse meta ad rows", async () => {
     const capturedValues: unknown[][] = [];
+    const queries: string[] = [];
     const sql = vi.fn(async () => []);
     Object.assign(sql, {
-      query: vi.fn(async (_query: string, values: unknown[]) => {
+      query: vi.fn(async (query: string, values: unknown[]) => {
+        queries.push(query);
         capturedValues.push(values);
         return [];
       }),
@@ -693,8 +695,11 @@ describe("meta warehouse ownership safety", () => {
       },
     ]);
 
-    expect(capturedValues).toHaveLength(1);
-    expect(capturedValues[0]?.[24]).toBe(0);
+    const adDailyQueryIndex = queries.findIndex((query) =>
+      query.includes("INSERT INTO meta_ad_daily"),
+    );
+    expect(adDailyQueryIndex).toBeGreaterThanOrEqual(0);
+    expect(capturedValues[adDailyQueryIndex]?.[24]).toBe(0);
   });
 
   it("casts warehouse range dates to text when truth lifecycle columns are enabled", async () => {
@@ -827,10 +832,20 @@ describe("meta warehouse ownership safety", () => {
       },
     ]);
 
-    expect(queryMock).toHaveBeenCalledTimes(1);
-    expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($31,$32,$33");
-    expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET");
+    const creativeDailyQueries = queries.filter((query) =>
+      query.includes("INSERT INTO meta_creative_daily"),
+    );
+    const creativeDimensionQueries = queries.filter((query) =>
+      query.includes("INSERT INTO meta_creative_dimensions"),
+    );
+
+    expect(creativeDailyQueries).toHaveLength(1);
+    expect(creativeDimensionQueries).toHaveLength(1);
+    expect(creativeDailyQueries[0]).toContain("VALUES ($1,$2,$3");
+    expect(creativeDailyQueries[0]).toContain("), ($31,$32,$33");
+    expect(creativeDailyQueries[0]).toContain(
+      "ON CONFLICT (business_id, provider_account_id, date, creative_id) DO UPDATE SET",
+    );
   });
 
   it("batches meta ad daily upserts instead of writing one row per query", async () => {
@@ -903,10 +918,20 @@ describe("meta warehouse ownership safety", () => {
       },
     ]);
 
-    expect(queryMock).toHaveBeenCalledTimes(1);
-    expect(queries.join("\n")).toContain("VALUES ($1,$2,$3");
-    expect(queries.join("\n")).toContain("), ($34,$35,$36");
-    expect(queries.join("\n")).toContain("ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET");
+    const adDailyQueries = queries.filter((query) =>
+      query.includes("INSERT INTO meta_ad_daily"),
+    );
+    const adDimensionQueries = queries.filter((query) =>
+      query.includes("INSERT INTO meta_ad_dimensions"),
+    );
+
+    expect(adDailyQueries).toHaveLength(1);
+    expect(adDimensionQueries).toHaveLength(1);
+    expect(adDailyQueries[0]).toContain("VALUES ($1,$2,$3");
+    expect(adDailyQueries[0]).toContain("), ($34,$35,$36");
+    expect(adDailyQueries[0]).toContain(
+      "ON CONFLICT (business_id, provider_account_id, date, ad_id) DO UPDATE SET",
+    );
   });
 
   it("extends the running lease using the requested lease minutes", async () => {
