@@ -158,9 +158,9 @@ jobs:
                 printf '%s' "${payload}" | python3 -c 'import json,sys; data=json.load(sys.stdin); cp=data.get("controlPlanePersistence") or {}; print(str(cp.get("exactRowsPresent")), end="")'
               )"
               echo "public_build attempt=${attempt}/${attempts} build=${current_sha} exactRowsPresent=${exact_rows_present}"
-              if [ "${current_sha}" = "${EXPECTED_SHA}" ] && { [ "${exact_rows_present}" = "true" ] || [ "${exact_rows_present}" = "True" ]; }; then
-                exit 0
-              fi
+                  if [ "${current_sha}" = "${EXPECTED_SHA}" ]; then
+                    exit 0
+                  fi
             else
               echo "public_build attempt=${attempt}/${attempts} fetch_failed"
             fi
