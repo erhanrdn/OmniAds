@@ -371,6 +371,17 @@ jobs:
           set -euo pipefail
 
           local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}"
+          if [ ! -f "${local_run_dir}/before/capture.json" ]; then
+            discovered_before_capture="$(
+              find "${local_run_dir}" -path '*/before/capture.json' -type f | head -n1 || true
+            )"
+            if [ -n "${discovered_before_capture}" ]; then
+              local_run_dir="$(dirname "$(dirname "${discovered_before_capture}")")"
+            fi
+          fi
+
+          echo "compare_run_dir=${local_run_dir}"
+          find "${local_run_dir}" -maxdepth 3 -type f | sort || true
           node --import tsx scripts/db-normalization-compare.ts --run-dir "${local_run_dir}"
 
       - name: Verify strict public watch window
