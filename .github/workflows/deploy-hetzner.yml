@@ -189,11 +189,15 @@ jobs:
             attempt=1
 
             while true; do
-              if ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "$@"; then
+              set +e
+              ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "$@"
+              status="$?"
+              set -e
+
+              if [ "${status}" -eq 0 ]; then
                 return 0
               fi
 
-              status="$?"
               echo "ssh_attempt_failed target=${target_host} status=${status} attempt=${attempt}/${max_attempts}"
               if [ "${status}" -ne 255 ] || [ "${attempt}" -ge "${max_attempts}" ]; then
                 return "${status}"
@@ -214,12 +218,16 @@ jobs:
             attempt=1
 
             while true; do
-              if ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "$@" < "${stdin_payload_file}"; then
+              set +e
+              ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "$@" < "${stdin_payload_file}"
+              status="$?"
+              set -e
+
+              if [ "${status}" -eq 0 ]; then
                 rm -f "${stdin_payload_file}"
                 return 0
               fi
 
-              status="$?"
               echo "ssh_attempt_failed target=${target_host} status=${status} attempt=${attempt}/${max_attempts} stdin=yes"
               if [ "${status}" -ne 255 ] || [ "${attempt}" -ge "${max_attempts}" ]; then
                 rm -f "${stdin_payload_file}"
