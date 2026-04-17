@@ -306,7 +306,7 @@ jobs:
             manifest_file="$1"
             log_file="$2"
             mkdir -p "$(dirname "${manifest_file}")" "$(dirname "${log_file}")"
-            ssh "${SSH_OPTS[@]}" "${DB_BACKUP_USER}@${DB_BACKUP_HOST}" 'bash -seuo pipefail' > "${manifest_file}" 2> "${log_file}" <<'EOF'
+            if ! ssh "${SSH_OPTS[@]}" "${DB_BACKUP_USER}@${DB_BACKUP_HOST}" 'bash -seuo pipefail' > "${manifest_file}" 2> "${log_file}" <<'EOF'
             maybe_sudo() {
               if command -v sudo >/dev/null 2>&1; then
                 sudo -n "$@" 2>/dev/null || "$@"
@@ -334,6 +334,9 @@ jobs:
             maybe_sudo journalctl -u adsecute-db-core-backup.service -n 20 --no-pager >&2 || true
             cat "${manifest}"
             EOF
+            then
+              return 1
+            fi
             if [ ! -s "${manifest_file}" ]; then
               echo "Backup manifest capture failed for ${DB_BACKUP_HOST}."
               return 1
