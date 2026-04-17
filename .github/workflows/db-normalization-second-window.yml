@@ -182,6 +182,28 @@ jobs:
         if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         run: npm ci
 
+      - name: Validate second-window shell block syntax
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ruby <<'RUBY'
+          require "yaml"
+
+          workflow = YAML.load_file(".github/workflows/db-normalization-second-window.yml")
+          step = workflow
+            .fetch("jobs")
+            .fetch("second-window")
+            .fetch("steps")
+            .find { |candidate| candidate["name"] == "Run second window over SSH and collect artifacts" }
+
+          abort("Missing second-window runner step.") unless step
+          File.write("/tmp/db-normalization-second-window-run.sh", step.fetch("run"))
+          RUBY
+
+          bash -n /tmp/db-normalization-second-window-run.sh
+
       - name: Run second window over SSH and collect artifacts
         if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         env:
@@ -361,7 +383,7 @@ jobs:
             stat --format="manifest_mtime_epoch=%Y" "${manifest}" >&2 || true
             maybe_sudo journalctl -u adsecute-db-core-backup.service -n 20 --no-pager >&2 || true
             cat "${manifest}"
-            EOF
+          EOF
             then
               return 1
             fi
@@ -519,6 +541,7 @@ jobs:
               fi
               docker exec "${container_id}" mkdir -p /app/docs/architecture </dev/null
               docker cp "docs/architecture/." "${container_id}:/app/docs/architecture/"
+              docker cp "tsconfig.json" "${container_id}:/app/tsconfig.json"
               docker cp "vitest.config.ts" "${container_id}:/app/vitest.config.ts"
               if [ -f "vitest-globals.d.ts" ]; then
                 docker cp "vitest-globals.d.ts" "${container_id}:/app/vitest-globals.d.ts"
