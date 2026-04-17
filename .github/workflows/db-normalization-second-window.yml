@@ -358,9 +358,12 @@ jobs:
             copy_worker_dir_to_host "${WORKER_TMP_DIR}/audit" "${REMOTE_RUN_DIR}/audit-after"
           EOF
 
-          scp -r "${SSH_OPTS[@]}" \
-            "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}:${REMOTE_RUN_DIR}" \
-            ".artifacts/db-normalization-second-window/"
+          REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
+          REMOTE_RUN_BASENAME="$(basename "${REMOTE_RUN_DIR}")"
+          mkdir -p ".artifacts/db-normalization-second-window"
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "tar -C '${REMOTE_RUN_PARENT}' -cf - '${REMOTE_RUN_BASENAME}'" \
+            | tar -C ".artifacts/db-normalization-second-window" -xf -
 
       - name: Compare before/after artifacts
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
