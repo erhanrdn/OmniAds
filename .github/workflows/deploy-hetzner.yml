@@ -24,7 +24,7 @@ on:
         type: string
 
 concurrency:
-  group: deploy-production
+  group: deploy-production-main
   cancel-in-progress: false
 
 jobs:
