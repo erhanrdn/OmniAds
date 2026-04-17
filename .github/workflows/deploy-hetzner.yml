@@ -570,8 +570,8 @@ jobs:
           }
 
           require_public_build_match() {
-            public_build_matches "https://adsecute.com/api/build-info" 12 5
-            public_build_matches "https://www.adsecute.com/api/build-info" 12 5
+            public_build_matches "https://adsecute.com/api/build-info" 24 5
+            public_build_matches "https://www.adsecute.com/api/build-info" 24 5
           }
 
           remediate_primary_public_ingress() {
@@ -610,10 +610,17 @@ jobs:
           EOF
           }
 
+          echo "primary_deploy_host=${PRIMARY_DEPLOY_HOST} primary_deploy_host_ip=${PRIMARY_DEPLOY_HOST_IP}"
+          echo "public_deploy_host=${PUBLIC_DEPLOY_HOST} public_deploy_host_ip=${PUBLIC_DEPLOY_HOST_IP}"
+
           deploy_target "${PRIMARY_DEPLOY_HOST}" "primary"
 
+          if [ -n "${PUBLIC_DEPLOY_HOST_IP}" ] && [ "${PUBLIC_DEPLOY_HOST_IP}" != "${PRIMARY_DEPLOY_HOST_IP}" ]; then
+            deploy_target "${PUBLIC_DEPLOY_HOST_IP}" "public"
+          fi
+
           if ! require_public_build_match; then
-            echo "Public build info does not match ${DEPLOY_SHA} after primary deploy."
+            echo "Public build info does not match ${DEPLOY_SHA} after deploy."
 
             if [ -z "${PUBLIC_DEPLOY_HOST_IP}" ]; then
               echo "Unable to resolve public deploy host for remediation."
@@ -626,8 +633,7 @@ jobs:
               exit 0
             fi
 
-            deploy_target "${PUBLIC_DEPLOY_HOST_IP}" "public_fallback"
-            require_public_build_match
+            exit 1
           fi
 
           if ! require_public_control_plane_match; then
