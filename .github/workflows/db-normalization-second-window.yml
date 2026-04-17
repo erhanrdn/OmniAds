@@ -235,6 +235,9 @@ jobs:
             -i ~/.ssh/id_ed25519
             -p "${PORT}"
             -o BatchMode=yes
+            -o ControlMaster=auto
+            -o ControlPersist=600
+            -o ControlPath=~/.ssh/adsecute-second-window-%C
             -o ServerAliveInterval=30
             -o ServerAliveCountMax=6
             -o TCPKeepAlive=yes
