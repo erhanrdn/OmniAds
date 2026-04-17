@@ -157,6 +157,13 @@ jobs:
           mkdir -p ".artifacts/db-normalization-second-window"
 
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "mkdir -p '${REMOTE_RUN_DIR}' && cat > '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp'" \
+            < docs/architecture/live-db-baseline-checks.sql
+
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "mv '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp' '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql'"
+
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
             "EXPECTED_SHA='${EXPECTED_SHA}' REMOTE_RUN_DIR='${REMOTE_RUN_DIR}' bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
 
@@ -248,6 +255,17 @@ jobs:
               docker compose ps -q worker
             }
 
+            install_baseline_sql_into_worker() {
+              container_id="$(current_worker_container_id)"
+              if [ -z "${container_id}" ]; then
+                echo "Worker container is missing; cannot install baseline SQL."
+                return 1
+              fi
+              docker exec "${container_id}" mkdir -p /app/docs/architecture
+              docker cp "${REMOTE_RUN_DIR}/live-db-baseline-checks.sql" \
+                "${container_id}:/app/docs/architecture/live-db-baseline-checks.sql"
+            }
+
             copy_worker_dir_to_host() {
               src="$1"
               dest="$2"
@@ -268,6 +286,7 @@ jobs:
             export APP_IMAGE_TAG="${EXPECTED_SHA}"
             export APP_BUILD_ID="${EXPECTED_SHA}"
             mkdir -p "${REMOTE_RUN_DIR}"
+            install_baseline_sql_into_worker
 
             log "Verifying current runtime build before maintenance"
             PRE_WINDOW_BUILD_INFO="$(wait_for_build_info 20 3)"
@@ -321,6 +340,9 @@ jobs:
             log "Checking optional health"
             check_optional_health web 20
             check_optional_health worker 40
+
+            log "Installing baseline SQL into restarted worker"
+            install_baseline_sql_into_worker
 
             log "Persisting control plane and verifying strict acceptance"
             persist_sync_control_plane
