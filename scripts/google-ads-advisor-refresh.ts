@@ -1,6 +1,10 @@
 import { loadEnvConfig } from "@next/env";
-import { runMigrations } from "@/lib/migrations";
 import { generateGoogleAdsAdvisorSnapshot } from "@/lib/google-ads/advisor-snapshots";
+import {
+  assertOperationalOwnerMaintenance,
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 loadEnvConfig(process.cwd());
 
@@ -51,6 +55,13 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime({
+    lane: "owner_maintenance",
+  });
+  assertOperationalOwnerMaintenance({
+    runtimeMigrationsEnabled: runtime.runtimeMigrationsEnabled,
+    scriptName: "google-ads-advisor-refresh",
+  });
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
@@ -61,7 +72,11 @@ async function main() {
     process.exit(1);
   }
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled({
+    runtimeMigrationsEnabled: runtime.runtimeMigrationsEnabled,
+    lane: runtime.lane,
+    scriptName: "google-ads-advisor-refresh",
+  });
   const snapshot = await generateGoogleAdsAdvisorSnapshot({
     businessId: args.businessId,
     accountId: args.accountId,

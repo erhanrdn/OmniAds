@@ -13,6 +13,7 @@ type ParsedArgs = {
   outFile: string | null;
   minimumSuccessfulRuns: number;
   workflowFile: string;
+  requireBlockModes: boolean;
 };
 
 type WatchWindowRunSummary = {
@@ -49,6 +50,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     outFile: null,
     minimumSuccessfulRuns: 3,
     workflowFile: "meta-watch-window.yml",
+    requireBlockModes: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -89,6 +91,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (arg === "--workflow-file") {
       parsed.workflowFile = argv[index + 1]?.trim() || parsed.workflowFile;
       index += 1;
+      continue;
+    }
+    if (arg === "--require-block-modes") {
+      parsed.requireBlockModes = true;
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
@@ -159,12 +165,16 @@ async function writeOutput(outFile: string, payload: WatchWindowRunSummary) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  let acceptance = evaluateMetaWatchWindowAcceptance({}, args.expectedBuildId);
+  let acceptance = evaluateMetaWatchWindowAcceptance({}, args.expectedBuildId, {
+    requireBlockModes: args.requireBlockModes,
+  });
   let acceptedAtAttempt: number | null = null;
 
   for (let attempt = 1; attempt <= args.attempts; attempt += 1) {
     const payload = await fetchBuildInfo(args.baseUrl);
-    acceptance = evaluateMetaWatchWindowAcceptance(payload, args.expectedBuildId);
+    acceptance = evaluateMetaWatchWindowAcceptance(payload, args.expectedBuildId, {
+      requireBlockModes: args.requireBlockModes,
+    });
 
     if (acceptance.accepted) {
       acceptedAtAttempt = attempt;

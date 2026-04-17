@@ -1,6 +1,12 @@
 import * as nextEnv from "@next/env";
 
-export function configureOperationalScriptRuntime() {
+export type OperationalScriptLane =
+  | "read_only_observation"
+  | "owner_maintenance";
+
+export function configureOperationalScriptRuntime(input?: {
+  lane?: OperationalScriptLane;
+}) {
   nextEnv.loadEnvConfig(process.cwd());
 
   if (!process.env.ENABLE_RUNTIME_MIGRATIONS?.trim()) {
@@ -8,17 +14,46 @@ export function configureOperationalScriptRuntime() {
   }
 
   return {
+    lane: input?.lane ?? "read_only_observation",
     runtimeMigrationsEnabled: process.env.ENABLE_RUNTIME_MIGRATIONS === "1",
   };
 }
 
-export async function runOperationalMigrationsIfEnabled(input?: {
+function buildOwnerMaintenanceOptInError(scriptName?: string) {
+  const label = scriptName?.trim() || "This script";
+  return `${label} is an owner-maintenance script. Re-run with ENABLE_RUNTIME_MIGRATIONS=1 only after confirming the target DB/context.`;
+}
+
+export function assertOperationalOwnerMaintenance(input?: {
   runtimeMigrationsEnabled?: boolean;
+  scriptName?: string;
 }) {
   const runtimeMigrationsEnabled =
     input?.runtimeMigrationsEnabled ??
-    configureOperationalScriptRuntime().runtimeMigrationsEnabled;
+    configureOperationalScriptRuntime({ lane: "owner_maintenance" })
+      .runtimeMigrationsEnabled;
+  if (!runtimeMigrationsEnabled) {
+    throw new Error(buildOwnerMaintenanceOptInError(input?.scriptName));
+  }
+  return true;
+}
+
+export async function runOperationalMigrationsIfEnabled(input?: {
+  runtimeMigrationsEnabled?: boolean;
+  lane?: OperationalScriptLane;
+  scriptName?: string;
+}) {
+  const runtimeMigrationsEnabled =
+    input?.runtimeMigrationsEnabled ??
+    configureOperationalScriptRuntime({
+      lane: input?.lane,
+    }).runtimeMigrationsEnabled;
   if (!runtimeMigrationsEnabled) return false;
+  if ((input?.lane ?? "read_only_observation") !== "owner_maintenance") {
+    throw new Error(
+      `${input?.scriptName?.trim() || "This script"} is a read-only observation script and must not run migrations.`,
+    );
+  }
   const { runMigrations } = await import("@/lib/migrations");
   await runMigrations();
   return true;

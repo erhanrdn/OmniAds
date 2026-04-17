@@ -20,10 +20,20 @@ type RefCoverageRow = {
   populatedRefRows: number;
 };
 
+type LegacyCorePhase = "compat_retained" | "removed";
+
+type LegacyTableState = {
+  tableName:
+    | "integrations"
+    | "provider_account_assignments"
+    | "provider_account_snapshots";
+  exists: boolean;
+  rows: number | null;
+};
+
 type CoreLegacyState = {
-  integrationsRows: number;
-  providerAssignmentsRows: number;
-  providerSnapshotsRows: number;
+  legacyPhase: LegacyCorePhase;
+  tables: LegacyTableState[];
   providerConnectionsRows: number;
   businessProviderAccountsRows: number;
   snapshotRunsRows: number;
@@ -90,38 +100,61 @@ async function collectRefCoverage() {
 
 async function collectCoreLegacyState(): Promise<CoreLegacyState> {
   const sql = getDbWithTimeout(30_000);
-  const safeCount = async (queryText: string, params: unknown[] = []) => {
+  const doesTableExist = async (tableName: string) => {
+    try {
+      const rows = (await sql.query<{ exists: boolean | null }>(
+        "SELECT to_regclass($1) IS NOT NULL AS exists",
+        [`public.${tableName}`],
+      )) as Array<{ exists: boolean | null }>;
+      return rows[0]?.exists === true;
+    } catch {
+      return false;
+    }
+  };
+  const safeCount = async (tableName: string) => {
+    if (!(await doesTableExist(tableName))) {
+      return null;
+    }
     try {
       const rows = (await sql.query<{ value: number | string | null }>(
-        queryText,
-        params,
+        `SELECT COUNT(*)::bigint AS value FROM ${quoteIdentifier(tableName)}`,
       )) as Array<{ value: number | string | null }>;
       return toNumber(rows[0]?.value);
     } catch {
-      return 0;
+      return null;
     }
   };
 
+  const tables: LegacyTableState[] = [
+    {
+      tableName: "integrations",
+      exists: await doesTableExist("integrations"),
+      rows: await safeCount("integrations"),
+    },
+    {
+      tableName: "provider_account_assignments",
+      exists: await doesTableExist("provider_account_assignments"),
+      rows: await safeCount("provider_account_assignments"),
+    },
+    {
+      tableName: "provider_account_snapshots",
+      exists: await doesTableExist("provider_account_snapshots"),
+      rows: await safeCount("provider_account_snapshots"),
+    },
+  ];
+
   return {
-    integrationsRows: await safeCount("SELECT COUNT(*)::bigint AS value FROM integrations"),
-    providerAssignmentsRows: await safeCount(
-      "SELECT COUNT(*)::bigint AS value FROM provider_account_assignments",
-    ),
-    providerSnapshotsRows: await safeCount(
-      "SELECT COUNT(*)::bigint AS value FROM provider_account_snapshots",
-    ),
-    providerConnectionsRows: await safeCount(
-      "SELECT COUNT(*)::bigint AS value FROM provider_connections",
-    ),
-    businessProviderAccountsRows: await safeCount(
-      "SELECT COUNT(*)::bigint AS value FROM business_provider_accounts",
-    ),
-    snapshotRunsRows: await safeCount(
-      "SELECT COUNT(*)::bigint AS value FROM provider_account_snapshot_runs",
-    ),
-    snapshotItemsRows: await safeCount(
-      "SELECT COUNT(*)::bigint AS value FROM provider_account_snapshot_items",
-    ),
+    legacyPhase: tables.some((table) => table.exists)
+      ? "compat_retained"
+      : "removed",
+    tables,
+    providerConnectionsRows: (await safeCount("provider_connections")) ?? 0,
+    businessProviderAccountsRows:
+      (await safeCount("business_provider_accounts")) ?? 0,
+    snapshotRunsRows:
+      (await safeCount("provider_account_snapshot_runs")) ?? 0,
+    snapshotItemsRows:
+      (await safeCount("provider_account_snapshot_items")) ?? 0,
   };
 }
 
@@ -144,9 +177,7 @@ function buildMarkdown(input: {
   lines.push(`- Run dir: \`${input.runDir}\``);
   lines.push(`- Tables with business ref gaps: ${businessRefGaps.length}`);
   lines.push(`- Tables with provider-account ref gaps: ${providerRefGaps.length}`);
-  lines.push(
-    `- Legacy core rows: integrations=${input.coreLegacyState.integrationsRows}, assignments=${input.coreLegacyState.providerAssignmentsRows}, snapshots=${input.coreLegacyState.providerSnapshotsRows}`,
-  );
+  lines.push(`- Legacy core phase: ${input.coreLegacyState.legacyPhase}`);
   lines.push(
     `- Normalized core rows: connections=${input.coreLegacyState.providerConnectionsRows}, business_provider_accounts=${input.coreLegacyState.businessProviderAccountsRows}, snapshot_runs=${input.coreLegacyState.snapshotRunsRows}, snapshot_items=${input.coreLegacyState.snapshotItemsRows}`,
   );
@@ -163,13 +194,15 @@ function buildMarkdown(input: {
   }
 
   lines.push("## Legacy Compatibility State");
-  lines.push(`- integrations rows retained: ${input.coreLegacyState.integrationsRows}`);
-  lines.push(
-    `- provider_account_assignments rows retained: ${input.coreLegacyState.providerAssignmentsRows}`,
-  );
-  lines.push(
-    `- provider_account_snapshots rows retained: ${input.coreLegacyState.providerSnapshotsRows}`,
-  );
+  if (input.coreLegacyState.legacyPhase === "removed") {
+    lines.push("- Legacy core tables are absent, which is the expected post-second-window state.");
+  } else {
+    for (const table of input.coreLegacyState.tables) {
+      lines.push(
+        `- ${table.tableName}: ${table.exists ? `retained (${table.rows ?? 0} rows)` : "missing"}`,
+      );
+    }
+  }
 
   return lines.join("\n");
 }
@@ -203,6 +236,9 @@ async function main() {
           row.totalRows > 0 &&
           row.nullRefRows > 0,
       ).length,
+      legacyPhase: coreLegacyState.legacyPhase,
+      retainedLegacyTables: coreLegacyState.tables.filter((table) => table.exists).length,
+      removedLegacyTables: coreLegacyState.tables.filter((table) => !table.exists).length,
     };
 
     return {

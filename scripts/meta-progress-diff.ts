@@ -1,10 +1,13 @@
 import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import { configureOperationalScriptRuntime } from "./_operational-runtime";
 
 loadEnvConfig(process.cwd());
 
 async function main() {
+  configureOperationalScriptRuntime({
+    lane: "read_only_observation",
+  });
   const businessId = process.argv[2];
   const sinceIso = process.argv[3];
   if (!businessId || !sinceIso) {
@@ -12,7 +15,6 @@ async function main() {
     process.exit(1);
   }
 
-  await runMigrations();
   const sql = getDb();
   const [states, partitions] = (await Promise.all([
     sql`

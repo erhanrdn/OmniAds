@@ -18,16 +18,23 @@ type ArchiveResult = {
   deletedRows: number;
 };
 
-const ORPHAN_SOURCE_TABLES = [
-  "integrations",
-  "provider_account_snapshots",
+const CANONICAL_ORPHAN_SOURCE_TABLES = [
   "provider_connections",
-  "provider_account_assignments",
   "business_provider_accounts",
   "provider_account_snapshot_runs",
 ] as const;
 
-async function doesTableExist(tableName: (typeof ORPHAN_SOURCE_TABLES)[number]) {
+const RETIRED_COMPAT_ORPHAN_SOURCE_TABLES = [
+  "integrations",
+  "provider_account_snapshots",
+  "provider_account_assignments",
+] as const;
+
+type OrphanSourceTable =
+  | (typeof CANONICAL_ORPHAN_SOURCE_TABLES)[number]
+  | (typeof RETIRED_COMPAT_ORPHAN_SOURCE_TABLES)[number];
+
+async function doesTableExist(tableName: OrphanSourceTable) {
   const sql = getDbWithTimeout(60_000);
   const [row] = (await sql.query<{ exists: boolean | null }>(
     "SELECT to_regclass($1) IS NOT NULL AS exists",
@@ -36,7 +43,7 @@ async function doesTableExist(tableName: (typeof ORPHAN_SOURCE_TABLES)[number]) 
   return row?.exists === true;
 }
 
-async function countAndArchiveSource(tableName: (typeof ORPHAN_SOURCE_TABLES)[number]) {
+async function countAndArchiveSource(tableName: OrphanSourceTable) {
   const sql = getDbWithTimeout(600_000);
   if (!(await doesTableExist(tableName))) {
     return {
@@ -124,6 +131,7 @@ function buildMarkdown(input: {
 async function main() {
   configureOperationalScriptRuntime();
   const parsed = parseCliArgs(process.argv.slice(2));
+  const includeRetiredCompat = parsed.flags.has("include-retired-compat");
   const runDir = buildNormalizationRunDir({
     runDir: getOptionalCliValue(parsed, "run-dir", null) ?? undefined,
   });
@@ -146,7 +154,11 @@ async function main() {
     `);
 
     const results: ArchiveResult[] = [];
-    for (const tableName of ORPHAN_SOURCE_TABLES) {
+    const sourceTables: OrphanSourceTable[] = [
+      ...CANONICAL_ORPHAN_SOURCE_TABLES,
+      ...(includeRetiredCompat ? RETIRED_COMPAT_ORPHAN_SOURCE_TABLES : []),
+    ];
+    for (const tableName of sourceTables) {
       results.push(await countAndArchiveSource(tableName));
     }
 

@@ -49,6 +49,10 @@ Additional control-system rule:
 
 - `deploy_gate` may pass while `release_gate` is still `measure_only` or `not_release_ready`
 - never collapse these into one green signal
+- strict product-ready signoff is stricter than deploy readiness:
+  - `release_gate.verdict` must be `pass`
+  - `repairPlan.recommendations.length` must be `0`
+  - runtime `SYNC_RELEASE_GATE_MODE` must be `block`
 
 ## Global Operator Review Gate
 

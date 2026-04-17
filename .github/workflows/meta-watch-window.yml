@@ -7,6 +7,11 @@ on:
         description: Exact deploy SHA to verify against live Meta acceptance
         required: true
         type: string
+      require_block_modes:
+        description: Require deploy/release gates to run in block mode
+        required: false
+        default: "false"
+        type: string
   workflow_run:
     workflows:
       - Deploy to Hetzner
@@ -60,8 +65,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRE_BLOCK_MODES: ${{ github.event_name == 'workflow_dispatch' && inputs.require_block_modes || 'false' }}
         run: |
           set -euo pipefail
+
+          extra_args=()
+          if [ "${REQUIRE_BLOCK_MODES}" = "true" ]; then
+            extra_args+=(--require-block-modes)
+          fi
 
           node --import tsx scripts/meta-watch-window.ts \
             --expected-build-id "${{ steps.expected.outputs.sha }}" \
@@ -70,7 +81,8 @@ jobs:
             --sleep-ms 5000 \
             --minimum-successful-runs 3 \
             --workflow-file "meta-watch-window.yml" \
-            --out-file ".artifacts/meta-watch-window.json"
+            --out-file ".artifacts/meta-watch-window.json" \
+            "${extra_args[@]}"
 
       - name: Write job summary
         shell: bash
@@ -90,7 +102,9 @@ jobs:
               f"- accepted: `{acceptance['accepted']}`",
               f"- acceptedAtAttempt: `{payload.get('acceptedAtAttempt')}`",
               f"- deployGatePass: `{acceptance['deployGatePass']}`",
+              f"- deployGateModeBlock: `{acceptance['deployGateModeBlock']}`",
               f"- releaseGatePass: `{acceptance['releaseGatePass']}`",
+              f"- releaseGateModeBlock: `{acceptance['releaseGateModeBlock']}`",
               f"- repairPlanEmpty: `{acceptance['repairPlanEmpty']}`",
               f"- exactRowsPresent: `{acceptance['exactRowsPresent']}`",
               f"- previousSuccessfulRuns: `{previous}`",

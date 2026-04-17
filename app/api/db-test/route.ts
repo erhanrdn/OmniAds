@@ -51,20 +51,25 @@ export async function GET() {
     await sql`DROP TABLE IF EXISTS _db_test`;
     report["5_cleanup"] = "OK";
 
-    // 6. verify integrations table exists
+    // 6. verify canonical core tables exist
     const tableCheck = (await sql`
-      SELECT column_name, data_type
+      SELECT table_name, column_name, data_type
       FROM information_schema.columns
-      WHERE table_name = 'integrations'
-      ORDER BY ordinal_position
-    `) as Array<{ column_name: string; data_type: string }>;
-    report["6_integrations_table"] =
-      tableCheck.length > 0 ? `OK (${tableCheck.length} columns)` : "NOT_FOUND";
+      WHERE table_name = ANY(${[
+        "provider_connections",
+        "integration_credentials",
+        "provider_accounts",
+      ]}::text[])
+      ORDER BY table_name, ordinal_position
+    `) as Array<{ table_name: string; column_name: string; data_type: string }>;
+    const discoveredTables = new Set(tableCheck.map((row) => row.table_name));
+    report["6_canonical_core_tables"] =
+      discoveredTables.size === 3 ? "OK" : `MISSING (${3 - discoveredTables.size})`;
 
     return NextResponse.json({
       status: "ALL_PASSED",
       report,
-      integrations_schema: tableCheck,
+      canonical_core_schema: tableCheck,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

@@ -97,6 +97,9 @@ Interpretation:
 - if `release_gate` is not `pass`, operator truth must remain `not_release_ready`
 - break-glass is manual deploy-only and must record an explicit reason
 - `repair_plan` is advisory until a later explicit allowlist executor exists
+- strict product-ready signoff additionally requires:
+  - `repair_plan.recommendations.length = 0`
+  - runtime `SYNC_RELEASE_GATE_MODE=block`
 
 ## Global Operator Review Workflow
 

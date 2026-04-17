@@ -1,0 +1,375 @@
+name: DB Normalization Second Window
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact commit SHA currently deployed to production
+        required: true
+        type: string
+      require_current_main_head:
+        description: Skip the maintenance window if the SHA is not the current main HEAD
+        required: false
+        default: "true"
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  second-window:
+    if: inputs.sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Resolve expected SHA
+        id: expected
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+
+          expected_sha="${INPUT_SHA}"
+          case "${expected_sha}" in
+            *[!0-9a-fA-F]*)
+              echo "Expected SHA must be hexadecimal."
+              exit 1
+              ;;
+          esac
+          if [ "${#expected_sha}" -ne 40 ]; then
+            echo "Expected SHA must be the full 40-character commit SHA."
+            exit 1
+          fi
+
+          echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip superseded maintenance
+        id: freshness
+        if: inputs.require_current_main_head == 'true'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          current_main_sha="$(
+            git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" refs/heads/main \
+              | awk '{print $1}'
+          )"
+
+          if [ -z "${current_main_sha}" ]; then
+            echo "Unable to resolve current main HEAD."
+            exit 1
+          fi
+
+          echo "current_main_sha=${current_main_sha}" >> "$GITHUB_OUTPUT"
+
+          if [ "${EXPECTED_SHA}" != "${current_main_sha}" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping second window for ${EXPECTED_SHA}; current main is ${current_main_sha}."
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout expected ref
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.expected.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Setup Node
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        run: npm ci
+
+      - name: Run second window over SSH and collect artifacts
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
+          HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
+          HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_host() {
+            host="$1"
+            if [ -z "${host}" ]; then
+              return 0
+            fi
+            python3 -c 'import socket, sys; print(socket.gethostbyname(sys.argv[1]))' "${host}" 2>/dev/null || printf '%s\n' "${host}"
+          }
+
+          PRIMARY_DEPLOY_HOST="${HETZNER_HOST}"
+          PUBLIC_DEPLOY_HOST="$(resolve_host "adsecute.com")"
+          PUBLIC_DEPLOY_HOST_IP="$(resolve_host "${PUBLIC_DEPLOY_HOST}")"
+          if [ -z "${PRIMARY_DEPLOY_HOST}" ]; then
+            PRIMARY_DEPLOY_HOST="${PUBLIC_DEPLOY_HOST}"
+          fi
+
+          if [ -z "${PRIMARY_DEPLOY_HOST}" ] || [ -z "${HETZNER_USER}" ] || [ -z "${HETZNER_SSH_KEY}" ] || [ -z "${HETZNER_KNOWN_HOSTS}" ]; then
+            echo "Missing required Hetzner second-window secrets."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${HETZNER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${HETZNER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          ssh-keyscan -H "${PRIMARY_DEPLOY_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          if [ -n "${PUBLIC_DEPLOY_HOST}" ]; then
+            ssh-keyscan -H "${PUBLIC_DEPLOY_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          if [ -n "${PUBLIC_DEPLOY_HOST_IP}" ]; then
+            ssh-keyscan -H "${PUBLIC_DEPLOY_HOST_IP}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+          PORT="${HETZNER_PORT:-22}"
+          SSH_OPTS=(
+            -i ~/.ssh/id_ed25519
+            -p "${PORT}"
+            -o BatchMode=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=6
+            -o TCPKeepAlive=yes
+          )
+
+          REMOTE_RUN_DIR="/var/www/adsecute/.artifacts/db-normalization-second-window/${EXPECTED_SHA}"
+          mkdir -p ".artifacts/db-normalization-second-window"
+
+          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+            "EXPECTED_SHA='${EXPECTED_SHA}' REMOTE_RUN_DIR='${REMOTE_RUN_DIR}' bash -seuo pipefail" <<'EOF'
+            cd /var/www/adsecute
+
+            WORKER_TMP_DIR="/tmp/db-normalization-second-window"
+
+            log() {
+              printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+            }
+
+            maybe_sudo() {
+              if command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
+                sudo "$@"
+              else
+                "$@"
+              fi
+            }
+
+            wait_for_build_info() {
+              attempts="${1:-30}"
+              sleep_seconds="${2:-3}"
+              attempt=1
+              while [ "${attempt}" -le "${attempts}" ]; do
+                if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
+                  printf '%s\n' "${build_info_json}"
+                  return 0
+                fi
+                sleep "${sleep_seconds}"
+                attempt=$((attempt + 1))
+              done
+              return 1
+            }
+
+            extract_build_id() {
+              python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+            }
+
+            check_optional_health() {
+              service_name="$1"
+              max_attempts="${2:-40}"
+              container_id="$(docker compose ps -q "${service_name}" || true)"
+              if [ -z "${container_id}" ]; then
+                echo "Missing container for service ${service_name}"
+                return 1
+              fi
+
+              has_healthcheck="$(docker inspect "${container_id}" --format '{{if .Config.Healthcheck}}yes{{else}}no{{end}}')"
+              if [ "${has_healthcheck}" != "yes" ]; then
+                return 0
+              fi
+
+              attempt=1
+              while [ "${attempt}" -le "${max_attempts}" ]; do
+                health_status="$(docker inspect "${container_id}" --format '{{.State.Health.Status}}')"
+                echo "${service_name}_health_status=${health_status} attempt=${attempt}/${max_attempts}"
+                if [ "${health_status}" = "healthy" ]; then
+                  return 0
+                fi
+                sleep 3
+                attempt=$((attempt + 1))
+              done
+
+              docker inspect "${container_id}" --format '{{json .State.Health}}' || true
+              docker logs --tail=120 "${container_id}" || true
+              return 1
+            }
+
+            persist_sync_control_plane() {
+              cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || "")')"
+              if [ -z "${cron_secret}" ]; then
+                echo "CRON_SECRET is missing from the web runtime."
+                return 1
+              fi
+
+              curl -fsS -X POST \
+                "http://127.0.0.1:3000/api/sync/cron?controlPlaneOnly=1&buildId=${EXPECTED_SHA}&enforceDeployGate=1" \
+                -H "Authorization: Bearer ${cron_secret}" >/dev/null
+            }
+
+            verify_local_sync_control_plane() {
+              docker compose exec -T worker \
+                node --import tsx scripts/sync-control-plane-verify.ts \
+                  --build-id "${EXPECTED_SHA}" \
+                  --environment production \
+                  --provider-scope meta \
+                  --require-block-modes
+            }
+
+            current_worker_container_id() {
+              docker compose ps -q worker
+            }
+
+            copy_worker_dir_to_host() {
+              src="$1"
+              dest="$2"
+              container_id="$(current_worker_container_id)"
+              if [ -z "${container_id}" ]; then
+                echo "Worker container is missing; cannot copy ${src}"
+                return 1
+              fi
+              rm -rf "${dest}"
+              mkdir -p "$(dirname "${dest}")"
+              docker cp "${container_id}:${src}" "${dest}"
+            }
+
+            run_worker_script() {
+              docker compose exec -T worker sh -lc "$1"
+            }
+
+            export APP_IMAGE_TAG="${EXPECTED_SHA}"
+            export APP_BUILD_ID="${EXPECTED_SHA}"
+            mkdir -p "${REMOTE_RUN_DIR}"
+
+            log "Verifying current runtime build before maintenance"
+            PRE_WINDOW_BUILD_INFO="$(wait_for_build_info 20 3)"
+            PRE_WINDOW_BUILD_ID="$(printf '%s' "${PRE_WINDOW_BUILD_INFO}" | extract_build_id)"
+            test "${PRE_WINDOW_BUILD_ID}" = "${EXPECTED_SHA}"
+            printf '%s\n' "${PRE_WINDOW_BUILD_INFO}" > "${REMOTE_RUN_DIR}/build-info-before.json"
+
+            log "Running before capture and audit"
+            run_worker_script "rm -rf '${WORKER_TMP_DIR}' && mkdir -p '${WORKER_TMP_DIR}' && node --import tsx scripts/db-normalization-capture.ts --stage before --run-dir '${WORKER_TMP_DIR}'"
+            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
+            copy_worker_dir_to_host "${WORKER_TMP_DIR}/before" "${REMOTE_RUN_DIR}/before"
+            copy_worker_dir_to_host "${WORKER_TMP_DIR}/audit" "${REMOTE_RUN_DIR}/audit-before"
+
+            log "Triggering production DB backup"
+            maybe_sudo systemctl start adsecute-db-core-backup.service
+            if [ -f /var/backups/adsecute-postgres/latest/manifest.txt ]; then
+              cp /var/backups/adsecute-postgres/latest/manifest.txt "${REMOTE_RUN_DIR}/backup-manifest.txt"
+            fi
+
+            log "Exporting retired compatibility tables"
+            set -a
+            . ./.env.production
+            set +a
+            mkdir -p "${REMOTE_RUN_DIR}/exports"
+            pg_dump "${DATABASE_URL}" --data-only --table=integrations --file "${REMOTE_RUN_DIR}/exports/integrations.sql"
+            pg_dump "${DATABASE_URL}" --data-only --table=provider_account_assignments --file "${REMOTE_RUN_DIR}/exports/provider_account_assignments.sql"
+            pg_dump "${DATABASE_URL}" --data-only --table=provider_account_snapshots --file "${REMOTE_RUN_DIR}/exports/provider_account_snapshots.sql"
+
+            log "Stopping web and worker for maintenance"
+            docker compose stop worker web
+
+            log "Dropping retired legacy core tables"
+            APP_IMAGE_TAG="${EXPECTED_SHA}" \
+            APP_BUILD_ID="${EXPECTED_SHA}" \
+            ENABLE_RUNTIME_MIGRATIONS=1 \
+            DB_DROP_LEGACY_CORE_TABLES=1 \
+              docker compose run --rm \
+                -e ENABLE_RUNTIME_MIGRATIONS=1 \
+                -e DB_DROP_LEGACY_CORE_TABLES=1 \
+                migrate
+
+            log "Restarting web and worker"
+            docker compose up -d --force-recreate web worker
+
+            log "Checking runtime build after maintenance"
+            POST_WINDOW_BUILD_INFO="$(wait_for_build_info 30 3)"
+            POST_WINDOW_BUILD_ID="$(printf '%s' "${POST_WINDOW_BUILD_INFO}" | extract_build_id)"
+            test "${POST_WINDOW_BUILD_ID}" = "${EXPECTED_SHA}"
+            printf '%s\n' "${POST_WINDOW_BUILD_INFO}" > "${REMOTE_RUN_DIR}/build-info-after.json"
+
+            log "Checking optional health"
+            check_optional_health web 20
+            check_optional_health worker 40
+
+            log "Persisting control plane and verifying strict acceptance"
+            persist_sync_control_plane
+            verify_local_sync_control_plane
+
+            log "Running post-window baseline"
+            docker compose exec -T worker npm run db:architecture:baseline > "${REMOTE_RUN_DIR}/baseline-after.txt"
+
+            log "Running after capture and audit"
+            run_worker_script "rm -rf '${WORKER_TMP_DIR}/after' '${WORKER_TMP_DIR}/audit' && node --import tsx scripts/db-normalization-capture.ts --stage after --run-dir '${WORKER_TMP_DIR}'"
+            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
+            copy_worker_dir_to_host "${WORKER_TMP_DIR}/after" "${REMOTE_RUN_DIR}/after"
+            copy_worker_dir_to_host "${WORKER_TMP_DIR}/audit" "${REMOTE_RUN_DIR}/audit-after"
+          EOF
+
+          scp -r "${SSH_OPTS[@]}" \
+            "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}:${REMOTE_RUN_DIR}" \
+            ".artifacts/db-normalization-second-window/"
+
+      - name: Compare before/after artifacts
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+
+          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}"
+          node --import tsx scripts/db-normalization-compare.ts --run-dir "${local_run_dir}"
+
+      - name: Verify strict public watch window
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          node --import tsx scripts/meta-watch-window.ts \
+            --expected-build-id "${{ steps.expected.outputs.sha }}" \
+            --base-url "https://adsecute.com" \
+            --attempts 12 \
+            --sleep-ms 5000 \
+            --minimum-successful-runs 3 \
+            --workflow-file "meta-watch-window.yml" \
+            --require-block-modes \
+            --out-file ".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/meta-watch-window.json"
+
+      - name: Upload second-window artifact bundle
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-normalization-second-window-${{ steps.expected.outputs.sha }}
+          path: .artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}
+          if-no-files-found: error

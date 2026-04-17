@@ -1,6 +1,10 @@
 import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
+import {
+  assertOperationalOwnerMaintenance,
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 
 loadEnvConfig(process.cwd());
 
@@ -8,9 +12,20 @@ const REASON =
   "creative_daily sync disabled after moving creative scoring to the live/snapshot path";
 
 async function main() {
+  const runtime = configureOperationalScriptRuntime({
+    lane: "owner_maintenance",
+  });
+  assertOperationalOwnerMaintenance({
+    runtimeMigrationsEnabled: runtime.runtimeMigrationsEnabled,
+    scriptName: "meta-cancel-creative-daily-backlog",
+  });
   const businessId = process.argv[2]?.trim() || null;
 
-  await runMigrations();
+  await runOperationalMigrationsIfEnabled({
+    runtimeMigrationsEnabled: runtime.runtimeMigrationsEnabled,
+    lane: runtime.lane,
+    scriptName: "meta-cancel-creative-daily-backlog",
+  });
   const sql = getDb();
   const rows = await sql`
     WITH candidate_partitions AS (

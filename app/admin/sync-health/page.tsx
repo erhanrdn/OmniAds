@@ -741,7 +741,7 @@ export default function AdminSyncHealthPage() {
             <div>
               <p className="text-sm font-semibold text-gray-900">Control plane</p>
               <p className="mt-1 text-sm text-gray-500">
-                Runtime contract drift, synthetic deploy gate, and read-only release gate verdicts now come from the same backend control system.
+                Runtime contract drift, synthetic deploy gate, and release readiness now come from the same backend control system. Product-ready signoff requires deploy gate pass, release gate pass, an empty repair plan, and block-mode gates.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -785,6 +785,11 @@ export default function AdminSyncHealthPage() {
                 {payload?.releaseGate?.breakGlass ? <MetricPill label="Break glass" value="active" /> : null}
               </div>
               <p className="mt-2 text-sm text-slate-700">{payload?.releaseGate?.summary ?? "No release gate verdict recorded for this build."}</p>
+              {payload?.releaseGate && payload.releaseGate.mode !== "block" ? (
+                <p className="mt-1 text-xs text-amber-700">
+                  Product-ready signoff is still pending while release gate mode stays <span className="font-mono">{payload.releaseGate.mode}</span>.
+                </p>
+              ) : null}
               {payload?.releaseGate?.overrideReason ? (
                 <p className="mt-1 text-xs text-slate-500">override reason: {payload.releaseGate.overrideReason}</p>
               ) : null}
@@ -806,7 +811,11 @@ export default function AdminSyncHealthPage() {
                 <p className="mt-1 text-xs text-slate-500">
                   top action: {payload.repairPlan.recommendations[0]?.recommendedAction} • count {payload.repairPlan.recommendations.length}
                 </p>
-              ) : null}
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">
+                  Product-ready signoff also requires this recommendation list to stay empty.
+                </p>
+              )}
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

@@ -2,7 +2,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
 import { getIntegration } from "@/lib/integrations";
 import {
@@ -278,12 +277,11 @@ async function captureProviderDiscovery(input: {
 }
 
 async function main() {
-  const runtime = configureOperationalScriptRuntime();
+  configureOperationalScriptRuntime({
+    lane: "read_only_observation",
+  });
   const args = parseArgs(process.argv.slice(2));
 
-  if (runtime.runtimeMigrationsEnabled) {
-    await runMigrations();
-  }
   const sql = getDb();
   await mkdir(args.outDir, { recursive: true });
 

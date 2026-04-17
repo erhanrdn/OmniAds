@@ -583,7 +583,7 @@ export async function GET(request: NextRequest) {
     await Promise.all([
     captureOptional("integration", getIntegrationMetadata(businessId!, "google"), null),
     captureOptional(
-      "provider_account_assignments",
+      "provider_account_membership",
       getProviderAccountAssignments(businessId!, "google"),
       null
     ),

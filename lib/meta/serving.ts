@@ -4,7 +4,6 @@
  */
 
 import { resolveMetaCredentials } from "@/lib/api/meta";
-import { getDb } from "@/lib/db";
 import {
   fetchMetaAdSetConfigs,
   fetchMetaCampaignConfigs,
@@ -986,192 +985,6 @@ function hasMissingConfigValues(input: {
   );
 }
 
-async function readLatestCampaignDailyConfigFallbacks(input: {
-  businessId: string;
-  campaignIds: string[];
-}) {
-  const campaignIds = Array.from(new Set(input.campaignIds.filter(Boolean)));
-  if (campaignIds.length === 0) return new Map<string, MetaWarehouseCurrentConfig>();
-  if (!process.env.DATABASE_URL) return new Map<string, MetaWarehouseCurrentConfig>();
-
-  const sql = getDb();
-  const rows = (await sql`
-    SELECT
-      campaign_id,
-      objective,
-      optimization_goal,
-      bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
-      bid_value,
-      bid_value_format,
-      daily_budget,
-      lifetime_budget,
-      is_budget_mixed,
-      is_config_mixed,
-      is_optimization_goal_mixed,
-      is_bid_strategy_mixed,
-      is_bid_value_mixed
-    FROM meta_campaign_daily
-    WHERE business_id = ${input.businessId}
-      AND campaign_id = ANY(${campaignIds}::text[])
-      AND (
-        objective IS NOT NULL OR
-        optimization_goal IS NOT NULL OR
-        bid_strategy_type IS NOT NULL OR
-        bid_strategy_label IS NOT NULL OR
-        manual_bid_amount IS NOT NULL OR
-        bid_value IS NOT NULL OR
-        bid_value_format IS NOT NULL OR
-        daily_budget IS NOT NULL OR
-        lifetime_budget IS NOT NULL
-      )
-    ORDER BY campaign_id ASC, date DESC, updated_at DESC
-  `) as Array<Record<string, unknown>>;
-
-  const result = new Map<string, MetaWarehouseCurrentConfig>();
-  for (const row of rows) {
-    const campaignId = String(row.campaign_id);
-    const current =
-      result.get(campaignId) ??
-      ({
-        objective: null,
-        optimizationGoal: null,
-        bidStrategyType: null,
-        bidStrategyLabel: null,
-        manualBidAmount: null,
-        bidValue: null,
-        bidValueFormat: null,
-        dailyBudget: null,
-        lifetimeBudget: null,
-        isBudgetMixed: false,
-        isConfigMixed: false,
-        isOptimizationGoalMixed: false,
-        isBidStrategyMixed: false,
-        isBidValueMixed: false,
-      } satisfies MetaWarehouseCurrentConfig);
-
-    result.set(campaignId, {
-      objective: current.objective ?? (row.objective as string | null) ?? null,
-      optimizationGoal:
-        current.optimizationGoal ?? (row.optimization_goal as string | null) ?? null,
-      bidStrategyType:
-        current.bidStrategyType ?? (row.bid_strategy_type as string | null) ?? null,
-      bidStrategyLabel:
-        current.bidStrategyLabel ?? (row.bid_strategy_label as string | null) ?? null,
-      manualBidAmount:
-        current.manualBidAmount ?? (row.manual_bid_amount as number | null) ?? null,
-      bidValue: current.bidValue ?? (row.bid_value as number | null) ?? null,
-      bidValueFormat:
-        current.bidValueFormat ?? (row.bid_value_format as "currency" | "roas" | null) ?? null,
-      dailyBudget: current.dailyBudget ?? (row.daily_budget as number | null) ?? null,
-      lifetimeBudget:
-        current.lifetimeBudget ?? (row.lifetime_budget as number | null) ?? null,
-      isBudgetMixed: current.isBudgetMixed || Boolean(row.is_budget_mixed),
-      isConfigMixed: current.isConfigMixed || Boolean(row.is_config_mixed),
-      isOptimizationGoalMixed:
-        current.isOptimizationGoalMixed || Boolean(row.is_optimization_goal_mixed),
-      isBidStrategyMixed:
-        current.isBidStrategyMixed || Boolean(row.is_bid_strategy_mixed),
-      isBidValueMixed: current.isBidValueMixed || Boolean(row.is_bid_value_mixed),
-    });
-  }
-
-  return result;
-}
-
-async function readLatestAdSetDailyConfigFallbacks(input: {
-  businessId: string;
-  adsetIds: string[];
-}) {
-  const adsetIds = Array.from(new Set(input.adsetIds.filter(Boolean)));
-  if (adsetIds.length === 0) return new Map<string, MetaWarehouseCurrentConfig>();
-  if (!process.env.DATABASE_URL) return new Map<string, MetaWarehouseCurrentConfig>();
-
-  const sql = getDb();
-  const rows = (await sql`
-    SELECT
-      adset_id,
-      optimization_goal,
-      bid_strategy_type,
-      bid_strategy_label,
-      manual_bid_amount,
-      bid_value,
-      bid_value_format,
-      daily_budget,
-      lifetime_budget,
-      is_budget_mixed,
-      is_config_mixed,
-      is_optimization_goal_mixed,
-      is_bid_strategy_mixed,
-      is_bid_value_mixed
-    FROM meta_adset_daily
-    WHERE business_id = ${input.businessId}
-      AND adset_id = ANY(${adsetIds}::text[])
-      AND (
-        optimization_goal IS NOT NULL OR
-        bid_strategy_type IS NOT NULL OR
-        bid_strategy_label IS NOT NULL OR
-        manual_bid_amount IS NOT NULL OR
-        bid_value IS NOT NULL OR
-        bid_value_format IS NOT NULL OR
-        daily_budget IS NOT NULL OR
-        lifetime_budget IS NOT NULL
-      )
-    ORDER BY adset_id ASC, date DESC, updated_at DESC
-  `) as Array<Record<string, unknown>>;
-
-  const result = new Map<string, MetaWarehouseCurrentConfig>();
-  for (const row of rows) {
-    const adsetId = String(row.adset_id);
-    const current =
-      result.get(adsetId) ??
-      ({
-        objective: null,
-        optimizationGoal: null,
-        bidStrategyType: null,
-        bidStrategyLabel: null,
-        manualBidAmount: null,
-        bidValue: null,
-        bidValueFormat: null,
-        dailyBudget: null,
-        lifetimeBudget: null,
-        isBudgetMixed: false,
-        isConfigMixed: false,
-        isOptimizationGoalMixed: false,
-        isBidStrategyMixed: false,
-        isBidValueMixed: false,
-      } satisfies MetaWarehouseCurrentConfig);
-
-    result.set(adsetId, {
-      objective: null,
-      optimizationGoal:
-        current.optimizationGoal ?? (row.optimization_goal as string | null) ?? null,
-      bidStrategyType:
-        current.bidStrategyType ?? (row.bid_strategy_type as string | null) ?? null,
-      bidStrategyLabel:
-        current.bidStrategyLabel ?? (row.bid_strategy_label as string | null) ?? null,
-      manualBidAmount:
-        current.manualBidAmount ?? (row.manual_bid_amount as number | null) ?? null,
-      bidValue: current.bidValue ?? (row.bid_value as number | null) ?? null,
-      bidValueFormat:
-        current.bidValueFormat ?? (row.bid_value_format as "currency" | "roas" | null) ?? null,
-      dailyBudget: current.dailyBudget ?? (row.daily_budget as number | null) ?? null,
-      lifetimeBudget:
-        current.lifetimeBudget ?? (row.lifetime_budget as number | null) ?? null,
-      isBudgetMixed: current.isBudgetMixed || Boolean(row.is_budget_mixed),
-      isConfigMixed: current.isConfigMixed || Boolean(row.is_config_mixed),
-      isOptimizationGoalMixed:
-        current.isOptimizationGoalMixed || Boolean(row.is_optimization_goal_mixed),
-      isBidStrategyMixed:
-        current.isBidStrategyMixed || Boolean(row.is_bid_strategy_mixed),
-      isBidValueMixed: current.isBidValueMixed || Boolean(row.is_bid_value_mixed),
-    });
-  }
-
-  return result;
-}
-
 function mergeCurrentConfig<
   T extends {
     objective?: string | null;
@@ -1209,6 +1022,61 @@ function mergeCurrentConfig<
     isBidStrategyMixed: row.isBidStrategyMixed || fallback.isBidStrategyMixed,
     isBidValueMixed: row.isBidValueMixed || fallback.isBidValueMixed,
   };
+}
+
+function buildEmptyCurrentConfig(objective: string | null = null): MetaWarehouseCurrentConfig {
+  return {
+    objective,
+    optimizationGoal: null,
+    bidStrategyType: null,
+    bidStrategyLabel: null,
+    manualBidAmount: null,
+    bidValue: null,
+    bidValueFormat: null,
+    dailyBudget: null,
+    lifetimeBudget: null,
+    isBudgetMixed: false,
+    isConfigMixed: false,
+    isOptimizationGoalMixed: false,
+    isBidStrategyMixed: false,
+    isBidValueMixed: false,
+  };
+}
+
+function hasInformativeCurrentConfig(config: MetaWarehouseCurrentConfig | null | undefined) {
+  if (!config) return false;
+  return (
+    config.objective != null ||
+    config.optimizationGoal != null ||
+    config.bidStrategyType != null ||
+    config.bidStrategyLabel != null ||
+    config.manualBidAmount != null ||
+    config.bidValue != null ||
+    config.bidValueFormat != null ||
+    config.dailyBudget != null ||
+    config.lifetimeBudget != null ||
+    config.isBudgetMixed ||
+    config.isConfigMixed ||
+    config.isOptimizationGoalMixed ||
+    config.isBidStrategyMixed ||
+    config.isBidValueMixed
+  );
+}
+
+function resolveCurrentConfig(input: {
+  snapshot?: MetaWarehouseCurrentConfig | null;
+  live?: MetaWarehouseCurrentConfig | null;
+}) {
+  const snapshotConfig = input.snapshot ?? null;
+  const liveConfig = input.live ?? null;
+  const merged =
+    liveConfig != null
+      ? mergeCurrentConfig(
+          liveConfig,
+          snapshotConfig ?? buildEmptyCurrentConfig(liveConfig.objective ?? null),
+        )
+      : snapshotConfig;
+  return hasInformativeCurrentConfig(merged) ? merged : null;
 }
 
 function buildCurrentConfigFromSnapshot(payload: {
@@ -1409,7 +1277,7 @@ export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
   );
   if (candidateIds.length === 0) return input.rows;
 
-  const [snapshots, currentConfigs, dailyFallbacks] = await Promise.all([
+  const [snapshots, currentConfigs] = await Promise.all([
     readLatestMetaConfigSnapshots({
       businessId: input.businessId,
       entityLevel: "campaign",
@@ -1419,10 +1287,6 @@ export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
       businessId: input.businessId,
       providerAccountIds: input.rows.map((row) => row.providerAccountId),
     }),
-    readLatestCampaignDailyConfigFallbacks({
-      businessId: input.businessId,
-      campaignIds: candidateIds,
-    }),
   ]);
 
   const repairedRows = input.rows.map((row) => {
@@ -1431,13 +1295,9 @@ export async function hydrateCampaignRowsFromSnapshotsForServing(input: {
       currentConfigs.campaignConfigsByAccount
         .get(row.providerAccountId)
         ?.get(row.campaignId) ?? null;
-    const dailyFallback = dailyFallbacks.get(row.campaignId) ?? null;
     return mergeCurrentConfig(
-      mergeCurrentConfig(
-        mergeCurrentConfig(row, currentConfig),
-        snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null
-      ),
-      dailyFallback
+      mergeCurrentConfig(row, currentConfig),
+      snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null,
     );
   });
 
@@ -1476,7 +1336,7 @@ export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
   );
   if (candidateIds.length === 0) return input.rows;
 
-  const [snapshots, currentConfigs, dailyFallbacks] = await Promise.all([
+  const [snapshots, currentConfigs] = await Promise.all([
     readLatestMetaConfigSnapshots({
       businessId: input.businessId,
       entityLevel: "adset",
@@ -1486,10 +1346,6 @@ export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
       businessId: input.businessId,
       providerAccountIds: input.rows.map((row) => row.providerAccountId),
     }),
-    readLatestAdSetDailyConfigFallbacks({
-      businessId: input.businessId,
-      adsetIds: candidateIds,
-    }),
   ]);
 
   const repairedRows = input.rows.map((row) => {
@@ -1498,13 +1354,9 @@ export async function hydrateAdSetRowsFromSnapshotsForServing(input: {
       currentConfigs.adsetConfigsByAccount
         .get(row.providerAccountId)
         ?.get(row.adsetId) ?? null;
-    const dailyFallback = dailyFallbacks.get(row.adsetId) ?? null;
     return mergeCurrentConfig(
-      mergeCurrentConfig(
-        mergeCurrentConfig(row, currentConfig),
-        snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null
-      ),
-      dailyFallback
+      mergeCurrentConfig(row, currentConfig),
+      snapshot ? buildCurrentConfigFromSnapshot(snapshot) : null,
     );
   });
 
@@ -1516,92 +1368,6 @@ export async function repairAdSetRowsFromSnapshots(input: {
   rows: MetaAdSetDailyRow[];
 }) {
   return hydrateAdSetRowsFromSnapshotsForServing(input);
-}
-
-function toObservedTimestamp(date: string) {
-  return `${date}T00:00:00.000Z`;
-}
-
-function buildCurrentConfigFromCampaignRow(row: MetaCampaignDailyRow): MetaWarehouseCurrentConfig {
-  return {
-    objective: row.objective,
-    optimizationGoal: row.optimizationGoal,
-    bidStrategyType: row.bidStrategyType,
-    bidStrategyLabel: row.bidStrategyLabel,
-    manualBidAmount: row.manualBidAmount,
-    bidValue: row.bidValue,
-    bidValueFormat: row.bidValueFormat,
-    dailyBudget: row.dailyBudget,
-    lifetimeBudget: row.lifetimeBudget,
-    isBudgetMixed: row.isBudgetMixed,
-    isConfigMixed: row.isConfigMixed,
-    isOptimizationGoalMixed: row.isOptimizationGoalMixed,
-    isBidStrategyMixed: row.isBidStrategyMixed,
-    isBidValueMixed: row.isBidValueMixed,
-  };
-}
-
-function buildCurrentConfigFromAdSetRow(row: MetaAdSetDailyRow): MetaWarehouseCurrentConfig {
-  return {
-    objective: null,
-    optimizationGoal: row.optimizationGoal,
-    bidStrategyType: row.bidStrategyType,
-    bidStrategyLabel: row.bidStrategyLabel,
-    manualBidAmount: row.manualBidAmount,
-    bidValue: row.bidValue,
-    bidValueFormat: row.bidValueFormat,
-    dailyBudget: row.dailyBudget,
-    lifetimeBudget: row.lifetimeBudget,
-    isBudgetMixed: row.isBudgetMixed,
-    isConfigMixed: row.isConfigMixed,
-    isOptimizationGoalMixed: row.isOptimizationGoalMixed,
-    isBidStrategyMixed: row.isBidStrategyMixed,
-    isBidValueMixed: row.isBidValueMixed,
-  };
-}
-
-function buildPreviousConfigFromHistory<
-  T extends {
-    date: string;
-    manualBidAmount: number | null;
-    bidValue: number | null;
-    bidValueFormat: "currency" | "roas" | null;
-    dailyBudget: number | null;
-    lifetimeBudget: number | null;
-  },
->(rows: T[], current: T): MetaWarehousePreviousConfig {
-  let previousBidRow: T | null = null;
-  let previousBudgetRow: T | null = null;
-
-  for (let index = rows.length - 2; index >= 0; index -= 1) {
-    const candidate = rows[index];
-    if (
-      !previousBidRow &&
-      (candidate.manualBidAmount !== current.manualBidAmount ||
-        candidate.bidValue !== current.bidValue ||
-        candidate.bidValueFormat !== current.bidValueFormat)
-    ) {
-      previousBidRow = candidate;
-    }
-    if (
-      !previousBudgetRow &&
-      (candidate.dailyBudget !== current.dailyBudget ||
-        candidate.lifetimeBudget !== current.lifetimeBudget)
-    ) {
-      previousBudgetRow = candidate;
-    }
-    if (previousBidRow && previousBudgetRow) break;
-  }
-
-  return {
-    previousManualBidAmount: previousBidRow?.manualBidAmount ?? null,
-    previousBidValue: previousBidRow?.bidValue ?? null,
-    previousBidValueFormat: previousBidRow?.bidValueFormat ?? null,
-    previousBidCapturedAt: previousBidRow ? toObservedTimestamp(previousBidRow.date) : null,
-    previousDailyBudget: previousBudgetRow?.dailyBudget ?? null,
-    previousLifetimeBudget: previousBudgetRow?.lifetimeBudget ?? null,
-    previousBudgetCapturedAt: previousBudgetRow ? toObservedTimestamp(previousBudgetRow.date) : null,
-  };
 }
 
 function zeroDetailedMetrics() {
@@ -1673,7 +1439,7 @@ function buildCampaignTableRow(input: {
     accountId: input.row.providerAccountId,
     name: input.row.campaignName ?? "Unknown Campaign",
     status: input.row.campaignStatus ?? "UNKNOWN",
-    objective: latest?.objective ?? input.row.objective,
+    objective: latest?.objective ?? null,
     budgetLevel: latest?.dailyBudget != null || latest?.lifetimeBudget != null ? "campaign" : null,
     spend: input.row.spend,
     purchases: input.row.conversions,
@@ -1734,50 +1500,44 @@ export async function getMetaWarehouseCampaignTable(input: {
       }).catch(() => null)
     : null;
   const payload = await getMetaWarehouseCampaigns(input);
-  const campaignDailyRows = await hydrateCampaignRowsFromSnapshotsForServing({
-    businessId: input.businessId,
-    rows: v2Enabled
-      ? filterRowsToPublishedKeys(
-          await getMetaCampaignDailyRange(input),
-          verification,
-          "campaign_daily",
-        )
-      : await getMetaCampaignDailyRange(input),
-  });
-  const campaignHistoryByKey = new Map<string, MetaCampaignDailyRow[]>();
-  for (const row of campaignDailyRows) {
-    const key = `${row.providerAccountId}:${row.campaignId}`;
-    const rows = campaignHistoryByKey.get(key);
-    if (rows) rows.push(row);
-    else campaignHistoryByKey.set(key, [row]);
-  }
-  const previousSnapshotDiffs = input.includePrev
-    ? await readPreviousDifferentMetaConfigDiffs({
-        businessId: input.businessId,
-        entityLevel: "campaign",
-        entityIds: payload.rows.map((row) => row.campaignId),
-      })
-    : new Map();
+  const entityIds = Array.from(new Set(payload.rows.map((row) => row.campaignId)));
+  const resolvedProviderAccountIds = Array.from(
+    new Set(payload.rows.map((row) => row.providerAccountId).filter(Boolean)),
+  );
+  const [currentConfigsByAccount, snapshotConfigs, previousSnapshotDiffs] = await Promise.all([
+    readCurrentConfigFallbacks({
+      businessId: input.businessId,
+      providerAccountIds: resolvedProviderAccountIds,
+    }),
+    readLatestMetaConfigSnapshots({
+      businessId: input.businessId,
+      entityLevel: "campaign",
+      entityIds,
+    }),
+    input.includePrev
+      ? readPreviousDifferentMetaConfigDiffs({
+          businessId: input.businessId,
+          entityLevel: "campaign",
+          entityIds,
+        })
+      : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
+  ]);
 
   return payload.rows.map((row) =>
     buildCampaignTableRow({
       row,
-      latestConfig: (() => {
-        const history = campaignHistoryByKey.get(`${row.providerAccountId}:${row.campaignId}`);
-        const latestRow = history?.at(-1);
-        return latestRow ? buildCurrentConfigFromCampaignRow(latestRow) : null;
-      })(),
-      previousConfig: (() => {
-        if (!input.includePrev) return null;
-        const history = campaignHistoryByKey.get(`${row.providerAccountId}:${row.campaignId}`);
-        const latestRow = history?.at(-1);
-        return mergePreviousConfig(
-          history && latestRow
-            ? buildPreviousConfigFromHistory(history, latestRow)
-            : null,
-          previousSnapshotDiffs.get(row.campaignId)
-        );
-      })(),
+      latestConfig: resolveCurrentConfig({
+        snapshot: snapshotConfigs.get(row.campaignId)
+          ? buildCurrentConfigFromSnapshot(snapshotConfigs.get(row.campaignId)!)
+          : null,
+        live:
+          currentConfigsByAccount.campaignConfigsByAccount
+            .get(row.providerAccountId)
+            ?.get(row.campaignId) ?? null,
+      }),
+      previousConfig: input.includePrev
+        ? mergePreviousConfig(null, previousSnapshotDiffs.get(row.campaignId))
+        : null,
     })
   );
 }
@@ -1849,35 +1609,25 @@ export async function getMetaWarehouseAdSets(input: {
         surfaces: ["adset_daily"],
       }).catch(() => null)
     : null;
-  const rows = await hydrateAdSetRowsFromSnapshotsForServing({
-    businessId: input.businessId,
-    rows: v2Enabled
-      ? filterRowsToPublishedKeys(
-          await getMetaAdSetDailyRange({
-            businessId: input.businessId,
-            startDate: input.startDate,
-            endDate: input.endDate,
-            providerAccountIds: input.providerAccountIds,
-            campaignIds: input.campaignId ? [input.campaignId] : null,
-          }),
-          verification,
-          "adset_daily",
-        )
-      : await getMetaAdSetDailyRange({
+  const rows = v2Enabled
+    ? filterRowsToPublishedKeys(
+        await getMetaAdSetDailyRange({
           businessId: input.businessId,
           startDate: input.startDate,
           endDate: input.endDate,
           providerAccountIds: input.providerAccountIds,
           campaignIds: input.campaignId ? [input.campaignId] : null,
         }),
-  });
-  const previousSnapshotDiffs = input.includePrev
-    ? await readPreviousDifferentMetaConfigDiffs({
+        verification,
+        "adset_daily",
+      )
+    : await getMetaAdSetDailyRange({
         businessId: input.businessId,
-        entityLevel: "adset",
-        entityIds: Array.from(new Set(rows.map((row) => row.adsetId))),
-      })
-    : new Map();
+        startDate: input.startDate,
+        endDate: input.endDate,
+        providerAccountIds: input.providerAccountIds,
+        campaignIds: input.campaignId ? [input.campaignId] : null,
+      });
 
   const byAdSet = new Map<string, MetaAdSetDailyRow[]>();
   for (const row of rows) {
@@ -1907,16 +1657,40 @@ export async function getMetaWarehouseAdSets(input: {
     };
   });
 
+  const [currentConfigsByAccount, snapshotConfigs, previousSnapshotDiffs] = await Promise.all([
+    readCurrentConfigFallbacks({
+      businessId: input.businessId,
+      providerAccountIds: Array.from(new Set(aggregated.map((row) => row.providerAccountId))),
+    }),
+    readLatestMetaConfigSnapshots({
+      businessId: input.businessId,
+      entityLevel: "adset",
+      entityIds: Array.from(new Set(aggregated.map((row) => row.adsetId))),
+    }),
+    input.includePrev
+      ? readPreviousDifferentMetaConfigDiffs({
+          businessId: input.businessId,
+          entityLevel: "adset",
+          entityIds: Array.from(new Set(aggregated.map((row) => row.adsetId))),
+        })
+      : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
+  ]);
+
   return aggregated
     .map((row) =>
       buildAdSetTableRow({
         row,
-        latestConfig: buildCurrentConfigFromAdSetRow(row),
+        latestConfig: resolveCurrentConfig({
+          snapshot: snapshotConfigs.get(row.adsetId)
+            ? buildCurrentConfigFromSnapshot(snapshotConfigs.get(row.adsetId)!)
+            : null,
+          live:
+            currentConfigsByAccount.adsetConfigsByAccount
+              .get(row.providerAccountId)
+              ?.get(row.adsetId) ?? null,
+        }),
         previousConfig: input.includePrev
-          ? mergePreviousConfig(
-              buildPreviousConfigFromHistory(byAdSet.get(row.adsetId) ?? [row], row),
-              previousSnapshotDiffs.get(row.adsetId)
-            )
+          ? mergePreviousConfig(null, previousSnapshotDiffs.get(row.adsetId))
           : null,
       })
     )

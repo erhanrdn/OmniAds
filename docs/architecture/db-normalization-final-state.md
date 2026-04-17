@@ -5,7 +5,7 @@ Date: `2026-04-17`
 Authoritative environment: Hetzner production DB on `87.99.149.56 / adsecute_prod`
 
 Current production build:
-- `7f7e807695e4f67ce62d9a4a557241e5f2189a3c`
+- `bca7a6962c0ae14fa05cc3b21abaa34f7607d6d4`
 
 ## Implemented state
 
@@ -22,13 +22,17 @@ Current production build:
   - Audit sampled at `2026-04-17T09:29:03.378Z`
   - Ref tables scanned: `161`
   - Tables with ref gaps: `0`
-- Production control-plane state is healthy.
+- Current production control-plane verdicts for build `bca7a6962c0ae14fa05cc3b21abaa34f7607d6d4` are healthy.
   - `exactRowsPresent = true`
-  - `deployGate = pass`
-  - `releaseGate = pass`
+  - `deployGate.verdict = pass`
+  - `releaseGate.verdict = pass`
   - `repairPlan.recommendations = []`
   - web runtime `healthy`
   - worker runtime `healthy`
+- Strict product-ready closeout is still pending.
+  - Runtime config still reports `SYNC_RELEASE_GATE_MODE=measure_only`.
+  - Product-ready signoff requires block-mode gates plus the clean verdicts above.
+  - The retained legacy compatibility tables still need the second maintenance window.
 
 ## Retained compatibility surface
 
@@ -58,5 +62,6 @@ Observed retained row counts on `2026-04-17T09:29:03.378Z`:
 ## Remaining follow-up
 
 - Second maintenance window still needs to remove the retained compatibility tables.
+- Strict control-plane closeout still needs release-gate mode promotion from `measure_only` to `block`.
 - Meta, Google Ads, and Shopify warehouse tables still need deeper `dimension / fact / config_history` separation.
 - Serving/state docs and operator runbooks are now in-repo, but the raw production artefacts remain intentionally outside the repository.

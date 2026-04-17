@@ -16,6 +16,9 @@ Tables to remove:
   - `exactRowsPresent = true`
   - `deployGate = pass`
   - `releaseGate = pass`
+- Runtime contract posture is understood:
+  - second-window execution may still happen while `SYNC_RELEASE_GATE_MODE=measure_only`
+  - final product-ready signoff still requires a later promotion to `block`
 - Grep/test pass confirms runtime no longer depends on the retired tables.
 
 ## Window steps
@@ -78,6 +81,7 @@ node --import tsx scripts/db-normalization-compare.ts --run-dir /tmp/db-normaliz
 - `db-normalization-audit` still reports `tablesWithRefGaps = 0`.
 - `build-info` still reports clean control-plane state.
 - Targeted overview, Meta, Google Ads, and Shopify read smoke responses preserve their existing contracts.
+- Final product-ready signoff remains a separate step that also requires `SYNC_RELEASE_GATE_MODE=block`.
 
 ## Rollback
 

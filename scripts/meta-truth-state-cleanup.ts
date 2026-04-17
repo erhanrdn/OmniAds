@@ -1,10 +1,23 @@
-import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import {
+  assertOperationalOwnerMaintenance,
+  configureOperationalScriptRuntime,
+  runOperationalMigrationsIfEnabled,
+} from "./_operational-runtime";
 import { getDb } from "@/lib/db";
-import { runMigrations } from "@/lib/migrations";
 
 async function main() {
-  configureOperationalScriptRuntime();
-  await runMigrations();
+  const runtime = configureOperationalScriptRuntime({
+    lane: "owner_maintenance",
+  });
+  assertOperationalOwnerMaintenance({
+    runtimeMigrationsEnabled: runtime.runtimeMigrationsEnabled,
+    scriptName: "meta-truth-state-cleanup",
+  });
+  await runOperationalMigrationsIfEnabled({
+    runtimeMigrationsEnabled: runtime.runtimeMigrationsEnabled,
+    lane: runtime.lane,
+    scriptName: "meta-truth-state-cleanup",
+  });
   const sql = getDb();
 
   await sql.query("BEGIN");

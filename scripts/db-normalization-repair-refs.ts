@@ -33,7 +33,6 @@ const BUSINESS_REF_REPAIR_TABLES = [
   "business_promo_calendar_events",
   "business_provider_accounts",
   "business_target_packs",
-  "provider_account_assignments",
   "provider_connections",
 ] as const;
 
