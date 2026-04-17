@@ -3,8 +3,11 @@ import {
 } from "@/lib/google-ads/serving";
 import { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } from "@/lib/overview-service";
 import { getMetaCreativesDbPayload } from "@/lib/meta/creatives-api";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  DEFAULT_OVERVIEW_BENCHMARK_BASELINE_FILE,
+  loadOverviewBenchmarkBaselineMap,
+  resolveOverviewBenchmarkBaselinePath,
+} from "@/scripts/overview-benchmark-lib";
 
 type ScenarioResult = {
   name: string;
@@ -26,8 +29,6 @@ type ScenarioObservation = {
   validityNote: string;
   sourceKey?: string | null;
 };
-
-type BaselineMap = Record<string, number>;
 
 function describeScenarioError(error: unknown) {
   if (error instanceof Error) {
@@ -125,28 +126,6 @@ async function measureScenario(
   };
 }
 
-function loadBaselineMap(pathValue: string | null | undefined): BaselineMap {
-  if (!pathValue) return {};
-  const path = resolve(pathValue);
-  const payload = JSON.parse(readFileSync(path, "utf8")) as {
-    baseline?: Record<string, number>;
-    scenarios?: Array<{ name?: string; averageMs?: number }>;
-  };
-  const map: BaselineMap = {};
-  for (const [key, value] of Object.entries(payload.baseline ?? {})) {
-    map[key] = value;
-    if (key.endsWith("_ms")) {
-      map[key.slice(0, -3)] = value;
-    }
-  }
-  for (const scenario of payload.scenarios ?? []) {
-    if (scenario.name && typeof scenario.averageMs === "number") {
-      map[scenario.name] = scenario.averageMs;
-    }
-  }
-  return map;
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const businessId = args.get("businessId");
@@ -165,9 +144,8 @@ async function main() {
   const iterations30 = Number(args.get("iterations30") ?? "2");
   const iterations90 = Number(args.get("iterations90") ?? "2");
   const trendIterations = Number(args.get("trendIterations") ?? "5");
-  const baselinePath =
-    args.get("baselineFile") ?? "docs/benchmarks/overview-release-2026-04-07.json";
-  const baseline = loadBaselineMap(baselinePath);
+  const baselinePath = args.get("baselineFile") ?? DEFAULT_OVERVIEW_BENCHMARK_BASELINE_FILE;
+  const baseline = loadOverviewBenchmarkBaselineMap(baselinePath);
 
   const results = [
     await measureScenario("overview_data_no_trends_30d", iterations30, baseline.overview_data_no_trends_30d ?? null, async () => {
@@ -287,7 +265,7 @@ async function main() {
       {
         businessId,
         measuredAt: new Date().toISOString(),
-        baselineFile: resolve(baselinePath),
+        baselineFile: resolveOverviewBenchmarkBaselinePath(baselinePath),
         scenarios: results,
       },
       null,
