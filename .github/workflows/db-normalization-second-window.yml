@@ -307,9 +307,12 @@ jobs:
             fi
 
             log "Exporting retired compatibility tables"
+            NORMALIZATION_RUN_DIR="${REMOTE_RUN_DIR}"
             set -a
             . ./.env.production
             set +a
+            REMOTE_RUN_DIR="${NORMALIZATION_RUN_DIR}"
+            export REMOTE_RUN_DIR
             mkdir -p "${REMOTE_RUN_DIR}/exports"
             pg_dump "${DATABASE_URL}" --data-only --table=integrations --file "${REMOTE_RUN_DIR}/exports/integrations.sql"
             pg_dump "${DATABASE_URL}" --data-only --table=provider_account_assignments --file "${REMOTE_RUN_DIR}/exports/provider_account_assignments.sql"
