@@ -529,12 +529,16 @@ export async function disconnectAllIntegrationsForProvider(
 ): Promise<void> {
   const sql = getDb();
   let impactedRows: Array<{ business_id: string }> = [];
+  const impactedBusinessIds = new Set<string>();
   try {
     impactedRows = (await sql`
       SELECT DISTINCT business_id
       FROM provider_connections
       WHERE provider = ${provider}
     `) as Array<{ business_id: string }>;
+    for (const row of impactedRows) {
+      if (row.business_id) impactedBusinessIds.add(row.business_id);
+    }
     await sql`
       UPDATE provider_connections SET
         status           = 'disconnected',
@@ -560,7 +564,7 @@ export async function disconnectAllIntegrationsForProvider(
       throw error;
     }
   }
-  await sql`
+  const disconnectedRows = (await sql`
     UPDATE integrations SET
       status           = 'disconnected',
       access_token     = NULL,
@@ -571,13 +575,17 @@ export async function disconnectAllIntegrationsForProvider(
       disconnected_at  = now(),
       updated_at       = now()
     WHERE provider = ${provider}
-  `;
+    RETURNING business_id
+  `) as Array<{ business_id: string }>;
+  for (const row of disconnectedRows) {
+    if (row.business_id) impactedBusinessIds.add(row.business_id);
+  }
   if (provider === "shopify" || provider === "ga4") {
     await Promise.all(
-      impactedRows.map((row) =>
-        recomputeBusinessDerivedTimezone(row.business_id).catch((error: unknown) => {
+      [...impactedBusinessIds].map((businessId) =>
+        recomputeBusinessDerivedTimezone(businessId).catch((error: unknown) => {
           console.warn("[integrations] business_timezone_recompute_failed", {
-            businessId: row.business_id,
+            businessId,
             provider,
             message: error instanceof Error ? error.message : String(error),
           });

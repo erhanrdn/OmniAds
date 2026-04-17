@@ -12,7 +12,12 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
   }),
 }));
 
+vi.mock("@/lib/business-timezone", () => ({
+  recomputeBusinessDerivedTimezone: vi.fn().mockResolvedValue(undefined),
+}));
+
 const db = await import("@/lib/db");
+const businessTimezone = await import("@/lib/business-timezone");
 
 describe("backfillIntegrationSecretsEncryption", () => {
   beforeEach(() => {
@@ -136,5 +141,31 @@ describe("backfillIntegrationSecretsEncryption", () => {
 
     expect(queries.join("\n")).toContain("INSERT INTO provider_connections");
     expect(queries.join("\n")).toContain("business_ref_id");
+  });
+
+  it("recomputes timezone for every business disconnected from legacy integrations", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("SELECT DISTINCT business_id") && query.includes("FROM provider_connections")) {
+        return [];
+      }
+      if (query.includes("UPDATE integrations") && query.includes("RETURNING business_id")) {
+        return [
+          { business_id: "biz_1" },
+          { business_id: "biz_1" },
+          { business_id: "biz_2" },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const { disconnectAllIntegrationsForProvider } = await import("@/lib/integrations");
+    await disconnectAllIntegrationsForProvider("ga4");
+
+    expect(vi.mocked(businessTimezone.recomputeBusinessDerivedTimezone).mock.calls).toEqual([
+      ["biz_1"],
+      ["biz_2"],
+    ]);
   });
 });

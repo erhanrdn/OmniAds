@@ -150,8 +150,11 @@ function getSnapshotKey(businessId: string, provider: string) {
   return `${businessId}:${provider}`;
 }
 
-function toIso(value: Date | null) {
-  return value ? value.toISOString() : null;
+function toIso(value: Date | string | null) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : String(value);
 }
 
 function isFresh(row: ProviderAccountSnapshotRow, freshnessMs: number) {
@@ -425,6 +428,7 @@ async function persistSnapshotState(input: {
   businessId: string;
   provider: string;
   accounts: ProviderAccountSnapshotItem[];
+  fetchedAt?: Date | string | null;
   refreshRequestedAt?: Date | null;
   lastRefreshAttemptAt?: Date | null;
   nextRefreshAfter?: Date | null;
@@ -438,6 +442,7 @@ async function persistSnapshotState(input: {
   const sql = getDb();
   const accountsHash = computeAccountsHash(input.accounts);
   const now = new Date().toISOString();
+  const fetchedAt = toIso(input.fetchedAt ?? null) ?? now;
   const businessRefIds = await resolveBusinessReferenceIds([input.businessId]);
   const businessRefId = businessRefIds.get(input.businessId) ?? null;
   try {
@@ -464,7 +469,7 @@ async function persistSnapshotState(input: {
         ${input.businessId},
         ${businessRefId},
         ${input.provider},
-        now(),
+        ${fetchedAt},
         ${input.refreshFailed ?? false},
         ${input.lastError ?? null},
         ${toIso(input.refreshRequestedAt ?? null)},
@@ -625,7 +630,7 @@ async function persistSnapshotState(input: {
       ${businessRefId},
       ${input.provider},
       ${JSON.stringify(input.accounts)}::jsonb,
-      now(),
+      ${fetchedAt},
       ${input.refreshFailed ?? false},
       ${input.lastError ?? null},
       ${toIso(input.refreshRequestedAt ?? null)},
@@ -709,6 +714,8 @@ export async function writeProviderAccountSnapshot(input: {
 async function updateSnapshotLifecycle(input: {
   businessId: string;
   provider: string;
+  accounts?: ProviderAccountSnapshotItem[];
+  fetchedAt?: Date | string | null;
   refreshRequestedAt?: Date | null;
   lastRefreshAttemptAt?: Date | null;
   nextRefreshAfter?: Date | null;
@@ -721,7 +728,8 @@ async function updateSnapshotLifecycle(input: {
 }) {
   await persistSnapshotState({
     ...input,
-    accounts: [],
+    accounts: input.accounts ?? [],
+    fetchedAt: input.fetchedAt ?? null,
   });
 }
 
@@ -821,6 +829,8 @@ async function runSnapshotRefresh(input: ResolveProviderAccountSnapshotInput) {
     await updateSnapshotLifecycle({
       businessId: input.businessId,
       provider: input.provider,
+      accounts: existingSnapshot?.accounts_payload ?? [],
+      fetchedAt: existingSnapshot?.fetched_at ?? null,
       refreshRequestedAt: now,
       lastRefreshAttemptAt: now,
       nextRefreshAfter: null,
