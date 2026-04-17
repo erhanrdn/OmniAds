@@ -276,7 +276,8 @@ jobs:
               fi
               rm -rf "${dest}"
               mkdir -p "${dest}"
-              docker cp "${container_id}:${src}/." "${dest}"
+              docker exec "${container_id}" sh -lc "tar -C '${src}' -cf - ." \
+                | tar -C "${dest}" -xf -
             }
 
             run_worker_script() {
