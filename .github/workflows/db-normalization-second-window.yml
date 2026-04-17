@@ -17,6 +17,11 @@ on:
         required: false
         default: "true"
         type: string
+  workflow_run:
+    workflows:
+      - Deploy to Hetzner
+    types:
+      - completed
 
 concurrency:
   group: deploy-production
@@ -24,7 +29,13 @@ concurrency:
 
 jobs:
   second-window:
-    if: inputs.sha != ''
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_branch == 'main')
+      }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,10 +46,18 @@ jobs:
         shell: bash
         env:
           INPUT_SHA: ${{ inputs.sha }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
-          expected_sha="${INPUT_SHA}"
+          expected_sha="${INPUT_SHA:-}"
+          if [ -z "${expected_sha}" ]; then
+            expected_sha="${WORKFLOW_RUN_SHA:-}"
+          fi
+          if [ -z "${expected_sha}" ]; then
+            echo "Expected SHA is missing."
+            exit 1
+          fi
           case "${expected_sha}" in
             *[!0-9a-fA-F]*)
               echo "Expected SHA must be hexadecimal."
@@ -52,15 +71,22 @@ jobs:
 
           echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve maintenance mode
-        id: mode
+      - name: Resolve execution context
+        id: execution
         shell: bash
         env:
           INPUT_MODE: ${{ inputs.mode }}
+          INPUT_REQUIRE_CURRENT_MAIN_HEAD: ${{ inputs.require_current_main_head }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
 
           mode="${INPUT_MODE:-preflight}"
+          require_current_main_head="${INPUT_REQUIRE_CURRENT_MAIN_HEAD:-true}"
+          if [ "${EVENT_NAME}" = "workflow_run" ]; then
+            mode="preflight"
+            require_current_main_head="true"
+          fi
           case "${mode}" in
             preflight|execute)
               ;;
@@ -71,10 +97,11 @@ jobs:
           esac
 
           echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "require_current_main_head=${require_current_main_head}" >> "$GITHUB_OUTPUT"
 
       - name: Skip superseded maintenance
         id: freshness
-        if: inputs.require_current_main_head == 'true'
+        if: steps.execution.outputs.require_current_main_head == 'true'
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
@@ -104,28 +131,28 @@ jobs:
           echo "should_run=true" >> "$GITHUB_OUTPUT"
 
       - name: Checkout expected ref
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.expected.outputs.sha }}
           fetch-depth: 1
 
       - name: Setup Node
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         run: npm ci
 
       - name: Run second window over SSH and collect artifacts
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
-          WINDOW_MODE: ${{ steps.mode.outputs.mode }}
+          WINDOW_MODE: ${{ steps.execution.outputs.mode }}
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
@@ -457,11 +484,11 @@ jobs:
             | tar -C "${LOCAL_RUN_ROOT}" -xf -
 
       - name: Assert second-window artifact completeness
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         run: |
           set -euo pipefail
 
-          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}"
+          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.execution.outputs.mode }}"
           required_files=(
             "before/capture.json"
             "after/capture.json"
@@ -493,17 +520,17 @@ jobs:
           fi
 
       - name: Compare before/after artifacts
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         run: |
           set -euo pipefail
 
-          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}"
+          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.execution.outputs.mode }}"
           echo "compare_run_dir=${local_run_dir}"
           find "${local_run_dir}" -maxdepth 5 -type f | sort || true
           node --import tsx scripts/db-normalization-compare.ts --run-dir "${local_run_dir}"
 
       - name: Verify strict public watch window
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -518,12 +545,12 @@ jobs:
             --minimum-successful-runs 3 \
             --workflow-file "meta-watch-window.yml" \
             --require-block-modes \
-            --out-file ".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}/meta-watch-window.json"
+            --out-file ".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.execution.outputs.mode }}/meta-watch-window.json"
 
       - name: Upload second-window artifact bundle
-        if: ${{ always() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') }}
+        if: ${{ always() && (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') }}
         uses: actions/upload-artifact@v4
         with:
-          name: db-normalization-second-window-${{ steps.expected.outputs.sha }}-${{ steps.mode.outputs.mode }}
-          path: .artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}
+          name: db-normalization-second-window-${{ steps.expected.outputs.sha }}-${{ steps.execution.outputs.mode }}
+          path: .artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.execution.outputs.mode }}
           if-no-files-found: warn
