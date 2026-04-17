@@ -175,8 +175,61 @@ jobs:
             -o ServerAliveInterval=30
             -o ServerAliveCountMax=6
             -o TCPKeepAlive=yes
+            -o ControlMaster=auto
+            -o ControlPersist=600
+            -o ControlPath=~/.ssh/adsecute-deploy-%C
+            -o ConnectionAttempts=3
           )
           REMOTE_APP_DIR="/var/www/adsecute"
+
+          ssh_with_retry() {
+            target_host="$1"
+            shift
+            max_attempts="${SSH_MAX_ATTEMPTS:-4}"
+            attempt=1
+
+            while true; do
+              if ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "$@"; then
+                return 0
+              fi
+
+              status="$?"
+              echo "ssh_attempt_failed target=${target_host} status=${status} attempt=${attempt}/${max_attempts}"
+              if [ "${status}" -ne 255 ] || [ "${attempt}" -ge "${max_attempts}" ]; then
+                return "${status}"
+              fi
+
+              sleep "$((attempt * 3))"
+              attempt=$((attempt + 1))
+            done
+          }
+
+          ssh_with_stdin_retry() {
+            target_host="$1"
+            shift
+            stdin_payload_file="$(mktemp)"
+            cat > "${stdin_payload_file}"
+
+            max_attempts="${SSH_MAX_ATTEMPTS:-4}"
+            attempt=1
+
+            while true; do
+              if ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "$@" < "${stdin_payload_file}"; then
+                rm -f "${stdin_payload_file}"
+                return 0
+              fi
+
+              status="$?"
+              echo "ssh_attempt_failed target=${target_host} status=${status} attempt=${attempt}/${max_attempts} stdin=yes"
+              if [ "${status}" -ne 255 ] || [ "${attempt}" -ge "${max_attempts}" ]; then
+                rm -f "${stdin_payload_file}"
+                return "${status}"
+              fi
+
+              sleep "$((attempt * 3))"
+              attempt=$((attempt + 1))
+            done
+          }
 
           deploy_target() {
             target_host="$1"
@@ -184,14 +237,14 @@ jobs:
 
             echo "Deploying ${DEPLOY_SHA} to ${target_label} (${target_host})"
 
-            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+            ssh_with_stdin_retry "${target_host}" \
               "mkdir -p '${REMOTE_APP_DIR}' && cat > '${REMOTE_APP_DIR}/docker-compose.yml.tmp'" \
               < docker-compose.yml
 
-            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+            ssh_with_retry "${target_host}" \
               "mv '${REMOTE_APP_DIR}/docker-compose.yml.tmp' '${REMOTE_APP_DIR}/docker-compose.yml'"
 
-            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" \
+            ssh_with_retry "${target_host}" \
               "DEPLOY_SHA='${DEPLOY_SHA}' BREAK_GLASS='${BREAK_GLASS}' OVERRIDE_REASON='${OVERRIDE_REASON}' bash -seuo pipefail" <<'EOF'
               cd /var/www/adsecute
 
@@ -526,7 +579,7 @@ jobs:
 
             echo "Attempting nginx ingress remediation on ${target_host}"
 
-            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${target_host}" "bash -seuo pipefail" <<'EOF'
+            ssh_with_retry "${target_host}" "bash -seuo pipefail" <<'EOF'
               if command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
                 SUDO="sudo"
               else
