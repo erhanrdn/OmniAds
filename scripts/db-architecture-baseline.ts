@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const repoRoot = process.cwd();
+const runtimeOnly = process.argv.includes("--runtime-only");
 
 function fail(message: string): never {
   throw new Error(message);
@@ -171,6 +172,13 @@ function main() {
     "tsx",
     "scripts/check-request-path-side-effects.ts",
   ]);
+
+  if (runtimeOnly) {
+    process.stdout.write(
+      "Runtime-only baseline enabled; skipping Vitest contract suite because CI remains the authoritative unit-test gate.\n",
+    );
+    return;
+  }
 
   runCommand(process.platform === "win32" ? "npm.cmd" : "npm", [
     "exec",

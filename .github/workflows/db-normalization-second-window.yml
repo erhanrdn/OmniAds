@@ -436,7 +436,7 @@ jobs:
             assert_host_file "${REMOTE_RUN_DIR}/build-info-before.json"
 
             log "Running pre-window baseline"
-            docker compose exec -T worker npm run db:architecture:baseline > "${REMOTE_RUN_DIR}/baseline-before.txt"
+            docker compose exec -T worker npm run db:architecture:baseline:runtime > "${REMOTE_RUN_DIR}/baseline-before.txt"
             assert_host_file "${REMOTE_RUN_DIR}/baseline-before.txt"
 
             log "Running before capture and audit"
@@ -504,7 +504,7 @@ jobs:
             verify_local_sync_control_plane
 
             log "Running post-window baseline"
-            docker compose exec -T worker npm run db:architecture:baseline > "${REMOTE_RUN_DIR}/baseline-after.txt"
+            docker compose exec -T worker npm run db:architecture:baseline:runtime > "${REMOTE_RUN_DIR}/baseline-after.txt"
             assert_host_file "${REMOTE_RUN_DIR}/baseline-after.txt"
 
             log "Running after capture and audit"

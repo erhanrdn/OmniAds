@@ -455,6 +455,46 @@ jobs:
                 test "${actual_image}" = "${expected_image}"
               }
 
+              log_disk_usage() {
+                df -h / /var/lib/docker 2>/dev/null || true
+                docker system df || true
+              }
+
+              prune_stale_deploy_artifacts() {
+                keep_images_file="$(mktemp)"
+                {
+                  printf '%s\n' "${expected_web_image}"
+                  printf '%s\n' "${expected_worker_image}"
+                  for service_name in web worker migrate; do
+                    container_id="$(docker compose ps -q "${service_name}" || true)"
+                    if [ -n "${container_id}" ]; then
+                      docker inspect "${container_id}" --format '{{.Config.Image}}' || true
+                    fi
+                  done
+                } | sort -u > "${keep_images_file}"
+
+                docker container prune -f || true
+                docker builder prune -af || true
+
+                stale_images="$(
+                  docker images --format '{{.Repository}}:{{.Tag}}' \
+                    | grep -E '^ghcr.io/erhanrdn/omniads-(web|worker):' \
+                    | sort -u \
+                    || true
+                )"
+
+                while IFS= read -r image_ref; do
+                  [ -n "${image_ref}" ] || continue
+                  if grep -Fxq "${image_ref}" "${keep_images_file}"; then
+                    continue
+                  fi
+                  echo "Removing stale deploy image ${image_ref}"
+                  docker image rm -f "${image_ref}" || true
+                done <<< "${stale_images}"
+
+                rm -f "${keep_images_file}"
+              }
+
               run_migrations_service() {
                 migration_timeout_seconds="${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-600}"
                 docker compose rm -f migrate >/dev/null 2>&1 || true
@@ -484,6 +524,15 @@ jobs:
               export APP_BUILD_ID="${DEPLOY_SHA}"
               expected_web_image="ghcr.io/erhanrdn/omniads-web:${DEPLOY_SHA}"
               expected_worker_image="ghcr.io/erhanrdn/omniads-worker:${DEPLOY_SHA}"
+
+              log "Checking disk headroom before pull"
+              log_disk_usage
+
+              log "Pruning stale deploy artifacts before pull"
+              prune_stale_deploy_artifacts
+
+              log "Disk headroom after prune"
+              log_disk_usage
 
               log "Pulling exact SHA images"
               docker compose pull web worker
