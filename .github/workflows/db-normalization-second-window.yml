@@ -516,6 +516,51 @@ jobs:
           remote_status=$?
           set -e
 
+          copy_remote_file_to_runner() {
+            remote_path="$1"
+            local_path="$2"
+            if ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" "test -f '${remote_path}'"; then
+              mkdir -p "$(dirname "${local_path}")"
+              ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+                "cat '${remote_path}'" > "${local_path}"
+            fi
+          }
+
+          copy_remote_directory_files_to_runner() {
+            remote_dir="$1"
+            local_dir="$2"
+            remote_listing="$(
+              ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+                "if [ -d '${remote_dir}' ]; then find '${remote_dir}' -maxdepth 1 -type f -printf '%f\n'; fi" \
+                || true
+            )"
+            if [ -z "${remote_listing}" ]; then
+              return 0
+            fi
+            while IFS= read -r entry; do
+              if [ -z "${entry}" ]; then
+                continue
+              fi
+              copy_remote_file_to_runner "${remote_dir}/${entry}" "${local_dir}/${entry}"
+            done <<< "${remote_listing}"
+          }
+
+          mkdir -p "${LOCAL_RUN_DIR}"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/live-db-baseline-checks.sql" "${LOCAL_RUN_DIR}/live-db-baseline-checks.sql"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/build-info-before.json" "${LOCAL_RUN_DIR}/build-info-before.json"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/build-info-after.json" "${LOCAL_RUN_DIR}/build-info-after.json"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/baseline-before.txt" "${LOCAL_RUN_DIR}/baseline-before.txt"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/baseline-after.txt" "${LOCAL_RUN_DIR}/baseline-after.txt"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/before/capture.json" "${LOCAL_RUN_DIR}/before/capture.json"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/after/capture.json" "${LOCAL_RUN_DIR}/after/capture.json"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/audit-before/audit.json" "${LOCAL_RUN_DIR}/audit-before/audit.json"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/audit-before/audit.md" "${LOCAL_RUN_DIR}/audit-before/audit.md"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/audit-after/audit.json" "${LOCAL_RUN_DIR}/audit-after/audit.json"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/audit-after/audit.md" "${LOCAL_RUN_DIR}/audit-after/audit.md"
+          copy_remote_file_to_runner "${REMOTE_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/backup-manifest.txt"
+          copy_remote_directory_files_to_runner "${REMOTE_RUN_DIR}/exports" "${LOCAL_RUN_DIR}/exports"
+          copy_remote_directory_files_to_runner "${REMOTE_RUN_DIR}/logs" "${LOCAL_RUN_DIR}/logs"
+
           REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
           REMOTE_RUN_BASENAME="$(basename "${REMOTE_RUN_DIR}")"
           mkdir -p "${LOCAL_RUN_ROOT}"
