@@ -332,9 +332,9 @@ export async function appendMetaConfigSnapshots(
         item.payload
       FROM jsonb_to_recordset(${payload}::jsonb) AS item(
         business_id text,
-        business_ref_id text,
+        business_ref_id uuid,
         account_id text,
-        provider_account_ref_id text,
+        provider_account_ref_id uuid,
         entity_level text,
         entity_id text,
         payload jsonb

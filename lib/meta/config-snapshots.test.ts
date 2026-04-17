@@ -59,5 +59,7 @@ describe("meta config snapshots", () => {
     const query = String(sql.mock.calls[0]?.[0]?.join(" ") ?? "");
     expect(query).toContain("business_ref_id");
     expect(query).toContain("provider_account_ref_id");
+    expect(query).toContain("business_ref_id uuid");
+    expect(query).toContain("provider_account_ref_id uuid");
   });
 });
