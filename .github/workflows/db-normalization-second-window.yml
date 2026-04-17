@@ -514,9 +514,19 @@ jobs:
                 return 1
               fi
 
-              curl -fsS -X POST \
+              set +e
+              curl -fsS \
+                --connect-timeout 10 \
+                --max-time 90 \
+                -X POST \
                 "http://127.0.0.1:3000/api/sync/cron?controlPlaneOnly=1&buildId=${EXPECTED_SHA}&enforceDeployGate=1" \
                 -H "Authorization: Bearer ${cron_secret}" >/dev/null
+              curl_status=$?
+              set -e
+
+              if [ "${curl_status}" -ne 0 ]; then
+                echo "controlPlaneOnly POST exited with curl status ${curl_status}; falling through to strict local verification."
+              fi
             }
 
             verify_local_sync_control_plane() {
