@@ -254,6 +254,7 @@ jobs:
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
             "mv '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp' '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql'"
 
+          set +e
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
             "EXPECTED_SHA='${EXPECTED_SHA}' REMOTE_RUN_DIR='${REMOTE_RUN_DIR}' SECOND_WINDOW_MODE='${WINDOW_MODE}' bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
@@ -362,8 +363,7 @@ jobs:
                 return 1
               fi
               docker exec "${container_id}" mkdir -p /app/docs/architecture
-              docker cp "${REMOTE_RUN_DIR}/live-db-baseline-checks.sql" \
-                "${container_id}:/app/docs/architecture/live-db-baseline-checks.sql"
+              docker cp "docs/architecture/." "${container_id}:/app/docs/architecture/"
             }
 
             copy_worker_file_to_host() {
@@ -509,13 +509,20 @@ jobs:
             log "Listing remote artifact bundle"
             find "${REMOTE_RUN_DIR}" -maxdepth 4 -type f | sort
           EOF
+          remote_status=$?
+          set -e
 
           REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
           REMOTE_RUN_BASENAME="$(basename "${REMOTE_RUN_DIR}")"
           mkdir -p "${LOCAL_RUN_ROOT}"
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "tar -C '${REMOTE_RUN_PARENT}' -cf - '${REMOTE_RUN_BASENAME}'" \
-            | tar -C "${LOCAL_RUN_ROOT}" -xf -
+            "if [ -d '${REMOTE_RUN_DIR}' ]; then tar -C '${REMOTE_RUN_PARENT}' -cf - '${REMOTE_RUN_BASENAME}'; fi" \
+            | tar -C "${LOCAL_RUN_ROOT}" -xf - || true
+
+          if [ "${remote_status}" -ne 0 ]; then
+            echo "Remote second-window script failed with status ${remote_status}."
+            exit "${remote_status}"
+          fi
 
       - name: Assert second-window artifact completeness
         if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
