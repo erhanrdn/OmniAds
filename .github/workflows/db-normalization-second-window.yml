@@ -275,8 +275,8 @@ jobs:
                 return 1
               fi
               rm -rf "${dest}"
-              mkdir -p "$(dirname "${dest}")"
-              docker cp "${container_id}:${src}" "${dest}"
+              mkdir -p "${dest}"
+              docker cp "${container_id}:${src}/." "${dest}"
             }
 
             run_worker_script() {
@@ -356,6 +356,8 @@ jobs:
             run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
             copy_worker_dir_to_host "${WORKER_TMP_DIR}/after" "${REMOTE_RUN_DIR}/after"
             copy_worker_dir_to_host "${WORKER_TMP_DIR}/audit" "${REMOTE_RUN_DIR}/audit-after"
+            log "Listing remote artifact bundle"
+            find "${REMOTE_RUN_DIR}" -maxdepth 4 -type f | sort
           EOF
 
           REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
