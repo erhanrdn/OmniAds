@@ -19,7 +19,7 @@ on:
         type: string
   workflow_run:
     workflows:
-      - Deploy to Hetzner
+      - CI
     types:
       - completed
 
@@ -33,6 +33,7 @@ jobs:
       ${{
         (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
         (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.name == 'CI' &&
          github.event.workflow_run.conclusion == 'success' &&
          github.event.workflow_run.head_branch == 'main')
       }}
@@ -136,6 +137,39 @@ jobs:
         with:
           ref: ${{ steps.expected.outputs.sha }}
           fetch-depth: 1
+
+      - name: Wait for public runtime to serve expected build
+        if: github.event_name == 'workflow_run' && (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true')
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          attempts=90
+          sleep_seconds=10
+          attempt=1
+          while [ "${attempt}" -le "${attempts}" ]; do
+            if payload="$(curl -fsSL https://adsecute.com/api/build-info 2>/dev/null)"; then
+              current_sha="$(
+                printf '%s' "${payload}" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("buildId",""), end="")'
+              )"
+              exact_rows_present="$(
+                printf '%s' "${payload}" | python3 -c 'import json,sys; data=json.load(sys.stdin); cp=data.get("controlPlanePersistence") or {}; print(str(cp.get("exactRowsPresent")), end="")'
+              )"
+              echo "public_build attempt=${attempt}/${attempts} build=${current_sha} exactRowsPresent=${exact_rows_present}"
+              if [ "${current_sha}" = "${EXPECTED_SHA}" ]; then
+                exit 0
+              fi
+            else
+              echo "public_build attempt=${attempt}/${attempts} fetch_failed"
+            fi
+            sleep "${sleep_seconds}"
+            attempt=$((attempt + 1))
+          done
+
+          echo "Timed out waiting for public runtime to serve ${EXPECTED_SHA}."
+          exit 1
 
       - name: Setup Node
         if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
