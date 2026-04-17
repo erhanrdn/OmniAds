@@ -252,7 +252,11 @@ jobs:
               -e GITHUB_RUN_ID="${GITHUB_RUN_ID}" \
               -e GITHUB_ACTOR="${GITHUB_ACTOR}" \
               worker sh -lc '
-                unset SYNC_WORKER_MODE
+                # This script runs inside the worker container and must keep the
+                # worker DB runtime profile; otherwise it falls back to the web
+                # 8s query timeout and can falsely fail long-running canary
+                # remediation queries.
+                export SYNC_WORKER_MODE=1
                 business_flag=""
                 if [ -n "${BUSINESS_IDS}" ]; then
                   business_flag=" --business-ids ${BUSINESS_IDS}"
