@@ -221,6 +221,7 @@ jobs:
 
               on_deploy_error() {
                 status="$?"
+                echo "deploy_error_command=${BASH_COMMAND:-unknown}"
                 dump_service_diagnostics
                 exit "${status}"
               }
@@ -230,12 +231,26 @@ jobs:
               wait_for_build_info() {
                 attempts="$1"
                 sleep_seconds="$2"
+                expected_build="${3:-}"
                 attempt=1
 
                 while [ "$attempt" -le "$attempts" ]; do
                   if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
-                    printf '%s\n' "${build_info_json}"
-                    return 0
+                    if [ -z "${expected_build}" ]; then
+                      printf '%s\n' "${build_info_json}"
+                      return 0
+                    fi
+
+                    if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${expected_build}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; raise SystemExit(0 if (payload.get("buildId") or "") == expected else 1)'
+                    then
+                      printf '%s\n' "${build_info_json}"
+                      return 0
+                    fi
+
+                    observed_build_id="$(
+                      printf '%s' "${build_info_json}" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+                    )"
+                    echo "local_build_info_mismatch expected=${expected_build} observed=${observed_build_id:-unknown} attempt=${attempt}/${attempts}"
                   fi
 
                   sleep "${sleep_seconds}"
@@ -429,7 +444,7 @@ jobs:
               verify_service_image worker "${expected_worker_image}"
 
               log "Checking runtime build info"
-              BUILD_INFO_JSON="$(wait_for_build_info 30 3)"
+              BUILD_INFO_JSON="$(wait_for_build_info 30 3 "${DEPLOY_SHA}")"
               BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | extract_build_id)"
               echo "DEPLOY_SHA=${DEPLOY_SHA}"
               echo "BUILD_ID=${BUILD_ID}"
