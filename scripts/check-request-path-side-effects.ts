@@ -166,6 +166,8 @@ const servingWriteOwnerRules = [
     ],
     allowedFiles: new Set([
       path.join(repoRoot, "lib/overview-summary-materializer.ts"),
+      path.join(repoRoot, "scripts/db-normalization-support.ts"),
+      path.join(repoRoot, "scripts/db-write-benchmark.ts"),
     ]),
   },
   {
@@ -179,6 +181,8 @@ const servingWriteOwnerRules = [
       path.join(repoRoot, "lib/reporting-cache-writer.ts"),
       path.join(repoRoot, "lib/google-ads/warehouse.ts"),
       path.join(repoRoot, "scripts/reset-google-ads-stack.ts"),
+      path.join(repoRoot, "scripts/db-normalization-support.ts"),
+      path.join(repoRoot, "scripts/db-write-benchmark.ts"),
     ]),
   },
   {
@@ -204,6 +208,7 @@ const servingWriteOwnerRules = [
     ],
     allowedFiles: new Set([
       path.join(repoRoot, "lib/shopify/overview-materializer.ts"),
+      path.join(repoRoot, "scripts/db-write-benchmark.ts"),
     ]),
   },
 ] as const;
