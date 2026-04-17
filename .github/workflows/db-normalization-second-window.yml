@@ -7,6 +7,11 @@ on:
         description: Exact commit SHA currently deployed to production
         required: true
         type: string
+      mode:
+        description: Maintenance mode (`preflight` is non-destructive; `execute` performs the legacy-core drop)
+        required: false
+        default: preflight
+        type: string
       require_current_main_head:
         description: Skip the maintenance window if the SHA is not the current main HEAD
         required: false
@@ -46,6 +51,26 @@ jobs:
           fi
 
           echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve maintenance mode
+        id: mode
+        shell: bash
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+
+          mode="${INPUT_MODE:-preflight}"
+          case "${mode}" in
+            preflight|execute)
+              ;;
+            *)
+              echo "Mode must be either 'preflight' or 'execute'."
+              exit 1
+              ;;
+          esac
+
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
 
       - name: Skip superseded maintenance
         id: freshness
@@ -100,6 +125,7 @@ jobs:
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          WINDOW_MODE: ${{ steps.mode.outputs.mode }}
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
@@ -153,8 +179,12 @@ jobs:
             -o TCPKeepAlive=yes
           )
 
-          REMOTE_RUN_DIR="/var/www/adsecute/.artifacts/db-normalization-second-window/${EXPECTED_SHA}"
-          mkdir -p ".artifacts/db-normalization-second-window"
+          REMOTE_RUN_ROOT="/var/www/adsecute/.artifacts/db-normalization-second-window/${EXPECTED_SHA}"
+          REMOTE_RUN_DIR="${REMOTE_RUN_ROOT}/${WINDOW_MODE}"
+          LOCAL_RUN_ROOT=".artifacts/db-normalization-second-window/${EXPECTED_SHA}"
+          LOCAL_RUN_DIR="${LOCAL_RUN_ROOT}/${WINDOW_MODE}"
+          rm -rf "${LOCAL_RUN_DIR}"
+          mkdir -p "${LOCAL_RUN_ROOT}"
 
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
             "mkdir -p '${REMOTE_RUN_DIR}' && cat > '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp'" \
@@ -164,10 +194,19 @@ jobs:
             "mv '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp' '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql'"
 
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
-            "EXPECTED_SHA='${EXPECTED_SHA}' REMOTE_RUN_DIR='${REMOTE_RUN_DIR}' bash -seuo pipefail" <<'EOF'
+            "EXPECTED_SHA='${EXPECTED_SHA}' REMOTE_RUN_DIR='${REMOTE_RUN_DIR}' SECOND_WINDOW_MODE='${WINDOW_MODE}' bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
 
             WORKER_TMP_DIR="/tmp/db-normalization-second-window"
+            WINDOW_MODE="${SECOND_WINDOW_MODE:-preflight}"
+            case "${WINDOW_MODE}" in
+              preflight|execute)
+                ;;
+              *)
+                echo "Unsupported second-window mode: ${WINDOW_MODE}"
+                exit 1
+                ;;
+            esac
 
             log() {
               printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
@@ -274,17 +313,51 @@ jobs:
                 echo "Worker container is missing; cannot copy ${src}"
                 return 1
               fi
+              if ! docker exec "${container_id}" sh -lc "test -s '${src}'"; then
+                echo "Missing worker artifact: ${src}"
+                docker exec "${container_id}" sh -lc "ls -lah '$(dirname "${src}")' || true"
+                return 1
+              fi
               mkdir -p "$(dirname "${dest}")"
               docker exec "${container_id}" sh -lc "cat '${src}'" > "${dest}"
+              if [ ! -s "${dest}" ]; then
+                echo "Copied artifact is missing or empty: ${dest}"
+                ls -lah "$(dirname "${dest}")" || true
+                return 1
+              fi
             }
 
             run_worker_script() {
               docker compose exec -T worker sh -lc "$1"
             }
 
+            assert_host_file() {
+              file_path="$1"
+              if [ ! -s "${file_path}" ]; then
+                echo "Expected artifact file is missing or empty: ${file_path}"
+                find "${REMOTE_RUN_DIR}" -maxdepth 5 -type f | sort || true
+                return 1
+              fi
+            }
+
+            export_legacy_table() {
+              table_name="$1"
+              output_file="$2"
+              table_regclass="$(
+                psql "${DATABASE_URL}" -Atqc "SELECT to_regclass('public.${table_name}')::text" 2>/dev/null || true
+              )"
+              if [ -n "${table_regclass}" ] && [ "${table_regclass}" != "null" ]; then
+                pg_dump "${DATABASE_URL}" --data-only --table="${table_name}" --file "${output_file}"
+                assert_host_file "${output_file}"
+              else
+                printf 'missing\n' > "${output_file}.missing.txt"
+                assert_host_file "${output_file}.missing.txt"
+              fi
+            }
+
             export APP_IMAGE_TAG="${EXPECTED_SHA}"
             export APP_BUILD_ID="${EXPECTED_SHA}"
-            mkdir -p "${REMOTE_RUN_DIR}"
+            mkdir -p "${REMOTE_RUN_DIR}" "${REMOTE_RUN_DIR}/logs"
             install_baseline_sql_into_worker
 
             log "Verifying current runtime build before maintenance"
@@ -292,10 +365,15 @@ jobs:
             PRE_WINDOW_BUILD_ID="$(printf '%s' "${PRE_WINDOW_BUILD_INFO}" | extract_build_id)"
             test "${PRE_WINDOW_BUILD_ID}" = "${EXPECTED_SHA}"
             printf '%s\n' "${PRE_WINDOW_BUILD_INFO}" > "${REMOTE_RUN_DIR}/build-info-before.json"
+            assert_host_file "${REMOTE_RUN_DIR}/build-info-before.json"
+
+            log "Running pre-window baseline"
+            docker compose exec -T worker npm run db:architecture:baseline > "${REMOTE_RUN_DIR}/baseline-before.txt"
+            assert_host_file "${REMOTE_RUN_DIR}/baseline-before.txt"
 
             log "Running before capture and audit"
-            run_worker_script "rm -rf '${WORKER_TMP_DIR}' && mkdir -p '${WORKER_TMP_DIR}' && node --import tsx scripts/db-normalization-capture.ts --stage before --run-dir '${WORKER_TMP_DIR}'"
-            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
+            run_worker_script "rm -rf '${WORKER_TMP_DIR}' && mkdir -p '${WORKER_TMP_DIR}' && node --import tsx scripts/db-normalization-capture.ts --stage before --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/capture-before.log' 2>&1"
+            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/audit-before.log' 2>&1"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/before/capture.json" "${REMOTE_RUN_DIR}/before/capture.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-before/audit.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-before/audit.md"
@@ -304,6 +382,7 @@ jobs:
             maybe_sudo systemctl start adsecute-db-core-backup.service
             if [ -f /var/backups/adsecute-postgres/latest/manifest.txt ]; then
               cp /var/backups/adsecute-postgres/latest/manifest.txt "${REMOTE_RUN_DIR}/backup-manifest.txt"
+              assert_host_file "${REMOTE_RUN_DIR}/backup-manifest.txt"
             fi
 
             log "Exporting retired compatibility tables"
@@ -314,31 +393,36 @@ jobs:
             REMOTE_RUN_DIR="${NORMALIZATION_RUN_DIR}"
             export REMOTE_RUN_DIR
             mkdir -p "${REMOTE_RUN_DIR}/exports"
-            pg_dump "${DATABASE_URL}" --data-only --table=integrations --file "${REMOTE_RUN_DIR}/exports/integrations.sql"
-            pg_dump "${DATABASE_URL}" --data-only --table=provider_account_assignments --file "${REMOTE_RUN_DIR}/exports/provider_account_assignments.sql"
-            pg_dump "${DATABASE_URL}" --data-only --table=provider_account_snapshots --file "${REMOTE_RUN_DIR}/exports/provider_account_snapshots.sql"
+            export_legacy_table "integrations" "${REMOTE_RUN_DIR}/exports/integrations.sql"
+            export_legacy_table "provider_account_assignments" "${REMOTE_RUN_DIR}/exports/provider_account_assignments.sql"
+            export_legacy_table "provider_account_snapshots" "${REMOTE_RUN_DIR}/exports/provider_account_snapshots.sql"
 
-            log "Stopping web and worker for maintenance"
-            docker compose stop worker web
+            if [ "${WINDOW_MODE}" = "execute" ]; then
+              log "Stopping web and worker for maintenance"
+              docker compose stop worker web
 
-            log "Dropping retired legacy core tables"
-            APP_IMAGE_TAG="${EXPECTED_SHA}" \
-            APP_BUILD_ID="${EXPECTED_SHA}" \
-            ENABLE_RUNTIME_MIGRATIONS=1 \
-            DB_DROP_LEGACY_CORE_TABLES=1 \
-              docker compose run --rm \
-                -e ENABLE_RUNTIME_MIGRATIONS=1 \
-                -e DB_DROP_LEGACY_CORE_TABLES=1 \
-                migrate
+              log "Dropping retired legacy core tables"
+              APP_IMAGE_TAG="${EXPECTED_SHA}" \
+              APP_BUILD_ID="${EXPECTED_SHA}" \
+              ENABLE_RUNTIME_MIGRATIONS=1 \
+              DB_DROP_LEGACY_CORE_TABLES=1 \
+                docker compose run --rm \
+                  -e ENABLE_RUNTIME_MIGRATIONS=1 \
+                  -e DB_DROP_LEGACY_CORE_TABLES=1 \
+                  migrate
 
-            log "Restarting web and worker"
-            docker compose up -d --force-recreate web worker
+              log "Restarting web and worker"
+              docker compose up -d --force-recreate web worker
+            else
+              log "Preflight mode: skipping service stop, legacy drop, and restart"
+            fi
 
             log "Checking runtime build after maintenance"
             POST_WINDOW_BUILD_INFO="$(wait_for_build_info 30 3)"
             POST_WINDOW_BUILD_ID="$(printf '%s' "${POST_WINDOW_BUILD_INFO}" | extract_build_id)"
             test "${POST_WINDOW_BUILD_ID}" = "${EXPECTED_SHA}"
             printf '%s\n' "${POST_WINDOW_BUILD_INFO}" > "${REMOTE_RUN_DIR}/build-info-after.json"
+            assert_host_file "${REMOTE_RUN_DIR}/build-info-after.json"
 
             log "Checking optional health"
             check_optional_health web 20
@@ -353,10 +437,11 @@ jobs:
 
             log "Running post-window baseline"
             docker compose exec -T worker npm run db:architecture:baseline > "${REMOTE_RUN_DIR}/baseline-after.txt"
+            assert_host_file "${REMOTE_RUN_DIR}/baseline-after.txt"
 
             log "Running after capture and audit"
-            run_worker_script "rm -rf '${WORKER_TMP_DIR}/after' '${WORKER_TMP_DIR}/audit' && node --import tsx scripts/db-normalization-capture.ts --stage after --run-dir '${WORKER_TMP_DIR}'"
-            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}'"
+            run_worker_script "rm -rf '${WORKER_TMP_DIR}/after' '${WORKER_TMP_DIR}/audit' && node --import tsx scripts/db-normalization-capture.ts --stage after --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/capture-after.log' 2>&1"
+            run_worker_script "node --import tsx scripts/db-normalization-audit.ts --run-dir '${WORKER_TMP_DIR}' > '${REMOTE_RUN_DIR}/logs/audit-after.log' 2>&1"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/after/capture.json" "${REMOTE_RUN_DIR}/after/capture.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-after/audit.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-after/audit.md"
@@ -366,28 +451,55 @@ jobs:
 
           REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
           REMOTE_RUN_BASENAME="$(basename "${REMOTE_RUN_DIR}")"
-          mkdir -p ".artifacts/db-normalization-second-window"
+          mkdir -p "${LOCAL_RUN_ROOT}"
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
             "tar -C '${REMOTE_RUN_PARENT}' -cf - '${REMOTE_RUN_BASENAME}'" \
-            | tar -C ".artifacts/db-normalization-second-window" -xf -
+            | tar -C "${LOCAL_RUN_ROOT}" -xf -
+
+      - name: Assert second-window artifact completeness
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        run: |
+          set -euo pipefail
+
+          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}"
+          required_files=(
+            "before/capture.json"
+            "after/capture.json"
+            "audit-before/audit.json"
+            "audit-after/audit.json"
+            "build-info-before.json"
+            "build-info-after.json"
+            "baseline-before.txt"
+            "baseline-after.txt"
+          )
+
+          missing=0
+          for relative_path in "${required_files[@]}"; do
+            if [ ! -f "${local_run_dir}/${relative_path}" ]; then
+              echo "Missing artifact file: ${local_run_dir}/${relative_path}"
+              missing=1
+            fi
+          done
+
+          if [ ! -d "${local_run_dir}/exports" ] || ! find "${local_run_dir}/exports" -maxdepth 1 -type f | grep -q .; then
+            echo "Missing export files in ${local_run_dir}/exports"
+            missing=1
+          fi
+
+          if [ "${missing}" -ne 0 ]; then
+            echo "Discovered artifact paths under ${local_run_dir}:"
+            find "${local_run_dir}" -maxdepth 5 -type f | sort || true
+            exit 1
+          fi
 
       - name: Compare before/after artifacts
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         run: |
           set -euo pipefail
 
-          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}"
-          if [ ! -f "${local_run_dir}/before/capture.json" ]; then
-            discovered_before_capture="$(
-              find "${local_run_dir}" -path '*/before/capture.json' -type f | head -n1 || true
-            )"
-            if [ -n "${discovered_before_capture}" ]; then
-              local_run_dir="$(dirname "$(dirname "${discovered_before_capture}")")"
-            fi
-          fi
-
+          local_run_dir=".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}"
           echo "compare_run_dir=${local_run_dir}"
-          find "${local_run_dir}" -maxdepth 3 -type f | sort || true
+          find "${local_run_dir}" -maxdepth 5 -type f | sort || true
           node --import tsx scripts/db-normalization-compare.ts --run-dir "${local_run_dir}"
 
       - name: Verify strict public watch window
@@ -406,12 +518,12 @@ jobs:
             --minimum-successful-runs 3 \
             --workflow-file "meta-watch-window.yml" \
             --require-block-modes \
-            --out-file ".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/meta-watch-window.json"
+            --out-file ".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}/meta-watch-window.json"
 
       - name: Upload second-window artifact bundle
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: ${{ always() && (inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') }}
         uses: actions/upload-artifact@v4
         with:
-          name: db-normalization-second-window-${{ steps.expected.outputs.sha }}
-          path: .artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}
-          if-no-files-found: error
+          name: db-normalization-second-window-${{ steps.expected.outputs.sha }}-${{ steps.mode.outputs.mode }}
+          path: .artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.mode.outputs.mode }}
+          if-no-files-found: warn
