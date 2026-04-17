@@ -3190,8 +3190,8 @@ describe("meta warehouse ownership safety", () => {
       surface: "campaign_daily",
       accountTimezone: "UTC",
       sourceKind: "warehouse",
-      sourceWindowKind: "finalized",
-      fetchStatus: "ready",
+      sourceWindowKind: "historical",
+      fetchStatus: "completed",
     });
 
     await createMetaAuthoritativeSliceVersion({
@@ -3254,6 +3254,8 @@ describe("meta warehouse ownership safety", () => {
       accountCurrency: "USD",
       payloadJson: { data: [] },
       payloadHash: "hash-1",
+      requestContext: {},
+      providerHttpStatus: 200,
       status: "fetched",
     });
 
@@ -3523,9 +3525,12 @@ describe("meta warehouse config columns", () => {
         spend: 1,
         impressions: 2,
         clicks: 3,
+        reach: 0,
+        frequency: null,
         conversions: 0,
         revenue: 0,
         roas: 0,
+        cpa: null,
         ctr: null,
         cpc: null,
         sourceSnapshotId: null,
@@ -3693,9 +3698,12 @@ describe("meta warehouse config columns", () => {
         spend: 1,
         impressions: 2,
         clicks: 3,
+        reach: 0,
+        frequency: null,
         conversions: 0,
         revenue: 0,
         roas: 0,
+        cpa: null,
         ctr: null,
         cpc: null,
         linkClicks: 1,

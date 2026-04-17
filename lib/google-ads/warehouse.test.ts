@@ -990,6 +990,7 @@ describe("google ads control-plane ref writes", () => {
       progressPercent: 0,
       triggerSource: "scheduled",
       retryCount: 0,
+      lastError: null,
     });
 
     const query = queries.join("\n");
@@ -1112,6 +1113,8 @@ describe("google ads control-plane ref writes", () => {
       accountCurrency: "USD",
       payloadJson: { rows: [] },
       payloadHash: "hash-1",
+      requestContext: {},
+      providerHttpStatus: 200,
       status: "fetched",
     });
 

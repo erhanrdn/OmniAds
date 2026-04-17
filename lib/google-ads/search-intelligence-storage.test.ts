@@ -368,7 +368,9 @@ describe("Google Ads search intelligence storage", () => {
       businessId: "biz",
       providerAccountId: "acct",
       recommendationFingerprint: "fingerprint-1",
-      actionType: "log_only",
+      decisionFamily: null,
+      actionType: "outcome",
+      outcomeStatus: null,
       summary: "ok",
       payloadJson: { ok: true },
     });

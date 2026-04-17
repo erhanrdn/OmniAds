@@ -43,7 +43,16 @@ describe("meta config snapshots", () => {
         accountId: "act_1",
         entityLevel: "campaign",
         entityId: "cmp_1",
-        payload: {},
+        payload: {
+          optimizationGoal: null,
+          bidStrategyType: null,
+          bidStrategyLabel: null,
+          manualBidAmount: null,
+          bidValue: null,
+          bidValueFormat: null,
+          dailyBudget: null,
+          lifetimeBudget: null,
+        },
       },
     ]);
 
