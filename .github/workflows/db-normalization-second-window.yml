@@ -247,8 +247,31 @@ jobs:
 
           REMOTE_APP_DIR="/var/www/adsecute"
 
+          select_app_ssh_user() {
+            candidates=()
+            candidates+=("root")
+            if [ "${HETZNER_USER}" != "root" ]; then
+              candidates+=("${HETZNER_USER}")
+            fi
+
+            for candidate in "${candidates[@]}"; do
+              [ -n "${candidate}" ] || continue
+              if ssh "${SSH_OPTS[@]}" -o ConnectTimeout=8 "${candidate}@${PRIMARY_DEPLOY_HOST}" "printf 'ok'" </dev/null >/dev/null 2>&1; then
+                printf '%s\n' "${candidate}"
+                return 0
+              fi
+            done
+
+            return 1
+          }
+
+          APP_SSH_USER="$(select_app_ssh_user || true)"
+          if [ -z "${APP_SSH_USER}" ]; then
+            APP_SSH_USER="${HETZNER_USER}"
+          fi
+
           resolve_database_host_from_app_env() {
-            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+            ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
               "cd '${REMOTE_APP_DIR}' && if [ -f .env.production ]; then set -a && . ./.env.production >/dev/null 2>&1 && set +a && python3 -c 'import os; from urllib.parse import urlparse; print(urlparse(os.environ.get(\"DATABASE_URL\", \"\")).hostname or \"\", end=\"\")'; fi" \
               || true
           }
@@ -362,7 +385,7 @@ jobs:
             } >> "${log_file}"
           }
 
-          echo "db_backup_host=${DB_BACKUP_HOST} db_backup_host_ip=${DB_BACKUP_HOST_IP} db_backup_user=${DB_BACKUP_USER}"
+          echo "app_ssh_user=${APP_SSH_USER} db_backup_host=${DB_BACKUP_HOST} db_backup_host_ip=${DB_BACKUP_HOST_IP} db_backup_user=${DB_BACKUP_USER}"
           echo "Triggering production DB backup on ${DB_BACKUP_HOST}"
           if ! trigger_db_backup_and_capture_manifest "${LOCAL_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/logs/backup-trigger.log"; then
             if [ "${WINDOW_MODE}" = "execute" ]; then
@@ -373,15 +396,15 @@ jobs:
             create_preflight_backup_placeholder_manifest "${LOCAL_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/logs/backup-trigger.log"
           fi
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+          ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
             "mkdir -p '${REMOTE_RUN_DIR}' && cat > '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp'" \
             < docs/architecture/live-db-baseline-checks.sql
 
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+          ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
             "mv '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp' '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql'"
 
           set +e
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+          ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
             "EXPECTED_SHA='${EXPECTED_SHA}' REMOTE_RUN_DIR='${REMOTE_RUN_DIR}' SECOND_WINDOW_MODE='${WINDOW_MODE}' bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
 
@@ -648,9 +671,9 @@ jobs:
           copy_remote_file_to_runner() {
             remote_path="$1"
             local_path="$2"
-            if ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" "test -f '${remote_path}'"; then
+            if ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" "test -f '${remote_path}'"; then
               mkdir -p "$(dirname "${local_path}")"
-              ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+              ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
                 "cat '${remote_path}'" > "${local_path}"
             fi
           }
@@ -659,7 +682,7 @@ jobs:
             remote_dir="$1"
             local_dir="$2"
             remote_listing="$(
-              ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+              ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
                 "if [ -d '${remote_dir}' ]; then find '${remote_dir}' -maxdepth 1 -type f -printf '%f\n'; fi" \
                 || true
             )"
@@ -693,7 +716,7 @@ jobs:
           REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
           REMOTE_RUN_BASENAME="$(basename "${REMOTE_RUN_DIR}")"
           mkdir -p "${LOCAL_RUN_ROOT}"
-          ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+          ssh "${SSH_OPTS[@]}" "${APP_SSH_USER}@${PRIMARY_DEPLOY_HOST}" \
             "if [ -d '${REMOTE_RUN_DIR}' ]; then tar -C '${REMOTE_RUN_PARENT}' -cf - '${REMOTE_RUN_BASENAME}'; fi" \
             | tar -C "${LOCAL_RUN_ROOT}" -xf - || true
 
