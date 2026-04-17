@@ -188,6 +188,7 @@ jobs:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
           WINDOW_MODE: ${{ steps.execution.outputs.mode }}
           HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          HETZNER_DB_HOST: ${{ secrets.HETZNER_DB_HOST }}
           HETZNER_USER: ${{ secrets.HETZNER_USER }}
           HETZNER_PORT: ${{ secrets.HETZNER_PORT }}
           HETZNER_KNOWN_HOSTS: ${{ secrets.HETZNER_KNOWN_HOSTS }}
@@ -243,12 +244,78 @@ jobs:
             -o TCPKeepAlive=yes
           )
 
+          REMOTE_APP_DIR="/var/www/adsecute"
+
+          resolve_database_host_from_app_env() {
+            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
+              "cd '${REMOTE_APP_DIR}' && if [ -f .env.production ]; then set -a && . ./.env.production >/dev/null 2>&1 && set +a && python3 -c 'import os; from urllib.parse import urlparse; print(urlparse(os.environ.get(\"DATABASE_URL\", \"\")).hostname or \"\", end=\"\")'; fi" \
+              || true
+          }
+
+          DB_BACKUP_HOST="${HETZNER_DB_HOST:-}"
+          if [ -z "${DB_BACKUP_HOST}" ]; then
+            DB_BACKUP_HOST="$(resolve_database_host_from_app_env)"
+          fi
+          if [ -z "${DB_BACKUP_HOST}" ]; then
+            DB_BACKUP_HOST="${PRIMARY_DEPLOY_HOST}"
+          fi
+          DB_BACKUP_HOST_IP="$(resolve_host "${DB_BACKUP_HOST}")"
+          if [ -n "${DB_BACKUP_HOST}" ]; then
+            ssh-keyscan -H "${DB_BACKUP_HOST}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+          if [ -n "${DB_BACKUP_HOST_IP}" ]; then
+            ssh-keyscan -H "${DB_BACKUP_HOST_IP}" 2>/dev/null >> ~/.ssh/known_hosts || true
+          fi
+
           REMOTE_RUN_ROOT="/var/www/adsecute/.artifacts/db-normalization-second-window/${EXPECTED_SHA}"
           REMOTE_RUN_DIR="${REMOTE_RUN_ROOT}/${WINDOW_MODE}"
           LOCAL_RUN_ROOT=".artifacts/db-normalization-second-window/${EXPECTED_SHA}"
           LOCAL_RUN_DIR="${LOCAL_RUN_ROOT}/${WINDOW_MODE}"
           rm -rf "${LOCAL_RUN_DIR}"
           mkdir -p "${LOCAL_RUN_ROOT}"
+          mkdir -p "${LOCAL_RUN_DIR}/logs"
+
+          trigger_db_backup_and_capture_manifest() {
+            manifest_file="$1"
+            log_file="$2"
+            mkdir -p "$(dirname "${manifest_file}")" "$(dirname "${log_file}")"
+            ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${DB_BACKUP_HOST}" 'bash -seuo pipefail' > "${manifest_file}" 2> "${log_file}" <<'EOF'
+            maybe_sudo() {
+              if command -v sudo >/dev/null 2>&1; then
+                sudo -n "$@" 2>/dev/null || "$@"
+              else
+                "$@"
+              fi
+            }
+
+            if ! systemctl list-unit-files adsecute-db-core-backup.service >/dev/null 2>&1; then
+              echo "missing_backup_service host=$(hostname)" >&2
+              exit 1
+            fi
+
+            maybe_sudo systemctl start adsecute-db-core-backup.service
+
+            manifest="/var/backups/adsecute-postgres/latest/manifest.txt"
+            if [ ! -f "${manifest}" ]; then
+              echo "missing_backup_manifest host=$(hostname) manifest=${manifest}" >&2
+              exit 1
+            fi
+
+            echo "backup_host=$(hostname)" >&2
+            echo "manifest_path=${manifest}" >&2
+            stat --format="manifest_mtime_epoch=%Y" "${manifest}" >&2 || true
+            maybe_sudo journalctl -u adsecute-db-core-backup.service -n 20 --no-pager >&2 || true
+            cat "${manifest}"
+            EOF
+            if [ ! -s "${manifest_file}" ]; then
+              echo "Backup manifest capture failed for ${DB_BACKUP_HOST}."
+              exit 1
+            fi
+          }
+
+          echo "db_backup_host=${DB_BACKUP_HOST} db_backup_host_ip=${DB_BACKUP_HOST_IP}"
+          echo "Triggering production DB backup on ${DB_BACKUP_HOST}"
+          trigger_db_backup_and_capture_manifest "${LOCAL_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/logs/backup-trigger.log"
 
           ssh "${SSH_OPTS[@]}" "${HETZNER_USER}@${PRIMARY_DEPLOY_HOST}" \
             "mkdir -p '${REMOTE_RUN_DIR}' && cat > '${REMOTE_RUN_DIR}/live-db-baseline-checks.sql.tmp'" \
@@ -454,12 +521,7 @@ jobs:
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.json" "${REMOTE_RUN_DIR}/audit-before/audit.json"
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-before/audit.md"
 
-            log "Triggering production DB backup"
-            maybe_sudo systemctl start adsecute-db-core-backup.service
-            if [ -f /var/backups/adsecute-postgres/latest/manifest.txt ]; then
-              cp /var/backups/adsecute-postgres/latest/manifest.txt "${REMOTE_RUN_DIR}/backup-manifest.txt"
-              assert_host_file "${REMOTE_RUN_DIR}/backup-manifest.txt"
-            fi
+            log "Using runner-captured production DB backup manifest"
 
             log "Exporting retired compatibility tables"
             NORMALIZATION_RUN_DIR="${REMOTE_RUN_DIR}"
@@ -595,6 +657,7 @@ jobs:
             "after/capture.json"
             "audit-before/audit.json"
             "audit-after/audit.json"
+            "backup-manifest.txt"
             "build-info-before.json"
             "build-info-after.json"
             "baseline-before.txt"
