@@ -291,13 +291,18 @@ jobs:
             ssh-keyscan -H "${DB_BACKUP_HOST_IP}" 2>/dev/null >> ~/.ssh/known_hosts || true
           fi
 
-          REMOTE_RUN_ROOT="/var/www/adsecute/.artifacts/db-normalization-second-window/${EXPECTED_SHA}"
+          REMOTE_RUN_ROOT="/tmp/adsecute-db-normalization-second-window/${EXPECTED_SHA}"
           REMOTE_RUN_DIR="${REMOTE_RUN_ROOT}/${WINDOW_MODE}"
           LOCAL_RUN_ROOT=".artifacts/db-normalization-second-window/${EXPECTED_SHA}"
           LOCAL_RUN_DIR="${LOCAL_RUN_ROOT}/${WINDOW_MODE}"
           rm -rf "${LOCAL_RUN_DIR}"
           mkdir -p "${LOCAL_RUN_ROOT}"
           mkdir -p "${LOCAL_RUN_DIR}/logs"
+          {
+            printf 'expected_sha=%s\n' "${EXPECTED_SHA}"
+            printf 'window_mode=%s\n' "${WINDOW_MODE}"
+            printf 'app_ssh_user_initial=%s\n' "${APP_SSH_USER}"
+          } > "${LOCAL_RUN_DIR}/runner-step-started.txt"
 
           select_db_backup_user() {
             candidates=()
