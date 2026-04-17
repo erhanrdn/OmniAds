@@ -19,10 +19,18 @@ vi.mock("@/lib/integrations", () => ({
 }));
 
 vi.mock("@/lib/provider-account-snapshots", () => ({
+  PROVIDER_ACCOUNT_SNAPSHOT_REQUIRED_TABLES: [
+    "provider_account_snapshot_runs",
+    "provider_account_snapshot_items",
+  ],
   readProviderAccountSnapshot: vi.fn(),
 }));
 
 vi.mock("@/lib/provider-account-assignments", () => ({
+  PROVIDER_ACCOUNT_ASSIGNMENT_REQUIRED_TABLES: [
+    "business_provider_accounts",
+    "provider_accounts",
+  ],
   getProviderAccountAssignments: vi.fn(),
 }));
 

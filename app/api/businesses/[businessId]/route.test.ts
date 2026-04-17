@@ -94,7 +94,7 @@ describe("DELETE /api/businesses/[businessId]", () => {
 
     expect(response.status).toBe(200);
     expect(payload).toEqual({ status: "ok" });
-    expect(sql).toHaveBeenCalledTimes(8);
+    expect(sql).toHaveBeenCalledTimes(9);
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 });
