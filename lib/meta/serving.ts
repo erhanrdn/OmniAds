@@ -15,6 +15,14 @@ import {
   readPreviousDifferentMetaConfigDiffs,
 } from "@/lib/meta/config-snapshots";
 import {
+  readLatestMetaAdSetConfigHistory,
+  readLatestMetaCampaignConfigHistory,
+  readMetaAdSetDimensions,
+  readMetaCampaignDimensions,
+  readPreviousDifferentMetaAdSetConfigHistoryDiffs,
+  readPreviousDifferentMetaCampaignConfigHistoryDiffs,
+} from "@/lib/meta/request-model-store";
+import {
   emptyMetaWarehouseMetrics,
   getMetaAdSetDailyCoverage,
   getMetaAccountDailyCoverage,
@@ -921,6 +929,32 @@ export async function getMetaWarehouseCampaigns(input: {
     };
   });
 
+  const [dimensions, latestConfigHistory] = await Promise.all([
+    readMetaCampaignDimensions({
+      businessId: input.businessId,
+      campaignIds: aggregated.map((row) => row.campaignId),
+    }),
+    readLatestMetaCampaignConfigHistory({
+      businessId: input.businessId,
+      campaignIds: aggregated.map((row) => row.campaignId),
+    }),
+  ]);
+
+  aggregated = aggregated.map((row) => {
+    const dimension = dimensions.get(row.campaignId);
+    const latestConfig = latestConfigHistory.get(row.campaignId);
+    return {
+      ...row,
+      campaignName:
+        dimension?.campaignNameCurrent ??
+        dimension?.campaignNameHistorical ??
+        row.campaignName,
+      campaignStatus: dimension?.campaignStatus ?? row.campaignStatus,
+      objective: latestConfig?.objective ?? null,
+      buyingType: dimension?.buyingType ?? row.buyingType,
+    };
+  });
+
   return {
     freshness: {
       ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "stale"),
@@ -1504,21 +1538,15 @@ export async function getMetaWarehouseCampaignTable(input: {
   const resolvedProviderAccountIds = Array.from(
     new Set(payload.rows.map((row) => row.providerAccountId).filter(Boolean)),
   );
-  const [currentConfigsByAccount, snapshotConfigs, previousSnapshotDiffs] = await Promise.all([
-    readCurrentConfigFallbacks({
+  const [latestConfigHistory, previousHistoryDiffs] = await Promise.all([
+    readLatestMetaCampaignConfigHistory({
       businessId: input.businessId,
-      providerAccountIds: resolvedProviderAccountIds,
-    }),
-    readLatestMetaConfigSnapshots({
-      businessId: input.businessId,
-      entityLevel: "campaign",
-      entityIds,
+      campaignIds: entityIds,
     }),
     input.includePrev
-      ? readPreviousDifferentMetaConfigDiffs({
+      ? readPreviousDifferentMetaCampaignConfigHistoryDiffs({
           businessId: input.businessId,
-          entityLevel: "campaign",
-          entityIds,
+          campaignIds: entityIds,
         })
       : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
   ]);
@@ -1526,17 +1554,11 @@ export async function getMetaWarehouseCampaignTable(input: {
   return payload.rows.map((row) =>
     buildCampaignTableRow({
       row,
-      latestConfig: resolveCurrentConfig({
-        snapshot: snapshotConfigs.get(row.campaignId)
-          ? buildCurrentConfigFromSnapshot(snapshotConfigs.get(row.campaignId)!)
-          : null,
-        live:
-          currentConfigsByAccount.campaignConfigsByAccount
-            .get(row.providerAccountId)
-            ?.get(row.campaignId) ?? null,
-      }),
+      latestConfig: latestConfigHistory.get(row.campaignId)
+        ? buildCurrentConfigFromSnapshot(latestConfigHistory.get(row.campaignId)!)
+        : null,
       previousConfig: input.includePrev
-        ? mergePreviousConfig(null, previousSnapshotDiffs.get(row.campaignId))
+        ? mergePreviousConfig(null, previousHistoryDiffs.get(row.campaignId))
         : null,
     })
   );
@@ -1657,21 +1679,20 @@ export async function getMetaWarehouseAdSets(input: {
     };
   });
 
-  const [currentConfigsByAccount, snapshotConfigs, previousSnapshotDiffs] = await Promise.all([
-    readCurrentConfigFallbacks({
+  const adsetIds = Array.from(new Set(aggregated.map((row) => row.adsetId)));
+  const [dimensions, latestConfigHistory, previousHistoryDiffs] = await Promise.all([
+    readMetaAdSetDimensions({
       businessId: input.businessId,
-      providerAccountIds: Array.from(new Set(aggregated.map((row) => row.providerAccountId))),
+      adsetIds,
     }),
-    readLatestMetaConfigSnapshots({
+    readLatestMetaAdSetConfigHistory({
       businessId: input.businessId,
-      entityLevel: "adset",
-      entityIds: Array.from(new Set(aggregated.map((row) => row.adsetId))),
+      adsetIds,
     }),
     input.includePrev
-      ? readPreviousDifferentMetaConfigDiffs({
+      ? readPreviousDifferentMetaAdSetConfigHistoryDiffs({
           businessId: input.businessId,
-          entityLevel: "adset",
-          entityIds: Array.from(new Set(aggregated.map((row) => row.adsetId))),
+          adsetIds,
         })
       : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
   ]);
@@ -1679,18 +1700,20 @@ export async function getMetaWarehouseAdSets(input: {
   return aggregated
     .map((row) =>
       buildAdSetTableRow({
-        row,
-        latestConfig: resolveCurrentConfig({
-          snapshot: snapshotConfigs.get(row.adsetId)
-            ? buildCurrentConfigFromSnapshot(snapshotConfigs.get(row.adsetId)!)
-            : null,
-          live:
-            currentConfigsByAccount.adsetConfigsByAccount
-              .get(row.providerAccountId)
-              ?.get(row.adsetId) ?? null,
-        }),
+        row: {
+          ...row,
+          campaignId: dimensions.get(row.adsetId)?.campaignId ?? row.campaignId,
+          adsetNameCurrent:
+            dimensions.get(row.adsetId)?.adsetNameCurrent ?? row.adsetNameCurrent,
+          adsetNameHistorical:
+            dimensions.get(row.adsetId)?.adsetNameHistorical ?? row.adsetNameHistorical,
+          adsetStatus: dimensions.get(row.adsetId)?.adsetStatus ?? row.adsetStatus,
+        },
+        latestConfig: latestConfigHistory.get(row.adsetId)
+          ? buildCurrentConfigFromSnapshot(latestConfigHistory.get(row.adsetId)!)
+          : null,
         previousConfig: input.includePrev
-          ? mergePreviousConfig(null, previousSnapshotDiffs.get(row.adsetId))
+          ? mergePreviousConfig(null, previousHistoryDiffs.get(row.adsetId))
           : null,
       })
     )

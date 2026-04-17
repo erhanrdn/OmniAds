@@ -11,6 +11,15 @@ vi.mock("@/lib/meta/config-snapshots", () => ({
   readPreviousDifferentMetaConfigDiffs: vi.fn(),
 }));
 
+vi.mock("@/lib/meta/request-model-store", () => ({
+  readLatestMetaCampaignConfigHistory: vi.fn(),
+  readLatestMetaAdSetConfigHistory: vi.fn(),
+  readMetaCampaignDimensions: vi.fn(),
+  readMetaAdSetDimensions: vi.fn(),
+  readPreviousDifferentMetaCampaignConfigHistoryDiffs: vi.fn(),
+  readPreviousDifferentMetaAdSetConfigHistoryDiffs: vi.fn(),
+}));
+
 vi.mock("@/lib/meta/constraints", () => ({
   getMetaBreakdownSupportedStart: vi.fn(),
 }));
@@ -37,6 +46,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
 }));
 
 const configSnapshots = await import("@/lib/meta/config-snapshots");
+const requestModelStore = await import("@/lib/meta/request-model-store");
 const constraints = await import("@/lib/meta/constraints");
 const warehouse = await import("@/lib/meta/warehouse");
 const apiMeta = await import("@/lib/api/meta");
@@ -57,6 +67,12 @@ describe("meta historical serving", () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
     vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(new Map());
     vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(new Map());
+    vi.mocked(requestModelStore.readLatestMetaCampaignConfigHistory).mockResolvedValue(new Map());
+    vi.mocked(requestModelStore.readLatestMetaAdSetConfigHistory).mockResolvedValue(new Map());
+    vi.mocked(requestModelStore.readMetaCampaignDimensions).mockResolvedValue(new Map());
+    vi.mocked(requestModelStore.readMetaAdSetDimensions).mockResolvedValue(new Map());
+    vi.mocked(requestModelStore.readPreviousDifferentMetaCampaignConfigHistoryDiffs).mockResolvedValue(new Map());
+    vi.mocked(requestModelStore.readPreviousDifferentMetaAdSetConfigHistoryDiffs).mockResolvedValue(new Map());
     vi.mocked(constraints.getMetaBreakdownSupportedStart).mockReturnValue("2026-03-01");
     vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue(null as never);
     vi.mocked(apiMeta.fetchMetaCampaignConfigs).mockResolvedValue(new Map() as never);
@@ -64,7 +80,7 @@ describe("meta historical serving", () => {
     vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue(null as never);
   });
 
-  it("returns campaign current config from latest snapshots instead of warehouse fact config", async () => {
+  it("returns campaign current config from typed history instead of warehouse fact config", async () => {
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -143,7 +159,28 @@ describe("meta historical serving", () => {
         sourceSnapshotId: null,
       },
     ] as never);
-    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+    vi.mocked(requestModelStore.readMetaCampaignDimensions).mockResolvedValue(
+      new Map([
+        [
+          "cmp-1",
+          {
+            businessId: "biz-1",
+            businessRefId: "biz-ref-1",
+            providerAccountId: "act_1",
+            providerAccountRefId: "provider-ref-1",
+            campaignId: "cmp-1",
+            campaignNameCurrent: "Campaign 1",
+            campaignNameHistorical: "Campaign 1",
+            campaignStatus: "PAUSED",
+            buyingType: "AUCTION",
+            firstSeenAt: null,
+            lastSeenAt: null,
+            sourceUpdatedAt: null,
+          },
+        ],
+      ]),
+    );
+    vi.mocked(requestModelStore.readLatestMetaCampaignConfigHistory).mockResolvedValue(
       new Map([
         [
           "cmp-1",
@@ -186,11 +223,12 @@ describe("meta historical serving", () => {
       dailyBudget: 15,
     });
     expect(rows[0]?.objective).toBe("OUTCOME_SALES");
-    expect(configSnapshots.readLatestMetaConfigSnapshots).toHaveBeenCalled();
-    expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
+    expect(requestModelStore.readLatestMetaCampaignConfigHistory).toHaveBeenCalled();
+    expect(requestModelStore.readPreviousDifferentMetaCampaignConfigHistoryDiffs).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaCampaignConfigs).not.toHaveBeenCalled();
   });
 
-  it("derives campaign previous bid and budget fields from snapshot history", async () => {
+  it("derives campaign previous bid and budget fields from typed history", async () => {
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -307,7 +345,7 @@ describe("meta historical serving", () => {
         sourceSnapshotId: null,
       },
     ] as never);
-    vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(
+    vi.mocked(requestModelStore.readPreviousDifferentMetaCampaignConfigHistoryDiffs).mockResolvedValue(
       new Map([
         [
           "cmp-1",
@@ -340,7 +378,8 @@ describe("meta historical serving", () => {
       previousLifetimeBudget: null,
       previousBudgetCapturedAt: "2026-04-02T00:00:00.000Z",
     });
-    expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).toHaveBeenCalled();
+    expect(requestModelStore.readPreviousDifferentMetaCampaignConfigHistoryDiffs).toHaveBeenCalled();
+    expect(apiMeta.fetchMetaCampaignConfigs).not.toHaveBeenCalled();
   });
 
   it("uses campaign daily truth for summary totals when account rows drift", async () => {
@@ -858,7 +897,7 @@ describe("meta historical serving", () => {
     });
   });
 
-  it("returns adset current config from latest snapshots instead of warehouse fact config", async () => {
+  it("returns adset current config from typed history instead of warehouse fact config", async () => {
     vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -935,7 +974,28 @@ describe("meta historical serving", () => {
         sourceSnapshotId: null,
       },
     ] as never);
-    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+    vi.mocked(requestModelStore.readMetaAdSetDimensions).mockResolvedValue(
+      new Map([
+        [
+          "adset-1",
+          {
+            businessId: "biz-1",
+            businessRefId: "biz-ref-1",
+            providerAccountId: "act_1",
+            providerAccountRefId: "provider-ref-1",
+            campaignId: "cmp-1",
+            adsetId: "adset-1",
+            adsetNameCurrent: "Adset 1",
+            adsetNameHistorical: "Adset 1",
+            adsetStatus: "PAUSED",
+            firstSeenAt: null,
+            lastSeenAt: null,
+            sourceUpdatedAt: null,
+          },
+        ],
+      ]),
+    );
+    vi.mocked(requestModelStore.readLatestMetaAdSetConfigHistory).mockResolvedValue(
       new Map([
         [
           "adset-1",
@@ -975,11 +1035,12 @@ describe("meta historical serving", () => {
       manualBidAmount: 8,
       dailyBudget: 14,
     });
-    expect(configSnapshots.readLatestMetaConfigSnapshots).toHaveBeenCalled();
-    expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).not.toHaveBeenCalled();
+    expect(requestModelStore.readLatestMetaAdSetConfigHistory).toHaveBeenCalled();
+    expect(requestModelStore.readPreviousDifferentMetaAdSetConfigHistoryDiffs).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaAdSetConfigs).not.toHaveBeenCalled();
   });
 
-  it("repairs missing campaign bid values from latest snapshots without persisting them from serving", async () => {
+  it("reads missing campaign bid values from typed history without persisting them from serving", async () => {
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -1020,7 +1081,7 @@ describe("meta historical serving", () => {
         sourceSnapshotId: null,
       },
     ] as never);
-    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+    vi.mocked(requestModelStore.readLatestMetaCampaignConfigHistory).mockResolvedValue(
       new Map([
         [
           "cmp-1",
@@ -1059,9 +1120,10 @@ describe("meta historical serving", () => {
       bidValueFormat: "currency",
     });
     expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaCampaignConfigs).not.toHaveBeenCalled();
   });
 
-  it("repairs missing adset target roas values from latest snapshots without persisting them from serving", async () => {
+  it("reads missing adset target roas values from typed history without persisting them from serving", async () => {
     vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -1101,7 +1163,7 @@ describe("meta historical serving", () => {
         sourceSnapshotId: null,
       },
     ] as never);
-    vi.mocked(configSnapshots.readLatestMetaConfigSnapshots).mockResolvedValue(
+    vi.mocked(requestModelStore.readLatestMetaAdSetConfigHistory).mockResolvedValue(
       new Map([
         [
           "adset-1",
@@ -1140,9 +1202,10 @@ describe("meta historical serving", () => {
       bidValueFormat: "roas",
     });
     expect(warehouse.upsertMetaAdSetDailyRows).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaAdSetConfigs).not.toHaveBeenCalled();
   });
 
-  it("derives adset previous bid and budget fields from snapshot history", async () => {
+  it("derives adset previous bid and budget fields from typed history", async () => {
     vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
       {
         businessId: "biz-1",
@@ -1256,7 +1319,7 @@ describe("meta historical serving", () => {
         sourceSnapshotId: null,
       },
     ] as never);
-    vi.mocked(configSnapshots.readPreviousDifferentMetaConfigDiffs).mockResolvedValue(
+    vi.mocked(requestModelStore.readPreviousDifferentMetaAdSetConfigHistoryDiffs).mockResolvedValue(
       new Map([
         [
           "adset-1",
@@ -1290,49 +1353,57 @@ describe("meta historical serving", () => {
       previousLifetimeBudget: null,
       previousBudgetCapturedAt: "2026-04-02T00:00:00.000Z",
     });
-    expect(configSnapshots.readPreviousDifferentMetaConfigDiffs).toHaveBeenCalled();
+    expect(requestModelStore.readPreviousDifferentMetaAdSetConfigHistoryDiffs).toHaveBeenCalled();
+    expect(apiMeta.fetchMetaAdSetConfigs).not.toHaveBeenCalled();
   });
 
-  it("repairs missing campaign and adset config from current Meta config fetch without persisting it from serving", async () => {
-    vi.mocked(apiMeta.resolveMetaCredentials).mockResolvedValue({
-      businessId: "biz-1",
-      accessToken: "token-1",
-      accountIds: ["act_1"],
-      currency: "USD",
-      accountProfiles: {
-        act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
-      },
-    } as never);
-    vi.mocked(apiMeta.fetchMetaCampaignConfigs).mockResolvedValue(
+  it("reads missing campaign and adset config from typed request model without calling live Meta fetches", async () => {
+    vi.mocked(requestModelStore.readLatestMetaCampaignConfigHistory).mockResolvedValue(
       new Map([
         [
           "cmp-1",
           {
-            id: "cmp-1",
-            name: "Campaign 1",
+            campaignId: "cmp-1",
             objective: "OUTCOME_SALES",
-            bid_strategy: "LOWEST_COST_WITH_BID_CAP",
-            bid_amount: "5",
-            daily_budget: "10",
+            optimizationGoal: "Purchase",
+            bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
+            bidStrategyLabel: "Bid Cap",
+            manualBidAmount: 5,
+            bidValue: 5,
+            bidValueFormat: "currency",
+            dailyBudget: 10,
+            lifetimeBudget: null,
+            isBudgetMixed: false,
+            isConfigMixed: false,
+            isOptimizationGoalMixed: false,
+            isBidStrategyMixed: false,
+            isBidValueMixed: false,
           },
         ],
-      ]) as never
+      ]),
     );
-    vi.mocked(apiMeta.fetchMetaAdSetConfigs).mockResolvedValue(
+    vi.mocked(requestModelStore.readLatestMetaAdSetConfigHistory).mockResolvedValue(
       new Map([
         [
           "adset-1",
           {
-            id: "adset-1",
-            name: "Adset 1",
-            campaign_id: "cmp-1",
-            optimization_goal: "omni_purchase",
-            bid_strategy: "LOWEST_COST_WITH_BID_CAP",
-            bid_amount: "4",
-            daily_budget: "8",
+            campaignId: "cmp-1",
+            optimizationGoal: "Purchase",
+            bidStrategyType: "LOWEST_COST_WITH_BID_CAP",
+            bidStrategyLabel: "Bid Cap",
+            manualBidAmount: 4,
+            bidValue: 4,
+            bidValueFormat: "currency",
+            dailyBudget: 8,
+            lifetimeBudget: null,
+            isBudgetMixed: false,
+            isConfigMixed: false,
+            isOptimizationGoalMixed: false,
+            isBidStrategyMixed: false,
+            isBidValueMixed: false,
           },
         ],
-      ]) as never
+      ]),
     );
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {
@@ -1444,6 +1515,8 @@ describe("meta historical serving", () => {
     });
     expect(warehouse.upsertMetaCampaignDailyRows).not.toHaveBeenCalled();
     expect(warehouse.upsertMetaAdSetDailyRows).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaCampaignConfigs).not.toHaveBeenCalled();
+    expect(apiMeta.fetchMetaAdSetConfigs).not.toHaveBeenCalled();
   });
 
   it("repairs an entire warehouse date range and reports changed row counts", async () => {

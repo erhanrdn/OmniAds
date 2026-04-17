@@ -1701,6 +1701,9 @@ async function measureReadBenchmarkScenarioSet(input: {
     getOverviewTrendBundle,
     getShopifyOverviewServingData,
   } = await import("@/lib/overview-service");
+  const { getMetaAdSetsForRange } = await import("@/lib/meta/adsets-source");
+  const { getMetaBreakdownsForRange } = await import("@/lib/meta/breakdowns-source");
+  const { getMetaCampaignsForRange } = await import("@/lib/meta/campaigns-source");
   const { getMetaCreativesDbPayload } = await import("@/lib/meta/creatives-api");
   const { getGoogleAdsOverviewReport } = await import("@/lib/google-ads/serving");
   const base = await collectReadScenarioData(input);
@@ -1789,6 +1792,49 @@ async function measureReadBenchmarkScenarioSet(input: {
           "snapshot_source" in creatives && typeof creatives.snapshot_source === "string"
             ? creatives.snapshot_source
             : "unknown",
+      };
+    }),
+    await measureScenario("meta_campaigns_30d", input.iterations30, async () => {
+      const campaigns = await getMetaCampaignsForRange({
+        businessId: input.businessId,
+        startDate: input.range30Start,
+        endDate: input.range30End,
+        includePrev: true,
+      });
+      return {
+        sampleCardinality: Array.isArray(campaigns.rows) ? campaigns.rows.length : null,
+        validityNote: campaigns.status === "ok" ? "valid" : `status:${campaigns.status ?? "unknown"}`,
+        sourceKey: campaigns.status ?? "unknown",
+      };
+    }),
+    await measureScenario("meta_adsets_30d", input.iterations30, async () => {
+      const adsets = await getMetaAdSetsForRange({
+        businessId: input.businessId,
+        startDate: input.range30Start,
+        endDate: input.range30End,
+        includePrev: true,
+      });
+      return {
+        sampleCardinality: Array.isArray(adsets.rows) ? adsets.rows.length : null,
+        validityNote: adsets.status === "ok" ? "valid" : `status:${adsets.status ?? "unknown"}`,
+        sourceKey: adsets.status ?? "unknown",
+      };
+    }),
+    await measureScenario("meta_breakdowns_30d", input.iterations30, async () => {
+      const breakdowns = await getMetaBreakdownsForRange({
+        businessId: input.businessId,
+        startDate: input.range30Start,
+        endDate: input.range30End,
+      });
+      return {
+        sampleCardinality:
+          breakdowns.age.length +
+          breakdowns.location.length +
+          breakdowns.placement.length +
+          breakdowns.budget.campaign.length +
+          breakdowns.budget.adset.length,
+        validityNote: breakdowns.status === "ok" ? "valid" : `status:${breakdowns.status ?? "unknown"}`,
+        sourceKey: breakdowns.status ?? "unknown",
       };
     }),
     await measureScenario("google_ads_overview_30d", input.iterations30, async () => {

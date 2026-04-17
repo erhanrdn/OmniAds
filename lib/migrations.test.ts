@@ -63,6 +63,12 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("provider_account_snapshot_runs");
     expect(queries.join("\n")).toContain("provider_account_snapshot_items");
     expect(queries.join("\n")).toContain("platform_overview_summary_range_accounts");
+    expect(queries.join("\n")).toContain("meta_campaign_dimensions");
+    expect(queries.join("\n")).toContain("meta_campaign_config_history");
+    expect(queries.join("\n")).toContain("meta_adset_dimensions");
+    expect(queries.join("\n")).toContain("meta_adset_config_history");
+    expect(queries.join("\n")).toContain("meta_ad_dimensions");
+    expect(queries.join("\n")).toContain("meta_creative_dimensions");
     expect(queries.join("\n")).toContain("business_ref_id");
     expect(queries.join("\n")).toContain("provider_account_ref_id");
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");

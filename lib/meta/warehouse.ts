@@ -100,6 +100,12 @@ const META_MUTATION_TABLES = [
   "meta_breakdown_daily",
   "meta_ad_daily",
   "meta_creative_daily",
+  "meta_campaign_dimensions",
+  "meta_campaign_config_history",
+  "meta_adset_dimensions",
+  "meta_adset_config_history",
+  "meta_ad_dimensions",
+  "meta_creative_dimensions",
 ] as const;
 
 function normalizeDate(value: unknown) {
@@ -7269,6 +7275,10 @@ export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) 
         updated_at = now()
     `;
     await sql.query(query, values);
+    await Promise.all([
+      upsertMetaCampaignDimensionRows(chunk, referenceContext),
+      appendMetaCampaignConfigHistoryRows(chunk, referenceContext),
+    ]);
   }
 }
 
@@ -7520,6 +7530,10 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
         updated_at = now()
     `;
     await sql.query(query, values);
+    await Promise.all([
+      upsertMetaAdSetDimensionRows(chunk, referenceContext),
+      appendMetaAdSetConfigHistoryRows(chunk, referenceContext),
+    ]);
   }
 }
 
@@ -7742,6 +7756,558 @@ export async function upsertMetaBreakdownDailyRows(rows: MetaBreakdownDailyRow[]
   }
 }
 
+function buildMetaConfigHistoryFingerprint(input: {
+  objective?: string | null;
+  optimizationGoal?: string | null;
+  bidStrategyType?: string | null;
+  bidStrategyLabel?: string | null;
+  manualBidAmount: number | null;
+  bidValue: number | null;
+  bidValueFormat: "currency" | "roas" | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+  isBudgetMixed: boolean;
+  isConfigMixed: boolean;
+  isOptimizationGoalMixed: boolean;
+  isBidStrategyMixed: boolean;
+  isBidValueMixed: boolean;
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        objective: input.objective ?? null,
+        optimizationGoal: input.optimizationGoal ?? null,
+        bidStrategyType: input.bidStrategyType ?? null,
+        bidStrategyLabel: input.bidStrategyLabel ?? null,
+        manualBidAmount: input.manualBidAmount ?? null,
+        bidValue: input.bidValue ?? null,
+        bidValueFormat: input.bidValueFormat ?? null,
+        dailyBudget: input.dailyBudget ?? null,
+        lifetimeBudget: input.lifetimeBudget ?? null,
+        isBudgetMixed: Boolean(input.isBudgetMixed),
+        isConfigMixed: Boolean(input.isConfigMixed),
+        isOptimizationGoalMixed: Boolean(input.isOptimizationGoalMixed),
+        isBidStrategyMixed: Boolean(input.isBidStrategyMixed),
+        isBidValueMixed: Boolean(input.isBidValueMixed),
+      }),
+    )
+    .digest("hex");
+}
+
+function buildMetaHistoryCapturedAt(row: {
+  date: string;
+  finalizedAt?: string | null;
+}) {
+  return normalizeTimestamp(row.finalizedAt) ?? `${normalizeDate(row.date)}T00:00:00.000Z`;
+}
+
+async function upsertMetaCampaignDimensionRows(
+  rows: MetaCampaignDailyRow[],
+  referenceContext: {
+    businessRefIds: Map<string, string>;
+    providerAccountRefIds: Map<string, string>;
+  },
+) {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk.map((row, index) => {
+      const offset = index * 12;
+      values.push(
+        row.businessId,
+        referenceContext.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.campaignNameCurrent,
+        row.campaignNameHistorical,
+        row.campaignStatus,
+        row.buyingType,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO meta_campaign_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          campaign_name_current,
+          campaign_name_historical,
+          campaign_status,
+          buying_type,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, campaign_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_campaign_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_campaign_dimensions.provider_account_ref_id),
+          campaign_name_current = EXCLUDED.campaign_name_current,
+          campaign_name_historical = EXCLUDED.campaign_name_historical,
+          campaign_status = EXCLUDED.campaign_status,
+          buying_type = EXCLUDED.buying_type,
+          first_seen_at = LEAST(COALESCE(meta_campaign_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(meta_campaign_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(meta_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+  }
+}
+
+async function appendMetaCampaignConfigHistoryRows(
+  rows: MetaCampaignDailyRow[],
+  referenceContext: {
+    businessRefIds: Map<string, string>;
+    providerAccountRefIds: Map<string, string>;
+  },
+) {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk
+      .filter((row) =>
+        row.objective != null ||
+        row.optimizationGoal != null ||
+        row.bidStrategyType != null ||
+        row.bidStrategyLabel != null ||
+        row.manualBidAmount != null ||
+        row.bidValue != null ||
+        row.dailyBudget != null ||
+        row.lifetimeBudget != null ||
+        row.isBudgetMixed ||
+        row.isConfigMixed ||
+        row.isOptimizationGoalMixed ||
+        row.isBidStrategyMixed ||
+        row.isBidValueMixed,
+      )
+      .map((row, index) => {
+        const offset = index * 24;
+        const capturedAt = buildMetaHistoryCapturedAt(row);
+        values.push(
+          row.businessId,
+          referenceContext.businessRefIds.get(row.businessId) ?? null,
+          row.providerAccountId,
+          referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          row.campaignId,
+          buildMetaConfigHistoryFingerprint(row),
+          row.objective,
+          row.optimizationGoal,
+          row.bidStrategyType,
+          row.bidStrategyLabel,
+          row.manualBidAmount,
+          row.bidValue,
+          row.bidValueFormat,
+          row.dailyBudget,
+          row.lifetimeBudget,
+          row.isBudgetMixed,
+          row.isConfigMixed,
+          row.isOptimizationGoalMixed,
+          row.isBidStrategyMixed,
+          row.isBidValueMixed,
+          row.sourceSnapshotId,
+          capturedAt,
+          normalizeDate(row.date),
+          normalizeDate(row.date),
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},'warehouse_daily',$${offset + 21},$${offset + 22}::timestamptz,$${offset + 23}::date,$${offset + 24}::date,now())`;
+      })
+      .join(", ");
+
+    if (!placeholders) continue;
+    await sql.query(
+      `
+        INSERT INTO meta_campaign_config_history (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          config_fingerprint,
+          objective,
+          optimization_goal,
+          bid_strategy_type,
+          bid_strategy_label,
+          manual_bid_amount,
+          bid_value,
+          bid_value_format,
+          daily_budget,
+          lifetime_budget,
+          is_budget_mixed,
+          is_config_mixed,
+          is_optimization_goal_mixed,
+          is_bid_strategy_mixed,
+          is_bid_value_mixed,
+          source_kind,
+          source_snapshot_id,
+          captured_at,
+          effective_from,
+          effective_to,
+          created_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at) DO NOTHING
+      `,
+      values,
+    );
+  }
+}
+
+async function upsertMetaAdSetDimensionRows(
+  rows: MetaAdSetDailyRow[],
+  referenceContext: {
+    businessRefIds: Map<string, string>;
+    providerAccountRefIds: Map<string, string>;
+  },
+) {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk.map((row, index) => {
+      const offset = index * 12;
+      values.push(
+        row.businessId,
+        referenceContext.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adsetId,
+        row.adsetNameCurrent,
+        row.adsetNameHistorical,
+        row.adsetStatus,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO meta_adset_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          adset_id,
+          adset_name_current,
+          adset_name_historical,
+          adset_status,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, adset_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_adset_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_adset_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          adset_name_current = EXCLUDED.adset_name_current,
+          adset_name_historical = EXCLUDED.adset_name_historical,
+          adset_status = EXCLUDED.adset_status,
+          first_seen_at = LEAST(COALESCE(meta_adset_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(meta_adset_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(meta_adset_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+  }
+}
+
+async function appendMetaAdSetConfigHistoryRows(
+  rows: MetaAdSetDailyRow[],
+  referenceContext: {
+    businessRefIds: Map<string, string>;
+    providerAccountRefIds: Map<string, string>;
+  },
+) {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const filtered = chunk.filter((row) =>
+      row.optimizationGoal != null ||
+      row.bidStrategyType != null ||
+      row.bidStrategyLabel != null ||
+      row.manualBidAmount != null ||
+      row.bidValue != null ||
+      row.dailyBudget != null ||
+      row.lifetimeBudget != null ||
+      row.isBudgetMixed ||
+      row.isConfigMixed ||
+      row.isOptimizationGoalMixed ||
+      row.isBidStrategyMixed ||
+      row.isBidValueMixed,
+    );
+
+    const placeholders = filtered.map((row, index) => {
+      const offset = index * 24;
+      const capturedAt = buildMetaHistoryCapturedAt(row);
+      values.push(
+        row.businessId,
+        referenceContext.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adsetId,
+        buildMetaConfigHistoryFingerprint({
+          optimizationGoal: row.optimizationGoal,
+          bidStrategyType: row.bidStrategyType,
+          bidStrategyLabel: row.bidStrategyLabel,
+          manualBidAmount: row.manualBidAmount,
+          bidValue: row.bidValue,
+          bidValueFormat: row.bidValueFormat,
+          dailyBudget: row.dailyBudget,
+          lifetimeBudget: row.lifetimeBudget,
+          isBudgetMixed: row.isBudgetMixed,
+          isConfigMixed: row.isConfigMixed,
+          isOptimizationGoalMixed: row.isOptimizationGoalMixed,
+          isBidStrategyMixed: row.isBidStrategyMixed,
+          isBidValueMixed: row.isBidValueMixed,
+        }),
+        row.optimizationGoal,
+        row.bidStrategyType,
+        row.bidStrategyLabel,
+        row.manualBidAmount,
+        row.bidValue,
+        row.bidValueFormat,
+        row.dailyBudget,
+        row.lifetimeBudget,
+        row.isBudgetMixed,
+        row.isConfigMixed,
+        row.isOptimizationGoalMixed,
+        row.isBidStrategyMixed,
+        row.isBidValueMixed,
+        row.sourceSnapshotId,
+        capturedAt,
+        normalizeDate(row.date),
+        normalizeDate(row.date),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17},$${offset + 18},$${offset + 19},$${offset + 20},'warehouse_daily',$${offset + 21},$${offset + 22}::timestamptz,$${offset + 23}::date,$${offset + 24}::date,now())`;
+    }).join(", ");
+
+    if (!placeholders) continue;
+    await sql.query(
+      `
+        INSERT INTO meta_adset_config_history (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          adset_id,
+          config_fingerprint,
+          optimization_goal,
+          bid_strategy_type,
+          bid_strategy_label,
+          manual_bid_amount,
+          bid_value,
+          bid_value_format,
+          daily_budget,
+          lifetime_budget,
+          is_budget_mixed,
+          is_config_mixed,
+          is_optimization_goal_mixed,
+          is_bid_strategy_mixed,
+          is_bid_value_mixed,
+          source_kind,
+          source_snapshot_id,
+          captured_at,
+          effective_from,
+          effective_to,
+          created_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, adset_id, config_fingerprint, captured_at) DO NOTHING
+      `,
+      values,
+    );
+  }
+}
+
+async function upsertMetaAdDimensionRows(
+  rows: MetaAdDailyRow[],
+  referenceContext: {
+    businessRefIds: Map<string, string>;
+    providerAccountRefIds: Map<string, string>;
+  },
+) {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk.map((row, index) => {
+      const offset = index * 14;
+      const projectionJson =
+        row.payloadJson && typeof row.payloadJson === "object" ? JSON.stringify(row.payloadJson) : "{}";
+      const creativeId =
+        row.payloadJson && typeof row.payloadJson === "object" && "creative_id" in (row.payloadJson as Record<string, unknown>)
+          ? String((row.payloadJson as Record<string, unknown>).creative_id ?? "")
+          : "";
+      values.push(
+        row.businessId,
+        referenceContext.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adsetId,
+        row.adId,
+        row.adNameCurrent,
+        row.adNameHistorical,
+        row.adStatus,
+        creativeId || null,
+        projectionJson,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12}::jsonb,$${offset + 13}::timestamptz,$${offset + 13}::timestamptz,$${offset + 14}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO meta_ad_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          adset_id,
+          ad_id,
+          ad_name_current,
+          ad_name_historical,
+          ad_status,
+          creative_id,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, ad_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_ad_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_ad_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          adset_id = EXCLUDED.adset_id,
+          ad_name_current = EXCLUDED.ad_name_current,
+          ad_name_historical = EXCLUDED.ad_name_historical,
+          ad_status = EXCLUDED.ad_status,
+          creative_id = COALESCE(EXCLUDED.creative_id, meta_ad_dimensions.creative_id),
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(meta_ad_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(meta_ad_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(meta_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+  }
+}
+
+async function upsertMetaCreativeDimensionRows(
+  rows: MetaCreativeDailyRow[],
+  referenceContext: {
+    businessRefIds: Map<string, string>;
+    providerAccountRefIds: Map<string, string>;
+  },
+) {
+  if (rows.length === 0) return;
+  const sql = getDb();
+  for (const chunk of chunkRows(rows, 150)) {
+    const values: unknown[] = [];
+    const placeholders = chunk.map((row, index) => {
+      const offset = index * 17;
+      const projectionJson =
+        row.payloadJson && typeof row.payloadJson === "object" ? JSON.stringify(row.payloadJson) : "{}";
+      values.push(
+        row.businessId,
+        referenceContext.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adsetId,
+        row.adId,
+        row.creativeId,
+        row.creativeName,
+        row.headline,
+        row.primaryText,
+        row.destinationUrl,
+        row.thumbnailUrl,
+        row.assetType,
+        projectionJson,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        normalizeTimestamp(row.updatedAt) ?? buildMetaHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15}::jsonb,$${offset + 16}::timestamptz,$${offset + 16}::timestamptz,$${offset + 17}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO meta_creative_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          adset_id,
+          ad_id,
+          creative_id,
+          creative_name,
+          headline,
+          primary_text,
+          destination_url,
+          thumbnail_url,
+          asset_type,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${placeholders}
+        ON CONFLICT (business_id, provider_account_id, creative_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_creative_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          adset_id = EXCLUDED.adset_id,
+          ad_id = EXCLUDED.ad_id,
+          creative_name = EXCLUDED.creative_name,
+          headline = EXCLUDED.headline,
+          primary_text = EXCLUDED.primary_text,
+          destination_url = EXCLUDED.destination_url,
+          thumbnail_url = EXCLUDED.thumbnail_url,
+          asset_type = EXCLUDED.asset_type,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(meta_creative_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(meta_creative_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(meta_creative_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+  }
+}
+
 export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
@@ -7875,6 +8441,7 @@ export async function upsertMetaAdDailyRows(rows: MetaAdDailyRow[]) {
     `,
       values
     );
+    await upsertMetaAdDimensionRows(chunk, referenceContext);
   }
 }
 
@@ -7998,6 +8565,7 @@ export async function upsertMetaCreativeDailyRows(rows: MetaCreativeDailyRow[]) 
     `,
       values
     );
+    await upsertMetaCreativeDimensionRows(chunk, referenceContext);
   }
 }
 

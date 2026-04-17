@@ -149,6 +149,12 @@ const META_CANONICAL_PROVIDER_REF_TABLES = [
   "meta_breakdown_daily",
   "meta_ad_daily",
   "meta_creative_daily",
+  "meta_campaign_dimensions",
+  "meta_campaign_config_history",
+  "meta_adset_dimensions",
+  "meta_adset_config_history",
+  "meta_ad_dimensions",
+  "meta_creative_dimensions",
 ] as const;
 
 const GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES = [
@@ -2450,6 +2456,155 @@ export async function runMigrations(options?: {
           ON meta_creative_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_account_date_creative
           ON meta_creative_daily (business_id, provider_account_id, date DESC, creative_id)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_campaign_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider_account_id     TEXT NOT NULL,
+          campaign_id             TEXT NOT NULL,
+          campaign_name_current   TEXT,
+          campaign_name_historical TEXT,
+          campaign_status         TEXT,
+          buying_type             TEXT,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_dimensions_business_account
+          ON meta_campaign_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_dimensions_campaign
+          ON meta_campaign_dimensions (campaign_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_campaign_config_history (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id               TEXT NOT NULL,
+          provider_account_id       TEXT NOT NULL,
+          campaign_id               TEXT NOT NULL,
+          config_fingerprint        TEXT NOT NULL,
+          objective                 TEXT,
+          optimization_goal         TEXT,
+          bid_strategy_type         TEXT,
+          bid_strategy_label        TEXT,
+          manual_bid_amount         DOUBLE PRECISION,
+          bid_value                 DOUBLE PRECISION,
+          bid_value_format          TEXT,
+          daily_budget              DOUBLE PRECISION,
+          lifetime_budget           DOUBLE PRECISION,
+          is_budget_mixed           BOOLEAN NOT NULL DEFAULT FALSE,
+          is_config_mixed           BOOLEAN NOT NULL DEFAULT FALSE,
+          is_optimization_goal_mixed BOOLEAN NOT NULL DEFAULT FALSE,
+          is_bid_strategy_mixed     BOOLEAN NOT NULL DEFAULT FALSE,
+          is_bid_value_mixed        BOOLEAN NOT NULL DEFAULT FALSE,
+          source_kind               TEXT NOT NULL DEFAULT 'warehouse_daily',
+          source_snapshot_id        UUID REFERENCES meta_raw_snapshots(id) ON DELETE SET NULL,
+          captured_at               TIMESTAMPTZ NOT NULL,
+          effective_from            DATE,
+          effective_to              DATE,
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_campaign_config_history_lookup
+          ON meta_campaign_config_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_adset_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider_account_id     TEXT NOT NULL,
+          campaign_id             TEXT,
+          adset_id                TEXT NOT NULL,
+          adset_name_current      TEXT,
+          adset_name_historical   TEXT,
+          adset_status            TEXT,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, adset_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_dimensions_business_account
+          ON meta_adset_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_dimensions_adset
+          ON meta_adset_dimensions (adset_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_adset_config_history (
+          id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id               TEXT NOT NULL,
+          provider_account_id       TEXT NOT NULL,
+          campaign_id               TEXT,
+          adset_id                  TEXT NOT NULL,
+          config_fingerprint        TEXT NOT NULL,
+          optimization_goal         TEXT,
+          bid_strategy_type         TEXT,
+          bid_strategy_label        TEXT,
+          manual_bid_amount         DOUBLE PRECISION,
+          bid_value                 DOUBLE PRECISION,
+          bid_value_format          TEXT,
+          daily_budget              DOUBLE PRECISION,
+          lifetime_budget           DOUBLE PRECISION,
+          is_budget_mixed           BOOLEAN NOT NULL DEFAULT FALSE,
+          is_config_mixed           BOOLEAN NOT NULL DEFAULT FALSE,
+          is_optimization_goal_mixed BOOLEAN NOT NULL DEFAULT FALSE,
+          is_bid_strategy_mixed     BOOLEAN NOT NULL DEFAULT FALSE,
+          is_bid_value_mixed        BOOLEAN NOT NULL DEFAULT FALSE,
+          source_kind               TEXT NOT NULL DEFAULT 'warehouse_daily',
+          source_snapshot_id        UUID REFERENCES meta_raw_snapshots(id) ON DELETE SET NULL,
+          captured_at               TIMESTAMPTZ NOT NULL,
+          effective_from            DATE,
+          effective_to              DATE,
+          created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, adset_id, config_fingerprint, captured_at)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_adset_config_history_lookup
+          ON meta_adset_config_history (business_id, adset_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_ad_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider_account_id     TEXT NOT NULL,
+          campaign_id             TEXT,
+          adset_id                TEXT,
+          ad_id                   TEXT NOT NULL,
+          ad_name_current         TEXT,
+          ad_name_historical      TEXT,
+          ad_status               TEXT,
+          creative_id             TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, ad_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_dimensions_business_account
+          ON meta_ad_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_ad_dimensions_ad
+          ON meta_ad_dimensions (ad_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS meta_creative_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          provider_account_id     TEXT NOT NULL,
+          campaign_id             TEXT,
+          adset_id                TEXT,
+          ad_id                   TEXT,
+          creative_id             TEXT NOT NULL,
+          creative_name           TEXT,
+          headline                TEXT,
+          primary_text            TEXT,
+          destination_url         TEXT,
+          thumbnail_url           TEXT,
+          asset_type              TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, creative_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_dimensions_business_account
+          ON meta_creative_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_dimensions_creative
+          ON meta_creative_dimensions (creative_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_creative_score_snapshots (
           id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id         TEXT NOT NULL,
@@ -3757,6 +3912,646 @@ export async function runMigrations(options?: {
             WHERE target.provider_account_ref_id IS NULL
               AND provider_account.provider = target.provider
               AND provider_account.external_account_id = target.provider_account_id
+          `,
+        ).catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                campaign_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM meta_campaign_daily
+              WHERE campaign_id IS NOT NULL
+              GROUP BY business_id, provider_account_id, campaign_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, campaign_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                campaign_name_current,
+                campaign_name_historical,
+                campaign_status,
+                buying_type,
+                updated_at
+              FROM meta_campaign_daily
+              WHERE campaign_id IS NOT NULL
+              ORDER BY business_id, provider_account_id, campaign_id, date DESC, updated_at DESC
+            )
+            INSERT INTO meta_campaign_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              campaign_name_current,
+              campaign_name_historical,
+              campaign_status,
+              buying_type,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.campaign_name_current,
+              latest.campaign_name_historical,
+              latest.campaign_status,
+              latest.buying_type,
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.campaign_id = latest.campaign_id
+            ON CONFLICT (business_id, provider_account_id, campaign_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_campaign_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_campaign_dimensions.provider_account_ref_id),
+              campaign_name_current = EXCLUDED.campaign_name_current,
+              campaign_name_historical = EXCLUDED.campaign_name_historical,
+              campaign_status = EXCLUDED.campaign_status,
+              buying_type = EXCLUDED.buying_type,
+              first_seen_at = COALESCE(meta_campaign_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(meta_campaign_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(meta_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                adset_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM meta_adset_daily
+              WHERE adset_id IS NOT NULL
+              GROUP BY business_id, provider_account_id, adset_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, adset_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                adset_id,
+                adset_name_current,
+                adset_name_historical,
+                adset_status,
+                updated_at
+              FROM meta_adset_daily
+              WHERE adset_id IS NOT NULL
+              ORDER BY business_id, provider_account_id, adset_id, date DESC, updated_at DESC
+            )
+            INSERT INTO meta_adset_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              adset_id,
+              adset_name_current,
+              adset_name_historical,
+              adset_status,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.adset_id,
+              latest.adset_name_current,
+              latest.adset_name_historical,
+              latest.adset_status,
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.adset_id = latest.adset_id
+            ON CONFLICT (business_id, provider_account_id, adset_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_adset_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_adset_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              adset_name_current = EXCLUDED.adset_name_current,
+              adset_name_historical = EXCLUDED.adset_name_historical,
+              adset_status = EXCLUDED.adset_status,
+              first_seen_at = COALESCE(meta_adset_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(meta_adset_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(meta_adset_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                ad_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM meta_ad_daily
+              WHERE ad_id IS NOT NULL
+              GROUP BY business_id, provider_account_id, ad_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, ad_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                adset_id,
+                ad_id,
+                ad_name_current,
+                ad_name_historical,
+                ad_status,
+                payload_json,
+                updated_at
+              FROM meta_ad_daily
+              WHERE ad_id IS NOT NULL
+              ORDER BY business_id, provider_account_id, ad_id, date DESC, updated_at DESC
+            )
+            INSERT INTO meta_ad_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              adset_id,
+              ad_id,
+              ad_name_current,
+              ad_name_historical,
+              ad_status,
+              creative_id,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.adset_id,
+              latest.ad_id,
+              latest.ad_name_current,
+              latest.ad_name_historical,
+              latest.ad_status,
+              NULLIF(latest.payload_json->>'creative_id', ''),
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.ad_id = latest.ad_id
+            ON CONFLICT (business_id, provider_account_id, ad_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_ad_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_ad_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              adset_id = EXCLUDED.adset_id,
+              ad_name_current = EXCLUDED.ad_name_current,
+              ad_name_historical = EXCLUDED.ad_name_historical,
+              ad_status = EXCLUDED.ad_status,
+              creative_id = COALESCE(EXCLUDED.creative_id, meta_ad_dimensions.creative_id),
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(meta_ad_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(meta_ad_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(meta_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                creative_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM meta_creative_daily
+              WHERE creative_id IS NOT NULL
+              GROUP BY business_id, provider_account_id, creative_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, creative_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                adset_id,
+                ad_id,
+                creative_id,
+                creative_name,
+                headline,
+                primary_text,
+                destination_url,
+                thumbnail_url,
+                asset_type,
+                payload_json,
+                updated_at
+              FROM meta_creative_daily
+              WHERE creative_id IS NOT NULL
+              ORDER BY business_id, provider_account_id, creative_id, date DESC, updated_at DESC
+            )
+            INSERT INTO meta_creative_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              adset_id,
+              ad_id,
+              creative_id,
+              creative_name,
+              headline,
+              primary_text,
+              destination_url,
+              thumbnail_url,
+              asset_type,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.adset_id,
+              latest.ad_id,
+              latest.creative_id,
+              latest.creative_name,
+              latest.headline,
+              latest.primary_text,
+              latest.destination_url,
+              latest.thumbnail_url,
+              latest.asset_type,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.creative_id = latest.creative_id
+            ON CONFLICT (business_id, provider_account_id, creative_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, meta_creative_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, meta_creative_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              adset_id = EXCLUDED.adset_id,
+              ad_id = EXCLUDED.ad_id,
+              creative_name = EXCLUDED.creative_name,
+              headline = EXCLUDED.headline,
+              primary_text = EXCLUDED.primary_text,
+              destination_url = EXCLUDED.destination_url,
+              thumbnail_url = EXCLUDED.thumbnail_url,
+              asset_type = EXCLUDED.asset_type,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(meta_creative_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(meta_creative_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(meta_creative_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            INSERT INTO meta_campaign_config_history (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              config_fingerprint,
+              objective,
+              optimization_goal,
+              bid_strategy_type,
+              bid_strategy_label,
+              manual_bid_amount,
+              bid_value,
+              bid_value_format,
+              daily_budget,
+              lifetime_budget,
+              is_budget_mixed,
+              is_config_mixed,
+              is_optimization_goal_mixed,
+              is_bid_strategy_mixed,
+              is_bid_value_mixed,
+              source_kind,
+              source_snapshot_id,
+              captured_at,
+              effective_from,
+              effective_to,
+              created_at
+            )
+            SELECT
+              source.business_id,
+              source.business_ref_id,
+              source.provider_account_id,
+              source.provider_account_ref_id,
+              source.campaign_id,
+              md5(
+                jsonb_build_object(
+                  'objective', source.objective,
+                  'optimization_goal', source.optimization_goal,
+                  'bid_strategy_type', source.bid_strategy_type,
+                  'bid_strategy_label', source.bid_strategy_label,
+                  'manual_bid_amount', source.manual_bid_amount,
+                  'bid_value', source.bid_value,
+                  'bid_value_format', source.bid_value_format,
+                  'daily_budget', source.daily_budget,
+                  'lifetime_budget', source.lifetime_budget,
+                  'is_budget_mixed', source.is_budget_mixed,
+                  'is_config_mixed', source.is_config_mixed,
+                  'is_optimization_goal_mixed', source.is_optimization_goal_mixed,
+                  'is_bid_strategy_mixed', source.is_bid_strategy_mixed,
+                  'is_bid_value_mixed', source.is_bid_value_mixed
+                )::text
+              ) AS config_fingerprint,
+              source.objective,
+              source.optimization_goal,
+              source.bid_strategy_type,
+              source.bid_strategy_label,
+              source.manual_bid_amount,
+              source.bid_value,
+              source.bid_value_format,
+              source.daily_budget,
+              source.lifetime_budget,
+              source.is_budget_mixed,
+              source.is_config_mixed,
+              source.is_optimization_goal_mixed,
+              source.is_bid_strategy_mixed,
+              source.is_bid_value_mixed,
+              source.source_kind,
+              source.source_snapshot_id,
+              source.captured_at,
+              source.effective_from,
+              source.effective_to,
+              now()
+            FROM (
+              SELECT
+                business_id,
+                business_ref_id,
+                account_id AS provider_account_id,
+                provider_account_ref_id,
+                entity_id AS campaign_id,
+                NULLIF(payload->>'objective', '') AS objective,
+                NULLIF(payload->>'optimizationGoal', '') AS optimization_goal,
+                NULLIF(payload->>'bidStrategyType', '') AS bid_strategy_type,
+                NULLIF(payload->>'bidStrategyLabel', '') AS bid_strategy_label,
+                NULLIF(payload->>'manualBidAmount', '')::double precision AS manual_bid_amount,
+                NULLIF(payload->>'bidValue', '')::double precision AS bid_value,
+                NULLIF(payload->>'bidValueFormat', '') AS bid_value_format,
+                NULLIF(payload->>'dailyBudget', '')::double precision AS daily_budget,
+                NULLIF(payload->>'lifetimeBudget', '')::double precision AS lifetime_budget,
+                COALESCE((payload->>'isBudgetMixed')::boolean, FALSE) AS is_budget_mixed,
+                COALESCE((payload->>'isConfigMixed')::boolean, FALSE) AS is_config_mixed,
+                COALESCE((payload->>'isOptimizationGoalMixed')::boolean, FALSE) AS is_optimization_goal_mixed,
+                COALESCE((payload->>'isBidStrategyMixed')::boolean, FALSE) AS is_bid_strategy_mixed,
+                COALESCE((payload->>'isBidValueMixed')::boolean, FALSE) AS is_bid_value_mixed,
+                'config_snapshot'::text AS source_kind,
+                NULL::uuid AS source_snapshot_id,
+                captured_at,
+                snapshot_date AS effective_from,
+                snapshot_date AS effective_to
+              FROM meta_config_snapshots
+              WHERE entity_level = 'campaign'
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                objective,
+                optimization_goal,
+                bid_strategy_type,
+                bid_strategy_label,
+                manual_bid_amount,
+                bid_value,
+                bid_value_format,
+                daily_budget,
+                lifetime_budget,
+                is_budget_mixed,
+                is_config_mixed,
+                is_optimization_goal_mixed,
+                is_bid_strategy_mixed,
+                is_bid_value_mixed,
+                'warehouse_daily'::text AS source_kind,
+                source_snapshot_id,
+                COALESCE(finalized_at, (date::text || 'T00:00:00Z')::timestamptz) AS captured_at,
+                date AS effective_from,
+                date AS effective_to
+              FROM meta_campaign_daily
+              WHERE campaign_id IS NOT NULL
+                AND (
+                  objective IS NOT NULL
+                  OR optimization_goal IS NOT NULL
+                  OR bid_strategy_type IS NOT NULL
+                  OR bid_strategy_label IS NOT NULL
+                  OR manual_bid_amount IS NOT NULL
+                  OR bid_value IS NOT NULL
+                  OR daily_budget IS NOT NULL
+                  OR lifetime_budget IS NOT NULL
+                  OR is_budget_mixed = TRUE
+                  OR is_config_mixed = TRUE
+                  OR is_optimization_goal_mixed = TRUE
+                  OR is_bid_strategy_mixed = TRUE
+                  OR is_bid_value_mixed = TRUE
+                )
+            ) AS source
+            WHERE source.campaign_id IS NOT NULL
+            ON CONFLICT (business_id, provider_account_id, campaign_id, config_fingerprint, captured_at) DO NOTHING
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            INSERT INTO meta_adset_config_history (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              adset_id,
+              config_fingerprint,
+              optimization_goal,
+              bid_strategy_type,
+              bid_strategy_label,
+              manual_bid_amount,
+              bid_value,
+              bid_value_format,
+              daily_budget,
+              lifetime_budget,
+              is_budget_mixed,
+              is_config_mixed,
+              is_optimization_goal_mixed,
+              is_bid_strategy_mixed,
+              is_bid_value_mixed,
+              source_kind,
+              source_snapshot_id,
+              captured_at,
+              effective_from,
+              effective_to,
+              created_at
+            )
+            SELECT
+              source.business_id,
+              source.business_ref_id,
+              source.provider_account_id,
+              source.provider_account_ref_id,
+              source.campaign_id,
+              source.adset_id,
+              md5(
+                jsonb_build_object(
+                  'optimization_goal', source.optimization_goal,
+                  'bid_strategy_type', source.bid_strategy_type,
+                  'bid_strategy_label', source.bid_strategy_label,
+                  'manual_bid_amount', source.manual_bid_amount,
+                  'bid_value', source.bid_value,
+                  'bid_value_format', source.bid_value_format,
+                  'daily_budget', source.daily_budget,
+                  'lifetime_budget', source.lifetime_budget,
+                  'is_budget_mixed', source.is_budget_mixed,
+                  'is_config_mixed', source.is_config_mixed,
+                  'is_optimization_goal_mixed', source.is_optimization_goal_mixed,
+                  'is_bid_strategy_mixed', source.is_bid_strategy_mixed,
+                  'is_bid_value_mixed', source.is_bid_value_mixed
+                )::text
+              ) AS config_fingerprint,
+              source.optimization_goal,
+              source.bid_strategy_type,
+              source.bid_strategy_label,
+              source.manual_bid_amount,
+              source.bid_value,
+              source.bid_value_format,
+              source.daily_budget,
+              source.lifetime_budget,
+              source.is_budget_mixed,
+              source.is_config_mixed,
+              source.is_optimization_goal_mixed,
+              source.is_bid_strategy_mixed,
+              source.is_bid_value_mixed,
+              source.source_kind,
+              source.source_snapshot_id,
+              source.captured_at,
+              source.effective_from,
+              source.effective_to,
+              now()
+            FROM (
+              SELECT
+                business_id,
+                business_ref_id,
+                account_id AS provider_account_id,
+                provider_account_ref_id,
+                NULLIF(payload->>'campaignId', '') AS campaign_id,
+                entity_id AS adset_id,
+                NULLIF(payload->>'optimizationGoal', '') AS optimization_goal,
+                NULLIF(payload->>'bidStrategyType', '') AS bid_strategy_type,
+                NULLIF(payload->>'bidStrategyLabel', '') AS bid_strategy_label,
+                NULLIF(payload->>'manualBidAmount', '')::double precision AS manual_bid_amount,
+                NULLIF(payload->>'bidValue', '')::double precision AS bid_value,
+                NULLIF(payload->>'bidValueFormat', '') AS bid_value_format,
+                NULLIF(payload->>'dailyBudget', '')::double precision AS daily_budget,
+                NULLIF(payload->>'lifetimeBudget', '')::double precision AS lifetime_budget,
+                COALESCE((payload->>'isBudgetMixed')::boolean, FALSE) AS is_budget_mixed,
+                COALESCE((payload->>'isConfigMixed')::boolean, FALSE) AS is_config_mixed,
+                COALESCE((payload->>'isOptimizationGoalMixed')::boolean, FALSE) AS is_optimization_goal_mixed,
+                COALESCE((payload->>'isBidStrategyMixed')::boolean, FALSE) AS is_bid_strategy_mixed,
+                COALESCE((payload->>'isBidValueMixed')::boolean, FALSE) AS is_bid_value_mixed,
+                'config_snapshot'::text AS source_kind,
+                NULL::uuid AS source_snapshot_id,
+                captured_at,
+                snapshot_date AS effective_from,
+                snapshot_date AS effective_to
+              FROM meta_config_snapshots
+              WHERE entity_level = 'adset'
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                adset_id,
+                optimization_goal,
+                bid_strategy_type,
+                bid_strategy_label,
+                manual_bid_amount,
+                bid_value,
+                bid_value_format,
+                daily_budget,
+                lifetime_budget,
+                is_budget_mixed,
+                is_config_mixed,
+                is_optimization_goal_mixed,
+                is_bid_strategy_mixed,
+                is_bid_value_mixed,
+                'warehouse_daily'::text AS source_kind,
+                source_snapshot_id,
+                COALESCE(finalized_at, (date::text || 'T00:00:00Z')::timestamptz) AS captured_at,
+                date AS effective_from,
+                date AS effective_to
+              FROM meta_adset_daily
+              WHERE adset_id IS NOT NULL
+                AND (
+                  optimization_goal IS NOT NULL
+                  OR bid_strategy_type IS NOT NULL
+                  OR bid_strategy_label IS NOT NULL
+                  OR manual_bid_amount IS NOT NULL
+                  OR bid_value IS NOT NULL
+                  OR daily_budget IS NOT NULL
+                  OR lifetime_budget IS NOT NULL
+                  OR is_budget_mixed = TRUE
+                  OR is_config_mixed = TRUE
+                  OR is_optimization_goal_mixed = TRUE
+                  OR is_bid_strategy_mixed = TRUE
+                  OR is_bid_value_mixed = TRUE
+                )
+            ) AS source
+            WHERE source.adset_id IS NOT NULL
+            ON CONFLICT (business_id, provider_account_id, adset_id, config_fingerprint, captured_at) DO NOTHING
           `,
         ).catch(() => {}),
       ]);

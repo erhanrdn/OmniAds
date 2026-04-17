@@ -32,6 +32,10 @@ import {
   upsertMetaAdDailyRows,
   upsertMetaCreativeDailyRows,
 } from "@/lib/meta/warehouse";
+import {
+  readMetaAdDimensions,
+  readMetaCreativeDimensions,
+} from "@/lib/meta/request-model-store";
 import type { MetaAdDailyRow, MetaCreativeDailyRow } from "@/lib/meta/warehouse-types";
 import {
   getCreativeMediaRetentionStart,
@@ -220,6 +224,39 @@ function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
     video75: Number(apiRow.video75 ?? 0),
     video100: Number(apiRow.video100 ?? 0),
     debug: apiRow.debug,
+  } satisfies RawCreativeRow;
+}
+
+function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input: {
+  row: T;
+  factRow: MetaAdDailyRow | MetaCreativeDailyRow;
+}) {
+  return {
+    ...input.row,
+    account_id: input.factRow.providerAccountId ?? input.row.account_id,
+    campaign_id: input.factRow.campaignId ?? input.row.campaign_id,
+    adset_id: input.factRow.adsetId ?? input.row.adset_id,
+    id: "adId" in input.factRow ? (input.factRow.adId ?? input.row.id) : input.row.id,
+    creative_id:
+      "creativeId" in input.factRow
+        ? (input.factRow.creativeId ?? input.row.creative_id)
+        : input.row.creative_id,
+    name:
+      input.row.name ??
+      ("creativeName" in input.factRow ? input.factRow.creativeName : null) ??
+      ("adNameCurrent" in input.factRow ? input.factRow.adNameCurrent : null) ??
+      "Unnamed ad",
+    currency: input.factRow.accountCurrency ?? input.row.currency,
+    spend: input.factRow.spend,
+    purchase_value: input.factRow.revenue,
+    roas: input.factRow.roas,
+    cpa: input.factRow.cpa ?? input.row.cpa,
+    clicks: input.factRow.clicks,
+    cpc_link: input.factRow.cpc ?? input.row.cpc_link,
+    ctr_all: input.factRow.ctr ?? input.row.ctr_all,
+    purchases: input.factRow.conversions,
+    impressions: input.factRow.impressions,
+    link_clicks: input.factRow.linkClicks ?? input.row.link_clicks,
   } satisfies RawCreativeRow;
 }
 
@@ -495,9 +532,38 @@ export async function getMetaCreativesWarehousePayload(input: {
         endDate: input.end,
         providerAccountIds: assignedAccountIds,
       });
-  const rawRows = sourceRows
-    .map((row) => coerceRawCreativeRow(row.payloadJson))
-    .filter((row): row is RawCreativeRow => Boolean(row));
+  const creativeSourceRows = useCreativeWarehouse ? (sourceRows as MetaCreativeDailyRow[]) : null;
+  const adSourceRows = useCreativeWarehouse ? null : (sourceRows as MetaAdDailyRow[]);
+  const dimensionRows = useCreativeWarehouse
+    ? await readMetaCreativeDimensions({
+        businessId: input.businessId,
+        creativeIds: creativeSourceRows
+          ?.map((row) => row.creativeId)
+          .filter((value): value is string => Boolean(value)) ?? [],
+      })
+    : await readMetaAdDimensions({
+        businessId: input.businessId,
+        adIds: adSourceRows
+          ?.map((row) => row.adId)
+          .filter((value): value is string => Boolean(value)) ?? [],
+      });
+  const rawRows: RawCreativeRow[] = sourceRows.reduce<RawCreativeRow[]>((acc, row) => {
+      const projectionRow = useCreativeWarehouse
+        ? coerceRawCreativeRow(
+            dimensionRows.get((row as MetaCreativeDailyRow).creativeId)?.projectionJson,
+          )
+        : coerceRawCreativeRow(
+            dimensionRows.get((row as MetaAdDailyRow).adId)?.projectionJson,
+          );
+      if (!projectionRow) return acc;
+      acc.push(
+        hydrateWarehouseCreativeMetrics({
+          row: projectionRow,
+          factRow: row,
+        }),
+      );
+      return acc;
+    }, []);
 
   const filteredRows = normalizeCreativeRows(rawRows, input.format);
   const creativeUsageMap = buildCreativeUsageMap(filteredRows);
