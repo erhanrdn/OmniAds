@@ -335,7 +335,7 @@ jobs:
             }
 
             persist_sync_control_plane() {
-              cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || "")')"
+              cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || "")' </dev/null)"
               if [ -z "${cron_secret}" ]; then
                 echo "CRON_SECRET is missing from the web runtime."
                 return 1
@@ -352,7 +352,8 @@ jobs:
                   --build-id "${EXPECTED_SHA}" \
                   --environment production \
                   --provider-scope meta \
-                  --require-block-modes
+                  --require-block-modes \
+                  </dev/null
             }
 
             current_worker_container_id() {
@@ -365,7 +366,7 @@ jobs:
                 echo "Worker container is missing; cannot install baseline support files."
                 return 1
               fi
-              docker exec "${container_id}" mkdir -p /app/docs/architecture
+              docker exec "${container_id}" mkdir -p /app/docs/architecture </dev/null
               docker cp "docs/architecture/." "${container_id}:/app/docs/architecture/"
               docker cp "vitest.config.ts" "${container_id}:/app/vitest.config.ts"
               if [ -f "vitest-globals.d.ts" ]; then
@@ -381,13 +382,13 @@ jobs:
                 echo "Worker container is missing; cannot copy ${src}"
                 return 1
               fi
-              if ! docker exec "${container_id}" sh -lc "test -s '${src}'"; then
+              if ! docker exec "${container_id}" sh -lc "test -s '${src}'" </dev/null; then
                 echo "Missing worker artifact: ${src}"
-                docker exec "${container_id}" sh -lc "ls -lah '$(dirname "${src}")' || true"
+                docker exec "${container_id}" sh -lc "ls -lah '$(dirname "${src}")' || true" </dev/null
                 return 1
               fi
               mkdir -p "$(dirname "${dest}")"
-              docker exec "${container_id}" sh -lc "cat '${src}'" > "${dest}"
+              docker exec "${container_id}" sh -lc "cat '${src}'" </dev/null > "${dest}"
               if [ ! -s "${dest}" ]; then
                 echo "Copied artifact is missing or empty: ${dest}"
                 ls -lah "$(dirname "${dest}")" || true
@@ -396,14 +397,14 @@ jobs:
             }
 
             run_worker_script() {
-              docker compose exec -T worker sh -lc "$1"
+              docker compose exec -T worker sh -lc "$1" </dev/null
             }
 
             run_worker_script_to_host_log() {
               worker_command="$1"
               host_log_path="$2"
               mkdir -p "$(dirname "${host_log_path}")"
-              docker compose exec -T worker sh -lc "${worker_command}" > "${host_log_path}" 2>&1
+              docker compose exec -T worker sh -lc "${worker_command}" </dev/null > "${host_log_path}" 2>&1
             }
 
             assert_host_file() {
@@ -443,7 +444,7 @@ jobs:
             assert_host_file "${REMOTE_RUN_DIR}/build-info-before.json"
 
             log "Running pre-window baseline"
-            docker compose exec -T worker npm run db:architecture:baseline:runtime > "${REMOTE_RUN_DIR}/baseline-before.txt"
+            docker compose exec -T worker npm run db:architecture:baseline:runtime </dev/null > "${REMOTE_RUN_DIR}/baseline-before.txt"
             assert_host_file "${REMOTE_RUN_DIR}/baseline-before.txt"
 
             log "Running before capture and audit"
@@ -484,7 +485,7 @@ jobs:
                 docker compose run --rm \
                   -e ENABLE_RUNTIME_MIGRATIONS=1 \
                   -e DB_DROP_LEGACY_CORE_TABLES=1 \
-                  migrate
+                  migrate </dev/null
 
               log "Restarting web and worker"
               docker compose up -d --force-recreate web worker
@@ -511,7 +512,7 @@ jobs:
             verify_local_sync_control_plane
 
             log "Running post-window baseline"
-            docker compose exec -T worker npm run db:architecture:baseline:runtime > "${REMOTE_RUN_DIR}/baseline-after.txt"
+            docker compose exec -T worker npm run db:architecture:baseline:runtime </dev/null > "${REMOTE_RUN_DIR}/baseline-after.txt"
             assert_host_file "${REMOTE_RUN_DIR}/baseline-after.txt"
 
             log "Running after capture and audit"
