@@ -24,8 +24,8 @@ on:
       - completed
 
 concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+  group: db-normalization-second-window-${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'preflight' }}
+  cancel-in-progress: true
 
 jobs:
   second-window:
