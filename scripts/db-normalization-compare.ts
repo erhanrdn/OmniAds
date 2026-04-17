@@ -1,4 +1,5 @@
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   buildNormalizationRunDir,
   getRequiredCliValue,
@@ -47,6 +48,33 @@ type CapturePayload = {
     }>;
     explainPlans?: Array<{ name: string; executionTimeMs?: number | null; planningTimeMs?: number | null }>;
   } | null;
+};
+
+type AuditPayload = {
+  summary?: {
+    legacyPhase?: string | null;
+  } | null;
+};
+
+type BaselineDiff = {
+  index: number;
+  beforeRowCount: number | null;
+  afterRowCount: number | null;
+  rowCountDelta: number | null;
+  beforeError: string | null;
+  afterError: string | null;
+  errorChanged: boolean;
+};
+
+type ExpectedBaselineTransition = {
+  index: number;
+  tableName:
+    | "integrations"
+    | "provider_account_assignments"
+    | "provider_account_snapshots";
+  beforeError: string | null;
+  afterError: string;
+  reason: "retired_legacy_table_removed";
 };
 
 function toNumber(value: unknown) {
@@ -118,7 +146,7 @@ function compareExplainSets(
 function compareBaselineResults(
   beforeResults: Array<{ index: number; rowCount?: number; error?: string | null }> | undefined,
   afterResults: Array<{ index: number; rowCount?: number; error?: string | null }> | undefined,
-) {
+): BaselineDiff[] {
   const beforeMap = new Map((beforeResults ?? []).map((result) => [result.index, result]));
   const afterMap = new Map((afterResults ?? []).map((result) => [result.index, result]));
   const indexes = [...new Set([...beforeMap.keys(), ...afterMap.keys()])].sort((left, right) => left - right);
@@ -138,6 +166,74 @@ function compareBaselineResults(
   });
 }
 
+function readOptionalJsonFile<T>(filePath: string) {
+  try {
+    return readJsonFile<T>(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function findExpectedRemovedLegacyTable(error: string | null) {
+  if (!error) {
+    return null;
+  }
+
+  if (error.includes('relation "integrations" does not exist')) {
+    return "integrations" as const;
+  }
+  if (error.includes('relation "provider_account_assignments" does not exist')) {
+    return "provider_account_assignments" as const;
+  }
+  if (error.includes('relation "provider_account_snapshots" does not exist')) {
+    return "provider_account_snapshots" as const;
+  }
+
+  return null;
+}
+
+export function classifyExpectedBaselineTransitions(input: {
+  baselineDiffs: BaselineDiff[];
+  afterLegacyPhase: string | null | undefined;
+}) {
+  if (input.afterLegacyPhase !== "removed") {
+    return [] satisfies ExpectedBaselineTransition[];
+  }
+
+  return input.baselineDiffs.flatMap((diff) => {
+    if (diff.errorChanged !== true || !diff.afterError) {
+      return [];
+    }
+    const tableName = findExpectedRemovedLegacyTable(diff.afterError);
+    if (!tableName) {
+      return [];
+    }
+    return [
+      {
+        index: diff.index,
+        tableName,
+        beforeError: diff.beforeError,
+        afterError: diff.afterError,
+        reason: "retired_legacy_table_removed" as const,
+      },
+    ];
+  });
+}
+
+export function filterBlockingBaselineDiffs(input: {
+  baselineDiffs: BaselineDiff[];
+  expectedBaselineTransitions: ExpectedBaselineTransition[];
+}) {
+  const expectedIndexes = new Set(
+    input.expectedBaselineTransitions.map((transition) => transition.index),
+  );
+  return input.baselineDiffs.filter(
+    (diff) =>
+      (diff.rowCountDelta !== null || diff.errorChanged === true) &&
+      !expectedIndexes.has(diff.index),
+  );
+}
+
 function buildMarkdownSummary(input: {
   before: CapturePayload;
   after: CapturePayload;
@@ -145,7 +241,9 @@ function buildMarkdownSummary(input: {
   familySizeChanges: Array<Record<string, unknown>>;
   readBenchmarkDiffs: Array<Record<string, unknown>>;
   writeBenchmarkDiffs: Array<Record<string, unknown>>;
-  baselineDiffs: Array<Record<string, unknown>>;
+  baselineDiffs: BaselineDiff[];
+  expectedBaselineTransitions: ExpectedBaselineTransition[];
+  blockingBaselineDiffs: BaselineDiff[];
   readExplainDiffs: Array<Record<string, unknown>>;
   writeExplainDiffs: Array<Record<string, unknown>>;
   columnShapeDelta: Array<Record<string, unknown>>;
@@ -210,12 +308,19 @@ function buildMarkdownSummary(input: {
     lines.push("");
   }
 
-  const changedParity = input.baselineDiffs.filter(
-    (diff) => diff.rowCountDelta !== null || diff.errorChanged === true,
-  );
-  if (changedParity.length > 0) {
+  if (input.expectedBaselineTransitions.length > 0) {
+    lines.push("## Expected Baseline Transitions");
+    for (const transition of input.expectedBaselineTransitions) {
+      lines.push(
+        `- Statement ${transition.index}: ${transition.tableName} is retired and missing post-window`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (input.blockingBaselineDiffs.length > 0) {
     lines.push("## Baseline SQL Delta");
-    for (const diff of changedParity) {
+    for (const diff of input.blockingBaselineDiffs) {
       lines.push(
         `- Statement ${diff.index}: row delta ${formatSignedNumber(Number(diff.rowCountDelta ?? 0))}, error changed=${String(diff.errorChanged)}`,
       );
@@ -244,6 +349,12 @@ async function main() {
 
   const beforeCapture = readJsonFile<CapturePayload>(path.join(beforeDir, "capture.json"));
   const afterCapture = readJsonFile<CapturePayload>(path.join(afterDir, "capture.json"));
+  const beforeAudit =
+    readOptionalJsonFile<AuditPayload>(path.join(outDir, "audit-before", "audit.json")) ??
+    readOptionalJsonFile<AuditPayload>(path.join(path.dirname(beforeDir), "audit-before", "audit.json"));
+  const afterAudit =
+    readOptionalJsonFile<AuditPayload>(path.join(outDir, "audit-after", "audit.json")) ??
+    readOptionalJsonFile<AuditPayload>(path.join(path.dirname(afterDir), "audit-after", "audit.json"));
 
   const beforeDatabaseSize = toNumber(beforeCapture.databaseState?.databaseSize?.database_size_bytes);
   const afterDatabaseSize = toNumber(afterCapture.databaseState?.databaseSize?.database_size_bytes);
@@ -309,6 +420,14 @@ async function main() {
     beforeCapture.baselineSqlResults,
     afterCapture.baselineSqlResults,
   );
+  const expectedBaselineTransitions = classifyExpectedBaselineTransitions({
+    baselineDiffs,
+    afterLegacyPhase: afterAudit?.summary?.legacyPhase,
+  });
+  const blockingBaselineDiffs = filterBlockingBaselineDiffs({
+    baselineDiffs,
+    expectedBaselineTransitions,
+  });
 
   const summary = {
     generatedAt: new Date().toISOString(),
@@ -322,6 +441,12 @@ async function main() {
     readExplainDiffs,
     writeExplainDiffs,
     baselineDiffs,
+    expectedBaselineTransitions,
+    blockingBaselineDiffs,
+    auditPhases: {
+      before: beforeAudit?.summary?.legacyPhase ?? null,
+      after: afterAudit?.summary?.legacyPhase ?? null,
+    },
     runtimeDelta: {
       blockedLocksDelta:
         (afterCapture.databaseState?.blockedLocks?.length ?? 0) -
@@ -343,6 +468,8 @@ async function main() {
     readBenchmarkDiffs,
     writeBenchmarkDiffs,
     baselineDiffs,
+    expectedBaselineTransitions,
+    blockingBaselineDiffs,
     readExplainDiffs,
     writeExplainDiffs,
     columnShapeDelta,
@@ -353,7 +480,15 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  return import.meta.url === pathToFileURL(entry).href;
+}
+
+if (isMainModule()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
