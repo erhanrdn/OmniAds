@@ -1,0 +1,40 @@
+{
+  "businessId": "5dbc7147-f051-4681-a4d6-20617170074f",
+  "measuredAt": "2026-04-18T21:02:16.372Z",
+  "baselineFile": "/Users/harmelek/Adsecute/docs/benchmarks/google-short-gate-baseline-2026-04-18.json",
+  "scenarios": [
+    {
+      "name": "google_ads_overview_30d",
+      "iterations": 2,
+      "averageMs": 4837.54,
+      "minMs": 3017.21,
+      "maxMs": 6657.88,
+      "p50Ms": 4837.54,
+      "p95Ms": 6475.85,
+      "sampleCardinality": 8,
+      "validityNote": "valid"
+    },
+    {
+      "name": "google_ads_search_intelligence_90d",
+      "iterations": 2,
+      "averageMs": 18169.52,
+      "minMs": 16919.66,
+      "maxMs": 19419.39,
+      "p50Ms": 18169.52,
+      "p95Ms": 19294.4,
+      "sampleCardinality": 5506,
+      "validityNote": "valid"
+    },
+    {
+      "name": "google_ads_products_30d",
+      "iterations": 2,
+      "averageMs": 5488.53,
+      "minMs": 5484.65,
+      "maxMs": 5492.42,
+      "p50Ms": 5488.53,
+      "p95Ms": 5492.03,
+      "sampleCardinality": 2345,
+      "validityNote": "valid"
+    }
+  ]
+}

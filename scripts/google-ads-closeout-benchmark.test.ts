@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  GOOGLE_CLOSEOUT_BENCHMARK_BASELINE_FILE,
   classifyGoogleAdsBenchmarkScenario,
   isAcceptedGoogleAdsValidityNote,
   measureGoogleAdsBenchmarkOperation,
+  parseGoogleAdsCloseoutBenchmarkArgs,
 } from "@/scripts/google-ads-closeout-benchmark";
 
 describe("google ads closeout benchmark", () => {
@@ -12,6 +14,26 @@ describe("google ads closeout benchmark", () => {
     expect(isAcceptedGoogleAdsValidityNote("valid|valid:live")).toBe(true);
     expect(isAcceptedGoogleAdsValidityNote("valid|sample_cardinality_changed")).toBe(false);
     expect(isAcceptedGoogleAdsValidityNote("status:ok")).toBe(false);
+  });
+
+  it("defaults to the google short-gate baseline file", () => {
+    expect(GOOGLE_CLOSEOUT_BENCHMARK_BASELINE_FILE).toBe(
+      "docs/benchmarks/google-short-gate-baseline-2026-04-18.json",
+    );
+    expect(
+      parseGoogleAdsCloseoutBenchmarkArgs([
+        "--business-id",
+        "biz-1",
+        "--range30-start",
+        "2026-03-19",
+        "--range30-end",
+        "2026-04-17",
+        "--range90-start",
+        "2026-01-18",
+        "--range90-end",
+        "2026-04-17",
+      ]).baselineFile,
+    ).toBe("docs/benchmarks/google-short-gate-baseline-2026-04-18.json");
   });
 
   it("creates missing-baseline blockers when no accepted baseline exists", () => {

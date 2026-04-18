@@ -11,7 +11,7 @@ import {
 } from "@/scripts/overview-benchmark-lib";
 
 export const GOOGLE_CLOSEOUT_BENCHMARK_BASELINE_FILE =
-  "docs/benchmarks/overview-final-2026-04-07.json";
+  "docs/benchmarks/google-short-gate-baseline-2026-04-18.json";
 
 type ScenarioName =
   | "google_ads_overview_30d"
