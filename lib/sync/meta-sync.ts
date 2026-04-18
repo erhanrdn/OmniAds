@@ -4740,7 +4740,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
         status = 'succeeded',
         lease_owner = NULL,
         lease_expires_at = NULL,
-        finished_at = COALESCE(finished_at, now()),
+        finished_at = COALESCE(run.finished_at, now()),
         business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
         last_error = NULL,
         updated_at = now()
