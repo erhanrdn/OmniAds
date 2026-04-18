@@ -62,6 +62,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function toErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function gateModeForKind(kind: SyncGateKind, env: NodeJS.ProcessEnv = process.env) {
   return kind === "deploy_gate"
     ? readSyncGateMode("SYNC_DEPLOY_GATE_MODE", env)
@@ -379,6 +383,48 @@ export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
   };
 }
 
+async function collectReleaseGateCanarySnapshot(input: {
+  businessId: string;
+  recentDays: number;
+  priorityWindowDays: number;
+  recentWindowMinutes: number;
+}) {
+  let lastError: string | null = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const snapshot = await collectMetaSyncReadinessSnapshot({
+        businessId: input.businessId,
+        recentDays: input.recentDays,
+        priorityWindowDays: input.priorityWindowDays,
+        recentWindowMinutes: input.recentWindowMinutes,
+      });
+      return {
+        businessId: input.businessId,
+        businessName: snapshot.businessName ?? null,
+        snapshot,
+        snapshotError: null,
+        attempts: attempt,
+      };
+    } catch (error) {
+      lastError = toErrorMessage(error);
+      console.error("[release-gates] canary_snapshot_failed", {
+        businessId: input.businessId,
+        attempt,
+        error: lastError,
+      });
+    }
+  }
+
+  return {
+    businessId: input.businessId,
+    businessName: null,
+    snapshot: null,
+    snapshotError: lastError ?? "unknown_release_snapshot_error",
+    attempts: 3,
+  };
+}
+
 export async function evaluateDeployGate(input?: {
   buildId?: string;
   persist?: boolean;
@@ -515,26 +561,59 @@ export async function evaluateReleaseGate(input?: {
   }
 
   const canarySnapshots = await Promise.all(
-    canaryBusinessIds.map(async (businessId) => {
-      const snapshot = await collectMetaSyncReadinessSnapshot({
+    canaryBusinessIds.map((businessId) =>
+      collectReleaseGateCanarySnapshot({
         businessId,
         recentDays: 7,
         priorityWindowDays: 3,
         recentWindowMinutes: 15,
-      });
-      return {
-        businessId,
-        businessName: snapshot.businessName ?? null,
-        snapshot,
-      };
-    }),
+      }),
+    ),
   );
 
-  const evaluations = canarySnapshots.map((row) => ({
-    businessId: row.businessId,
-    businessName: row.businessName,
-    ...classifyReleaseSnapshot(row.snapshot),
-  }));
+  const evaluations = canarySnapshots.map((row) => {
+    if (row.snapshot) {
+      const classified = classifyReleaseSnapshot(row.snapshot);
+      return {
+        businessId: row.businessId,
+        businessName: row.businessName,
+        ...classified,
+        evidence: {
+          ...classified.evidence,
+          snapshotCollectionAttempts: row.attempts,
+        },
+      };
+    }
+
+    return {
+      businessId: row.businessId,
+      businessName: row.businessName,
+      pass: false,
+      blockerClass: "service_unavailable" as const,
+      evidence: {
+        activityState: null,
+        progressState: null,
+        workerOnline: null,
+        queueDepth: 0,
+        leasedPartitions: 0,
+        drainState: "unknown",
+        recentTruthState: null,
+        priorityTruthState: null,
+        truthReady: false,
+        retryableFailedPartitions: 0,
+        deadLetterPartitions: 0,
+        staleLeasePartitions: 0,
+        repairBacklog: 0,
+        validationFailures24h: 0,
+        reclaimCandidateCount: 0,
+        staleRunCount24h: 0,
+        d1FinalizeNonTerminalCount: 0,
+        stallFingerprints: [],
+        snapshotError: row.snapshotError,
+        snapshotCollectionAttempts: row.attempts,
+      },
+    };
+  });
   const failing = evaluations.filter((row) => !row.pass);
   const baseResult: SyncGateBaseResult = failing.length === 0 ? "pass" : "fail";
   const blockerClass =
