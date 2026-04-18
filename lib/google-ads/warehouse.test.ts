@@ -1167,6 +1167,42 @@ describe("google ads typed dimension dual-write", () => {
     expect(joined).toContain("INSERT INTO google_ads_campaign_dimensions");
     expect(joined).toContain("INSERT INTO google_ads_campaign_state_history");
   });
+
+  it("uses contiguous placeholders for multi-row campaign dual-write inserts", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertGoogleAdsDailyRows("campaign_daily", [
+      buildRow({
+        date: "2026-03-30",
+        entityKey: "cmp_1",
+        campaignId: "cmp_1",
+        campaignName: "Campaign One",
+      }),
+      buildRow({
+        date: "2026-03-31",
+        entityKey: "cmp_2",
+        campaignId: "cmp_2",
+        campaignName: "Campaign Two",
+      }),
+    ]);
+
+    const dimensionInsert = queries.find((query) =>
+      query.includes("INSERT INTO google_ads_campaign_dimensions"),
+    );
+    const stateHistoryInsert = queries.find((query) =>
+      query.includes("INSERT INTO google_ads_campaign_state_history"),
+    );
+
+    expect(dimensionInsert).toMatch(/\(\$13,\$14,\$15,\$16,\$17,\$18,\$19,\$20,\$21::jsonb,\$22::timestamptz,\$23::timestamptz,\$24::timestamptz,now\(\),now\(\)\)/);
+    expect(stateHistoryInsert).toMatch(/\(\$15,\$16,\$17,\$18,\$19,\$20,\$21,\$22,\$23,\$24::jsonb,'warehouse_daily',\$25,\$26::timestamptz,\$27::date,\$28::date,now\(\)\)/);
+  });
 });
 
 describe("google ads control-plane ref writes", () => {

@@ -3366,7 +3366,7 @@ async function upsertGoogleAdsScopeDimensionRows(input: {
 
   if (input.scope === "campaign_daily") {
     const tuples = input.rows.map((row, index) => {
-      const offset = index * 13;
+      const offset = index * 12;
       values.push(
         row.businessId,
         input.businessRefIds.get(row.businessId) ?? null,
@@ -3422,7 +3422,7 @@ async function upsertGoogleAdsScopeDimensionRows(input: {
 
   if (input.scope === "ad_group_daily") {
     const tuples = input.rows.map((row, index) => {
-      const offset = index * 13;
+      const offset = index * 12;
       values.push(
         row.businessId,
         input.businessRefIds.get(row.businessId) ?? null,
@@ -3597,7 +3597,7 @@ async function upsertGoogleAdsScopeDimensionRows(input: {
 
   if (input.scope === "asset_group_daily") {
     const tuples = input.rows.map((row, index) => {
-      const offset = index * 13;
+      const offset = index * 12;
       const projection = normalizeGoogleAdsProjectionJson(row);
       values.push(
         row.businessId,
@@ -3653,7 +3653,7 @@ async function upsertGoogleAdsScopeDimensionRows(input: {
   }
 
   const tuples = input.rows.map((row, index) => {
-    const offset = index * 13;
+    const offset = index * 12;
     const projection = normalizeGoogleAdsProjectionJson(row);
     values.push(
       row.businessId,
@@ -3719,7 +3719,7 @@ async function appendGoogleAdsStateHistoryRows(input: {
   if (input.scope === "campaign_daily") {
     const values: unknown[] = [];
     const tuples = input.rows.map((row, index) => {
-      const offset = index * 15;
+      const offset = index * 14;
       const projection = normalizeGoogleAdsProjectionJson(row);
       values.push(
         row.businessId,
@@ -3775,7 +3775,7 @@ async function appendGoogleAdsStateHistoryRows(input: {
   if (input.scope === "ad_group_daily") {
     const values: unknown[] = [];
     const tuples = input.rows.map((row, index) => {
-      const offset = index * 15;
+      const offset = index * 14;
       const projection = normalizeGoogleAdsProjectionJson(row);
       values.push(
         row.businessId,
