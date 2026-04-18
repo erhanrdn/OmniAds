@@ -560,16 +560,19 @@ export async function evaluateReleaseGate(input?: {
     return record;
   }
 
-  const canarySnapshots = await Promise.all(
-    canaryBusinessIds.map((businessId) =>
-      collectReleaseGateCanarySnapshot({
+  const canarySnapshots = [] as Awaited<
+    ReturnType<typeof collectReleaseGateCanarySnapshot>
+  >[];
+  for (const businessId of canaryBusinessIds) {
+    canarySnapshots.push(
+      await collectReleaseGateCanarySnapshot({
         businessId,
         recentDays: 7,
         priorityWindowDays: 3,
         recentWindowMinutes: 15,
       }),
-    ),
-  );
+    );
+  }
 
   const evaluations = canarySnapshots.map((row) => {
     if (row.snapshot) {

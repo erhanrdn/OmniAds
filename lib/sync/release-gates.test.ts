@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MetaSyncBenchmarkSnapshot } from "@/lib/meta-sync-benchmark";
 
 vi.mock("@/lib/sync/soak-gate", () => ({
   runSyncSoakGate: vi.fn(),
@@ -27,7 +28,7 @@ const runtimeContract = await import("@/lib/sync/runtime-contract");
 const workerHealth = await import("@/lib/sync/worker-health");
 const releaseGates = await import("@/lib/sync/release-gates");
 
-function makeReadySnapshot() {
+function makeReadySnapshot(): MetaSyncBenchmarkSnapshot {
   return {
     businessId: "172d0ab8-495b-4679-a4c6-ffa404c389d3",
     businessName: "TheSwaf",
@@ -147,7 +148,7 @@ function makeReadySnapshot() {
       d1SlaBreaches: 0,
       lastSuccessfulPublishAt: "2026-04-15T00:00:00.000Z",
     },
-  } as never;
+  };
 }
 
 describe("sync release gates", () => {
@@ -629,6 +630,52 @@ describe("sync release gates", () => {
         }),
       ],
     });
+  });
+
+  it("collects canary snapshots serially", async () => {
+    const firstBusinessId = "172d0ab8-495b-4679-a4c6-ffa404c389d3";
+    const secondBusinessId = "5dbc7147-f051-4681-a4d6-20617170074f";
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = `${firstBusinessId},${secondBusinessId}`;
+
+    let resolveFirst: (() => void) | undefined;
+    let resolveSecond: (() => void) | undefined;
+    const callOrder: string[] = [];
+
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockImplementation(({ businessId }) => {
+      callOrder.push(businessId);
+      return new Promise((resolve) => {
+        const snapshot = {
+          ...makeReadySnapshot(),
+          businessId,
+          businessName: businessId === firstBusinessId ? "TheSwaf" : "Grandmix",
+        } as ReturnType<typeof makeReadySnapshot>;
+        if (businessId === firstBusinessId) {
+          resolveFirst = () => resolve(snapshot);
+          return;
+        }
+        resolveSecond = () => resolve(snapshot);
+      });
+    });
+
+    const verdictPromise = releaseGates.evaluateReleaseGate({ persist: false });
+    await Promise.resolve();
+
+    expect(callOrder).toEqual([firstBusinessId]);
+    expect(resolveFirst).toBeDefined();
+    expect(resolveSecond).toBeUndefined();
+
+    resolveFirst?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(callOrder).toEqual([firstBusinessId, secondBusinessId]);
+    expect(resolveSecond).toBeDefined();
+
+    resolveSecond?.();
+    const verdict = await verdictPromise;
+
+    expect(verdict.baseResult).toBe("pass");
+    expect(verdict.verdict).toBe("pass");
+    expect(benchmark.collectMetaSyncReadinessSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed with a persisted release-gate record shape when canary snapshots keep throwing", async () => {

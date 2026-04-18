@@ -2202,6 +2202,7 @@ export async function getMetaPublishedVerificationSummary(input: {
   endDate: string;
   providerAccountIds: string[];
   surfaces: MetaWarehouseScope[];
+  timeoutMs?: number;
 }): Promise<MetaPublishedVerificationSummary> {
   const providerAccountIds = Array.from(new Set(input.providerAccountIds.filter(Boolean)));
   const surfaces = Array.from(new Set(input.surfaces));
@@ -2233,7 +2234,7 @@ export async function getMetaPublishedVerificationSummary(input: {
     ],
     "meta_published_verification_summary",
   );
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const [
     latestSliceRows,
     latestManifestRows,
@@ -2650,9 +2651,10 @@ export async function getMetaPublishedVerificationSummary(input: {
 export async function getMetaAuthoritativeBusinessOpsSnapshot(input: {
   businessId: string;
   latestPublishLimit?: number;
+  timeoutMs?: number;
 }): Promise<MetaAuthoritativeBusinessOpsSnapshot> {
   await assertMetaMutationTablesReady("meta_warehouse");
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const latestPublishLimit = Math.max(1, input.latestPublishLimit ?? 10);
 
   const [
@@ -4481,8 +4483,11 @@ export async function completeMetaPartition(input: {
   return result.ok;
 }
 
-async function readMetaReclaimCandidates(input: { businessId: string }) {
-  const sql = getDb();
+async function readMetaReclaimCandidates(input: {
+  businessId: string;
+  timeoutMs?: number;
+}) {
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   return (await sql`
     SELECT
       partition.id,
@@ -4586,10 +4591,14 @@ function classifyMetaReclaimCandidate(input: {
 export async function getMetaReclaimClassificationSummary(input: {
   businessId: string;
   staleLeaseMinutes?: number;
+  timeoutMs?: number;
 }) {
   await assertMetaMutationTablesReady("meta_warehouse");
   const staleThresholdMs = Math.max(1, input.staleLeaseMinutes ?? 8) * 60_000;
-  const candidates = await readMetaReclaimCandidates({ businessId: input.businessId });
+  const candidates = await readMetaReclaimCandidates({
+    businessId: input.businessId,
+    timeoutMs: input.timeoutMs,
+  });
   const counts: Record<ProviderReclaimDisposition, number> = {
     alive_slow: 0,
     stalled_reclaimable: 0,
@@ -5815,12 +5824,13 @@ export async function persistMetaRawSnapshot(input: MetaRawSnapshotRecord) {
 export async function getLatestMetaSyncHealth(input: {
   businessId: string;
   providerAccountId?: string | null;
+  timeoutMs?: number;
 }) {
   await assertMetaRequestReadTablesReady(
     ["meta_sync_runs", "meta_sync_partitions", "meta_sync_jobs"],
     "meta_latest_sync_health",
   );
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const [runRows, partitionRows, legacyRows] = await Promise.all([
     sql`
       SELECT
@@ -6005,12 +6015,15 @@ export async function getMetaSyncJobHealth(input: {
   };
 }
 
-export async function getMetaQueueHealth(input: { businessId: string }) {
+export async function getMetaQueueHealth(input: {
+  businessId: string;
+  timeoutMs?: number;
+}) {
   await assertMetaRequestReadTablesReady(
     ["meta_sync_partitions"],
     "meta_queue_health",
   );
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const rows = await sql`
     SELECT
       COUNT(*) FILTER (WHERE status = 'queued') AS queue_depth,
@@ -6103,12 +6116,15 @@ export interface MetaQueueComposition {
   }>;
 }
 
-export async function getMetaQueueComposition(input: { businessId: string }): Promise<MetaQueueComposition> {
+export async function getMetaQueueComposition(input: {
+  businessId: string;
+  timeoutMs?: number;
+}): Promise<MetaQueueComposition> {
   await assertMetaRequestReadTablesReady(
     ["meta_sync_partitions"],
     "meta_queue_composition",
   );
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const [statusRows, breakdownRows] = (await Promise.all([
     sql`
       SELECT status, COUNT(*)::int AS count
@@ -6376,12 +6392,13 @@ async function getMetaCoverageForTable(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   await assertMetaRequestReadTablesReady(
     [input.tableName, "meta_sync_partitions"],
     "meta_coverage",
   );
-  const sql = getDb();
+  const sql = input.timeoutMs ? getDbWithTimeout(input.timeoutMs) : getDb();
   const [rows, partitionRows] = await Promise.all([
     sql.query(
       `
@@ -6447,6 +6464,7 @@ export async function getMetaAccountDailyCoverage(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   return getMetaCoverageForTable({
     tableName: "meta_account_daily",
@@ -6455,6 +6473,7 @@ export async function getMetaAccountDailyCoverage(input: {
     providerAccountId: input.providerAccountId,
     startDate: input.startDate,
     endDate: input.endDate,
+    timeoutMs: input.timeoutMs,
   });
 }
 
@@ -6463,6 +6482,7 @@ export async function getMetaCampaignDailyCoverage(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   return getMetaCoverageForTable({
     tableName: "meta_campaign_daily",
@@ -6471,6 +6491,7 @@ export async function getMetaCampaignDailyCoverage(input: {
     providerAccountId: input.providerAccountId,
     startDate: input.startDate,
     endDate: input.endDate,
+    timeoutMs: input.timeoutMs,
   });
 }
 
@@ -6479,6 +6500,7 @@ export async function getMetaAdSetDailyCoverage(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   return getMetaCoverageForTable({
     tableName: "meta_adset_daily",
@@ -6487,6 +6509,7 @@ export async function getMetaAdSetDailyCoverage(input: {
     providerAccountId: input.providerAccountId,
     startDate: input.startDate,
     endDate: input.endDate,
+    timeoutMs: input.timeoutMs,
   });
 }
 
@@ -6495,6 +6518,7 @@ export async function getMetaAdDailyCoverage(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   return getMetaCoverageForTable({
     tableName: "meta_ad_daily",
@@ -6503,6 +6527,7 @@ export async function getMetaAdDailyCoverage(input: {
     providerAccountId: input.providerAccountId,
     startDate: input.startDate,
     endDate: input.endDate,
+    timeoutMs: input.timeoutMs,
   });
 }
 
@@ -6511,6 +6536,7 @@ export async function getMetaCreativeDailyCoverage(input: {
   providerAccountId?: string | null;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }) {
   return getMetaCoverageForTable({
     tableName: "meta_creative_daily",
@@ -6519,6 +6545,7 @@ export async function getMetaCreativeDailyCoverage(input: {
     providerAccountId: input.providerAccountId,
     startDate: input.startDate,
     endDate: input.endDate,
+    timeoutMs: input.timeoutMs,
   });
 }
 

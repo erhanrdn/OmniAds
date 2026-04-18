@@ -853,6 +853,32 @@ export function buildAdminAuthHealth(rows: RawAuthIntegrationRow[]): AdminAuthHe
   };
 }
 
+export interface MetaReleaseGateBusinessHealthSnapshot {
+  businessId: string;
+  businessName: string | null;
+  currentDayReference: string | null;
+  latestCheckpointUpdatedAt: string | null;
+  accountReadyThroughDate: string | null;
+  adsetReadyThroughDate: string | null;
+  creativeReadyThroughDate: string | null;
+  adReadyThroughDate: string | null;
+  progressState: ProviderProgressState | null;
+  activityState: ProviderActivityState | null;
+  stallFingerprints: ProviderStallFingerprint[];
+  staleLeasePartitions: number;
+  repairBacklog: number;
+  validationFailures24h: number;
+  reclaimCandidateCount: number;
+  staleRunCount24h: number;
+  lastSuccessfulPublishAt: string | null;
+  d1FinalizeNonTerminalCount: number;
+  workerOnline: boolean | null;
+  workerLastHeartbeatAt: string | null;
+  dbConstraint: string | null;
+  dbBacklogState: string | null;
+  latestPartitionActivityAt: string | null;
+}
+
 export function buildAdminSyncHealth(input: {
   jobs: RawSyncJobRow[];
   cooldowns: RawCooldownRow[];
@@ -2517,8 +2543,12 @@ async function readGoogleAdsHealthSummaryRow() {
   } satisfies GoogleAdsHealthSummaryRow;
 }
 
-async function readMetaHealthRows() {
-  const sql = getDbWithTimeout(30_000);
+async function readMetaHealthRows(input?: {
+  businessId?: string | null;
+  timeoutMs?: number;
+}) {
+  const sql = getDbWithTimeout(input?.timeoutMs ?? 30_000);
+  const businessId = input?.businessId ?? null;
   return (await sql`
     WITH partition_stats AS (
       SELECT
@@ -2535,6 +2565,7 @@ async function readMetaHealthRows() {
         MAX(updated_at) AS latest_partition_activity_at,
         MAX(partition_date) FILTER (WHERE source = 'today') AS current_day_reference
       FROM meta_sync_partitions
+      WHERE (${businessId}::text IS NULL OR business_id::text = ${businessId})
       GROUP BY business_id::text
     ),
     state_stats AS (
@@ -2550,6 +2581,7 @@ async function readMetaHealthRows() {
         MAX(completed_days) FILTER (WHERE scope = 'ad_daily') AS ad_completed_days,
         (MIN(ready_through_date) FILTER (WHERE scope = 'ad_daily'))::text AS ad_ready_through_date
       FROM meta_sync_state
+      WHERE (${businessId}::text IS NULL OR business_id::text = ${businessId})
       GROUP BY business_id::text
     ),
     checkpoint_latest AS (
@@ -2561,6 +2593,7 @@ async function readMetaHealthRows() {
         updated_at AS latest_progress_heartbeat_at,
         page_index AS last_successful_page_index
       FROM meta_sync_checkpoints
+      WHERE (${businessId}::text IS NULL OR business_id::text = ${businessId})
       ORDER BY business_id, updated_at DESC
     ),
     checkpoint_failures AS (
@@ -2569,24 +2602,29 @@ async function readMetaHealthRows() {
         COUNT(*)::int AS checkpoint_failures
       FROM meta_sync_checkpoints
       WHERE status = 'failed'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       GROUP BY business_id::text
     ),
     recent_rows AS (
       SELECT business_id::text AS business_id, date, 'account_daily'::text AS scope
       FROM meta_account_daily
       WHERE date >= CURRENT_DATE - interval '13 days'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       UNION ALL
       SELECT business_id::text AS business_id, date, 'adset_daily'::text AS scope
       FROM meta_adset_daily
       WHERE date >= CURRENT_DATE - interval '13 days'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       UNION ALL
       SELECT business_id::text AS business_id, date, 'creative_daily'::text AS scope
       FROM meta_creative_daily
       WHERE date >= CURRENT_DATE - interval '13 days'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       UNION ALL
       SELECT business_id::text AS business_id, date, 'ad_daily'::text AS scope
       FROM meta_ad_daily
       WHERE date >= CURRENT_DATE - interval '13 days'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
     ),
     recent_stats AS (
       SELECT
@@ -2634,6 +2672,7 @@ async function readMetaHealthRows() {
         )::int AS skipped_active_lease_recoveries
       FROM sync_reclaim_events
       WHERE provider_scope = 'meta'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       GROUP BY business_id::text
     ),
     latest_reclaim AS (
@@ -2642,6 +2681,7 @@ async function readMetaHealthRows() {
         reason_code AS last_reclaim_reason
       FROM sync_reclaim_events
       WHERE provider_scope = 'meta'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       ORDER BY business_id, created_at DESC
     ),
     stale_runs AS (
@@ -2651,6 +2691,7 @@ async function readMetaHealthRows() {
       FROM meta_sync_runs
       WHERE error_class = 'stale_run'
         AND updated_at > now() - interval '24 hours'
+        AND (${businessId}::text IS NULL OR business_id::text = ${businessId})
       GROUP BY business_id::text
     )
     SELECT
@@ -2749,6 +2790,170 @@ async function readMetaHealthRows() {
       recent.recent_range_total_days
     ORDER BY dead_letter_partitions DESC, queue_depth DESC, latest_partition_activity_at DESC
   `) as RawMetaHealthRow[];
+}
+
+export async function getMetaReleaseGateBusinessHealthSnapshot(input: {
+  businessId: string;
+  timeoutMs?: number;
+}): Promise<MetaReleaseGateBusinessHealthSnapshot | null> {
+  const [row, workerHealth, reclaimSummary] = await Promise.all([
+    readMetaHealthRows({
+      businessId: input.businessId,
+      timeoutMs: input.timeoutMs,
+    }).then((rows) => rows[0] ?? null),
+    getSyncWorkerHealthSummary().catch(() => ({
+      onlineWorkers: 0,
+      workerInstances: 0,
+      lastHeartbeatAt: null,
+      lastProgressHeartbeatAt: null,
+      workers: [],
+    })),
+    getMetaReclaimClassificationSummary({
+      businessId: input.businessId,
+      timeoutMs: input.timeoutMs,
+    }).catch(() => null),
+  ]);
+
+  if (!row) return null;
+
+  const queueDepth = Number(row.queue_depth ?? 0);
+  const leasedPartitions = Number(row.leased_partitions ?? 0);
+  const retryableFailedPartitions = Number(row.retryable_failed_partitions ?? 0);
+  const staleLeasePartitions = Number(row.stale_lease_partitions ?? 0);
+  const deadLetterPartitions = Number(row.dead_letter_partitions ?? 0);
+  const accountCompletedDays = Number(row.account_completed_days ?? 0);
+  const adsetCompletedDays = Number(row.adset_completed_days ?? 0);
+  const creativeCompletedDays = Number(row.creative_completed_days ?? 0);
+  const adCompletedDays = Number(row.ad_completed_days ?? 0);
+  const recentRangeTotalDays = Math.max(1, Number(row.recent_range_total_days ?? 14));
+  const recentCreativeCompletedDays = Number(row.recent_creative_completed_days ?? 0);
+  const recentAdCompletedDays = Number(row.recent_ad_completed_days ?? 0);
+  const recentExtendedReady =
+    recentCreativeCompletedDays >= recentRangeTotalDays &&
+    recentAdCompletedDays >= recentRangeTotalDays;
+  const historicalExtendedReady =
+    creativeCompletedDays >= 365 && adCompletedDays >= 365;
+  const metaProgressHeartbeat =
+    row.latest_progress_heartbeat_at ?? row.latest_checkpoint_updated_at ?? null;
+  const metaProviderWorkerObservation = getProviderScopeWorkerObservation({
+    providerScope: "meta",
+    workers: workerHealth.workers,
+    staleThresholdMs: 3 * 60_000,
+  });
+  const metaWorkerObservation = getProviderBusinessWorkerObservation({
+    businessId: row.business_id,
+    workers: workerHealth.workers,
+    staleThresholdMs: 3 * 60_000,
+  });
+  const metaProgressEvidence = buildAdminMetaProgressEvidence({
+    accountCompletedDays,
+    accountReadyThroughDate: row.account_ready_through_date ?? null,
+    adsetCompletedDays,
+    adsetReadyThroughDate: row.adset_ready_through_date ?? null,
+    creativeCompletedDays,
+    creativeReadyThroughDate: row.creative_ready_through_date ?? null,
+    adCompletedDays,
+    adReadyThroughDate: row.ad_ready_through_date ?? null,
+    latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+    latestProgressHeartbeatAt: row.latest_progress_heartbeat_at ?? null,
+    latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
+  });
+  const metaCheckpointLagMinutes = computeLagMinutes(metaProgressHeartbeat);
+  const reclaimCandidateCount =
+    reclaimSummary?.reclaimCandidateCount ?? Number(row.reclaim_candidate_count ?? 0);
+  const metaWorkerHealthy =
+    metaProviderWorkerObservation.hasFreshHeartbeat || leasedPartitions > 0;
+  const progressState = classifyMetaProgressState({
+    queueDepth,
+    leasedPartitions,
+    deadLetterPartitions,
+    retryableFailedPartitions,
+    staleLeasePartitions,
+    checkpointLagMinutes: metaCheckpointLagMinutes,
+    latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
+    reclaimCandidateCount,
+    staleRunCount24h: Number(row.stale_run_count_24h ?? 0),
+    recentExtendedReady,
+    historicalExtendedReady,
+    latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+  });
+  const stallFingerprints = deriveProviderStallFingerprints({
+    queueDepth,
+    leasedPartitions,
+    checkpointLagMinutes: metaCheckpointLagMinutes,
+    latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+    blocked:
+      deadLetterPartitions > 0 ||
+      staleLeasePartitions > 0 ||
+      reclaimCandidateCount > 0,
+    hasRepairableBacklog: retryableFailedPartitions > 0,
+    staleRunPressure: Number(row.stale_run_count_24h ?? 0),
+    progressEvidence: metaProgressEvidence,
+    blockedReasonCodes: deadLetterPartitions > 0 ? ["required_dead_letter_partitions"] : [],
+    historicalBacklogDepth: queueDepth,
+    workerHealthy: metaWorkerHealthy,
+  });
+  const activityState = deriveProviderActivityState({
+    progressState,
+    queueDepth,
+    leasedPartitions,
+    blocked:
+      deadLetterPartitions > 0 ||
+      staleLeasePartitions > 0 ||
+      reclaimCandidateCount > 0,
+  });
+  const dbDiagnostics = buildAdminDbDiagnostics({
+    web: getDbRuntimeDiagnostics(),
+    workers: buildWorkerDbProcessDiagnostics(
+      workerHealth.workers.map((worker) => ({
+        workerId: worker.workerId,
+        providerScope: worker.providerScope,
+        status: worker.status,
+        lastHeartbeatAt: worker.lastHeartbeatAt,
+        metaJson: worker.metaJson ?? null,
+      })),
+    ),
+    metaQueueDepth: queueDepth,
+    metaLeasedPartitions: leasedPartitions,
+    metaBusinesses: [
+      {
+        queueDepth,
+        leasedPartitions,
+        progressState,
+        activityState,
+        workerOnline: metaProviderWorkerObservation.hasFreshHeartbeat,
+      },
+    ],
+  });
+
+  return {
+    businessId: row.business_id,
+    businessName: row.business_name ?? null,
+    currentDayReference: row.current_day_reference ?? null,
+    latestCheckpointUpdatedAt: row.latest_checkpoint_updated_at ?? null,
+    accountReadyThroughDate: row.account_ready_through_date ?? null,
+    adsetReadyThroughDate: row.adset_ready_through_date ?? null,
+    creativeReadyThroughDate: row.creative_ready_through_date ?? null,
+    adReadyThroughDate: row.ad_ready_through_date ?? null,
+    progressState,
+    activityState,
+    stallFingerprints,
+    staleLeasePartitions,
+    repairBacklog: 0,
+    validationFailures24h: 0,
+    reclaimCandidateCount,
+    staleRunCount24h: Number(row.stale_run_count_24h ?? 0),
+    lastSuccessfulPublishAt: null,
+    d1FinalizeNonTerminalCount: 0,
+    workerOnline: metaProviderWorkerObservation.hasFreshHeartbeat,
+    workerLastHeartbeatAt:
+      metaProviderWorkerObservation.lastHeartbeatAt ??
+      metaWorkerObservation.lastHeartbeatAt ??
+      null,
+    dbConstraint: dbDiagnostics.summary.likelyPrimaryConstraint,
+    dbBacklogState: dbDiagnostics.summary.metaBacklogState,
+    latestPartitionActivityAt: row.latest_partition_activity_at ?? null,
+  };
 }
 
 async function readRevenueWorkspaces() {

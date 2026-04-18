@@ -1689,6 +1689,7 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  timeoutMs?: number;
 }): Promise<MetaSelectedRangeTruthReadiness> {
   const totalDays = dayCountInclusive(input.startDate, input.endDate);
   const pendingState: MetaSelectedRangeTruthReadiness = {
@@ -1721,6 +1722,7 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
     endDate: input.endDate,
     providerAccountIds,
     surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
+    timeoutMs: input.timeoutMs,
   }).catch(() => null);
   if (!verification) {
     return pendingState;

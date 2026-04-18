@@ -1,4 +1,6 @@
-import { getAdminOperationsHealth } from "@/lib/admin-operations-health";
+import {
+  getMetaReleaseGateBusinessHealthSnapshot,
+} from "@/lib/admin-operations-health";
 import { getDbWithTimeout } from "@/lib/db";
 import { dayCountInclusive } from "@/lib/meta/history";
 import {
@@ -209,6 +211,19 @@ type BenchmarkCollectionArgs = {
   recentWindowMinutes: number;
 };
 
+const META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS = 60_000;
+
+type MetaSnapshotStage =
+  | "snapshot.business_health"
+  | "snapshot.queue_health"
+  | "snapshot.latest_sync"
+  | "snapshot.authoritative"
+  | "snapshot.recent_truth"
+  | "snapshot.priority_truth"
+  | "snapshot.coverage"
+  | "snapshot.partition_rollups"
+  | "snapshot.finalize";
+
 function clampPositiveInteger(value: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(1, Math.floor(value));
@@ -224,6 +239,39 @@ function toIsoTimestamp(value: unknown) {
   if (value instanceof Date) return value.toISOString();
   const parsed = new Date(String(value));
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function toErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function runSnapshotStage<T>(input: {
+  businessId: string;
+  stage: MetaSnapshotStage;
+  work: () => Promise<T>;
+}): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const result = await input.work();
+    console.info("[meta-sync-benchmark] snapshot_stage", {
+      businessId: input.businessId,
+      stage: input.stage,
+      durationMs: Date.now() - startedAt,
+      ok: true,
+      errorMessage: null,
+    });
+    return result;
+  } catch (error) {
+    const errorMessage = toErrorMessage(error);
+    console.info("[meta-sync-benchmark] snapshot_stage", {
+      businessId: input.businessId,
+      stage: input.stage,
+      durationMs: Date.now() - startedAt,
+      ok: false,
+      errorMessage,
+    });
+    throw new Error(`${input.stage}: ${errorMessage}`);
+  }
 }
 
 function toIsoDate(value: unknown) {
@@ -672,17 +720,22 @@ export async function collectMetaSyncReadinessSnapshot(
 ): Promise<MetaSyncBenchmarkSnapshot> {
   const recentWindowMinutes = clampPositiveInteger(input.recentWindowMinutes, 15);
   const capturedAt = new Date().toISOString();
-  const [admin, providerDateBoundaries] = await Promise.all([
-    getAdminOperationsHealth(),
+  const [businessHealth, providerDateBoundaries] = await Promise.all([
+    runSnapshotStage({
+      businessId: input.businessId,
+      stage: "snapshot.business_health",
+      work: () =>
+        getMetaReleaseGateBusinessHealthSnapshot({
+          businessId: input.businessId,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+    }),
     getProviderPlatformDateBoundaries({
       provider: "meta",
       businessId: input.businessId,
     }).catch(() => []),
   ]);
-  const metaBusiness = admin.syncHealth.metaBusinesses?.find(
-    (business) => business.businessId === input.businessId,
-  );
-  if (!metaBusiness) {
+  if (!businessHealth) {
     throw new Error(
       `Meta benchmark business ${input.businessId} is not visible in admin sync health.`,
     );
@@ -699,7 +752,7 @@ export async function collectMetaSyncReadinessSnapshot(
     capturedAt,
     currentDayReference: resolveMetaBusinessCurrentDayReference({
       capturedAt,
-      currentDayReference: metaBusiness.currentDayReference,
+      currentDayReference: businessHealth.currentDayReference,
       providerDateBoundaries,
     }),
     recentDays: input.recentDays,
@@ -707,156 +760,233 @@ export async function collectMetaSyncReadinessSnapshot(
   });
   const recentTotalDays = dayCountInclusive(recentStartDate, recentEndDate);
   const priorityTotalDays = dayCountInclusive(priorityStartDate, priorityEndDate);
-  const sql = getDbWithTimeout(60_000);
-
-  const [
-    queueHealth,
-    queueComposition,
-    latestSync,
-    authoritative,
-    recentTruth,
-    priorityTruth,
-    accountCoverage,
-    campaignCoverage,
-    adsetCoverage,
-    creativeCoverage,
-    adCoverage,
-    recentWindowRows,
-    laneScopeRows,
-  ] = await Promise.all([
-    getMetaQueueHealth({ businessId: input.businessId }),
-    getMetaQueueComposition({ businessId: input.businessId }),
-    getLatestMetaSyncHealth({ businessId: input.businessId }),
-    getMetaAuthoritativeBusinessOpsSnapshot({ businessId: input.businessId }),
-    getMetaSelectedRangeTruthReadiness({
-      businessId: input.businessId,
-      startDate: recentStartDate,
-      endDate: recentEndDate,
-    }),
-    getMetaSelectedRangeTruthReadiness({
-      businessId: input.businessId,
-      startDate: priorityStartDate,
-      endDate: priorityEndDate,
-    }),
-    getMetaAccountDailyCoverage({
-      businessId: input.businessId,
-      startDate: recentStartDate,
-      endDate: recentEndDate,
-    }),
-    getMetaCampaignDailyCoverage({
-      businessId: input.businessId,
-      startDate: recentStartDate,
-      endDate: recentEndDate,
-    }),
-    getMetaAdSetDailyCoverage({
-      businessId: input.businessId,
-      startDate: recentStartDate,
-      endDate: recentEndDate,
-    }),
-    getMetaCreativeDailyCoverage({
-      businessId: input.businessId,
-      startDate: recentStartDate,
-      endDate: recentEndDate,
-    }),
-    getMetaAdDailyCoverage({
-      businessId: input.businessId,
-      startDate: recentStartDate,
-      endDate: recentEndDate,
-    }),
-    sql.query(
-      `
-        WITH recent_reclaims AS (
-          SELECT
-            COUNT(*) FILTER (WHERE event_type = 'reclaimed')::int AS reclaimed_last_window,
-            COUNT(*) FILTER (WHERE event_type = 'skipped_active_lease')::int AS skipped_active_lease_last_window
-          FROM sync_reclaim_events
-          WHERE provider_scope = 'meta'
-            AND business_id = $1
-            AND created_at >= now() - ($2::int || ' minutes')::interval
-        )
-        SELECT
-          COUNT(*) FILTER (
-            WHERE status = 'succeeded'
-              AND finished_at >= now() - ($2::int || ' minutes')::interval
-          )::int AS completed_last_window,
-          COUNT(*) FILTER (
-            WHERE status = 'cancelled'
-              AND finished_at >= now() - ($2::int || ' minutes')::interval
-          )::int AS cancelled_last_window,
-          COUNT(*) FILTER (
-            WHERE status = 'dead_letter'
-              AND finished_at >= now() - ($2::int || ' minutes')::interval
-          )::int AS dead_lettered_last_window,
-          COUNT(*) FILTER (
-            WHERE created_at >= now() - ($2::int || ' minutes')::interval
-          )::int AS created_last_window,
-          COUNT(*) FILTER (
-            WHERE status = 'failed'
-              AND updated_at >= now() - ($2::int || ' minutes')::interval
-          )::int AS failed_last_window,
-          COUNT(*) FILTER (WHERE status = 'succeeded')::int AS total_succeeded,
-          COUNT(*) FILTER (WHERE status = 'cancelled')::int AS total_cancelled,
-          COUNT(*) FILTER (WHERE status = 'dead_letter')::int AS total_dead_lettered,
-          COUNT(*)::int AS total_partitions,
-          MAX(updated_at) AS latest_activity_at,
-          COALESCE(
-            (SELECT reclaimed_last_window FROM recent_reclaims),
-            0
-          )::int AS reclaimed_last_window,
-          COALESCE(
-            (SELECT skipped_active_lease_last_window FROM recent_reclaims),
-            0
-          )::int AS skipped_active_lease_last_window
-        FROM meta_sync_partitions
-        WHERE business_id = $1
-      `,
-      [input.businessId, recentWindowMinutes],
-    ),
-    sql.query(
-      `
-        SELECT
-          lane,
-          scope,
-          status,
-          COUNT(*)::int AS count
-        FROM meta_sync_partitions
-        WHERE business_id = $1
-        GROUP BY lane, scope, status
-        ORDER BY lane, scope, status
-      `,
-      [input.businessId],
-    ),
-  ]);
-
-  const recentWindowRow = recentWindowRows[0] ?? {};
-  const summaryCoverage = normalizeCoverageRow(accountCoverage, recentTotalDays);
-  const campaignsCoverage = normalizeCoverageRow(campaignCoverage, recentTotalDays);
-  const adsetsCoverage = normalizeCoverageRow(adsetCoverage, recentTotalDays);
-  const creativesCoverage = normalizeCoverageRow(creativeCoverage, recentTotalDays);
-  const adsCoverage = normalizeCoverageRow(adCoverage, recentTotalDays);
-  const normalizedLaneScopeRows = laneScopeRows.map((row) => ({
-    lane: String(row.lane ?? ""),
-    scope: String(row.scope ?? ""),
-    status: String(row.status ?? ""),
-    count: toNumber(row.count),
-  }));
-  const completedLastWindow = toNumber(recentWindowRow.completed_last_window);
-  const cancelledLastWindow = toNumber(recentWindowRow.cancelled_last_window);
-  const deadLetteredLastWindow = toNumber(
-    recentWindowRow.dead_lettered_last_window,
-  );
-  const createdLastWindow = toNumber(recentWindowRow.created_last_window);
-  const latestActivityAt = latestIsoTimestamp([
-    queueHealth.latestCoreActivityAt,
-    queueHealth.latestExtendedActivityAt,
-    queueHealth.latestMaintenanceActivityAt,
-    toIsoTimestamp(recentWindowRow.latest_activity_at),
-    metaBusiness.latestPartitionActivityAt ?? null,
-  ]);
-
-  return {
+  const sql = getDbWithTimeout(META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS);
+  const { queueHealth, queueComposition } = await runSnapshotStage({
     businessId: input.businessId,
-    businessName: metaBusiness.businessName,
+    stage: "snapshot.queue_health",
+    work: async () => {
+      const [queueHealth, queueComposition] = await Promise.all([
+        getMetaQueueHealth({
+          businessId: input.businessId,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+        getMetaQueueComposition({
+          businessId: input.businessId,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+      ]);
+      return { queueHealth, queueComposition };
+    },
+  });
+  const latestSync = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.latest_sync",
+    work: () =>
+      getLatestMetaSyncHealth({
+        businessId: input.businessId,
+        timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+      }),
+  });
+  const authoritative = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.authoritative",
+    work: () =>
+      getMetaAuthoritativeBusinessOpsSnapshot({
+        businessId: input.businessId,
+        timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+      }),
+  });
+  const recentTruth = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.recent_truth",
+    work: () =>
+      getMetaSelectedRangeTruthReadiness({
+        businessId: input.businessId,
+        startDate: recentStartDate,
+        endDate: recentEndDate,
+        timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+      }),
+  });
+  const priorityTruth = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.priority_truth",
+    work: () =>
+      getMetaSelectedRangeTruthReadiness({
+        businessId: input.businessId,
+        startDate: priorityStartDate,
+        endDate: priorityEndDate,
+        timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+      }),
+  });
+  const coverage = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.coverage",
+    work: async () => {
+      const [
+        accountCoverage,
+        campaignCoverage,
+        adsetCoverage,
+        creativeCoverage,
+        adCoverage,
+      ] = await Promise.all([
+        getMetaAccountDailyCoverage({
+          businessId: input.businessId,
+          startDate: recentStartDate,
+          endDate: recentEndDate,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+        getMetaCampaignDailyCoverage({
+          businessId: input.businessId,
+          startDate: recentStartDate,
+          endDate: recentEndDate,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+        getMetaAdSetDailyCoverage({
+          businessId: input.businessId,
+          startDate: recentStartDate,
+          endDate: recentEndDate,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+        getMetaCreativeDailyCoverage({
+          businessId: input.businessId,
+          startDate: recentStartDate,
+          endDate: recentEndDate,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+        getMetaAdDailyCoverage({
+          businessId: input.businessId,
+          startDate: recentStartDate,
+          endDate: recentEndDate,
+          timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+        }),
+      ]);
+      return {
+        accountCoverage,
+        campaignCoverage,
+        adsetCoverage,
+        creativeCoverage,
+        adCoverage,
+      };
+    },
+  });
+  const partitionRollups = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.partition_rollups",
+    work: async () => {
+      const [recentWindowRows, laneScopeRows] = await Promise.all([
+        sql.query(
+          `
+            WITH recent_reclaims AS (
+              SELECT
+                COUNT(*) FILTER (WHERE event_type = 'reclaimed')::int AS reclaimed_last_window,
+                COUNT(*) FILTER (WHERE event_type = 'skipped_active_lease')::int AS skipped_active_lease_last_window
+              FROM sync_reclaim_events
+              WHERE provider_scope = 'meta'
+                AND business_id = $1
+                AND created_at >= now() - ($2::int || ' minutes')::interval
+            )
+            SELECT
+              COUNT(*) FILTER (
+                WHERE status = 'succeeded'
+                  AND finished_at >= now() - ($2::int || ' minutes')::interval
+              )::int AS completed_last_window,
+              COUNT(*) FILTER (
+                WHERE status = 'cancelled'
+                  AND finished_at >= now() - ($2::int || ' minutes')::interval
+              )::int AS cancelled_last_window,
+              COUNT(*) FILTER (
+                WHERE status = 'dead_letter'
+                  AND finished_at >= now() - ($2::int || ' minutes')::interval
+              )::int AS dead_lettered_last_window,
+              COUNT(*) FILTER (
+                WHERE created_at >= now() - ($2::int || ' minutes')::interval
+              )::int AS created_last_window,
+              COUNT(*) FILTER (
+                WHERE status = 'failed'
+                  AND updated_at >= now() - ($2::int || ' minutes')::interval
+              )::int AS failed_last_window,
+              COUNT(*) FILTER (WHERE status = 'succeeded')::int AS total_succeeded,
+              COUNT(*) FILTER (WHERE status = 'cancelled')::int AS total_cancelled,
+              COUNT(*) FILTER (WHERE status = 'dead_letter')::int AS total_dead_lettered,
+              COUNT(*)::int AS total_partitions,
+              MAX(updated_at) AS latest_activity_at,
+              COALESCE(
+                (SELECT reclaimed_last_window FROM recent_reclaims),
+                0
+              )::int AS reclaimed_last_window,
+              COALESCE(
+                (SELECT skipped_active_lease_last_window FROM recent_reclaims),
+                0
+              )::int AS skipped_active_lease_last_window
+            FROM meta_sync_partitions
+            WHERE business_id = $1
+          `,
+          [input.businessId, recentWindowMinutes],
+        ),
+        sql.query(
+          `
+            SELECT
+              lane,
+              scope,
+              status,
+              COUNT(*)::int AS count
+            FROM meta_sync_partitions
+            WHERE business_id = $1
+            GROUP BY lane, scope, status
+            ORDER BY lane, scope, status
+          `,
+          [input.businessId],
+        ),
+      ]);
+      return { recentWindowRows, laneScopeRows };
+    },
+  });
+
+  return runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.finalize",
+    work: async () => {
+      const recentWindowRow = partitionRollups.recentWindowRows[0] ?? {};
+      const summaryCoverage = normalizeCoverageRow(
+        coverage.accountCoverage,
+        recentTotalDays,
+      );
+      const campaignsCoverage = normalizeCoverageRow(
+        coverage.campaignCoverage,
+        recentTotalDays,
+      );
+      const adsetsCoverage = normalizeCoverageRow(
+        coverage.adsetCoverage,
+        recentTotalDays,
+      );
+      const creativesCoverage = normalizeCoverageRow(
+        coverage.creativeCoverage,
+        recentTotalDays,
+      );
+      const adsCoverage = normalizeCoverageRow(coverage.adCoverage, recentTotalDays);
+      const normalizedLaneScopeRows = partitionRollups.laneScopeRows.map((row) => ({
+        lane: String(row.lane ?? ""),
+        scope: String(row.scope ?? ""),
+        status: String(row.status ?? ""),
+        count: toNumber(row.count),
+      }));
+      const completedLastWindow = toNumber(recentWindowRow.completed_last_window);
+      const cancelledLastWindow = toNumber(recentWindowRow.cancelled_last_window);
+      const deadLetteredLastWindow = toNumber(
+        recentWindowRow.dead_lettered_last_window,
+      );
+      const createdLastWindow = toNumber(recentWindowRow.created_last_window);
+      const latestActivityAt = latestIsoTimestamp([
+        queueHealth.latestCoreActivityAt,
+        queueHealth.latestExtendedActivityAt,
+        queueHealth.latestMaintenanceActivityAt,
+        toIsoTimestamp(recentWindowRow.latest_activity_at),
+        businessHealth.latestPartitionActivityAt ?? null,
+      ]);
+
+      return {
+    businessId: input.businessId,
+    businessName: businessHealth.businessName,
     capturedAt,
     windows: {
       recent: {
@@ -895,29 +1025,26 @@ export async function collectMetaSyncReadinessSnapshot(
         }
       : null,
     operator: {
-      progressState: metaBusiness.progressState ?? null,
-      activityState: metaBusiness.activityState ?? null,
-      stallFingerprints: [...(metaBusiness.stallFingerprints ?? [])],
-      repairBacklog: metaBusiness.repairBacklog ?? 0,
-      validationFailures24h: metaBusiness.validationFailures24h ?? 0,
-      reclaimCandidateCount: metaBusiness.reclaimCandidateCount ?? 0,
-      staleRunCount24h: metaBusiness.staleRunCount24h ?? 0,
-      lastSuccessfulPublishAt: metaBusiness.lastSuccessfulPublishAt ?? null,
-      d1FinalizeNonTerminalCount:
-        metaBusiness.d1FinalizeNonTerminalCount ?? 0,
-      workerOnline: metaBusiness.workerOnline ?? null,
-      workerLastHeartbeatAt: metaBusiness.workerLastHeartbeatAt ?? null,
-      dbConstraint:
-        admin.syncHealth.dbDiagnostics?.summary.likelyPrimaryConstraint ?? null,
-      dbBacklogState:
-        admin.syncHealth.dbDiagnostics?.summary.metaBacklogState ?? null,
+      progressState: businessHealth.progressState ?? null,
+      activityState: businessHealth.activityState ?? null,
+      stallFingerprints: [...businessHealth.stallFingerprints],
+      repairBacklog: authoritative.progression.repairBacklog,
+      validationFailures24h: authoritative.validationFailures24h,
+      reclaimCandidateCount: businessHealth.reclaimCandidateCount ?? 0,
+      staleRunCount24h: businessHealth.staleRunCount24h ?? 0,
+      lastSuccessfulPublishAt: authoritative.lastSuccessfulPublishAt,
+      d1FinalizeNonTerminalCount: authoritative.d1FinalizeSla.breachedAccounts,
+      workerOnline: businessHealth.workerOnline ?? null,
+      workerLastHeartbeatAt: businessHealth.workerLastHeartbeatAt ?? null,
+      dbConstraint: businessHealth.dbConstraint ?? null,
+      dbBacklogState: businessHealth.dbBacklogState ?? null,
     },
     queue: {
       queueDepth: queueHealth.queueDepth,
       leasedPartitions: queueHealth.leasedPartitions,
       retryableFailedPartitions: queueHealth.retryableFailedPartitions,
       deadLetterPartitions: queueHealth.deadLetterPartitions,
-      staleLeasePartitions: metaBusiness.staleLeasePartitions,
+      staleLeasePartitions: businessHealth.staleLeasePartitions,
       oldestQueuedPartition: queueHealth.oldestQueuedPartition,
       latestActivityAt,
       pendingByLane: summarizePendingByLane(normalizedLaneScopeRows),
@@ -961,17 +1088,17 @@ export async function collectMetaSyncReadinessSnapshot(
       }),
     },
     syncState: {
-      lastCheckpointUpdatedAt: metaBusiness.latestCheckpointUpdatedAt ?? null,
+      lastCheckpointUpdatedAt: businessHealth.latestCheckpointUpdatedAt ?? null,
       readyThroughDates: {
         recent_summary: summaryCoverage.readyThroughDate,
         recent_campaigns: campaignsCoverage.readyThroughDate,
         recent_adsets: adsetsCoverage.readyThroughDate,
         recent_creatives: creativesCoverage.readyThroughDate,
         recent_ads: adsCoverage.readyThroughDate,
-        account_state: metaBusiness.accountReadyThroughDate ?? null,
-        adset_state: metaBusiness.adsetReadyThroughDate ?? null,
-        creative_state: metaBusiness.creativeReadyThroughDate ?? null,
-        ad_state: metaBusiness.adReadyThroughDate ?? null,
+        account_state: businessHealth.accountReadyThroughDate ?? null,
+        adset_state: businessHealth.adsetReadyThroughDate ?? null,
+        creative_state: businessHealth.creativeReadyThroughDate ?? null,
+        ad_state: businessHealth.adReadyThroughDate ?? null,
       },
     },
     velocity: {
@@ -1011,5 +1138,7 @@ export async function collectMetaSyncReadinessSnapshot(
       d1SlaBreaches: authoritative.d1FinalizeSla.breachedAccounts,
       lastSuccessfulPublishAt: authoritative.lastSuccessfulPublishAt,
     },
-  };
+      };
+    },
+  });
 }
