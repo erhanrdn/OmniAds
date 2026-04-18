@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifySearchAction } from "@/lib/google-ads/reporting";
+import { buildQueryOwnershipContextFromTerms } from "@/lib/google-ads/query-ownership";
 
 describe("classifySearchAction", () => {
   it("does not recommend adding a branded term as a negative keyword when brand ownership is known", () => {
@@ -91,5 +92,33 @@ describe("classifySearchAction", () => {
         ["grandmix"]
       )
     ).not.toBe("Add as negative keyword");
+  });
+
+  it("accepts a prebuilt ownership context without changing the decision", () => {
+    const input = {
+      searchTerm: "urbantrail carry on backpack",
+      campaign: "Generic Search",
+      isKeyword: false,
+      conversions: 0,
+      spend: 60,
+      clicks: 24,
+      roas: 0,
+      conversionRate: 0,
+    } as const;
+    const brandTerms = ["grandmix"];
+    const productTerms = ["UrbanTrail Carry-On Backpack"];
+    const ownershipContext = buildQueryOwnershipContextFromTerms({
+      brandTerms,
+      productTerms,
+    });
+
+    expect(
+      classifySearchAction(
+        input,
+        brandTerms,
+        productTerms,
+        ownershipContext,
+      ),
+    ).toBe(classifySearchAction(input, brandTerms, productTerms));
   });
 });

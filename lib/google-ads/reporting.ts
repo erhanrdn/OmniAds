@@ -73,9 +73,10 @@ import {
   analyzeSearchIntelligence,
 } from "@/lib/google-ads/tab-analysis";
 import {
-  buildQueryOwnershipContext,
+  buildQueryOwnershipContextFromTerms,
   classifyQueryOwnership,
   evaluateNegativeKeywordAssessment,
+  type QueryOwnershipContext,
 } from "@/lib/google-ads/query-ownership";
 import { normalizeChannelType, normalizeStatus } from "@/lib/google-ads-gaql";
 import {
@@ -786,21 +787,14 @@ export function classifySearchAction(row: {
   clicks: number;
   roas: number;
   conversionRate: number | null;
-}, brandTerms: string[] = [], productTerms: string[] = []) {
-  const ownership = classifyQueryOwnership(
-    row.searchTerm,
-    buildQueryOwnershipContext({
-      campaigns: brandTerms.map((term, index) => ({
-        campaignId: `brand-${index}`,
-        campaignName: `${term} brand search`,
-      })) as CampaignPerformanceRow[],
-      searchTerms: [],
-      products: productTerms.map((term, index) => ({
-        productItemId: `sku-${index}`,
-        productTitle: term,
-      })) as ProductPerformanceRow[],
-    })
-  );
+}, brandTerms: string[] = [], productTerms: string[] = [], ownershipContext?: QueryOwnershipContext) {
+  const context =
+    ownershipContext ??
+    buildQueryOwnershipContextFromTerms({
+      brandTerms,
+      productTerms,
+    });
+  const ownership = classifyQueryOwnership(row.searchTerm, context);
   const negativeKeywordAssessment = evaluateNegativeKeywordAssessment({
     searchTerm: row.searchTerm,
     ownershipClass: ownership.ownershipClass,

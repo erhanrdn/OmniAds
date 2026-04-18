@@ -10,7 +10,7 @@ import type {
   GoogleQueryOwnershipClass,
 } from "@/lib/google-ads/growth-advisor-types";
 
-interface QueryOwnershipContext {
+export interface QueryOwnershipContext {
   brandTerms: string[];
   competitorTerms: string[];
   productTerms: string[];
@@ -151,6 +151,18 @@ function maybeCompetitorTerms(rows: SearchTermPerformanceRow[], brandTerms: stri
     );
 }
 
+export function buildQueryOwnershipContextFromTerms(input: {
+  brandTerms?: string[];
+  competitorTerms?: string[];
+  productTerms?: string[];
+}): QueryOwnershipContext {
+  return {
+    brandTerms: uniqueTerms(input.brandTerms ?? []),
+    competitorTerms: uniqueTerms(input.competitorTerms ?? []),
+    productTerms: uniqueTerms(input.productTerms ?? []),
+  };
+}
+
 export function buildQueryOwnershipContext(input: {
   campaigns: CampaignPerformanceRow[];
   searchTerms: SearchTermPerformanceRow[];
@@ -159,7 +171,11 @@ export function buildQueryOwnershipContext(input: {
   const brandTerms = uniqueTerms(termsFromCampaigns(input.campaigns));
   const productTerms = uniqueTerms(termsFromProducts(input.products));
   const competitorTerms = uniqueTerms(maybeCompetitorTerms(input.searchTerms, brandTerms));
-  return { brandTerms, competitorTerms, productTerms };
+  return buildQueryOwnershipContextFromTerms({
+    brandTerms,
+    competitorTerms,
+    productTerms,
+  });
 }
 
 export function classifyQueryOwnership(

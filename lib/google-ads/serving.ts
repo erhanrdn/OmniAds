@@ -70,6 +70,7 @@ import {
   getGoogleAdsOverviewReport as getLiveGoogleAdsOverviewReport,
   classifySearchAction,
 } from "@/lib/google-ads/reporting";
+import { buildQueryOwnershipContextFromTerms } from "@/lib/google-ads/query-ownership";
 import {
   normalizeGoogleAdsQueryText,
   readGoogleAdsSearchClusterDailyRows,
@@ -637,6 +638,10 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
     const brandTerms = deriveGoogleAdsBrandTermsFromSearchRows(
       hotRows.map((row) => ({ campaignName: row.campaignName })),
     );
+    const ownershipContext = buildQueryOwnershipContextFromTerms({
+      brandTerms,
+      productTerms,
+    });
     const coveredDates = new Set(hotRows.map((row) => normalizeDate(row.date)));
     const missingWindows = enumerateDays(
       hotWindow.effectiveStart,
@@ -774,6 +779,7 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
             },
             brandTerms,
             productTerms,
+            ownershipContext,
           ),
           sourceSnapshotId: row.sourceSnapshotId,
         };
@@ -2420,6 +2426,9 @@ function buildSearchIntelligenceRowsFromWeeklySupport(input: {
   keywordSet: Set<string>;
   productTerms: string[];
 }) {
+  const ownershipContext = buildQueryOwnershipContextFromTerms({
+    productTerms: input.productTerms,
+  });
   return input.rows.map((row) => {
     const searchTerm = String(row.displayQuery || row.normalizedQuery).trim();
     const normalizedQuery = normalizeGoogleAdsQueryText(searchTerm);
@@ -2480,6 +2489,7 @@ function buildSearchIntelligenceRowsFromWeeklySupport(input: {
         },
         [],
         input.productTerms,
+        ownershipContext,
       ),
       supportWeeks: row.weeksPresent,
       lastWeekEnd: row.lastWeekEnd,
@@ -2715,6 +2725,10 @@ async function buildGoogleAdsSearchTermsHotReport(
   const brandTerms = deriveGoogleAdsBrandTermsFromSearchRows(
     hotRows.map((row) => ({ campaignName: row.campaignName }))
   );
+  const ownershipContext = buildQueryOwnershipContextFromTerms({
+    brandTerms,
+    productTerms,
+  });
 
   const coveredDates = new Set(hotRows.map((row) => row.date));
   const missingWindows = enumerateDays(
@@ -2835,6 +2849,7 @@ async function buildGoogleAdsSearchTermsHotReport(
         },
         brandTerms,
         productTerms,
+        ownershipContext,
       );
       return {
         key: row.key,
