@@ -71,6 +71,7 @@ export interface ShopifyOrderLineWarehouseRow {
   discountedTotal?: number;
   originalTotal?: number;
   taxTotal?: number;
+  observedAt?: string | null;
   payloadJson?: unknown;
   sourceSnapshotId?: string | null;
 }

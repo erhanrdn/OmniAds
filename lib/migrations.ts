@@ -182,6 +182,10 @@ const GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES = [
 
 const SHOPIFY_CANONICAL_PROVIDER_REF_TABLES = [
   "shopify_raw_snapshots",
+  "shopify_shop_dimensions",
+  "shopify_customer_dimensions",
+  "shopify_product_dimensions",
+  "shopify_variant_dimensions",
   "shopify_orders",
   "shopify_order_lines",
   "shopify_refunds",
@@ -3338,6 +3342,94 @@ export async function runMigrations(options?: {
           ON shopify_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_endpoint
           ON shopify_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_shop_dimensions (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                TEXT NOT NULL,
+          business_ref_id            UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id        TEXT NOT NULL,
+          provider_account_ref_id    UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          shop_id                    TEXT NOT NULL,
+          shop_domain                TEXT,
+          shop_currency_code         TEXT,
+          default_order_currency_code TEXT,
+          projection_json            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at              TIMESTAMPTZ,
+          last_seen_at               TIMESTAMPTZ,
+          source_updated_at          TIMESTAMPTZ,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_shop_dimensions_business_account
+          ON shopify_shop_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_shop_dimensions_shop
+          ON shopify_shop_dimensions (shop_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_customer_dimensions (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                TEXT NOT NULL,
+          business_ref_id            UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id        TEXT NOT NULL,
+          provider_account_ref_id    UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          shop_id                    TEXT NOT NULL,
+          customer_id                TEXT NOT NULL,
+          last_order_id              TEXT,
+          projection_json            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at              TIMESTAMPTZ,
+          last_seen_at               TIMESTAMPTZ,
+          source_updated_at          TIMESTAMPTZ,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, customer_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_dimensions_business_account
+          ON shopify_customer_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_customer_dimensions_customer
+          ON shopify_customer_dimensions (customer_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_product_dimensions (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                TEXT NOT NULL,
+          business_ref_id            UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id        TEXT NOT NULL,
+          provider_account_ref_id    UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          shop_id                    TEXT NOT NULL,
+          product_id                 TEXT NOT NULL,
+          product_title              TEXT,
+          projection_json            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at              TIMESTAMPTZ,
+          last_seen_at               TIMESTAMPTZ,
+          source_updated_at          TIMESTAMPTZ,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, product_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_product_dimensions_business_account
+          ON shopify_product_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_product_dimensions_product
+          ON shopify_product_dimensions (product_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_variant_dimensions (
+          id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id                TEXT NOT NULL,
+          business_ref_id            UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id        TEXT NOT NULL,
+          provider_account_ref_id    UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          shop_id                    TEXT NOT NULL,
+          product_id                 TEXT,
+          variant_id                 TEXT NOT NULL,
+          sku                        TEXT,
+          product_title              TEXT,
+          variant_title              TEXT,
+          projection_json            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at              TIMESTAMPTZ,
+          last_seen_at               TIMESTAMPTZ,
+          source_updated_at          TIMESTAMPTZ,
+          created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, variant_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_dimensions_business_account
+          ON shopify_variant_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_variant_dimensions_variant
+          ON shopify_variant_dimensions (variant_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_orders (
           id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id              TEXT NOT NULL,
@@ -4098,6 +4190,395 @@ export async function runMigrations(options?: {
             WHERE target.provider_account_ref_id IS NULL
               AND provider_account.provider = target.provider
               AND provider_account.external_account_id = target.provider_account_id
+          `,
+        ).catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                shop_id,
+                MIN(order_created_at) AS first_seen_at,
+                MAX(COALESCE(order_updated_at, order_created_at)) AS last_seen_at
+              FROM shopify_orders
+              WHERE NULLIF(TRIM(shop_id), '') IS NOT NULL
+              GROUP BY business_id, provider_account_id, shop_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, shop_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                provider_account_id AS shop_domain,
+                shop_currency_code,
+                currency_code AS default_order_currency_code,
+                COALESCE(order_updated_at, order_created_at) AS source_updated_at
+              FROM shopify_orders
+              WHERE NULLIF(TRIM(shop_id), '') IS NOT NULL
+              ORDER BY
+                business_id,
+                provider_account_id,
+                shop_id,
+                COALESCE(order_updated_at, order_created_at) DESC NULLS LAST,
+                order_created_at DESC,
+                updated_at DESC
+            )
+            INSERT INTO shopify_shop_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              shop_domain,
+              shop_currency_code,
+              default_order_currency_code,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.shop_id,
+              latest.shop_domain,
+              latest.shop_currency_code,
+              latest.default_order_currency_code,
+              '{}'::jsonb,
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.source_updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.shop_id = latest.shop_id
+            ON CONFLICT (business_id, provider_account_id, shop_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_shop_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_shop_dimensions.provider_account_ref_id),
+              shop_domain = COALESCE(EXCLUDED.shop_domain, shopify_shop_dimensions.shop_domain),
+              shop_currency_code = COALESCE(EXCLUDED.shop_currency_code, shopify_shop_dimensions.shop_currency_code),
+              default_order_currency_code = COALESCE(EXCLUDED.default_order_currency_code, shopify_shop_dimensions.default_order_currency_code),
+              projection_json = CASE
+                WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_shop_dimensions.projection_json
+                ELSE EXCLUDED.projection_json
+              END,
+              first_seen_at = COALESCE(shopify_shop_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(shopify_shop_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(shopify_shop_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                shop_id,
+                customer_id,
+                MIN(order_created_at) AS first_seen_at,
+                MAX(COALESCE(order_updated_at, order_created_at)) AS last_seen_at
+              FROM shopify_orders
+              WHERE NULLIF(TRIM(customer_id), '') IS NOT NULL
+              GROUP BY business_id, provider_account_id, shop_id, customer_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, shop_id, customer_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                customer_id,
+                order_id AS last_order_id,
+                COALESCE(order_updated_at, order_created_at) AS source_updated_at
+              FROM shopify_orders
+              WHERE NULLIF(TRIM(customer_id), '') IS NOT NULL
+              ORDER BY
+                business_id,
+                provider_account_id,
+                shop_id,
+                customer_id,
+                COALESCE(order_updated_at, order_created_at) DESC NULLS LAST,
+                order_created_at DESC,
+                updated_at DESC
+            )
+            INSERT INTO shopify_customer_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              customer_id,
+              last_order_id,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.shop_id,
+              latest.customer_id,
+              latest.last_order_id,
+              '{}'::jsonb,
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.source_updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.shop_id = latest.shop_id
+             AND bounds.customer_id = latest.customer_id
+            ON CONFLICT (business_id, provider_account_id, shop_id, customer_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_customer_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_customer_dimensions.provider_account_ref_id),
+              last_order_id = COALESCE(EXCLUDED.last_order_id, shopify_customer_dimensions.last_order_id),
+              projection_json = CASE
+                WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_customer_dimensions.projection_json
+                ELSE EXCLUDED.projection_json
+              END,
+              first_seen_at = COALESCE(shopify_customer_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(shopify_customer_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(shopify_customer_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH source_rows AS (
+              SELECT
+                line.business_id,
+                line.business_ref_id,
+                line.provider_account_id,
+                line.provider_account_ref_id,
+                line.shop_id,
+                line.product_id,
+                NULLIF(TRIM(line.title), '') AS product_title,
+                NULLIF(TRIM(line.sku), '') AS sku,
+                NULLIF(TRIM(line.variant_title), '') AS variant_title,
+                COALESCE(order_row.order_created_at, order_row.order_updated_at, line.updated_at) AS first_seen_candidate,
+                COALESCE(order_row.order_updated_at, order_row.order_created_at, line.updated_at) AS source_updated_at,
+                line.updated_at
+              FROM shopify_order_lines AS line
+              LEFT JOIN shopify_orders AS order_row
+                ON order_row.business_id = line.business_id
+               AND order_row.provider_account_id = line.provider_account_id
+               AND order_row.shop_id = line.shop_id
+               AND order_row.order_id = line.order_id
+              WHERE NULLIF(TRIM(line.product_id), '') IS NOT NULL
+            ),
+            bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                shop_id,
+                product_id,
+                MIN(first_seen_candidate) AS first_seen_at,
+                MAX(source_updated_at) AS last_seen_at
+              FROM source_rows
+              GROUP BY business_id, provider_account_id, shop_id, product_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, shop_id, product_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                product_id,
+                product_title,
+                sku,
+                variant_title,
+                source_updated_at
+              FROM source_rows
+              ORDER BY
+                business_id,
+                provider_account_id,
+                shop_id,
+                product_id,
+                source_updated_at DESC NULLS LAST,
+                updated_at DESC
+            )
+            INSERT INTO shopify_product_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              product_id,
+              product_title,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.shop_id,
+              latest.product_id,
+              latest.product_title,
+              jsonb_strip_nulls(jsonb_build_object(
+                'sku', latest.sku,
+                'variantTitle', latest.variant_title
+              )),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.source_updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.shop_id = latest.shop_id
+             AND bounds.product_id = latest.product_id
+            ON CONFLICT (business_id, provider_account_id, shop_id, product_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_product_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_product_dimensions.provider_account_ref_id),
+              product_title = COALESCE(EXCLUDED.product_title, shopify_product_dimensions.product_title),
+              projection_json = CASE
+                WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_product_dimensions.projection_json
+                ELSE EXCLUDED.projection_json
+              END,
+              first_seen_at = COALESCE(shopify_product_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(shopify_product_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(shopify_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH source_rows AS (
+              SELECT
+                line.business_id,
+                line.business_ref_id,
+                line.provider_account_id,
+                line.provider_account_ref_id,
+                line.shop_id,
+                line.product_id,
+                line.variant_id,
+                NULLIF(TRIM(line.sku), '') AS sku,
+                NULLIF(TRIM(line.title), '') AS product_title,
+                NULLIF(TRIM(line.variant_title), '') AS variant_title,
+                COALESCE(order_row.order_created_at, order_row.order_updated_at, line.updated_at) AS first_seen_candidate,
+                COALESCE(order_row.order_updated_at, order_row.order_created_at, line.updated_at) AS source_updated_at,
+                line.updated_at
+              FROM shopify_order_lines AS line
+              LEFT JOIN shopify_orders AS order_row
+                ON order_row.business_id = line.business_id
+               AND order_row.provider_account_id = line.provider_account_id
+               AND order_row.shop_id = line.shop_id
+               AND order_row.order_id = line.order_id
+              WHERE NULLIF(TRIM(line.variant_id), '') IS NOT NULL
+            ),
+            bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                shop_id,
+                variant_id,
+                MIN(first_seen_candidate) AS first_seen_at,
+                MAX(source_updated_at) AS last_seen_at
+              FROM source_rows
+              GROUP BY business_id, provider_account_id, shop_id, variant_id
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, shop_id, variant_id)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                product_id,
+                variant_id,
+                sku,
+                product_title,
+                variant_title,
+                source_updated_at
+              FROM source_rows
+              ORDER BY
+                business_id,
+                provider_account_id,
+                shop_id,
+                variant_id,
+                source_updated_at DESC NULLS LAST,
+                updated_at DESC
+            )
+            INSERT INTO shopify_variant_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              product_id,
+              variant_id,
+              sku,
+              product_title,
+              variant_title,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.shop_id,
+              latest.product_id,
+              latest.variant_id,
+              latest.sku,
+              latest.product_title,
+              latest.variant_title,
+              '{}'::jsonb,
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.source_updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.shop_id = latest.shop_id
+             AND bounds.variant_id = latest.variant_id
+            ON CONFLICT (business_id, provider_account_id, shop_id, variant_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_variant_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_variant_dimensions.provider_account_ref_id),
+              product_id = COALESCE(EXCLUDED.product_id, shopify_variant_dimensions.product_id),
+              sku = COALESCE(EXCLUDED.sku, shopify_variant_dimensions.sku),
+              product_title = COALESCE(EXCLUDED.product_title, shopify_variant_dimensions.product_title),
+              variant_title = COALESCE(EXCLUDED.variant_title, shopify_variant_dimensions.variant_title),
+              projection_json = CASE
+                WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_variant_dimensions.projection_json
+                ELSE EXCLUDED.projection_json
+              END,
+              first_seen_at = COALESCE(shopify_variant_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(shopify_variant_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(shopify_variant_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
           `,
         ).catch(() => {}),
       ]);

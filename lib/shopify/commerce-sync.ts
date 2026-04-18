@@ -371,6 +371,7 @@ export function mapShopifyOrderNodeToWarehouseRows(input: {
       discountedTotal: moneyAmount(row.discountedTotalSet),
       originalTotal: moneyAmount(row.originalTotalSet),
       taxTotal: 0,
+      observedAt: input.node.updatedAt ?? input.node.createdAt,
       payloadJson: row,
       sourceSnapshotId: input.sourceSnapshotId ?? null,
     }));

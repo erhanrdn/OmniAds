@@ -25,6 +25,10 @@ import type {
 
 const SHOPIFY_WAREHOUSE_TABLES = [
   "shopify_raw_snapshots",
+  "shopify_shop_dimensions",
+  "shopify_customer_dimensions",
+  "shopify_product_dimensions",
+  "shopify_variant_dimensions",
   "shopify_orders",
   "shopify_order_lines",
   "shopify_refunds",
@@ -47,6 +51,71 @@ async function assertShopifyWarehouseTablesReady(context: string) {
   });
 }
 
+type ShopifyCanonicalReferenceContext = Awaited<
+  ReturnType<typeof resolveShopifyCanonicalReferenceContext>
+>;
+type ShopifySql = ReturnType<typeof getDb>;
+
+interface ShopifyShopDimensionUpsertRow {
+  business_id: string;
+  business_ref_id: string | null;
+  provider_account_id: string;
+  provider_account_ref_id: string | null;
+  shop_id: string;
+  shop_domain: string | null;
+  shop_currency_code: string | null;
+  default_order_currency_code: string | null;
+  projection_json: Record<string, unknown>;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  source_updated_at: string | null;
+}
+
+interface ShopifyCustomerDimensionUpsertRow {
+  business_id: string;
+  business_ref_id: string | null;
+  provider_account_id: string;
+  provider_account_ref_id: string | null;
+  shop_id: string;
+  customer_id: string;
+  last_order_id: string | null;
+  projection_json: Record<string, unknown>;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  source_updated_at: string | null;
+}
+
+interface ShopifyProductDimensionUpsertRow {
+  business_id: string;
+  business_ref_id: string | null;
+  provider_account_id: string;
+  provider_account_ref_id: string | null;
+  shop_id: string;
+  product_id: string;
+  product_title: string | null;
+  projection_json: Record<string, unknown>;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  source_updated_at: string | null;
+}
+
+interface ShopifyVariantDimensionUpsertRow {
+  business_id: string;
+  business_ref_id: string | null;
+  provider_account_id: string;
+  provider_account_ref_id: string | null;
+  shop_id: string;
+  product_id: string | null;
+  variant_id: string;
+  sku: string | null;
+  product_title: string | null;
+  variant_title: string | null;
+  projection_json: Record<string, unknown>;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  source_updated_at: string | null;
+}
+
 function normalizeDate(value: unknown) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -64,6 +133,36 @@ function normalizeTimestamp(value: unknown) {
   const parsed = new Date(text);
   if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
   return text;
+}
+
+function normalizeText(value: unknown) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+function stripNullFields(input: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value != null),
+  );
+}
+
+function pickEarlierTimestamp(current: string | null, candidate: string | null) {
+  if (!candidate) return current;
+  if (!current) return candidate;
+  return candidate < current ? candidate : current;
+}
+
+function pickLaterTimestamp(current: string | null, candidate: string | null) {
+  if (!candidate) return current;
+  if (!current) return candidate;
+  return candidate > current ? candidate : current;
+}
+
+function shouldReplaceDimensionSnapshot(current: string | null, candidate: string | null) {
+  if (!candidate) return false;
+  if (!current) return true;
+  return candidate >= current;
 }
 
 function normalizeServingProductionMode(value: unknown) {
@@ -252,6 +351,567 @@ export async function insertShopifyRawSnapshot(input: ShopifyRawSnapshotRecord) 
   return rows[0]?.id ?? null;
 }
 
+async function upsertShopifyShopDimensions(
+  rows: ShopifyOrderWarehouseRow[],
+  referenceContext: ShopifyCanonicalReferenceContext,
+  sql: ShopifySql,
+) {
+  const dimensionRows = new Map<string, ShopifyShopDimensionUpsertRow>();
+
+  for (const row of rows) {
+    const businessId = normalizeText(row.businessId);
+    const providerAccountId = normalizeText(row.providerAccountId);
+    const shopId = normalizeText(row.shopId);
+    if (!businessId || !providerAccountId || !shopId) continue;
+
+    const firstSeenAt = normalizeTimestamp(row.orderCreatedAt ?? row.orderUpdatedAt);
+    const sourceUpdatedAt = normalizeTimestamp(row.orderUpdatedAt ?? row.orderCreatedAt);
+    const key = `${businessId}::${providerAccountId}::${shopId}`;
+    const nextRow: ShopifyShopDimensionUpsertRow = {
+      business_id: businessId,
+      business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+      provider_account_id: providerAccountId,
+      provider_account_ref_id:
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+      shop_id: shopId,
+      shop_domain: providerAccountId,
+      shop_currency_code: normalizeText(row.shopCurrencyCode),
+      default_order_currency_code: normalizeText(row.currencyCode),
+      projection_json: {},
+      first_seen_at: firstSeenAt,
+      last_seen_at: sourceUpdatedAt,
+      source_updated_at: sourceUpdatedAt,
+    };
+    const current = dimensionRows.get(key);
+    if (!current) {
+      dimensionRows.set(key, nextRow);
+      continue;
+    }
+
+    current.business_ref_id ??= nextRow.business_ref_id;
+    current.provider_account_ref_id ??= nextRow.provider_account_ref_id;
+    current.first_seen_at = pickEarlierTimestamp(current.first_seen_at, nextRow.first_seen_at);
+    current.last_seen_at = pickLaterTimestamp(current.last_seen_at, nextRow.last_seen_at);
+    if (shouldReplaceDimensionSnapshot(current.source_updated_at, nextRow.source_updated_at)) {
+      current.shop_domain = nextRow.shop_domain;
+      current.shop_currency_code = nextRow.shop_currency_code;
+      current.default_order_currency_code = nextRow.default_order_currency_code;
+      current.projection_json = nextRow.projection_json;
+      current.source_updated_at = nextRow.source_updated_at;
+    } else {
+      current.source_updated_at = pickLaterTimestamp(
+        current.source_updated_at,
+        nextRow.source_updated_at,
+      );
+    }
+  }
+
+  if (dimensionRows.size <= 0) return;
+
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.shop_domain), '') AS shop_domain,
+          NULLIF(TRIM(record.shop_currency_code), '') AS shop_currency_code,
+          NULLIF(TRIM(record.default_order_currency_code), '') AS default_order_currency_code,
+          COALESCE(record.projection_json, '{}'::jsonb) AS projection_json,
+          record.first_seen_at AS first_seen_at,
+          record.last_seen_at AS last_seen_at,
+          record.source_updated_at AS source_updated_at
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          shop_domain text,
+          shop_currency_code text,
+          default_order_currency_code text,
+          projection_json jsonb,
+          first_seen_at timestamptz,
+          last_seen_at timestamptz,
+          source_updated_at timestamptz
+        )
+      )
+      INSERT INTO shopify_shop_dimensions (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        shop_domain,
+        shop_currency_code,
+        default_order_currency_code,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        updated_at
+      )
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        shop_domain,
+        shop_currency_code,
+        default_order_currency_code,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        now()
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+      ON CONFLICT (business_id, provider_account_id, shop_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_shop_dimensions.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_shop_dimensions.provider_account_ref_id),
+        shop_domain = COALESCE(EXCLUDED.shop_domain, shopify_shop_dimensions.shop_domain),
+        shop_currency_code = COALESCE(EXCLUDED.shop_currency_code, shopify_shop_dimensions.shop_currency_code),
+        default_order_currency_code = COALESCE(EXCLUDED.default_order_currency_code, shopify_shop_dimensions.default_order_currency_code),
+        projection_json = CASE
+          WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_shop_dimensions.projection_json
+          ELSE EXCLUDED.projection_json
+        END,
+        first_seen_at = COALESCE(shopify_shop_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+        last_seen_at = GREATEST(COALESCE(shopify_shop_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+        source_updated_at = GREATEST(COALESCE(shopify_shop_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+        updated_at = now()
+    `,
+    [JSON.stringify(Array.from(dimensionRows.values()))],
+  );
+}
+
+async function upsertShopifyCustomerDimensions(
+  rows: ShopifyOrderWarehouseRow[],
+  referenceContext: ShopifyCanonicalReferenceContext,
+  sql: ShopifySql,
+) {
+  const dimensionRows = new Map<string, ShopifyCustomerDimensionUpsertRow>();
+
+  for (const row of rows) {
+    const businessId = normalizeText(row.businessId);
+    const providerAccountId = normalizeText(row.providerAccountId);
+    const shopId = normalizeText(row.shopId);
+    const customerId = normalizeText(row.customerId);
+    if (!businessId || !providerAccountId || !shopId || !customerId) continue;
+
+    const firstSeenAt = normalizeTimestamp(row.orderCreatedAt ?? row.orderUpdatedAt);
+    const sourceUpdatedAt = normalizeTimestamp(row.orderUpdatedAt ?? row.orderCreatedAt);
+    const key = `${businessId}::${providerAccountId}::${shopId}::${customerId}`;
+    const nextRow: ShopifyCustomerDimensionUpsertRow = {
+      business_id: businessId,
+      business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+      provider_account_id: providerAccountId,
+      provider_account_ref_id:
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+      shop_id: shopId,
+      customer_id: customerId,
+      last_order_id: normalizeText(row.orderId),
+      projection_json: {},
+      first_seen_at: firstSeenAt,
+      last_seen_at: sourceUpdatedAt,
+      source_updated_at: sourceUpdatedAt,
+    };
+    const current = dimensionRows.get(key);
+    if (!current) {
+      dimensionRows.set(key, nextRow);
+      continue;
+    }
+
+    current.business_ref_id ??= nextRow.business_ref_id;
+    current.provider_account_ref_id ??= nextRow.provider_account_ref_id;
+    current.first_seen_at = pickEarlierTimestamp(current.first_seen_at, nextRow.first_seen_at);
+    current.last_seen_at = pickLaterTimestamp(current.last_seen_at, nextRow.last_seen_at);
+    if (shouldReplaceDimensionSnapshot(current.source_updated_at, nextRow.source_updated_at)) {
+      current.last_order_id = nextRow.last_order_id;
+      current.projection_json = nextRow.projection_json;
+      current.source_updated_at = nextRow.source_updated_at;
+    } else {
+      current.source_updated_at = pickLaterTimestamp(
+        current.source_updated_at,
+        nextRow.source_updated_at,
+      );
+    }
+  }
+
+  if (dimensionRows.size <= 0) return;
+
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.customer_id), '') AS customer_id,
+          NULLIF(TRIM(record.last_order_id), '') AS last_order_id,
+          COALESCE(record.projection_json, '{}'::jsonb) AS projection_json,
+          record.first_seen_at AS first_seen_at,
+          record.last_seen_at AS last_seen_at,
+          record.source_updated_at AS source_updated_at
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          customer_id text,
+          last_order_id text,
+          projection_json jsonb,
+          first_seen_at timestamptz,
+          last_seen_at timestamptz,
+          source_updated_at timestamptz
+        )
+      )
+      INSERT INTO shopify_customer_dimensions (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        customer_id,
+        last_order_id,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        updated_at
+      )
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        customer_id,
+        last_order_id,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        now()
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+        AND customer_id IS NOT NULL
+      ON CONFLICT (business_id, provider_account_id, shop_id, customer_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_customer_dimensions.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_customer_dimensions.provider_account_ref_id),
+        last_order_id = COALESCE(EXCLUDED.last_order_id, shopify_customer_dimensions.last_order_id),
+        projection_json = CASE
+          WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_customer_dimensions.projection_json
+          ELSE EXCLUDED.projection_json
+        END,
+        first_seen_at = COALESCE(shopify_customer_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+        last_seen_at = GREATEST(COALESCE(shopify_customer_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+        source_updated_at = GREATEST(COALESCE(shopify_customer_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+        updated_at = now()
+    `,
+    [JSON.stringify(Array.from(dimensionRows.values()))],
+  );
+}
+
+async function upsertShopifyProductDimensions(
+  rows: ShopifyOrderLineWarehouseRow[],
+  referenceContext: ShopifyCanonicalReferenceContext,
+  sql: ShopifySql,
+) {
+  const dimensionRows = new Map<string, ShopifyProductDimensionUpsertRow>();
+
+  for (const row of rows) {
+    const businessId = normalizeText(row.businessId);
+    const providerAccountId = normalizeText(row.providerAccountId);
+    const shopId = normalizeText(row.shopId);
+    const productId = normalizeText(row.productId);
+    if (!businessId || !providerAccountId || !shopId || !productId) continue;
+
+    const sourceUpdatedAt = normalizeTimestamp(row.observedAt);
+    const key = `${businessId}::${providerAccountId}::${shopId}::${productId}`;
+    const nextRow: ShopifyProductDimensionUpsertRow = {
+      business_id: businessId,
+      business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+      provider_account_id: providerAccountId,
+      provider_account_ref_id:
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+      shop_id: shopId,
+      product_id: productId,
+      product_title: normalizeText(row.title),
+      projection_json: stripNullFields({
+        sku: normalizeText(row.sku) ?? undefined,
+        lastVariantTitle: normalizeText(row.variantTitle) ?? undefined,
+      }),
+      first_seen_at: sourceUpdatedAt,
+      last_seen_at: sourceUpdatedAt,
+      source_updated_at: sourceUpdatedAt,
+    };
+    const current = dimensionRows.get(key);
+    if (!current) {
+      dimensionRows.set(key, nextRow);
+      continue;
+    }
+
+    current.business_ref_id ??= nextRow.business_ref_id;
+    current.provider_account_ref_id ??= nextRow.provider_account_ref_id;
+    current.first_seen_at = pickEarlierTimestamp(current.first_seen_at, nextRow.first_seen_at);
+    current.last_seen_at = pickLaterTimestamp(current.last_seen_at, nextRow.last_seen_at);
+    if (shouldReplaceDimensionSnapshot(current.source_updated_at, nextRow.source_updated_at)) {
+      current.product_title = nextRow.product_title;
+      current.projection_json = nextRow.projection_json;
+      current.source_updated_at = nextRow.source_updated_at;
+    } else {
+      current.source_updated_at = pickLaterTimestamp(
+        current.source_updated_at,
+        nextRow.source_updated_at,
+      );
+    }
+  }
+
+  if (dimensionRows.size <= 0) return;
+
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.product_id), '') AS product_id,
+          NULLIF(TRIM(record.product_title), '') AS product_title,
+          COALESCE(record.projection_json, '{}'::jsonb) AS projection_json,
+          record.first_seen_at AS first_seen_at,
+          record.last_seen_at AS last_seen_at,
+          record.source_updated_at AS source_updated_at
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          product_id text,
+          product_title text,
+          projection_json jsonb,
+          first_seen_at timestamptz,
+          last_seen_at timestamptz,
+          source_updated_at timestamptz
+        )
+      )
+      INSERT INTO shopify_product_dimensions (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        product_id,
+        product_title,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        updated_at
+      )
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        product_id,
+        product_title,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        now()
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+        AND product_id IS NOT NULL
+      ON CONFLICT (business_id, provider_account_id, shop_id, product_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_product_dimensions.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_product_dimensions.provider_account_ref_id),
+        product_title = COALESCE(EXCLUDED.product_title, shopify_product_dimensions.product_title),
+        projection_json = CASE
+          WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_product_dimensions.projection_json
+          ELSE EXCLUDED.projection_json
+        END,
+        first_seen_at = COALESCE(shopify_product_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+        last_seen_at = GREATEST(COALESCE(shopify_product_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+        source_updated_at = GREATEST(COALESCE(shopify_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+        updated_at = now()
+    `,
+    [JSON.stringify(Array.from(dimensionRows.values()))],
+  );
+}
+
+async function upsertShopifyVariantDimensions(
+  rows: ShopifyOrderLineWarehouseRow[],
+  referenceContext: ShopifyCanonicalReferenceContext,
+  sql: ShopifySql,
+) {
+  const dimensionRows = new Map<string, ShopifyVariantDimensionUpsertRow>();
+
+  for (const row of rows) {
+    const businessId = normalizeText(row.businessId);
+    const providerAccountId = normalizeText(row.providerAccountId);
+    const shopId = normalizeText(row.shopId);
+    const variantId = normalizeText(row.variantId);
+    if (!businessId || !providerAccountId || !shopId || !variantId) continue;
+
+    const sourceUpdatedAt = normalizeTimestamp(row.observedAt);
+    const key = `${businessId}::${providerAccountId}::${shopId}::${variantId}`;
+    const nextRow: ShopifyVariantDimensionUpsertRow = {
+      business_id: businessId,
+      business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+      provider_account_id: providerAccountId,
+      provider_account_ref_id:
+        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+      shop_id: shopId,
+      product_id: normalizeText(row.productId),
+      variant_id: variantId,
+      sku: normalizeText(row.sku),
+      product_title: normalizeText(row.title),
+      variant_title: normalizeText(row.variantTitle),
+      projection_json: {},
+      first_seen_at: sourceUpdatedAt,
+      last_seen_at: sourceUpdatedAt,
+      source_updated_at: sourceUpdatedAt,
+    };
+    const current = dimensionRows.get(key);
+    if (!current) {
+      dimensionRows.set(key, nextRow);
+      continue;
+    }
+
+    current.business_ref_id ??= nextRow.business_ref_id;
+    current.provider_account_ref_id ??= nextRow.provider_account_ref_id;
+    current.first_seen_at = pickEarlierTimestamp(current.first_seen_at, nextRow.first_seen_at);
+    current.last_seen_at = pickLaterTimestamp(current.last_seen_at, nextRow.last_seen_at);
+    if (shouldReplaceDimensionSnapshot(current.source_updated_at, nextRow.source_updated_at)) {
+      current.product_id = nextRow.product_id;
+      current.sku = nextRow.sku;
+      current.product_title = nextRow.product_title;
+      current.variant_title = nextRow.variant_title;
+      current.projection_json = nextRow.projection_json;
+      current.source_updated_at = nextRow.source_updated_at;
+    } else {
+      current.source_updated_at = pickLaterTimestamp(
+        current.source_updated_at,
+        nextRow.source_updated_at,
+      );
+    }
+  }
+
+  if (dimensionRows.size <= 0) return;
+
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.product_id), '') AS product_id,
+          NULLIF(TRIM(record.variant_id), '') AS variant_id,
+          NULLIF(TRIM(record.sku), '') AS sku,
+          NULLIF(TRIM(record.product_title), '') AS product_title,
+          NULLIF(TRIM(record.variant_title), '') AS variant_title,
+          COALESCE(record.projection_json, '{}'::jsonb) AS projection_json,
+          record.first_seen_at AS first_seen_at,
+          record.last_seen_at AS last_seen_at,
+          record.source_updated_at AS source_updated_at
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          product_id text,
+          variant_id text,
+          sku text,
+          product_title text,
+          variant_title text,
+          projection_json jsonb,
+          first_seen_at timestamptz,
+          last_seen_at timestamptz,
+          source_updated_at timestamptz
+        )
+      )
+      INSERT INTO shopify_variant_dimensions (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        product_id,
+        variant_id,
+        sku,
+        product_title,
+        variant_title,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        updated_at
+      )
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        product_id,
+        variant_id,
+        sku,
+        product_title,
+        variant_title,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        now()
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+        AND variant_id IS NOT NULL
+      ON CONFLICT (business_id, provider_account_id, shop_id, variant_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_variant_dimensions.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_variant_dimensions.provider_account_ref_id),
+        product_id = COALESCE(EXCLUDED.product_id, shopify_variant_dimensions.product_id),
+        sku = COALESCE(EXCLUDED.sku, shopify_variant_dimensions.sku),
+        product_title = COALESCE(EXCLUDED.product_title, shopify_variant_dimensions.product_title),
+        variant_title = COALESCE(EXCLUDED.variant_title, shopify_variant_dimensions.variant_title),
+        projection_json = CASE
+          WHEN EXCLUDED.projection_json = '{}'::jsonb THEN shopify_variant_dimensions.projection_json
+          ELSE EXCLUDED.projection_json
+        END,
+        first_seen_at = COALESCE(shopify_variant_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+        last_seen_at = GREATEST(COALESCE(shopify_variant_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+        source_updated_at = GREATEST(COALESCE(shopify_variant_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+        updated_at = now()
+    `,
+    [JSON.stringify(Array.from(dimensionRows.values()))],
+  );
+}
+
 export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_orders");
@@ -370,6 +1030,8 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
       `;
       written += 1;
     }
+    await upsertShopifyShopDimensions(chunk, referenceContext, sql);
+    await upsertShopifyCustomerDimensions(chunk, referenceContext, sql);
   }
 
   return written;
@@ -456,6 +1118,8 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
       `;
       written += 1;
     }
+    await upsertShopifyProductDimensions(chunk, referenceContext, sql);
+    await upsertShopifyVariantDimensions(chunk, referenceContext, sql);
   }
 
   return written;
