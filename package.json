@@ -27,6 +27,8 @@
     "meta:reset": "node --import tsx scripts/reset-meta-stack.ts",
     "meta:smoke": "node --import tsx scripts/meta-warehouse-smoke.ts",
     "meta:state-check": "node --import tsx scripts/meta-state-check.ts",
+    "meta:parity": "node --import tsx scripts/meta-parity-check.ts",
+    "meta:short-gate:benchmark": "node --import tsx scripts/meta-short-gate-benchmark.ts",
     "meta:progress-diff": "node --import tsx scripts/meta-progress-diff.ts",
     "meta:cleanup": "node --import tsx scripts/meta-cleanup.ts",
     "meta:replay-dead-letter": "node --import tsx scripts/meta-replay-dead-letter.ts",

@@ -1,0 +1,31 @@
+{
+  "createdAt": "2026-04-17T22:22:02.642Z",
+  "businessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+  "startDate": "2026-03-18",
+  "endDate": "2026-04-16",
+  "creativeBusinessId": "172d0ab8-495b-4679-a4c6-ffa404c389d3",
+  "historicalCreativesBaselineFile": "docs/benchmarks/overview-final-2026-04-07.json",
+  "scenarios": [
+    {
+      "name": "meta_campaigns_30d",
+      "averageMs": 6637.1,
+      "p95Ms": 9173.85,
+      "sampleCardinality": 48,
+      "validityNote": "valid"
+    },
+    {
+      "name": "meta_adsets_30d",
+      "averageMs": 4060.12,
+      "p95Ms": 4308.68,
+      "sampleCardinality": 94,
+      "validityNote": "valid"
+    },
+    {
+      "name": "meta_breakdowns_30d",
+      "averageMs": 3047.45,
+      "p95Ms": 3430.78,
+      "sampleCardinality": 142,
+      "validityNote": "valid"
+    }
+  ]
+}

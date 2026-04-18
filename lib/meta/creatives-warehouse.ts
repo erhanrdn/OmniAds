@@ -78,7 +78,7 @@ function buildCreativeUsageMap(rows: RawCreativeRow[]) {
   return map;
 }
 
-function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
+export function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Partial<RawCreativeRow>;
   if (typeof row.id === "string" && typeof row.creative_id === "string" && "copy_text" in row) {
@@ -227,7 +227,7 @@ function coerceRawCreativeRow(value: unknown): RawCreativeRow | null {
   } satisfies RawCreativeRow;
 }
 
-function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input: {
+export function hydrateWarehouseCreativeMetrics<T extends RawCreativeRow>(input: {
   row: T;
   factRow: MetaAdDailyRow | MetaCreativeDailyRow;
 }) {
