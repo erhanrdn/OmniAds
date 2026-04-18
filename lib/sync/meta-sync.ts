@@ -2172,6 +2172,7 @@ async function syncMetaPartitionDay(input: {
           leaseMinutes: META_PARTITION_LEASE_MINUTES,
           freshStart,
           truthState,
+          lane: input.lane,
           sourceRunId: input.partitionId,
           source: input.source,
         }),

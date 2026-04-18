@@ -41,6 +41,7 @@ vi.mock("@/lib/meta/warehouse", () => ({
   replaceMetaCampaignDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaAdSetDailySlice: vi.fn().mockResolvedValue(undefined),
   replaceMetaBreakdownDailySlice: vi.fn().mockResolvedValue(undefined),
+  refreshMetaAccountDailyOverviewSummary: vi.fn().mockResolvedValue(undefined),
   upsertMetaSyncCheckpoint: vi.fn().mockResolvedValue("checkpoint-id"),
   upsertMetaSyncPhaseTiming: vi.fn().mockResolvedValue("phase-timing-id"),
   updateMetaSyncJob: vi.fn(),
@@ -74,6 +75,7 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
     vi.mocked(warehouse.upsertMetaCampaignDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdSetDailyRows).mockResolvedValue(undefined);
     vi.mocked(warehouse.upsertMetaAdDailyRows).mockResolvedValue(undefined);
+    vi.mocked(warehouse.refreshMetaAccountDailyOverviewSummary).mockResolvedValue(undefined);
     vi.mocked(warehouse.createMetaAuthoritativeSourceManifest).mockResolvedValue({
       id: "manifest-1",
     } as never);
@@ -1418,6 +1420,259 @@ describe("syncMetaAccountCoreWarehouseDay", () => {
         leaseMinutes: 15,
       })
     ).rejects.toThrow("Meta core truth incomplete");
+  });
+
+  it("emits ordered account core sub-stage logs on success", async () => {
+    process.env.APP_LOG_LEVEL = "info";
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(
+          JSON.stringify({ data: [{ spend: "12.50" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "cmp-1",
+                name: "Campaign 1",
+                objective: "OUTCOME_SALES",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "25",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "adset-1",
+                name: "Adset 1",
+                campaign_id: "cmp-1",
+                optimization_goal: "omni_purchase",
+                effective_status: "ACTIVE",
+                status: "ACTIVE",
+                daily_budget: "10",
+                bid_strategy: "LOWEST_COST_WITH_BID_CAP",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await syncMetaAccountCoreWarehouseDay({
+      credentials: {
+        businessId: "biz-1",
+        accessToken: "token-1",
+        accountIds: ["act_1"],
+        currency: "USD",
+        accountProfiles: {
+          act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+        },
+      },
+      accountId: "act_1",
+      day: "2026-04-03",
+      partitionId: "partition-ordered-stages",
+      workerId: "worker-1",
+      leaseEpoch: 11,
+      attemptCount: 1,
+      leaseMinutes: 15,
+      lane: "maintenance",
+      source: "finalize_day",
+    });
+
+    const stages = infoSpy.mock.calls
+      .filter(
+        ([message, payload]) =>
+          message === "[meta-sync] partition_stage" &&
+          typeof payload === "object" &&
+          payload != null &&
+          String((payload as { stage?: string }).stage ?? "").startsWith(
+            "syncMetaAccountCoreWarehouseDay.",
+          ),
+      )
+      .map(([, payload]) => (payload as { stage: string }).stage);
+
+    expect(stages).toEqual([
+      "syncMetaAccountCoreWarehouseDay.restore_raw_pages",
+      "syncMetaAccountCoreWarehouseDay.fetch_source_pages",
+      "syncMetaAccountCoreWarehouseDay.fetch_remote_configs",
+      "syncMetaAccountCoreWarehouseDay.fetch_source_account_spend",
+      "syncMetaAccountCoreWarehouseDay.read_latest_config_snapshots",
+      "syncMetaAccountCoreWarehouseDay.build_daily_rows",
+      "syncMetaAccountCoreWarehouseDay.create_authoritative_manifest",
+      "syncMetaAccountCoreWarehouseDay.create_slice_versions",
+      "syncMetaAccountCoreWarehouseDay.write_account_daily",
+      "syncMetaAccountCoreWarehouseDay.write_campaign_daily",
+      "syncMetaAccountCoreWarehouseDay.write_adset_daily",
+      "syncMetaAccountCoreWarehouseDay.write_ad_daily",
+      "syncMetaAccountCoreWarehouseDay.persist_campaign_config_snapshots",
+      "syncMetaAccountCoreWarehouseDay.append_adset_config_snapshots",
+      "syncMetaAccountCoreWarehouseDay.refresh_overview_summary",
+      "syncMetaAccountCoreWarehouseDay.finalize_phase_timings",
+    ]);
+    expect(warehouse.refreshMetaAccountDailyOverviewSummary).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ providerAccountId: "act_1" })]),
+    );
+
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("attributes account core timeout failures to the exact write sub-stage", async () => {
+    process.env.APP_LOG_LEVEL = "info";
+    vi.mocked(warehouse.getMetaSyncCheckpoint).mockResolvedValue(null);
+    vi.mocked(warehouse.replaceMetaAccountDailySlice).mockRejectedValueOnce(
+      new Error("Database query timed out after 60000ms"),
+    );
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/insights") && url.includes("level=account")) {
+        return new Response(
+          JSON.stringify({ data: [{ spend: "12.50" }] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/insights")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                campaign_id: "cmp-1",
+                campaign_name: "Campaign 1",
+                adset_id: "adset-1",
+                adset_name: "Adset 1",
+                ad_id: "ad-1",
+                ad_name: "Ad 1",
+                spend: "12.50",
+                impressions: "100",
+                clicks: "4",
+                reach: "90",
+                frequency: "1.11",
+                ctr: "4.0",
+                cpm: "125.0",
+                actions: [],
+                action_values: [],
+                purchase_roas: [],
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/campaigns")) {
+        return new Response(
+          JSON.stringify({
+            data: [{ id: "cmp-1", effective_status: "ACTIVE", status: "ACTIVE" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("/adsets")) {
+        return new Response(
+          JSON.stringify({ data: [] }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      syncMetaAccountCoreWarehouseDay({
+        credentials: {
+          businessId: "biz-1",
+          accessToken: "token-1",
+          accountIds: ["act_1"],
+          currency: "USD",
+          accountProfiles: {
+            act_1: { currency: "USD", timezone: "UTC", name: "Account 1" },
+          },
+        },
+        accountId: "act_1",
+        day: "2026-04-03",
+        partitionId: "partition-write-timeout",
+        workerId: "worker-1",
+        leaseEpoch: 11,
+        attemptCount: 1,
+        leaseMinutes: 15,
+        lane: "maintenance",
+        source: "finalize_day",
+      }),
+    ).rejects.toThrow("Database query timed out after 60000ms");
+
+    const failedStagePayload = warnSpy.mock.calls
+      .filter(
+        ([message, payload]) =>
+          message === "[meta-sync] partition_stage_failed" &&
+          typeof payload === "object" &&
+          payload != null &&
+          String((payload as { stage?: string }).stage ?? "").startsWith(
+            "syncMetaAccountCoreWarehouseDay.",
+          ),
+      )
+      .map(([, payload]) => payload as { stage: string; ok: boolean; errorMessage?: string | null });
+
+    expect(failedStagePayload).toContainEqual(
+      expect.objectContaining({
+        stage: "syncMetaAccountCoreWarehouseDay.write_account_daily",
+        ok: false,
+        errorMessage: "Database query timed out after 60000ms",
+      }),
+    );
+    expect(infoSpy.mock.calls.some(([, payload]) =>
+      typeof payload === "object" &&
+      payload != null &&
+      (payload as { stage?: string }).stage === "syncMetaAccountCoreWarehouseDay.write_campaign_daily",
+    )).toBe(false);
+
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it("does not write historical single-day live campaign reads back into warehouse", async () => {

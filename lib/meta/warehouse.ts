@@ -6831,7 +6831,25 @@ export async function getLatestMetaRawSnapshot(input: {
   return rows[0] ?? null;
 }
 
-export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
+export async function refreshMetaAccountDailyOverviewSummary(
+  rows: MetaAccountDailyRow[],
+) {
+  if (rows.length === 0) return;
+  await refreshOverviewSummaryMaterializationFromMetaAccountRows(rows).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn("[meta-warehouse] overview summary refresh failed", {
+      businessId: rows[0]?.businessId ?? null,
+      message,
+    });
+  });
+}
+
+export async function upsertMetaAccountDailyRows(
+  rows: MetaAccountDailyRow[],
+  options: {
+    skipOverviewSummaryRefresh?: boolean;
+  } = {},
+) {
   if (rows.length === 0) return;
   await assertMetaMutationTablesReady("meta_warehouse");
   const sql = getDb();
@@ -7001,13 +7019,9 @@ export async function upsertMetaAccountDailyRows(rows: MetaAccountDailyRow[]) {
       `;
     await sql.query(query, values);
   }
-  await refreshOverviewSummaryMaterializationFromMetaAccountRows(rows).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn("[meta-warehouse] overview summary refresh failed", {
-      businessId: rows[0]?.businessId ?? null,
-      message,
-    });
-  });
+  if (!options.skipOverviewSummaryRefresh) {
+    await refreshMetaAccountDailyOverviewSummary(rows);
+  }
 }
 
 export async function upsertMetaCampaignDailyRows(rows: MetaCampaignDailyRow[]) {
@@ -7528,6 +7542,7 @@ export async function upsertMetaAdSetDailyRows(rows: MetaAdSetDailyRow[]) {
 export async function replaceMetaAccountDailySlice(input: {
   rows: MetaAccountDailyRow[];
   proof: MetaFinalizationCompletenessProof;
+  skipOverviewSummaryRefresh?: boolean;
 }) {
   if (input.rows.length === 0) return;
   const slice = {
@@ -7537,7 +7552,9 @@ export async function replaceMetaAccountDailySlice(input: {
     scope: "account",
   } as const;
   assertMetaFinalizationCompletenessProof(input.proof, slice);
-  await upsertMetaAccountDailyRows(input.rows);
+  await upsertMetaAccountDailyRows(input.rows, {
+    skipOverviewSummaryRefresh: input.skipOverviewSummaryRefresh,
+  });
 }
 
 export async function replaceMetaCampaignDailySlice(input: {
