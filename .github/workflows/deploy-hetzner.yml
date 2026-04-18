@@ -393,19 +393,24 @@ jobs:
               }
 
               verify_local_sync_control_plane() {
+                provider_scope="${1:-meta}"
+                build_info_url="http://127.0.0.1:3000/api/build-info"
+                if [ "${provider_scope}" != "meta" ]; then
+                  build_info_url="${build_info_url}?providerScope=${provider_scope}"
+                fi
                 attempt=1
                 max_attempts=6
                 sleep_seconds=5
 
                 while [ "${attempt}" -le "${max_attempts}" ]; do
-                  if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)" &&
+                  if build_info_json="$(curl -fsS "${build_info_url}" 2>/dev/null)" &&
                     BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; exact=((payload.get("controlPlanePersistence") or {}).get("exactRowsPresent")) is True; raise SystemExit(0 if ((payload.get("buildId") or "") == expected and exact and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id")) else 1)'
                   then
-                    echo "local_control_plane_ready=yes attempt=${attempt}/${max_attempts}"
+                    echo "local_control_plane_ready=yes provider_scope=${provider_scope} attempt=${attempt}/${max_attempts}"
                     return 0
                   fi
 
-                  echo "local_control_plane_ready=no attempt=${attempt}/${max_attempts}"
+                  echo "local_control_plane_ready=no provider_scope=${provider_scope} attempt=${attempt}/${max_attempts}"
                   attempt=$((attempt + 1))
                   if [ "${attempt}" -le "${max_attempts}" ]; then
                     sleep "${sleep_seconds}"
@@ -416,13 +421,14 @@ jobs:
               }
 
               persist_sync_control_plane_via_web() {
+                provider_scope="${1:-meta}"
                 cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || \"\")')"
                 if [ -z "${cron_secret}" ]; then
                   echo "CRON_SECRET is missing from the web runtime."
                   return 1
                 fi
 
-                query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1"
+                query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1&providerScope=${provider_scope}"
                 if [ "${BREAK_GLASS}" = "true" ]; then
                   encoded_override_reason="$(
                     python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
@@ -435,8 +441,10 @@ jobs:
               }
 
               persist_sync_control_plane() {
-                persist_sync_control_plane_via_web
-                verify_local_sync_control_plane
+                persist_sync_control_plane_via_web meta
+                verify_local_sync_control_plane meta
+                persist_sync_control_plane_via_web google_ads
+                verify_local_sync_control_plane google_ads
               }
 
               verify_service_image() {

@@ -33,6 +33,11 @@ function isTruthyQueryParam(value: string | null) {
   return normalized === "1" || normalized === "true";
 }
 
+function normalizeProviderScope(value: string | null) {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : "meta";
+}
+
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -48,6 +53,7 @@ export async function POST(request: NextRequest) {
   const url = new URL(request.url);
   const controlPlaneOnly = isTruthyQueryParam(url.searchParams.get("controlPlaneOnly"));
   const requestedBuildId = url.searchParams.get("buildId")?.trim() || undefined;
+  const providerScope = normalizeProviderScope(url.searchParams.get("providerScope"));
   const breakGlass = isTruthyQueryParam(url.searchParams.get("breakGlass"));
   const enforceDeployGate = isTruthyQueryParam(url.searchParams.get("enforceDeployGate"));
   const overrideReason = url.searchParams.get("overrideReason")?.trim() || null;
@@ -67,6 +73,7 @@ export async function POST(request: NextRequest) {
         {
           ok: false,
           controlPlaneOnly: true,
+          providerScope,
           error: "gate_evaluation_failed",
         },
         { status: 500 },
@@ -75,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     const repairPlan = await evaluateAndPersistSyncRepairPlan({
       buildId: requestedBuildId,
-      providerScope: "meta",
+      providerScope,
       releaseGate: gateVerdicts.releaseGate,
     }).catch((error) => {
       console.error("[sync-cron] control_plane_repair_plan_failed", error);
@@ -87,6 +94,7 @@ export async function POST(request: NextRequest) {
         {
           ok: false,
           controlPlaneOnly: true,
+          providerScope,
           gateVerdicts,
           error: "repair_plan_failed",
         },
@@ -99,6 +107,7 @@ export async function POST(request: NextRequest) {
       {
         ok: !blocked,
         controlPlaneOnly: true,
+        providerScope,
         gateVerdicts,
         repairPlan,
       },

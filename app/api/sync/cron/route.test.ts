@@ -198,6 +198,7 @@ describe("POST /api/sync/cron", () => {
 
     expect(response.status).toBe(200);
     expect(payload.controlPlaneOnly).toBe(true);
+    expect(payload.providerScope).toBe("meta");
     expect(activeBusinesses.getActiveBusinesses).not.toHaveBeenCalled();
     expect(metaSync.enqueueMetaScheduledWork).not.toHaveBeenCalled();
     expect(releaseGates.evaluateAndPersistSyncGates).toHaveBeenCalledWith({
@@ -208,6 +209,30 @@ describe("POST /api/sync/cron", () => {
     expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith({
       buildId: "build-123",
       providerScope: "meta",
+      releaseGate: expect.objectContaining({
+        gateKind: "release_gate",
+      }),
+    });
+  });
+
+  it("supports provider-scoped control-plane repair plans", async () => {
+    const request = new NextRequest(
+      "http://localhost/api/sync/cron?controlPlaneOnly=1&buildId=build-123&providerScope=google_ads&enforceDeployGate=1",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      },
+    );
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.controlPlaneOnly).toBe(true);
+    expect(payload.providerScope).toBe("google_ads");
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith({
+      buildId: "build-123",
+      providerScope: "google_ads",
       releaseGate: expect.objectContaining({
         gateKind: "release_gate",
       }),
