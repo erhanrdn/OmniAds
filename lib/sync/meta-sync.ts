@@ -4815,7 +4815,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
         status = 'cancelled',
         lease_owner = NULL,
         lease_expires_at = NULL,
-        finished_at = COALESCE(finished_at, now()),
+        finished_at = COALESCE(run.finished_at, now()),
         business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
         last_error = CASE
           WHEN id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(last_error, 'historical finalize_day partition reclassified automatically')
