@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { META_PRODUCT_CORE_COVERAGE_SCOPES } from "@/lib/meta/core-config";
-import { getDb, getDbWithTimeout } from "@/lib/db";
+import { getDb, getDbWithTimeout, runDbTransaction } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
   ensureProviderAccountReferenceIds,
@@ -342,19 +342,7 @@ function deriveMetaDirtyRecentFlags(input: {
 }
 
 async function runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
-  const sql = getDb();
-  if (typeof sql.query !== "function") {
-    return fn();
-  }
-  await sql.query("BEGIN");
-  try {
-    const result = await fn();
-    await sql.query("COMMIT");
-    return result;
-  } catch (error) {
-    await sql.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  }
+  return runDbTransaction(fn);
 }
 
 let cachedMetaTruthLifecycleColumnsAvailable: boolean | null = null;

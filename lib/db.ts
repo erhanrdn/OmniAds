@@ -1,4 +1,5 @@
-import { Pool, type PoolConfig } from "pg";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { logStartupEvent } from "@/lib/startup-diagnostics";
 
 const DEFAULT_WEB_DB_TIMEOUT_MS = 8_000;
@@ -96,6 +97,10 @@ export type DbClient = (<TRow extends DbRow = DbRow>(
     params?: unknown[],
   ) => Promise<TRow[]>;
 };
+
+type DbQueryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
+
+const dbTransactionStorage = new AsyncLocalStorage<DbClient>();
 
 function nowIso() {
   return new Date().toISOString();
@@ -543,7 +548,17 @@ function createPool(settings: DbRuntimeSettings) {
   return pool;
 }
 
-function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeoutMs: number): DbClient {
+function createWrappedDbExecutor(
+  queryable: DbQueryable,
+  settings: DbRuntimeSettings,
+  defaultTimeoutMs: number,
+  options?: {
+    pool?: Pool;
+    allowRetries?: boolean;
+  },
+): DbClient {
+  const pool = options?.pool;
+  const allowRetries = options?.allowRetries ?? true;
   const executeQuery = async <TRow extends DbRow = DbRow>(
     queryText: string,
     params: unknown[] = [],
@@ -551,12 +566,13 @@ function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeout
     const metrics = getDbMetrics();
     metrics.queryCount += 1;
     let retried = false;
+    const maxAttempts = allowRetries ? settings.retryAttempts : 0;
 
-    for (let attempt = 0; attempt <= settings.retryAttempts; attempt += 1) {
+    for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       observePoolSnapshot(pool, metrics, settings.poolMax);
       try {
         const result = await withTimeout(
-          pool.query<TRow>(queryText, params.map(normalizeQueryValue)),
+          queryable.query<TRow>(queryText, params.map(normalizeQueryValue)),
           defaultTimeoutMs,
           "Database query",
         );
@@ -568,7 +584,7 @@ function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeout
         const classified = classifyDbError(error);
         recordDbError(metrics, classified);
         observePoolSnapshot(pool, metrics, settings.poolMax);
-        const canRetry = classified.retryable && attempt < settings.retryAttempts;
+        const canRetry = classified.retryable && attempt < maxAttempts;
         if (!canRetry) {
           metrics.failureCount += 1;
           throw error;
@@ -600,6 +616,13 @@ function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeout
       query: executeQuery,
     },
   );
+}
+
+function createWrappedDb(pool: Pool, settings: DbRuntimeSettings, defaultTimeoutMs: number): DbClient {
+  return createWrappedDbExecutor(pool, settings, defaultTimeoutMs, {
+    pool,
+    allowRetries: true,
+  });
 }
 
 export function getDbResolvedSettings() {
@@ -643,6 +666,10 @@ export function getDbRuntimeDiagnostics(): DbRuntimeDiagnostics {
  *   const rows = await sql`SELECT 1 AS ok`;
  */
 export function getDb() {
+  const transactionClient = dbTransactionStorage.getStore();
+  if (transactionClient) {
+    return transactionClient;
+  }
   const globalStore = getGlobalStore();
   if (globalStore.__omniadsDbWrapped) {
     return globalStore.__omniadsDbWrapped;
@@ -660,6 +687,10 @@ export function getDb() {
 }
 
 export function getDbWithTimeout(timeoutMs: number) {
+  const transactionClient = dbTransactionStorage.getStore();
+  if (transactionClient) {
+    return transactionClient;
+  }
   const globalStore = getGlobalStore();
   if (!globalStore.__omniadsDbPool) {
     const settings = resolveDbRuntimeSettings(process.env);
@@ -683,6 +714,45 @@ export function getDbWithTimeout(timeoutMs: number) {
     poolMax: settings.poolMax,
   });
   return wrapped;
+}
+
+export async function runDbTransaction<T>(
+  fn: () => Promise<T>,
+  options?: { timeoutMs?: number },
+): Promise<T> {
+  const existingTransactionClient = dbTransactionStorage.getStore();
+  if (existingTransactionClient) {
+    return fn();
+  }
+
+  const globalStore = getGlobalStore();
+  if (!globalStore.__omniadsDbPool) {
+    const settings = resolveDbRuntimeSettings(process.env);
+    globalStore.__omniadsDbSettings = settings;
+    globalStore.__omniadsDbPool = createPool(settings);
+    logStartupEvent("db_client_initialized", buildDbStartupDetails(settings));
+  }
+
+  const pool = globalStore.__omniadsDbPool;
+  const settings = getCachedOrResolvedDbSettings();
+  const client = await pool.connect();
+  const timeoutMs = options?.timeoutMs ?? getDbTimeoutMs();
+  const wrapped = createWrappedDbExecutor(client, settings, timeoutMs, {
+    pool,
+    allowRetries: false,
+  });
+
+  await wrapped.query("BEGIN");
+  try {
+    const result = await dbTransactionStorage.run(wrapped, fn);
+    await wrapped.query("COMMIT");
+    return result;
+  } catch (error) {
+    await wrapped.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export function resetDbClientCache() {

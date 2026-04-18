@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(),
+  runDbTransaction: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 vi.mock("@/lib/migrations", () => ({
@@ -1062,7 +1063,7 @@ describe("meta warehouse ownership safety", () => {
 
     expect(templateCalls).toHaveLength(1);
     expect(templateCalls[0]).toContain("country");
-    expect(queryCalls).toEqual(["BEGIN", "COMMIT"]);
+    expect(queryCalls).toEqual([]);
   });
 
   it("classifies dirty recent dates by severity and reason", async () => {
