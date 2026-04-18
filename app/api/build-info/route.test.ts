@@ -82,6 +82,19 @@ vi.mock("@/lib/sync/repair-planner", () => ({
     blockedReason: null,
     recommendations: [],
   })),
+  evaluateAndPersistSyncRepairPlan: vi.fn(async (input) => ({
+    id: "rp-healed",
+    buildId: input?.buildId ?? "build-1",
+    environment: input?.environment ?? "test",
+    providerScope: input?.providerScope ?? "meta",
+    planMode: "dry_run",
+    eligible: true,
+    blockedReason: null,
+    breakGlass: false,
+    summary: "Sync repair dry-run found no safe recommendations for the current build.",
+    recommendations: [],
+    emittedAt: "2026-04-15T12:00:00.000Z",
+  })),
 }));
 
 vi.mock("@/lib/sync/remediation-executions", () => ({
@@ -266,5 +279,119 @@ describe("GET /api/build-info", () => {
     });
     expect(payload.repairPlan.providerScope).toBe("google_ads");
     expect(payload.controlPlanePersistence.identity.providerScope).toBe("google_ads");
+  });
+
+  it("self-heals a missing exact repair plan for google_ads when gates already exist", async () => {
+    vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockImplementationOnce(async () => null);
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus)
+      .mockImplementationOnce(async (input) => ({
+        identity: {
+          buildId: "build-1",
+          environment: "production",
+          providerScope: input?.providerScope ?? "meta",
+        },
+        exact: {
+          deployGate: {
+            id: "dg-1",
+            buildId: "build-1",
+            environment: "production",
+            gateKind: "deploy_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-15T12:00:00.000Z",
+          },
+          releaseGate: {
+            id: "rg-1",
+            buildId: "build-1",
+            environment: "production",
+            gateKind: "release_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-15T12:00:00.000Z",
+          },
+          repairPlan: null,
+        },
+        fallbackByBuild: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        latest: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        missingExact: ["repairPlan"],
+        exactRowsPresent: false,
+      }))
+      .mockImplementationOnce(async (input) => ({
+        identity: {
+          buildId: "build-1",
+          environment: "production",
+          providerScope: input?.providerScope ?? "meta",
+        },
+        exact: {
+          deployGate: {
+            id: "dg-1",
+            buildId: "build-1",
+            environment: "production",
+            gateKind: "deploy_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-15T12:00:00.000Z",
+          },
+          releaseGate: {
+            id: "rg-1",
+            buildId: "build-1",
+            environment: "production",
+            gateKind: "release_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-15T12:00:00.000Z",
+          },
+          repairPlan: {
+            id: "rp-healed",
+            buildId: "build-1",
+            environment: "production",
+            providerScope: input?.providerScope ?? "meta",
+            eligible: true,
+            emittedAt: "2026-04-15T12:00:00.000Z",
+          },
+        },
+        fallbackByBuild: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        latest: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        missingExact: [],
+        exactRowsPresent: true,
+      }));
+
+    const response = await GET(
+      new Request("https://adsecute.com/api/build-info?providerScope=google_ads"),
+    );
+    const payload = await response.json();
+
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "build-1",
+        environment: "test",
+        providerScope: "google_ads",
+        persist: true,
+        releaseGate: expect.objectContaining({
+          id: "rg-1",
+        }),
+      }),
+    );
+    expect(payload.repairPlan).toMatchObject({
+      id: "rp-healed",
+      providerScope: "google_ads",
+    });
+    expect(payload.controlPlanePersistence).toMatchObject({
+      exactRowsPresent: true,
+      missingExact: [],
+    });
+    expect(payload.controlPlaneErrors.repairPlan).toBeNull();
   });
 });

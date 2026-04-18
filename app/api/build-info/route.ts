@@ -6,7 +6,10 @@ import {
   getRuntimeRegistryStatus,
 } from "@/lib/sync/runtime-contract";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
-import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
+import {
+  evaluateAndPersistSyncRepairPlan,
+  getLatestSyncRepairPlan,
+} from "@/lib/sync/repair-planner";
 import { getLatestSyncRepairExecutionSummary } from "@/lib/sync/remediation-executions";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { getSyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
@@ -78,13 +81,54 @@ export async function GET(request: Request) {
   ]);
   const registry = registryResult.value;
   const gates = gateResult.value;
-  const repairPlan = repairPlanResult.value;
+  let repairPlan = repairPlanResult.value;
+  let repairPlanError = repairPlanResult.error;
+  let persistence = persistenceResult.value;
+  let persistenceError = persistenceResult.error;
+
+  if (
+    registry &&
+    gates.releaseGate &&
+    persistence?.exact?.repairPlan == null
+  ) {
+    const healedRepairPlan = await evaluateAndPersistSyncRepairPlan({
+      ...controlPlaneIdentity,
+      persist: true,
+      releaseGate: gates.releaseGate,
+      runtimeRegistry: registry,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+
+    if (healedRepairPlan.value) {
+      repairPlan = healedRepairPlan.value;
+      repairPlanError = null;
+
+      const refreshedPersistence = await getSyncControlPlanePersistenceStatus({
+        ...controlPlaneIdentity,
+      })
+        .then((value) => ({ value, error: null }))
+        .catch((error) => ({
+          value: persistence,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+
+      persistence = refreshedPersistence.value;
+      persistenceError = refreshedPersistence.error;
+    } else if (!repairPlanError) {
+      repairPlanError = healedRepairPlan.error;
+    }
+  }
+
   return NextResponse.json(
     {
       buildId: getCurrentRuntimeBuildId(),
       nodeEnv: process.env.NODE_ENV ?? "unknown",
       controlPlaneIdentity,
-      controlPlanePersistence: persistenceResult.value,
+      controlPlanePersistence: persistence,
       runtimeContract: contract,
       runtimeRegistry: registry,
       deployGate: gates.deployGate,
@@ -94,9 +138,9 @@ export async function GET(request: Request) {
       controlPlaneErrors: {
         runtimeRegistry: registryResult.error,
         syncGates: gateResult.error,
-        repairPlan: repairPlanResult.error,
+        repairPlan: repairPlanError,
         remediationSummary: remediationSummaryResult.error,
-        controlPlanePersistence: persistenceResult.error,
+        controlPlanePersistence: persistenceError,
       },
     },
     {
