@@ -182,6 +182,7 @@ const GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES = [
 
 const SHOPIFY_CANONICAL_PROVIDER_REF_TABLES = [
   "shopify_raw_snapshots",
+  "shopify_entity_payload_archives",
   "shopify_shop_dimensions",
   "shopify_customer_dimensions",
   "shopify_product_dimensions",
@@ -3342,6 +3343,28 @@ export async function runMigrations(options?: {
           ON shopify_raw_snapshots (provider_account_id, fetched_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_raw_snapshots_endpoint
           ON shopify_raw_snapshots (endpoint_name, fetched_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS shopify_entity_payload_archives (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          shop_id                 TEXT NOT NULL,
+          entity_type             TEXT NOT NULL,
+          entity_id               TEXT NOT NULL,
+          parent_entity_id        TEXT,
+          payload_hash            TEXT NOT NULL,
+          payload_json            JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_snapshot_id      UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, shop_id, entity_type, entity_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_entity_payload_archives_business_account
+          ON shopify_entity_payload_archives (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_shopify_entity_payload_archives_entity
+          ON shopify_entity_payload_archives (entity_type, entity_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS shopify_shop_dimensions (
           id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id                TEXT NOT NULL,
@@ -4190,6 +4213,165 @@ export async function runMigrations(options?: {
             WHERE target.provider_account_ref_id IS NULL
               AND provider_account.provider = target.provider
               AND provider_account.external_account_id = target.provider_account_id
+          `,
+        ).catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        sql.query(
+          `
+            WITH source_rows AS (
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'order'::text AS entity_type,
+                order_id AS entity_id,
+                NULL::text AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                source_snapshot_id,
+                COALESCE(order_updated_at, order_created_at, updated_at) AS source_updated_at
+              FROM shopify_orders
+              WHERE payload_json <> '{}'::jsonb
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'order_line'::text AS entity_type,
+                line_item_id AS entity_id,
+                order_id AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                source_snapshot_id,
+                updated_at AS source_updated_at
+              FROM shopify_order_lines
+              WHERE payload_json <> '{}'::jsonb
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'refund'::text AS entity_type,
+                refund_id AS entity_id,
+                order_id AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                source_snapshot_id,
+                COALESCE(refunded_at, updated_at) AS source_updated_at
+              FROM shopify_refunds
+              WHERE payload_json <> '{}'::jsonb
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'transaction'::text AS entity_type,
+                transaction_id AS entity_id,
+                order_id AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                source_snapshot_id,
+                COALESCE(processed_at, updated_at) AS source_updated_at
+              FROM shopify_order_transactions
+              WHERE payload_json <> '{}'::jsonb
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'return'::text AS entity_type,
+                return_id AS entity_id,
+                order_id AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                source_snapshot_id,
+                COALESCE(updated_at_provider, created_at_provider, updated_at) AS source_updated_at
+              FROM shopify_returns
+              WHERE payload_json <> '{}'::jsonb
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'sales_event'::text AS entity_type,
+                event_id AS entity_id,
+                COALESCE(order_id, source_id) AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                source_snapshot_id,
+                COALESCE(occurred_at, updated_at) AS source_updated_at
+              FROM shopify_sales_events
+              WHERE payload_json <> '{}'::jsonb
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                shop_id,
+                'customer_event'::text AS entity_type,
+                event_id AS entity_id,
+                customer_id AS parent_entity_id,
+                md5(payload_json::text) AS payload_hash,
+                payload_json,
+                NULL::uuid AS source_snapshot_id,
+                COALESCE(occurred_at, updated_at) AS source_updated_at
+              FROM shopify_customer_events
+              WHERE payload_json <> '{}'::jsonb
+            )
+            INSERT INTO shopify_entity_payload_archives (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              entity_type,
+              entity_id,
+              parent_entity_id,
+              payload_hash,
+              payload_json,
+              source_snapshot_id,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              entity_type,
+              entity_id,
+              parent_entity_id,
+              payload_hash,
+              payload_json,
+              source_snapshot_id,
+              source_updated_at,
+              now()
+            FROM source_rows
+            ON CONFLICT (business_id, provider_account_id, shop_id, entity_type, entity_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_entity_payload_archives.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_entity_payload_archives.provider_account_ref_id),
+              parent_entity_id = COALESCE(EXCLUDED.parent_entity_id, shopify_entity_payload_archives.parent_entity_id),
+              payload_hash = EXCLUDED.payload_hash,
+              payload_json = EXCLUDED.payload_json,
+              source_snapshot_id = COALESCE(EXCLUDED.source_snapshot_id, shopify_entity_payload_archives.source_snapshot_id),
+              source_updated_at = GREATEST(COALESCE(shopify_entity_payload_archives.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
           `,
         ).catch(() => {}),
       ]);

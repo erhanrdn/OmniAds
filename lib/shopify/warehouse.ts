@@ -25,6 +25,7 @@ import type {
 
 const SHOPIFY_WAREHOUSE_TABLES = [
   "shopify_raw_snapshots",
+  "shopify_entity_payload_archives",
   "shopify_shop_dimensions",
   "shopify_customer_dimensions",
   "shopify_product_dimensions",
@@ -116,6 +117,30 @@ interface ShopifyVariantDimensionUpsertRow {
   source_updated_at: string | null;
 }
 
+type ShopifyPayloadArchiveEntityType =
+  | "order"
+  | "order_line"
+  | "refund"
+  | "transaction"
+  | "return"
+  | "sales_event"
+  | "customer_event";
+
+interface ShopifyPayloadArchiveUpsertRow {
+  business_id: string;
+  business_ref_id: string | null;
+  provider_account_id: string;
+  provider_account_ref_id: string | null;
+  shop_id: string;
+  entity_type: ShopifyPayloadArchiveEntityType;
+  entity_id: string;
+  parent_entity_id: string | null;
+  payload_hash: string;
+  payload_json: unknown;
+  source_snapshot_id: string | null;
+  source_updated_at: string | null;
+}
+
 function normalizeDate(value: unknown) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -145,6 +170,35 @@ function stripNullFields(input: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(input).filter(([, value]) => value != null),
   );
+}
+
+function hasMeaningfulJsonPayload(value: unknown) {
+  if (value == null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function buildShopifyPayloadArchiveHash(input: {
+  businessId: string;
+  providerAccountId: string;
+  shopId: string;
+  entityType: ShopifyPayloadArchiveEntityType;
+  entityId: string;
+  payloadJson: unknown;
+}) {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        shopId: input.shopId,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        payload: input.payloadJson,
+      }),
+    )
+    .digest("hex");
 }
 
 function pickEarlierTimestamp(current: string | null, candidate: string | null) {
@@ -912,6 +966,93 @@ async function upsertShopifyVariantDimensions(
   );
 }
 
+async function upsertShopifyPayloadArchives(
+  rows: ShopifyPayloadArchiveUpsertRow[],
+  sql: ShopifySql,
+) {
+  if (rows.length <= 0) return;
+
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.entity_type), '') AS entity_type,
+          NULLIF(TRIM(record.entity_id), '') AS entity_id,
+          NULLIF(TRIM(record.parent_entity_id), '') AS parent_entity_id,
+          NULLIF(TRIM(record.payload_hash), '') AS payload_hash,
+          COALESCE(record.payload_json, '{}'::jsonb) AS payload_json,
+          record.source_snapshot_id AS source_snapshot_id,
+          record.source_updated_at AS source_updated_at
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          entity_type text,
+          entity_id text,
+          parent_entity_id text,
+          payload_hash text,
+          payload_json jsonb,
+          source_snapshot_id uuid,
+          source_updated_at timestamptz
+        )
+      )
+      INSERT INTO shopify_entity_payload_archives (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        entity_type,
+        entity_id,
+        parent_entity_id,
+        payload_hash,
+        payload_json,
+        source_snapshot_id,
+        source_updated_at,
+        updated_at
+      )
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        entity_type,
+        entity_id,
+        parent_entity_id,
+        payload_hash,
+        payload_json,
+        source_snapshot_id,
+        source_updated_at,
+        now()
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+        AND entity_type IS NOT NULL
+        AND entity_id IS NOT NULL
+        AND payload_hash IS NOT NULL
+      ON CONFLICT (business_id, provider_account_id, shop_id, entity_type, entity_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_entity_payload_archives.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_entity_payload_archives.provider_account_ref_id),
+        parent_entity_id = COALESCE(EXCLUDED.parent_entity_id, shopify_entity_payload_archives.parent_entity_id),
+        payload_hash = EXCLUDED.payload_hash,
+        payload_json = EXCLUDED.payload_json,
+        source_snapshot_id = COALESCE(EXCLUDED.source_snapshot_id, shopify_entity_payload_archives.source_snapshot_id),
+        source_updated_at = GREATEST(COALESCE(shopify_entity_payload_archives.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+        updated_at = now()
+    `,
+    [JSON.stringify(rows)],
+  );
+}
+
 export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_orders");
@@ -961,7 +1102,6 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           total_price,
           original_total_price,
           current_total_price,
-          payload_json,
           source_snapshot_id,
           updated_at
         )
@@ -994,7 +1134,6 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           ${toNumber(row.totalPrice)},
           ${toNumber(row.originalTotalPrice)},
           ${toNumber(row.currentTotalPrice)},
-          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
           ${row.sourceSnapshotId ?? null},
           now()
         )
@@ -1024,12 +1163,41 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           total_price = EXCLUDED.total_price,
           original_total_price = EXCLUDED.original_total_price,
           current_total_price = EXCLUDED.current_total_price,
-          payload_json = EXCLUDED.payload_json,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
       `;
       written += 1;
     }
+    await upsertShopifyPayloadArchives(
+      chunk.flatMap((row) => {
+        if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+        return [
+          {
+            business_id: row.businessId,
+            business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+            provider_account_id: row.providerAccountId,
+            provider_account_ref_id:
+              referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+            shop_id: row.shopId,
+            entity_type: "order" as const,
+            entity_id: row.orderId,
+            parent_entity_id: null,
+            payload_hash: buildShopifyPayloadArchiveHash({
+              businessId: row.businessId,
+              providerAccountId: row.providerAccountId,
+              shopId: row.shopId,
+              entityType: "order",
+              entityId: row.orderId,
+              payloadJson: row.payloadJson,
+            }),
+            payload_json: row.payloadJson ?? {},
+            source_snapshot_id: row.sourceSnapshotId ?? null,
+            source_updated_at: normalizeTimestamp(row.orderUpdatedAt ?? row.orderCreatedAt),
+          },
+        ];
+      }),
+      sql,
+    );
     await upsertShopifyShopDimensions(chunk, referenceContext, sql);
     await upsertShopifyCustomerDimensions(chunk, referenceContext, sql);
   }
@@ -1074,7 +1242,6 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
           discounted_total,
           original_total,
           tax_total,
-          payload_json,
           source_snapshot_id,
           updated_at
         )
@@ -1095,7 +1262,6 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
           ${toNumber(row.discountedTotal)},
           ${toNumber(row.originalTotal)},
           ${toNumber(row.taxTotal)},
-          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
           ${row.sourceSnapshotId ?? null},
           now()
         )
@@ -1112,12 +1278,41 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
           discounted_total = EXCLUDED.discounted_total,
           original_total = EXCLUDED.original_total,
           tax_total = EXCLUDED.tax_total,
-          payload_json = EXCLUDED.payload_json,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
       `;
       written += 1;
     }
+    await upsertShopifyPayloadArchives(
+      chunk.flatMap((row) => {
+        if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+        return [
+          {
+            business_id: row.businessId,
+            business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+            provider_account_id: row.providerAccountId,
+            provider_account_ref_id:
+              referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+            shop_id: row.shopId,
+            entity_type: "order_line" as const,
+            entity_id: row.lineItemId,
+            parent_entity_id: row.orderId,
+            payload_hash: buildShopifyPayloadArchiveHash({
+              businessId: row.businessId,
+              providerAccountId: row.providerAccountId,
+              shopId: row.shopId,
+              entityType: "order_line",
+              entityId: row.lineItemId,
+              payloadJson: row.payloadJson,
+            }),
+            payload_json: row.payloadJson ?? {},
+            source_snapshot_id: row.sourceSnapshotId ?? null,
+            source_updated_at: normalizeTimestamp(row.observedAt),
+          },
+        ];
+      }),
+      sql,
+    );
     await upsertShopifyProductDimensions(chunk, referenceContext, sql);
     await upsertShopifyVariantDimensions(chunk, referenceContext, sql);
   }
@@ -1158,7 +1353,6 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         refunded_shipping,
         refunded_taxes,
         total_refunded,
-        payload_json,
         source_snapshot_id,
         updated_at
       )
@@ -1176,7 +1370,6 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         ${toNumber(row.refundedShipping)},
         ${toNumber(row.refundedTaxes)},
         ${toNumber(row.totalRefunded)},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
         ${row.sourceSnapshotId ?? null},
         now()
       )
@@ -1191,12 +1384,42 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         refunded_shipping = EXCLUDED.refunded_shipping,
         refunded_taxes = EXCLUDED.refunded_taxes,
         total_refunded = EXCLUDED.total_refunded,
-        payload_json = EXCLUDED.payload_json,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
     `;
     written += 1;
   }
+
+  await upsertShopifyPayloadArchives(
+    rows.flatMap((row) => {
+      if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+      return [
+        {
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          entity_type: "refund" as const,
+          entity_id: row.refundId,
+          parent_entity_id: row.orderId,
+          payload_hash: buildShopifyPayloadArchiveHash({
+            businessId: row.businessId,
+            providerAccountId: row.providerAccountId,
+            shopId: row.shopId,
+            entityType: "refund",
+            entityId: row.refundId,
+            payloadJson: row.payloadJson,
+          }),
+          payload_json: row.payloadJson ?? {},
+          source_snapshot_id: row.sourceSnapshotId ?? null,
+          source_updated_at: normalizeTimestamp(row.refundedAt),
+        },
+      ];
+    }),
+    sql,
+  );
 
   return written;
 }
@@ -1272,13 +1495,12 @@ export async function upsertShopifyOrderTransactions(
           processed_at,
           amount,
           currency_code,
-          payload_json,
           source_snapshot_id,
           updated_at
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9,
-          $10, $11, $12, $13, $14::jsonb, $15, now()
+          $10, $11, $12, $13, $14, now()
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
         DO UPDATE SET
@@ -1291,7 +1513,6 @@ export async function upsertShopifyOrderTransactions(
           processed_at = EXCLUDED.processed_at,
           amount = EXCLUDED.amount,
           currency_code = EXCLUDED.currency_code,
-          payload_json = EXCLUDED.payload_json,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()`,
         [
@@ -1308,7 +1529,6 @@ export async function upsertShopifyOrderTransactions(
           normalizeTimestamp(row.processedAt),
           toNumber(row.amount),
           row.currencyCode ?? null,
-          JSON.stringify(row.payloadJson ?? {}),
           row.sourceSnapshotId ?? null,
         ]
       );
@@ -1328,7 +1548,6 @@ export async function upsertShopifyOrderTransactions(
           processed_at,
           amount,
           currency_code,
-          payload_json,
           source_snapshot_id,
           updated_at
         )
@@ -1346,7 +1565,6 @@ export async function upsertShopifyOrderTransactions(
           ${normalizeTimestamp(row.processedAt)},
           ${toNumber(row.amount)},
           ${row.currencyCode ?? null},
-          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
           ${row.sourceSnapshotId ?? null},
           now()
         )
@@ -1361,7 +1579,6 @@ export async function upsertShopifyOrderTransactions(
           processed_at = EXCLUDED.processed_at,
           amount = EXCLUDED.amount,
           currency_code = EXCLUDED.currency_code,
-          payload_json = EXCLUDED.payload_json,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
       `;
@@ -1369,6 +1586,37 @@ export async function upsertShopifyOrderTransactions(
     input?.runtimeValidation?.log?.("recent_orders_transactions_row_upsert_succeeded", summary);
     written += 1;
   }
+
+  await upsertShopifyPayloadArchives(
+    rows.flatMap((row) => {
+      if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+      return [
+        {
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          entity_type: "transaction" as const,
+          entity_id: row.transactionId,
+          parent_entity_id: row.orderId,
+          payload_hash: buildShopifyPayloadArchiveHash({
+            businessId: row.businessId,
+            providerAccountId: row.providerAccountId,
+            shopId: row.shopId,
+            entityType: "transaction",
+            entityId: row.transactionId,
+            payloadJson: row.payloadJson,
+          }),
+          payload_json: row.payloadJson ?? {},
+          source_snapshot_id: row.sourceSnapshotId ?? null,
+          source_updated_at: normalizeTimestamp(row.processedAt),
+        },
+      ];
+    }),
+    sql,
+  );
 
   return written;
 }
@@ -1405,7 +1653,6 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         created_date_local,
         updated_at_provider,
         updated_date_local,
-        payload_json,
         source_snapshot_id,
         updated_at
       )
@@ -1422,7 +1669,6 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         ${normalizeDate(row.createdDateLocal)},
         ${normalizeTimestamp(row.updatedAt)},
         ${normalizeDate(row.updatedDateLocal)},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
         ${row.sourceSnapshotId ?? null},
         now()
       )
@@ -1436,12 +1682,42 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         created_date_local = EXCLUDED.created_date_local,
         updated_at_provider = EXCLUDED.updated_at_provider,
         updated_date_local = EXCLUDED.updated_date_local,
-        payload_json = EXCLUDED.payload_json,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
     `;
     written += 1;
   }
+
+  await upsertShopifyPayloadArchives(
+    rows.flatMap((row) => {
+      if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+      return [
+        {
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          entity_type: "return" as const,
+          entity_id: row.returnId,
+          parent_entity_id: row.orderId ?? null,
+          payload_hash: buildShopifyPayloadArchiveHash({
+            businessId: row.businessId,
+            providerAccountId: row.providerAccountId,
+            shopId: row.shopId,
+            entityType: "return",
+            entityId: row.returnId,
+            payloadJson: row.payloadJson,
+          }),
+          payload_json: row.payloadJson ?? {},
+          source_snapshot_id: row.sourceSnapshotId ?? null,
+          source_updated_at: normalizeTimestamp(row.updatedAt ?? row.createdAt),
+        },
+      ];
+    }),
+    sql,
+  );
 
   return written;
 }
@@ -1517,13 +1793,12 @@ export async function upsertShopifySalesEvents(
           refunded_taxes,
           net_revenue,
           currency_code,
-          payload_json,
           source_snapshot_id,
           updated_at
         )
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9,
-          $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19, now()
+          $10, $11, $12, $13, $14, $15, $16, $17, $18, now()
         )
         ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
         DO UPDATE SET
@@ -1540,7 +1815,6 @@ export async function upsertShopifySalesEvents(
           refunded_taxes = EXCLUDED.refunded_taxes,
           net_revenue = EXCLUDED.net_revenue,
           currency_code = EXCLUDED.currency_code,
-          payload_json = EXCLUDED.payload_json,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()`,
         [
@@ -1561,7 +1835,6 @@ export async function upsertShopifySalesEvents(
           toNumber(row.refundedTaxes),
           toNumber(row.netRevenue),
           row.currencyCode ?? null,
-          JSON.stringify(row.payloadJson ?? {}),
           row.sourceSnapshotId ?? null,
         ]
       );
@@ -1585,7 +1858,6 @@ export async function upsertShopifySalesEvents(
           refunded_taxes,
           net_revenue,
           currency_code,
-          payload_json,
           source_snapshot_id,
           updated_at
         )
@@ -1607,7 +1879,6 @@ export async function upsertShopifySalesEvents(
           ${toNumber(row.refundedTaxes)},
           ${toNumber(row.netRevenue)},
           ${row.currencyCode ?? null},
-          ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
           ${row.sourceSnapshotId ?? null},
           now()
         )
@@ -1626,7 +1897,6 @@ export async function upsertShopifySalesEvents(
           refunded_taxes = EXCLUDED.refunded_taxes,
           net_revenue = EXCLUDED.net_revenue,
           currency_code = EXCLUDED.currency_code,
-          payload_json = EXCLUDED.payload_json,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
       `;
@@ -1634,6 +1904,37 @@ export async function upsertShopifySalesEvents(
     input?.runtimeValidation?.log?.("recent_orders_sales_events_row_upsert_succeeded", summary);
     written += 1;
   }
+
+  await upsertShopifyPayloadArchives(
+    rows.flatMap((row) => {
+      if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+      return [
+        {
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          entity_type: "sales_event" as const,
+          entity_id: row.eventId,
+          parent_entity_id: row.orderId ?? row.sourceId,
+          payload_hash: buildShopifyPayloadArchiveHash({
+            businessId: row.businessId,
+            providerAccountId: row.providerAccountId,
+            shopId: row.shopId,
+            entityType: "sales_event",
+            entityId: row.eventId,
+            payloadJson: row.payloadJson,
+          }),
+          payload_json: row.payloadJson ?? {},
+          source_snapshot_id: row.sourceSnapshotId ?? null,
+          source_updated_at: normalizeTimestamp(row.occurredAt),
+        },
+      ];
+    }),
+    sql,
+  );
 
   return written;
 }
@@ -2070,7 +2371,6 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
         page_type,
         page_url,
         consent_state,
-        payload_json,
         updated_at
       )
       VALUES (
@@ -2087,7 +2387,6 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
         ${row.pageType ?? null},
         ${row.pageUrl ?? null},
         ${row.consentState ?? null},
-        ${JSON.stringify(row.payloadJson ?? {})}::jsonb,
         now()
       )
       ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
@@ -2104,11 +2403,41 @@ export async function upsertShopifyCustomerEvents(rows: ShopifyCustomerEventWare
         page_type = EXCLUDED.page_type,
         page_url = EXCLUDED.page_url,
         consent_state = EXCLUDED.consent_state,
-        payload_json = EXCLUDED.payload_json,
         updated_at = now()
     `;
     written += 1;
   }
+
+  await upsertShopifyPayloadArchives(
+    rows.flatMap((row) => {
+      if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
+      return [
+        {
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          entity_type: "customer_event" as const,
+          entity_id: row.eventId,
+          parent_entity_id: row.customerId ?? null,
+          payload_hash: buildShopifyPayloadArchiveHash({
+            businessId: row.businessId,
+            providerAccountId: row.providerAccountId,
+            shopId: row.shopId,
+            entityType: "customer_event",
+            entityId: row.eventId,
+            payloadJson: row.payloadJson,
+          }),
+          payload_json: row.payloadJson ?? {},
+          source_snapshot_id: null,
+          source_updated_at: normalizeTimestamp(row.occurredAt),
+        },
+      ];
+    }),
+    sql,
+  );
 
   return written;
 }
