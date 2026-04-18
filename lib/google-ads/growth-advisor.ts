@@ -50,6 +50,15 @@ import {
   buildQueryOwnershipContext,
   evaluateNegativeKeywordAssessment,
 } from "@/lib/google-ads/query-ownership";
+import {
+  buildGoogleAdsAdvisorCampaignSupportFromCampaignRows,
+  buildGoogleAdsAdvisorProductSupportFromRows,
+  classifyGoogleAdsCampaignFamilyLike,
+  getEmptyGoogleAdsAdvisorCampaignSupport,
+  getEmptyGoogleAdsAdvisorProductSupport,
+  type GoogleAdsAdvisorCampaignSupport,
+  type GoogleAdsAdvisorProductSupport,
+} from "@/lib/google-ads/advisor-historical-support";
 
 interface WindowInput {
   key:
@@ -66,9 +75,11 @@ interface WindowInput {
     | "last90"
     | "all_history";
   label: string;
-  campaigns: CampaignPerformanceRow[];
+  campaigns?: CampaignPerformanceRow[];
   searchTerms: SearchTermPerformanceRow[];
-  products: ProductPerformanceRow[];
+  products?: ProductPerformanceRow[];
+  campaignSupport?: GoogleAdsAdvisorCampaignSupport;
+  productSupport?: GoogleAdsAdvisorProductSupport;
 }
 
 interface BuildGoogleGrowthAdvisorInput {
@@ -164,7 +175,7 @@ interface IntegrityContext {
   selectedTotals: MetricAggregate;
   selectedSearchTerms: SearchTermPerformanceRow[];
   selectedProducts: ProductPerformanceRow[];
-  windows: WindowInput[];
+  windows: NormalizedWindowInput[];
   aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
 }
 
@@ -265,18 +276,7 @@ function labelForFamily(family: GoogleCampaignFamily) {
 }
 
 function classifyCampaignFamily(campaign: CampaignPerformanceRow): GoogleCampaignFamily {
-  const name = String(campaign.campaignName ?? "").toLowerCase();
-  const channel = String(campaign.channel ?? "").toLowerCase();
-  if (channel.includes("performance_max")) return "pmax_scaling";
-  if (channel.includes("shopping")) return "shopping";
-  if (name.includes("remarketing") || name.includes("retarget") || name.includes("rmkt")) {
-    return "remarketing";
-  }
-  if (channel.includes("search")) {
-    if (name.includes("brand") || name.includes("branded")) return "brand_search";
-    return "non_brand_search";
-  }
-  return "supporting";
+  return classifyGoogleAdsCampaignFamilyLike(campaign);
 }
 
 function roleForFamily(
@@ -326,8 +326,101 @@ function buildFamilySummaries(campaigns: CampaignPerformanceRow[]): FamilySummar
   });
 }
 
+function normalizeWindowInput(window: WindowInput) {
+  return {
+    ...window,
+    campaigns: window.campaigns ?? [],
+    products: window.products ?? [],
+    campaignSupport:
+      window.campaignSupport ??
+      (window.campaigns?.length
+        ? buildGoogleAdsAdvisorCampaignSupportFromCampaignRows(window.campaigns)
+        : getEmptyGoogleAdsAdvisorCampaignSupport()),
+    productSupport:
+      window.productSupport ??
+      (window.products?.length
+        ? buildGoogleAdsAdvisorProductSupportFromRows(window.products)
+        : getEmptyGoogleAdsAdvisorProductSupport()),
+  };
+}
+
+type NormalizedWindowInput = ReturnType<typeof normalizeWindowInput>;
+
+function emptyNormalizedWindow(key: WindowInput["key"]): NormalizedWindowInput {
+  return normalizeWindowInput({
+    key,
+    label: key,
+    searchTerms: [],
+  });
+}
+
+function buildFamilySummariesFromSupport(window: NormalizedWindowInput): FamilySummary[] {
+  const totals = window.campaignSupport.totalMetrics;
+  return window.campaignSupport.familiesPresent.map((family) => {
+    const aggregate = window.campaignSupport.familyMetricsByFamily[family] ?? getEmptyGoogleAdsAdvisorCampaignSupport().totalMetrics;
+    return {
+      family,
+      familyLabel: labelForFamily(family),
+      campaigns: [],
+      spend: aggregate.spend,
+      revenue: aggregate.revenue,
+      conversions: aggregate.conversions,
+      roas: aggregate.roas,
+      cpa: aggregate.cpa,
+      spendShare: totals.spend > 0 ? round((aggregate.spend / totals.spend) * 100, 1) : 0,
+      revenueShare: totals.revenue > 0 ? round((aggregate.revenue / totals.revenue) * 100, 1) : 0,
+    };
+  });
+}
+
+function getWindowFamilyMetrics(
+  window: NormalizedWindowInput,
+  family: GoogleCampaignFamily,
+): MetricAggregate {
+  return (
+    window.campaignSupport.familyMetricsByFamily[family] ?? {
+      spend: 0,
+      revenue: 0,
+      conversions: 0,
+      clicks: 0,
+      impressions: 0,
+      roas: 0,
+      cpa: 0,
+    }
+  );
+}
+
+function getWindowTotalMetrics(window: NormalizedWindowInput): MetricAggregate {
+  return window.campaignSupport.totalMetrics;
+}
+
+function windowHasCampaignFamily(
+  window: NormalizedWindowInput,
+  family: GoogleCampaignFamily,
+) {
+  return window.campaignSupport.familiesPresent.includes(family);
+}
+
+function windowHasReusableProductWinner(window: NormalizedWindowInput) {
+  return window.productSupport.winnerTitles.length > 0;
+}
+
+function windowHasProductPressure(window: NormalizedWindowInput) {
+  return (
+    window.productSupport.hiddenWinnerTitles.length > 0 ||
+    window.productSupport.underperformingTitles.length > 0
+  );
+}
+
+function windowHasTargetProductTitles(
+  window: NormalizedWindowInput,
+  targets: Set<string>,
+) {
+  return window.productSupport.productTitles.some((title) => targets.has(title));
+}
+
 function buildCoreFamilyMetrics(
-  windows: WindowInput[],
+  windows: NormalizedWindowInput[],
   family: GoogleCampaignFamily
 ): MetricAggregate {
   let spend = 0;
@@ -340,9 +433,7 @@ function buildCoreFamilyMetrics(
   for (const { key, weight } of WINDOW_WEIGHTS) {
     const window = windows.find((entry) => entry.key === key);
     if (!window) continue;
-    const aggregate = aggregateCampaignRows(
-      window.campaigns.filter((campaign) => classifyCampaignFamily(campaign) === family)
-    );
+    const aggregate = getWindowFamilyMetrics(window, family);
     if (aggregate.spend <= 0 && aggregate.revenue <= 0 && aggregate.conversions <= 0) continue;
     spend += aggregate.spend * weight;
     revenue += aggregate.revenue * weight;
@@ -532,7 +623,7 @@ function normalizeGoogleQueryIntentClass(value: string | undefined): GoogleQuery
 }
 
 function buildQueryWindowSupportMap(
-  windows: WindowInput[],
+  windows: NormalizedWindowInput[],
   predicate: (row: SearchTermPerformanceRow) => boolean
 ) {
   const supportMap = new Map<string, number>();
@@ -875,7 +966,7 @@ function overlapTrendLabel(
 
 function supportCountForRecommendation(
   recommendation: AdvisorBaseRecommendation,
-  windows: WindowInput[],
+  windows: NormalizedWindowInput[],
   aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null
 ) {
   const aggregateQuerySupport = buildAggregateQuerySupportMap(aggregateIntelligence);
@@ -919,9 +1010,7 @@ function supportCountForRecommendation(
         ...(recommendation.hiddenWinnerSkuClusters ?? []),
       ].map((value) => value.toLowerCase())
     );
-    return windows.filter((window) =>
-      window.products.some((row) => targets.has((row.productTitle ?? "").toLowerCase()))
-    ).length;
+    return windows.filter((window) => windowHasTargetProductTitles(window, targets)).length;
   }
 
   if (recommendation.type === "brand_leakage") {
@@ -960,9 +1049,7 @@ function supportCountForRecommendation(
 
   if (recommendation.affectedFamilies?.length) {
     return windows.filter((window) =>
-      window.campaigns.some((campaign) =>
-        recommendation.affectedFamilies?.includes(classifyCampaignFamily(campaign))
-      )
+      recommendation.affectedFamilies?.some((family) => windowHasCampaignFamily(window, family))
     ).length;
   }
 
@@ -971,7 +1058,7 @@ function supportCountForRecommendation(
 
 function toSupportStrength(
   recommendation: AdvisorBaseRecommendation,
-  windows: WindowInput[],
+  windows: NormalizedWindowInput[],
   aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null
 ): GoogleSupportStrength {
   const supportCount = supportCountForRecommendation(recommendation, windows, aggregateIntelligence);
@@ -1228,7 +1315,7 @@ function enrichRecommendation(input: {
   selectedSearchTerms: SearchTermPerformanceRow[];
   selectedProducts: ProductPerformanceRow[];
   selectedLabel: string;
-  windows: WindowInput[];
+  windows: NormalizedWindowInput[];
   aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
 }): GoogleRecommendation {
   const dataTrust = toDataTrust(input);
@@ -1670,7 +1757,7 @@ export function buildGoogleGrowthAdvisor(
   });
   const selectedSearchTerms = applyQueryOwnership(input.selectedSearchTerms, ownershipContext);
   const windows = input.windows.map((window) => ({
-    ...window,
+    ...normalizeWindowInput(window),
     searchTerms: applyQueryOwnership(window.searchTerms, ownershipContext),
   }));
   const selectedFamilies = buildFamilySummaries(input.selectedCampaigns);
@@ -1679,9 +1766,9 @@ export function buildGoogleGrowthAdvisor(
   const accountCore = finalizeMetrics(
     WINDOW_WEIGHTS.reduce(
       (acc, { key, weight }) => {
-        const window = input.windows.find((entry) => entry.key === key);
+        const window = windows.find((entry) => entry.key === key);
         if (!window) return acc;
-        const metrics = aggregateCampaignRows(window.campaigns);
+        const metrics = getWindowTotalMetrics(window);
         acc.spend += metrics.spend * weight;
         acc.revenue += metrics.revenue * weight;
         acc.conversions += metrics.conversions * weight;
@@ -1694,24 +1781,24 @@ export function buildGoogleGrowthAdvisor(
     ).weights > 0
       ? {
           spend: WINDOW_WEIGHTS.reduce((sum, { key, weight }) => {
-            const window = input.windows.find((entry) => entry.key === key);
-            return sum + aggregateCampaignRows(window?.campaigns ?? []).spend * weight;
+            const window = windows.find((entry) => entry.key === key);
+            return sum + getWindowTotalMetrics(window ?? emptyNormalizedWindow(key)).spend * weight;
           }, 0) / WINDOW_WEIGHTS.reduce((sum, entry) => sum + entry.weight, 0),
           revenue: WINDOW_WEIGHTS.reduce((sum, { key, weight }) => {
-            const window = input.windows.find((entry) => entry.key === key);
-            return sum + aggregateCampaignRows(window?.campaigns ?? []).revenue * weight;
+            const window = windows.find((entry) => entry.key === key);
+            return sum + getWindowTotalMetrics(window ?? emptyNormalizedWindow(key)).revenue * weight;
           }, 0) / WINDOW_WEIGHTS.reduce((sum, entry) => sum + entry.weight, 0),
           conversions: WINDOW_WEIGHTS.reduce((sum, { key, weight }) => {
-            const window = input.windows.find((entry) => entry.key === key);
-            return sum + aggregateCampaignRows(window?.campaigns ?? []).conversions * weight;
+            const window = windows.find((entry) => entry.key === key);
+            return sum + getWindowTotalMetrics(window ?? emptyNormalizedWindow(key)).conversions * weight;
           }, 0) / WINDOW_WEIGHTS.reduce((sum, entry) => sum + entry.weight, 0),
           clicks: WINDOW_WEIGHTS.reduce((sum, { key, weight }) => {
-            const window = input.windows.find((entry) => entry.key === key);
-            return sum + aggregateCampaignRows(window?.campaigns ?? []).clicks * weight;
+            const window = windows.find((entry) => entry.key === key);
+            return sum + getWindowTotalMetrics(window ?? emptyNormalizedWindow(key)).clicks * weight;
           }, 0) / WINDOW_WEIGHTS.reduce((sum, entry) => sum + entry.weight, 0),
           impressions: WINDOW_WEIGHTS.reduce((sum, { key, weight }) => {
-            const window = input.windows.find((entry) => entry.key === key);
-            return sum + aggregateCampaignRows(window?.campaigns ?? []).impressions * weight;
+            const window = windows.find((entry) => entry.key === key);
+            return sum + getWindowTotalMetrics(window ?? emptyNormalizedWindow(key)).impressions * weight;
           }, 0) / WINDOW_WEIGHTS.reduce((sum, entry) => sum + entry.weight, 0),
           roas: 0,
           cpa: 0,
@@ -1834,7 +1921,7 @@ export function buildGoogleGrowthAdvisor(
   });
 
   if (!hasFamily("non_brand_search") && recurringOrphanedNonBrandRows.length >= 2) {
-    const orphanedRecurringWindows = input.windows.filter((window) =>
+    const orphanedRecurringWindows = windows.filter((window) =>
       window.searchTerms.some(
         (row) => (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") && Number(row.conversions ?? 0) >= 1
       )
@@ -1887,7 +1974,7 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says recurring non-brand demand exists before a dedicated ownership lane does.",
         `${input.selectedLabel} confirms the current query pressure, but the issue is lane ownership rather than a one-window spike.`,
-        `Historical support comes from ${input.windows.filter((window) => window.searchTerms.some((row) => (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") && Number(row.conversions ?? 0) >= 1)).length}/${input.windows.length} windows with recurring non-brand conversions.`
+        `Historical support comes from ${windows.filter((window) => window.searchTerms.some((row) => (row.ownershipClass === "non_brand" || row.ownershipClass === "sku_specific") && Number(row.conversions ?? 0) >= 1)).length}/${windows.length} windows with recurring non-brand conversions.`
       ),
       affectedFamilies: ["non_brand_search", "pmax_scaling"],
       promoteToExact: exactCandidates,
@@ -1977,11 +2064,11 @@ export function buildGoogleGrowthAdvisor(
             `${seedQueriesExact.length} exact / ${seedQueriesPhrase.length} phrase / ${seedThemesBroad.length} broad themes`
           ),
         ],
-        timeframeContext: buildTimeframeContext(
-          "Core verdict says there is enough recurring commercial demand to justify a dedicated non-brand lane.",
-          `${input.selectedLabel} is only used to confirm which queries are live right now; the core call is supported by recurring query behavior.`,
-          `Historical support comes from ${input.windows.filter((window) => window.searchTerms.some((row) => !isBrandLikeQuery(row.searchTerm, brandTokens) && Number(row.conversions ?? 0) >= 1)).length}/${input.windows.length} windows showing non-brand conversions.`
-        ),
+      timeframeContext: buildTimeframeContext(
+        "Core verdict says there is enough recurring commercial demand to justify a dedicated non-brand lane.",
+        `${input.selectedLabel} is only used to confirm which queries are live right now; the core call is supported by recurring query behavior.`,
+        `Historical support comes from ${windows.filter((window) => window.searchTerms.some((row) => !isBrandLikeQuery(row.searchTerm, brandTokens) && Number(row.conversions ?? 0) >= 1)).length}/${windows.length} windows showing non-brand conversions.`
+      ),
         affectedFamilies: ["brand_search", "pmax_scaling"],
         seedQueriesExact,
         seedQueriesPhrase,
@@ -2066,11 +2153,11 @@ export function buildGoogleGrowthAdvisor(
           metricEvidence("Hidden / scale-ready winners", String(productWinners.length)),
           metricEvidence("Top product revenue share", `${round(topProductShare, 1)}%`),
         ],
-        timeframeContext: buildTimeframeContext(
-          "Core verdict says product signal density is high enough that Shopping control would add value.",
-          `${input.selectedLabel} confirms the current catalog pressure, but the launch call is supported by recurring product concentration across longer windows.`,
-          `Historical support comes from ${input.windows.filter((window) => window.products.some((row) => row.hiddenWinnerState === "hidden_winner" || row.scaleState === "scale")).length}/${input.windows.length} windows showing reusable product winners.`
-        ),
+      timeframeContext: buildTimeframeContext(
+        "Core verdict says product signal density is high enough that Shopping control would add value.",
+        `${input.selectedLabel} confirms the current catalog pressure, but the launch call is supported by recurring product concentration across longer windows.`,
+        `Historical support comes from ${windows.filter((window) => windowHasReusableProductWinner(window)).length}/${windows.length} windows showing reusable product winners.`
+      ),
         affectedFamilies: ["pmax_scaling"],
         launchMode,
         startingSkuClusters,
@@ -2144,15 +2231,15 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says brand is behaving like a support lane, not the growth benchmark.",
         `${input.selectedLabel} can move brand efficiency around, but the broader operating model still needs brand kept separate from growth evaluation.`,
-        `Historical support persists in ${input.windows.filter((window) => {
-          const families = buildFamilySummaries(window.campaigns);
+        `Historical support persists in ${windows.filter((window) => {
+          const families = buildFamilySummariesFromSupport(window);
           const brand = families.find((entry) => entry.family === "brand_search");
           const growthBest = Math.max(
             families.find((entry) => entry.family === "non_brand_search")?.roas ?? 0,
             families.find((entry) => entry.family === "pmax_scaling")?.roas ?? 0
           );
           return Boolean(brand && brand.roas >= growthBest * 1.2);
-        }).length}/${input.windows.length} windows.`
+        }).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["brand_search", "non_brand_search", "pmax_scaling"],
       prerequisites: [
@@ -2238,7 +2325,7 @@ export function buildGoogleGrowthAdvisor(
 
   if (searchShoppingOverlapCandidates.length > 0) {
     const strongestOverlap = searchShoppingOverlapCandidates[0];
-    const overlapRecurringWindows = input.windows.filter((window) =>
+    const overlapRecurringWindows = windows.filter((window) =>
       window.searchTerms.some((row) => row.intentClass === "product_specific")
     ).length;
     const overlappingProducts = searchShoppingOverlapCandidates
@@ -2282,7 +2369,7 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says the overlap is structural enough to change how Search and Shopping should be interpreted.",
         `${input.selectedLabel} shows where the overlap is visible now, but the issue is lane competition rather than a temporary conversion spike.`,
-        `Historical support comes from ${input.windows.filter((window) => window.searchTerms.some((row) => row.intentClass === "product_specific")).length}/${input.windows.length} windows with SKU-specific query visibility.`
+        `Historical support comes from ${windows.filter((window) => window.searchTerms.some((row) => row.intentClass === "product_specific")).length}/${windows.length} windows with SKU-specific query visibility.`
       ),
       affectedFamilies: ["non_brand_search", "shopping", "pmax_scaling"],
       overlapType: "search_shopping_overlap",
@@ -2525,7 +2612,7 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says keyword buildout is warranted because the same themes are persisting beyond a single recent window.",
         `${input.selectedLabel} highlights the freshest winners, but the promotion call depends on repeatability across windows.`,
-        `Historical support found in ${input.windows.filter((window) => window.searchTerms.some((row) => Number(row.conversions ?? 0) >= 2)).length}/${input.windows.length} windows.`
+        `Historical support found in ${windows.filter((window) => window.searchTerms.some((row) => Number(row.conversions ?? 0) >= 2)).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["non_brand_search", "pmax_scaling"],
       promoteToExact: exactCandidates,
@@ -2602,7 +2689,7 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says product concentration and product quality gaps are structural enough to act on now.",
         `${input.selectedLabel} is only the latest read; the product split between winners and laggards exists across longer windows too.`,
-        `Historical support found in ${input.windows.filter((window) => window.products.some((row) => row.hiddenWinnerState === "hidden_winner" || row.underperformingState === "underperforming")).length}/${input.windows.length} windows.`
+        `Historical support found in ${windows.filter((window) => windowHasProductPressure(window)).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["shopping", "pmax_scaling"],
       scaleSkuClusters,
@@ -2621,7 +2708,7 @@ export function buildGoogleGrowthAdvisor(
   }
 
   if (pmaxSummary) {
-    const pmaxCore = buildCoreFamilyMetrics(input.windows, "pmax_scaling");
+    const pmaxCore = buildCoreFamilyMetrics(windows, "pmax_scaling");
     const weakAssetGroups = input.selectedAssetGroups.filter(
       (row) =>
         row.weakState === "weak" ||
@@ -2676,7 +2763,7 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says PMax should be judged on recurring efficiency and structure quality, not just the latest revenue spike.",
         `${input.selectedLabel} is a directional overlay only; the scale call is anchored to weighted PMax performance and structure health.`,
-        `Historical support found in ${input.windows.filter((window) => buildCoreFamilyMetrics([window], "pmax_scaling").roas >= Math.max(accountCore.roas * 0.9, 1.8)).length}/${input.windows.length} windows.`
+        `Historical support found in ${windows.filter((window) => buildCoreFamilyMetrics([window], "pmax_scaling").roas >= Math.max(accountCore.roas * 0.9, 1.8)).length}/${windows.length} windows.`
       ),
       affectedFamilies: ["pmax_scaling"],
       weakAssetGroups: weakAssetGroups.slice(0, 4).map((row) => row.assetGroupName),
@@ -2749,7 +2836,7 @@ export function buildGoogleGrowthAdvisor(
       timeframeContext: buildTimeframeContext(
         "Core verdict says the structural weakness is persistent enough to justify an asset-group rebuild, not just minor copy edits.",
         `${input.selectedLabel} confirms which groups are weak right now; the structural call relies on asset coverage and alignment diagnostics.`,
-        `Historical support comes from ${input.windows.filter((window) => window.campaigns.some((campaign) => classifyCampaignFamily(campaign) === "pmax_scaling")).length}/${input.windows.length} windows with PMax spend present.`
+        `Historical support comes from ${windows.filter((window) => windowHasCampaignFamily(window, "pmax_scaling")).length}/${windows.length} windows with PMax spend present.`
       ),
       affectedFamilies: ["pmax_scaling"],
       weakAssetGroups: weakGroups.slice(0, 5).map((row) => row.assetGroupName),
@@ -3079,10 +3166,9 @@ export function buildGoogleGrowthAdvisor(
     (recommendation) => recommendation.decisionState === "act"
   ).length;
   const asOfDate = input.analysisMetadata?.asOfDate ?? new Date().toISOString().slice(0, 10);
-  const operationalDecisionTotals =
-    aggregateCampaignRows(
-      input.windows.find((window) => window.key === "operational_28d")?.campaigns ?? input.selectedCampaigns
-    );
+  const operationalDecisionTotals = getWindowTotalMetrics(
+    windows.find((window) => window.key === "operational_28d") ?? emptyNormalizedWindow("operational_28d")
+  );
   const decisionSummaryTotals = buildGoogleAdsDecisionSummaryTotals({
     windowKey: "operational_28d",
     windowLabel: "operational 28d",

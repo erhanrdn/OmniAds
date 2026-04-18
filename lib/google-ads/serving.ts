@@ -10,6 +10,10 @@ import {
   buildGoogleAdsAdvisorWindowMatrix,
   type GoogleAdsAdvisorWindowMatrixView,
 } from "@/lib/google-ads/advisor-window-matrix";
+import {
+  buildGoogleAdsAdvisorCampaignSupportFromDailyRows,
+  buildGoogleAdsAdvisorProductSupportFromDailyRows,
+} from "@/lib/google-ads/advisor-historical-support";
 import { buildGoogleAdsDecisionSnapshotWindowSet } from "@/lib/google-ads/decision-window-policy";
 import {
   buildGoogleAdsDecisionSnapshotMetadata,
@@ -425,6 +429,19 @@ function filterGoogleAdsDailyRowsByWindow(
   return rows.filter((row) => normalizeDate(row.date) >= startDate && normalizeDate(row.date) <= endDate);
 }
 
+function buildGoogleAdsAdvisorKeywordTermSet(rows: GoogleAdsWarehouseDailyRow[]) {
+  return new Set(
+    rows
+      .map((row) => {
+        const payload = asObject(row.payloadJson);
+        return normalizeGoogleAdsQueryText(
+          String(payload.keywordText ?? payload.keyword ?? row.entityLabel ?? payload.name ?? ""),
+        );
+      })
+      .filter(Boolean),
+  );
+}
+
 function buildGoogleAdsFreshnessFromPrefetchedRows(input: {
   rows: Array<{ date: string; updatedAt?: string | null }>;
   startDate: string;
@@ -538,39 +555,18 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
   hotQueryRows: GoogleAdsSearchQueryHotDailySupportReadRow[];
   queryWeeklyRows: GoogleAdsTopQueryWeeklySupportReadRow[];
   clusterDailyRows: GoogleAdsSearchClusterDailySupportReadRow[];
-  keywordDailyRows: GoogleAdsWarehouseDailyRow[];
-  productDailyRows: GoogleAdsWarehouseDailyRow[];
-  aggregatedKeywordRows: GoogleAdsAdvisorAggregatedDailyRows;
-  aggregatedProductRows: GoogleAdsAdvisorAggregatedDailyRows;
+  keywordDailyRows?: GoogleAdsWarehouseDailyRow[];
+  productDailyRows?: GoogleAdsWarehouseDailyRow[];
+  aggregatedKeywordRows?: GoogleAdsAdvisorAggregatedDailyRows;
+  aggregatedProductRows?: GoogleAdsAdvisorAggregatedDailyRows;
+  keywordTermSet?: Set<string>;
+  productTerms?: string[];
 }) {
   const hotWindow = resolveGoogleAdsSearchHotWindow({
     providerCurrentDate: input.context.providerCurrentDate,
     startDate: input.startDate,
     endDate: input.endDate,
   });
-
-  const aggregatedKeywordRows =
-    hotWindow.effectiveStart === input.startDate && hotWindow.effectiveEnd === input.endDate
-      ? input.aggregatedKeywordRows
-      : aggregateDailyRowsLocally(
-          "keyword_daily",
-          filterGoogleAdsDailyRowsByWindow(
-            input.keywordDailyRows,
-            hotWindow.effectiveStart,
-            hotWindow.effectiveEnd,
-          ),
-        );
-  const aggregatedProductRows =
-    hotWindow.effectiveStart === input.startDate && hotWindow.effectiveEnd === input.endDate
-      ? input.aggregatedProductRows
-      : aggregateDailyRowsLocally(
-          "product_daily",
-          filterGoogleAdsDailyRowsByWindow(
-            input.productDailyRows,
-            hotWindow.effectiveStart,
-            hotWindow.effectiveEnd,
-          ),
-        );
 
   const termsMeta = (() => {
     if (input.context.providerAccountIds.length === 0 || !hotWindow.withinHotWindow) {
@@ -596,24 +592,48 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
     }
 
     const hotRows = input.hotQueryRows;
-    const keywordSet = new Set(
-      aggregatedKeywordRows
-        .map((row) =>
-          normalizeGoogleAdsQueryText(
-            String(row.keywordText ?? row.keyword ?? row.entityLabel ?? row.name ?? ""),
-          ),
-        )
-        .filter(Boolean),
-    );
-    const productTerms = Array.from(
+    const keywordSet =
+      input.keywordTermSet ??
       new Set(
-        aggregatedProductRows
-          .map((row) =>
-            String(row.name ?? row.productTitle ?? row.title ?? row.entityLabel ?? "").trim(),
+        ((hotWindow.effectiveStart === input.startDate && hotWindow.effectiveEnd === input.endDate
+          ? input.aggregatedKeywordRows
+          : aggregateDailyRowsLocally(
+              "keyword_daily",
+              filterGoogleAdsDailyRowsByWindow(
+                input.keywordDailyRows ?? [],
+                hotWindow.effectiveStart,
+                hotWindow.effectiveEnd,
+              ),
+            )) ?? []
           )
-          .filter((value) => value.length >= 4),
-      ),
-    );
+          .map((row) =>
+            normalizeGoogleAdsQueryText(
+              String(row.keywordText ?? row.keyword ?? row.entityLabel ?? row.name ?? ""),
+            ),
+          )
+          .filter(Boolean),
+      );
+    const productTerms =
+      input.productTerms ??
+      Array.from(
+        new Set(
+          ((hotWindow.effectiveStart === input.startDate && hotWindow.effectiveEnd === input.endDate
+            ? input.aggregatedProductRows
+            : aggregateDailyRowsLocally(
+                "product_daily",
+                filterGoogleAdsDailyRowsByWindow(
+                  input.productDailyRows ?? [],
+                  hotWindow.effectiveStart,
+                  hotWindow.effectiveEnd,
+                ),
+              )) ?? []
+            )
+            .map((row) =>
+              String(row.name ?? row.productTitle ?? row.title ?? row.entityLabel ?? "").trim(),
+            )
+            .filter((value) => value.length >= 4),
+        ),
+      );
     const brandTerms = deriveGoogleAdsBrandTermsFromSearchRows(
       hotRows.map((row) => ({ campaignName: row.campaignName })),
     );
@@ -803,25 +823,28 @@ function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
     supportWindowEnd: input.endDate,
   });
 
-  const keywordSet = new Set(
-    input.aggregatedKeywordRows
-      .map((row) =>
-        normalizeGoogleAdsQueryText(
-          String(row.keywordText ?? row.keyword ?? row.entityLabel ?? row.name ?? ""),
-        ),
-      )
-      .filter(Boolean),
-  );
-  const productRows = input.aggregatedProductRows;
-  const productTerms = Array.from(
+  const keywordSet =
+    input.keywordTermSet ??
     new Set(
-      productRows
+      (input.aggregatedKeywordRows ?? [])
         .map((row) =>
-          String(row.name ?? row.productTitle ?? row.title ?? row.entityLabel ?? "").trim(),
+          normalizeGoogleAdsQueryText(
+            String(row.keywordText ?? row.keyword ?? row.entityLabel ?? row.name ?? ""),
+          ),
         )
-        .filter((value) => value.length >= 4),
-    ),
-  );
+        .filter(Boolean),
+    );
+  const productTerms =
+    input.productTerms ??
+    Array.from(
+      new Set(
+        (input.aggregatedProductRows ?? [])
+          .map((row) =>
+            String(row.name ?? row.productTitle ?? row.title ?? row.entityLabel ?? "").trim(),
+          )
+          .filter((value) => value.length >= 4),
+      ),
+    );
   const aggregateFallbackRows =
     aggregateIntelligence.queryWeeklySupport.length > 0
       ? buildSearchIntelligenceRowsFromWeeklySupport({
@@ -3320,9 +3343,11 @@ async function finalizeGoogleAdsAdvisorReport(input: {
       | "query_governance_56d"
       | "baseline_84d";
     label: string;
-    campaigns: Array<Record<string, unknown>>;
     searchTerms: Array<Record<string, unknown>>;
-    products: Array<Record<string, unknown>>;
+    campaigns?: Array<Record<string, unknown>>;
+    products?: Array<Record<string, unknown>>;
+    campaignSupport?: ReturnType<typeof buildGoogleAdsAdvisorCampaignSupportFromDailyRows>;
+    productSupport?: ReturnType<typeof buildGoogleAdsAdvisorProductSupportFromDailyRows>;
   }>;
   historicalSupport: GoogleAdvisorHistoricalSupport | null;
   aggregateIntelligence?: GoogleAdvisorAggregateIntelligence | null;
@@ -3694,105 +3719,204 @@ export async function getGoogleAdsAdvisorReport(
   } = await measureGoogleAdsAdvisorPhase(
     "advisor.window_slicing",
     async () => {
-      const matrix = buildGoogleAdsAdvisorWindowMatrix({
-        selectedWindow,
-        supportWindows,
-        campaignDailyRows: supportBundle.campaignDailyRows,
-        keywordDailyRows: supportBundle.keywordDailyRows,
-        productDailyRows: supportBundle.productDailyRows,
-        hotQueryRows: supportBundle.hotQueryRows,
-        queryWeeklyRows: supportBundle.queryWeeklyRows,
-        clusterDailyRows: supportBundle.clusterDailyRows,
-      });
+      const matrix = await measureGoogleAdsAdvisorPhase(
+        "advisor.window_slicing.index_build",
+        async () =>
+          buildGoogleAdsAdvisorWindowMatrix({
+            selectedWindow,
+            supportWindows,
+            campaignDailyRows: supportBundle.campaignDailyRows,
+            keywordDailyRows: supportBundle.keywordDailyRows,
+            productDailyRows: supportBundle.productDailyRows,
+            hotQueryRows: supportBundle.hotQueryRows,
+            queryWeeklyRows: supportBundle.queryWeeklyRows,
+            clusterDailyRows: supportBundle.clusterDailyRows,
+          }),
+        (value) => ({
+          windowCount: value.telemetry.windowCount,
+          uniqueSliceCount: value.uniqueSlices.length,
+          assignedCampaignRows: value.telemetry.assignedCampaignRows,
+          assignedKeywordRows: value.telemetry.assignedKeywordRows,
+          assignedProductRows: value.telemetry.assignedProductRows,
+        }),
+      );
 
-      const aggregatesByRange = new Map<string, GoogleAdsAdvisorWindowAggregates>();
-      const getAggregates = (view: GoogleAdsAdvisorWindowMatrixView) => {
-        const cached = aggregatesByRange.get(view.slice.rangeKey);
-        if (cached) return cached;
-        const next = {
-          campaignRows: aggregateDailyRowsLocally("campaign_daily", view.slice.campaignDailyRows),
-          keywordRows: aggregateDailyRowsLocally("keyword_daily", view.slice.keywordDailyRows),
-          productRows: aggregateDailyRowsLocally("product_daily", view.slice.productDailyRows),
-        } satisfies GoogleAdsAdvisorWindowAggregates;
-        aggregatesByRange.set(view.slice.rangeKey, next);
-        return next;
-      };
+      const selectedAggregates = {
+        campaignRows: aggregateDailyRowsLocally(
+          "campaign_daily",
+          matrix.selectedView.slice.campaignDailyRows,
+        ),
+        keywordRows: aggregateDailyRowsLocally(
+          "keyword_daily",
+          matrix.selectedView.slice.keywordDailyRows,
+        ),
+        productRows: aggregateDailyRowsLocally(
+          "product_daily",
+          matrix.selectedView.slice.productDailyRows,
+        ),
+      } satisfies GoogleAdsAdvisorWindowAggregates;
 
-      const materializeWindow = (view: GoogleAdsAdvisorWindowMatrixView) =>
-        buildGoogleAdsAdvisorWindowRowsFromMatrixView({
-          bundle: supportBundle,
-          view,
-          aggregates: getAggregates(view),
-        });
+      const selectedWindowRows = await measureGoogleAdsAdvisorPhase(
+        "advisor.window_slicing.selected_materialization",
+        async () =>
+          buildGoogleAdsAdvisorWindowRowsFromMatrixView({
+            bundle: supportBundle,
+            view: matrix.selectedView,
+            aggregates: selectedAggregates,
+          }),
+        (value) => ({
+          campaignRows: value.campaigns.rows.length,
+          searchRows: value.search.rows.length,
+          productRows: value.products.rows.length,
+        }),
+      );
 
-      const selectedWindowRows = materializeWindow(matrix.selectedView);
-      const alarm1Rows = materializeWindow(matrix.supportViews.alarm_1d);
-      const alarm3Rows = materializeWindow(matrix.supportViews.alarm_3d);
-      const alarm7Rows = materializeWindow(matrix.supportViews.alarm_7d);
-      const operationalRows = materializeWindow(matrix.supportViews.operational_28d);
-      const queryGovernanceRows = materializeWindow(matrix.supportViews.query_governance_56d);
-      const baselineRows = materializeWindow(matrix.supportViews.baseline_84d);
+      const orderedSupportViews = supportWindows.map((window) => matrix.supportViews[window.key]);
+      const campaignSupportByRange = new Map<
+        string,
+        ReturnType<typeof buildGoogleAdsAdvisorCampaignSupportFromDailyRows>
+      >();
+      const productSupportByRange = new Map<
+        string,
+        ReturnType<typeof buildGoogleAdsAdvisorProductSupportFromDailyRows>
+      >();
+      const keywordTermSetByRange = new Map<string, Set<string>>();
+      const searchRowsByRange = new Map<string, Array<Record<string, unknown>>>();
+
+      const campaignSupportViews = await measureGoogleAdsAdvisorPhase(
+        "advisor.window_slicing.campaign_support",
+        async () =>
+          orderedSupportViews.map((view) => {
+            const cached = campaignSupportByRange.get(view.slice.rangeKey);
+            if (cached) {
+              return {
+                key: view.key,
+                label: view.label,
+                campaignSupport: cached,
+              };
+            }
+            const next = buildGoogleAdsAdvisorCampaignSupportFromDailyRows(
+              view.slice.campaignDailyRows,
+            );
+            campaignSupportByRange.set(view.slice.rangeKey, next);
+            return {
+              key: view.key,
+              label: view.label,
+              campaignSupport: next,
+            };
+          }),
+        (value) => ({
+          windowCount: value.length,
+          rowCount: orderedSupportViews.reduce(
+            (sum, view) => sum + view.slice.campaignDailyRows.length,
+            0,
+          ),
+          uniqueEntityCount: value.reduce(
+            (sum, view) => sum + view.campaignSupport.familiesPresent.length,
+            0,
+          ),
+        }),
+      );
+
+      const productSupportViews = await measureGoogleAdsAdvisorPhase(
+        "advisor.window_slicing.product_support",
+        async () =>
+          orderedSupportViews.map((view) => {
+            const cached = productSupportByRange.get(view.slice.rangeKey);
+            if (cached) {
+              return {
+                key: view.key,
+                label: view.label,
+                productSupport: cached,
+              };
+            }
+            const next = buildGoogleAdsAdvisorProductSupportFromDailyRows(
+              view.slice.productDailyRows,
+            );
+            productSupportByRange.set(view.slice.rangeKey, next);
+            return {
+              key: view.key,
+              label: view.label,
+              productSupport: next,
+            };
+          }),
+        (value) => ({
+          windowCount: value.length,
+          assignedProductRows: orderedSupportViews.reduce(
+            (sum, view) => sum + view.slice.productDailyRows.length,
+            0,
+          ),
+          uniqueEntityCount: value.reduce(
+            (sum, view) => sum + view.productSupport.productCount,
+            0,
+          ),
+        }),
+      );
+
+      const searchSupportViews = await measureGoogleAdsAdvisorPhase(
+        "advisor.window_slicing.search_support",
+        async () =>
+          orderedSupportViews.map((view) => {
+            const cached = searchRowsByRange.get(view.slice.rangeKey);
+            if (cached) {
+              return {
+                key: view.key,
+                label: view.label,
+                searchTerms: cached,
+              };
+            }
+            const keywordTermSet =
+              keywordTermSetByRange.get(view.slice.rangeKey) ??
+              buildGoogleAdsAdvisorKeywordTermSet(view.slice.keywordDailyRows);
+            keywordTermSetByRange.set(view.slice.rangeKey, keywordTermSet);
+            const productSupport = productSupportByRange.get(view.slice.rangeKey);
+            const rows =
+              view.slice.rangeKey === matrix.selectedView.slice.rangeKey
+                ? (selectedWindowRows.search.rows as Array<Record<string, unknown>>)
+                : (buildGoogleAdsAdvisorSearchReportFromScopedSupportRows({
+                    context: supportBundle.context,
+                    startDate: view.startDate,
+                    endDate: view.endDate,
+                    latestSync: supportBundle.latestSync,
+                    hotQueryRows: view.slice.hotQueryRows,
+                    queryWeeklyRows: view.slice.queryWeeklyRows,
+                    clusterDailyRows: view.slice.clusterDailyRows,
+                    keywordTermSet,
+                    productTerms: productSupport?.productTitles ?? [],
+                  }).rows as Array<Record<string, unknown>>);
+            searchRowsByRange.set(view.slice.rangeKey, rows);
+            return {
+              key: view.key,
+              label: view.label,
+              searchTerms: rows,
+            };
+          }),
+        (value) => ({
+          windowCount: value.length,
+          rowCount: value.reduce((sum, view) => sum + view.searchTerms.length, 0),
+        }),
+      );
 
       return {
         selectedCampaigns: selectedWindowRows.campaigns,
         selectedSearch: selectedWindowRows.search,
         selectedProducts: selectedWindowRows.products,
-        windows: [
-          {
-            key: "alarm_1d",
-            label: matrix.supportViews.alarm_1d.label,
-            campaigns: alarm1Rows.campaigns.rows as never[],
-            searchTerms: alarm1Rows.search.rows as never[],
-            products: alarm1Rows.products.rows as never[],
-          },
-          {
-            key: "alarm_3d",
-            label: matrix.supportViews.alarm_3d.label,
-            campaigns: alarm3Rows.campaigns.rows as never[],
-            searchTerms: alarm3Rows.search.rows as never[],
-            products: alarm3Rows.products.rows as never[],
-          },
-          {
-            key: "alarm_7d",
-            label: matrix.supportViews.alarm_7d.label,
-            campaigns: alarm7Rows.campaigns.rows as never[],
-            searchTerms: alarm7Rows.search.rows as never[],
-            products: alarm7Rows.products.rows as never[],
-          },
-          {
-            key: "operational_28d",
-            label: matrix.supportViews.operational_28d.label,
-            campaigns: operationalRows.campaigns.rows as never[],
-            searchTerms: operationalRows.search.rows as never[],
-            products: operationalRows.products.rows as never[],
-          },
-          {
-            key: "query_governance_56d",
-            label: matrix.supportViews.query_governance_56d.label,
-            campaigns: queryGovernanceRows.campaigns.rows as never[],
-            searchTerms: queryGovernanceRows.search.rows as never[],
-            products: queryGovernanceRows.products.rows as never[],
-          },
-          {
-            key: "baseline_84d",
-            label: matrix.supportViews.baseline_84d.label,
-            campaigns: baselineRows.campaigns.rows as never[],
-            searchTerms: baselineRows.search.rows as never[],
-            products: baselineRows.products.rows as never[],
-          },
-        ] satisfies Array<{
-          key:
+        windows: orderedSupportViews.map((view) => ({
+          key: view.key as
             | "alarm_1d"
             | "alarm_3d"
             | "alarm_7d"
             | "operational_28d"
             | "query_governance_56d"
-            | "baseline_84d";
-          label: string;
-          campaigns: Array<Record<string, unknown>>;
-          searchTerms: Array<Record<string, unknown>>;
-          products: Array<Record<string, unknown>>;
-        }>,
+            | "baseline_84d",
+          label: view.label,
+          searchTerms:
+            searchSupportViews.find((entry) => entry.key === view.key)?.searchTerms ?? [],
+          campaignSupport:
+            campaignSupportViews.find((entry) => entry.key === view.key)?.campaignSupport,
+          productSupport:
+            productSupportViews.find((entry) => entry.key === view.key)?.productSupport,
+        })),
         aggregateIntelligence: summarizeGoogleAdsAdvisorAggregateIntelligence({
           queryWeeklyRows: matrix.supportViews.baseline_84d.slice.queryWeeklyRows,
           clusterDailyRows: matrix.supportViews.baseline_84d.slice.clusterDailyRows,
@@ -3820,11 +3944,13 @@ export async function getGoogleAdsAdvisorReport(
       selectedSearchRows: value.selectedSearch.rows.length,
       selectedProductRows: value.selectedProducts.rows.length,
       baselineCampaignRows:
-        value.windows.find((window) => window.key === "baseline_84d")?.campaigns.length ?? 0,
+        value.windows.find((window) => window.key === "baseline_84d")?.campaignSupport
+          ?.familiesPresent.length ?? 0,
       baselineSearchRows:
         value.windows.find((window) => window.key === "baseline_84d")?.searchTerms.length ?? 0,
       baselineProductRows:
-        value.windows.find((window) => window.key === "baseline_84d")?.products.length ?? 0,
+        value.windows.find((window) => window.key === "baseline_84d")?.productSupport
+          ?.productCount ?? 0,
     }),
   );
 

@@ -373,6 +373,11 @@ describe("google ads advisor read path", () => {
     expect(phaseLogs).toEqual([
       "advisor.support_bundle_read",
       "advisor.selected_context_reads",
+      "advisor.window_slicing.index_build",
+      "advisor.window_slicing.selected_materialization",
+      "advisor.window_slicing.campaign_support",
+      "advisor.window_slicing.product_support",
+      "advisor.window_slicing.search_support",
       "advisor.window_slicing",
       "advisor.finalize_payload",
     ]);
@@ -384,6 +389,16 @@ describe("google ads advisor read path", () => {
         campaignDailyRows: 1,
         keywordDailyRows: 1,
         productDailyRows: 1,
+      }),
+    );
+    expect(runtimeLogging.logRuntimeDebug).toHaveBeenCalledWith(
+      "google-ads-advisor",
+      "advisor.window_slicing.product_support",
+      expect.objectContaining({
+        durationMs: expect.any(Number),
+        windowCount: 6,
+        assignedProductRows: expect.any(Number),
+        uniqueEntityCount: expect.any(Number),
       }),
     );
     expect(runtimeLogging.logRuntimeDebug).toHaveBeenCalledWith(
