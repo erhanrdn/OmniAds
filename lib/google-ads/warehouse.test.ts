@@ -1060,7 +1060,161 @@ describe("google ads typed dimension overlays", () => {
     });
   });
 
+  it("can bypass campaign dimension overlay on daily rows", async () => {
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async () => [
+        {
+          business_id: "biz_1",
+          provider_account_id: "acct_1",
+          date: "2026-04-01",
+          account_timezone: "UTC",
+          account_currency: "USD",
+          entity_key: "cmp_1",
+          entity_label: "Fact Campaign",
+          campaign_id: "cmp_1",
+          campaign_name: "Fact Campaign",
+          ad_group_id: null,
+          ad_group_name: null,
+          status: "enabled",
+          channel: "search",
+          classification: "brand",
+          payload_json: { name: "Fact Campaign" },
+          spend: 10,
+          revenue: 20,
+          conversions: 2,
+          impressions: 100,
+          clicks: 5,
+          ctr: 5,
+          cpc: 2,
+          cpa: 5,
+          roas: 2,
+          conversion_rate: 2,
+          interaction_rate: 5,
+          source_snapshot_id: "snap_1",
+          created_at: "2026-04-01T00:00:00.000Z",
+          updated_at: "2026-04-01T01:00:00.000Z",
+        },
+      ]),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(requestModelStore.readGoogleAdsCampaignDimensions).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        businessRefId: "biz_1-ref",
+        providerAccountId: "acct_1",
+        providerAccountRefId: "acct_1-ref",
+        campaignId: "cmp_1",
+        campaignName: "Dimension Campaign",
+        normalizedStatus: "paused",
+        channel: "performance_max",
+        projectionJson: { id: "cmp_1", name: "Dimension Campaign", status: "paused" },
+        firstSeenAt: null,
+        lastSeenAt: null,
+        sourceUpdatedAt: null,
+      },
+    ]);
+
+    const rows = await readGoogleAdsDailyRange({
+      scope: "campaign_daily",
+      businessId: "biz_1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      disableDimensionOverlay: true,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.entityLabel).toBe("Fact Campaign");
+    expect(rows[0]?.campaignName).toBe("Fact Campaign");
+    expect(rows[0]?.status).toBe("enabled");
+    expect(rows[0]?.payloadJson).toEqual({ name: "Fact Campaign" });
+    expect(requestModelStore.readGoogleAdsCampaignDimensions).not.toHaveBeenCalled();
+  });
+
   it("overlays product and campaign dimensions on aggregated rows", async () => {
+    const sql = Object.assign(vi.fn(), {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            entity_key: "prod_1",
+            spend: 15,
+            revenue: 45,
+            conversions: 3,
+            impressions: 100,
+            clicks: 12,
+            updated_at: "2026-04-03T01:00:00.000Z",
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            entity_key: "prod_1",
+            entity_label: "Fact Product",
+            campaign_id: "cmp_1",
+            campaign_name: "Fact Campaign",
+            ad_group_id: null,
+            ad_group_name: null,
+            status: "enabled",
+            channel: "shopping",
+            classification: "retail",
+            payload_json: { productTitle: "Fact Product", campaignName: "Fact Campaign" },
+            updated_at: "2026-04-03T01:00:00.000Z",
+          },
+        ]),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(requestModelStore.readGoogleAdsProductDimensions).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        businessRefId: "biz_1-ref",
+        providerAccountId: "acct_1",
+        providerAccountRefId: "acct_1-ref",
+        campaignId: "cmp_1",
+        productKey: "prod_1",
+        productTitle: "Dimension Product",
+        normalizedStatus: "paused",
+        projectionJson: {
+          name: "Stale Product Name",
+          productTitle: "Dimension Product",
+          title: "Dimension Product",
+        },
+        firstSeenAt: null,
+        lastSeenAt: null,
+        sourceUpdatedAt: null,
+      },
+    ]);
+    vi.mocked(requestModelStore.readGoogleAdsCampaignDimensions).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        businessRefId: "biz_1-ref",
+        providerAccountId: "acct_1",
+        providerAccountRefId: "acct_1-ref",
+        campaignId: "cmp_1",
+        campaignName: "Dimension Campaign",
+        normalizedStatus: "paused",
+        channel: "shopping",
+        projectionJson: { id: "cmp_1", name: "Dimension Campaign" },
+        firstSeenAt: null,
+        lastSeenAt: null,
+        sourceUpdatedAt: null,
+      },
+    ]);
+
+    const rows = await readGoogleAdsAggregatedRange({
+      scope: "product_daily",
+      businessId: "biz_1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe("Dimension Product");
+    expect(rows[0]?.productTitle).toBe("Dimension Product");
+    expect(rows[0]?.title).toBe("Dimension Product");
+    expect(rows[0]?.campaignName).toBe("Dimension Campaign");
+    expect(rows[0]?.status).toBe("paused");
+  });
+
+  it("can bypass product and campaign dimension overlay on aggregated rows", async () => {
     const sql = Object.assign(vi.fn(), {
       query: vi
         .fn()
@@ -1130,12 +1284,15 @@ describe("google ads typed dimension overlays", () => {
       businessId: "biz_1",
       startDate: "2026-04-01",
       endDate: "2026-04-03",
+      disableDimensionOverlay: true,
     });
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.name).toBe("Dimension Product");
-    expect(rows[0]?.campaignName).toBe("Dimension Campaign");
-    expect(rows[0]?.status).toBe("paused");
+    expect(rows[0]?.name).toBe("Fact Product");
+    expect(rows[0]?.campaignName).toBe("Fact Campaign");
+    expect(rows[0]?.status).toBe("enabled");
+    expect(requestModelStore.readGoogleAdsProductDimensions).not.toHaveBeenCalled();
+    expect(requestModelStore.readGoogleAdsCampaignDimensions).not.toHaveBeenCalled();
   });
 });
 

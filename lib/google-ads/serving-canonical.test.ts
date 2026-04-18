@@ -58,6 +58,7 @@ const {
   getGoogleCanonicalOverviewSummary,
   getGoogleCanonicalOverviewTrends,
   getGoogleAdsOverviewReport,
+  getGoogleAdsProductsReport,
 } = await import("@/lib/google-ads/serving");
 
 describe("google canonical overview helpers", () => {
@@ -466,5 +467,61 @@ describe("google canonical overview helpers", () => {
       expect.objectContaining({ date: "2026-03-01", spend: 100, revenue: 200, conversions: 2 }),
       expect.objectContaining({ date: "2026-03-02", spend: 120, revenue: 240, conversions: 3 }),
     ]);
+  });
+
+  it("keeps product report names aligned with the typed dimension title in the daily fallback path", async () => {
+    const oomError = Object.assign(new Error("out of memory"), { code: "53200" });
+    vi.mocked(warehouse.readGoogleAdsAggregatedRange).mockRejectedValue(oomError as never);
+    vi.mocked(warehouse.readGoogleAdsDailyRange).mockResolvedValue([
+      {
+        businessId: "biz",
+        providerAccountId: "acc_1",
+        date: "2026-03-01",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        entityKey: "prod_1",
+        entityLabel: "Dimension Product",
+        campaignId: "cmp_1",
+        campaignName: "Campaign 1",
+        adGroupId: null,
+        adGroupName: null,
+        status: "enabled",
+        channel: "shopping",
+        classification: "retail",
+        payloadJson: {
+          name: "Stale Product Name",
+          productTitle: "Fact Product",
+          title: "Fact Product",
+        },
+        sourceSnapshotId: "snap_1",
+        spend: 10,
+        revenue: 20,
+        conversions: 2,
+        impressions: 100,
+        clicks: 10,
+        ctr: 10,
+        cpc: 1,
+        cpa: 5,
+        roas: 2,
+        conversionRate: 20,
+        interactionRate: 10,
+        updatedAt: "2026-03-01T01:00:00.000Z",
+      },
+    ] as never);
+
+    const result = await getGoogleAdsProductsReport({
+      businessId: "biz",
+      dateRange: "custom",
+      customStart: "2026-03-01",
+      customEnd: "2026-03-03",
+    });
+
+    expect(result.rows[0]).toEqual(
+      expect.objectContaining({
+        name: "Dimension Product",
+        productTitle: "Dimension Product",
+        title: "Dimension Product",
+      }),
+    );
   });
 });

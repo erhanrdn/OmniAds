@@ -43,6 +43,7 @@ import {
   analyzeProducts,
   analyzeSearchIntelligence,
 } from "@/lib/google-ads/tab-analysis";
+import { applyCanonicalGoogleAdsProductFields } from "@/lib/google-ads/product-name";
 import type { GoogleAdsReportMeta } from "@/lib/google-ads/normalizers";
 import {
   createGoogleAdsWarehouseFreshness,
@@ -123,7 +124,10 @@ function isWarehouseAggregationOom(error: unknown) {
   return code === "53200" || message.includes("out of memory");
 }
 
-function aggregateDailyRowsLocally(dailyRows: GoogleAdsWarehouseDailyRow[]) {
+function aggregateDailyRowsLocally(
+  scope: GoogleAdsWarehouseScope,
+  dailyRows: GoogleAdsWarehouseDailyRow[],
+) {
   const byEntityKey = new Map<
     string,
     {
@@ -176,7 +180,7 @@ function aggregateDailyRowsLocally(dailyRows: GoogleAdsWarehouseDailyRow[]) {
       const conversions = entry.conversions;
       const impressions = entry.impressions;
       const clicks = entry.clicks;
-      return {
+      const baseRow = {
         ...payload,
         id: String(payload.id ?? latest.entityKey),
         name: String(payload.name ?? latest.entityLabel ?? latest.entityKey),
@@ -201,6 +205,18 @@ function aggregateDailyRowsLocally(dailyRows: GoogleAdsWarehouseDailyRow[]) {
         conversionRate: clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
         updatedAt: latest.updatedAt ?? null,
       } as Record<string, unknown>;
+
+      if (scope === "product_daily") {
+        return applyCanonicalGoogleAdsProductFields({
+          row: baseRow,
+          dimensionProductTitle: latest.entityLabel,
+          payload,
+          entityLabel: latest.entityLabel,
+          entityKey: latest.entityKey,
+        });
+      }
+
+      return baseRow;
     })
     .sort(
       (left, right) =>
@@ -860,7 +876,7 @@ async function readAggregatedScope(input: {
     });
     return {
       dailyRows,
-      rows: aggregateDailyRowsLocally(dailyRows),
+      rows: aggregateDailyRowsLocally(input.scope, dailyRows),
     };
   }
 }
@@ -1953,10 +1969,10 @@ async function buildGoogleAdsSearchTermsHotReport(
       productRows
         .map((row) =>
           String(
-            row.productTitle ??
+            row.name ??
+              row.productTitle ??
               row.title ??
               row.entityLabel ??
-              row.name ??
               ""
           ).trim()
         )
@@ -2247,10 +2263,10 @@ export async function getGoogleAdsSearchIntelligenceReport(
       productRows
         .map((row) =>
           String(
-            row.productTitle ??
+            row.name ??
+              row.productTitle ??
               row.title ??
               row.entityLabel ??
-              row.name ??
               ""
           ).trim()
         )
@@ -2654,7 +2670,7 @@ async function finalizeGoogleAdsAdvisorReport(input: {
       costModel,
       commerceSources: (input.selectedProducts.rows as Array<Record<string, unknown>>).map((row) => ({
         productItemId: String(row.productItemId ?? row.itemId ?? "") || null,
-        productTitle: String(row.productTitle ?? row.title ?? ""),
+        productTitle: String(row.name ?? row.productTitle ?? row.title ?? ""),
         inventory:
           typeof row.inventory === "number"
             ? Number(row.inventory)

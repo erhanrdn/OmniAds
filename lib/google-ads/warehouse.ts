@@ -31,6 +31,10 @@ import type {
   GoogleAdsWarehouseMetricSet,
   GoogleAdsWarehouseScope,
 } from "@/lib/google-ads/warehouse-types";
+import {
+  applyCanonicalGoogleAdsProductFields,
+  resolveCanonicalGoogleAdsProductTitle,
+} from "@/lib/google-ads/product-name";
 import { mergeGoogleAdsSyncStateWrite } from "@/lib/google-ads/sync-state-write";
 import { computeCheckpointLagMinutes } from "@/lib/provider-readiness";
 import {
@@ -713,16 +717,29 @@ function applyGoogleAdsDimensionOverlay(
   const dimension = context.products.get(scopeEntityId(scope, row));
   const dimensionCampaign =
     dimension?.campaignId ? context.campaigns.get(dimension.campaignId) ?? campaign : campaign;
+  const productPayload =
+    dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+      ? dimension.projectionJson
+      : basePayload;
+  const canonicalProductTitle = resolveCanonicalGoogleAdsProductTitle({
+    dimensionProductTitle: dimension?.productTitle ?? null,
+    payload: productPayload,
+    entityLabel: row.entityLabel,
+    entityKey: row.entityKey,
+  });
   return {
     ...row,
-    entityLabel: dimension?.productTitle ?? row.entityLabel,
+    entityLabel: canonicalProductTitle || row.entityLabel,
     campaignId: dimension?.campaignId ?? row.campaignId,
     campaignName: dimensionCampaign?.campaignName ?? row.campaignName,
     status: dimension?.normalizedStatus ?? row.status,
-    payloadJson:
-      dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
-        ? dimension.projectionJson
-        : basePayload,
+    payloadJson: applyCanonicalGoogleAdsProductFields({
+      row: asObject(productPayload),
+      dimensionProductTitle: dimension?.productTitle ?? null,
+      payload: productPayload,
+      entityLabel: row.entityLabel,
+      entityKey: row.entityKey,
+    }),
   };
 }
 
@@ -3999,6 +4016,7 @@ export async function readGoogleAdsDailyRange(input: {
   startDate: string;
   endDate: string;
   timeoutMs?: number;
+  disableDimensionOverlay?: boolean;
 }): Promise<GoogleAdsWarehouseDailyRow[]> {
   await assertGoogleAdsRequestReadTablesReady(
     [tableNameForScope(input.scope)],
@@ -4088,6 +4106,10 @@ export async function readGoogleAdsDailyRange(input: {
     createdAt: normalizeTimestamp(row.created_at) ?? undefined,
     updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
   })) as GoogleAdsWarehouseDailyRow[];
+
+  if (input.disableDimensionOverlay) {
+    return mappedRows;
+  }
 
   return overlayGoogleAdsDimensionRows({
     scope: input.scope,
@@ -4239,6 +4261,7 @@ export async function readGoogleAdsAggregatedRange(input: {
   startDate: string;
   endDate: string;
   timeoutMs?: number;
+  disableDimensionOverlay?: boolean;
 }): Promise<Array<Record<string, unknown>>> {
   await assertGoogleAdsRequestReadTablesReady(
     [tableNameForScope(input.scope)],
@@ -4306,37 +4329,41 @@ export async function readGoogleAdsAggregatedRange(input: {
     latestRows.map((row) => [String(row.entity_key), row] as const),
   );
 
-  const aggregateDimensionRows = await overlayGoogleAdsDimensionRows({
-    scope: input.scope,
-    businessId: input.businessId,
-    rows: aggregateRows.map((row) => {
-      const latest = latestByEntityKey.get(String(row.entity_key)) ?? {};
-      const payload =
-        latest.payload_json && typeof latest.payload_json === "object"
-          ? (latest.payload_json as Record<string, unknown>)
-          : {};
-      return {
-        entityKey: String(row.entity_key),
-        entityLabel: latest.entity_label ? String(latest.entity_label) : null,
-        campaignId: latest.campaign_id ? String(latest.campaign_id) : null,
-        campaignName: latest.campaign_name ? String(latest.campaign_name) : null,
-        adGroupId: latest.ad_group_id ? String(latest.ad_group_id) : null,
-        adGroupName: latest.ad_group_name ? String(latest.ad_group_name) : null,
-        status: latest.status ? String(latest.status) : null,
-        channel: latest.channel ? String(latest.channel) : null,
-        classification: latest.classification
-          ? String(latest.classification)
-          : null,
-        payloadJson: payload,
-        spend: toNumber(row.spend),
-        revenue: toNumber(row.revenue),
-        conversions: toNumber(row.conversions),
-        impressions: toNumber(row.impressions),
-        clicks: toNumber(row.clicks),
-        updatedAt: normalizeTimestamp(row.updated_at),
-      };
-    }),
+  const aggregateBaseRows = aggregateRows.map((row) => {
+    const latest = latestByEntityKey.get(String(row.entity_key)) ?? {};
+    const payload =
+      latest.payload_json && typeof latest.payload_json === "object"
+        ? (latest.payload_json as Record<string, unknown>)
+        : {};
+    return {
+      entityKey: String(row.entity_key),
+      entityLabel: latest.entity_label ? String(latest.entity_label) : null,
+      campaignId: latest.campaign_id ? String(latest.campaign_id) : null,
+      campaignName: latest.campaign_name ? String(latest.campaign_name) : null,
+      adGroupId: latest.ad_group_id ? String(latest.ad_group_id) : null,
+      adGroupName: latest.ad_group_name ? String(latest.ad_group_name) : null,
+      status: latest.status ? String(latest.status) : null,
+      channel: latest.channel ? String(latest.channel) : null,
+      classification: latest.classification
+        ? String(latest.classification)
+        : null,
+      payloadJson: payload,
+      spend: toNumber(row.spend),
+      revenue: toNumber(row.revenue),
+      conversions: toNumber(row.conversions),
+      impressions: toNumber(row.impressions),
+      clicks: toNumber(row.clicks),
+      updatedAt: normalizeTimestamp(row.updated_at),
+    };
   });
+
+  const aggregateDimensionRows = input.disableDimensionOverlay
+    ? aggregateBaseRows
+    : await overlayGoogleAdsDimensionRows({
+        scope: input.scope,
+        businessId: input.businessId,
+        rows: aggregateBaseRows,
+      });
 
   return aggregateDimensionRows.map((row) => {
     const latest = latestByEntityKey.get(String(row.entityKey)) ?? {};
@@ -4351,7 +4378,7 @@ export async function readGoogleAdsAggregatedRange(input: {
         : latest.payload_json && typeof latest.payload_json === "object"
           ? (latest.payload_json as Record<string, unknown>)
           : {};
-    return {
+    const baseRow = {
       ...payload,
       id: String(payload.id ?? row.entityKey),
       name: String(payload.name ?? row.entityLabel ?? row.entityKey),
@@ -4378,6 +4405,17 @@ export async function readGoogleAdsAggregatedRange(input: {
         clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
       updatedAt: row.updatedAt,
     } as Record<string, unknown>;
+
+    if (input.scope === "product_daily") {
+      return applyCanonicalGoogleAdsProductFields({
+        row: baseRow,
+        payload,
+        entityLabel: row.entityLabel,
+        entityKey: row.entityKey,
+      });
+    }
+
+    return baseRow;
   });
 }
 

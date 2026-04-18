@@ -11,11 +11,21 @@ import { getLatestSyncRepairExecutionSummary } from "@/lib/sync/remediation-exec
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { getSyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
 
-export async function GET() {
+function resolveProviderScope(request: Request) {
+  try {
+    const providerScope = new URL(request.url).searchParams.get("providerScope")?.trim();
+    return providerScope || "meta";
+  } catch {
+    return "meta";
+  }
+}
+
+export async function GET(request: Request) {
   const contract = assertRuntimeContractStartup({ service: "web" });
+  const providerScope = resolveProviderScope(request);
   const controlPlaneIdentity = resolveSyncControlPlaneKey({
     buildId: contract.buildId,
-    providerScope: "meta",
+    providerScope,
   });
   await upsertRuntimeContractInstance({
     contract,
