@@ -23,11 +23,113 @@ import {
   compactRepairableActions,
   type ProviderAutoHealResult,
 } from "@/lib/sync/provider-status-truth";
+import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 
 export interface ProviderRepairCycleOptions {
   enqueueScheduledWork?: boolean;
   metaDeadLetterSources?: string[] | null;
   queueWarehouseRepairs?: boolean;
+}
+
+type MetaRepairStageName =
+  | "runMetaRepairCycle.cleanup"
+  | "runMetaRepairCycle.replay_dead_letters"
+  | "runMetaRepairCycle.requeue_retryable_failed"
+  | "runMetaRepairCycle.recover_d1_finalize"
+  | "runMetaRepairCycle.integrity_incidents"
+  | "runMetaRepairCycle.queue_integrity_repairs"
+  | "runMetaRepairCycle.refresh_state"
+  | "runMetaRepairCycle.reconcile_recent_authoritative_window";
+
+type MetaRepairStageRecord = {
+  stage: MetaRepairStageName;
+  durationMs: number;
+  ok: boolean;
+  errorMessage: string | null;
+};
+
+type MetaRepairStageTaggedError = Error & {
+  metaRepairStage?: MetaRepairStageName;
+};
+
+function tagMetaRepairStageError(
+  error: unknown,
+  stage: MetaRepairStageName,
+) {
+  if (error instanceof Error && !(error as MetaRepairStageTaggedError).metaRepairStage) {
+    (error as MetaRepairStageTaggedError).metaRepairStage = stage;
+  }
+  return error;
+}
+
+function buildMetaRepairStagePayload(input: {
+  businessId: string;
+  stage: MetaRepairStageName;
+  durationMs: number;
+  ok: boolean;
+  errorMessage?: string | null;
+}) {
+  return {
+    businessId: input.businessId,
+    providerAccountId: null,
+    partitionId: null,
+    scope: null,
+    lane: null,
+    source: null,
+    day: null,
+    durationMs: input.durationMs,
+    stage: input.stage,
+    ok: input.ok,
+    errorMessage: input.errorMessage ?? null,
+  };
+}
+
+async function captureMetaRepairStage<T>(input: {
+  businessId: string;
+  stage: MetaRepairStageName;
+  stageRecords: MetaRepairStageRecord[];
+  run: () => Promise<T>;
+  onError?: (error: unknown) => Promise<T> | T;
+}) {
+  const startedAt = Date.now();
+  try {
+    const result = await input.run();
+    const durationMs = Date.now() - startedAt;
+    input.stageRecords.push({
+      stage: input.stage,
+      durationMs,
+      ok: true,
+      errorMessage: null,
+    });
+    logRuntimeInfo("meta-repair", "stage", buildMetaRepairStagePayload({
+      businessId: input.businessId,
+      stage: input.stage,
+      durationMs,
+      ok: true,
+    }));
+    return result;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    const taggedError = tagMetaRepairStageError(error, input.stage);
+    const errorMessage = taggedError instanceof Error ? taggedError.message : String(taggedError);
+    input.stageRecords.push({
+      stage: input.stage,
+      durationMs,
+      ok: false,
+      errorMessage,
+    });
+    logRuntimeWarn("meta-repair", "stage_failed", buildMetaRepairStagePayload({
+      businessId: input.businessId,
+      stage: input.stage,
+      durationMs,
+      ok: false,
+      errorMessage,
+    }));
+    if (input.onError) {
+      return input.onError(taggedError);
+    }
+    throw taggedError;
+  }
 }
 
 function buildContiguousDateRanges(dates: string[]) {
@@ -524,95 +626,154 @@ export async function runMetaRepairCycle(
 ) {
   const enqueueScheduledWork = options?.enqueueScheduledWork ?? true;
   const queueWarehouseRepairs = options?.queueWarehouseRepairs ?? true;
+  const stageTimings: MetaRepairStageRecord[] = [];
   let cleanup: Awaited<ReturnType<typeof metaWarehouse.cleanupMetaPartitionOrchestration>> | null = null;
   let cleanupError: string | null = null;
-  try {
-    cleanup = await metaWarehouse.cleanupMetaPartitionOrchestration({ businessId });
-  } catch (error) {
-    cleanupError = error instanceof Error ? error.message : String(error);
-  }
-  const replayedDeadLetters = await metaWarehouse
-    .replayMetaDeadLetterPartitions({
-      businessId,
-      sources: options?.metaDeadLetterSources ?? null,
-    })
-    .catch(() => null);
-  const requeuedFailed = await metaWarehouse
-    .requeueMetaRetryableFailedPartitions({ businessId })
-    .catch(() => []);
-  const d1Recovery = await recoverMetaD1FinalizePartitions({
+  cleanup = await captureMetaRepairStage({
     businessId,
-  }).catch(() => null);
+    stage: "runMetaRepairCycle.cleanup",
+    stageRecords: stageTimings,
+    run: () => metaWarehouse.cleanupMetaPartitionOrchestration({ businessId }),
+    onError: (error) => {
+      cleanupError = error instanceof Error ? error.message : String(error);
+      return null;
+    },
+  });
+  const replayedDeadLetters = await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.replay_dead_letters",
+    stageRecords: stageTimings,
+    run: () =>
+      metaWarehouse.replayMetaDeadLetterPartitions({
+        businessId,
+        sources: options?.metaDeadLetterSources ?? null,
+      }),
+    onError: () => null,
+  });
+  const requeuedFailed = await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.requeue_retryable_failed",
+    stageRecords: stageTimings,
+    run: () => metaWarehouse.requeueMetaRetryableFailedPartitions({ businessId }),
+    onError: () => [],
+  });
+  const d1Recovery = await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.recover_d1_finalize",
+    stageRecords: stageTimings,
+    run: () =>
+      recoverMetaD1FinalizePartitions({
+        businessId,
+      }),
+    onError: () => null,
+  });
   const queueHealthBeforeEnqueue = await metaWarehouse.getMetaQueueHealth({ businessId }).catch(() => null);
   const integrityEndDate = new Date().toISOString().slice(0, 10);
   const integrityStartDate = addUtcDays(integrityEndDate, -45);
-  const integrityIncidents = await metaWarehouse
-    .getMetaWarehouseIntegrityIncidents({
-      businessId,
-      startDate: integrityStartDate,
-      endDate: integrityEndDate,
-      persistReconciliationEvents: true,
-    })
-    .catch(() => []);
+  const integrityIncidents = await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.integrity_incidents",
+    stageRecords: stageTimings,
+    run: () =>
+      metaWarehouse.getMetaWarehouseIntegrityIncidents({
+        businessId,
+        startDate: integrityStartDate,
+        endDate: integrityEndDate,
+        persistReconciliationEvents: true,
+      }),
+    onError: () => [],
+  });
   const repairDates = integrityIncidents
     .filter((incident) => incident.repairRecommended)
     .map((incident) => incident.date);
   const repairRanges = buildContiguousDateRanges(repairDates);
-  const queuedWarehouseRepairs = queueWarehouseRepairs
-    ? await Promise.all(
-        repairRanges.map((range) =>
-          syncMetaRepairRange({
-            businessId,
-            startDate: range.startDate,
-            endDate: range.endDate,
-            triggerSource:
-              range.startDate === range.endDate ? "repair_recent_day" : "priority_window",
-          }).catch(() => null),
-        ),
-      )
-    : [];
-  await refreshMetaSyncStateForBusiness({ businessId }).catch(() => null);
+  const queuedWarehouseRepairs = await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.queue_integrity_repairs",
+    stageRecords: stageTimings,
+    run: async () =>
+      queueWarehouseRepairs
+        ? Promise.all(
+            repairRanges.map((range) =>
+              syncMetaRepairRange({
+                businessId,
+                startDate: range.startDate,
+                endDate: range.endDate,
+                triggerSource:
+                  range.startDate === range.endDate ? "repair_recent_day" : "priority_window",
+              }).catch(() => null),
+            ),
+          )
+        : [],
+  });
+  await captureMetaRepairStage({
+    businessId,
+    stage: "runMetaRepairCycle.refresh_state",
+    stageRecords: stageTimings,
+    run: () => refreshMetaSyncStateForBusiness({ businessId }),
+    onError: () => undefined,
+  });
   const canonicalDriftIncidents = await metaWarehouse
     .getMetaCanonicalDriftIncidents({
       businessId,
       sinceHours: 24,
     })
     .catch(() => []);
-  const recentAuthoritativeWindow = await reconcileMetaAuthoritativeRecentWindow({
+  const recentAuthoritativeWindow = await captureMetaRepairStage({
     businessId,
-    recentWindowDays: 30,
-  }).catch(() => ({
-    providerAccountCount: 0,
-    daysScanned: 0,
-    pendingDays: 0,
-    blockedDays: 0,
-    failedDays: 0,
-    repairRequiredDays: 0,
-    retryableQueuedDays: 0,
-    retryableRunningDays: 0,
-    staleLeaseProofDays: 0,
-    idlePendingDays: 0,
-    repairDates: [] as string[],
-  }));
+    stage: "runMetaRepairCycle.reconcile_recent_authoritative_window",
+    stageRecords: stageTimings,
+    run: async () => {
+      const recentWindow = await reconcileMetaAuthoritativeRecentWindow({
+        businessId,
+        recentWindowDays: 30,
+      });
+      const authoritativeRepairRanges = buildContiguousDateRanges(
+        recentWindow.repairDates,
+      );
+      const queuedAuthoritativeRepairs = queueWarehouseRepairs
+        ? await Promise.all(
+            authoritativeRepairRanges.map((range) =>
+              syncMetaRepairRange({
+                businessId,
+                startDate: range.startDate,
+                endDate: range.endDate,
+                triggerSource:
+                  range.startDate === range.endDate ? "repair_recent_day" : "priority_window",
+              }).catch(() => null),
+            ),
+          )
+        : [];
+      return {
+        recentWindow,
+        authoritativeRepairRanges,
+        queuedAuthoritativeRepairs,
+      };
+    },
+    onError: () => ({
+      recentWindow: {
+        providerAccountCount: 0,
+        daysScanned: 0,
+        pendingDays: 0,
+        blockedDays: 0,
+        failedDays: 0,
+        repairRequiredDays: 0,
+        retryableQueuedDays: 0,
+        retryableRunningDays: 0,
+        staleLeaseProofDays: 0,
+        idlePendingDays: 0,
+        repairDates: [] as string[],
+      },
+      authoritativeRepairRanges: [] as Array<{ startDate: string; endDate: string }>,
+      queuedAuthoritativeRepairs: [] as Array<unknown>,
+    }),
+  });
   const repeatedCanonicalDriftIncidents = canonicalDriftIncidents.filter(
     (incident) => incident.occurrenceCount >= 2,
   );
-  const authoritativeRepairRanges = buildContiguousDateRanges(
-    recentAuthoritativeWindow.repairDates,
-  );
-  const queuedAuthoritativeRepairs = queueWarehouseRepairs
-    ? await Promise.all(
-        authoritativeRepairRanges.map((range) =>
-          syncMetaRepairRange({
-            businessId,
-            startDate: range.startDate,
-            endDate: range.endDate,
-            triggerSource:
-              range.startDate === range.endDate ? "repair_recent_day" : "priority_window",
-          }).catch(() => null),
-        ),
-      )
-    : [];
+  const authoritativeRepairRanges = recentAuthoritativeWindow.authoritativeRepairRanges;
+  const queuedAuthoritativeRepairs = recentAuthoritativeWindow.queuedAuthoritativeRepairs;
+  const recentAuthoritativeWindowSummary = recentAuthoritativeWindow.recentWindow;
   const integritySignature = buildIntegritySignature(
     integrityIncidents
       .filter((incident) => incident.repairRecommended)
@@ -645,7 +806,7 @@ export async function runMetaRepairCycle(
     cleanupError != null ||
     (replayedDeadLetters?.manualTruthDefectCount ?? 0) > 0 ||
     repeatedCanonicalDriftIncidents.length > 0 ||
-    recentAuthoritativeWindow.blockedDays > 0 ||
+    recentAuthoritativeWindowSummary.blockedDays > 0 ||
     persistentIntegrityMismatch ||
     ((queueHealthBeforeEnqueue?.deadLetterPartitions ?? 0) > 0 &&
       (replayedDeadLetters?.changedCount ?? 0) <= 0) ||
@@ -673,10 +834,10 @@ export async function runMetaRepairCycle(
           { repairable: false }
         )
       : null,
-    recentAuthoritativeWindow.blockedDays > 0
+    recentAuthoritativeWindowSummary.blockedDays > 0
       ? buildBlockingReason(
           "blocked_authoritative_publication_mismatch",
-          `${recentAuthoritativeWindow.blockedDays} Meta authoritative day(s) are blocked by publication or planner contract mismatch in the recent 30-day window.`,
+          `${recentAuthoritativeWindowSummary.blockedDays} Meta authoritative day(s) are blocked by publication or planner contract mismatch in the recent 30-day window.`,
           { repairable: false }
         )
       : null,
@@ -725,28 +886,28 @@ export async function runMetaRepairCycle(
       {
         available:
           authoritativeRepairRanges.length > 0 ||
-          recentAuthoritativeWindow.repairRequiredDays > 0 ||
-          recentAuthoritativeWindow.failedDays > 0,
+          recentAuthoritativeWindowSummary.repairRequiredDays > 0 ||
+          recentAuthoritativeWindowSummary.failedDays > 0,
       }
     ),
     buildRepairableAction(
       "inspect_blocked_authoritative_days",
       "Inspect blocked Meta publication mismatches before retrying authoritative work.",
-      { available: recentAuthoritativeWindow.blockedDays > 0 }
+      { available: recentAuthoritativeWindowSummary.blockedDays > 0 }
     ),
     buildRepairableAction(
       "prove_stale_leases_before_cleanup",
       "Confirm no authoritative progress exists before treating stale Meta leases as reclaimable.",
-      { available: recentAuthoritativeWindow.staleLeaseProofDays > 0 }
+      { available: recentAuthoritativeWindowSummary.staleLeaseProofDays > 0 }
     ),
     buildRepairableAction(
       "monitor_retryable_authoritative_work",
       "Leave queued or running Meta authoritative work non-terminal until publish evidence or failure proof appears.",
       {
         available:
-          recentAuthoritativeWindow.retryableQueuedDays > 0 ||
-          recentAuthoritativeWindow.retryableRunningDays > 0 ||
-          recentAuthoritativeWindow.idlePendingDays > 0,
+          recentAuthoritativeWindowSummary.retryableQueuedDays > 0 ||
+          recentAuthoritativeWindowSummary.retryableRunningDays > 0 ||
+          recentAuthoritativeWindowSummary.idlePendingDays > 0,
       }
     ),
   ]);
@@ -770,7 +931,7 @@ export async function runMetaRepairCycle(
         integrityAttemptCount,
         integrityRepairRanges: repairRanges,
         queuedWarehouseRepairs: queuedWarehouseRepairs.filter(Boolean).length,
-        recentAuthoritativeWindow,
+        recentAuthoritativeWindow: recentAuthoritativeWindowSummary,
         recentAuthoritativeRepairRanges: authoritativeRepairRanges,
         queuedRecentAuthoritativeRepairs:
           queuedAuthoritativeRepairs.filter(Boolean).length,
@@ -789,6 +950,7 @@ export async function runMetaRepairCycle(
         d1FinalizeForceReclaimedCount:
           d1Recovery?.reclaimedPartitionIds?.length ?? 0,
         enqueueScheduledWork,
+        stageTimings,
       },
     } satisfies ProviderAutoHealResult,
   };

@@ -18,7 +18,14 @@ import {
   refreshMetaSyncStateForBusiness,
 } from "@/lib/sync/meta-sync";
 import { cleanupMetaPartitionOrchestration } from "@/lib/meta/warehouse";
-import { releaseProviderJobLock, acquireProviderJobLock, renewProviderJobLock } from "@/lib/sync/provider-job-lock";
+import {
+  releaseExpiredProviderJobLock,
+  releaseProviderJobLock,
+  acquireProviderJobLock,
+  renewProviderJobLock,
+  getProviderJobLockState,
+  type ProviderJobLockState,
+} from "@/lib/sync/provider-job-lock";
 import {
   acquireSyncRunnerLease,
   releaseSyncRunnerLease,
@@ -40,6 +47,7 @@ import {
   type SyncGateRecord,
 } from "@/lib/sync/release-gates";
 import { runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
+import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 
 const META_REMEDIATION_LOCK = {
   provider: "meta",
@@ -61,6 +69,90 @@ const META_REMEDIATION_BUDGET_POLICY = {
   consumeMaxDurationMs: 30 * 60_000,
   actionTimeoutBufferMs: 5 * 60_000,
 } as const;
+
+function buildMetaRemediationLockStatePayload(input: {
+  businessId: string;
+  ownerToken?: string | null;
+  state: ProviderJobLockState | null;
+}) {
+  return {
+    businessId: input.businessId,
+    ownerToken: input.ownerToken ?? null,
+    status: input.state?.status ?? null,
+    lockOwner: input.state?.lockOwner ?? null,
+    lockExpiresAt: input.state?.lockExpiresAt ?? null,
+    completedAt: input.state?.completedAt ?? null,
+    errorMessage: input.state?.errorMessage ?? null,
+    isExpired: input.state?.isExpired ?? null,
+  };
+}
+
+async function cleanupExpiredMetaRemediationLock(input: {
+  businessId: string;
+}) {
+  const released = await releaseExpiredProviderJobLock({
+    businessId: input.businessId,
+    errorMessage: "stale canary remediation lock expired before reacquire",
+    ...META_REMEDIATION_LOCK,
+  }).catch(() => ({ released: false, state: null }));
+  if (released.released) {
+    logRuntimeWarn(
+      "meta-canary-remediation",
+      "expired_lock_released",
+      buildMetaRemediationLockStatePayload({
+        businessId: input.businessId,
+        state: released.state,
+      }),
+    );
+  }
+  return released;
+}
+
+async function validateMetaRemediationLockReleased(input: {
+  businessId: string;
+  ownerToken: string;
+}) {
+  let state = await getProviderJobLockState({
+    businessId: input.businessId,
+    ...META_REMEDIATION_LOCK,
+  }).catch(() => null);
+  if (state?.status === "running" && state.isExpired) {
+    await releaseExpiredProviderJobLock({
+      businessId: input.businessId,
+      errorMessage: `stale canary remediation lock expired after ${input.ownerToken} completed`,
+      ...META_REMEDIATION_LOCK,
+    }).catch(() => null);
+    state = await getProviderJobLockState({
+      businessId: input.businessId,
+      ...META_REMEDIATION_LOCK,
+    }).catch(() => state);
+  }
+  if (state?.status === "running" && state.lockOwner === input.ownerToken) {
+    throw new Error(`canary remediation lock for ${input.businessId} remained running after release`);
+  }
+  if (state?.status === "running" && state.isExpired) {
+    throw new Error(`stale canary remediation lock for ${input.businessId} remained expired after validation`);
+  }
+  logRuntimeInfo(
+    "meta-canary-remediation",
+    "lock_validation_complete",
+    buildMetaRemediationLockStatePayload({
+      businessId: input.businessId,
+      ownerToken: input.ownerToken,
+      state,
+    }),
+  );
+  return state;
+}
+
+function getErrorStage(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  const candidate = (error as Error & {
+    metaPartitionStage?: string;
+    metaRepairStage?: string;
+  });
+  return candidate.metaPartitionStage ?? candidate.metaRepairStage ?? null;
+}
 
 type CanaryEvidence = {
   businessId: string;
@@ -780,12 +872,11 @@ async function executeRecommendation(input: {
         enqueueScheduledWork: true,
         queueWarehouseRepairs: true,
       });
-      const consume = await consumeQueuedWork();
       return {
         executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
         result: toSafeJson({
           repair,
-          consume,
+          queueOnly: true,
         }),
       };
     }
@@ -960,6 +1051,9 @@ export async function runMetaCanaryRemediation(input: {
 
   for (const recommendation of targetRecommendations) {
     const lockOwner = `${input.workflowRunId ?? "manual"}:${recommendation.businessId}`;
+    await cleanupExpiredMetaRemediationLock({
+      businessId: recommendation.businessId,
+    });
     console.log(
       "[meta-canary-remediation] business_start",
       JSON.stringify({
@@ -1122,6 +1216,7 @@ export async function runMetaCanaryRemediation(input: {
           expectedOutcomeMet: false,
           actionResult: toSafeJson({
             error: error instanceof Error ? error.message : String(error),
+            stage: getErrorStage(error),
             diagnostics,
           }),
           finishedAt: new Date().toISOString(),
@@ -1148,6 +1243,7 @@ export async function runMetaCanaryRemediation(input: {
             expectedOutcomeMet: false,
             actionResult: toSafeJson({
               error: error instanceof Error ? error.message : String(error),
+              stage: getErrorStage(error),
             }),
             startedAt: new Date().toISOString(),
             finishedAt: new Date().toISOString(),
@@ -1159,6 +1255,7 @@ export async function runMetaCanaryRemediation(input: {
         JSON.stringify({
           businessId: recommendation.businessId,
           recommendedAction: recommendation.recommendedAction,
+          stage: getErrorStage(error),
           error: error instanceof Error ? error.message : String(error),
         }),
       );
@@ -1171,6 +1268,19 @@ export async function runMetaCanaryRemediation(input: {
         errorMessage: finalLockError,
         ...META_REMEDIATION_LOCK,
       }).catch(() => null);
+      await validateMetaRemediationLockReleased({
+        businessId: recommendation.businessId,
+        ownerToken: lockOwner,
+      }).catch((error) => {
+        console.warn(
+          "[meta-canary-remediation] lock_validation_failed",
+          JSON.stringify({
+            businessId: recommendation.businessId,
+            ownerToken: lockOwner,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      });
     }
   }
 

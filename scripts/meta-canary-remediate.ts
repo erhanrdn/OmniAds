@@ -68,6 +68,7 @@ async function main() {
   configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
   const { runMetaCanaryRemediation } = await import("@/lib/sync/meta-canary-remediation");
+  const { getProviderJobLockState } = await import("@/lib/sync/provider-job-lock");
   const result = await runMetaCanaryRemediation({
     expectedBuildId: args.expectedBuildId,
     releaseGateId: args.releaseGateId,
@@ -78,7 +79,29 @@ async function main() {
     workflowActor: process.env.GITHUB_ACTOR?.trim() || null,
   });
 
-  console.log(JSON.stringify(result, null, 2));
+  const lockStates = await Promise.all(
+    result.targetBusinessIds.map(async (businessId) => ({
+      businessId,
+      lock: await getProviderJobLockState({
+        businessId,
+        provider: "meta",
+        reportType: "canary_remediation",
+        dateRangeKey: "release_canary",
+      }).catch(() => null),
+    })),
+  );
+  const staleRunningLockDetected = lockStates.some(
+    (entry) => entry.lock?.status === "running" && entry.lock.isExpired,
+  );
+
+  console.log(JSON.stringify({
+    ...result,
+    lockStates,
+  }, null, 2));
+
+  if (staleRunningLockDetected) {
+    process.exit(1);
+  }
 
   if (args.successMode === "proof" ? result.proofPassed !== true : result.clearancePassed !== true) {
     process.exit(1);

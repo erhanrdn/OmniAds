@@ -9,6 +9,17 @@ export interface ProviderJobLockKey {
   dateRangeKey: string;
 }
 
+export interface ProviderJobLockState {
+  id: string;
+  status: string;
+  lockOwner: string | null;
+  lockExpiresAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  errorMessage: string | null;
+  isExpired: boolean;
+}
+
 const DEFAULT_LOCK_MINUTES = 10;
 
 async function assertProviderJobLockTablesReady(context: string) {
@@ -28,6 +39,31 @@ function getLockMinutes(input?: number) {
 async function resolveProviderSyncJobBusinessRefId(businessId: string) {
   const businessRefIds = await resolveBusinessReferenceIds([businessId]);
   return businessRefIds.get(businessId) ?? null;
+}
+
+function mapProviderJobLockState(
+  row: {
+    id: string;
+    status: string;
+    lock_owner: string | null;
+    lock_expires_at: string | Date | null;
+    started_at: string | Date | null;
+    completed_at: string | Date | null;
+    error_message: string | null;
+    is_expired: boolean;
+  } | null | undefined,
+): ProviderJobLockState | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    lockOwner: row.lock_owner,
+    lockExpiresAt: row.lock_expires_at ? new Date(row.lock_expires_at).toISOString() : null,
+    startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    errorMessage: row.error_message,
+    isExpired: row.is_expired,
+  };
 }
 
 export async function acquireProviderJobLock(input: ProviderJobLockKey & {
@@ -151,4 +187,82 @@ export async function releaseProviderJobLock(input: ProviderJobLockKey & {
       AND date_range_key = ${input.dateRangeKey}
       AND lock_owner = ${input.ownerToken}
   `;
+}
+
+export async function getProviderJobLockState(input: ProviderJobLockKey) {
+  await assertProviderJobLockTablesReady("provider_sync_jobs:get_lock_state");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      status,
+      lock_owner,
+      lock_expires_at,
+      started_at,
+      completed_at,
+      error_message,
+      COALESCE(lock_expires_at, started_at + (${DEFAULT_LOCK_MINUTES} || ' minutes')::interval) <= now() AS is_expired
+    FROM provider_sync_jobs
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+      AND report_type = ${input.reportType}
+      AND date_range_key = ${input.dateRangeKey}
+    LIMIT 1
+  ` as Array<{
+    id: string;
+    status: string;
+    lock_owner: string | null;
+    lock_expires_at: string | Date | null;
+    started_at: string | Date | null;
+    completed_at: string | Date | null;
+    error_message: string | null;
+    is_expired: boolean;
+  }>;
+  return mapProviderJobLockState(rows[0]);
+}
+
+export async function releaseExpiredProviderJobLock(input: ProviderJobLockKey & {
+  errorMessage?: string | null;
+}) {
+  await assertProviderJobLockTablesReady("provider_sync_jobs:release_expired_lock");
+  const sql = getDb();
+  const businessRefId = await resolveProviderSyncJobBusinessRefId(input.businessId);
+  const rows = await sql`
+    UPDATE provider_sync_jobs
+    SET
+      business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+      status = 'failed',
+      completed_at = now(),
+      lock_expires_at = now(),
+      error_message = COALESCE(${input.errorMessage ?? null}, error_message, 'stale provider job lock expired'),
+      updated_at = now()
+    WHERE business_id = ${input.businessId}
+      AND provider = ${input.provider}
+      AND report_type = ${input.reportType}
+      AND date_range_key = ${input.dateRangeKey}
+      AND status = 'running'
+      AND COALESCE(lock_expires_at, started_at + (${DEFAULT_LOCK_MINUTES} || ' minutes')::interval) <= now()
+    RETURNING
+      id,
+      status,
+      lock_owner,
+      lock_expires_at,
+      started_at,
+      completed_at,
+      error_message,
+      false AS is_expired
+  ` as Array<{
+    id: string;
+    status: string;
+    lock_owner: string | null;
+    lock_expires_at: string | Date | null;
+    started_at: string | Date | null;
+    completed_at: string | Date | null;
+    error_message: string | null;
+    is_expired: boolean;
+  }>;
+  return {
+    released: rows.length > 0,
+    state: mapProviderJobLockState(rows[0]),
+  };
 }

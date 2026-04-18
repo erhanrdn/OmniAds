@@ -42,6 +42,8 @@ vi.mock("@/lib/sync/provider-job-lock", () => ({
   acquireProviderJobLock: vi.fn(),
   renewProviderJobLock: vi.fn(),
   releaseProviderJobLock: vi.fn(),
+  releaseExpiredProviderJobLock: vi.fn(),
+  getProviderJobLockState: vi.fn(),
 }));
 
 vi.mock("@/lib/sync/repair-planner", () => ({
@@ -251,6 +253,20 @@ describe("meta canary remediation", () => {
     });
     vi.mocked(providerJobLock.renewProviderJobLock).mockResolvedValue(true);
     vi.mocked(providerJobLock.releaseProviderJobLock).mockResolvedValue(undefined);
+    vi.mocked(providerJobLock.releaseExpiredProviderJobLock).mockResolvedValue({
+      released: false,
+      state: null,
+    } as never);
+    vi.mocked(providerJobLock.getProviderJobLockState).mockResolvedValue({
+      id: "job-1",
+      status: "done",
+      lockOwner: "run-1:biz-1",
+      lockExpiresAt: "2026-04-15T12:00:31.000Z",
+      startedAt: "2026-04-15T12:00:00.000Z",
+      completedAt: "2026-04-15T12:00:31.000Z",
+      errorMessage: null,
+      isExpired: false,
+    } as never);
     vi.mocked(remediationExecutions.createSyncRepairExecution).mockImplementation(async (input) => {
       const execution = makeExecution(input as Record<string, unknown>) as Record<string, unknown> & {
         id: string;
@@ -442,20 +458,8 @@ describe("meta canary remediation", () => {
       enqueueScheduledWork: true,
       queueWarehouseRepairs: true,
     });
-    expect(workerHealth.acquireSyncRunnerLease).toHaveBeenCalledWith({
-      businessId: "biz-1",
-      providerScope: "meta",
-      leaseOwner: "meta-remediation:run-1:biz-1",
-      leaseMinutes: 10,
-    });
-    expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalledWith("biz-1", {
-      runtimeWorkerId: "meta-remediation:run-1:biz-1",
-    });
-    expect(workerHealth.releaseSyncRunnerLease).toHaveBeenCalledWith({
-      businessId: "biz-1",
-      providerScope: "meta",
-      leaseOwner: "meta-remediation:run-1:biz-1",
-    });
+    expect(metaSync.consumeMetaQueuedWork).not.toHaveBeenCalled();
+    expect(workerHealth.acquireSyncRunnerLease).not.toHaveBeenCalled();
     expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
       "exec-1",
       expect.objectContaining({
@@ -481,6 +485,12 @@ describe("meta canary remediation", () => {
     expect(result.clearancePassed).toBe(true);
     expect(result.businessImprovementObserved).toBe(true);
     expect(result.outcomeCounts.cleared).toBe(1);
+    expect(providerJobLock.releaseExpiredProviderJobLock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
+      }),
+    );
+    expect(providerJobLock.getProviderJobLockState).toHaveBeenCalled();
     expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
       "exec-1",
       expect.objectContaining({
@@ -490,28 +500,7 @@ describe("meta canary remediation", () => {
     );
   });
 
-  it("keeps consuming while queued Meta work still has forward progress", async () => {
-    vi.mocked(metaSync.consumeMetaQueuedWork)
-      .mockResolvedValueOnce({
-        businessId: "biz-1",
-        attempted: 2,
-        succeeded: 2,
-        failed: 0,
-        skipped: false,
-        hasPendingWork: true,
-        hasForwardProgress: true,
-        nextDelayMs: 150,
-      } as never)
-      .mockResolvedValueOnce({
-        businessId: "biz-1",
-        attempted: 2,
-        succeeded: 2,
-        failed: 0,
-        skipped: false,
-        hasPendingWork: false,
-        hasForwardProgress: true,
-        nextDelayMs: 150,
-      } as never);
+  it("keeps integrity repair enqueue queue-only and records repair metadata without inline consume", async () => {
     vi.mocked(benchmark.collectMetaSyncReadinessSnapshot)
       .mockResolvedValueOnce(makeSnapshot())
       .mockResolvedValueOnce(
@@ -549,18 +538,15 @@ describe("meta canary remediation", () => {
     await vi.runAllTimersAsync();
     const result = await runPromise;
 
-    expect(metaSync.consumeMetaQueuedWork).toHaveBeenCalledTimes(2);
+    expect(metaSync.consumeMetaQueuedWork).not.toHaveBeenCalled();
     expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
       "exec-1",
       expect.objectContaining({
         actionResult: expect.objectContaining({
-          consume: expect.objectContaining({
-            leaseAcquired: true,
-            passCount: 2,
-            consumeResult: expect.objectContaining({
-              hasPendingWork: false,
-              succeeded: 2,
-            }),
+          queueOnly: true,
+          repair: expect.objectContaining({
+            ok: true,
+            queuedRepairs: 2,
           }),
         }),
       }),
@@ -568,7 +554,7 @@ describe("meta canary remediation", () => {
     expect(result.executions[0]?.outcomeClassification).toBe("cleared");
   });
 
-  it("scales remediation consume budget for businesses with multiple Meta accounts", async () => {
+  it("does not acquire a runner lease for queue-only integrity repair enqueue even with multiple Meta accounts", async () => {
     vi.mocked(providerAccountAssignments.getProviderAccountAssignments).mockResolvedValue({
       account_ids: ["act_1", "act_2"],
     } as never);
@@ -609,19 +595,43 @@ describe("meta canary remediation", () => {
     await vi.runAllTimersAsync();
     await runPromise;
 
-    expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
-      "exec-1",
+    expect(workerHealth.acquireSyncRunnerLease).not.toHaveBeenCalled();
+    expect(metaSync.consumeMetaQueuedWork).not.toHaveBeenCalled();
+  });
+
+  it("releases expired remediation locks before reacquiring and validates that the post-run lock is terminal", async () => {
+    vi.mocked(providerJobLock.releaseExpiredProviderJobLock).mockResolvedValue({
+      released: true,
+      state: {
+        id: "job-0",
+        status: "failed",
+        lockOwner: "manual:biz-1",
+        lockExpiresAt: "2026-04-15T12:00:00.000Z",
+        startedAt: "2026-04-15T11:50:00.000Z",
+        completedAt: "2026-04-15T12:00:00.000Z",
+        errorMessage: "stale canary remediation lock expired before reacquire",
+        isExpired: false,
+      },
+    } as never);
+
+    const runPromise = remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+    await vi.runAllTimersAsync();
+    await runPromise;
+
+    expect(providerJobLock.releaseExpiredProviderJobLock).toHaveBeenCalledWith(
       expect.objectContaining({
-        actionResult: expect.objectContaining({
-          consume: expect.objectContaining({
-            budget: expect.objectContaining({
-              providerAccountCount: 2,
-              consumeMaxPasses: 160,
-              consumeDurationMs: 15 * 60_000,
-              actionTimeoutMs: 20 * 60_000,
-            }),
-          }),
-        }),
+        businessId: "biz-1",
+      }),
+    );
+    expect(providerJobLock.getProviderJobLockState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz-1",
       }),
     );
   });
@@ -891,6 +901,52 @@ describe("meta canary remediation", () => {
     expect(result.proofPassed).toBe(false);
     expect(result.clearancePassed).toBe(false);
   }, 15_000);
+
+  it("records stage diagnostics when a repair failure carries exact stage attribution", async () => {
+    const stageError = Object.assign(
+      new Error("Database query timed out after 30000ms."),
+      { metaPartitionStage: "syncMetaPartitionDay.account_core_sync" },
+    );
+    vi.mocked(benchmark.collectMetaSyncReadinessSnapshot).mockResolvedValue(makeSnapshot());
+    vi.mocked(repairEngine.runMetaRepairCycle).mockRejectedValue(stageError);
+    vi.mocked(remediationExecutions.getLatestSyncRepairExecutionSummary).mockResolvedValue({
+      buildId: "build-1",
+      environment: "production",
+      providerScope: "meta",
+      latestStartedAt: "2026-04-15T12:00:00.000Z",
+      latestFinishedAt: "2026-04-15T12:01:00.000Z",
+      improvedAny: false,
+      businessCount: 1,
+      counts: {
+        cleared: 0,
+        improving_not_cleared: 0,
+        no_change: 0,
+        worse: 0,
+        manual_follow_up_required: 1,
+        locked: 0,
+      },
+    });
+
+    const result = await remediation.runMetaCanaryRemediation({
+      expectedBuildId: "build-1",
+      releaseGateId: "rg-1",
+      repairPlanId: "rp-1",
+      successMode: "proof",
+      workflowRunId: "run-1",
+      workflowActor: "codex",
+    });
+
+    expect(remediationExecutions.updateSyncRepairExecution).toHaveBeenCalledWith(
+      "exec-1",
+      expect.objectContaining({
+        actionResult: expect.objectContaining({
+          error: "Database query timed out after 30000ms.",
+          stage: "syncMetaPartitionDay.account_core_sync",
+        }),
+      }),
+    );
+    expect(result.executions[0]?.outcomeClassification).toBe("manual_follow_up_required");
+  });
 
   it("maps repair recommendations deterministically", () => {
     expect(remediation.mapRepairRecommendationToExecutionAction("integrity_repair_enqueue")).toBe("repair_cycle");

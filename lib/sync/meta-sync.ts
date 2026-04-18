@@ -95,7 +95,7 @@ import type { RunnerLeaseGuard } from "@/lib/sync/worker-runtime";
 import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
-import { logRuntimeInfo } from "@/lib/runtime-logging";
+import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 import {
   markProviderDayRolloverFinalizeStarted,
   markProviderDayRolloverFinalizeCompleted,
@@ -156,6 +156,107 @@ export function logMetaQueueVisibility(
   details: Record<string, unknown>,
 ) {
   logRuntimeInfo("meta-sync", event, details);
+}
+
+type MetaPartitionStageName =
+  | "syncMetaPartitionDay.coverage_before"
+  | "syncMetaPartitionDay.account_core_sync"
+  | "syncMetaPartitionDay.breakdown_sync"
+  | "syncMetaPartitionDay.coverage_after"
+  | "syncMetaPartitionDay.authoritative_verification";
+
+type MetaPartitionStageTaggedError = Error & {
+  metaPartitionStage?: MetaPartitionStageName;
+};
+
+function tagMetaPartitionStageError(
+  error: unknown,
+  stage: MetaPartitionStageName,
+) {
+  if (error instanceof Error && !(error as MetaPartitionStageTaggedError).metaPartitionStage) {
+    (error as MetaPartitionStageTaggedError).metaPartitionStage = stage;
+  }
+  return error;
+}
+
+function getMetaPartitionStageFromError(error: unknown) {
+  if (!(error instanceof Error)) return null;
+  return (error as MetaPartitionStageTaggedError).metaPartitionStage ?? null;
+}
+
+function buildMetaPartitionStagePayload(input: {
+  businessId: string;
+  providerAccountId: string | null;
+  partitionId: string;
+  scope: string;
+  lane: MetaSyncLane;
+  source: string;
+  day: string;
+  durationMs: number;
+  stage: MetaPartitionStageName;
+  ok: boolean;
+  errorMessage?: string | null;
+}) {
+  return {
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    partitionId: input.partitionId,
+    scope: input.scope,
+    lane: input.lane,
+    source: input.source,
+    day: input.day,
+    durationMs: input.durationMs,
+    stage: input.stage,
+    ok: input.ok,
+    errorMessage: input.errorMessage ?? null,
+  };
+}
+
+async function captureMetaPartitionStage<T>(input: {
+  businessId: string;
+  providerAccountId: string;
+  partitionId: string;
+  scope: string;
+  lane: MetaSyncLane;
+  source: string;
+  day: string;
+  stage: MetaPartitionStageName;
+  run: () => Promise<T>;
+}) {
+  const startedAt = Date.now();
+  try {
+    const result = await input.run();
+    logRuntimeInfo("meta-sync", "partition_stage", buildMetaPartitionStagePayload({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      partitionId: input.partitionId,
+      scope: input.scope,
+      lane: input.lane,
+      source: input.source,
+      day: input.day,
+      durationMs: Date.now() - startedAt,
+      stage: input.stage,
+      ok: true,
+    }));
+    return result;
+  } catch (error) {
+    const taggedError = tagMetaPartitionStageError(error, input.stage);
+    const errorMessage = taggedError instanceof Error ? taggedError.message : String(taggedError);
+    logRuntimeWarn("meta-sync", "partition_stage_failed", buildMetaPartitionStagePayload({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      partitionId: input.partitionId,
+      scope: input.scope,
+      lane: input.lane,
+      source: input.source,
+      day: input.day,
+      durationMs: Date.now() - startedAt,
+      stage: input.stage,
+      ok: false,
+      errorMessage,
+    }));
+    throw taggedError;
+  }
 }
 
 async function heartbeatMetaPartitionBeforeCompletion(input: {
@@ -1987,6 +2088,8 @@ async function syncMetaPartitionDay(input: {
   businessId: string;
   providerAccountId: string;
   day: string;
+  lane: MetaSyncLane;
+  partitionScope: MetaWarehouseScope;
   source: string;
   scopes: MetaWarehouseScope[];
   partitionId: string;
@@ -2001,13 +2104,24 @@ async function syncMetaPartitionDay(input: {
   }
   const assignedAccountIds = credentials.accountIds;
   const referenceToday = getMetaReferenceToday(credentials);
-  const coverageState = await getMetaDailyCoverageState({
-    ...buildMetaDailyCoverageLookup({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      day: normalizedDay,
-    }),
-    referenceToday,
+  const coverageState = await captureMetaPartitionStage({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    partitionId: input.partitionId,
+    scope: input.partitionScope,
+    lane: input.lane,
+    source: input.source,
+    day: normalizedDay,
+    stage: "syncMetaPartitionDay.coverage_before",
+    run: () =>
+      getMetaDailyCoverageState({
+        ...buildMetaDailyCoverageLookup({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          day: normalizedDay,
+        }),
+        referenceToday,
+      }),
   });
   const beforeCoverage = coverageState;
   const sourceTodayWindow = normalizedDay === referenceToday;
@@ -2037,19 +2151,30 @@ async function syncMetaPartitionDay(input: {
     input.scopes.some((scope) => isMetaProductCoreCoverageScope(scope)) &&
     (forceAuthoritativeRefetch || !coverageState.productCoreComplete)
   ) {
-    const bulkResult = await syncMetaAccountCoreWarehouseDay({
-      credentials,
-      accountId: input.providerAccountId,
-      day: normalizedDay,
+    const bulkResult = await captureMetaPartitionStage({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
       partitionId: input.partitionId,
-      workerId: input.workerId,
-      leaseEpoch: input.leaseEpoch,
-      attemptCount: input.attemptCount + 1,
-      leaseMinutes: META_PARTITION_LEASE_MINUTES,
-      freshStart,
-      truthState,
-      sourceRunId: input.partitionId,
+      scope: "account_daily",
+      lane: input.lane,
       source: input.source,
+      day: normalizedDay,
+      stage: "syncMetaPartitionDay.account_core_sync",
+      run: () =>
+        syncMetaAccountCoreWarehouseDay({
+          credentials,
+          accountId: input.providerAccountId,
+          day: normalizedDay,
+          partitionId: input.partitionId,
+          workerId: input.workerId,
+          leaseEpoch: input.leaseEpoch,
+          attemptCount: input.attemptCount + 1,
+          leaseMinutes: META_PARTITION_LEASE_MINUTES,
+          freshStart,
+          truthState,
+          sourceRunId: input.partitionId,
+          source: input.source,
+        }),
     });
     if (bulkResult.memoryInstrumentation?.oversizeWarning) {
       console.warn("[meta-sync] oversized_partition_detected", {
@@ -2062,98 +2187,110 @@ async function syncMetaPartitionDay(input: {
       });
     }
     if (shouldSyncBreakdowns) {
-      const breakdownStartedAt = new Date().toISOString();
-      const breakdownJobs = [
-        {
-          breakdowns: "age,gender",
-          endpointName: "breakdown_age",
-        },
-        {
-          breakdowns: "country",
-          endpointName: "breakdown_country",
-        },
-        {
-          breakdowns: "publisher_platform,platform_position,impression_device",
-          endpointName:
-            "breakdown_publisher_platform,platform_position,impression_device",
-        },
-      ];
-      const breakdownResults = await Promise.all(
-        breakdownJobs.map(async (breakdownJob) => {
-          try {
-            await syncMetaAccountBreakdownWarehouseDay({
-              credentials,
-              accountId: input.providerAccountId,
-              day: normalizedDay,
-              partitionId: input.partitionId,
-              workerId: input.workerId,
-              leaseEpoch: input.leaseEpoch,
-              attemptCount: input.attemptCount + 1,
-              breakdowns: breakdownJob.breakdowns,
-              endpointName: breakdownJob.endpointName,
-              positiveSpendAdIds: bulkResult.positiveSpendAdIds,
-              source: input.source,
-              publishAuthoritativeSurface: false,
-              referenceToday,
-              leaseMinutes: META_PARTITION_LEASE_MINUTES,
-            });
-            return {
-              breakdownJob,
-              error: null as Error | null,
-            };
-          } catch (error) {
-            await upsertMetaCheckpointOrThrow({
-              partitionId: input.partitionId,
-              businessId: input.businessId,
-              providerAccountId: input.providerAccountId,
-              checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
-              phase: "fetch_raw",
-              status: "failed",
-              pageIndex: 0,
-              nextPageUrl: null,
-              providerCursor: null,
-              rowsFetched: 0,
-              rowsWritten: 0,
-              lastSuccessfulEntityKey: null,
-              lastResponseHeaders: {},
-              attemptCount: input.attemptCount + 1,
-              leaseEpoch: input.leaseEpoch,
-              leaseOwner: input.workerId,
-              startedAt: new Date().toISOString(),
-              finishedAt: new Date().toISOString(),
-            }).catch(() => null);
-            console.warn("[meta-sync] breakdown_sync_failed", {
-              businessId: input.businessId,
-              providerAccountId: input.providerAccountId,
-              partitionDate: normalizedDay,
-              breakdowns: breakdownJob.breakdowns,
-              message: error instanceof Error ? error.message : String(error),
-            });
-            return {
-              breakdownJob,
-              error:
-                error instanceof Error ? error : new Error(String(error)),
-            };
-          }
-        }),
-      );
-      const failedBreakdown = breakdownResults.find((result) => result.error);
-      if (failedBreakdown?.error) {
-        throw failedBreakdown.error;
-      }
-      await publishMetaBreakdownAuthoritativeSurface({
-        credentials,
-        accountId: input.providerAccountId,
-        day: normalizedDay,
+      await captureMetaPartitionStage({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
         partitionId: input.partitionId,
-        workerId: input.workerId,
-        leaseEpoch: input.leaseEpoch,
-        endpointName:
-          "breakdown_publisher_platform,platform_position,impression_device",
+        scope: "breakdown_daily",
+        lane: input.lane,
         source: input.source,
-        referenceToday,
-        leaseMinutes: META_PARTITION_LEASE_MINUTES,
-        startedAt: breakdownStartedAt,
+        day: normalizedDay,
+        stage: "syncMetaPartitionDay.breakdown_sync",
+        run: async () => {
+          const breakdownStartedAt = new Date().toISOString();
+          const breakdownJobs = [
+            {
+              breakdowns: "age,gender",
+              endpointName: "breakdown_age",
+            },
+            {
+              breakdowns: "country",
+              endpointName: "breakdown_country",
+            },
+            {
+              breakdowns: "publisher_platform,platform_position,impression_device",
+              endpointName:
+                "breakdown_publisher_platform,platform_position,impression_device",
+            },
+          ];
+          const breakdownResults = await Promise.all(
+            breakdownJobs.map(async (breakdownJob) => {
+              try {
+                await syncMetaAccountBreakdownWarehouseDay({
+                  credentials,
+                  accountId: input.providerAccountId,
+                  day: normalizedDay,
+                  partitionId: input.partitionId,
+                  workerId: input.workerId,
+                  leaseEpoch: input.leaseEpoch,
+                  attemptCount: input.attemptCount + 1,
+                  breakdowns: breakdownJob.breakdowns,
+                  endpointName: breakdownJob.endpointName,
+                  positiveSpendAdIds: bulkResult.positiveSpendAdIds,
+                  source: input.source,
+                  publishAuthoritativeSurface: false,
+                  referenceToday,
+                  leaseMinutes: META_PARTITION_LEASE_MINUTES,
+                });
+                return {
+                  breakdownJob,
+                  error: null as Error | null,
+                };
+              } catch (error) {
+                await upsertMetaCheckpointOrThrow({
+                  partitionId: input.partitionId,
+                  businessId: input.businessId,
+                  providerAccountId: input.providerAccountId,
+                  checkpointScope: `breakdown:${breakdownJob.breakdowns}`,
+                  phase: "fetch_raw",
+                  status: "failed",
+                  pageIndex: 0,
+                  nextPageUrl: null,
+                  providerCursor: null,
+                  rowsFetched: 0,
+                  rowsWritten: 0,
+                  lastSuccessfulEntityKey: null,
+                  lastResponseHeaders: {},
+                  attemptCount: input.attemptCount + 1,
+                  leaseEpoch: input.leaseEpoch,
+                  leaseOwner: input.workerId,
+                  startedAt: new Date().toISOString(),
+                  finishedAt: new Date().toISOString(),
+                }).catch(() => null);
+                console.warn("[meta-sync] breakdown_sync_failed", {
+                  businessId: input.businessId,
+                  providerAccountId: input.providerAccountId,
+                  partitionDate: normalizedDay,
+                  breakdowns: breakdownJob.breakdowns,
+                  message: error instanceof Error ? error.message : String(error),
+                });
+                return {
+                  breakdownJob,
+                  error:
+                    error instanceof Error ? error : new Error(String(error)),
+                };
+              }
+            }),
+          );
+          const failedBreakdown = breakdownResults.find((result) => result.error);
+          if (failedBreakdown?.error) {
+            throw failedBreakdown.error;
+          }
+          await publishMetaBreakdownAuthoritativeSurface({
+            credentials,
+            accountId: input.providerAccountId,
+            day: normalizedDay,
+            partitionId: input.partitionId,
+            workerId: input.workerId,
+            leaseEpoch: input.leaseEpoch,
+            endpointName:
+              "breakdown_publisher_platform,platform_position,impression_device",
+            source: input.source,
+            referenceToday,
+            leaseMinutes: META_PARTITION_LEASE_MINUTES,
+            startedAt: breakdownStartedAt,
+          });
+        },
       });
     }
     await heartbeatMetaPartitionDuringOrchestrationOrThrow({
@@ -2180,34 +2317,61 @@ async function syncMetaPartitionDay(input: {
     }
   }
 
-  const afterCoverage = await getMetaDailyCoverageState({
-    ...buildMetaDailyCoverageLookup({
-      businessId: input.businessId,
-      providerAccountId: input.providerAccountId,
-      day: normalizedDay,
-    }),
-    referenceToday,
+  const afterCoverage = await captureMetaPartitionStage({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    partitionId: input.partitionId,
+    scope: input.partitionScope,
+    lane: input.lane,
+    source: input.source,
+    day: normalizedDay,
+    stage: "syncMetaPartitionDay.coverage_after",
+    run: () =>
+      getMetaDailyCoverageState({
+        ...buildMetaDailyCoverageLookup({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          day: normalizedDay,
+        }),
+        referenceToday,
+      }),
   });
 
   if (
     truthState === "finalized" &&
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId)
   ) {
-    const verification = await getMetaAuthoritativeDayVerification({
+    const { verification, plannerStates } = await captureMetaPartitionStage({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
+      partitionId: input.partitionId,
+      scope: "account_daily",
+      lane: input.lane,
+      source: input.source,
       day: normalizedDay,
+      stage: "syncMetaPartitionDay.authoritative_verification",
+      run: async () => {
+        const verification = await getMetaAuthoritativeDayVerification({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          day: normalizedDay,
+        });
+        const plannerStates =
+          await reconcileMetaAuthoritativeDayStateFromVerification({
+            verification,
+            accountTimezone:
+              credentials.accountProfiles?.[input.providerAccountId]?.timezone ??
+              "UTC",
+            activePartitionIdBySurface: Object.fromEntries(
+              requiredPublishedSurfaces.map((surface) => [surface, input.partitionId]),
+            ),
+          });
+        return {
+          verification,
+          plannerStates,
+        };
+      },
     });
-    const plannerStates =
-      await reconcileMetaAuthoritativeDayStateFromVerification({
-        verification,
-        accountTimezone:
-          credentials.accountProfiles?.[input.providerAccountId]?.timezone ??
-          "UTC",
-        activePartitionIdBySurface: Object.fromEntries(
-          requiredPublishedSurfaces.map((surface) => [surface, input.partitionId]),
-        ),
-      });
     logRuntimeInfo("meta-sync", "partition_authoritative_verification", {
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -3419,6 +3583,8 @@ async function processMetaPartition(input: {
       businessId: input.partition.businessId,
       providerAccountId: input.partition.providerAccountId,
       day: input.partition.partitionDate,
+      lane: input.partition.lane,
+      partitionScope: input.partition.scope,
       source: input.partition.source,
       scopes,
       partitionId,
@@ -3812,10 +3978,13 @@ async function processMetaPartition(input: {
     }
     console.warn("[meta-sync] partition_failed", {
       businessId: input.partition.businessId,
+      providerAccountId: input.partition.providerAccountId,
+      partitionId,
       scope: input.partition.scope,
       partitionDate: input.partition.partitionDate,
       lane: input.partition.lane,
       source: input.partition.source,
+      stage: getMetaPartitionStageFromError(error),
       errorClass: classified.errorClass,
       message,
     });

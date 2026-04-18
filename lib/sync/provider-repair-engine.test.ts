@@ -150,6 +150,16 @@ describe("provider repair engine", () => {
         cleanupError: null,
         integrityIncidentCount: 0,
         d1FinalizeRecoveryQueued: false,
+        stageTimings: expect.arrayContaining([
+          expect.objectContaining({
+            stage: "runMetaRepairCycle.cleanup",
+            ok: true,
+          }),
+          expect.objectContaining({
+            stage: "runMetaRepairCycle.refresh_state",
+            ok: true,
+          }),
+        ]),
       })
     );
     expect(refreshMetaSyncStateForBusiness).toHaveBeenCalledWith({
@@ -198,6 +208,13 @@ describe("provider repair engine", () => {
       expect.objectContaining({
         cleanupSummary: null,
         cleanupError: "cleanup blew up",
+        stageTimings: expect.arrayContaining([
+          expect.objectContaining({
+            stage: "runMetaRepairCycle.cleanup",
+            ok: false,
+            errorMessage: "cleanup blew up",
+          }),
+        ]),
       })
     );
   });
