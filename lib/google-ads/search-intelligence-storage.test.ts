@@ -185,6 +185,41 @@ describe("Google Ads search intelligence storage", () => {
     });
   });
 
+  it("normalizes persisted hot-daily dates when the driver returns Date objects", async () => {
+    const sql = vi.fn(async () => [
+      buildPersistedHotDailyRow({
+        date: new Date("2026-04-08T00:00:00.000Z"),
+      }),
+      buildPersistedHotDailyRow({
+        date: new Date("2026-04-09T00:00:00.000Z"),
+        spend: "8",
+        revenue: "24",
+        conversions: "1",
+        impressions: "80",
+        clicks: "8",
+      }),
+    ]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const hotDailyRows = await storage.readGoogleAdsSearchQueryHotDailyRows({
+      businessId: "biz",
+      providerAccountId: "acct",
+      startDate: "2026-04-07",
+      endDate: "2026-04-12",
+    });
+    const weeklyRows = storage.buildGoogleAdsTopQueryWeeklyRowsFromHotDaily({ hotDailyRows });
+
+    expect(hotDailyRows.map((row) => row.date)).toEqual([
+      "2026-04-08",
+      "2026-04-09",
+    ]);
+    expect(weeklyRows[0]).toMatchObject({
+      weekStart: "2026-04-06",
+      weekEnd: "2026-04-12",
+      queryCountDays: 2,
+    });
+  });
+
   it("persists the search intelligence foundation through additive storage helpers", async () => {
     const calls: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
