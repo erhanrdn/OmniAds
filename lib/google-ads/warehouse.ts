@@ -33,6 +33,20 @@ import type {
 } from "@/lib/google-ads/warehouse-types";
 import { mergeGoogleAdsSyncStateWrite } from "@/lib/google-ads/sync-state-write";
 import { computeCheckpointLagMinutes } from "@/lib/provider-readiness";
+import {
+  readGoogleAdsAdDimensions,
+  readGoogleAdsAdGroupDimensions,
+  readGoogleAdsAssetGroupDimensions,
+  readGoogleAdsCampaignDimensions,
+  readGoogleAdsKeywordDimensions,
+  readGoogleAdsProductDimensions,
+  type GoogleAdsAdDimensionRecord,
+  type GoogleAdsAdGroupDimensionRecord,
+  type GoogleAdsAssetGroupDimensionRecord,
+  type GoogleAdsCampaignDimensionRecord,
+  type GoogleAdsKeywordDimensionRecord,
+  type GoogleAdsProductDimensionRecord,
+} from "@/lib/google-ads/request-model-store";
 
 type GoogleAdsClosedCheckpointGroup = {
   checkpointScope: string;
@@ -136,6 +150,14 @@ const GOOGLE_ADS_MUTATION_TABLES = [
   "google_ads_geo_daily",
   "google_ads_device_daily",
   "google_ads_product_daily",
+  "google_ads_campaign_dimensions",
+  "google_ads_campaign_state_history",
+  "google_ads_ad_group_dimensions",
+  "google_ads_ad_group_state_history",
+  "google_ads_ad_dimensions",
+  "google_ads_keyword_dimensions",
+  "google_ads_asset_group_dimensions",
+  "google_ads_product_dimensions",
 ] as const;
 
 async function resolveGoogleAdsControlPlaneReferenceIds(input: {
@@ -269,6 +291,12 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function asObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function parseNullableBoolean(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -345,6 +373,378 @@ function buildGoogleAdsIntegrityDelta(input: {
         ? null
         : Number((input.account - input.campaign).toFixed(2)),
   };
+}
+
+type GoogleAdsDimensionScope =
+  | "campaign_daily"
+  | "ad_group_daily"
+  | "ad_daily"
+  | "keyword_daily"
+  | "asset_group_daily"
+  | "product_daily";
+
+type GoogleAdsEntityRowBase = {
+  entityKey: string;
+  entityLabel: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  adGroupId: string | null;
+  adGroupName: string | null;
+  status: string | null;
+  channel: string | null;
+  classification: string | null;
+  payloadJson?: unknown;
+};
+
+type GoogleAdsDimensionReferenceContext = {
+  campaigns: Map<string, GoogleAdsCampaignDimensionRecord>;
+  adGroups: Map<string, GoogleAdsAdGroupDimensionRecord>;
+  ads: Map<string, GoogleAdsAdDimensionRecord>;
+  keywords: Map<string, GoogleAdsKeywordDimensionRecord>;
+  assetGroups: Map<string, GoogleAdsAssetGroupDimensionRecord>;
+  products: Map<string, GoogleAdsProductDimensionRecord>;
+};
+
+function normalizeGoogleAdsProjectionJson(
+  row: Pick<
+    GoogleAdsWarehouseDailyRow,
+    | "entityKey"
+    | "entityLabel"
+    | "campaignId"
+    | "campaignName"
+    | "adGroupId"
+    | "adGroupName"
+    | "status"
+    | "channel"
+    | "classification"
+    | "payloadJson"
+  >,
+) {
+  const payload = asObject(row.payloadJson);
+  const projection: Record<string, unknown> = {
+    ...payload,
+    id: payload.id ?? row.entityKey,
+    name: payload.name ?? row.entityLabel ?? row.entityKey,
+    campaignId: payload.campaignId ?? row.campaignId ?? null,
+    campaignName: payload.campaignName ?? row.campaignName ?? null,
+    adGroupId: payload.adGroupId ?? row.adGroupId ?? null,
+    adGroupName: payload.adGroupName ?? row.adGroupName ?? null,
+    status: payload.status ?? row.status ?? null,
+    channel: payload.channel ?? row.channel ?? null,
+    classification: payload.classification ?? row.classification ?? null,
+  };
+  return projection;
+}
+
+function buildGoogleAdsHistoryCapturedAt(row: {
+  date: string;
+  updatedAt?: string | null;
+}) {
+  return normalizeTimestamp(row.updatedAt) ?? `${normalizeDate(row.date)}T00:00:00.000Z`;
+}
+
+function buildGoogleAdsStateFingerprint(input: {
+  name: string | null;
+  normalizedStatus: string | null;
+  channel?: string | null;
+  projectionJson: unknown;
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        name: input.name ?? null,
+        normalizedStatus: input.normalizedStatus ?? null,
+        channel: input.channel ?? null,
+        projectionJson: asObject(input.projectionJson),
+      }),
+    )
+    .digest("hex");
+}
+
+function isGoogleAdsDimensionScope(
+  scope: GoogleAdsWarehouseScope,
+): scope is GoogleAdsDimensionScope {
+  return (
+    scope === "campaign_daily" ||
+    scope === "ad_group_daily" ||
+    scope === "ad_daily" ||
+    scope === "keyword_daily" ||
+    scope === "asset_group_daily" ||
+    scope === "product_daily"
+  );
+}
+
+function scopeEntityId(scope: GoogleAdsDimensionScope, row: GoogleAdsEntityRowBase) {
+  switch (scope) {
+    case "campaign_daily":
+      return row.campaignId ?? row.entityKey;
+    case "ad_group_daily":
+      return row.adGroupId ?? row.entityKey;
+    case "ad_daily":
+    case "keyword_daily":
+    case "asset_group_daily":
+    case "product_daily":
+      return row.entityKey;
+  }
+}
+
+async function loadGoogleAdsDimensionReferenceContext(input: {
+  scope: GoogleAdsDimensionScope;
+  businessId: string;
+  rows: GoogleAdsEntityRowBase[];
+}): Promise<GoogleAdsDimensionReferenceContext> {
+  const campaigns = new Map<string, GoogleAdsCampaignDimensionRecord>();
+  const adGroups = new Map<string, GoogleAdsAdGroupDimensionRecord>();
+  const ads = new Map<string, GoogleAdsAdDimensionRecord>();
+  const keywords = new Map<string, GoogleAdsKeywordDimensionRecord>();
+  const assetGroups = new Map<string, GoogleAdsAssetGroupDimensionRecord>();
+  const products = new Map<string, GoogleAdsProductDimensionRecord>();
+
+  const entityIds = Array.from(
+    new Set(input.rows.map((row) => scopeEntityId(input.scope, row)).filter(Boolean)),
+  );
+  const initialCampaignIds = new Set(
+    input.rows.map((row) => row.campaignId).filter((value): value is string => Boolean(value)),
+  );
+  const initialAdGroupIds = new Set(
+    input.rows.map((row) => row.adGroupId).filter((value): value is string => Boolean(value)),
+  );
+
+  if (input.scope === "campaign_daily") {
+    for (const row of await readGoogleAdsCampaignDimensions({
+      businessId: input.businessId,
+      campaignIds: entityIds,
+    })) {
+      campaigns.set(row.campaignId, row);
+    }
+  }
+
+  if (input.scope === "ad_group_daily") {
+    for (const row of await readGoogleAdsAdGroupDimensions({
+      businessId: input.businessId,
+      adGroupIds: entityIds,
+    })) {
+      adGroups.set(row.adGroupId, row);
+      if (row.campaignId) initialCampaignIds.add(row.campaignId);
+    }
+  }
+
+  if (input.scope === "ad_daily") {
+    for (const row of await readGoogleAdsAdDimensions({
+      businessId: input.businessId,
+      adIds: entityIds,
+    })) {
+      ads.set(row.adId, row);
+      if (row.campaignId) initialCampaignIds.add(row.campaignId);
+      if (row.adGroupId) initialAdGroupIds.add(row.adGroupId);
+    }
+  }
+
+  if (input.scope === "keyword_daily") {
+    for (const row of await readGoogleAdsKeywordDimensions({
+      businessId: input.businessId,
+      keywordIds: entityIds,
+    })) {
+      keywords.set(row.keywordId, row);
+      if (row.campaignId) initialCampaignIds.add(row.campaignId);
+      if (row.adGroupId) initialAdGroupIds.add(row.adGroupId);
+    }
+  }
+
+  if (input.scope === "asset_group_daily") {
+    for (const row of await readGoogleAdsAssetGroupDimensions({
+      businessId: input.businessId,
+      assetGroupIds: entityIds,
+    })) {
+      assetGroups.set(row.assetGroupId, row);
+      if (row.campaignId) initialCampaignIds.add(row.campaignId);
+    }
+  }
+
+  if (input.scope === "product_daily") {
+    for (const row of await readGoogleAdsProductDimensions({
+      businessId: input.businessId,
+      productKeys: entityIds,
+    })) {
+      products.set(row.productKey, row);
+      if (row.campaignId) initialCampaignIds.add(row.campaignId);
+    }
+  }
+
+  if (initialAdGroupIds.size > 0 && adGroups.size === 0 && input.scope !== "ad_group_daily") {
+    for (const row of await readGoogleAdsAdGroupDimensions({
+      businessId: input.businessId,
+      adGroupIds: Array.from(initialAdGroupIds),
+    })) {
+      adGroups.set(row.adGroupId, row);
+      if (row.campaignId) initialCampaignIds.add(row.campaignId);
+    }
+  }
+
+  if (initialCampaignIds.size > 0 && campaigns.size === 0 && input.scope !== "campaign_daily") {
+    for (const row of await readGoogleAdsCampaignDimensions({
+      businessId: input.businessId,
+      campaignIds: Array.from(initialCampaignIds),
+    })) {
+      campaigns.set(row.campaignId, row);
+    }
+  }
+
+  return {
+    campaigns,
+    adGroups,
+    ads,
+    keywords,
+    assetGroups,
+    products,
+  };
+}
+
+function applyGoogleAdsDimensionOverlay(
+  scope: GoogleAdsDimensionScope,
+  row: GoogleAdsEntityRowBase,
+  context: GoogleAdsDimensionReferenceContext,
+) {
+  const basePayload = asObject(row.payloadJson);
+  const campaign =
+    row.campaignId && context.campaigns.has(row.campaignId)
+      ? context.campaigns.get(row.campaignId)!
+      : null;
+  const adGroup =
+    row.adGroupId && context.adGroups.has(row.adGroupId)
+      ? context.adGroups.get(row.adGroupId)!
+      : null;
+
+  if (scope === "campaign_daily") {
+    const dimension = context.campaigns.get(scopeEntityId(scope, row));
+    return {
+      ...row,
+      entityLabel: dimension?.campaignName ?? row.entityLabel,
+      campaignId: dimension?.campaignId ?? row.campaignId ?? row.entityKey,
+      campaignName: dimension?.campaignName ?? row.campaignName,
+      status: dimension?.normalizedStatus ?? row.status,
+      channel: dimension?.channel ?? row.channel,
+      payloadJson:
+        dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+          ? dimension.projectionJson
+          : basePayload,
+    };
+  }
+
+  if (scope === "ad_group_daily") {
+    const dimension = context.adGroups.get(scopeEntityId(scope, row));
+    return {
+      ...row,
+      entityLabel: dimension?.adGroupName ?? row.entityLabel,
+      campaignId: dimension?.campaignId ?? row.campaignId,
+      campaignName:
+        (dimension?.campaignId ? context.campaigns.get(dimension.campaignId)?.campaignName : null) ??
+        campaign?.campaignName ??
+        row.campaignName,
+      adGroupId: dimension?.adGroupId ?? row.adGroupId ?? row.entityKey,
+      adGroupName: dimension?.adGroupName ?? row.adGroupName,
+      status: dimension?.normalizedStatus ?? row.status,
+      payloadJson:
+        dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+          ? dimension.projectionJson
+          : basePayload,
+    };
+  }
+
+  if (scope === "ad_daily") {
+    const dimension = context.ads.get(scopeEntityId(scope, row));
+    const dimensionAdGroup =
+      dimension?.adGroupId ? context.adGroups.get(dimension.adGroupId) ?? adGroup : adGroup;
+    const dimensionCampaign =
+      dimension?.campaignId ? context.campaigns.get(dimension.campaignId) ?? campaign : campaign;
+    return {
+      ...row,
+      entityLabel: dimension?.adName ?? row.entityLabel,
+      campaignId: dimension?.campaignId ?? row.campaignId,
+      campaignName: dimensionCampaign?.campaignName ?? row.campaignName,
+      adGroupId: dimension?.adGroupId ?? row.adGroupId,
+      adGroupName: dimensionAdGroup?.adGroupName ?? row.adGroupName,
+      status: dimension?.normalizedStatus ?? row.status,
+      payloadJson:
+        dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+          ? dimension.projectionJson
+          : basePayload,
+    };
+  }
+
+  if (scope === "keyword_daily") {
+    const dimension = context.keywords.get(scopeEntityId(scope, row));
+    const dimensionAdGroup =
+      dimension?.adGroupId ? context.adGroups.get(dimension.adGroupId) ?? adGroup : adGroup;
+    const dimensionCampaign =
+      dimension?.campaignId ? context.campaigns.get(dimension.campaignId) ?? campaign : campaign;
+    return {
+      ...row,
+      entityLabel: dimension?.keywordText ?? row.entityLabel,
+      campaignId: dimension?.campaignId ?? row.campaignId,
+      campaignName: dimensionCampaign?.campaignName ?? row.campaignName,
+      adGroupId: dimension?.adGroupId ?? row.adGroupId,
+      adGroupName: dimensionAdGroup?.adGroupName ?? row.adGroupName,
+      status: dimension?.normalizedStatus ?? row.status,
+      payloadJson:
+        dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+          ? dimension.projectionJson
+          : basePayload,
+    };
+  }
+
+  if (scope === "asset_group_daily") {
+    const dimension = context.assetGroups.get(scopeEntityId(scope, row));
+    const dimensionCampaign =
+      dimension?.campaignId ? context.campaigns.get(dimension.campaignId) ?? campaign : campaign;
+    return {
+      ...row,
+      entityLabel: dimension?.assetGroupName ?? row.entityLabel,
+      campaignId: dimension?.campaignId ?? row.campaignId,
+      campaignName: dimensionCampaign?.campaignName ?? row.campaignName,
+      status: dimension?.normalizedStatus ?? row.status,
+      payloadJson:
+        dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+          ? dimension.projectionJson
+          : basePayload,
+    };
+  }
+
+  const dimension = context.products.get(scopeEntityId(scope, row));
+  const dimensionCampaign =
+    dimension?.campaignId ? context.campaigns.get(dimension.campaignId) ?? campaign : campaign;
+  return {
+    ...row,
+    entityLabel: dimension?.productTitle ?? row.entityLabel,
+    campaignId: dimension?.campaignId ?? row.campaignId,
+    campaignName: dimensionCampaign?.campaignName ?? row.campaignName,
+    status: dimension?.normalizedStatus ?? row.status,
+    payloadJson:
+      dimension?.projectionJson && Object.keys(asObject(dimension.projectionJson)).length > 0
+        ? dimension.projectionJson
+        : basePayload,
+  };
+}
+
+async function overlayGoogleAdsDimensionRows<T extends GoogleAdsEntityRowBase>(input: {
+  scope: GoogleAdsWarehouseScope;
+  businessId: string;
+  rows: T[];
+}) {
+  const scope = input.scope;
+  if (!isGoogleAdsDimensionScope(scope) || input.rows.length === 0) {
+    return input.rows;
+  }
+
+  const context = await loadGoogleAdsDimensionReferenceContext({
+    scope,
+    businessId: input.businessId,
+    rows: input.rows,
+  });
+
+  return input.rows.map((row) =>
+    applyGoogleAdsDimensionOverlay(scope, row, context),
+  ) as T[];
 }
 
 function classifyGoogleAdsReclaimCandidate(input: {
@@ -2954,6 +3354,479 @@ export function dedupeGoogleAdsWarehouseRows(
   };
 }
 
+async function upsertGoogleAdsScopeDimensionRows(input: {
+  scope: GoogleAdsWarehouseScope;
+  rows: GoogleAdsWarehouseDailyRow[];
+  businessRefIds: Map<string, string>;
+  providerAccountRefIds: Map<string, string>;
+}) {
+  if (!isGoogleAdsDimensionScope(input.scope) || input.rows.length === 0) return;
+  const sql = getDb();
+  const values: unknown[] = [];
+
+  if (input.scope === "campaign_daily") {
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 13;
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId ?? row.entityKey,
+        row.campaignName ?? row.entityLabel ?? row.entityKey,
+        row.status,
+        row.channel,
+        JSON.stringify(normalizeGoogleAdsProjectionJson(row)),
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        buildGoogleAdsHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9}::jsonb,$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO google_ads_campaign_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          campaign_name,
+          normalized_status,
+          channel,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, campaign_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_campaign_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_campaign_dimensions.provider_account_ref_id),
+          campaign_name = EXCLUDED.campaign_name,
+          normalized_status = EXCLUDED.normalized_status,
+          channel = EXCLUDED.channel,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(google_ads_campaign_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(google_ads_campaign_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(google_ads_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+    return;
+  }
+
+  if (input.scope === "ad_group_daily") {
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 13;
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adGroupId ?? row.entityKey,
+        row.adGroupName ?? row.entityLabel ?? row.entityKey,
+        row.status,
+        JSON.stringify(normalizeGoogleAdsProjectionJson(row)),
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        buildGoogleAdsHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9}::jsonb,$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO google_ads_ad_group_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          ad_group_id,
+          ad_group_name,
+          normalized_status,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, ad_group_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_ad_group_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_ad_group_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          ad_group_name = EXCLUDED.ad_group_name,
+          normalized_status = EXCLUDED.normalized_status,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(google_ads_ad_group_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(google_ads_ad_group_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(google_ads_ad_group_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+    return;
+  }
+
+  if (input.scope === "ad_daily") {
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 13;
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adGroupId,
+        row.entityKey,
+        row.entityLabel ?? row.entityKey,
+        row.status,
+        JSON.stringify(normalizeGoogleAdsProjectionJson(row)),
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        buildGoogleAdsHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::jsonb,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,$${offset + 13}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO google_ads_ad_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          ad_group_id,
+          ad_id,
+          ad_name,
+          normalized_status,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, ad_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_ad_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_ad_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          ad_group_id = EXCLUDED.ad_group_id,
+          ad_name = EXCLUDED.ad_name,
+          normalized_status = EXCLUDED.normalized_status,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(google_ads_ad_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(google_ads_ad_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(google_ads_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+    return;
+  }
+
+  if (input.scope === "keyword_daily") {
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 13;
+      const projection = normalizeGoogleAdsProjectionJson(row);
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adGroupId,
+        row.entityKey,
+        String(projection["keywordText"] ?? projection["keyword"] ?? row.entityLabel ?? row.entityKey),
+        row.status,
+        JSON.stringify(projection),
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        buildGoogleAdsHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::jsonb,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,$${offset + 13}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO google_ads_keyword_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          ad_group_id,
+          keyword_id,
+          keyword_text,
+          normalized_status,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, keyword_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_keyword_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_keyword_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          ad_group_id = EXCLUDED.ad_group_id,
+          keyword_text = EXCLUDED.keyword_text,
+          normalized_status = EXCLUDED.normalized_status,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(google_ads_keyword_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(google_ads_keyword_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(google_ads_keyword_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+    return;
+  }
+
+  if (input.scope === "asset_group_daily") {
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 13;
+      const projection = normalizeGoogleAdsProjectionJson(row);
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.entityKey,
+        String(projection["assetGroupName"] ?? projection["assetGroup"] ?? row.entityLabel ?? row.entityKey),
+        row.status,
+        JSON.stringify(projection),
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        `${normalizeDate(row.date)}T00:00:00.000Z`,
+        buildGoogleAdsHistoryCapturedAt(row),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9}::jsonb,$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
+    }).join(", ");
+
+    await sql.query(
+      `
+        INSERT INTO google_ads_asset_group_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          asset_group_id,
+          asset_group_name,
+          normalized_status,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, asset_group_id) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_asset_group_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_asset_group_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          asset_group_name = EXCLUDED.asset_group_name,
+          normalized_status = EXCLUDED.normalized_status,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(google_ads_asset_group_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(google_ads_asset_group_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(google_ads_asset_group_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+      `,
+      values,
+    );
+    return;
+  }
+
+  const tuples = input.rows.map((row, index) => {
+    const offset = index * 13;
+    const projection = normalizeGoogleAdsProjectionJson(row);
+    values.push(
+      row.businessId,
+      input.businessRefIds.get(row.businessId) ?? null,
+      row.providerAccountId,
+      input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+      row.campaignId,
+      row.entityKey,
+      String(projection["productTitle"] ?? projection["title"] ?? row.entityLabel ?? row.entityKey),
+      row.status,
+      JSON.stringify(projection),
+      `${normalizeDate(row.date)}T00:00:00.000Z`,
+      `${normalizeDate(row.date)}T00:00:00.000Z`,
+      buildGoogleAdsHistoryCapturedAt(row),
+    );
+    return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9}::jsonb,$${offset + 10}::timestamptz,$${offset + 11}::timestamptz,$${offset + 12}::timestamptz,now(),now())`;
+  }).join(", ");
+
+  await sql.query(
+    `
+      INSERT INTO google_ads_product_dimensions (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        campaign_id,
+        product_key,
+        product_title,
+        normalized_status,
+        projection_json,
+        first_seen_at,
+        last_seen_at,
+        source_updated_at,
+        created_at,
+        updated_at
+      )
+      VALUES ${tuples}
+      ON CONFLICT (business_id, provider_account_id, product_key) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_product_dimensions.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_product_dimensions.provider_account_ref_id),
+        campaign_id = EXCLUDED.campaign_id,
+        product_title = EXCLUDED.product_title,
+        normalized_status = EXCLUDED.normalized_status,
+        projection_json = EXCLUDED.projection_json,
+        first_seen_at = LEAST(COALESCE(google_ads_product_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+        last_seen_at = GREATEST(COALESCE(google_ads_product_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+        source_updated_at = GREATEST(COALESCE(google_ads_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+        updated_at = now()
+    `,
+    values,
+  );
+}
+
+async function appendGoogleAdsStateHistoryRows(input: {
+  scope: GoogleAdsWarehouseScope;
+  rows: GoogleAdsWarehouseDailyRow[];
+  businessRefIds: Map<string, string>;
+  providerAccountRefIds: Map<string, string>;
+}) {
+  if (input.rows.length === 0) return;
+  const sql = getDb();
+
+  if (input.scope === "campaign_daily") {
+    const values: unknown[] = [];
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 15;
+      const projection = normalizeGoogleAdsProjectionJson(row);
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId ?? row.entityKey,
+        buildGoogleAdsStateFingerprint({
+          name: row.campaignName ?? row.entityLabel ?? row.entityKey,
+          normalizedStatus: row.status,
+          channel: row.channel,
+          projectionJson: projection,
+        }),
+        row.campaignName ?? row.entityLabel ?? row.entityKey,
+        row.status,
+        row.channel,
+        JSON.stringify(projection),
+        row.sourceSnapshotId,
+        buildGoogleAdsHistoryCapturedAt(row),
+        normalizeDate(row.date),
+        normalizeDate(row.date),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::jsonb,'warehouse_daily',$${offset + 11},$${offset + 12}::timestamptz,$${offset + 13}::date,$${offset + 14}::date,now())`;
+    }).join(", ");
+    await sql.query(
+      `
+        INSERT INTO google_ads_campaign_state_history (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          state_fingerprint,
+          campaign_name,
+          normalized_status,
+          channel,
+          projection_json,
+          source_kind,
+          source_snapshot_id,
+          captured_at,
+          effective_from,
+          effective_to,
+          created_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at) DO NOTHING
+      `,
+      values,
+    );
+    return;
+  }
+
+  if (input.scope === "ad_group_daily") {
+    const values: unknown[] = [];
+    const tuples = input.rows.map((row, index) => {
+      const offset = index * 15;
+      const projection = normalizeGoogleAdsProjectionJson(row);
+      values.push(
+        row.businessId,
+        input.businessRefIds.get(row.businessId) ?? null,
+        row.providerAccountId,
+        input.providerAccountRefIds.get(row.providerAccountId) ?? null,
+        row.campaignId,
+        row.adGroupId ?? row.entityKey,
+        buildGoogleAdsStateFingerprint({
+          name: row.adGroupName ?? row.entityLabel ?? row.entityKey,
+          normalizedStatus: row.status,
+          projectionJson: projection,
+        }),
+        row.adGroupName ?? row.entityLabel ?? row.entityKey,
+        row.status,
+        JSON.stringify(projection),
+        row.sourceSnapshotId,
+        buildGoogleAdsHistoryCapturedAt(row),
+        normalizeDate(row.date),
+        normalizeDate(row.date),
+      );
+      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10}::jsonb,'warehouse_daily',$${offset + 11},$${offset + 12}::timestamptz,$${offset + 13}::date,$${offset + 14}::date,now())`;
+    }).join(", ");
+    await sql.query(
+      `
+        INSERT INTO google_ads_ad_group_state_history (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          ad_group_id,
+          state_fingerprint,
+          ad_group_name,
+          normalized_status,
+          projection_json,
+          source_kind,
+          source_snapshot_id,
+          captured_at,
+          effective_from,
+          effective_to,
+          created_at
+        )
+        VALUES ${tuples}
+        ON CONFLICT (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at) DO NOTHING
+      `,
+      values,
+    );
+  }
+}
+
 export async function upsertGoogleAdsDailyRows(
   scope: GoogleAdsWarehouseScope,
   rows: GoogleAdsWarehouseDailyRow[],
@@ -3094,6 +3967,19 @@ export async function upsertGoogleAdsDailyRows(
       `,
       values,
     );
+
+    await upsertGoogleAdsScopeDimensionRows({
+      scope,
+      rows: dedupedBatch,
+      businessRefIds,
+      providerAccountRefIds,
+    });
+    await appendGoogleAdsStateHistoryRows({
+      scope,
+      rows: dedupedBatch,
+      businessRefIds,
+      providerAccountRefIds,
+    });
   }
   if (scope === "account_daily") {
     await refreshOverviewSummaryMaterializationFromGoogleAccountRows(rows).catch((error: unknown) => {
@@ -3113,7 +3999,7 @@ export async function readGoogleAdsDailyRange(input: {
   startDate: string;
   endDate: string;
   timeoutMs?: number;
-}) {
+}): Promise<GoogleAdsWarehouseDailyRow[]> {
   await assertGoogleAdsRequestReadTablesReady(
     [tableNameForScope(input.scope)],
     "google_ads_daily_range",
@@ -3167,7 +4053,7 @@ export async function readGoogleAdsDailyRange(input: {
     ],
   )) as Array<Record<string, unknown>>;
 
-  return rows.map((row) => ({
+  const mappedRows = rows.map((row) => ({
     businessId: String(row.business_id),
     providerAccountId: String(row.provider_account_id),
     date: normalizeDate(row.date),
@@ -3202,6 +4088,12 @@ export async function readGoogleAdsDailyRange(input: {
     createdAt: normalizeTimestamp(row.created_at) ?? undefined,
     updatedAt: normalizeTimestamp(row.updated_at) ?? undefined,
   })) as GoogleAdsWarehouseDailyRow[];
+
+  return overlayGoogleAdsDimensionRows({
+    scope: input.scope,
+    businessId: input.businessId,
+    rows: mappedRows,
+  });
 }
 
 export async function getGoogleAdsWarehouseIntegrityIncidents(input: {
@@ -3347,7 +4239,7 @@ export async function readGoogleAdsAggregatedRange(input: {
   startDate: string;
   endDate: string;
   timeoutMs?: number;
-}) {
+}): Promise<Array<Record<string, unknown>>> {
   await assertGoogleAdsRequestReadTablesReady(
     [tableNameForScope(input.scope)],
     "google_ads_aggregated_range",
@@ -3414,32 +4306,64 @@ export async function readGoogleAdsAggregatedRange(input: {
     latestRows.map((row) => [String(row.entity_key), row] as const),
   );
 
-  return aggregateRows.map((row) => {
-    const latest = latestByEntityKey.get(String(row.entity_key)) ?? {};
+  const aggregateDimensionRows = await overlayGoogleAdsDimensionRows({
+    scope: input.scope,
+    businessId: input.businessId,
+    rows: aggregateRows.map((row) => {
+      const latest = latestByEntityKey.get(String(row.entity_key)) ?? {};
+      const payload =
+        latest.payload_json && typeof latest.payload_json === "object"
+          ? (latest.payload_json as Record<string, unknown>)
+          : {};
+      return {
+        entityKey: String(row.entity_key),
+        entityLabel: latest.entity_label ? String(latest.entity_label) : null,
+        campaignId: latest.campaign_id ? String(latest.campaign_id) : null,
+        campaignName: latest.campaign_name ? String(latest.campaign_name) : null,
+        adGroupId: latest.ad_group_id ? String(latest.ad_group_id) : null,
+        adGroupName: latest.ad_group_name ? String(latest.ad_group_name) : null,
+        status: latest.status ? String(latest.status) : null,
+        channel: latest.channel ? String(latest.channel) : null,
+        classification: latest.classification
+          ? String(latest.classification)
+          : null,
+        payloadJson: payload,
+        spend: toNumber(row.spend),
+        revenue: toNumber(row.revenue),
+        conversions: toNumber(row.conversions),
+        impressions: toNumber(row.impressions),
+        clicks: toNumber(row.clicks),
+        updatedAt: normalizeTimestamp(row.updated_at),
+      };
+    }),
+  });
+
+  return aggregateDimensionRows.map((row) => {
+    const latest = latestByEntityKey.get(String(row.entityKey)) ?? {};
     const spend = toNumber(row.spend);
     const revenue = toNumber(row.revenue);
     const conversions = toNumber(row.conversions);
     const impressions = toNumber(row.impressions);
     const clicks = toNumber(row.clicks);
     const payload =
-      latest.payload_json && typeof latest.payload_json === "object"
-        ? (latest.payload_json as Record<string, unknown>)
-        : {};
+      row.payloadJson && typeof row.payloadJson === "object"
+        ? (row.payloadJson as Record<string, unknown>)
+        : latest.payload_json && typeof latest.payload_json === "object"
+          ? (latest.payload_json as Record<string, unknown>)
+          : {};
     return {
       ...payload,
-      id: String(payload.id ?? row.entity_key),
-      name: String(payload.name ?? row.entity_label ?? row.entity_key),
-      entityKey: String(row.entity_key),
-      entityLabel: latest.entity_label ? String(latest.entity_label) : null,
-      campaignId: latest.campaign_id ? String(latest.campaign_id) : null,
-      campaignName: latest.campaign_name ? String(latest.campaign_name) : null,
-      adGroupId: latest.ad_group_id ? String(latest.ad_group_id) : null,
-      adGroupName: latest.ad_group_name ? String(latest.ad_group_name) : null,
-      status: latest.status ? String(latest.status) : null,
-      channel: latest.channel ? String(latest.channel) : null,
-      classification: latest.classification
-        ? String(latest.classification)
-        : null,
+      id: String(payload.id ?? row.entityKey),
+      name: String(payload.name ?? row.entityLabel ?? row.entityKey),
+      entityKey: row.entityKey,
+      entityLabel: row.entityLabel,
+      campaignId: row.campaignId,
+      campaignName: row.campaignName,
+      adGroupId: row.adGroupId,
+      adGroupName: row.adGroupName,
+      status: row.status,
+      channel: row.channel,
+      classification: row.classification,
       spend,
       revenue,
       conversions,
@@ -3452,7 +4376,7 @@ export async function readGoogleAdsAggregatedRange(input: {
       cpc: clicks > 0 ? Number((spend / clicks).toFixed(2)) : null,
       conversionRate:
         clicks > 0 ? Number(((conversions / clicks) * 100).toFixed(2)) : null,
-      updatedAt: normalizeTimestamp(row.updated_at),
+      updatedAt: row.updatedAt,
     } as Record<string, unknown>;
   });
 }

@@ -170,6 +170,14 @@ const GOOGLE_ADS_CANONICAL_PROVIDER_REF_TABLES = [
   "google_ads_geo_daily",
   "google_ads_device_daily",
   "google_ads_product_daily",
+  "google_ads_campaign_dimensions",
+  "google_ads_campaign_state_history",
+  "google_ads_ad_group_dimensions",
+  "google_ads_ad_group_state_history",
+  "google_ads_ad_dimensions",
+  "google_ads_keyword_dimensions",
+  "google_ads_asset_group_dimensions",
+  "google_ads_product_dimensions",
 ] as const;
 
 const SHOPIFY_CANONICAL_PROVIDER_REF_TABLES = [
@@ -2456,6 +2464,184 @@ export async function runMigrations(options?: {
           ON meta_creative_daily (business_id, provider_account_id, date DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_meta_creative_daily_business_account_date_creative
           ON meta_creative_daily (business_id, provider_account_id, date DESC, creative_id)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_campaign_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT NOT NULL,
+          campaign_name           TEXT,
+          normalized_status       TEXT,
+          channel                 TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_dimensions_business_account
+          ON google_ads_campaign_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_dimensions_campaign
+          ON google_ads_campaign_dimensions (campaign_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_campaign_state_history (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT NOT NULL,
+          state_fingerprint       TEXT NOT NULL,
+          campaign_name           TEXT,
+          normalized_status       TEXT,
+          channel                 TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_kind             TEXT NOT NULL DEFAULT 'warehouse_daily',
+          source_snapshot_id      UUID REFERENCES google_ads_raw_snapshots(id) ON DELETE SET NULL,
+          captured_at             TIMESTAMPTZ NOT NULL,
+          effective_from          DATE,
+          effective_to            DATE,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_campaign_state_history_lookup
+          ON google_ads_campaign_state_history (business_id, campaign_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_ad_group_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          ad_group_id             TEXT NOT NULL,
+          ad_group_name           TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, ad_group_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_dimensions_business_account
+          ON google_ads_ad_group_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_dimensions_ad_group
+          ON google_ads_ad_group_dimensions (ad_group_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_ad_group_state_history (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          ad_group_id             TEXT NOT NULL,
+          state_fingerprint       TEXT NOT NULL,
+          ad_group_name           TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          source_kind             TEXT NOT NULL DEFAULT 'warehouse_daily',
+          source_snapshot_id      UUID REFERENCES google_ads_raw_snapshots(id) ON DELETE SET NULL,
+          captured_at             TIMESTAMPTZ NOT NULL,
+          effective_from          DATE,
+          effective_to            DATE,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_group_state_history_lookup
+          ON google_ads_ad_group_state_history (business_id, ad_group_id, captured_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_ad_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          ad_group_id             TEXT,
+          ad_id                   TEXT NOT NULL,
+          ad_name                 TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, ad_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_dimensions_business_account
+          ON google_ads_ad_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_ad_dimensions_ad
+          ON google_ads_ad_dimensions (ad_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_keyword_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          ad_group_id             TEXT,
+          keyword_id              TEXT NOT NULL,
+          keyword_text            TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, keyword_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_keyword_dimensions_business_account
+          ON google_ads_keyword_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_keyword_dimensions_keyword
+          ON google_ads_keyword_dimensions (keyword_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_asset_group_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          asset_group_id          TEXT NOT NULL,
+          asset_group_name        TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, asset_group_id)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_asset_group_dimensions_business_account
+          ON google_ads_asset_group_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_asset_group_dimensions_asset_group
+          ON google_ads_asset_group_dimensions (asset_group_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS google_ads_product_dimensions (
+          id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          business_id             TEXT NOT NULL,
+          business_ref_id         UUID REFERENCES businesses(id) ON DELETE SET NULL,
+          provider_account_id     TEXT NOT NULL,
+          provider_account_ref_id UUID REFERENCES provider_accounts(id) ON DELETE SET NULL,
+          campaign_id             TEXT,
+          product_key             TEXT NOT NULL,
+          product_title           TEXT,
+          normalized_status       TEXT,
+          projection_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
+          first_seen_at           TIMESTAMPTZ,
+          last_seen_at            TIMESTAMPTZ,
+          source_updated_at       TIMESTAMPTZ,
+          created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (business_id, provider_account_id, product_key)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_product_dimensions_business_account
+          ON google_ads_product_dimensions (business_id, provider_account_id, updated_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_google_ads_product_dimensions_product
+          ON google_ads_product_dimensions (product_key, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_campaign_dimensions (
           id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           business_id             TEXT NOT NULL,
@@ -3917,6 +4103,595 @@ export async function runMigrations(options?: {
       ]);
 
       await runMigrationBatchSequentially([
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                COALESCE(campaign_id, entity_key) AS campaign_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM google_ads_campaign_daily
+              WHERE COALESCE(campaign_id, entity_key) IS NOT NULL
+              GROUP BY business_id, provider_account_id, COALESCE(campaign_id, entity_key)
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, COALESCE(campaign_id, entity_key))
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                COALESCE(campaign_id, entity_key) AS campaign_id,
+                campaign_name,
+                status,
+                channel,
+                payload_json,
+                updated_at
+              FROM google_ads_campaign_daily
+              WHERE COALESCE(campaign_id, entity_key) IS NOT NULL
+              ORDER BY business_id, provider_account_id, COALESCE(campaign_id, entity_key), date DESC, updated_at DESC
+            )
+            INSERT INTO google_ads_campaign_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              campaign_name,
+              normalized_status,
+              channel,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.campaign_name,
+              latest.status,
+              latest.channel,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.campaign_id = latest.campaign_id
+            ON CONFLICT (business_id, provider_account_id, campaign_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_campaign_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_campaign_dimensions.provider_account_ref_id),
+              campaign_name = EXCLUDED.campaign_name,
+              normalized_status = EXCLUDED.normalized_status,
+              channel = EXCLUDED.channel,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(google_ads_campaign_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(google_ads_campaign_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(google_ads_campaign_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                COALESCE(ad_group_id, entity_key) AS ad_group_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM google_ads_ad_group_daily
+              WHERE COALESCE(ad_group_id, entity_key) IS NOT NULL
+              GROUP BY business_id, provider_account_id, COALESCE(ad_group_id, entity_key)
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, COALESCE(ad_group_id, entity_key))
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                COALESCE(ad_group_id, entity_key) AS ad_group_id,
+                ad_group_name,
+                status,
+                payload_json,
+                updated_at
+              FROM google_ads_ad_group_daily
+              WHERE COALESCE(ad_group_id, entity_key) IS NOT NULL
+              ORDER BY business_id, provider_account_id, COALESCE(ad_group_id, entity_key), date DESC, updated_at DESC
+            )
+            INSERT INTO google_ads_ad_group_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              ad_group_id,
+              ad_group_name,
+              normalized_status,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.ad_group_id,
+              latest.ad_group_name,
+              latest.status,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.ad_group_id = latest.ad_group_id
+            ON CONFLICT (business_id, provider_account_id, ad_group_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_ad_group_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_ad_group_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              ad_group_name = EXCLUDED.ad_group_name,
+              normalized_status = EXCLUDED.normalized_status,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(google_ads_ad_group_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(google_ads_ad_group_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(google_ads_ad_group_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                entity_key AS ad_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM google_ads_ad_daily
+              WHERE entity_key IS NOT NULL
+              GROUP BY business_id, provider_account_id, entity_key
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, entity_key)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                ad_group_id,
+                entity_key AS ad_id,
+                entity_label,
+                status,
+                payload_json,
+                updated_at
+              FROM google_ads_ad_daily
+              WHERE entity_key IS NOT NULL
+              ORDER BY business_id, provider_account_id, entity_key, date DESC, updated_at DESC
+            )
+            INSERT INTO google_ads_ad_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              ad_group_id,
+              ad_id,
+              ad_name,
+              normalized_status,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.ad_group_id,
+              latest.ad_id,
+              COALESCE(NULLIF(latest.payload_json->>'name', ''), latest.entity_label),
+              latest.status,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.ad_id = latest.ad_id
+            ON CONFLICT (business_id, provider_account_id, ad_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_ad_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_ad_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              ad_group_id = EXCLUDED.ad_group_id,
+              ad_name = EXCLUDED.ad_name,
+              normalized_status = EXCLUDED.normalized_status,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(google_ads_ad_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(google_ads_ad_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(google_ads_ad_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                entity_key AS keyword_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM google_ads_keyword_daily
+              WHERE entity_key IS NOT NULL
+              GROUP BY business_id, provider_account_id, entity_key
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, entity_key)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                ad_group_id,
+                entity_key AS keyword_id,
+                entity_label,
+                status,
+                payload_json,
+                updated_at
+              FROM google_ads_keyword_daily
+              WHERE entity_key IS NOT NULL
+              ORDER BY business_id, provider_account_id, entity_key, date DESC, updated_at DESC
+            )
+            INSERT INTO google_ads_keyword_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              ad_group_id,
+              keyword_id,
+              keyword_text,
+              normalized_status,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.ad_group_id,
+              latest.keyword_id,
+              COALESCE(
+                NULLIF(latest.payload_json->>'keywordText', ''),
+                NULLIF(latest.payload_json->>'keyword', ''),
+                latest.entity_label
+              ),
+              latest.status,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.keyword_id = latest.keyword_id
+            ON CONFLICT (business_id, provider_account_id, keyword_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_keyword_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_keyword_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              ad_group_id = EXCLUDED.ad_group_id,
+              keyword_text = EXCLUDED.keyword_text,
+              normalized_status = EXCLUDED.normalized_status,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(google_ads_keyword_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(google_ads_keyword_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(google_ads_keyword_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                entity_key AS asset_group_id,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM google_ads_asset_group_daily
+              WHERE entity_key IS NOT NULL
+              GROUP BY business_id, provider_account_id, entity_key
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, entity_key)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                entity_key AS asset_group_id,
+                entity_label,
+                status,
+                payload_json,
+                updated_at
+              FROM google_ads_asset_group_daily
+              WHERE entity_key IS NOT NULL
+              ORDER BY business_id, provider_account_id, entity_key, date DESC, updated_at DESC
+            )
+            INSERT INTO google_ads_asset_group_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              asset_group_id,
+              asset_group_name,
+              normalized_status,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.asset_group_id,
+              COALESCE(NULLIF(latest.payload_json->>'assetGroupName', ''), latest.entity_label),
+              latest.status,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.asset_group_id = latest.asset_group_id
+            ON CONFLICT (business_id, provider_account_id, asset_group_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_asset_group_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_asset_group_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              asset_group_name = EXCLUDED.asset_group_name,
+              normalized_status = EXCLUDED.normalized_status,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(google_ads_asset_group_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(google_ads_asset_group_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(google_ads_asset_group_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            WITH bounds AS (
+              SELECT
+                business_id,
+                provider_account_id,
+                entity_key AS product_key,
+                MIN(date)::timestamptz AS first_seen_at,
+                MAX(date)::timestamptz AS last_seen_at
+              FROM google_ads_product_daily
+              WHERE entity_key IS NOT NULL
+              GROUP BY business_id, provider_account_id, entity_key
+            ),
+            latest AS (
+              SELECT DISTINCT ON (business_id, provider_account_id, entity_key)
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                campaign_id,
+                entity_key AS product_key,
+                entity_label,
+                status,
+                payload_json,
+                updated_at
+              FROM google_ads_product_daily
+              WHERE entity_key IS NOT NULL
+              ORDER BY business_id, provider_account_id, entity_key, date DESC, updated_at DESC
+            )
+            INSERT INTO google_ads_product_dimensions (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              product_key,
+              product_title,
+              normalized_status,
+              projection_json,
+              first_seen_at,
+              last_seen_at,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              latest.business_id,
+              latest.business_ref_id,
+              latest.provider_account_id,
+              latest.provider_account_ref_id,
+              latest.campaign_id,
+              latest.product_key,
+              COALESCE(
+                NULLIF(latest.payload_json->>'productTitle', ''),
+                NULLIF(latest.payload_json->>'title', ''),
+                latest.entity_label
+              ),
+              latest.status,
+              COALESCE(latest.payload_json, '{}'::jsonb),
+              bounds.first_seen_at,
+              bounds.last_seen_at,
+              latest.updated_at,
+              now()
+            FROM latest
+            INNER JOIN bounds
+              ON bounds.business_id = latest.business_id
+             AND bounds.provider_account_id = latest.provider_account_id
+             AND bounds.product_key = latest.product_key
+            ON CONFLICT (business_id, provider_account_id, product_key) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_product_dimensions.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_product_dimensions.provider_account_ref_id),
+              campaign_id = EXCLUDED.campaign_id,
+              product_title = EXCLUDED.product_title,
+              normalized_status = EXCLUDED.normalized_status,
+              projection_json = EXCLUDED.projection_json,
+              first_seen_at = COALESCE(google_ads_product_dimensions.first_seen_at, EXCLUDED.first_seen_at),
+              last_seen_at = GREATEST(COALESCE(google_ads_product_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+              source_updated_at = GREATEST(COALESCE(google_ads_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            INSERT INTO google_ads_campaign_state_history (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              state_fingerprint,
+              campaign_name,
+              normalized_status,
+              channel,
+              projection_json,
+              source_kind,
+              source_snapshot_id,
+              captured_at,
+              effective_from,
+              effective_to,
+              created_at
+            )
+            SELECT
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              COALESCE(campaign_id, entity_key) AS campaign_id,
+              md5(
+                jsonb_build_object(
+                  'campaign_name', campaign_name,
+                  'normalized_status', status,
+                  'channel', channel,
+                  'projection_json', COALESCE(payload_json, '{}'::jsonb)
+                )::text
+              ) AS state_fingerprint,
+              campaign_name,
+              status,
+              channel,
+              COALESCE(payload_json, '{}'::jsonb),
+              'warehouse_daily' AS source_kind,
+              NULL::uuid AS source_snapshot_id,
+              MAX(COALESCE(updated_at, date::timestamptz)) AS captured_at,
+              MIN(date) AS effective_from,
+              MAX(date) AS effective_to,
+              now()
+            FROM google_ads_campaign_daily
+            WHERE COALESCE(campaign_id, entity_key) IS NOT NULL
+            GROUP BY
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              COALESCE(campaign_id, entity_key),
+              campaign_name,
+              status,
+              channel,
+              COALESCE(payload_json, '{}'::jsonb)
+            ON CONFLICT (business_id, provider_account_id, campaign_id, state_fingerprint, captured_at) DO NOTHING
+          `,
+        ).catch(() => {}),
+        sql.query(
+          `
+            INSERT INTO google_ads_ad_group_state_history (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              ad_group_id,
+              state_fingerprint,
+              ad_group_name,
+              normalized_status,
+              projection_json,
+              source_kind,
+              source_snapshot_id,
+              captured_at,
+              effective_from,
+              effective_to,
+              created_at
+            )
+            SELECT
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              COALESCE(ad_group_id, entity_key) AS ad_group_id,
+              md5(
+                jsonb_build_object(
+                  'ad_group_name', ad_group_name,
+                  'normalized_status', status,
+                  'projection_json', COALESCE(payload_json, '{}'::jsonb)
+                )::text
+              ) AS state_fingerprint,
+              ad_group_name,
+              status,
+              COALESCE(payload_json, '{}'::jsonb),
+              'warehouse_daily' AS source_kind,
+              NULL::uuid AS source_snapshot_id,
+              MAX(COALESCE(updated_at, date::timestamptz)) AS captured_at,
+              MIN(date) AS effective_from,
+              MAX(date) AS effective_to,
+              now()
+            FROM google_ads_ad_group_daily
+            WHERE COALESCE(ad_group_id, entity_key) IS NOT NULL
+            GROUP BY
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              campaign_id,
+              COALESCE(ad_group_id, entity_key),
+              ad_group_name,
+              status,
+              COALESCE(payload_json, '{}'::jsonb)
+            ON CONFLICT (business_id, provider_account_id, ad_group_id, state_fingerprint, captured_at) DO NOTHING
+          `,
+        ).catch(() => {}),
         sql.query(
           `
             WITH bounds AS (

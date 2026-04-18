@@ -41,6 +41,14 @@ describe("overview benchmark baseline loader", () => {
             name: "google_ads_overview_30d",
             averageMs: 45,
           },
+          {
+            name: "google_ads_search_intelligence_90d",
+            averageMs: 78,
+          },
+          {
+            name: "google_ads_products_30d",
+            averageMs: 52,
+          },
         ],
       }),
       "utf8",
@@ -51,6 +59,8 @@ describe("overview benchmark baseline loader", () => {
     expect(baseline.overview_data_no_trends_30d_ms).toBe(123);
     expect(baseline.overview_data_no_trends_30d).toBe(123);
     expect(baseline.google_ads_overview_30d).toBe(45);
+    expect(baseline.google_ads_search_intelligence_90d).toBe(78);
+    expect(baseline.google_ads_products_30d).toBe(52);
     expect(resolveOverviewBenchmarkBaselinePath(baselinePath)).toContain("baseline.json");
   });
 });

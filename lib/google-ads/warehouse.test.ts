@@ -59,7 +59,17 @@ vi.mock("@/lib/sync/worker-health", () => ({
   recordSyncReclaimEvents: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/google-ads/request-model-store", () => ({
+  readGoogleAdsCampaignDimensions: vi.fn(async () => []),
+  readGoogleAdsAdGroupDimensions: vi.fn(async () => []),
+  readGoogleAdsAdDimensions: vi.fn(async () => []),
+  readGoogleAdsKeywordDimensions: vi.fn(async () => []),
+  readGoogleAdsAssetGroupDimensions: vi.fn(async () => []),
+  readGoogleAdsProductDimensions: vi.fn(async () => []),
+}));
+
 const db = await import("@/lib/db");
+const requestModelStore = await import("@/lib/google-ads/request-model-store");
 const workerHealth = await import("@/lib/sync/worker-health");
 const {
   acquireGoogleAdsRunnerLease,
@@ -73,8 +83,11 @@ const {
   markGoogleAdsPartitionRunning,
   persistGoogleAdsRawSnapshot,
   replayGoogleAdsDeadLetterPartitions,
+  readGoogleAdsAggregatedRange,
+  readGoogleAdsDailyRange,
   releaseGoogleAdsLeasedPartitionsForWorker,
   upsertGoogleAdsSyncCheckpoint,
+  upsertGoogleAdsDailyRows,
   createGoogleAdsSyncJob,
   createGoogleAdsSyncRun,
   queueGoogleAdsSyncPartition,
@@ -967,6 +980,192 @@ describe("google ads warehouse ownership safety", () => {
     expect(cleanupQuery).toContain(
       "COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch",
     );
+  });
+});
+
+describe("google ads typed dimension overlays", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("overlays campaign dimensions on daily rows", async () => {
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async () => [
+        {
+          business_id: "biz_1",
+          provider_account_id: "acct_1",
+          date: "2026-04-01",
+          account_timezone: "UTC",
+          account_currency: "USD",
+          entity_key: "cmp_1",
+          entity_label: "Fact Campaign",
+          campaign_id: "cmp_1",
+          campaign_name: "Fact Campaign",
+          ad_group_id: null,
+          ad_group_name: null,
+          status: "enabled",
+          channel: "search",
+          classification: "brand",
+          payload_json: { name: "Fact Campaign" },
+          spend: 10,
+          revenue: 20,
+          conversions: 2,
+          impressions: 100,
+          clicks: 5,
+          ctr: 5,
+          cpc: 2,
+          cpa: 5,
+          roas: 2,
+          conversion_rate: 2,
+          interaction_rate: 5,
+          source_snapshot_id: "snap_1",
+          created_at: "2026-04-01T00:00:00.000Z",
+          updated_at: "2026-04-01T01:00:00.000Z",
+        },
+      ]),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(requestModelStore.readGoogleAdsCampaignDimensions).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        businessRefId: "biz_1-ref",
+        providerAccountId: "acct_1",
+        providerAccountRefId: "acct_1-ref",
+        campaignId: "cmp_1",
+        campaignName: "Dimension Campaign",
+        normalizedStatus: "paused",
+        channel: "performance_max",
+        projectionJson: { id: "cmp_1", name: "Dimension Campaign", status: "paused" },
+        firstSeenAt: null,
+        lastSeenAt: null,
+        sourceUpdatedAt: null,
+      },
+    ]);
+
+    const rows = await readGoogleAdsDailyRange({
+      scope: "campaign_daily",
+      businessId: "biz_1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.entityLabel).toBe("Dimension Campaign");
+    expect(rows[0]?.campaignName).toBe("Dimension Campaign");
+    expect(rows[0]?.status).toBe("paused");
+    expect(rows[0]?.payloadJson).toEqual({
+      id: "cmp_1",
+      name: "Dimension Campaign",
+      status: "paused",
+    });
+  });
+
+  it("overlays product and campaign dimensions on aggregated rows", async () => {
+    const sql = Object.assign(vi.fn(), {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            entity_key: "prod_1",
+            spend: 15,
+            revenue: 45,
+            conversions: 3,
+            impressions: 100,
+            clicks: 12,
+            updated_at: "2026-04-03T01:00:00.000Z",
+          },
+        ])
+        .mockResolvedValueOnce([
+          {
+            entity_key: "prod_1",
+            entity_label: "Fact Product",
+            campaign_id: "cmp_1",
+            campaign_name: "Fact Campaign",
+            ad_group_id: null,
+            ad_group_name: null,
+            status: "enabled",
+            channel: "shopping",
+            classification: "retail",
+            payload_json: { productTitle: "Fact Product", campaignName: "Fact Campaign" },
+            updated_at: "2026-04-03T01:00:00.000Z",
+          },
+        ]),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+    vi.mocked(requestModelStore.readGoogleAdsProductDimensions).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        businessRefId: "biz_1-ref",
+        providerAccountId: "acct_1",
+        providerAccountRefId: "acct_1-ref",
+        campaignId: "cmp_1",
+        productKey: "prod_1",
+        productTitle: "Dimension Product",
+        normalizedStatus: "paused",
+        projectionJson: { productTitle: "Dimension Product", title: "Dimension Product" },
+        firstSeenAt: null,
+        lastSeenAt: null,
+        sourceUpdatedAt: null,
+      },
+    ]);
+    vi.mocked(requestModelStore.readGoogleAdsCampaignDimensions).mockResolvedValue([
+      {
+        businessId: "biz_1",
+        businessRefId: "biz_1-ref",
+        providerAccountId: "acct_1",
+        providerAccountRefId: "acct_1-ref",
+        campaignId: "cmp_1",
+        campaignName: "Dimension Campaign",
+        normalizedStatus: "paused",
+        channel: "shopping",
+        projectionJson: { id: "cmp_1", name: "Dimension Campaign" },
+        firstSeenAt: null,
+        lastSeenAt: null,
+        sourceUpdatedAt: null,
+      },
+    ]);
+
+    const rows = await readGoogleAdsAggregatedRange({
+      scope: "product_daily",
+      businessId: "biz_1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe("Dimension Product");
+    expect(rows[0]?.campaignName).toBe("Dimension Campaign");
+    expect(rows[0]?.status).toBe("paused");
+  });
+});
+
+describe("google ads typed dimension dual-write", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("writes campaign dimensions and state history alongside campaign facts", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertGoogleAdsDailyRows("campaign_daily", [
+      buildRow({
+        entityKey: "cmp_1",
+        campaignId: "cmp_1",
+        campaignName: "Campaign One",
+      }),
+    ]);
+
+    const joined = queries.join("\n");
+    expect(joined).toContain("INSERT INTO google_ads_campaign_daily");
+    expect(joined).toContain("INSERT INTO google_ads_campaign_dimensions");
+    expect(joined).toContain("INSERT INTO google_ads_campaign_state_history");
   });
 });
 

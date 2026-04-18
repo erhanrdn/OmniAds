@@ -1,4 +1,6 @@
 import {
+  getGoogleAdsProductsReport,
+  getGoogleAdsSearchIntelligenceReport,
   getGoogleAdsOverviewReport,
 } from "@/lib/google-ads/serving";
 import { getOverviewData, getOverviewTrendBundle, getShopifyOverviewServingData } from "@/lib/overview-service";
@@ -300,10 +302,60 @@ async function main() {
           typeof (report.meta as { readSource?: unknown } | undefined)?.readSource === "string"
             ? String((report.meta as { readSource?: unknown }).readSource)
             : typeof (report.meta as { source?: unknown } | undefined)?.source === "string"
-              ? String((report.meta as { source?: unknown }).source)
-              : "unknown",
+            ? String((report.meta as { source?: unknown }).source)
+            : "unknown",
       };
     }),
+    await measureScenario(
+      "google_ads_search_intelligence_90d",
+      iterations30,
+      baseline.google_ads_search_intelligence_90d ?? null,
+      async () => {
+        const report = await getGoogleAdsSearchIntelligenceReport({
+          businessId,
+          accountId: null,
+          dateRange: "custom",
+          customStart: range90Start,
+          customEnd: range90End,
+        });
+        return {
+          sampleCardinality: Array.isArray(report.rows) ? report.rows.length : null,
+          validityNote:
+            Array.isArray(report.rows) && report.meta
+              ? "valid"
+              : `status:${String(report.meta?.readSource ?? "unknown")}`,
+          sourceKey:
+            typeof report.meta?.readSource === "string"
+              ? String(report.meta.readSource)
+              : "unknown",
+        };
+      },
+    ),
+    await measureScenario(
+      "google_ads_products_30d",
+      iterations30,
+      baseline.google_ads_products_30d ?? null,
+      async () => {
+        const report = await getGoogleAdsProductsReport({
+          businessId,
+          accountId: null,
+          dateRange: "custom",
+          customStart: range30Start,
+          customEnd: range30End,
+        });
+        return {
+          sampleCardinality: Array.isArray(report.rows) ? report.rows.length : null,
+          validityNote:
+            Array.isArray(report.rows) && report.meta
+              ? "valid"
+              : `status:${String(report.meta?.readSource ?? "unknown")}`,
+          sourceKey:
+            typeof report.meta?.readSource === "string"
+              ? String(report.meta.readSource)
+              : "unknown",
+        };
+      },
+    ),
   ];
 
   console.log(
