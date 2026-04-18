@@ -65,6 +65,7 @@ describe("provider job lock canonical refs", () => {
       .map(([strings]) => String((strings as TemplateStringsArray).join(" ")))
       .join("\n");
     expect(joined).toContain("business_ref_id = COALESCE");
+    expect(joined).not.toContain("updated_at");
   });
 
   it("returns lock state details for remediation validation", async () => {

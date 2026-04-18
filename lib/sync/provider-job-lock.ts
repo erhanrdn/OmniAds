@@ -152,7 +152,6 @@ export async function renewProviderJobLock(input: ProviderJobLockKey & {
     SET
       business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
       lock_expires_at = now() + (${lockMinutes} || ' minutes')::interval,
-      updated_at = now()
     WHERE business_id = ${input.businessId}
       AND provider = ${input.provider}
       AND report_type = ${input.reportType}
@@ -179,8 +178,7 @@ export async function releaseProviderJobLock(input: ProviderJobLockKey & {
       status = ${input.status},
       completed_at = now(),
       lock_expires_at = now(),
-      error_message = ${input.errorMessage ?? null},
-      updated_at = now()
+      error_message = ${input.errorMessage ?? null}
     WHERE business_id = ${input.businessId}
       AND provider = ${input.provider}
       AND report_type = ${input.reportType}
@@ -234,8 +232,7 @@ export async function releaseExpiredProviderJobLock(input: ProviderJobLockKey & 
       status = 'failed',
       completed_at = now(),
       lock_expires_at = now(),
-      error_message = COALESCE(${input.errorMessage ?? null}, error_message, 'stale provider job lock expired'),
-      updated_at = now()
+      error_message = COALESCE(${input.errorMessage ?? null}, error_message, 'stale provider job lock expired')
     WHERE business_id = ${input.businessId}
       AND provider = ${input.provider}
       AND report_type = ${input.reportType}
