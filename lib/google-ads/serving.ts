@@ -6,6 +6,10 @@ import { getDateRangeForQuery } from "@/lib/google-ads-gaql";
 import { addDaysToIsoDate, getHistoricalWindowStart } from "@/lib/google-ads/history";
 import { getComparisonWindow, pctDelta } from "@/lib/google-ads/reporting-support";
 import { buildGoogleAdsAdvisorWindows } from "@/lib/google-ads/advisor-windows";
+import {
+  buildGoogleAdsAdvisorWindowMatrix,
+  type GoogleAdsAdvisorWindowMatrixView,
+} from "@/lib/google-ads/advisor-window-matrix";
 import { buildGoogleAdsDecisionSnapshotWindowSet } from "@/lib/google-ads/decision-window-policy";
 import {
   buildGoogleAdsDecisionSnapshotMetadata,
@@ -384,6 +388,14 @@ type GoogleAdsAdvisorSupportBundle = {
   clusterDailyRows: GoogleAdsSearchClusterDailySupportReadRow[];
 };
 
+type GoogleAdsAdvisorAggregatedDailyRows = ReturnType<typeof aggregateDailyRowsLocally>;
+
+type GoogleAdsAdvisorWindowAggregates = {
+  campaignRows: GoogleAdsAdvisorAggregatedDailyRows;
+  keywordRows: GoogleAdsAdvisorAggregatedDailyRows;
+  productRows: GoogleAdsAdvisorAggregatedDailyRows;
+};
+
 function pickAdvisorPayloadFields(
   payload: Record<string, unknown>,
   keys: readonly string[],
@@ -407,35 +419,6 @@ function trimGoogleAdsDailyRowsForAdvisor(
 
 function filterGoogleAdsDailyRowsByWindow(
   rows: GoogleAdsWarehouseDailyRow[],
-  startDate: string,
-  endDate: string,
-) {
-  return rows.filter((row) => normalizeDate(row.date) >= startDate && normalizeDate(row.date) <= endDate);
-}
-
-function filterGoogleAdsSearchHotRowsByWindow(
-  rows: GoogleAdsSearchQueryHotDailySupportReadRow[],
-  startDate: string,
-  endDate: string,
-) {
-  return rows.filter((row) => normalizeDate(row.date) >= startDate && normalizeDate(row.date) <= endDate);
-}
-
-function filterGoogleAdsTopQueryWeeklyRowsByWindow(
-  rows: GoogleAdsTopQueryWeeklySupportReadRow[],
-  startDate: string,
-  endDate: string,
-) {
-  const startWeek = isoWeekStart(startDate);
-  const endWeek = isoWeekStart(endDate);
-  return rows.filter((row) => {
-    const weekStart = normalizeDate(row.weekStart);
-    return weekStart >= startWeek && weekStart <= endWeek;
-  });
-}
-
-function filterGoogleAdsSearchClusterRowsByWindow(
-  rows: GoogleAdsSearchClusterDailySupportReadRow[],
   startDate: string,
   endDate: string,
 ) {
@@ -484,16 +467,15 @@ function buildGoogleAdsFreshnessFromPrefetchedRows(input: {
   });
 }
 
-function buildGoogleAdsAdvisorCampaignReportFromDailyRows(input: {
-  rows: GoogleAdsWarehouseDailyRow[];
+function buildGoogleAdsAdvisorCampaignReportFromScopedDailyRows(input: {
+  scopedRows: GoogleAdsWarehouseDailyRow[];
+  aggregatedRows: GoogleAdsAdvisorAggregatedDailyRows;
   startDate: string;
   endDate: string;
   latestSync: Awaited<ReturnType<typeof getLatestGoogleAdsSyncHealth>> | null;
   dataState?: GoogleAdsWarehouseFreshness["dataState"];
 }) {
-  const scopedRows = filterGoogleAdsDailyRowsByWindow(input.rows, input.startDate, input.endDate);
-  const aggregatedRows = aggregateDailyRowsLocally("campaign_daily", scopedRows);
-  const campaignRows = toCampaignRows(aggregatedRows);
+  const campaignRows = toCampaignRows(input.aggregatedRows);
   const accountAvgRoas =
     campaignRows.reduce((sum, row) => sum + toNumber(row.revenue), 0) /
       Math.max(1, campaignRows.reduce((sum, row) => sum + toNumber(row.spend), 0)) || 0;
@@ -511,7 +493,7 @@ function buildGoogleAdsAdvisorCampaignReportFromDailyRows(input: {
     },
     meta: buildMeta({
       freshness: buildGoogleAdsFreshnessFromPrefetchedRows({
-        rows: scopedRows,
+        rows: input.scopedRows,
         startDate: input.startDate,
         endDate: input.endDate,
         latestSync: input.latestSync,
@@ -522,23 +504,22 @@ function buildGoogleAdsAdvisorCampaignReportFromDailyRows(input: {
   } satisfies ReportResult<Record<string, unknown>>;
 }
 
-function buildGoogleAdsAdvisorProductReportFromDailyRows(input: {
-  rows: GoogleAdsWarehouseDailyRow[];
+function buildGoogleAdsAdvisorProductReportFromScopedDailyRows(input: {
+  scopedRows: GoogleAdsWarehouseDailyRow[];
+  aggregatedRows: GoogleAdsAdvisorAggregatedDailyRows;
   startDate: string;
   endDate: string;
   latestSync: Awaited<ReturnType<typeof getLatestGoogleAdsSyncHealth>> | null;
   dataState?: GoogleAdsWarehouseFreshness["dataState"];
 }) {
-  const scopedRows = filterGoogleAdsDailyRowsByWindow(input.rows, input.startDate, input.endDate);
-  const aggregatedRows = aggregateDailyRowsLocally("product_daily", scopedRows);
-  const analysis = analyzeProducts(aggregatedRows);
+  const analysis = analyzeProducts(input.aggregatedRows);
   return {
     rows: analysis.rows,
     summary: analysis.summary,
     insights: analysis.insights,
     meta: buildMeta({
       freshness: buildGoogleAdsFreshnessFromPrefetchedRows({
-        rows: scopedRows,
+        rows: input.scopedRows,
         startDate: input.startDate,
         endDate: input.endDate,
         latestSync: input.latestSync,
@@ -549,7 +530,7 @@ function buildGoogleAdsAdvisorProductReportFromDailyRows(input: {
   } satisfies ReportResult<Record<string, unknown>>;
 }
 
-function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
+function buildGoogleAdsAdvisorSearchReportFromScopedSupportRows(input: {
   context: Awaited<ReturnType<typeof resolveWarehouseContext>>;
   startDate: string;
   endDate: string;
@@ -559,6 +540,8 @@ function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
   clusterDailyRows: GoogleAdsSearchClusterDailySupportReadRow[];
   keywordDailyRows: GoogleAdsWarehouseDailyRow[];
   productDailyRows: GoogleAdsWarehouseDailyRow[];
+  aggregatedKeywordRows: GoogleAdsAdvisorAggregatedDailyRows;
+  aggregatedProductRows: GoogleAdsAdvisorAggregatedDailyRows;
 }) {
   const hotWindow = resolveGoogleAdsSearchHotWindow({
     providerCurrentDate: input.context.providerCurrentDate,
@@ -566,22 +549,28 @@ function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
     endDate: input.endDate,
   });
 
-  const aggregatedKeywordRows = aggregateDailyRowsLocally(
-    "keyword_daily",
-    filterGoogleAdsDailyRowsByWindow(
-      input.keywordDailyRows,
-      hotWindow.effectiveStart,
-      hotWindow.effectiveEnd,
-    ),
-  );
-  const aggregatedProductRows = aggregateDailyRowsLocally(
-    "product_daily",
-    filterGoogleAdsDailyRowsByWindow(
-      input.productDailyRows,
-      hotWindow.effectiveStart,
-      hotWindow.effectiveEnd,
-    ),
-  );
+  const aggregatedKeywordRows =
+    hotWindow.effectiveStart === input.startDate && hotWindow.effectiveEnd === input.endDate
+      ? input.aggregatedKeywordRows
+      : aggregateDailyRowsLocally(
+          "keyword_daily",
+          filterGoogleAdsDailyRowsByWindow(
+            input.keywordDailyRows,
+            hotWindow.effectiveStart,
+            hotWindow.effectiveEnd,
+          ),
+        );
+  const aggregatedProductRows =
+    hotWindow.effectiveStart === input.startDate && hotWindow.effectiveEnd === input.endDate
+      ? input.aggregatedProductRows
+      : aggregateDailyRowsLocally(
+          "product_daily",
+          filterGoogleAdsDailyRowsByWindow(
+            input.productDailyRows,
+            hotWindow.effectiveStart,
+            hotWindow.effectiveEnd,
+          ),
+        );
 
   const termsMeta = (() => {
     if (input.context.providerAccountIds.length === 0 || !hotWindow.withinHotWindow) {
@@ -606,11 +595,7 @@ function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
       };
     }
 
-    const hotRows = filterGoogleAdsSearchHotRowsByWindow(
-      input.hotQueryRows,
-      hotWindow.effectiveStart,
-      hotWindow.effectiveEnd,
-    );
+    const hotRows = input.hotQueryRows;
     const keywordSet = new Set(
       aggregatedKeywordRows
         .map((row) =>
@@ -632,7 +617,7 @@ function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
     const brandTerms = deriveGoogleAdsBrandTermsFromSearchRows(
       hotRows.map((row) => ({ campaignName: row.campaignName })),
     );
-    const coveredDates = new Set(hotRows.map((row) => row.date));
+    const coveredDates = new Set(hotRows.map((row) => normalizeDate(row.date)));
     const missingWindows = enumerateDays(
       hotWindow.effectiveStart,
       hotWindow.effectiveEnd,
@@ -812,25 +797,14 @@ function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
   })();
 
   const aggregateIntelligence = summarizeGoogleAdsAdvisorAggregateIntelligence({
-    queryWeeklyRows: filterGoogleAdsTopQueryWeeklyRowsByWindow(
-      input.queryWeeklyRows,
-      input.startDate,
-      input.endDate,
-    ),
-    clusterDailyRows: filterGoogleAdsSearchClusterRowsByWindow(
-      input.clusterDailyRows,
-      input.startDate,
-      input.endDate,
-    ),
+    queryWeeklyRows: input.queryWeeklyRows,
+    clusterDailyRows: input.clusterDailyRows,
     supportWindowStart: input.startDate,
     supportWindowEnd: input.endDate,
   });
 
   const keywordSet = new Set(
-    aggregateDailyRowsLocally(
-      "keyword_daily",
-      filterGoogleAdsDailyRowsByWindow(input.keywordDailyRows, input.startDate, input.endDate),
-    )
+    input.aggregatedKeywordRows
       .map((row) =>
         normalizeGoogleAdsQueryText(
           String(row.keywordText ?? row.keyword ?? row.entityLabel ?? row.name ?? ""),
@@ -838,10 +812,7 @@ function buildGoogleAdsAdvisorSearchReportFromSupportRows(input: {
       )
       .filter(Boolean),
   );
-  const productRows = aggregateDailyRowsLocally(
-    "product_daily",
-    filterGoogleAdsDailyRowsByWindow(input.productDailyRows, input.startDate, input.endDate),
-  );
+  const productRows = input.aggregatedProductRows;
   const productTerms = Array.from(
     new Set(
       productRows
@@ -1017,33 +988,37 @@ async function buildGoogleAdsAdvisorSupportBundle(input: {
   } satisfies GoogleAdsAdvisorSupportBundle;
 }
 
-function buildGoogleAdsAdvisorWindowRowsFromSupportBundle(input: {
+function buildGoogleAdsAdvisorWindowRowsFromMatrixView(input: {
   bundle: GoogleAdsAdvisorSupportBundle;
-  startDate: string;
-  endDate: string;
+  view: GoogleAdsAdvisorWindowMatrixView;
+  aggregates: GoogleAdsAdvisorWindowAggregates;
 }) {
-  const campaigns = buildGoogleAdsAdvisorCampaignReportFromDailyRows({
-    rows: input.bundle.campaignDailyRows,
-    startDate: input.startDate,
-    endDate: input.endDate,
+  const campaigns = buildGoogleAdsAdvisorCampaignReportFromScopedDailyRows({
+    scopedRows: input.view.slice.campaignDailyRows,
+    aggregatedRows: input.aggregates.campaignRows,
+    startDate: input.view.startDate,
+    endDate: input.view.endDate,
     latestSync: input.bundle.latestSync,
     dataState: input.bundle.context.dataState,
   });
-  const search = buildGoogleAdsAdvisorSearchReportFromSupportRows({
+  const search = buildGoogleAdsAdvisorSearchReportFromScopedSupportRows({
     context: input.bundle.context,
-    startDate: input.startDate,
-    endDate: input.endDate,
+    startDate: input.view.startDate,
+    endDate: input.view.endDate,
     latestSync: input.bundle.latestSync,
-    hotQueryRows: input.bundle.hotQueryRows,
-    queryWeeklyRows: input.bundle.queryWeeklyRows,
-    clusterDailyRows: input.bundle.clusterDailyRows,
-    keywordDailyRows: input.bundle.keywordDailyRows,
-    productDailyRows: input.bundle.productDailyRows,
+    hotQueryRows: input.view.slice.hotQueryRows,
+    queryWeeklyRows: input.view.slice.queryWeeklyRows,
+    clusterDailyRows: input.view.slice.clusterDailyRows,
+    keywordDailyRows: input.view.slice.keywordDailyRows,
+    productDailyRows: input.view.slice.productDailyRows,
+    aggregatedKeywordRows: input.aggregates.keywordRows,
+    aggregatedProductRows: input.aggregates.productRows,
   });
-  const products = buildGoogleAdsAdvisorProductReportFromDailyRows({
-    rows: input.bundle.productDailyRows,
-    startDate: input.startDate,
-    endDate: input.endDate,
+  const products = buildGoogleAdsAdvisorProductReportFromScopedDailyRows({
+    scopedRows: input.view.slice.productDailyRows,
+    aggregatedRows: input.aggregates.productRows,
+    startDate: input.view.startDate,
+    endDate: input.view.endDate,
     latestSync: input.bundle.latestSync,
     dataState: input.bundle.context.dataState,
   });
@@ -3638,7 +3613,7 @@ export async function getGoogleAdsAdvisorReport(
     customStart: params.customStart,
     customEnd: params.customEnd,
   });
-  const [alarm1, alarm3, alarm7, operational28, queryGovernance56, baseline84] = supportWindows;
+  const baseline84 = supportWindows[supportWindows.length - 1]!;
   const asOfDate = selectedWindow.customEnd;
 
   const baselineContext = await resolveWarehouseContext({
@@ -3649,67 +3624,66 @@ export async function getGoogleAdsAdvisorReport(
     customEnd: baseline84.customEnd,
   });
 
-  const supportBundle = await measureGoogleAdsAdvisorPhase(
-    "advisor.support_bundle_read",
-    () =>
-      buildGoogleAdsAdvisorSupportBundle({
-        businessId: params.businessId,
-        context: baselineContext,
-      }),
-    (value) => ({
-      campaignDailyRows: value.campaignDailyRows.length,
-      keywordDailyRows: value.keywordDailyRows.length,
-      productDailyRows: value.productDailyRows.length,
-      hotQueryRows: value.hotQueryRows.length,
-      queryWeeklyRows: value.queryWeeklyRows.length,
-      clusterDailyRows: value.clusterDailyRows.length,
-    }),
+  const supportBundleStartedAt = Date.now();
+  const supportBundlePromise = buildGoogleAdsAdvisorSupportBundle({
+    businessId: params.businessId,
+    context: baselineContext,
+  });
+  const selectedContextStartedAt = Date.now();
+  const selectedContextPromise = runWithConcurrencyLimit(
+    [
+      () =>
+        getGoogleAdsAssetsReport({
+          ...params,
+          dateRange: "custom",
+          customStart: selectedWindow.customStart,
+          customEnd: selectedWindow.customEnd,
+        }),
+      () =>
+        getGoogleAdsAssetGroupsReport({
+          ...params,
+          dateRange: "custom",
+          customStart: selectedWindow.customStart,
+          customEnd: selectedWindow.customEnd,
+        }),
+      () =>
+        getGoogleAdsGeoReport({
+          ...params,
+          dateRange: "custom",
+          customStart: selectedWindow.customStart,
+          customEnd: selectedWindow.customEnd,
+        }),
+      () =>
+        getGoogleAdsDevicesReport({
+          ...params,
+          dateRange: "custom",
+          customStart: selectedWindow.customStart,
+          customEnd: selectedWindow.customEnd,
+        }),
+    ],
+    4,
   );
 
-  const [selectedAssets, selectedAssetGroups, selectedGeos, selectedDevices] =
-    await measureGoogleAdsAdvisorPhase(
-      "advisor.selected_context_reads",
-      () =>
-        runWithConcurrencyLimit(
-          [
-            () =>
-              getGoogleAdsAssetsReport({
-                ...params,
-                dateRange: "custom",
-                customStart: selectedWindow.customStart,
-                customEnd: selectedWindow.customEnd,
-              }),
-            () =>
-              getGoogleAdsAssetGroupsReport({
-                ...params,
-                dateRange: "custom",
-                customStart: selectedWindow.customStart,
-                customEnd: selectedWindow.customEnd,
-              }),
-            () =>
-              getGoogleAdsGeoReport({
-                ...params,
-                dateRange: "custom",
-                customStart: selectedWindow.customStart,
-                customEnd: selectedWindow.customEnd,
-              }),
-            () =>
-              getGoogleAdsDevicesReport({
-                ...params,
-                dateRange: "custom",
-                customStart: selectedWindow.customStart,
-                customEnd: selectedWindow.customEnd,
-              }),
-          ],
-          4,
-        ),
-      ([assets, assetGroups, geos, devices]) => ({
-        assetRows: assets.rows.length,
-        assetGroupRows: assetGroups.rows.length,
-        geoRows: geos.rows.length,
-        deviceRows: devices.rows.length,
-      }),
-    );
+  const [supportBundle, [selectedAssets, selectedAssetGroups, selectedGeos, selectedDevices]] =
+    await Promise.all([supportBundlePromise, selectedContextPromise]);
+
+  logRuntimeDebug("google-ads-advisor", "advisor.support_bundle_read", {
+    durationMs: Date.now() - supportBundleStartedAt,
+    campaignDailyRows: supportBundle.campaignDailyRows.length,
+    keywordDailyRows: supportBundle.keywordDailyRows.length,
+    productDailyRows: supportBundle.productDailyRows.length,
+    hotQueryRows: supportBundle.hotQueryRows.length,
+    queryWeeklyRows: supportBundle.queryWeeklyRows.length,
+    clusterDailyRows: supportBundle.clusterDailyRows.length,
+  });
+
+  logRuntimeDebug("google-ads-advisor", "advisor.selected_context_reads", {
+    durationMs: Date.now() - selectedContextStartedAt,
+    assetRows: selectedAssets.rows.length,
+    assetGroupRows: selectedAssetGroups.rows.length,
+    geoRows: selectedGeos.rows.length,
+    deviceRows: selectedDevices.rows.length,
+  });
 
   const {
     selectedCampaigns,
@@ -3720,27 +3694,44 @@ export async function getGoogleAdsAdvisorReport(
   } = await measureGoogleAdsAdvisorPhase(
     "advisor.window_slicing",
     async () => {
-      const selectedWindowRows = buildGoogleAdsAdvisorWindowRowsFromSupportBundle({
-        bundle: supportBundle,
-        startDate: selectedWindow.customStart,
-        endDate: selectedWindow.customEnd,
+      const matrix = buildGoogleAdsAdvisorWindowMatrix({
+        selectedWindow,
+        supportWindows,
+        campaignDailyRows: supportBundle.campaignDailyRows,
+        keywordDailyRows: supportBundle.keywordDailyRows,
+        productDailyRows: supportBundle.productDailyRows,
+        hotQueryRows: supportBundle.hotQueryRows,
+        queryWeeklyRows: supportBundle.queryWeeklyRows,
+        clusterDailyRows: supportBundle.clusterDailyRows,
       });
-      const [alarm1Rows, alarm3Rows, alarm7Rows, operationalRows, queryGovernanceRows, baselineRows] =
-        [
-          alarm1,
-          alarm3,
-          alarm7,
-          operational28,
-          queryGovernance56,
-          baseline84,
-        ].map((window) => ({
-          window,
-          rows: buildGoogleAdsAdvisorWindowRowsFromSupportBundle({
-            bundle: supportBundle,
-            startDate: window.customStart,
-            endDate: window.customEnd,
-          }),
-        }));
+
+      const aggregatesByRange = new Map<string, GoogleAdsAdvisorWindowAggregates>();
+      const getAggregates = (view: GoogleAdsAdvisorWindowMatrixView) => {
+        const cached = aggregatesByRange.get(view.slice.rangeKey);
+        if (cached) return cached;
+        const next = {
+          campaignRows: aggregateDailyRowsLocally("campaign_daily", view.slice.campaignDailyRows),
+          keywordRows: aggregateDailyRowsLocally("keyword_daily", view.slice.keywordDailyRows),
+          productRows: aggregateDailyRowsLocally("product_daily", view.slice.productDailyRows),
+        } satisfies GoogleAdsAdvisorWindowAggregates;
+        aggregatesByRange.set(view.slice.rangeKey, next);
+        return next;
+      };
+
+      const materializeWindow = (view: GoogleAdsAdvisorWindowMatrixView) =>
+        buildGoogleAdsAdvisorWindowRowsFromMatrixView({
+          bundle: supportBundle,
+          view,
+          aggregates: getAggregates(view),
+        });
+
+      const selectedWindowRows = materializeWindow(matrix.selectedView);
+      const alarm1Rows = materializeWindow(matrix.supportViews.alarm_1d);
+      const alarm3Rows = materializeWindow(matrix.supportViews.alarm_3d);
+      const alarm7Rows = materializeWindow(matrix.supportViews.alarm_7d);
+      const operationalRows = materializeWindow(matrix.supportViews.operational_28d);
+      const queryGovernanceRows = materializeWindow(matrix.supportViews.query_governance_56d);
+      const baselineRows = materializeWindow(matrix.supportViews.baseline_84d);
 
       return {
         selectedCampaigns: selectedWindowRows.campaigns,
@@ -3748,57 +3739,83 @@ export async function getGoogleAdsAdvisorReport(
         selectedProducts: selectedWindowRows.products,
         windows: [
           {
-            key: alarm1Rows.window.key,
-            label: alarm1Rows.window.label,
-            campaigns: alarm1Rows.rows.campaigns.rows as never[],
-            searchTerms: alarm1Rows.rows.search.rows as never[],
-            products: alarm1Rows.rows.products.rows as never[],
+            key: "alarm_1d",
+            label: matrix.supportViews.alarm_1d.label,
+            campaigns: alarm1Rows.campaigns.rows as never[],
+            searchTerms: alarm1Rows.search.rows as never[],
+            products: alarm1Rows.products.rows as never[],
           },
           {
-            key: alarm3Rows.window.key,
-            label: alarm3Rows.window.label,
-            campaigns: alarm3Rows.rows.campaigns.rows as never[],
-            searchTerms: alarm3Rows.rows.search.rows as never[],
-            products: alarm3Rows.rows.products.rows as never[],
+            key: "alarm_3d",
+            label: matrix.supportViews.alarm_3d.label,
+            campaigns: alarm3Rows.campaigns.rows as never[],
+            searchTerms: alarm3Rows.search.rows as never[],
+            products: alarm3Rows.products.rows as never[],
           },
           {
-            key: alarm7Rows.window.key,
-            label: alarm7Rows.window.label,
-            campaigns: alarm7Rows.rows.campaigns.rows as never[],
-            searchTerms: alarm7Rows.rows.search.rows as never[],
-            products: alarm7Rows.rows.products.rows as never[],
+            key: "alarm_7d",
+            label: matrix.supportViews.alarm_7d.label,
+            campaigns: alarm7Rows.campaigns.rows as never[],
+            searchTerms: alarm7Rows.search.rows as never[],
+            products: alarm7Rows.products.rows as never[],
           },
           {
-            key: operationalRows.window.key,
-            label: operationalRows.window.label,
-            campaigns: operationalRows.rows.campaigns.rows as never[],
-            searchTerms: operationalRows.rows.search.rows as never[],
-            products: operationalRows.rows.products.rows as never[],
+            key: "operational_28d",
+            label: matrix.supportViews.operational_28d.label,
+            campaigns: operationalRows.campaigns.rows as never[],
+            searchTerms: operationalRows.search.rows as never[],
+            products: operationalRows.products.rows as never[],
           },
           {
-            key: queryGovernanceRows.window.key,
-            label: queryGovernanceRows.window.label,
-            campaigns: queryGovernanceRows.rows.campaigns.rows as never[],
-            searchTerms: queryGovernanceRows.rows.search.rows as never[],
-            products: queryGovernanceRows.rows.products.rows as never[],
+            key: "query_governance_56d",
+            label: matrix.supportViews.query_governance_56d.label,
+            campaigns: queryGovernanceRows.campaigns.rows as never[],
+            searchTerms: queryGovernanceRows.search.rows as never[],
+            products: queryGovernanceRows.products.rows as never[],
           },
           {
-            key: baselineRows.window.key,
-            label: baselineRows.window.label,
-            campaigns: baselineRows.rows.campaigns.rows as never[],
-            searchTerms: baselineRows.rows.search.rows as never[],
-            products: baselineRows.rows.products.rows as never[],
+            key: "baseline_84d",
+            label: matrix.supportViews.baseline_84d.label,
+            campaigns: baselineRows.campaigns.rows as never[],
+            searchTerms: baselineRows.search.rows as never[],
+            products: baselineRows.products.rows as never[],
           },
-        ],
+        ] satisfies Array<{
+          key:
+            | "alarm_1d"
+            | "alarm_3d"
+            | "alarm_7d"
+            | "operational_28d"
+            | "query_governance_56d"
+            | "baseline_84d";
+          label: string;
+          campaigns: Array<Record<string, unknown>>;
+          searchTerms: Array<Record<string, unknown>>;
+          products: Array<Record<string, unknown>>;
+        }>,
         aggregateIntelligence: summarizeGoogleAdsAdvisorAggregateIntelligence({
-          queryWeeklyRows: supportBundle.queryWeeklyRows,
-          clusterDailyRows: supportBundle.clusterDailyRows,
+          queryWeeklyRows: matrix.supportViews.baseline_84d.slice.queryWeeklyRows,
+          clusterDailyRows: matrix.supportViews.baseline_84d.slice.clusterDailyRows,
           supportWindowStart: baseline84.customStart,
           supportWindowEnd: baseline84.customEnd,
         }),
+        telemetry: matrix.telemetry,
       };
     },
     (value) => ({
+      windowCount: value.telemetry.windowCount,
+      assignedCampaignRows: value.telemetry.assignedCampaignRows,
+      assignedKeywordRows: value.telemetry.assignedKeywordRows,
+      assignedProductRows: value.telemetry.assignedProductRows,
+      windowRowCounts: {
+        selected: value.telemetry.windowRowCounts.selected_custom,
+        alarm_1d: value.telemetry.windowRowCounts.alarm_1d,
+        alarm_3d: value.telemetry.windowRowCounts.alarm_3d,
+        alarm_7d: value.telemetry.windowRowCounts.alarm_7d,
+        operational_28d: value.telemetry.windowRowCounts.operational_28d,
+        query_governance_56d: value.telemetry.windowRowCounts.query_governance_56d,
+        baseline_84d: value.telemetry.windowRowCounts.baseline_84d,
+      },
       selectedCampaignRows: value.selectedCampaigns.rows.length,
       selectedSearchRows: value.selectedSearch.rows.length,
       selectedProductRows: value.selectedProducts.rows.length,

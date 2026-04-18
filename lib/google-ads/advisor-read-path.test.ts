@@ -386,5 +386,28 @@ describe("google ads advisor read path", () => {
         productDailyRows: 1,
       }),
     );
+    expect(runtimeLogging.logRuntimeDebug).toHaveBeenCalledWith(
+      "google-ads-advisor",
+      "advisor.window_slicing",
+      expect.objectContaining({
+        durationMs: expect.any(Number),
+        windowCount: 7,
+        assignedCampaignRows: expect.any(Number),
+        assignedKeywordRows: expect.any(Number),
+        assignedProductRows: expect.any(Number),
+        windowRowCounts: expect.objectContaining({
+          selected: expect.objectContaining({
+            campaignDailyRows: 1,
+            keywordDailyRows: 1,
+            productDailyRows: 1,
+          }),
+          baseline_84d: expect.objectContaining({
+            campaignDailyRows: 1,
+            keywordDailyRows: 1,
+            productDailyRows: 1,
+          }),
+        }),
+      }),
+    );
   });
 });
