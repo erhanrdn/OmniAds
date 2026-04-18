@@ -38,6 +38,9 @@ interface GoogleParityDiff {
   referenceValue?: unknown;
 }
 
+const GOOGLE_ADS_CONNECTIVITY_ONLY_WARNING =
+  "Google Ads integration is not connected.";
+
 function parseArgs(argv: string[]): Map<string, string> {
   const parsed = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 1) {
@@ -242,6 +245,14 @@ function compareKeyedParityRows<T extends object>(input: {
     blockingDiffs,
     nonBlockingDiffs: [] as GoogleParityDiff[],
   };
+}
+
+function isOverviewConnectivityOnlyWarning(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.length === 1 &&
+    value[0] === GOOGLE_ADS_CONNECTIVITY_ONLY_WARNING
+  );
 }
 
 function normalizeOverviewRow(source: Record<string, unknown>) {
@@ -778,7 +789,8 @@ export async function buildGoogleAdsParityArtifact(input: ParsedCliArgs) {
   });
 
   const blockingDiffs = [
-    ...(currentOverview.meta?.warnings?.length
+    ...(currentOverview.meta?.warnings?.length &&
+    !isOverviewConnectivityOnlyWarning(currentOverview.meta.warnings)
       ? [
           {
             surface: "overview",

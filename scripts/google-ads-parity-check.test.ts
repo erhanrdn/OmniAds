@@ -84,6 +84,7 @@ vi.mock("@/lib/google-ads/search-intelligence-storage", () => ({
 }));
 
 const { buildGoogleAdsParityArtifact } = await import("@/scripts/google-ads-parity-check");
+const serving = await import("@/lib/google-ads/serving");
 
 describe("google ads parity check", () => {
   it("treats the typed product dimension title as the canonical product name", async () => {
@@ -111,5 +112,75 @@ describe("google ads parity check", () => {
         }),
       ]),
     );
+  });
+
+  it("treats the exact overview connectivity warning as non-blocking parity noise", async () => {
+    vi.mocked(serving.getGoogleAdsOverviewSummaryAggregate).mockResolvedValueOnce({
+      kpis: {
+        spend: 0,
+        revenue: 0,
+        conversions: 0,
+        roas: 0,
+        cpa: 0,
+        cpc: 0,
+        ctr: 0,
+        impressions: 0,
+        clicks: 0,
+      },
+      meta: {
+        warnings: ["Google Ads integration is not connected."],
+      },
+    } as never);
+
+    const artifact = (await buildGoogleAdsParityArtifact({
+      businessId: "biz_1",
+      startDate: "2026-04-05",
+      endDate: "2026-04-17",
+      jsonOut: null,
+    })) as {
+      blockingDiffs: Array<{ surface: string; kind: string }>;
+      summary: { blockingDiffCount: number };
+    };
+
+    expect(artifact.summary.blockingDiffCount).toBe(0);
+    expect(artifact.blockingDiffs).toEqual([]);
+  });
+
+  it("keeps non-connectivity overview warnings blocking", async () => {
+    vi.mocked(serving.getGoogleAdsOverviewSummaryAggregate).mockResolvedValueOnce({
+      kpis: {
+        spend: 0,
+        revenue: 0,
+        conversions: 0,
+        roas: 0,
+        cpa: 0,
+        cpc: 0,
+        ctr: 0,
+        impressions: 0,
+        clicks: 0,
+      },
+      meta: {
+        warnings: ["Google Ads provider truth is unavailable for a mutable window."],
+      },
+    } as never);
+
+    const artifact = (await buildGoogleAdsParityArtifact({
+      businessId: "biz_1",
+      startDate: "2026-04-05",
+      endDate: "2026-04-17",
+      jsonOut: null,
+    })) as {
+      blockingDiffs: Array<{ surface: string; kind: string; currentValue?: unknown }>;
+      summary: { blockingDiffCount: number };
+    };
+
+    expect(artifact.summary.blockingDiffCount).toBe(1);
+    expect(artifact.blockingDiffs).toEqual([
+      expect.objectContaining({
+        surface: "overview",
+        kind: "surface_status",
+        currentValue: ["Google Ads provider truth is unavailable for a mutable window."],
+      }),
+    ]);
   });
 });
