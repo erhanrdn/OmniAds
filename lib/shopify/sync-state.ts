@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady, getDbSchemaReadiness } from "@/lib/db-schema-readiness";
 import {
@@ -22,6 +24,33 @@ function normalizeTimestamp(value: unknown) {
   const parsed = new Date(text);
   if (Number.isFinite(parsed.getTime())) return parsed.toISOString();
   return text;
+}
+
+function asArchivedObject(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function buildShopifySyncStateDetailArchiveEntityId(syncTarget: string) {
+  return syncTarget;
+}
+
+function buildShopifySyncStateDetailArchiveHash(input: {
+  businessId: string;
+  providerAccountId: string;
+  syncTarget: string;
+  payloadJson: unknown;
+}) {
+  return createHash("sha1")
+    .update(
+      JSON.stringify({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        syncTarget: input.syncTarget,
+        payload: input.payloadJson,
+      }),
+    )
+    .digest("hex");
 }
 
 async function resolveShopifySyncStateReferenceContext(input: {
@@ -66,7 +95,7 @@ export async function getShopifySyncState(input: {
   syncTarget: string;
 }) {
   const readiness = await getDbSchemaReadiness({
-    tables: ["shopify_sync_state"],
+    tables: ["shopify_sync_state", "shopify_entity_payload_archives"],
   }).catch(() => null);
   if (!readiness?.ready) {
     return null;
@@ -82,6 +111,17 @@ export async function getShopifySyncState(input: {
   `) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) return null;
+  const archiveRows = (await sql`
+    SELECT payload_json
+    FROM shopify_entity_payload_archives
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND shop_id = ${input.providerAccountId}
+      AND entity_type = 'sync_state_detail'
+      AND entity_id = ${buildShopifySyncStateDetailArchiveEntityId(input.syncTarget)}
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  const archivedPayload = asArchivedObject(archiveRows[0]?.payload_json);
   return {
     businessId: String(row.business_id),
     providerAccountId: String(row.provider_account_id),
@@ -98,15 +138,16 @@ export async function getShopifySyncState(input: {
     latestSyncWindowEnd: normalizeDate(row.latest_sync_window_end),
     lastError: row.last_error ? String(row.last_error) : null,
     lastResultSummary:
-      row.last_result_summary && typeof row.last_result_summary === "object"
+      asArchivedObject(archivedPayload?.lastResultSummary) ??
+      (row.last_result_summary && typeof row.last_result_summary === "object"
         ? (row.last_result_summary as Record<string, unknown>)
-        : null,
+        : null),
   } satisfies ShopifySyncStateRecord;
 }
 
 export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
   await assertDbSchemaReady({
-    tables: ["shopify_sync_state"],
+    tables: ["shopify_sync_state", "shopify_entity_payload_archives"],
     context: "shopify_sync_state_upsert",
   });
   const sql = getDb();
@@ -129,7 +170,6 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       latest_sync_window_start,
       latest_sync_window_end,
       last_error,
-      last_result_summary,
       updated_at
     )
     VALUES (
@@ -149,7 +189,6 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       ${normalizeDate(input.latestSyncWindowStart)},
       ${normalizeDate(input.latestSyncWindowEnd)},
       ${input.lastError ?? null},
-      ${JSON.stringify(input.lastResultSummary ?? null)}::jsonb,
       now()
     )
     ON CONFLICT (business_id, provider_account_id, sync_target) DO UPDATE SET
@@ -169,7 +208,59 @@ export async function upsertShopifySyncState(input: ShopifySyncStateRecord) {
       latest_sync_window_start = COALESCE(EXCLUDED.latest_sync_window_start, shopify_sync_state.latest_sync_window_start),
       latest_sync_window_end = COALESCE(EXCLUDED.latest_sync_window_end, shopify_sync_state.latest_sync_window_end),
       last_error = EXCLUDED.last_error,
-      last_result_summary = COALESCE(EXCLUDED.last_result_summary, shopify_sync_state.last_result_summary),
       updated_at = now()
   `;
+  if (input.lastResultSummary && typeof input.lastResultSummary === "object") {
+    await sql`
+      INSERT INTO shopify_entity_payload_archives (
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        entity_type,
+        entity_id,
+        parent_entity_id,
+        payload_hash,
+        payload_json,
+        source_snapshot_id,
+        source_updated_at,
+        updated_at
+      )
+      VALUES (
+        ${input.businessId},
+        ${refs.businessRefId},
+        ${input.providerAccountId},
+        ${refs.providerAccountRefId},
+        ${input.providerAccountId},
+        'sync_state_detail',
+        ${buildShopifySyncStateDetailArchiveEntityId(input.syncTarget)},
+        null,
+        ${buildShopifySyncStateDetailArchiveHash({
+          businessId: input.businessId,
+          providerAccountId: input.providerAccountId,
+          syncTarget: input.syncTarget,
+          payloadJson: input.lastResultSummary,
+        })},
+        ${JSON.stringify({ lastResultSummary: input.lastResultSummary })}::jsonb,
+        null,
+        COALESCE(
+          ${normalizeTimestamp(input.latestSuccessfulSyncAt)},
+          ${normalizeTimestamp(input.latestSyncStartedAt)},
+          now()
+        ),
+        now()
+      )
+      ON CONFLICT (business_id, provider_account_id, shop_id, entity_type, entity_id) DO UPDATE SET
+        business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_entity_payload_archives.business_ref_id),
+        provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_entity_payload_archives.provider_account_ref_id),
+        payload_hash = EXCLUDED.payload_hash,
+        payload_json = EXCLUDED.payload_json,
+        source_updated_at = GREATEST(
+          COALESCE(shopify_entity_payload_archives.source_updated_at, EXCLUDED.source_updated_at),
+          EXCLUDED.source_updated_at
+        ),
+        updated_at = now()
+    `;
+  }
 }

@@ -1,0 +1,108 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const sql = Object.assign(vi.fn(), {
+  query: vi.fn(),
+});
+
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => sql),
+}));
+
+vi.mock("@/lib/db-schema-readiness", () => ({
+  assertDbSchemaReady: vi.fn().mockResolvedValue(undefined),
+  getDbSchemaReadiness: vi.fn().mockResolvedValue({
+    ready: true,
+    missingTables: [],
+    checkedAt: "2026-04-19T00:00:00.000Z",
+  }),
+}));
+
+vi.mock("@/lib/provider-account-reference-store", () => ({
+  ensureProviderAccountReferenceIds: vi.fn(
+    async ({ accounts }: { accounts: Array<{ externalAccountId: string }> }) =>
+      new Map(
+        accounts.map((account) => [
+          account.externalAccountId,
+          `${account.externalAccountId}-ref`,
+        ] as const),
+      ),
+  ),
+  resolveBusinessReferenceIds: vi.fn(async (businessIds: string[]) => {
+    return new Map(
+      businessIds.map((businessId) => [businessId, `${businessId}-ref`] as const),
+    );
+  }),
+}));
+
+const syncState = await import("@/lib/shopify/sync-state");
+
+describe("shopify sync-state archive lane", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sql.mockResolvedValue([]);
+    sql.query.mockResolvedValue([]);
+  });
+
+  it("writes sync result summaries to the archive lane instead of the main row", async () => {
+    await syncState.upsertShopifySyncState({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      syncTarget: "commerce_orders_recent",
+      latestSyncStatus: "succeeded",
+      lastResultSummary: { imported: 12 },
+    });
+
+    const templateSql = sql.mock.calls
+      .map(([strings]) => String((strings as TemplateStringsArray).join(" ")))
+      .join("\n");
+
+    expect(templateSql).toContain("INSERT INTO shopify_sync_state");
+    expect(templateSql).not.toContain("last_result_summary");
+    expect(templateSql).toContain("INSERT INTO shopify_entity_payload_archives");
+    expect(templateSql).toContain("sync_state_detail");
+  });
+
+  it("hydrates sync result summaries from archived payloads", async () => {
+    sql
+      .mockResolvedValueOnce([
+        {
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          sync_target: "commerce_orders_recent",
+          historical_target_start: null,
+          historical_target_end: null,
+          ready_through_date: null,
+          cursor_timestamp: null,
+          cursor_value: null,
+          latest_sync_started_at: "2026-04-19T00:00:00.000Z",
+          latest_successful_sync_at: "2026-04-19T00:01:00.000Z",
+          latest_sync_status: "succeeded",
+          latest_sync_window_start: null,
+          latest_sync_window_end: null,
+          last_error: null,
+          last_result_summary: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          payload_json: {
+            lastResultSummary: {
+              imported: 12,
+              reconciled: true,
+            },
+          },
+        },
+      ]);
+
+    const state = await syncState.getShopifySyncState({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      syncTarget: "commerce_orders_recent",
+    });
+
+    expect(state?.lastResultSummary).toEqual({
+      imported: 12,
+      reconciled: true,
+    });
+  });
+});

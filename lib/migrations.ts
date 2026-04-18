@@ -4379,6 +4379,113 @@ export async function runMigrations(options?: {
       await runMigrationBatchSequentially([
         sql.query(
           `
+            WITH source_rows AS (
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                provider_account_id AS shop_id,
+                'webhook_delivery'::text AS entity_type,
+                shop_domain || '::' || topic || '::' || payload_hash AS entity_id,
+                webhook_id AS parent_entity_id,
+                payload_hash,
+                jsonb_strip_nulls(
+                  jsonb_build_object(
+                    'payload',
+                    CASE
+                      WHEN payload_json <> '{}'::jsonb THEN payload_json
+                      ELSE NULL
+                    END,
+                    'resultSummary',
+                    result_summary
+                  )
+                ) AS payload_json,
+                NULL::uuid AS source_snapshot_id,
+                COALESCE(processed_at, received_at, updated_at, created_at) AS source_updated_at
+              FROM shopify_webhook_deliveries
+              WHERE business_id IS NOT NULL
+                AND provider_account_id IS NOT NULL
+                AND (payload_json <> '{}'::jsonb OR result_summary IS NOT NULL)
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                provider_account_id AS shop_id,
+                'repair_intent_state'::text AS entity_type,
+                id::text AS entity_id,
+                entity_id AS parent_entity_id,
+                payload_hash,
+                jsonb_build_object('lastSyncResult', last_sync_result) AS payload_json,
+                NULL::uuid AS source_snapshot_id,
+                updated_at AS source_updated_at
+              FROM shopify_repair_intents
+              WHERE last_sync_result IS NOT NULL
+              UNION ALL
+              SELECT
+                business_id,
+                business_ref_id,
+                provider_account_id,
+                provider_account_ref_id,
+                provider_account_id AS shop_id,
+                'sync_state_detail'::text AS entity_type,
+                sync_target AS entity_id,
+                NULL::text AS parent_entity_id,
+                md5(last_result_summary::text) AS payload_hash,
+                jsonb_build_object('lastResultSummary', last_result_summary) AS payload_json,
+                NULL::uuid AS source_snapshot_id,
+                COALESCE(latest_successful_sync_at, latest_sync_started_at, updated_at) AS source_updated_at
+              FROM shopify_sync_state
+              WHERE last_result_summary IS NOT NULL
+            )
+            INSERT INTO shopify_entity_payload_archives (
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              entity_type,
+              entity_id,
+              parent_entity_id,
+              payload_hash,
+              payload_json,
+              source_snapshot_id,
+              source_updated_at,
+              updated_at
+            )
+            SELECT
+              business_id,
+              business_ref_id,
+              provider_account_id,
+              provider_account_ref_id,
+              shop_id,
+              entity_type,
+              entity_id,
+              parent_entity_id,
+              payload_hash,
+              payload_json,
+              source_snapshot_id,
+              source_updated_at,
+              now()
+            FROM source_rows
+            WHERE payload_json <> '{}'::jsonb
+            ON CONFLICT (business_id, provider_account_id, shop_id, entity_type, entity_id) DO UPDATE SET
+              business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_entity_payload_archives.business_ref_id),
+              provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_entity_payload_archives.provider_account_ref_id),
+              parent_entity_id = COALESCE(EXCLUDED.parent_entity_id, shopify_entity_payload_archives.parent_entity_id),
+              payload_hash = EXCLUDED.payload_hash,
+              payload_json = EXCLUDED.payload_json,
+              source_updated_at = GREATEST(COALESCE(shopify_entity_payload_archives.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+              updated_at = now()
+          `,
+        ).catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        sql.query(
+          `
             WITH bounds AS (
               SELECT
                 business_id,

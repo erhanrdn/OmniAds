@@ -124,7 +124,10 @@ type ShopifyPayloadArchiveEntityType =
   | "transaction"
   | "return"
   | "sales_event"
-  | "customer_event";
+  | "customer_event"
+  | "webhook_delivery"
+  | "repair_intent_state"
+  | "sync_state_detail";
 
 interface ShopifyPayloadArchiveUpsertRow {
   business_id: string;
@@ -199,6 +202,31 @@ function buildShopifyPayloadArchiveHash(input: {
       }),
     )
     .digest("hex");
+}
+
+function buildShopifyWebhookDeliveryArchiveEntityId(input: {
+  shopDomain: string;
+  topic: string;
+  payloadHash: string;
+}) {
+  return `${input.shopDomain}::${input.topic}::${input.payloadHash}`;
+}
+
+function buildShopifyRepairIntentStateArchiveEntityId(input: {
+  repairIntentId: string;
+}) {
+  return input.repairIntentId;
+}
+
+function buildShopifySyncStateDetailArchiveEntityId(input: {
+  syncTarget: string;
+}) {
+  return input.syncTarget;
+}
+
+function asArchivedObject(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
 function pickEarlierTimestamp(current: string | null, candidate: string | null) {
@@ -1050,6 +1078,38 @@ async function upsertShopifyPayloadArchives(
         updated_at = now()
     `,
     [JSON.stringify(rows)],
+  );
+}
+
+async function listShopifyPayloadArchivesByEntityIds(input: {
+  businessId: string;
+  providerAccountId: string;
+  shopId: string;
+  entityType: ShopifyPayloadArchiveEntityType;
+  entityIds: string[];
+  sql?: ShopifySql;
+}) {
+  if (input.entityIds.length <= 0) {
+    return new Map<string, Record<string, unknown>>();
+  }
+  const sql = input.sql ?? getDb();
+  const rows = (await sql`
+    SELECT entity_id, payload_json
+    FROM shopify_entity_payload_archives
+    WHERE business_id = ${input.businessId}
+      AND provider_account_id = ${input.providerAccountId}
+      AND shop_id = ${input.shopId}
+      AND entity_type = ${input.entityType}
+      AND entity_id = ANY(${input.entityIds}::text[])
+  `) as Array<Record<string, unknown>>;
+  return new Map(
+    rows
+      .map((row) => {
+        const entityId = normalizeText(row.entity_id);
+        const payload = asArchivedObject(row.payload_json);
+        return entityId && payload ? ([entityId, payload] as const) : null;
+      })
+      .filter((row): row is readonly [string, Record<string, unknown>] => row !== null),
   );
 }
 
@@ -2020,7 +2080,7 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_webhook_delivery");
   const sql = getDb();
   const refs = await resolveOptionalShopifyCanonicalReferenceContext(input);
-  await sql`
+  const rows = (await sql`
     INSERT INTO shopify_webhook_deliveries (
       business_id,
       business_ref_id,
@@ -2030,11 +2090,9 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
       shop_domain,
       webhook_id,
       payload_hash,
-      payload_json,
       received_at,
       processed_at,
       processing_state,
-      result_summary,
       error_message,
       updated_at
     )
@@ -2047,11 +2105,9 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
       ${input.shopDomain},
       ${input.webhookId ?? null},
       ${String(input.payloadHash)},
-      ${JSON.stringify(input.payloadJson ?? {})}::jsonb,
       COALESCE(${normalizeTimestamp(input.receivedAt)}, now()),
       ${normalizeTimestamp(input.processedAt)},
       ${input.processingState},
-      ${JSON.stringify(input.resultSummary ?? null)}::jsonb,
       ${input.errorMessage ?? null},
       now()
     )
@@ -2067,10 +2123,49 @@ export async function upsertShopifyWebhookDelivery(input: ShopifyWebhookDelivery
       webhook_id = COALESCE(EXCLUDED.webhook_id, shopify_webhook_deliveries.webhook_id),
       processed_at = COALESCE(EXCLUDED.processed_at, shopify_webhook_deliveries.processed_at),
       processing_state = EXCLUDED.processing_state,
-      result_summary = COALESCE(EXCLUDED.result_summary, shopify_webhook_deliveries.result_summary),
       error_message = EXCLUDED.error_message,
       updated_at = now()
-  `;
+    RETURNING business_id, provider_account_id, shop_domain, topic, payload_hash, webhook_id
+  `) as Array<Record<string, unknown>>;
+  const row = rows[0];
+  const archivedPayload = stripNullFields({
+    payload: hasMeaningfulJsonPayload(input.payloadJson) ? input.payloadJson : null,
+    resultSummary:
+      input.resultSummary && typeof input.resultSummary === "object"
+        ? input.resultSummary
+        : null,
+  });
+  if (
+    row?.business_id &&
+    row?.provider_account_id &&
+    Object.keys(archivedPayload).length > 0
+  ) {
+    await upsertShopifyPayloadArchives(
+      [
+        {
+          business_id: String(row.business_id),
+          business_ref_id: refs.businessRefId,
+          provider_account_id: String(row.provider_account_id),
+          provider_account_ref_id: refs.providerAccountRefId,
+          shop_id: String(row.provider_account_id),
+          entity_type: "webhook_delivery",
+          entity_id: buildShopifyWebhookDeliveryArchiveEntityId({
+            shopDomain: String(row.shop_domain),
+            topic: String(row.topic),
+            payloadHash: String(row.payload_hash),
+          }),
+          parent_entity_id: row.webhook_id ? String(row.webhook_id) : null,
+          payload_hash: String(input.payloadHash),
+          payload_json: archivedPayload,
+          source_snapshot_id: null,
+          source_updated_at:
+            normalizeTimestamp(input.processedAt) ??
+            normalizeTimestamp(input.receivedAt),
+        },
+      ],
+      sql,
+    );
+  }
 }
 
 export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord) {
@@ -2093,7 +2188,6 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
       status,
       attempt_count,
       last_error,
-      last_sync_result,
       updated_at
     )
     VALUES (
@@ -2111,7 +2205,6 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
       ${input.status},
       ${Math.max(0, Math.trunc(input.attemptCount ?? 0))},
       ${input.lastError ?? null},
-      ${JSON.stringify(input.lastSyncResult ?? null)}::jsonb,
       now()
     )
     ON CONFLICT (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
@@ -2127,11 +2220,39 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
       status = EXCLUDED.status,
       attempt_count = EXCLUDED.attempt_count,
       last_error = EXCLUDED.last_error,
-      last_sync_result = EXCLUDED.last_sync_result,
       updated_at = now()
     RETURNING *
   `) as Array<Record<string, unknown>>;
   const row = rows[0];
+  if (
+    row?.id &&
+    input.lastSyncResult &&
+    typeof input.lastSyncResult === "object"
+  ) {
+    await upsertShopifyPayloadArchives(
+      [
+        {
+          business_id: String(row.business_id),
+          business_ref_id: refs.businessRefId,
+          provider_account_id: String(row.provider_account_id),
+          provider_account_ref_id: refs.providerAccountRefId,
+          shop_id: String(row.provider_account_id),
+          entity_type: "repair_intent_state",
+          entity_id: buildShopifyRepairIntentStateArchiveEntityId({
+            repairIntentId: String(row.id),
+          }),
+          parent_entity_id: String(row.entity_id),
+          payload_hash: String(row.payload_hash),
+          payload_json: {
+            lastSyncResult: input.lastSyncResult,
+          },
+          source_snapshot_id: null,
+          source_updated_at: normalizeTimestamp(row.updated_at),
+        },
+      ],
+      sql,
+    );
+  }
   return row
     ? ({
         id: String(row.id),
@@ -2148,9 +2269,11 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
         attemptCount: Number(row.attempt_count ?? 0),
         lastError: row.last_error ? String(row.last_error) : null,
         lastSyncResult:
-          row.last_sync_result && typeof row.last_sync_result === "object"
-            ? (row.last_sync_result as Record<string, unknown>)
-            : null,
+          input.lastSyncResult && typeof input.lastSyncResult === "object"
+            ? input.lastSyncResult
+            : row.last_sync_result && typeof row.last_sync_result === "object"
+              ? (row.last_sync_result as Record<string, unknown>)
+              : null,
         createdAt: normalizeTimestamp(row.created_at),
         updatedAt: normalizeTimestamp(row.updated_at),
       } satisfies ShopifyRepairIntentRecord)
@@ -2173,6 +2296,14 @@ export async function listShopifyRepairIntents(input: {
     ORDER BY updated_at DESC, created_at DESC
     LIMIT ${limit}
   `) as Array<Record<string, unknown>>;
+  const archivePayloads = await listShopifyPayloadArchivesByEntityIds({
+    businessId: input.businessId,
+    providerAccountId: input.providerAccountId,
+    shopId: input.providerAccountId,
+    entityType: "repair_intent_state",
+    entityIds: rows.map((row) => String(row.id)),
+    sql,
+  });
   return rows.map((row) => ({
     id: String(row.id),
     businessId: String(row.business_id),
@@ -2188,9 +2319,16 @@ export async function listShopifyRepairIntents(input: {
     attemptCount: Number(row.attempt_count ?? 0),
     lastError: row.last_error ? String(row.last_error) : null,
     lastSyncResult:
-      row.last_sync_result && typeof row.last_sync_result === "object"
+      asArchivedObject(
+        archivePayloads.get(
+          buildShopifyRepairIntentStateArchiveEntityId({
+            repairIntentId: String(row.id),
+          }),
+        )?.lastSyncResult,
+      ) ??
+      (row.last_sync_result && typeof row.last_sync_result === "object"
         ? (row.last_sync_result as Record<string, unknown>)
-        : null,
+        : null),
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   })) satisfies ShopifyRepairIntentRecord[];
@@ -2213,6 +2351,30 @@ export async function getShopifyWebhookDelivery(input: {
   `) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) return null;
+  const archivePayloads =
+    row.business_id && row.provider_account_id
+      ? await listShopifyPayloadArchivesByEntityIds({
+          businessId: String(row.business_id),
+          providerAccountId: String(row.provider_account_id),
+          shopId: String(row.provider_account_id),
+          entityType: "webhook_delivery",
+          entityIds: [
+            buildShopifyWebhookDeliveryArchiveEntityId({
+              shopDomain: String(row.shop_domain),
+              topic: String(row.topic),
+              payloadHash: String(row.payload_hash),
+            }),
+          ],
+          sql,
+        })
+      : new Map<string, Record<string, unknown>>();
+  const archivedPayload = archivePayloads.get(
+    buildShopifyWebhookDeliveryArchiveEntityId({
+      shopDomain: String(row.shop_domain),
+      topic: String(row.topic),
+      payloadHash: String(row.payload_hash),
+    }),
+  );
   return {
     businessId: row.business_id ? String(row.business_id) : null,
     providerAccountId: row.provider_account_id ? String(row.provider_account_id) : null,
@@ -2221,16 +2383,20 @@ export async function getShopifyWebhookDelivery(input: {
     webhookId: row.webhook_id ? String(row.webhook_id) : null,
     payloadHash: String(row.payload_hash),
     payloadJson:
-      row.payload_json && typeof row.payload_json === "object"
-        ? row.payload_json
-        : {},
+      archivedPayload?.payload && typeof archivedPayload.payload === "object"
+        ? archivedPayload.payload
+        : row.payload_json && typeof row.payload_json === "object"
+          ? row.payload_json
+          : {},
     receivedAt: normalizeTimestamp(row.received_at),
     processedAt: normalizeTimestamp(row.processed_at),
     processingState: String(row.processing_state) as ShopifyWebhookDeliveryRecord["processingState"],
     resultSummary:
-      row.result_summary && typeof row.result_summary === "object"
-        ? (row.result_summary as Record<string, unknown>)
-        : null,
+      archivedPayload?.resultSummary && typeof archivedPayload.resultSummary === "object"
+        ? (archivedPayload.resultSummary as Record<string, unknown>)
+        : row.result_summary && typeof row.result_summary === "object"
+          ? (row.result_summary as Record<string, unknown>)
+          : null,
     errorMessage: row.error_message ? String(row.error_message) : null,
   } satisfies ShopifyWebhookDeliveryRecord;
 }
@@ -2250,6 +2416,33 @@ export async function listShopifyWebhookDeliveries(input: {
     ORDER BY COALESCE(processed_at, received_at) DESC
     LIMIT ${Math.max(1, Math.min(input.limit ?? 10, 50))}
   `) as Array<Record<string, unknown>>;
+  const archivePayloads = new Map<string, Record<string, unknown>>();
+  const entityIdsByProvider = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.business_id || !row.provider_account_id) continue;
+    const providerAccountId = String(row.provider_account_id);
+    const entityId = buildShopifyWebhookDeliveryArchiveEntityId({
+      shopDomain: String(row.shop_domain),
+      topic: String(row.topic),
+      payloadHash: String(row.payload_hash),
+    });
+    const existing = entityIdsByProvider.get(providerAccountId) ?? [];
+    existing.push(entityId);
+    entityIdsByProvider.set(providerAccountId, existing);
+  }
+  for (const [providerAccountId, entityIds] of entityIdsByProvider.entries()) {
+    const providerArchives = await listShopifyPayloadArchivesByEntityIds({
+      businessId: input.businessId,
+      providerAccountId,
+      shopId: providerAccountId,
+      entityType: "webhook_delivery",
+      entityIds,
+      sql,
+    });
+    for (const [entityId, payload] of providerArchives.entries()) {
+      archivePayloads.set(`${providerAccountId}::${entityId}`, payload);
+    }
+  }
 
   return rows.map((row) => ({
     businessId: row.business_id ? String(row.business_id) : null,
@@ -2258,14 +2451,32 @@ export async function listShopifyWebhookDeliveries(input: {
     shopDomain: String(row.shop_domain),
     webhookId: row.webhook_id ? String(row.webhook_id) : null,
     payloadHash: String(row.payload_hash),
-    payloadJson: row.payload_json ?? null,
+    payloadJson:
+      archivePayloads.get(
+        `${row.provider_account_id ? String(row.provider_account_id) : ""}::${buildShopifyWebhookDeliveryArchiveEntityId({
+          shopDomain: String(row.shop_domain),
+          topic: String(row.topic),
+          payloadHash: String(row.payload_hash),
+        })}`,
+      )?.payload ??
+      row.payload_json ??
+      null,
     receivedAt: normalizeTimestamp(row.received_at),
     processedAt: normalizeTimestamp(row.processed_at),
     processingState: String(row.processing_state) as ShopifyWebhookDeliveryRecord["processingState"],
     resultSummary:
-      row.result_summary && typeof row.result_summary === "object"
+      asArchivedObject(
+        archivePayloads.get(
+          `${row.provider_account_id ? String(row.provider_account_id) : ""}::${buildShopifyWebhookDeliveryArchiveEntityId({
+            shopDomain: String(row.shop_domain),
+            topic: String(row.topic),
+            payloadHash: String(row.payload_hash),
+          })}`,
+        )?.resultSummary,
+      ) ??
+      (row.result_summary && typeof row.result_summary === "object"
         ? (row.result_summary as Record<string, unknown>)
-        : null,
+        : null),
     errorMessage: row.error_message ? String(row.error_message) : null,
   })) satisfies ShopifyWebhookDeliveryRecord[];
 }

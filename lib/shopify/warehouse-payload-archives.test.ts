@@ -102,4 +102,152 @@ describe("shopify warehouse payload archives", () => {
     expect(templateSql).toContain("INSERT INTO shopify_sales_events");
     expect(templateSql).not.toContain("INSERT INTO shopify_sales_events (\n          business_id,\n          business_ref_id,\n          provider_account_id,\n          provider_account_ref_id,\n          shop_id,\n          event_id,\n          source_kind,\n          source_id,\n          order_id,\n          occurred_at,\n          occurred_date_local,\n          gross_sales,\n          refunded_sales,\n          refunded_shipping,\n          refunded_taxes,\n          net_revenue,\n          currency_code,\n          payload_json");
   });
+
+  it("moves webhook payloads and repair sync results into the archive lane", async () => {
+    sql
+      .mockResolvedValueOnce([
+        {
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          shop_domain: "shop-1.myshopify.com",
+          topic: "orders/create",
+          payload_hash: "hash-1",
+          webhook_id: "webhook-1",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "repair-1",
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          entity_type: "order",
+          entity_id: "order-1",
+          topic: "orders/create",
+          payload_hash: "hash-1",
+          event_timestamp: null,
+          event_age_days: null,
+          escalation_level: 0,
+          status: "processed",
+          attempt_count: 1,
+          last_error: null,
+          created_at: "2026-04-19T00:00:00.000Z",
+          updated_at: "2026-04-19T00:00:00.000Z",
+        },
+      ]);
+
+    await warehouse.upsertShopifyWebhookDelivery({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      topic: "orders/create",
+      shopDomain: "shop-1.myshopify.com",
+      webhookId: "webhook-1",
+      payloadHash: "hash-1",
+      payloadJson: { id: "gid://shopify/Order/1" },
+      processingState: "processed",
+      resultSummary: { ok: true },
+    });
+
+    await warehouse.upsertShopifyRepairIntent({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      entityType: "order",
+      entityId: "order-1",
+      topic: "orders/create",
+      payloadHash: "hash-1",
+      status: "processed",
+      lastSyncResult: { ok: true },
+    });
+
+    const templateSql = sql.mock.calls
+      .map(([strings]) => String((strings as TemplateStringsArray).join(" ")))
+      .join("\n");
+    const archiveSql = sql.query.mock.calls
+      .map(([statement]) => String(statement))
+      .join("\n");
+    const archivePayloadRows = sql.query.mock.calls
+      .flatMap(([, params]) => (Array.isArray(params) ? params : []))
+      .map((value) => String(value))
+      .join("\n");
+
+    expect(templateSql).toContain("INSERT INTO shopify_webhook_deliveries");
+    expect(templateSql).not.toContain("INSERT INTO shopify_webhook_deliveries (\n      business_id,\n      business_ref_id,\n      provider_account_id,\n      provider_account_ref_id,\n      topic,\n      shop_domain,\n      webhook_id,\n      payload_hash,\n      payload_json");
+    expect(templateSql).not.toContain("result_summary");
+    expect(templateSql).toContain("INSERT INTO shopify_repair_intents");
+    expect(templateSql).not.toContain("last_sync_result");
+    expect(archiveSql).toContain("shopify_entity_payload_archives");
+    expect(archivePayloadRows).toContain("webhook_delivery");
+    expect(archivePayloadRows).toContain("repair_intent_state");
+  });
+
+  it("hydrates webhook and repair debug fields from archived payloads", async () => {
+    sql
+      .mockResolvedValueOnce([
+        {
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          topic: "orders/create",
+          shop_domain: "shop-1.myshopify.com",
+          webhook_id: "webhook-1",
+          payload_hash: "hash-1",
+          payload_json: {},
+          received_at: "2026-04-19T00:00:00.000Z",
+          processed_at: "2026-04-19T00:01:00.000Z",
+          processing_state: "processed",
+          result_summary: null,
+          error_message: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          entity_id: "shop-1.myshopify.com::orders/create::hash-1",
+          payload_json: {
+            payload: { id: "gid://shopify/Order/1" },
+            resultSummary: { ok: true },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "repair-1",
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          entity_type: "order",
+          entity_id: "order-1",
+          topic: "orders/create",
+          payload_hash: "hash-1",
+          event_timestamp: null,
+          event_age_days: null,
+          escalation_level: 0,
+          status: "processed",
+          attempt_count: 1,
+          last_error: null,
+          last_sync_result: null,
+          created_at: "2026-04-19T00:00:00.000Z",
+          updated_at: "2026-04-19T00:01:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          entity_id: "repair-1",
+          payload_json: {
+            lastSyncResult: { ok: true, repairs: 1 },
+          },
+        },
+      ]);
+
+    const delivery = await warehouse.getShopifyWebhookDelivery({
+      shopDomain: "shop-1.myshopify.com",
+      topic: "orders/create",
+      payloadHash: "hash-1",
+    });
+    const repairIntents = await warehouse.listShopifyRepairIntents({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      limit: 5,
+    });
+
+    expect(delivery?.payloadJson).toEqual({ id: "gid://shopify/Order/1" });
+    expect(delivery?.resultSummary).toEqual({ ok: true });
+    expect(repairIntents[0]?.lastSyncResult).toEqual({ ok: true, repairs: 1 });
+  });
 });
