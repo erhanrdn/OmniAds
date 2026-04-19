@@ -293,6 +293,99 @@ describe("compareShopifyAggregates", () => {
     expect(result.withinThreshold).toBe(true);
   });
 
+  it("normalizes carryover refunds from out-of-window orders when evaluating order and transaction truth", () => {
+    const result = compareShopifyWarehouseAndLedger({
+      warehouse: {
+        revenue: 19343.03,
+        grossRevenue: 20211.43,
+        refundedRevenue: 868.4,
+        purchases: 103,
+        returnEvents: 0,
+        averageOrderValue: 196.23,
+        daily: [
+          {
+            date: "2026-04-12",
+            orderRevenue: 3495.86,
+            refundedRevenue: 67.12,
+            netRevenue: 3428.74,
+            orders: 16,
+            returnEvents: 0,
+          },
+          {
+            date: "2026-04-17",
+            orderRevenue: 2642.47,
+            refundedRevenue: 411.26,
+            netRevenue: 2231.21,
+            orders: 18,
+            returnEvents: 0,
+          },
+        ],
+      },
+      ledger: {
+        revenue: 19343.03,
+        grossRevenue: 20211.43,
+        refundedRevenue: 868.4,
+        purchases: 103,
+        returnEvents: 0,
+        averageOrderValue: 187.8,
+        carryoverRefundRevenue: 646.68,
+        currentOrderRevenue: 19989.71,
+        grossMinusRefundsOrderRevenue: 19989.71,
+        transactionCapturedRevenue: 20211.47,
+        transactionRefundedRevenue: 233.4,
+        transactionNetRevenue: 19978.07,
+        transactionCoveredOrders: 103,
+        transactionCoveredRevenue: 20211.47,
+        transactionCoverageRate: 100,
+        transactionCoverageAmountRate: 100,
+        daily: [
+          {
+            date: "2026-04-12",
+            orderRevenue: 3495.86,
+            refundedRevenue: 67.12,
+            netRevenue: 3428.74,
+            orders: 16,
+            returnEvents: 0,
+            orderEventCount: 16,
+            adjustmentEventCount: 1,
+            refundEventCount: 1,
+            adjustmentRevenue: -67.12,
+            refundPressure: 67.12,
+            dailySemanticDrift: 134.24,
+          },
+          {
+            date: "2026-04-17",
+            orderRevenue: 2642.47,
+            refundedRevenue: 411.26,
+            netRevenue: 2231.21,
+            orders: 18,
+            returnEvents: 0,
+            orderEventCount: 18,
+            adjustmentEventCount: 3,
+            refundEventCount: 4,
+            adjustmentRevenue: -411.26,
+            refundPressure: 411.26,
+            dailySemanticDrift: 822.52,
+          },
+        ],
+        ledgerRows: 7,
+        orderEventCount: 103,
+        adjustmentEventCount: 8,
+        refundEventCount: 9,
+        adjustmentRevenue: -825.52,
+        refundPressure: 868.4,
+        dailySemanticDrift: 1693.92,
+      },
+    });
+
+    expect(result.revenueDelta).toBe(0);
+    expect(result.refundedRevenueDelta).toBe(0);
+    expect(result.orderRevenueTruthDelta).toBe(0);
+    expect(result.transactionRevenueDelta).toBeCloseTo(11.64, 2);
+    expect(result.failureReasons).toEqual([]);
+    expect(result.withinThreshold).toBe(true);
+  });
+
   it("fails ledger trust when both order basis and transaction basis disagree at meaningful coverage", () => {
     const result = compareShopifyWarehouseAndLedger({
       warehouse: {

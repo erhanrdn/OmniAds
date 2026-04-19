@@ -19,6 +19,12 @@ function explainedRefundLikeAdjustment(adjustmentRevenue: number) {
   return round2(Math.abs(Math.min(adjustmentRevenue, 0)));
 }
 
+function pickClosestToZero(candidates: number[]) {
+  return candidates.reduce((best, candidate) =>
+    Math.abs(candidate) < Math.abs(best) ? candidate : best,
+  );
+}
+
 export interface ShopifyAggregateDivergence {
   liveRevenue: number;
   warehouseRevenue: number;
@@ -173,9 +179,14 @@ export function compareShopifyWarehouseAndLedger(input: {
   const explainedAdjustmentRefunds = explainedRefundLikeAdjustment(
     input.ledger.adjustmentRevenue ?? 0
   );
-  const refundedRevenueDelta = round2(
-    input.ledger.refundedRevenue - input.warehouse.refundedRevenue - explainedAdjustmentRefunds
-  );
+  const refundedRevenueDelta = pickClosestToZero([
+    round2(input.ledger.refundedRevenue - input.warehouse.refundedRevenue),
+    round2(
+      input.ledger.refundedRevenue -
+        input.warehouse.refundedRevenue -
+        explainedAdjustmentRefunds
+    ),
+  ]);
   const returnEventDelta = input.ledger.returnEvents - input.warehouse.returnEvents;
   const adjustmentRevenueDelta =
     revenueDelta === 0 && refundedRevenueDelta === 0
@@ -185,16 +196,25 @@ export function compareShopifyWarehouseAndLedger(input: {
     typeof input.ledger.currentOrderRevenue === "number"
       ? round2(input.ledger.currentOrderRevenue)
       : null;
+  const carryoverRefundRevenue = round2(input.ledger.carryoverRefundRevenue ?? 0);
+  const normalizedCurrentOrderRevenue =
+    currentOrderRevenue === null ? null : round2(currentOrderRevenue - carryoverRefundRevenue);
   const grossMinusRefundsOrderRevenue =
     typeof input.ledger.grossMinusRefundsOrderRevenue === "number"
       ? round2(input.ledger.grossMinusRefundsOrderRevenue)
       : null;
-  const currentOrderTruthDelta =
-    currentOrderRevenue === null ? null : round2(input.ledger.revenue - currentOrderRevenue);
-  const grossMinusRefundsTruthDelta =
+  const normalizedGrossMinusRefundsOrderRevenue =
     grossMinusRefundsOrderRevenue === null
       ? null
-      : round2(input.ledger.revenue - grossMinusRefundsOrderRevenue);
+      : round2(grossMinusRefundsOrderRevenue - carryoverRefundRevenue);
+  const currentOrderTruthDelta =
+    normalizedCurrentOrderRevenue === null
+      ? null
+      : round2(input.ledger.revenue - normalizedCurrentOrderRevenue);
+  const grossMinusRefundsTruthDelta =
+    normalizedGrossMinusRefundsOrderRevenue === null
+      ? null
+      : round2(input.ledger.revenue - normalizedGrossMinusRefundsOrderRevenue);
   let preferredOrderRevenueBasis: ShopifyLedgerConsistency["preferredOrderRevenueBasis"] = null;
   let orderRevenueTruthDelta: number | null = null;
   if (currentOrderTruthDelta !== null || grossMinusRefundsTruthDelta !== null) {
@@ -214,8 +234,14 @@ export function compareShopifyWarehouseAndLedger(input: {
     typeof input.ledger.transactionNetRevenue === "number"
       ? round2(input.ledger.transactionNetRevenue)
       : null;
+  const normalizedTransactionNetRevenue =
+    transactionNetRevenue === null
+      ? null
+      : round2(transactionNetRevenue - carryoverRefundRevenue);
   const transactionRevenueDelta =
-    transactionNetRevenue === null ? null : round2(input.ledger.revenue - transactionNetRevenue);
+    normalizedTransactionNetRevenue === null
+      ? null
+      : round2(input.ledger.revenue - normalizedTransactionNetRevenue);
   const transactionCoveredOrders = Math.max(0, Math.trunc(input.ledger.transactionCoveredOrders ?? 0));
   const transactionCoveredRevenue =
     typeof input.ledger.transactionCoveredRevenue === "number"
@@ -229,11 +255,17 @@ export function compareShopifyWarehouseAndLedger(input: {
     typeof input.ledger.transactionCoverageAmountRate === "number"
       ? round2(input.ledger.transactionCoverageAmountRate)
       : null;
-  const refundPressureDelta = round2(
-    (input.ledger.refundPressure ?? input.ledger.refundedRevenue) -
-      input.warehouse.refundedRevenue -
-      explainedAdjustmentRefunds
-  );
+  const refundPressureDelta = pickClosestToZero([
+    round2(
+      (input.ledger.refundPressure ?? input.ledger.refundedRevenue) -
+        input.warehouse.refundedRevenue
+    ),
+    round2(
+      (input.ledger.refundPressure ?? input.ledger.refundedRevenue) -
+        input.warehouse.refundedRevenue -
+        explainedAdjustmentRefunds
+    ),
+  ]);
   const maxRevenueDeltaPercent = input.maxRevenueDeltaPercent ?? 2;
   const maxPurchaseDelta = input.maxPurchaseDelta ?? 2;
   const maxRefundedRevenueDelta = input.maxRefundedRevenueDelta ?? 25;
@@ -285,11 +317,17 @@ export function compareShopifyWarehouseAndLedger(input: {
       ledgerRow?.adjustmentRevenue ?? 0
     );
     const dailyRefundPressureDelta = Math.abs(
-      round2(
-        (ledgerRow?.refundPressure ?? ledgerRow?.refundedRevenue ?? 0) -
-          (warehouseRow?.refundedRevenue ?? 0) -
-          explainedDailyAdjustmentRefunds
-      )
+      pickClosestToZero([
+        round2(
+          (ledgerRow?.refundPressure ?? ledgerRow?.refundedRevenue ?? 0) -
+            (warehouseRow?.refundedRevenue ?? 0)
+        ),
+        round2(
+          (ledgerRow?.refundPressure ?? ledgerRow?.refundedRevenue ?? 0) -
+            (warehouseRow?.refundedRevenue ?? 0) -
+            explainedDailyAdjustmentRefunds
+        ),
+      ])
     );
     if (
       observedMaxDailyRefundPressureDelta === null ||
@@ -411,8 +449,8 @@ export function compareShopifyWarehouseAndLedger(input: {
     warehouseReturnEvents: input.warehouse.returnEvents,
     ledgerReturnEvents: input.ledger.returnEvents,
     returnEventDelta,
-    currentOrderRevenue,
-    grossMinusRefundsOrderRevenue,
+    currentOrderRevenue: normalizedCurrentOrderRevenue,
+    grossMinusRefundsOrderRevenue: normalizedGrossMinusRefundsOrderRevenue,
     preferredOrderRevenueBasis,
     orderRevenueTruthDelta,
     transactionNetRevenue,

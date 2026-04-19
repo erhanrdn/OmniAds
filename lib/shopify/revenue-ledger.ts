@@ -34,6 +34,7 @@ export interface ShopifyRevenueLedgerAggregate extends ShopifyWarehouseOverviewA
   adjustmentRevenue: number;
   refundPressure: number;
   dailySemanticDrift: number;
+  carryoverRefundRevenue?: number;
   currentOrderRevenue: number | null;
   grossMinusRefundsOrderRevenue: number | null;
   transactionCapturedRevenue: number | null;
@@ -71,6 +72,7 @@ export async function getShopifyRevenueLedgerAggregate(input: {
       adjustmentRevenue: 0,
       refundPressure: 0,
       dailySemanticDrift: 0,
+      carryoverRefundRevenue: 0,
       currentOrderRevenue: null,
       grossMinusRefundsOrderRevenue: null,
       transactionCapturedRevenue: null,
@@ -86,9 +88,33 @@ export async function getShopifyRevenueLedgerAggregate(input: {
   const rows = (await sql`
     SELECT
       COALESCE(occurred_date_local, occurred_at::date)::text AS date,
-      COALESCE(SUM(gross_sales), 0) AS gross_revenue,
-      COALESCE(SUM(refunded_sales + refunded_shipping + refunded_taxes), 0) AS refunded_revenue,
-      COALESCE(SUM(net_revenue), 0) AS net_revenue,
+      COALESCE(
+        SUM(CASE WHEN source_kind = 'order' THEN gross_sales ELSE 0 END),
+        0
+      ) AS gross_revenue,
+      COALESCE(
+        SUM(
+          CASE
+            WHEN source_kind = 'refund'
+            THEN refunded_sales + refunded_shipping + refunded_taxes
+            ELSE 0
+          END
+        ),
+        0
+      ) AS refunded_revenue,
+      COALESCE(
+        SUM(CASE WHEN source_kind = 'order' THEN gross_sales ELSE 0 END),
+        0
+      ) - COALESCE(
+        SUM(
+          CASE
+            WHEN source_kind = 'refund'
+            THEN refunded_sales + refunded_shipping + refunded_taxes
+            ELSE 0
+          END
+        ),
+        0
+      ) AS net_revenue,
       COUNT(*) FILTER (WHERE source_kind = 'order') AS orders,
       COUNT(*) FILTER (WHERE source_kind = 'return') AS return_events,
       COUNT(*) FILTER (WHERE source_kind = 'order') AS order_event_count,
@@ -102,6 +128,26 @@ export async function getShopifyRevenueLedgerAggregate(input: {
       AND COALESCE(occurred_date_local, occurred_at::date) <= ${input.endDate}::date
     GROUP BY 1
     ORDER BY 1 ASC
+  `) as Array<Record<string, unknown>>;
+  const [carryoverRefundRow] = (await sql`
+    SELECT
+      COALESCE(SUM(refunds.refunded_sales + refunds.refunded_shipping + refunds.refunded_taxes), 0)
+        AS carryover_refund_revenue
+    FROM shopify_refunds refunds
+    LEFT JOIN shopify_orders orders
+      ON orders.business_id = refunds.business_id
+      AND orders.provider_account_id = refunds.provider_account_id
+      AND orders.shop_id = refunds.shop_id
+      AND orders.order_id = refunds.order_id
+    WHERE refunds.business_id = ${input.businessId}
+      AND (${input.providerAccountId ?? null}::text IS NULL OR refunds.provider_account_id = ${input.providerAccountId ?? null})
+      AND COALESCE(refunds.refunded_date_local, refunds.refunded_at::date) >= ${input.startDate}::date
+      AND COALESCE(refunds.refunded_date_local, refunds.refunded_at::date) <= ${input.endDate}::date
+      AND (
+        orders.order_id IS NULL OR
+        COALESCE(orders.order_created_date_local, orders.order_created_at::date) < ${input.startDate}::date OR
+        COALESCE(orders.order_created_date_local, orders.order_created_at::date) > ${input.endDate}::date
+      )
   `) as Array<Record<string, unknown>>;
   const [orderBasisRow] = (await sql`
     SELECT
@@ -196,6 +242,9 @@ export async function getShopifyRevenueLedgerAggregate(input: {
   const adjustmentRevenue = round2(daily.reduce((sum, row) => sum + row.adjustmentRevenue, 0));
   const refundPressure = round2(daily.reduce((sum, row) => sum + row.refundPressure, 0));
   const dailySemanticDrift = round2(daily.reduce((sum, row) => sum + row.dailySemanticDrift, 0));
+  const carryoverRefundRevenue = round2(
+    toNumber(carryoverRefundRow?.carryover_refund_revenue),
+  );
   const orderCount = Math.trunc(toNumber(orderBasisRow?.order_count));
   const currentOrderRevenue = round2(toNumber(orderBasisRow?.current_order_revenue));
   const grossOrderRevenue = round2(toNumber(orderBasisRow?.gross_order_revenue));
@@ -228,6 +277,7 @@ export async function getShopifyRevenueLedgerAggregate(input: {
     adjustmentRevenue,
     refundPressure,
     dailySemanticDrift,
+    carryoverRefundRevenue,
     currentOrderRevenue: orderCount > 0 ? currentOrderRevenue : null,
     grossMinusRefundsOrderRevenue: orderCount > 0 ? grossMinusRefundsOrderRevenue : null,
     transactionCapturedRevenue: transactionCoveredOrders > 0 ? transactionCapturedRevenue : null,
