@@ -243,6 +243,9 @@ function buildPhaseLabel(input: {
   if (input.selectedRangeIncomplete) return "Preparing selected dates";
   if (input.historicalQueuePaused) return "Historical sync is paused";
   if (input.overallCompletedDays < input.totalDays) return "Backfilling historical data";
+  if (input.totalDays <= 0 || input.overallCompletedDays >= input.totalDays) {
+    return "Ready";
+  }
   if (input.latestSyncType === "incremental_recent" || input.latestSyncType === "today_refresh") {
     return "Syncing recent history";
   }
@@ -746,7 +749,11 @@ export async function GET(request: NextRequest) {
     Boolean(selectedRangeTotalDays) &&
     selectedRangeEffectiveCompletedDays >= (selectedRangeTotalDays ?? 0);
   const selectedRangeIncomplete =
-    selectedRangeUsesLiveFallback ? false : !selectedRangeEffectiveReady;
+    selectedRangeRequested
+      ? selectedRangeUsesLiveFallback
+        ? false
+        : !selectedRangeEffectiveReady
+      : false;
   const selectedRangeCoreReadyThroughDate = selectedRangeUsesLiveFallback
     ? selectedEndDate ?? null
     : selectedRangeIncludesCurrentDay && selectedRangeEffectiveReady

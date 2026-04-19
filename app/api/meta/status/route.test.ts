@@ -1082,6 +1082,64 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("does not treat no-date status as selected-range preparation", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getLatestMetaSyncHealth).mockResolvedValue({
+      id: "sync-1",
+      sync_type: "today_refresh",
+      scope: "account_daily",
+      start_date: "2026-04-13",
+      end_date: "2026-04-13",
+    } as never);
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 0,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: null,
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: null,
+      historicalCoreQueueDepth: 0,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("ready");
+    expect(payload.latestSync?.phaseLabel ?? null).toBeNull();
+    expect(payload.warehouse?.coverage?.selectedRange ?? null).toBeNull();
+    expect(payload.integrationSummary).toMatchObject({
+      scope: "recent_window",
+      attentionNeeded: false,
+    });
+  });
+
   it("surfaces forward-progress evidence and activity state through operations truth", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",

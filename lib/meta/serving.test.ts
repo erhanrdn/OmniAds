@@ -784,6 +784,63 @@ describe("meta historical serving", () => {
     ]);
   });
 
+  it("keeps breakdown rows available when optional budget reads fail", async () => {
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-01",
+        breakdownType: "age",
+        breakdownKey: "35-44",
+        breakdownLabel: "35-44",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 88,
+        impressions: 1200,
+        clicks: 32,
+        reach: 900,
+        frequency: 1.2,
+        conversions: 4,
+        revenue: 240,
+        roas: 2.73,
+        cpa: 22,
+        ctr: 2.66,
+        cpc: 2.75,
+        sourceSnapshotId: null,
+        truthState: "finalized",
+        truthVersion: 1,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-age-1",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockRejectedValue(
+      new Error("campaign budget timeout"),
+    );
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockRejectedValue(
+      new Error("adset budget timeout"),
+    );
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(payload.age).toEqual([
+      expect.objectContaining({ key: "35-44", spend: 88 }),
+    ]);
+    expect(payload.location).toEqual([]);
+    expect(payload.placement).toEqual([]);
+    expect(payload.budget).toEqual({
+      campaign: [],
+      adset: [],
+    });
+  });
+
   it("serves country-only breakdown rows even when age and placement rows are absent", async () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
     process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";

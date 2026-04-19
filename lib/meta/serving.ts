@@ -474,6 +474,86 @@ function aggregateMetaBreakdownRows(input: {
   return Array.from(byKey.values()).sort((a, b) => b.spend - a.spend);
 }
 
+function aggregateMetaCampaignBreakdownBudgetRows(
+  rows: MetaCampaignDailyRow[],
+) {
+  const byKey = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      spend: number;
+      latestDate: string;
+    }
+  >();
+  for (const row of rows) {
+    const key = row.campaignId;
+    const label =
+      row.campaignNameCurrent ??
+      row.campaignNameHistorical ??
+      "Unknown campaign";
+    const latestDate = normalizeMetaServingDate(row.date);
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.spend = r2(existing.spend + row.spend);
+      if (latestDate >= existing.latestDate) {
+        existing.latestDate = latestDate;
+        existing.label = label;
+      }
+    } else {
+      byKey.set(key, {
+        key,
+        label,
+        spend: row.spend,
+        latestDate,
+      });
+    }
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => b.spend - a.spend)
+    .map(({ latestDate: _latestDate, ...row }) => row);
+}
+
+function aggregateMetaAdSetBreakdownBudgetRows(
+  rows: MetaAdSetDailyRow[],
+) {
+  const byKey = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      spend: number;
+      latestDate: string;
+    }
+  >();
+  for (const row of rows) {
+    const key = row.adsetId;
+    const label =
+      row.adsetNameCurrent ??
+      row.adsetNameHistorical ??
+      "Unknown ad set";
+    const latestDate = normalizeMetaServingDate(row.date);
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.spend = r2(existing.spend + row.spend);
+      if (latestDate >= existing.latestDate) {
+        existing.latestDate = latestDate;
+        existing.label = label;
+      }
+    } else {
+      byKey.set(key, {
+        key,
+        label,
+        spend: row.spend,
+        latestDate,
+      });
+    }
+  }
+  return Array.from(byKey.values())
+    .sort((a, b) => b.spend - a.spend)
+    .map(({ latestDate: _latestDate, ...row }) => row);
+}
+
 async function getMetaWarehouseBreakdownSnapshot(input: {
   businessId: string;
   startDate: string;
@@ -485,7 +565,8 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
   const v2Enabled =
     isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
     providerAccountIds.length > 0;
-  const [rawBreakdownRows, campaigns, adsets, verification] = await Promise.all([
+  const [rawBreakdownRows, verification, campaignRows, adsetRows] =
+    await Promise.all([
     getMetaBreakdownDailyRange({
       businessId: input.businessId,
       providerAccountIds: input.providerAccountIds,
@@ -493,14 +574,6 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
       endDate: input.endDate,
       breakdownTypes: [...input.requestedBreakdownTypes],
     }),
-    getMetaWarehouseCampaigns(input),
-    getMetaWarehouseAdSets({
-      businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      providerAccountIds: input.providerAccountIds,
-      campaignId: "",
-    }).catch(() => []),
     v2Enabled
       ? getMetaPublishedVerificationSummary({
           businessId: input.businessId,
@@ -510,6 +583,19 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
           surfaces: ["account_daily", "campaign_daily"],
         }).catch(() => null)
       : Promise.resolve(null),
+    getMetaCampaignDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+    }).catch(() => []),
+    getMetaAdSetDailyRange({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds: input.providerAccountIds,
+      campaignIds: null,
+    }).catch(() => []),
   ]);
   const breakdownRows = v2Enabled
     ? filterBreakdownRowsToPublishedKeys({
@@ -521,8 +607,10 @@ async function getMetaWarehouseBreakdownSnapshot(input: {
 
   return {
     breakdownRows,
-    campaigns,
-    adsets,
+    budget: {
+      campaign: aggregateMetaCampaignBreakdownBudgetRows(campaignRows),
+      adset: aggregateMetaAdSetBreakdownBudgetRows(adsetRows),
+    },
     verification,
     isPartial: v2Enabled ? !verification?.truthReady : breakdownRows.length === 0,
   };
@@ -1727,7 +1815,7 @@ export async function getMetaWarehouseBreakdowns(input: {
   providerAccountIds?: string[] | null;
 }): Promise<MetaWarehouseBreakdownsResponse> {
   const requestedBreakdownTypes = ["age", "country", "placement"] as const;
-  const { breakdownRows, campaigns, adsets, verification, isPartial } =
+  const { breakdownRows, budget, verification, isPartial } =
     await getMetaWarehouseBreakdownSnapshot({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -1746,18 +1834,7 @@ export async function getMetaWarehouseBreakdowns(input: {
     age: aggregateMetaBreakdownRows({ breakdownRows, kind: "age" }),
     location: aggregateMetaBreakdownRows({ breakdownRows, kind: "country" }),
     placement: aggregateMetaBreakdownRows({ breakdownRows, kind: "placement" }),
-    budget: {
-      campaign: campaigns.rows.map((row) => ({
-        key: row.campaignId,
-        label: row.campaignName ?? "Unknown campaign",
-        spend: row.spend,
-      })),
-      adset: adsets.map((row) => ({
-        key: row.id,
-        label: row.name,
-        spend: row.spend,
-      })),
-    },
+    budget,
   };
 }
 
