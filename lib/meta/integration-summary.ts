@@ -519,11 +519,21 @@ function buildExtendedStage(
   const historicalLag = status.historicalExtendedReady === false;
   const recentWindowScope = scope === "recent_window";
   const recentWindowReady = recentWindowScope && status.recentExtendedReady !== false;
+  const historicalOnlyExtendedLag =
+    recentWindowScope &&
+    recentLag &&
+    historicalLag &&
+    (status.jobHealth?.extendedRecentQueueDepth ?? 0) <= 0 &&
+    (status.jobHealth?.extendedRecentLeasedPartitions ?? 0) <= 0 &&
+    ((status.jobHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+      (status.jobHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0);
   const percent =
     recentWindowScope
-      ? recentLag
-        ? extendedSurfaceMetrics.recentPercent
-        : null
+      ? historicalOnlyExtendedLag
+        ? extendedSurfaceMetrics.historicalPercent
+        : recentLag
+          ? extendedSurfaceMetrics.recentPercent
+          : null
       : status.extendedCompleteness &&
           !status.extendedCompleteness.complete &&
           status.extendedCompleteness.percent != null
@@ -531,6 +541,47 @@ function buildExtendedStage(
         : historicalLag
           ? extendedSurfaceMetrics.historicalPercent
           : null;
+
+  const progressCompletedDays = recentWindowScope
+    ? historicalOnlyExtendedLag
+      ? extendedSurfaceMetrics.historicalCompleted
+      : recentLag
+        ? extendedSurfaceMetrics.recentCompleted
+        : null
+    : !status.extendedCompleteness?.complete
+      ? breakdownMetrics?.completedDays ?? null
+      : historicalLag
+        ? extendedSurfaceMetrics.historicalCompleted
+        : null;
+
+  const progressTotalDays = recentWindowScope
+    ? historicalOnlyExtendedLag
+      ? extendedSurfaceMetrics.historicalTotal
+      : recentLag
+        ? extendedSurfaceMetrics.recentTotal
+        : null
+    : !status.extendedCompleteness?.complete
+      ? breakdownMetrics?.totalDays ?? null
+      : historicalLag
+        ? extendedSurfaceMetrics.historicalTotal
+        : null;
+
+  const progressCode = recentWindowScope
+    ? historicalOnlyExtendedLag
+      ? "historical_extended_preparing"
+      : "recent_extended_preparing"
+    : !status.extendedCompleteness?.complete
+      ? "breakdowns_preparing"
+      : historicalLag
+        ? "historical_extended_preparing"
+        : "breakdowns_preparing";
+
+  const progressReadyThroughDate = recentWindowScope
+    ? historicalOnlyExtendedLag
+      ? breakdownMetrics?.readyThroughDate ?? extendedSurfaceMetrics.readyThroughDate
+      : extendedSurfaceMetrics.readyThroughDate
+    : breakdownMetrics?.readyThroughDate ??
+      extendedSurfaceMetrics.readyThroughDate;
 
   if (!recentWindowScope && status.extendedCompleteness?.state === "blocked") {
     return {
@@ -577,25 +628,11 @@ function buildExtendedStage(
       percent,
       code: "extended_waiting",
       evidence: compactEvidence({
-        completedDays: !status.extendedCompleteness?.complete
-          ? breakdownMetrics?.completedDays
-          : recentLag
-            ? extendedSurfaceMetrics.recentCompleted
-            : historicalLag
-              ? extendedSurfaceMetrics.historicalCompleted
-              : undefined,
-        totalDays: !status.extendedCompleteness?.complete
-          ? breakdownMetrics?.totalDays
-          : recentLag
-            ? extendedSurfaceMetrics.recentTotal
-            : historicalLag
-              ? extendedSurfaceMetrics.historicalTotal
-              : undefined,
+        completedDays: progressCompletedDays ?? undefined,
+        totalDays: progressTotalDays ?? undefined,
         pendingSurfaceCount,
         pendingSurfaces,
-        readyThroughDate:
-          breakdownMetrics?.readyThroughDate ??
-          extendedSurfaceMetrics.readyThroughDate,
+        readyThroughDate: progressReadyThroughDate,
       }),
     };
   }
@@ -604,38 +641,13 @@ function buildExtendedStage(
     key: "extended_surfaces",
     state: "working",
     percent,
-    code: recentWindowScope
-      ? "recent_extended_preparing"
-      : !status.extendedCompleteness?.complete
-        ? "breakdowns_preparing"
-        : historicalLag
-          ? "historical_extended_preparing"
-          : "breakdowns_preparing",
+    code: progressCode,
     evidence: compactEvidence({
-      completedDays: recentWindowScope
-        ? recentLag
-          ? extendedSurfaceMetrics.recentCompleted
-          : undefined
-        : !status.extendedCompleteness?.complete
-          ? breakdownMetrics?.completedDays
-          : historicalLag
-            ? extendedSurfaceMetrics.historicalCompleted
-            : undefined,
-      totalDays: recentWindowScope
-        ? recentLag
-          ? extendedSurfaceMetrics.recentTotal
-          : undefined
-        : !status.extendedCompleteness?.complete
-          ? breakdownMetrics?.totalDays
-          : historicalLag
-            ? extendedSurfaceMetrics.historicalTotal
-            : undefined,
+      completedDays: progressCompletedDays ?? undefined,
+      totalDays: progressTotalDays ?? undefined,
       pendingSurfaceCount,
       pendingSurfaces,
-      readyThroughDate: recentWindowScope
-        ? extendedSurfaceMetrics.readyThroughDate
-        : breakdownMetrics?.readyThroughDate ??
-          extendedSurfaceMetrics.readyThroughDate,
+      readyThroughDate: progressReadyThroughDate,
     }),
   };
 }

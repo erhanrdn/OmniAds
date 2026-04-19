@@ -1965,7 +1965,7 @@ describe("GET /api/meta/status", () => {
       missingSurfaces: [],
     });
     expect(payload.extendedCompleteness).toMatchObject({
-      state: "syncing",
+      state: "partial",
       complete: false,
       percent: 50,
       missingSurfaces: [
@@ -1976,9 +1976,9 @@ describe("GET /api/meta/status", () => {
     });
     expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("partial");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("partial");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("partial");
     expect(payload.pageReadiness.optionalSurfaces.adsets.countsForPageCompleteness).toBe(false);
     expect(payload.pageReadiness.optionalSurfaces.recommendations.countsForPageCompleteness).toBe(false);
     expect(payload.warehouse.coverage.breakdownsBySurface).toEqual({
@@ -2144,8 +2144,8 @@ describe("GET /api/meta/status", () => {
 
     expect(response.status).toBe(200);
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("partial");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("partial");
     expect(payload.pageReadiness.missingRequiredSurfaces).toEqual([
       "breakdowns.location",
       "breakdowns.placement",
@@ -2200,7 +2200,7 @@ describe("GET /api/meta/status", () => {
     expect(response.status).toBe(200);
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("partial");
     expect(payload.pageReadiness.missingRequiredSurfaces).toEqual(["breakdowns.placement"]);
     expect(payload.pageReadiness.reason).toBe(
       "Placement breakdown data is still being prepared for the selected range."
@@ -2541,6 +2541,99 @@ describe("GET /api/meta/status", () => {
         "breakdowns.location",
         "breakdowns.placement",
       ],
+    });
+  });
+
+  it("treats selected ranges ending today as ready when historical coverage is complete and current-day live core is available", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 6,
+      ready_through_date: "2026-04-12",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 6,
+      ready_through_date: "2026-04-12",
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 6,
+      ready_through_date: "2026-04-12",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 6, ready_through_date: "2026-04-12" }],
+        ["breakdown_country", { completed_days: 6, ready_through_date: "2026-04-12" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 6, ready_through_date: "2026-04-12" },
+        ],
+      ]) as never
+    );
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      verificationState: "processing",
+      totalDays: 6,
+      completedCoreDays: 6,
+      blockingReasons: [],
+      reasonCounts: { non_finalized: 1 },
+    } as never);
+    vi.mocked(live.getMetaCurrentDayLiveAvailability).mockResolvedValue({
+      summaryAvailable: true,
+      campaignsAvailable: true,
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-07&endDate=2026-04-13"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-04-07",
+        endDate: "2026-04-12",
+      })
+    );
+    expect(payload.currentCoreProgressPercent).toBe(100);
+    expect(payload.coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      percent: 100,
+    });
+    expect(payload.pageReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      selectedRangeMode: "historical_live_fallback",
+    });
+    expect(payload.warehouse.coverage.selectedRange).toMatchObject({
+      completedDays: 7,
+      totalDays: 7,
+      isComplete: true,
+    });
+    expect(payload.priorityWindow).toMatchObject({
+      completedDays: 7,
+      totalDays: 7,
     });
   });
 

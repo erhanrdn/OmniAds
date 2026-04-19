@@ -183,6 +183,36 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
+  it("reports historical extended lag when recent extended queues are empty but historical backlog remains", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        jobHealth: {
+          queueDepth: 3,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+          extendedRecentQueueDepth: 0,
+          extendedRecentLeasedPartitions: 0,
+          extendedHistoricalQueueDepth: 3,
+          extendedHistoricalLeasedPartitions: 1,
+        } as never,
+      })
+    );
+
+    expect(summary.stages[4]).toMatchObject({
+      key: "extended_surfaces",
+      state: "working",
+      code: "historical_extended_preparing",
+      percent: 30,
+      evidence: {
+        completedDays: 110,
+        totalDays: 365,
+        pendingSurfaceCount: 2,
+        pendingSurfaces: ["creative_daily", "ad_daily"],
+      },
+    });
+  });
+
   it("keeps recent-window extended surfaces ready even when historical breakdown history still lags", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({

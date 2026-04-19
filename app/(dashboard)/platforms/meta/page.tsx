@@ -189,7 +189,23 @@ async function fetchMetaStatus(
 
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
-  if (state === "syncing" || state === "partial") return 5_000;
+  const backgroundExtendedLagOnly =
+    status?.pageReadiness?.state === "ready" &&
+    Boolean(
+      status?.extendedCompleteness &&
+        !status.extendedCompleteness.complete &&
+        status.extendedCompleteness.state !== "blocked"
+    );
+  const historicalExtendedWorkActive =
+    (status?.jobHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+    (status?.jobHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0;
+  if (state === "syncing") return 5_000;
+  if (state === "partial") {
+    if (backgroundExtendedLagOnly) {
+      return historicalExtendedWorkActive ? 30_000 : false;
+    }
+    return 10_000;
+  }
   if (
     state === "paused" ||
     state === "stale" ||
@@ -849,9 +865,13 @@ export default function MetaPage() {
           (refreshedStatus?.state ?? "ready") !== "syncing" &&
           queueDepth <= 0 &&
           leasedPartitions <= 0;
+        const selectedRangeCoreReady = Boolean(
+          refreshedStatus?.pageReadiness?.requiredSurfaces?.summary?.state === "ready" &&
+            refreshedStatus?.pageReadiness?.requiredSurfaces?.campaigns?.state === "ready"
+        );
         const truthReady = isTodayRange
           ? syncSettled
-          : Boolean(refreshedStatus?.selectedRangeTruth?.truthReady);
+          : selectedRangeCoreReady;
 
         if (
           dataChanged ||
