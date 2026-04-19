@@ -35,12 +35,18 @@ vi.mock("@/lib/provider-account-reference-store", () => ({
 }));
 
 const syncState = await import("@/lib/shopify/sync-state");
+const dbSchemaReadiness = await import("@/lib/db-schema-readiness");
 
 describe("shopify sync-state archive lane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sql.mockResolvedValue([]);
     sql.query.mockResolvedValue([]);
+    vi.mocked(dbSchemaReadiness.getDbSchemaReadiness).mockResolvedValue({
+      ready: true,
+      missingTables: [],
+      checkedAt: "2026-04-19T00:00:00.000Z",
+    } as never);
   });
 
   it("writes sync result summaries to the archive lane instead of the main row", async () => {
@@ -104,5 +110,56 @@ describe("shopify sync-state archive lane", () => {
       imported: 12,
       reconciled: true,
     });
+  });
+
+  it("returns base sync-state rows even when archive lane is unavailable", async () => {
+    vi.mocked(dbSchemaReadiness.getDbSchemaReadiness)
+      .mockResolvedValueOnce({
+        ready: true,
+        missingTables: [],
+        checkedAt: "2026-04-19T00:00:00.000Z",
+      } as never)
+      .mockResolvedValueOnce({
+        ready: false,
+        missingTables: ["shopify_entity_payload_archives"],
+        checkedAt: "2026-04-19T00:00:00.000Z",
+      } as never);
+
+    sql.mockResolvedValueOnce([
+      {
+        business_id: "biz-1",
+        provider_account_id: "shop-1.myshopify.com",
+        sync_target: "commerce_orders_recent",
+        historical_target_start: null,
+        historical_target_end: null,
+        ready_through_date: null,
+        cursor_timestamp: null,
+        cursor_value: null,
+        latest_sync_started_at: "2026-04-19T00:00:00.000Z",
+        latest_successful_sync_at: "2026-04-19T00:01:00.000Z",
+        latest_sync_status: "succeeded",
+        latest_sync_window_start: null,
+        latest_sync_window_end: null,
+        last_error: null,
+        last_result_summary: null,
+      },
+    ]);
+
+    const state = await syncState.getShopifySyncState({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      syncTarget: "commerce_orders_recent",
+    });
+
+    expect(state).toEqual(
+      expect.objectContaining({
+        businessId: "biz-1",
+        providerAccountId: "shop-1.myshopify.com",
+        syncTarget: "commerce_orders_recent",
+        latestSyncStatus: "succeeded",
+        lastResultSummary: null,
+      }),
+    );
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 });

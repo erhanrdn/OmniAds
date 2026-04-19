@@ -94,10 +94,10 @@ export async function getShopifySyncState(input: {
   providerAccountId: string;
   syncTarget: string;
 }) {
-  const readiness = await getDbSchemaReadiness({
-    tables: ["shopify_sync_state", "shopify_entity_payload_archives"],
+  const stateReadiness = await getDbSchemaReadiness({
+    tables: ["shopify_sync_state"],
   }).catch(() => null);
-  if (!readiness?.ready) {
+  if (!stateReadiness?.ready) {
     return null;
   }
   const sql = getDb();
@@ -111,17 +111,24 @@ export async function getShopifySyncState(input: {
   `) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) return null;
-  const archiveRows = (await sql`
-    SELECT payload_json
-    FROM shopify_entity_payload_archives
-    WHERE business_id = ${input.businessId}
-      AND provider_account_id = ${input.providerAccountId}
-      AND shop_id = ${input.providerAccountId}
-      AND entity_type = 'sync_state_detail'
-      AND entity_id = ${buildShopifySyncStateDetailArchiveEntityId(input.syncTarget)}
-    LIMIT 1
-  `) as Array<Record<string, unknown>>;
-  const archivedPayload = asArchivedObject(archiveRows[0]?.payload_json);
+  const archiveReadiness = await getDbSchemaReadiness({
+    tables: ["shopify_entity_payload_archives"],
+  }).catch(() => null);
+  const archivedPayload =
+    archiveReadiness?.ready === true
+      ? await sql`
+          SELECT payload_json
+          FROM shopify_entity_payload_archives
+          WHERE business_id = ${input.businessId}
+            AND provider_account_id = ${input.providerAccountId}
+            AND shop_id = ${input.providerAccountId}
+            AND entity_type = 'sync_state_detail'
+            AND entity_id = ${buildShopifySyncStateDetailArchiveEntityId(input.syncTarget)}
+          LIMIT 1
+        `
+          .then((archiveRows) => asArchivedObject((archiveRows as Array<Record<string, unknown>>)[0]?.payload_json))
+          .catch(() => null)
+      : null;
   return {
     businessId: String(row.business_id),
     providerAccountId: String(row.provider_account_id),
