@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+phase="${1:-}"
+if [ -z "${phase}" ]; then
+  echo "remote deploy phase is required" >&2
+  exit 1
+fi
+
+REMOTE_APP_DIR="${REMOTE_APP_DIR:-/var/www/adsecute}"
+cd "${REMOTE_APP_DIR}"
+
+log() {
+  printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
+}
+
+dump_service_diagnostics() {
+  log "Collecting deploy diagnostics"
+  docker compose ps || true
+  docker compose ps migrate || true
+  docker compose logs --tail=120 migrate || true
+
+  for service_name in web worker; do
+    container_id="$(docker compose ps -q "${service_name}" || true)"
+    if [ -z "${container_id}" ]; then
+      echo "Missing container for service ${service_name}"
+      continue
+    fi
+
+    echo "--- ${service_name} inspect"
+    docker inspect "${container_id}" --format '{{json .Config.Image}} {{json .State}}' || true
+    echo "--- ${service_name} logs"
+    docker logs --tail=120 "${container_id}" || true
+  done
+}
+
+on_phase_error() {
+  status="$?"
+  echo "deploy_phase=${phase} failed_command=${BASH_COMMAND:-unknown}"
+  dump_service_diagnostics
+  exit "${status}"
+}
+
+wait_for_build_info() {
+  attempts="$1"
+  sleep_seconds="$2"
+  expected_build="${3:-}"
+  attempt=1
+
+  while [ "${attempt}" -le "${attempts}" ]; do
+    if build_info_json="$(curl -fsS http://127.0.0.1:3000/api/build-info 2>/dev/null)"; then
+      if [ -z "${expected_build}" ]; then
+        printf '%s\n' "${build_info_json}"
+        return 0
+      fi
+
+      if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${expected_build}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; raise SystemExit(0 if (payload.get("buildId") or "") == expected else 1)'
+      then
+        printf '%s\n' "${build_info_json}"
+        return 0
+      fi
+
+      observed_build_id="$(
+        printf '%s' "${build_info_json}" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+      )"
+      echo "local_build_info_mismatch expected=${expected_build} observed=${observed_build_id:-unknown} attempt=${attempt}/${attempts}"
+    fi
+
+    sleep "${sleep_seconds}"
+    attempt=$((attempt + 1))
+  done
+
+  return 1
+}
+
+extract_build_id() {
+  python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+}
+
+current_utc_iso() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+check_optional_health() {
+  service_name="$1"
+  max_attempts="${2:-40}"
+  container_id="$(docker compose ps -q "${service_name}" || true)"
+
+  if [ -z "${container_id}" ]; then
+    echo "Missing container for service ${service_name}"
+    return 1
+  fi
+
+  has_healthcheck="$(docker inspect "${container_id}" --format '{{if .Config.Healthcheck}}yes{{else}}no{{end}}')"
+  if [ "${has_healthcheck}" != "yes" ]; then
+    return 0
+  fi
+
+  attempt=1
+  while [ "${attempt}" -le "${max_attempts}" ]; do
+    health_status="$(docker inspect "${container_id}" --format '{{.State.Health.Status}}')"
+    echo "${service_name}_health_status=${health_status} attempt=${attempt}/${max_attempts}"
+    if [ "${health_status}" = "healthy" ]; then
+      return 0
+    fi
+
+    sleep 3
+    attempt=$((attempt + 1))
+  done
+
+  docker inspect "${container_id}" --format '{{json .State.Health}}' || true
+  docker logs --tail=120 "${container_id}" || true
+  return 1
+}
+
+verify_worker_fresh_heartbeat_after() {
+  min_heartbeat_after="$1"
+  max_attempts="${2:-8}"
+  sleep_seconds="${3:-5}"
+  attempt=1
+
+  while [ "${attempt}" -le "${max_attempts}" ]; do
+    echo "worker_fresh_heartbeat_check min_after=${min_heartbeat_after} attempt=${attempt}/${max_attempts}"
+    if docker compose exec -T worker \
+      node --import tsx scripts/sync-worker-healthcheck.ts \
+        --provider-scope meta \
+        --online-window-minutes 5 \
+        --min-online-workers 1 \
+        --min-heartbeat-after "${min_heartbeat_after}"; then
+      return 0
+    fi
+
+    sleep "${sleep_seconds}"
+    attempt=$((attempt + 1))
+  done
+
+  docker compose ps worker || true
+  worker_container_id="$(docker compose ps -q worker || true)"
+  if [ -n "${worker_container_id}" ]; then
+    docker inspect "${worker_container_id}" --format '{{json .State.Health}}' || true
+    docker logs --tail=120 "${worker_container_id}" || true
+  fi
+
+  return 1
+}
+
+verify_local_sync_control_plane() {
+  provider_scope="${1:-meta}"
+  build_info_url="http://127.0.0.1:3000/api/build-info"
+  if [ "${provider_scope}" != "meta" ]; then
+    build_info_url="${build_info_url}?providerScope=${provider_scope}"
+  fi
+  attempt=1
+  max_attempts=6
+  sleep_seconds=5
+
+  while [ "${attempt}" -le "${max_attempts}" ]; do
+    if build_info_json="$(curl -fsS "${build_info_url}" 2>/dev/null)" &&
+      BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; exact=((payload.get("controlPlanePersistence") or {}).get("exactRowsPresent")) is True; raise SystemExit(0 if ((payload.get("buildId") or "") == expected and exact and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id")) else 1)'
+    then
+      echo "local_control_plane_ready=yes provider_scope=${provider_scope} attempt=${attempt}/${max_attempts}"
+      return 0
+    fi
+
+    echo "local_control_plane_ready=no provider_scope=${provider_scope} attempt=${attempt}/${max_attempts}"
+    attempt=$((attempt + 1))
+    if [ "${attempt}" -le "${max_attempts}" ]; then
+      sleep "${sleep_seconds}"
+    fi
+  done
+
+  return 1
+}
+
+persist_sync_control_plane_via_web() {
+  provider_scope="${1:-meta}"
+  cron_secret="$(docker compose exec -T web node -e 'process.stdout.write(process.env.CRON_SECRET || "")')"
+  if [ -z "${cron_secret}" ]; then
+    echo "CRON_SECRET is missing from the web runtime."
+    return 1
+  fi
+
+  query_string="controlPlaneOnly=1&buildId=${DEPLOY_SHA}&enforceDeployGate=1&providerScope=${provider_scope}"
+  if [ "${BREAK_GLASS}" = "true" ]; then
+    encoded_override_reason="$(
+      python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "${OVERRIDE_REASON}"
+    )"
+    query_string="${query_string}&breakGlass=1&overrideReason=${encoded_override_reason}"
+  fi
+
+  curl -fsS -X POST "http://127.0.0.1:3000/api/sync/cron?${query_string}" \
+    -H "Authorization: Bearer ${cron_secret}"
+}
+
+persist_sync_control_plane() {
+  persist_sync_control_plane_via_web meta
+  verify_local_sync_control_plane meta
+}
+
+verify_service_image() {
+  service_name="$1"
+  expected_image="$2"
+  container_id="$(docker compose ps -q "${service_name}" || true)"
+
+  if [ -z "${container_id}" ]; then
+    echo "Missing container for service ${service_name}"
+    return 1
+  fi
+
+  actual_image="$(docker inspect "${container_id}" --format '{{.Config.Image}}')"
+  echo "${service_name}_actual_image=${actual_image}"
+  echo "${service_name}_expected_image=${expected_image}"
+  test "${actual_image}" = "${expected_image}"
+}
+
+log_disk_usage() {
+  df -h / /var/lib/docker 2>/dev/null || true
+  docker system df || true
+}
+
+free_disk_mb() {
+  mount_path="$1"
+  df -Pm "${mount_path}" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+prune_stale_deploy_artifacts() {
+  keep_images_file="$(mktemp)"
+  {
+    printf '%s\n' "${expected_web_image}"
+    printf '%s\n' "${expected_worker_image}"
+    for service_name in web worker migrate; do
+      container_id="$(docker compose ps -q "${service_name}" || true)"
+      if [ -n "${container_id}" ]; then
+        docker inspect "${container_id}" --format '{{.Config.Image}}' || true
+      fi
+    done
+  } | sort -u > "${keep_images_file}"
+
+  docker container prune -f || true
+  docker builder prune -af || true
+
+  stale_images="$(
+    docker images --format '{{.Repository}}:{{.Tag}}' \
+      | grep -E '^ghcr.io/erhanrdn/omniads-(web|worker):' \
+      | sort -u \
+      || true
+  )"
+
+  while IFS= read -r image_ref; do
+    [ -n "${image_ref}" ] || continue
+    if grep -Fxq "${image_ref}" "${keep_images_file}"; then
+      continue
+    fi
+    echo "Removing stale deploy image ${image_ref}"
+    docker image rm -f "${image_ref}" || true
+  done <<< "${stale_images}"
+
+  rm -f "${keep_images_file}"
+}
+
+maybe_prune_stale_deploy_artifacts() {
+  min_free_mb="${DEPLOY_PRUNE_MIN_FREE_MB:-6144}"
+  root_free_mb="$(free_disk_mb /)"
+  docker_free_mb="$(free_disk_mb /var/lib/docker)"
+  if [ -z "${docker_free_mb}" ]; then
+    docker_free_mb="${root_free_mb}"
+  fi
+
+  echo "disk_free_mb root=${root_free_mb:-unknown} docker=${docker_free_mb:-unknown} threshold=${min_free_mb}"
+
+  if [ -n "${root_free_mb}" ] &&
+    [ -n "${docker_free_mb}" ] &&
+    [ "${root_free_mb}" -ge "${min_free_mb}" ] &&
+    [ "${docker_free_mb}" -ge "${min_free_mb}" ]; then
+    log "Skipping aggressive prune; disk headroom is sufficient"
+    docker container prune -f || true
+    return 0
+  fi
+
+  log "Pruning stale deploy artifacts because disk headroom is low"
+  prune_stale_deploy_artifacts
+}
+
+run_migrations_service() {
+  migration_timeout_seconds="${DEPLOY_MIGRATION_TIMEOUT_SECONDS:-600}"
+  docker compose rm -f migrate >/dev/null 2>&1 || true
+
+  if command -v timeout >/dev/null 2>&1; then
+    set +e
+    timeout "${migration_timeout_seconds}" docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
+    status="$?"
+    set -e
+  else
+    set +e
+    docker compose up --no-deps --abort-on-container-exit --exit-code-from migrate migrate
+    status="$?"
+    set -e
+  fi
+
+  if [ "${status}" -ne 0 ]; then
+    docker compose ps migrate || true
+    docker compose logs --tail=200 migrate || true
+  fi
+
+  docker compose rm -f migrate >/dev/null 2>&1 || true
+  return "${status}"
+}
+
+export APP_IMAGE_TAG="${DEPLOY_SHA}"
+export APP_BUILD_ID="${DEPLOY_SHA}"
+expected_web_image="ghcr.io/erhanrdn/omniads-web:${DEPLOY_SHA}"
+expected_worker_image="ghcr.io/erhanrdn/omniads-worker:${DEPLOY_SHA}"
+
+trap on_phase_error ERR
+
+case "${phase}" in
+  prepare_runtime)
+    log "Checking disk headroom before pull"
+    log_disk_usage
+    maybe_prune_stale_deploy_artifacts
+    log "Disk headroom after prune decision"
+    log_disk_usage
+
+    log "Pulling exact SHA images"
+    docker compose pull web worker
+    ;;
+
+  run_migrations)
+    log "Stopping worker before migrations to reduce DB contention"
+    docker compose stop worker || true
+
+    log "Running migrations for ${DEPLOY_SHA}"
+    run_migrations_service
+    ;;
+
+  recreate_services)
+    log "Recreating web and worker"
+    docker compose up -d --force-recreate web worker
+
+    log "Checking running services"
+    docker compose ps
+
+    log "Verifying exact service images"
+    verify_service_image web "${expected_web_image}"
+    verify_service_image worker "${expected_worker_image}"
+    ;;
+
+  verify_runtime)
+    log "Checking runtime build info"
+    BUILD_INFO_JSON="$(wait_for_build_info 30 3 "${DEPLOY_SHA}")"
+    BUILD_ID="$(printf '%s' "${BUILD_INFO_JSON}" | extract_build_id)"
+    echo "DEPLOY_SHA=${DEPLOY_SHA}"
+    echo "BUILD_ID=${BUILD_ID}"
+    test -n "${BUILD_ID}"
+    test "${BUILD_ID}" = "${DEPLOY_SHA}"
+
+    log "Checking optional container health"
+    check_optional_health web 20
+    check_optional_health worker 40
+
+    worker_healthy_at="$(current_utc_iso)"
+    log "Verifying fresh Meta heartbeat after worker health"
+    verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 8 5
+    ;;
+
+  persist_control_plane)
+    log "Persisting current-build sync control plane"
+    persist_sync_control_plane
+    ;;
+
+  *)
+    echo "unknown remote deploy phase: ${phase}" >&2
+    exit 1
+    ;;
+esac
+
+trap - ERR

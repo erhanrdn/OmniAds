@@ -11,7 +11,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-test:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Verify release authority preflight
+        run: node --import tsx scripts/verify-release-authority.ts --mode=preflight
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm run test
+
+  build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -28,23 +70,14 @@ jobs:
         run: npm ci
 
       - name: Build
-        if: github.event_name == 'pull_request'
         run: npm run build
-
-      - name: Typecheck
-        run: npx tsc --noEmit
-
-      - name: Test
-        run: npm run test
-
-      - name: Verify release authority preflight
-        run: node --import tsx scripts/verify-release-authority.ts --mode=preflight
 
   detect-runtime-changes:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       runtime_changed: ${{ steps.filter.outputs.runtime_changed }}
+      schema_changed: ${{ steps.filter.outputs.schema_changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,34 +93,40 @@ jobs:
         run: |
           set -euo pipefail
 
+          runtime_changed="false"
+          schema_changed="false"
+
           if [ -z "${BEFORE_SHA}" ] || [ "${BEFORE_SHA}" = "0000000000000000000000000000000000000000" ]; then
-            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
-            echo "No valid before SHA; defaulting to runtime_changed=true."
-            exit 0
+            runtime_changed="true"
+            schema_changed="true"
+            echo "No valid before SHA; defaulting to runtime_changed=true schema_changed=true."
+          elif ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            runtime_changed="true"
+            schema_changed="true"
+            echo "Before SHA ${BEFORE_SHA} is not available locally; defaulting to runtime_changed=true schema_changed=true."
+          else
+            changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
+            printf 'Changed files:\n%s\n' "${changed_files}"
+
+            if printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/workflows/|app/|components/|hooks/|lib/|providers/|public/|scripts/|src/|store/|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$|middleware\.ts$|middleware\.test\.ts$)'; then
+              runtime_changed="true"
+              echo "Runtime-affecting change detected."
+            fi
+
+            if printf '%s\n' "${changed_files}" | grep -Eq '^(lib/migrations(\..*)?\.ts|scripts/run-migrations\.ts|lib/db-schema-readiness\.ts|app/api/migrate/route\.ts)$'; then
+              schema_changed="true"
+              echo "Schema-affecting change detected."
+            fi
           fi
 
-          if ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Before SHA ${BEFORE_SHA} is not available locally; defaulting to runtime_changed=true."
-            exit 0
-          fi
+          echo "runtime_changed=${runtime_changed}" >> "$GITHUB_OUTPUT"
+          echo "schema_changed=${schema_changed}" >> "$GITHUB_OUTPUT"
 
-          changed_files="$(git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}")"
-          printf 'Changed files:\n%s\n' "${changed_files}"
-
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/workflows/|app/|components/|hooks/|lib/|providers/|public/|scripts/|src/|store/|Dockerfile$|docker-compose\.yml$|package\.json$|package-lock\.json$|next\.config\.ts$|next-env\.d\.ts$|postcss\.config\.mjs$|tsconfig\.json$|proxy\.ts$|proxy\.test\.ts$|middleware\.ts$|middleware\.test\.ts$)'; then
-            echo "runtime_changed=true" >> "$GITHUB_OUTPUT"
-            echo "Runtime-affecting change detected."
-            exit 0
-          fi
-
-          echo "runtime_changed=false" >> "$GITHUB_OUTPUT"
-          echo "No runtime-affecting changes detected; image publish will be skipped."
-
-  publish-images:
+  publish-web-image:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
     needs:
-      - build-test
+      - typecheck
+      - test
       - detect-runtime-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -96,8 +135,7 @@ jobs:
       packages: write
     env:
       WEB_IMAGE: ghcr.io/erhanrdn/omniads-web
-      WORKER_IMAGE: ghcr.io/erhanrdn/omniads-worker
-      BUILD_CACHE_SCOPE: app-image-build
+      BUILD_CACHE_SCOPE: app-image-build-web
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,6 +165,34 @@ jobs:
           cache-from: type=gha,scope=${{ env.BUILD_CACHE_SCOPE }}
           cache-to: type=gha,mode=max,scope=${{ env.BUILD_CACHE_SCOPE }}
 
+  publish-worker-image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.detect-runtime-changes.outputs.runtime_changed == 'true'
+    needs:
+      - typecheck
+      - test
+      - detect-runtime-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      WORKER_IMAGE: ghcr.io/erhanrdn/omniads-worker
+      BUILD_CACHE_SCOPE: app-image-build-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and push worker image
         uses: docker/build-push-action@v6
         with:
@@ -148,9 +214,11 @@ jobs:
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       needs.detect-runtime-changes.outputs.runtime_changed == 'true' &&
-      needs.publish-images.result == 'success'
+      needs.publish-web-image.result == 'success' &&
+      needs.publish-worker-image.result == 'success'
     needs:
-      - publish-images
+      - publish-web-image
+      - publish-worker-image
       - detect-runtime-changes
     runs-on: ubuntu-latest
     permissions:
@@ -163,6 +231,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           DEPLOY_SHA: ${{ github.sha }}
+          RUN_MIGRATIONS: ${{ needs.detect-runtime-changes.outputs.schema_changed }}
         run: |
           set -euo pipefail
 
@@ -176,7 +245,8 @@ jobs:
             "ref": "main",
             "inputs": {
               "sha": "${DEPLOY_SHA}",
-              "require_current_main_head": "true"
+              "require_current_main_head": "true",
+              "run_migrations": "${RUN_MIGRATIONS}"
             }
           }
           EOF
@@ -188,7 +258,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       needs.detect-runtime-changes.outputs.runtime_changed != 'true'
     needs:
-      - build-test
+      - typecheck
+      - test
       - detect-runtime-changes
     runs-on: ubuntu-latest
     steps:
