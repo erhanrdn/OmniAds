@@ -1,42 +1,32 @@
-name: DB Normalization Second Window
+name: DB Normalization Historical Preflight
 
 on:
   workflow_dispatch:
     inputs:
       sha:
-        description: Exact commit SHA currently deployed to production
+        description: Exact commit SHA to inspect with the archived second-window preflight
         required: true
         type: string
       mode:
-        description: Maintenance mode (`preflight` is non-destructive; `execute` performs the legacy-core drop)
+        description: Historical workflow is preflight-only; destructive execute has been removed
         required: false
         default: preflight
-        type: string
+        type: choice
+        options:
+          - preflight
       require_current_main_head:
         description: Skip the maintenance window if the SHA is not the current main HEAD
         required: false
         default: "true"
         type: string
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
 
 concurrency:
-  group: db-normalization-second-window-${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'preflight' }}
+  group: db-normalization-historical-preflight
   cancel-in-progress: true
 
 jobs:
   second-window:
-    if: >-
-      ${{
-        (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
-        (github.event_name == 'workflow_run' &&
-         github.event.workflow_run.name == 'CI' &&
-         github.event.workflow_run.conclusion == 'success' &&
-         github.event.workflow_run.head_branch == 'main')
-      }}
+    if: github.event_name == 'workflow_dispatch' && inputs.sha != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,14 +37,10 @@ jobs:
         shell: bash
         env:
           INPUT_SHA: ${{ inputs.sha }}
-          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
           expected_sha="${INPUT_SHA:-}"
-          if [ -z "${expected_sha}" ]; then
-            expected_sha="${WORKFLOW_RUN_SHA:-}"
-          fi
           if [ -z "${expected_sha}" ]; then
             echo "Expected SHA is missing."
             exit 1
@@ -84,18 +70,10 @@ jobs:
 
           mode="${INPUT_MODE:-preflight}"
           require_current_main_head="${INPUT_REQUIRE_CURRENT_MAIN_HEAD:-true}"
-          if [ "${EVENT_NAME}" = "workflow_run" ]; then
-            mode="preflight"
-            require_current_main_head="true"
+          if [ "${mode}" != "preflight" ]; then
+            echo "DB Normalization Historical Preflight is preflight-only; execute has been removed."
+            exit 1
           fi
-          case "${mode}" in
-            preflight|execute)
-              ;;
-            *)
-              echo "Mode must be either 'preflight' or 'execute'."
-              exit 1
-              ;;
-          esac
 
           echo "mode=${mode}" >> "$GITHUB_OUTPUT"
           echo "require_current_main_head=${require_current_main_head}" >> "$GITHUB_OUTPUT"
@@ -138,46 +116,11 @@ jobs:
           ref: ${{ steps.expected.outputs.sha }}
           fetch-depth: 1
 
-      - name: Wait for public runtime to serve expected build
-        if: github.event_name == 'workflow_run' && (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true')
-        env:
-          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          attempts=90
-          sleep_seconds=10
-          attempt=1
-          while [ "${attempt}" -le "${attempts}" ]; do
-            if payload="$(curl -fsSL https://adsecute.com/api/build-info 2>/dev/null)"; then
-              current_sha="$(
-                printf '%s' "${payload}" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("buildId",""), end="")'
-              )"
-              exact_rows_present="$(
-                printf '%s' "${payload}" | python3 -c 'import json,sys; data=json.load(sys.stdin); cp=data.get("controlPlanePersistence") or {}; print(str(cp.get("exactRowsPresent")), end="")'
-              )"
-              echo "public_build attempt=${attempt}/${attempts} build=${current_sha} exactRowsPresent=${exact_rows_present}"
-                  if [ "${current_sha}" = "${EXPECTED_SHA}" ]; then
-                    exit 0
-                  fi
-            else
-              echo "public_build attempt=${attempt}/${attempts} fetch_failed"
-            fi
-            sleep "${sleep_seconds}"
-            attempt=$((attempt + 1))
-          done
-
-          echo "Timed out waiting for public runtime to serve ${EXPECTED_SHA}."
-          exit 1
-
       - name: Evaluate public closeout readiness
         id: readiness
         if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-          WINDOW_MODE: ${{ steps.execution.outputs.mode }}
         shell: bash
         run: |
           set -euo pipefail
@@ -186,9 +129,6 @@ jobs:
           sleep_seconds=10
           attempt=1
           action_on_unready="fail"
-          if [ "${EVENT_NAME}" = "workflow_run" ] && [ "${WINDOW_MODE}" = "preflight" ]; then
-            action_on_unready="skip"
-          fi
 
           read_build_info_fields() {
             python3 -c 'import json,sys; data=json.load(sys.stdin); cp=data.get("controlPlanePersistence") or {}; repair=data.get("repairPlan") or {}; recommendations=repair.get("recommendations"); repair_count=len(recommendations) if isinstance(recommendations, list) else -1; print("\t".join([str(data.get("buildId") or ""), "true" if cp.get("exactRowsPresent") is True else "false", str((data.get("deployGate") or {}).get("verdict") or ""), str((data.get("releaseGate") or {}).get("verdict") or ""), str(repair_count)]), end="")'
@@ -505,11 +445,7 @@ jobs:
           echo "app_ssh_user=${APP_SSH_USER} db_backup_host=${DB_BACKUP_HOST} db_backup_host_ip=${DB_BACKUP_HOST_IP} db_backup_user=${DB_BACKUP_USER}"
           echo "Triggering production DB backup on ${DB_BACKUP_HOST}"
           if ! trigger_db_backup_and_capture_manifest "${LOCAL_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/logs/backup-trigger.log"; then
-            if [ "${WINDOW_MODE}" = "execute" ]; then
-              echo "Backup trigger failed in execute mode."
-              exit 1
-            fi
-            echo "Preflight mode: backup trigger failed; recording fallback manifest and continuing."
+            echo "Historical preflight mode: backup trigger failed; recording fallback manifest and continuing."
             create_preflight_backup_placeholder_manifest "${LOCAL_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/logs/backup-trigger.log"
           fi
 
@@ -527,14 +463,10 @@ jobs:
 
             WORKER_TMP_DIR="/tmp/db-normalization-second-window"
             WINDOW_MODE="${SECOND_WINDOW_MODE:-preflight}"
-            case "${WINDOW_MODE}" in
-              preflight|execute)
-                ;;
-              *)
-                echo "Unsupported second-window mode: ${WINDOW_MODE}"
-                exit 1
-                ;;
-            esac
+            if [ "${WINDOW_MODE}" != "preflight" ]; then
+              echo "Historical workflow is preflight-only; unsupported mode: ${WINDOW_MODE}"
+              exit 1
+            fi
 
             log() {
               printf '\n[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1"
@@ -714,26 +646,7 @@ jobs:
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-before/audit.md"
 
             log "Using runner-captured production DB backup manifest"
-
-            if [ "${WINDOW_MODE}" = "execute" ]; then
-              log "Stopping web and worker for maintenance"
-              docker compose stop worker web
-
-              log "Dropping retired legacy core tables"
-              APP_IMAGE_TAG="${EXPECTED_SHA}" \
-              APP_BUILD_ID="${EXPECTED_SHA}" \
-              ENABLE_RUNTIME_MIGRATIONS=1 \
-              DB_DROP_LEGACY_CORE_TABLES=1 \
-                docker compose run --rm \
-                  -e ENABLE_RUNTIME_MIGRATIONS=1 \
-                  -e DB_DROP_LEGACY_CORE_TABLES=1 \
-                  migrate </dev/null
-
-              log "Restarting web and worker"
-              docker compose up -d --force-recreate web worker
-            else
-              log "Preflight mode: skipping service stop, legacy drop, and restart"
-            fi
+            log "Historical preflight only: skipping service stop, legacy drop, and restart"
 
             log "Checking runtime build after maintenance"
             POST_WINDOW_BUILD_INFO="$(wait_for_build_info 30 3)"

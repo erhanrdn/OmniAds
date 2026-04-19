@@ -1,4 +1,4 @@
-name: Meta Canary Remediation
+name: Meta Canary Remediation (Manual)
 
 on:
   workflow_dispatch:

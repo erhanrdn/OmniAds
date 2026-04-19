@@ -1,4 +1,4 @@
-name: Meta Refresh + Reschedule Progress
+name: Meta Refresh + Reschedule Progress (Manual)
 
 on:
   workflow_dispatch:

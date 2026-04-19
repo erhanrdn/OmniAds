@@ -1,4 +1,4 @@
-name: Meta Watch Window
+name: Meta Watch Window (Manual)
 
 on:
   workflow_dispatch:
@@ -12,19 +12,10 @@ on:
         required: false
         default: "false"
         type: string
-  workflow_run:
-    workflows:
-      - Deploy to Hetzner
-    types:
-      - completed
 
 jobs:
   watch-window:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+    if: github.event_name == 'workflow_dispatch' && inputs.sha != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,11 +39,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            expected_sha="${{ inputs.sha }}"
-          else
-            expected_sha="${{ github.event.workflow_run.head_sha }}"
-          fi
+          expected_sha="${{ inputs.sha }}"
 
           if [ -z "${expected_sha}" ]; then
             echo "Expected SHA is required."

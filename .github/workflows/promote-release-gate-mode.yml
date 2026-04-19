@@ -1,4 +1,4 @@
-name: Promote Release Gate Mode
+name: Promote Release Gate Mode (Manual)
 
 on:
   workflow_dispatch:
@@ -15,6 +15,11 @@ on:
         options:
           - block
           - measure_only
+      confirm_measure_only:
+        description: Required exact phrase when release_gate_mode=measure_only
+        required: false
+        default: ""
+        type: string
       require_current_main_head:
         description: Skip promotion if the SHA is not the current main HEAD
         required: false
@@ -54,6 +59,19 @@ jobs:
           fi
 
           echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate promotion request
+        shell: bash
+        env:
+          RELEASE_GATE_MODE: ${{ inputs.release_gate_mode }}
+          CONFIRM_MEASURE_ONLY: ${{ inputs.confirm_measure_only }}
+        run: |
+          set -euo pipefail
+
+          if [ "${RELEASE_GATE_MODE}" = "measure_only" ] && [ "${CONFIRM_MEASURE_ONLY}" != "PROMOTE_MEASURE_ONLY" ]; then
+            echo "confirm_measure_only must equal PROMOTE_MEASURE_ONLY when release_gate_mode=measure_only."
+            exit 1
+          fi
 
       - name: Skip superseded promotion
         id: freshness
