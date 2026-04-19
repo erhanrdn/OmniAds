@@ -191,21 +191,7 @@ jobs:
           fi
 
           read_build_info_fields() {
-            python3 -c '
-              import json, sys
-              data = json.load(sys.stdin)
-              cp = data.get("controlPlanePersistence") or {}
-              repair = data.get("repairPlan") or {}
-              recommendations = repair.get("recommendations")
-              repair_count = len(recommendations) if isinstance(recommendations, list) else -1
-              print("\t".join([
-                str(data.get("buildId") or ""),
-                "true" if cp.get("exactRowsPresent") is True else "false",
-                str((data.get("deployGate") or {}).get("verdict") or ""),
-                str((data.get("releaseGate") or {}).get("verdict") or ""),
-                str(repair_count),
-              ]), end="")
-            '
+            python3 -c 'import json,sys; data=json.load(sys.stdin); cp=data.get("controlPlanePersistence") or {}; repair=data.get("repairPlan") or {}; recommendations=repair.get("recommendations"); repair_count=len(recommendations) if isinstance(recommendations, list) else -1; print("\t".join([str(data.get("buildId") or ""), "true" if cp.get("exactRowsPresent") is True else "false", str((data.get("deployGate") or {}).get("verdict") or ""), str((data.get("releaseGate") or {}).get("verdict") or ""), str(repair_count)]), end="")'
           }
 
           readiness_reason="unavailable"
@@ -240,6 +226,14 @@ jobs:
                 } >> "$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
+
+              case "${readiness_reason}" in
+                build_mismatch|exact_rows_missing)
+                  ;;
+                *)
+                  break
+                  ;;
+              esac
             else
               echo "public_closeout attempt=${attempt}/${attempts} fetch_failed"
               readiness_reason="fetch_failed"
