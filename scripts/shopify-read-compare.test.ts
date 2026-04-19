@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/shopify/read-adapter", () => ({
-  getShopifyOverviewReadCandidate: vi.fn(),
+  getShopifyOverviewSummaryReadCandidate: vi.fn(),
 }));
 
 vi.mock("@/lib/overview-service", () => ({
@@ -152,18 +152,9 @@ describe("shopify read compare", () => {
   });
 
   it("reports no diffs when actual serving matches the selected source", async () => {
-    vi.mocked(readAdapter.getShopifyOverviewReadCandidate).mockResolvedValue({
+    vi.mocked(readAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
       preferredSource: "live",
-      live: {
-        revenue: 500,
-        purchases: 5,
-        averageOrderValue: 100,
-        sessions: 10,
-        conversionRate: 0.5,
-        newCustomers: 1,
-        returningCustomers: 4,
-        dailyTrends: [],
-      },
+      live: null,
       warehouse: null,
       ledger: null,
       canaryEnabled: false,
@@ -203,16 +194,7 @@ describe("shopify read compare", () => {
       },
     } as never);
     vi.mocked(overviewService.getShopifyOverviewServingData).mockResolvedValue({
-      aggregate: {
-        revenue: 500,
-        purchases: 5,
-        averageOrderValue: 100,
-        sessions: 10,
-        conversionRate: 0.5,
-        newCustomers: 1,
-        returningCustomers: 4,
-        dailyTrends: [],
-      },
+      aggregate: null,
       serving: {
         source: "live",
         provider: "shopify",
@@ -238,7 +220,7 @@ describe("shopify read compare", () => {
       businessId: "biz-1",
       startDate: "2026-03-01",
       endDate: "2026-03-31",
-      candidate: await readAdapter.getShopifyOverviewReadCandidate({
+      candidate: await readAdapter.getShopifyOverviewSummaryReadCandidate({
         businessId: "biz-1",
         startDate: "2026-03-01",
         endDate: "2026-03-31",

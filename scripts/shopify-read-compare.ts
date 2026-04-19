@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getShopifyOverviewServingData } from "@/lib/overview-service";
 import {
-  getShopifyOverviewReadCandidate,
+  getShopifyOverviewSummaryReadCandidate,
   type ShopifyOverviewServingMetadata,
 } from "@/lib/shopify/read-adapter";
 import type { ShopifyOverviewAggregate } from "@/lib/shopify/overview";
@@ -157,7 +157,7 @@ function compareValues(
 }
 
 type ShopifyOverviewReadCandidate = Awaited<
-  ReturnType<typeof getShopifyOverviewReadCandidate>
+  ReturnType<typeof getShopifyOverviewSummaryReadCandidate>
 >;
 
 function buildWarehouseBackedAggregate(input: {
@@ -255,7 +255,7 @@ async function main() {
   const parsed = parseShopifyReadCompareArgs(process.argv.slice(2));
   await runOperationalMigrationsIfEnabled(runtime);
 
-  const candidate = await getShopifyOverviewReadCandidate({
+  const candidate = await getShopifyOverviewSummaryReadCandidate({
     businessId: parsed.businessId,
     startDate: parsed.startDate,
     endDate: parsed.endDate,
