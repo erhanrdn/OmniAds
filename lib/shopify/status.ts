@@ -75,6 +75,21 @@ function defaultCutoverMaxAgeMinutes() {
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 180;
 }
 
+export function isShopifyDefaultCutoverEvidenceReady(
+  reconciliation: ShopifyReconciliationSummary | null,
+) {
+  return Boolean(
+    reconciliation &&
+      reconciliation.latestRecordedAt &&
+      isFreshTimestampMinutes(
+        reconciliation.latestRecordedAt,
+        defaultCutoverMaxAgeMinutes(),
+      ) &&
+      reconciliation.stableRunCount >= defaultCutoverMinStableRuns() &&
+      reconciliation.stableLedgerRunCount >= defaultCutoverMinStableLedgerRuns(),
+  );
+}
+
 function isOptionalReturnsSyncState(
   syncState: Awaited<ReturnType<typeof getShopifySyncState>> | null
 ) {
@@ -133,9 +148,14 @@ function summarizeReconciliationRuns(
     break;
   }
 
-  const latestFresh =
-    latestRecordedAt !== null &&
-    isFreshTimestampMinutes(latestRecordedAt, defaultCutoverMaxAgeMinutes());
+  const defaultCutoverEvidenceReady = isShopifyDefaultCutoverEvidenceReady({
+    latestRecordedAt,
+    stableRunCount,
+    stableWarehouseRunCount,
+    stableLedgerRunCount,
+    unstableRunCount,
+    defaultCutoverEligible: false,
+  });
 
   return {
     latestRecordedAt,
@@ -145,9 +165,7 @@ function summarizeReconciliationRuns(
     unstableRunCount,
     defaultCutoverEligible:
       defaultCutoverEnabled() &&
-      latestFresh &&
-      stableRunCount >= defaultCutoverMinStableRuns() &&
-      stableLedgerRunCount >= defaultCutoverMinStableLedgerRuns(),
+      defaultCutoverEvidenceReady,
   };
 }
 

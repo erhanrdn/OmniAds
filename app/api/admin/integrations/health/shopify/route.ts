@@ -12,7 +12,10 @@ import {
   buildShopifyOverviewOverrideKey,
   SHOPIFY_OVERVIEW_CANARY_TIMEZONE_BASIS,
 } from "@/lib/shopify/serving";
-import { getShopifyStatus } from "@/lib/shopify/status";
+import {
+  getShopifyStatus,
+  isShopifyDefaultCutoverEvidenceReady,
+} from "@/lib/shopify/status";
 import {
   getShopifyServingOverride,
   getShopifyServingState,
@@ -65,7 +68,7 @@ function buildRolloutSummary(input: {
     blockers.push("Serving is currently forced to live by override.");
   }
 
-  const defaultCutoverReady = input.status.reconciliation?.defaultCutoverEligible === true;
+  const defaultCutoverReady = isShopifyDefaultCutoverEvidenceReady(input.status.reconciliation);
   const previewCanaryReady =
     input.status.state === "ready" &&
     (input.ledgerConsistency === null || input.ledgerConsistency.withinThreshold === true);

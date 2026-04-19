@@ -2,7 +2,10 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getIntegration } from "@/lib/integrations";
-import { getShopifyStatus } from "@/lib/shopify/status";
+import {
+  getShopifyStatus,
+  isShopifyDefaultCutoverEvidenceReady,
+} from "@/lib/shopify/status";
 import {
   getShopifyServingOverride,
   getShopifyServingState,
@@ -117,7 +120,7 @@ export function buildShopifyRolloutSummary(input: {
     broaderLocalServingReady:
       input.status.state === "ready" &&
       (input.ledgerConsistency === null || input.ledgerConsistency.withinThreshold === true),
-    defaultCutoverReady: input.status.reconciliation?.defaultCutoverEligible === true,
+    defaultCutoverReady: isShopifyDefaultCutoverEvidenceReady(input.status.reconciliation),
     recommendedSource:
       input.override?.mode === "force_live"
         ? "live"

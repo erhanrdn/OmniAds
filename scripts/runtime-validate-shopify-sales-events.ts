@@ -1,7 +1,12 @@
 import { spawn } from "node:child_process";
+import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 
 import { getDb } from "@/lib/db";
+import { getIntegration } from "@/lib/integrations";
+import { getReportingDateRangeKey } from "@/lib/reporting-cache";
+import { getShopifySyncState } from "@/lib/shopify/sync-state";
 import {
   acquireSyncRunnerLease,
   getSyncRunnerLeaseHealth,
@@ -9,9 +14,9 @@ import {
   renewSyncRunnerLease,
 } from "@/lib/sync/worker-health";
 
-type RecentTargetsMode = "orders" | "returns" | "both";
+export type RecentTargetsMode = "orders" | "returns" | "both";
 
-function parseArgs(argv: string[]) {
+export function parseRuntimeValidateShopifySalesEventsArgs(argv: string[]) {
   const [businessId, ...flags] = argv;
   if (!businessId) {
     throw new Error(
@@ -75,10 +80,71 @@ function appendTail<T>(items: T[], item: T, maxSize = 200) {
   }
 }
 
-function buildRecentTargets(mode: RecentTargetsMode) {
+export function buildRecentTargets(mode: RecentTargetsMode) {
   return {
     orders: mode === "orders" || mode === "both",
     returns: mode === "returns" || mode === "both",
+  };
+}
+
+export function shiftIsoDate(date: string, dayDelta: number) {
+  const base = new Date(`${date}T00:00:00.000Z`);
+  base.setUTCDate(base.getUTCDate() + dayDelta);
+  return base.toISOString().slice(0, 10);
+}
+
+export function minIsoDate(values: Array<string | null | undefined>) {
+  const filtered = values.filter((value): value is string => Boolean(value)).sort();
+  return filtered[0] ?? null;
+}
+
+export async function resolveValidationWindow(input: {
+  businessId: string;
+  recentTargets: { orders: boolean; returns: boolean };
+}) {
+  const integration = await getIntegration(input.businessId, "shopify");
+  if (
+    !integration ||
+    integration.status !== "connected" ||
+    !integration.provider_account_id
+  ) {
+    throw new Error(`Shopify integration is not connected for ${input.businessId}.`);
+  }
+
+  const providerAccountId = integration.provider_account_id;
+  const ordersRecent = await getShopifySyncState({
+    businessId: input.businessId,
+    providerAccountId,
+    syncTarget: "commerce_orders_recent",
+  });
+  const returnsRecent = await getShopifySyncState({
+    businessId: input.businessId,
+    providerAccountId,
+    syncTarget: "commerce_returns_recent",
+  });
+
+  const endDate = minIsoDate([
+    ordersRecent?.latestSyncWindowEnd ?? ordersRecent?.readyThroughDate,
+    input.recentTargets.returns
+      ? returnsRecent?.latestSyncWindowEnd ?? returnsRecent?.readyThroughDate
+      : null,
+  ]);
+  if (!endDate) {
+    throw new Error(
+      `Unable to resolve a fully synced recent Shopify window for ${input.businessId}.`,
+    );
+  }
+
+  const startDate =
+    ordersRecent?.latestSyncWindowEnd === endDate && ordersRecent?.latestSyncWindowStart
+      ? ordersRecent.latestSyncWindowStart
+      : shiftIsoDate(endDate, -6);
+
+  return {
+    providerAccountId,
+    startDate,
+    endDate,
+    providerDateRangeKey: getReportingDateRangeKey(startDate, endDate),
   };
 }
 
@@ -287,15 +353,19 @@ async function getWriterActivities(runId: string) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseRuntimeValidateShopifySalesEventsArgs(process.argv.slice(2));
   const recentTargets = buildRecentTargets(args.recentTargets);
-  const startDate = "2026-04-03";
-  const endDate = "2026-04-09";
+  const validationWindow = await resolveValidationWindow({
+    businessId: args.businessId,
+    recentTargets,
+  });
+  const startDate = validationWindow.startDate;
+  const endDate = validationWindow.endDate;
   const runId = `shopify_rtval_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const leaseOwner = `runtime_validation:shopify_sales_events:${runId}`;
   const useRunnerLease = args.useRunnerLease;
   const providerScope = "shopify";
-  const providerDateRangeKey = `${startDate}:${endDate}`;
+  const providerDateRangeKey = validationWindow.providerDateRangeKey;
   const childConfig = {
     allowHistorical: false,
     recentWindowDays: 7,
@@ -588,16 +658,21 @@ async function main() {
   }
 }
 
-void main().catch((error) => {
-  console.error(
-    JSON.stringify(
-      {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      },
-      null,
-      2,
-    ),
-  );
-  process.exit(1);
-});
+if (process.argv[1]) {
+  const entryHref = pathToFileURL(resolve(process.argv[1])).href;
+  if (import.meta.url === entryHref) {
+    void main().catch((error) => {
+      console.error(
+        JSON.stringify(
+          {
+            success: false,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          null,
+          2,
+        ),
+      );
+      process.exit(1);
+    });
+  }
+}

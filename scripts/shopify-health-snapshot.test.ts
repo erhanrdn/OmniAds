@@ -116,4 +116,37 @@ describe("shopify health snapshot helpers", () => {
       },
     ]);
   });
+
+  it("treats stable fresh reconciliation evidence as default-cutover ready", () => {
+    const now = new Date().toISOString();
+    const summary = buildShopifyRolloutSummary({
+      status: {
+        state: "ready",
+        connected: true,
+        shopId: "shop-1",
+        warehouse: null,
+        sync: null,
+        serving: null,
+        reconciliation: {
+          latestRecordedAt: now,
+          stableRunCount: 5,
+          stableWarehouseRunCount: 0,
+          stableLedgerRunCount: 5,
+          unstableRunCount: 0,
+          defaultCutoverEligible: false,
+        },
+        issues: [],
+      } as never,
+      ledgerConsistency: { withinThreshold: true } as never,
+      override: null,
+      serving: null,
+      history: [],
+      reconciliationHistory: [],
+      webhookDeliveries: [],
+    });
+
+    expect(summary.broaderLocalServingReady).toBe(true);
+    expect(summary.defaultCutoverReady).toBe(true);
+    expect(summary.blockers).toEqual([]);
+  });
 });

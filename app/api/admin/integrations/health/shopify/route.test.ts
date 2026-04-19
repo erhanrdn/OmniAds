@@ -20,6 +20,9 @@ vi.mock("@/lib/shopify/admin", () => ({
 
 vi.mock("@/lib/shopify/status", () => ({
   getShopifyStatus: vi.fn(),
+  isShopifyDefaultCutoverEvidenceReady: vi.fn(
+    (reconciliation) => reconciliation?.defaultCutoverEligible === true,
+  ),
 }));
 
 vi.mock("@/lib/shopify/warehouse-overview", () => ({
