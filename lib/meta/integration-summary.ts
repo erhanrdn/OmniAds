@@ -509,31 +509,45 @@ function buildExtendedStage(
   status: MetaIntegrationSummaryInput,
   scope: MetaIntegrationSummaryScope
 ): MetaIntegrationSummaryStage {
+  const recentWindowScope = scope === "recent_window";
+  const recentWindowReadyByRange =
+    recentWindowScope && status.recentExtendedReady !== false;
+  const recentWindowReady =
+    recentWindowScope &&
+    (status.extendedCompleteness?.complete === true || recentWindowReadyByRange);
   const pendingSurfaces = Array.from(
-    new Set(status.warehouse?.coverage?.pendingSurfaces ?? [])
+    new Set(
+      recentWindowReady
+        ? []
+        : (status.extendedCompleteness?.missingSurfaces?.length ?? 0) > 0
+          ? status.extendedCompleteness?.missingSurfaces ?? []
+          : status.warehouse?.coverage?.pendingSurfaces ?? []
+    )
   );
   const pendingSurfaceCount = pendingSurfaces.length;
   const breakdownMetrics = getBreakdownMetrics(status);
   const extendedSurfaceMetrics = getExtendedSurfaceMetrics(status);
   const recentLag = status.recentExtendedReady === false;
   const historicalLag = status.historicalExtendedReady === false;
-  const recentWindowScope = scope === "recent_window";
-  const recentWindowReady = recentWindowScope && status.recentExtendedReady !== false;
+  const recentExtendedQueueActive =
+    (status.jobHealth?.extendedRecentQueueDepth ?? 0) > 0 ||
+    (status.jobHealth?.extendedRecentLeasedPartitions ?? 0) > 0;
   const historicalOnlyExtendedLag =
     recentWindowScope &&
-    recentLag &&
     historicalLag &&
-    (status.jobHealth?.extendedRecentQueueDepth ?? 0) <= 0 &&
-    (status.jobHealth?.extendedRecentLeasedPartitions ?? 0) <= 0 &&
-    ((status.jobHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
-      (status.jobHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0);
+    !recentExtendedQueueActive;
   const percent =
     recentWindowScope
-      ? historicalOnlyExtendedLag
-        ? extendedSurfaceMetrics.historicalPercent
-        : recentLag
-          ? extendedSurfaceMetrics.recentPercent
-          : null
+      ? status.extendedCompleteness?.complete
+        ? null
+        : historicalOnlyExtendedLag
+          ? clampPercent(
+              status.extendedCompleteness?.percent ??
+                extendedSurfaceMetrics.historicalPercent
+            )
+          : recentLag
+            ? extendedSurfaceMetrics.recentPercent
+            : null
       : status.extendedCompleteness &&
           !status.extendedCompleteness.complete &&
           status.extendedCompleteness.percent != null
@@ -543,11 +557,13 @@ function buildExtendedStage(
           : null;
 
   const progressCompletedDays = recentWindowScope
-    ? historicalOnlyExtendedLag
-      ? extendedSurfaceMetrics.historicalCompleted
-      : recentLag
-        ? extendedSurfaceMetrics.recentCompleted
-        : null
+    ? status.extendedCompleteness?.complete
+      ? null
+      : historicalOnlyExtendedLag
+        ? breakdownMetrics?.completedDays ?? extendedSurfaceMetrics.historicalCompleted
+        : recentLag
+          ? extendedSurfaceMetrics.recentCompleted
+          : null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.completedDays ?? null
       : historicalLag
@@ -555,11 +571,13 @@ function buildExtendedStage(
         : null;
 
   const progressTotalDays = recentWindowScope
-    ? historicalOnlyExtendedLag
-      ? extendedSurfaceMetrics.historicalTotal
-      : recentLag
-        ? extendedSurfaceMetrics.recentTotal
-        : null
+    ? status.extendedCompleteness?.complete
+      ? null
+      : historicalOnlyExtendedLag
+        ? breakdownMetrics?.totalDays ?? extendedSurfaceMetrics.historicalTotal
+        : recentLag
+          ? extendedSurfaceMetrics.recentTotal
+          : null
     : !status.extendedCompleteness?.complete
       ? breakdownMetrics?.totalDays ?? null
       : historicalLag
@@ -604,7 +622,6 @@ function buildExtendedStage(
   if (
     (recentWindowReady ||
       (status.extendedCompleteness?.complete &&
-        status.recentExtendedReady !== false &&
         status.historicalExtendedReady !== false)) &&
     pendingSurfaceCount === 0
   ) {

@@ -2636,6 +2636,38 @@ describe("GET /api/meta/status", () => {
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
+    expect(payload.extendedCompleteness).toEqual({
+      state: "ready",
+      complete: true,
+      percent: 100,
+      reason: null,
+      summary: "Breakdown data is ready for the selected range.",
+      missingSurfaces: [],
+      blockedSurfaces: [],
+      surfaces: {
+        "breakdowns.age": {
+          state: "ready",
+          blocking: false,
+          countsForPageCompleteness: true,
+          truthClass: "historical_warehouse",
+          reason: null,
+        },
+        "breakdowns.location": {
+          state: "ready",
+          blocking: false,
+          countsForPageCompleteness: true,
+          truthClass: "historical_warehouse",
+          reason: null,
+        },
+        "breakdowns.placement": {
+          state: "ready",
+          blocking: false,
+          countsForPageCompleteness: true,
+          truthClass: "historical_warehouse",
+          reason: null,
+        },
+      },
+    });
     expect(payload.warehouse.coverage.selectedRange).toMatchObject({
       completedDays: 7,
       totalDays: 7,

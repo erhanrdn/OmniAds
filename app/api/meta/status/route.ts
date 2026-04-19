@@ -1315,12 +1315,14 @@ export async function GET(request: NextRequest) {
       const selectedRangeCoverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
       const historicalCoverage = breakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
       const totalDays = selectedRangeRequested
-        ? selectedRangeTotalDays ?? 0
+        ? selectedRangeCoverage.totalDays
         : historicalBreakdownTotalDays;
       const completedDays = selectedRangeRequested
         ? selectedRangeCoverage.completedDays
         : Math.min(totalDays, historicalCoverage?.completed_days ?? 0);
-      const ready = totalDays > 0 && completedDays >= totalDays;
+      const ready = selectedRangeRequested
+        ? selectedRangeCoverage.isComplete
+        : totalDays > 0 && completedDays >= totalDays;
       const blockedReason = selectedRangeRequested
         ? selectedRangeCoverage.isBlocked && selectedRangeCoverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${selectedRangeCoverage.supportStartDate} onward for the selected range.`

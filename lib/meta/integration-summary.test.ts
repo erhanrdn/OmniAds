@@ -172,13 +172,13 @@ describe("buildMetaIntegrationSummary", () => {
     expect(summary.stages[4]).toMatchObject({
       key: "extended_surfaces",
       state: "working",
-      code: "recent_extended_preparing",
-      percent: 43,
+      code: "historical_extended_preparing",
+      percent: 33,
       evidence: {
-        completedDays: 6,
-        totalDays: 14,
-        pendingSurfaceCount: 2,
-        pendingSurfaces: ["creative_daily", "ad_daily"],
+        completedDays: 120,
+        totalDays: 365,
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["breakdowns.age"],
       },
     });
   });
@@ -203,12 +203,12 @@ describe("buildMetaIntegrationSummary", () => {
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
-      percent: 30,
+      percent: 33,
       evidence: {
-        completedDays: 110,
+        completedDays: 120,
         totalDays: 365,
-        pendingSurfaceCount: 2,
-        pendingSurfaces: ["creative_daily", "ad_daily"],
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["breakdowns.age"],
       },
     });
   });
@@ -293,6 +293,103 @@ describe("buildMetaIntegrationSummary", () => {
       percent: null,
       evidence: {
         readyThroughDate: "2026-04-14",
+      },
+    });
+  });
+
+  it("prefers extended completeness truth over stale pending surfaces when recent window breakdowns are already ready", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "syncing",
+        extendedCompleteness: {
+          state: "ready",
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Breakdowns are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        recentExtendedReady: false,
+        historicalExtendedReady: false,
+        warehouse: {
+          coverage: {
+            pendingSurfaces: [
+              "account_daily",
+              "campaign_daily",
+              "adset_daily",
+              "creative_daily",
+              "ad_daily",
+            ],
+            breakdowns: {
+              completedDays: 14,
+              totalDays: 14,
+              readyThroughDate: "2026-04-14",
+            },
+          },
+        } as never,
+      })
+    );
+
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+      percent: null,
+      evidence: {
+        readyThroughDate: "2026-04-14",
+      },
+    });
+  });
+
+  it("uses historical breakdown progress when recent extended queues are idle but background extended truth is still incomplete", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        extendedCompleteness: {
+          state: "partial",
+          complete: false,
+          percent: 83,
+          reason: "Breakdown history is still being prepared.",
+          summary: "Breakdown history is still being prepared.",
+          missingSurfaces: ["breakdowns.age"],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        warehouse: {
+          coverage: {
+            pendingSurfaces: ["account_daily", "campaign_daily"],
+            breakdowns: {
+              completedDays: 5,
+              totalDays: 6,
+              readyThroughDate: "2026-04-18",
+            },
+          },
+        } as never,
+        recentExtendedReady: false,
+        historicalExtendedReady: false,
+        jobHealth: {
+          queueDepth: 0,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+          extendedRecentQueueDepth: 0,
+          extendedRecentLeasedPartitions: 0,
+          extendedHistoricalQueueDepth: 0,
+          extendedHistoricalLeasedPartitions: 0,
+        } as never,
+      })
+    );
+
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "working",
+      code: "historical_extended_preparing",
+      percent: 83,
+      evidence: {
+        completedDays: 5,
+        totalDays: 6,
+        pendingSurfaceCount: 1,
+        pendingSurfaces: ["breakdowns.age"],
+        readyThroughDate: "2026-04-18",
       },
     });
   });

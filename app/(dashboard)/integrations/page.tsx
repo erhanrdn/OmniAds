@@ -138,7 +138,43 @@ async function fetchGoogleAdsStatus(
 
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
-  if (state === "syncing" || state === "partial") return 5_000;
+  const priorityWindowReady =
+    (status?.priorityWindow?.totalDays ?? 0) > 0 &&
+    (status?.priorityWindow?.completedDays ?? 0) >=
+      (status?.priorityWindow?.totalDays ?? 0);
+  const coreReady = status?.coreReadiness?.complete === true;
+  const backgroundExtendedLagOnly =
+    coreReady &&
+    priorityWindowReady &&
+    Boolean(
+      status?.extendedCompleteness &&
+        !status.extendedCompleteness.complete &&
+        status.extendedCompleteness.state !== "blocked"
+    );
+  if (state === "syncing") {
+    if (coreReady && priorityWindowReady && status?.extendedCompleteness?.complete) {
+      return (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+        (status?.jobHealth?.leasedPartitions ?? 0) > 0
+        ? 10_000
+        : false;
+    }
+    if (backgroundExtendedLagOnly) {
+      return (status?.jobHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+        (status?.jobHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0
+        ? 30_000
+        : false;
+    }
+    return 5_000;
+  }
+  if (state === "partial") {
+    if (backgroundExtendedLagOnly) {
+      return (status?.jobHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
+        (status?.jobHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0
+        ? 30_000
+        : false;
+    }
+    return 10_000;
+  }
   if (
     state === "paused" ||
     state === "stale" ||

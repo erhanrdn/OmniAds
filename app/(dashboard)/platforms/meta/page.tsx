@@ -189,8 +189,9 @@ async function fetchMetaStatus(
 
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
+  const selectedRangeReady = status?.pageReadiness?.state === "ready";
   const backgroundExtendedLagOnly =
-    status?.pageReadiness?.state === "ready" &&
+    selectedRangeReady &&
     Boolean(
       status?.extendedCompleteness &&
         !status.extendedCompleteness.complete &&
@@ -199,7 +200,18 @@ function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const historicalExtendedWorkActive =
     (status?.jobHealth?.extendedHistoricalQueueDepth ?? 0) > 0 ||
     (status?.jobHealth?.extendedHistoricalLeasedPartitions ?? 0) > 0;
-  if (state === "syncing") return 5_000;
+  if (state === "syncing") {
+    if (selectedRangeReady && status?.extendedCompleteness?.complete) {
+      return (status?.jobHealth?.queueDepth ?? 0) > 0 ||
+        (status?.jobHealth?.leasedPartitions ?? 0) > 0
+        ? 10_000
+        : false;
+    }
+    if (backgroundExtendedLagOnly) {
+      return historicalExtendedWorkActive ? 30_000 : false;
+    }
+    return 5_000;
+  }
   if (state === "partial") {
     if (backgroundExtendedLagOnly) {
       return historicalExtendedWorkActive ? 30_000 : false;

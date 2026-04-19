@@ -253,9 +253,9 @@ describe("resolveMetaIntegrationProgress", () => {
     });
     expect(model?.stages[4]).toMatchObject({
       state: "working",
-      label: "recent surfaces preparing",
-      detail: "Ads and creatives for the recent window are still preparing.",
-      evidence: expect.stringContaining("Pending creatives, ads"),
+      label: "history continuing",
+      detail: "Ads and creatives continue backfilling in the background.",
+      evidence: expect.stringContaining("Pending breakdowns.age"),
     });
   });
 
@@ -320,9 +320,9 @@ describe("resolveMetaIntegrationProgress", () => {
       evidence: expect.stringContaining("10/14 gün"),
     });
     expect(model?.stages[4]).toMatchObject({
-      label: "yakın yüzeyler hazırlanıyor",
-      detail: "Yakın pencere için reklamlar ve kreatifler hâlâ hazırlanıyor.",
-      evidence: expect.stringContaining("Bekleyen kreatifler, reklamlar"),
+      label: "geçmiş tamamlanıyor",
+      detail: "Reklamlar ve kreatifler arka planda geçmişi tamamlamayı sürdürüyor.",
+      evidence: expect.stringContaining("Bekleyen breakdowns.age"),
     });
   });
 });
