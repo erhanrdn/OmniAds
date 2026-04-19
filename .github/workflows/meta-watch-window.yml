@@ -7,6 +7,11 @@ on:
         description: Exact deploy SHA to verify against live Meta acceptance
         required: true
         type: string
+      stability_window_minutes:
+        description: Minutes the clean state must remain stable after immediate acceptance
+        required: false
+        default: "30"
+        type: string
       require_block_modes:
         description: Require deploy/release gates to run in block mode
         required: false
@@ -53,6 +58,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           REQUIRE_BLOCK_MODES: ${{ github.event_name == 'workflow_dispatch' && inputs.require_block_modes || 'false' }}
+          STABILITY_WINDOW_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.stability_window_minutes || '30' }}
         run: |
           set -euo pipefail
 
@@ -66,8 +72,11 @@ jobs:
             --base-url "https://adsecute.com" \
             --attempts 12 \
             --sleep-ms 5000 \
+            --stability-window-minutes "${STABILITY_WINDOW_MINUTES}" \
+            --stability-poll-ms 60000 \
             --minimum-successful-runs 3 \
             --workflow-file "meta-watch-window.yml" \
+            --remediation-workflow-file "meta-canary-remediation.yml" \
             --out-file ".artifacts/meta-watch-window.json" \
             "${extra_args[@]}"
 
@@ -80,20 +89,26 @@ jobs:
           payload = json.loads(pathlib.Path(".artifacts/meta-watch-window.json").read_text())
           acceptance = payload["acceptance"]
           previous = payload.get("previousSuccessfulRuns")
-          current = (previous or 0) + 1 if acceptance["accepted"] else previous
+          current = (previous or 0) + 1 if payload.get("cleanDeployAccepted") else previous
           lines = [
               "## Meta Watch Window",
               "",
               f"- expectedBuildId: `{payload['expectedBuildId']}`",
               f"- observedBuildId: `{acceptance.get('observedBuildId')}`",
-              f"- accepted: `{acceptance['accepted']}`",
+              f"- immediateAccepted: `{acceptance['accepted']}`",
               f"- acceptedAtAttempt: `{payload.get('acceptedAtAttempt')}`",
+              f"- cleanDeployAccepted: `{payload.get('cleanDeployAccepted')}`",
               f"- deployGatePass: `{acceptance['deployGatePass']}`",
               f"- deployGateModeBlock: `{acceptance['deployGateModeBlock']}`",
               f"- releaseGatePass: `{acceptance['releaseGatePass']}`",
               f"- releaseGateModeBlock: `{acceptance['releaseGateModeBlock']}`",
               f"- repairPlanEmpty: `{acceptance['repairPlanEmpty']}`",
               f"- exactRowsPresent: `{acceptance['exactRowsPresent']}`",
+              f"- stabilityWindowMinutes: `{payload.get('stabilityWindowMinutes')}`",
+              f"- stabilityWindowPassed: `{payload.get('stabilityWindowPassed')}`",
+              f"- manualRemediationObserved: `{payload.get('manualRemediationObserved')}`",
+              f"- manualRemediationCheckPerformed: `{payload.get('manualRemediationCheckPerformed')}`",
+              f"- manualRemediationRunCount: `{len(payload.get('manualRemediationRuns') or [])}`",
               f"- previousSuccessfulRuns: `{previous}`",
               f"- currentSuccessfulRunsIncludingThis: `{current}`",
               f"- minimumSuccessfulRuns: `{payload['minimumSuccessfulRuns']}`",
@@ -101,8 +116,12 @@ jobs:
           ]
           reasons = acceptance.get("reasons") or []
           if reasons:
-              lines.extend(["", "Failure reasons:"])
+              lines.extend(["", "Immediate failure reasons:"])
               lines.extend([f"- `{reason}`" for reason in reasons])
+          clean_reasons = payload.get("cleanDeployReasons") or []
+          if clean_reasons:
+              lines.extend(["", "Clean deploy failure reasons:"])
+              lines.extend([f"- `{reason}`" for reason in clean_reasons])
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write("\n".join(lines) + "\n")

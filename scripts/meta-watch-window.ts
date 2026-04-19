@@ -1,7 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
-import { evaluateMetaWatchWindowAcceptance } from "@/lib/sync/meta-watch-window";
+import {
+  evaluateMetaWatchWindowAcceptance,
+  evaluateMetaWatchWindowStability,
+} from "@/lib/sync/meta-watch-window";
 
 configureOperationalScriptRuntime();
 
@@ -10,18 +13,41 @@ type ParsedArgs = {
   baseUrl: string;
   attempts: number;
   sleepMs: number;
+  stabilityWindowMinutes: number;
+  stabilityPollMs: number;
   outFile: string | null;
   minimumSuccessfulRuns: number;
   workflowFile: string;
+  remediationWorkflowFile: string;
   requireBlockModes: boolean;
+};
+
+type WorkflowRunSummary = {
+  id: number;
+  event: string | null;
+  status: string | null;
+  conclusion: string | null;
+  createdAt: string | null;
+  htmlUrl: string | null;
 };
 
 type WatchWindowRunSummary = {
   expectedBuildId: string;
   baseUrl: string;
   attempts: number;
+  stabilityWindowMinutes: number;
+  stabilityPollMs: number;
+  observationStartedAt: string;
+  observationFinishedAt: string;
   acceptedAtAttempt: number | null;
   acceptance: ReturnType<typeof evaluateMetaWatchWindowAcceptance>;
+  stabilityAcceptance: ReturnType<typeof evaluateMetaWatchWindowAcceptance> | null;
+  stabilityWindowPassed: boolean;
+  manualRemediationObserved: boolean;
+  manualRemediationCheckPerformed: boolean;
+  manualRemediationRuns: WorkflowRunSummary[];
+  cleanDeployAccepted: boolean;
+  cleanDeployReasons: string[];
   previousSuccessfulRuns: number | null;
   minimumSuccessfulRuns: number;
   watchWindowSatisfied: boolean | null;
@@ -47,9 +73,12 @@ function parseArgs(argv: string[]): ParsedArgs {
     baseUrl: "https://adsecute.com",
     attempts: 12,
     sleepMs: 5_000,
+    stabilityWindowMinutes: 30,
+    stabilityPollMs: 60_000,
     outFile: null,
     minimumSuccessfulRuns: 3,
     workflowFile: "meta-watch-window.yml",
+    remediationWorkflowFile: "meta-canary-remediation.yml",
     requireBlockModes: false,
   };
 
@@ -75,6 +104,19 @@ function parseArgs(argv: string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (arg === "--stability-window-minutes") {
+      parsed.stabilityWindowMinutes = parsePositiveInt(
+        argv[index + 1],
+        parsed.stabilityWindowMinutes,
+      );
+      index += 1;
+      continue;
+    }
+    if (arg === "--stability-poll-ms") {
+      parsed.stabilityPollMs = parsePositiveInt(argv[index + 1], parsed.stabilityPollMs);
+      index += 1;
+      continue;
+    }
     if (arg === "--out-file") {
       parsed.outFile = argv[index + 1]?.trim() ?? null;
       index += 1;
@@ -90,6 +132,12 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
     if (arg === "--workflow-file") {
       parsed.workflowFile = argv[index + 1]?.trim() || parsed.workflowFile;
+      index += 1;
+      continue;
+    }
+    if (arg === "--remediation-workflow-file") {
+      parsed.remediationWorkflowFile =
+        argv[index + 1]?.trim() || parsed.remediationWorkflowFile;
       index += 1;
       continue;
     }
@@ -130,12 +178,30 @@ async function fetchPreviousSuccessfulWatchRuns(input: {
   token: string;
   workflowFile: string;
 }) {
+  const runs = await fetchWorkflowRuns({
+    repository: input.repository,
+    token: input.token,
+    workflowFile: input.workflowFile,
+    perPage: 20,
+  });
+  return runs.filter((run) => run.conclusion === "success").length;
+}
+
+async function fetchWorkflowRuns(input: {
+  repository: string;
+  token: string;
+  workflowFile: string;
+  perPage?: number;
+  event?: string;
+}): Promise<WorkflowRunSummary[]> {
   const url = new URL(
     `https://api.github.com/repos/${input.repository}/actions/workflows/${input.workflowFile}/runs`,
   );
   url.searchParams.set("branch", "main");
-  url.searchParams.set("status", "completed");
-  url.searchParams.set("per_page", "20");
+  url.searchParams.set("per_page", String(input.perPage ?? 20));
+  if (input.event) {
+    url.searchParams.set("event", input.event);
+  }
 
   const response = await fetch(url, {
     headers: {
@@ -151,10 +217,53 @@ async function fetchPreviousSuccessfulWatchRuns(input: {
   }
 
   const payload = (await response.json()) as {
-    workflow_runs?: Array<{ conclusion?: string | null }>;
+    workflow_runs?: Array<{
+      id?: number;
+      event?: string | null;
+      status?: string | null;
+      conclusion?: string | null;
+      created_at?: string | null;
+      html_url?: string | null;
+    }>;
   };
 
-  return (payload.workflow_runs ?? []).filter((run) => run.conclusion === "success").length;
+  return (payload.workflow_runs ?? []).map((run) => ({
+    id: Number(run.id ?? 0),
+    event: run.event ?? null,
+    status: run.status ?? null,
+    conclusion: run.conclusion ?? null,
+    createdAt: run.created_at ?? null,
+    htmlUrl: run.html_url ?? null,
+  }));
+}
+
+function toTimestamp(value: string | null) {
+  if (!value) return Number.NaN;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+async function fetchManualRemediationRuns(input: {
+  repository: string;
+  token: string;
+  workflowFile: string;
+  startedAt: string;
+  finishedAt: string;
+}) {
+  const startedAt = toTimestamp(input.startedAt);
+  const finishedAt = toTimestamp(input.finishedAt);
+  const runs = await fetchWorkflowRuns({
+    repository: input.repository,
+    token: input.token,
+    workflowFile: input.workflowFile,
+    perPage: 50,
+    event: "workflow_dispatch",
+  });
+
+  return runs.filter((run) => {
+    const createdAt = toTimestamp(run.createdAt);
+    return Number.isFinite(createdAt) && createdAt >= startedAt && createdAt <= finishedAt;
+  });
 }
 
 async function writeOutput(outFile: string, payload: WatchWindowRunSummary) {
@@ -164,6 +273,7 @@ async function writeOutput(outFile: string, payload: WatchWindowRunSummary) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const observationStartedAt = nowIso();
 
   let acceptance = evaluateMetaWatchWindowAcceptance({}, args.expectedBuildId, {
     requireBlockModes: args.requireBlockModes,
@@ -186,29 +296,88 @@ async function main() {
     }
   }
 
+  let stabilityAcceptance = acceptance.accepted ? acceptance : null;
+  let stabilityWindowPassed = false;
+  if (acceptance.accepted) {
+    const deadline = Date.parse(observationStartedAt) + args.stabilityWindowMinutes * 60_000;
+    while (Date.now() < deadline) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs > 0) {
+        await sleep(Math.min(args.stabilityPollMs, remainingMs));
+      }
+      if (Date.now() >= deadline) {
+        break;
+      }
+
+      const payload = await fetchBuildInfo(args.baseUrl);
+      stabilityAcceptance = evaluateMetaWatchWindowAcceptance(payload, args.expectedBuildId, {
+        requireBlockModes: args.requireBlockModes,
+      });
+      if (!stabilityAcceptance.accepted) {
+        break;
+      }
+    }
+    stabilityWindowPassed = Boolean(stabilityAcceptance?.accepted);
+  }
+
+  const observationFinishedAt = nowIso();
+
   let previousSuccessfulRuns: number | null = null;
   let watchWindowSatisfied: boolean | null = null;
+  let manualRemediationRuns: WorkflowRunSummary[] = [];
+  let manualRemediationCheckPerformed = false;
   const repository = process.env.GITHUB_REPOSITORY?.trim();
   const token = process.env.GITHUB_TOKEN?.trim();
 
   if (repository && token) {
+    manualRemediationRuns = await fetchManualRemediationRuns({
+      repository,
+      token,
+      workflowFile: args.remediationWorkflowFile,
+      startedAt: observationStartedAt,
+      finishedAt: observationFinishedAt,
+    }).catch(() => []);
+    manualRemediationCheckPerformed = true;
+
     previousSuccessfulRuns = await fetchPreviousSuccessfulWatchRuns({
       repository,
       token,
       workflowFile: args.workflowFile,
     }).catch(() => null);
+    const stability = evaluateMetaWatchWindowStability({
+      immediateAcceptance: acceptance,
+      stabilityAcceptance,
+      manualRemediationObserved: manualRemediationRuns.length > 0,
+    });
     if (previousSuccessfulRuns != null) {
       watchWindowSatisfied =
-        previousSuccessfulRuns + (acceptance.accepted ? 1 : 0) >= args.minimumSuccessfulRuns;
+        previousSuccessfulRuns + (stability.cleanDeployAccepted ? 1 : 0) >= args.minimumSuccessfulRuns;
     }
   }
+
+  const stability = evaluateMetaWatchWindowStability({
+    immediateAcceptance: acceptance,
+    stabilityAcceptance,
+    manualRemediationObserved: manualRemediationRuns.length > 0,
+  });
 
   const summary: WatchWindowRunSummary = {
     expectedBuildId: args.expectedBuildId,
     baseUrl: args.baseUrl,
     attempts: args.attempts,
+    stabilityWindowMinutes: args.stabilityWindowMinutes,
+    stabilityPollMs: args.stabilityPollMs,
+    observationStartedAt,
+    observationFinishedAt,
     acceptedAtAttempt,
     acceptance,
+    stabilityAcceptance,
+    stabilityWindowPassed,
+    manualRemediationObserved: manualRemediationRuns.length > 0,
+    manualRemediationCheckPerformed,
+    manualRemediationRuns,
+    cleanDeployAccepted: stability.cleanDeployAccepted,
+    cleanDeployReasons: stability.reasons,
     previousSuccessfulRuns,
     minimumSuccessfulRuns: args.minimumSuccessfulRuns,
     watchWindowSatisfied,
@@ -221,7 +390,7 @@ async function main() {
 
   console.log(JSON.stringify(summary, null, 2));
 
-  if (!acceptance.accepted) {
+  if (!stability.cleanDeployAccepted) {
     process.exit(1);
   }
 }

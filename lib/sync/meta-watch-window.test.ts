@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { evaluateMetaWatchWindowAcceptance } from "@/lib/sync/meta-watch-window";
+import {
+  evaluateMetaWatchWindowAcceptance,
+  evaluateMetaWatchWindowStability,
+} from "@/lib/sync/meta-watch-window";
 
 describe("evaluateMetaWatchWindowAcceptance", () => {
   it("accepts the closed Meta state", () => {
@@ -120,5 +123,102 @@ describe("evaluateMetaWatchWindowAcceptance", () => {
     expect(result.accepted).toBe(false);
     expect(result.reasons).toContain("deploy_gate_mode_not_block");
     expect(result.reasons).toContain("release_gate_mode_not_block");
+  });
+
+  it("rejects a clean deploy when the stability window regresses", () => {
+    const immediateAcceptance = evaluateMetaWatchWindowAcceptance(
+      {
+        buildId: "build-1",
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        },
+        deployGate: {
+          id: "deploy-1",
+          verdict: "pass",
+          mode: "block",
+        },
+        releaseGate: {
+          id: "release-1",
+          verdict: "pass",
+          mode: "block",
+        },
+        repairPlan: {
+          id: "plan-1",
+          recommendations: [],
+        },
+      },
+      "build-1",
+    );
+    const stabilityAcceptance = evaluateMetaWatchWindowAcceptance(
+      {
+        buildId: "build-1",
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        },
+        deployGate: {
+          id: "deploy-1",
+          verdict: "pass",
+          mode: "block",
+        },
+        releaseGate: {
+          id: "release-1",
+          verdict: "blocked",
+          mode: "block",
+        },
+        repairPlan: {
+          id: "plan-1",
+          recommendations: [{ businessId: "biz-1" }],
+        },
+      },
+      "build-1",
+    );
+
+    const result = evaluateMetaWatchWindowStability({
+      immediateAcceptance,
+      stabilityAcceptance,
+      manualRemediationObserved: false,
+    });
+
+    expect(result.cleanDeployAccepted).toBe(false);
+    expect(result.stabilityWindowPassed).toBe(false);
+    expect(result.reasons).toContain("stability_release_gate_not_pass");
+    expect(result.reasons).toContain("stability_repair_plan_not_empty");
+  });
+
+  it("rejects a clean deploy when manual remediation runs during the stability window", () => {
+    const immediateAcceptance = evaluateMetaWatchWindowAcceptance(
+      {
+        buildId: "build-1",
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        },
+        deployGate: {
+          id: "deploy-1",
+          verdict: "pass",
+          mode: "block",
+        },
+        releaseGate: {
+          id: "release-1",
+          verdict: "pass",
+          mode: "block",
+        },
+        repairPlan: {
+          id: "plan-1",
+          recommendations: [],
+        },
+      },
+      "build-1",
+    );
+
+    const result = evaluateMetaWatchWindowStability({
+      immediateAcceptance,
+      stabilityAcceptance: immediateAcceptance,
+      manualRemediationObserved: true,
+    });
+
+    expect(result.cleanDeployAccepted).toBe(false);
+    expect(result.stabilityWindowPassed).toBe(true);
+    expect(result.manualRemediationObserved).toBe(true);
+    expect(result.reasons).toContain("manual_remediation_observed");
   });
 });

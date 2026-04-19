@@ -15,6 +15,14 @@ export interface MetaWatchWindowAcceptance {
   reasons: string[];
 }
 
+export interface MetaWatchWindowStabilityAssessment {
+  immediateAcceptancePassed: boolean;
+  stabilityWindowPassed: boolean;
+  manualRemediationObserved: boolean;
+  cleanDeployAccepted: boolean;
+  reasons: string[];
+}
+
 type GenericRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): GenericRecord {
@@ -78,6 +86,41 @@ export function evaluateMetaWatchWindowAcceptance(
     repairPlanIdPresent,
     repairPlanEmpty,
     accepted: reasons.length === 0,
+    reasons,
+  };
+}
+
+export function evaluateMetaWatchWindowStability(input: {
+  immediateAcceptance: MetaWatchWindowAcceptance;
+  stabilityAcceptance: MetaWatchWindowAcceptance | null;
+  manualRemediationObserved: boolean;
+}): MetaWatchWindowStabilityAssessment {
+  const immediateAcceptancePassed = input.immediateAcceptance.accepted;
+  const stabilityWindowPassed = Boolean(input.stabilityAcceptance?.accepted);
+  const reasons: string[] = [];
+
+  if (!immediateAcceptancePassed) {
+    reasons.push(...input.immediateAcceptance.reasons.map((reason) => `immediate_${reason}`));
+  }
+  if (!stabilityWindowPassed) {
+    if (input.stabilityAcceptance) {
+      reasons.push(...input.stabilityAcceptance.reasons.map((reason) => `stability_${reason}`));
+    } else {
+      reasons.push("stability_window_not_evaluated");
+    }
+  }
+  if (input.manualRemediationObserved) {
+    reasons.push("manual_remediation_observed");
+  }
+
+  return {
+    immediateAcceptancePassed,
+    stabilityWindowPassed,
+    manualRemediationObserved: input.manualRemediationObserved,
+    cleanDeployAccepted:
+      immediateAcceptancePassed &&
+      stabilityWindowPassed &&
+      !input.manualRemediationObserved,
     reasons,
   };
 }
