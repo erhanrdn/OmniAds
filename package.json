@@ -67,6 +67,8 @@
     "google:ads:parity": "node --import tsx scripts/google-ads-parity-check.ts",
     "google:ads:closeout-smoke": "node --import tsx scripts/google-ads-closeout-smoke.ts",
     "google:ads:closeout-benchmark": "node --import tsx scripts/google-ads-closeout-benchmark.ts",
+    "shopify:read-compare": "node --import tsx scripts/shopify-read-compare.ts",
+    "shopify:health-snapshot": "node --import tsx scripts/shopify-health-snapshot.ts",
     "playwright:install": "playwright install chromium",
     "benchmark:overview": "node --import tsx scripts/overview-benchmark.ts",
     "benchmark:db-normalization:audit": "node --import tsx scripts/db-normalization-audit.ts",
