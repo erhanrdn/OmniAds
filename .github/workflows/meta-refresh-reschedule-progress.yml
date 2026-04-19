@@ -227,6 +227,11 @@ jobs:
             "EXPECTED_BUILD_ID=${EXPECTED_BUILD_ID_Q} BUSINESS_ID=${BUSINESS_ID_Q} MAX_PASSES=${MAX_PASSES_Q} bash -seuo pipefail" <<'EOF'
             cd /var/www/adsecute
 
+            runtime_service="worker"
+            if ! docker compose ps --status running --services | grep -qx "worker"; then
+              runtime_service="web"
+            fi
+
             read_build_info() {
               response_file="$(mktemp)"
               http_status="$(
@@ -281,12 +286,12 @@ jobs:
             }
 
             for pass in $(seq 1 "${MAX_PASSES}"); do
-              docker compose exec -T worker sh -lc "\
+              docker compose exec -T "${runtime_service}" sh -lc "\
                 export NODE_ENV=production; \
                 node --import tsx scripts/meta-refresh-state.ts '${BUSINESS_ID}'\
               " </dev/null
 
-              docker compose exec -T worker sh -lc "\
+              docker compose exec -T "${runtime_service}" sh -lc "\
                 export NODE_ENV=production; \
                 export SYNC_WORKER_MODE=1; \
                 export META_WORKER_ID='meta-refresh-reschedule:${BUSINESS_ID}:${pass}'; \
