@@ -128,6 +128,37 @@ describe("worker runtime heartbeat repair metadata", () => {
 
     expect(
       heartbeatSyncWorker.mock.calls.some(([input]) => {
+        const heartbeat = input as {
+          workerId?: string;
+          status?: string;
+          metaJson?: Record<string, unknown>;
+        };
+        return (
+          typeof heartbeat.workerId === "string" &&
+          heartbeat.workerId.startsWith("sync-worker:") &&
+          heartbeat.status === "starting" &&
+          heartbeat.metaJson?.workerBuildId != null
+        );
+      })
+    ).toBe(true);
+    expect(
+      heartbeatSyncWorker.mock.calls.some(([input]) => {
+        const heartbeat = input as {
+          workerId?: string;
+          status?: string;
+          metaJson?: Record<string, unknown>;
+        };
+        return (
+          typeof heartbeat.workerId === "string" &&
+          heartbeat.workerId.endsWith(":meta") &&
+          heartbeat.status === "starting" &&
+          heartbeat.metaJson?.providerScope === "meta"
+        );
+      })
+    ).toBe(true);
+
+    expect(
+      heartbeatSyncWorker.mock.calls.some(([input]) => {
         const meta = (input as { metaJson?: Record<string, unknown> }).metaJson;
         return (
           typeof (input as { workerId?: string }).workerId === "string" &&

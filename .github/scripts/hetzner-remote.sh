@@ -77,10 +77,6 @@ extract_build_id() {
   python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
 }
 
-current_utc_iso() {
-  date -u +%Y-%m-%dT%H:%M:%SZ
-}
-
 check_optional_health() {
   service_name="$1"
   max_attempts="${2:-40}"
@@ -358,9 +354,14 @@ case "${phase}" in
     check_optional_health web 20
     check_optional_health worker 40
 
-    worker_healthy_at="$(current_utc_iso)"
-    log "Verifying fresh Meta heartbeat after worker health"
-    verify_worker_fresh_heartbeat_after "${worker_healthy_at}" 8 5
+    worker_container_id="$(docker compose ps -q worker || true)"
+    if [ -z "${worker_container_id}" ]; then
+      echo "Missing container for service worker"
+      exit 1
+    fi
+    worker_started_at="$(docker inspect "${worker_container_id}" --format '{{.State.StartedAt}}')"
+    log "Verifying fresh Meta heartbeat after worker start"
+    verify_worker_fresh_heartbeat_after "${worker_started_at}" 8 5
     ;;
 
   persist_control_plane)

@@ -223,6 +223,9 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   let nextPruneAt = 0;
   let nextGoogleAdsRetentionAt = 0;
   let nextMetaRetentionAt = 0;
+  const providerScopes = Array.from(
+    new Set(options.adapters.map((adapter) => adapter.providerScope).filter(Boolean)),
+  );
 
   async function heartbeat(input: {
     providerScope: string;
@@ -264,8 +267,29 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   await heartbeat({
     providerScope: "all",
     status: "starting",
+    metaJson: {
+      workerBuildId,
+      workerStartedAt,
+      adapters: providerScopes,
+      globalDbConcurrency,
+    },
     force: true,
   });
+
+  for (const providerScope of providerScopes) {
+    await heartbeat({
+      providerScope,
+      status: "starting",
+      metaJson: {
+        workerBuildId,
+        workerStartedAt,
+        providerScope,
+        adapters: providerScopes,
+        globalDbConcurrency,
+      },
+      force: true,
+    }).catch(() => null);
+  }
 
   while (!shuttingDown) {
     if (Date.now() >= nextPruneAt) {
