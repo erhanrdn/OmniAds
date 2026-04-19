@@ -145,7 +145,7 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Connection");
     expect(html).toContain("Queue / worker");
     expect(html).toContain("Core data");
-    expect(html).toContain("Recent window");
+    expect(html).toContain("Core coverage");
     expect(html).toContain("Extended surfaces");
     expect(html).toContain("worker active");
     expect(html).toContain("core ready");
@@ -173,7 +173,7 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Bağlantı");
     expect(html).toContain("Kuyruk / worker");
     expect(html).toContain("Çekirdek veri");
-    expect(html).toContain("Yakın pencere");
+    expect(html).toContain("Çekirdek kapsam");
     expect(html).toContain("Genişletilmiş yüzeyler");
     expect(html).toContain("worker aktif");
     expect(html).toContain("Bu workspace için Meta hesabı atanmış.");
