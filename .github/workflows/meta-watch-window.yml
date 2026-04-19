@@ -1,6 +1,10 @@
-name: Meta Watch Window (Manual)
+name: Meta Watch Window
 
 on:
+  workflow_run:
+    workflows: ["Deploy to Hetzner"]
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       sha:
@@ -20,7 +24,11 @@ on:
 
 jobs:
   watch-window:
-    if: github.event_name == 'workflow_dispatch' && inputs.sha != ''
+    if: |
+      (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,7 +52,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          expected_sha="${{ inputs.sha }}"
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            expected_sha="${{ github.event.workflow_run.head_sha }}"
+            streak_eligible="true"
+          else
+            expected_sha="${{ inputs.sha }}"
+            streak_eligible="false"
+          fi
 
           if [ -z "${expected_sha}" ]; then
             echo "Expected SHA is required."
@@ -52,6 +66,7 @@ jobs:
           fi
 
           echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+          echo "streak_eligible=${streak_eligible}" >> "$GITHUB_OUTPUT"
 
       - name: Verify Meta watch window acceptance
         env:
@@ -65,6 +80,9 @@ jobs:
           extra_args=()
           if [ "${REQUIRE_BLOCK_MODES}" = "true" ]; then
             extra_args+=(--require-block-modes)
+          fi
+          if [ "${{ steps.expected.outputs.streak_eligible }}" = "true" ]; then
+            extra_args+=(--streak-eligible)
           fi
 
           node --import tsx scripts/meta-watch-window.ts \
@@ -88,11 +106,12 @@ jobs:
 
           payload = json.loads(pathlib.Path(".artifacts/meta-watch-window.json").read_text())
           acceptance = payload["acceptance"]
-          previous = payload.get("previousSuccessfulRuns")
-          current = (previous or 0) + 1 if payload.get("cleanDeployAccepted") else previous
+          previous = payload.get("previousConsecutiveSuccessfulRuns")
+          current = payload.get("currentConsecutiveSuccessfulRuns")
           lines = [
               "## Meta Watch Window",
               "",
+              f"- streakEligible: `{payload.get('streakEligible')}`",
               f"- expectedBuildId: `{payload['expectedBuildId']}`",
               f"- observedBuildId: `{acceptance.get('observedBuildId')}`",
               f"- immediateAccepted: `{acceptance['accepted']}`",
@@ -109,8 +128,8 @@ jobs:
               f"- manualRemediationObserved: `{payload.get('manualRemediationObserved')}`",
               f"- manualRemediationCheckPerformed: `{payload.get('manualRemediationCheckPerformed')}`",
               f"- manualRemediationRunCount: `{len(payload.get('manualRemediationRuns') or [])}`",
-              f"- previousSuccessfulRuns: `{previous}`",
-              f"- currentSuccessfulRunsIncludingThis: `{current}`",
+              f"- previousConsecutiveSuccessfulRuns: `{previous}`",
+              f"- currentConsecutiveSuccessfulRuns: `{current}`",
               f"- minimumSuccessfulRuns: `{payload['minimumSuccessfulRuns']}`",
               f"- watchWindowSatisfied: `{payload.get('watchWindowSatisfied')}`",
           ]

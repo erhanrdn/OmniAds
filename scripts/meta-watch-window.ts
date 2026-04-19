@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
 import {
+  countConsecutiveSuccessfulMetaWatchWindowRuns,
   evaluateMetaWatchWindowAcceptance,
   evaluateMetaWatchWindowStability,
 } from "@/lib/sync/meta-watch-window";
@@ -20,6 +21,7 @@ type ParsedArgs = {
   workflowFile: string;
   remediationWorkflowFile: string;
   requireBlockModes: boolean;
+  streakEligible: boolean;
 };
 
 type WorkflowRunSummary = {
@@ -49,7 +51,10 @@ type WatchWindowRunSummary = {
   cleanDeployAccepted: boolean;
   cleanDeployReasons: string[];
   previousSuccessfulRuns: number | null;
+  previousConsecutiveSuccessfulRuns: number | null;
+  currentConsecutiveSuccessfulRuns: number | null;
   minimumSuccessfulRuns: number;
+  streakEligible: boolean;
   watchWindowSatisfied: boolean | null;
   sampledAt: string;
 };
@@ -80,6 +85,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     workflowFile: "meta-watch-window.yml",
     remediationWorkflowFile: "meta-canary-remediation.yml",
     requireBlockModes: false,
+    streakEligible: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -145,6 +151,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       parsed.requireBlockModes = true;
       continue;
     }
+    if (arg === "--streak-eligible") {
+      parsed.streakEligible = true;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
 
@@ -177,6 +187,7 @@ async function fetchPreviousSuccessfulWatchRuns(input: {
   repository: string;
   token: string;
   workflowFile: string;
+  currentRunId: number | null;
 }) {
   const runs = await fetchWorkflowRuns({
     repository: input.repository,
@@ -184,7 +195,12 @@ async function fetchPreviousSuccessfulWatchRuns(input: {
     workflowFile: input.workflowFile,
     perPage: 20,
   });
-  return runs.filter((run) => run.conclusion === "success").length;
+  const previousRuns = runs.filter((run) => run.id !== input.currentRunId);
+  return {
+    previousSuccessfulRuns: previousRuns.filter((run) => run.conclusion === "success").length,
+    previousConsecutiveSuccessfulRuns:
+      countConsecutiveSuccessfulMetaWatchWindowRuns(previousRuns),
+  };
 }
 
 async function fetchWorkflowRuns(input: {
@@ -323,11 +339,14 @@ async function main() {
   const observationFinishedAt = nowIso();
 
   let previousSuccessfulRuns: number | null = null;
+  let previousConsecutiveSuccessfulRuns: number | null = null;
+  let currentConsecutiveSuccessfulRuns: number | null = null;
   let watchWindowSatisfied: boolean | null = null;
   let manualRemediationRuns: WorkflowRunSummary[] = [];
   let manualRemediationCheckPerformed = false;
   const repository = process.env.GITHUB_REPOSITORY?.trim();
   const token = process.env.GITHUB_TOKEN?.trim();
+  const currentRunId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "", 10);
 
   if (repository && token) {
     manualRemediationRuns = await fetchManualRemediationRuns({
@@ -339,19 +358,25 @@ async function main() {
     }).catch(() => []);
     manualRemediationCheckPerformed = true;
 
-    previousSuccessfulRuns = await fetchPreviousSuccessfulWatchRuns({
+    const runHistory = await fetchPreviousSuccessfulWatchRuns({
       repository,
       token,
       workflowFile: args.workflowFile,
+      currentRunId: Number.isFinite(currentRunId) ? currentRunId : null,
     }).catch(() => null);
+    previousSuccessfulRuns = runHistory?.previousSuccessfulRuns ?? null;
+    previousConsecutiveSuccessfulRuns =
+      runHistory?.previousConsecutiveSuccessfulRuns ?? null;
     const stability = evaluateMetaWatchWindowStability({
       immediateAcceptance: acceptance,
       stabilityAcceptance,
       manualRemediationObserved: manualRemediationRuns.length > 0,
     });
-    if (previousSuccessfulRuns != null) {
+    if (args.streakEligible && previousConsecutiveSuccessfulRuns != null) {
+      currentConsecutiveSuccessfulRuns =
+        previousConsecutiveSuccessfulRuns + (stability.cleanDeployAccepted ? 1 : 0);
       watchWindowSatisfied =
-        previousSuccessfulRuns + (stability.cleanDeployAccepted ? 1 : 0) >= args.minimumSuccessfulRuns;
+        currentConsecutiveSuccessfulRuns >= args.minimumSuccessfulRuns;
     }
   }
 
@@ -379,7 +404,10 @@ async function main() {
     cleanDeployAccepted: stability.cleanDeployAccepted,
     cleanDeployReasons: stability.reasons,
     previousSuccessfulRuns,
+    previousConsecutiveSuccessfulRuns,
+    currentConsecutiveSuccessfulRuns,
     minimumSuccessfulRuns: args.minimumSuccessfulRuns,
+    streakEligible: args.streakEligible,
     watchWindowSatisfied,
     sampledAt: nowIso(),
   };

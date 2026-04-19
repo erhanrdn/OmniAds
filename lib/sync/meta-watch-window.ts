@@ -23,6 +23,11 @@ export interface MetaWatchWindowStabilityAssessment {
   reasons: string[];
 }
 
+export interface MetaWatchWindowRunHistoryEntry {
+  conclusion: string | null;
+  event: string | null;
+}
+
 type GenericRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): GenericRecord {
@@ -123,4 +128,30 @@ export function evaluateMetaWatchWindowStability(input: {
       !input.manualRemediationObserved,
     reasons,
   };
+}
+
+export function isMetaWatchWindowStreakEligible(event: string | null) {
+  return event === "workflow_run";
+}
+
+export function countConsecutiveSuccessfulMetaWatchWindowRuns(
+  runs: readonly MetaWatchWindowRunHistoryEntry[],
+) {
+  let count = 0;
+
+  for (const run of runs) {
+    if (!isMetaWatchWindowStreakEligible(run.event)) {
+      continue;
+    }
+    if (run.conclusion == null) {
+      continue;
+    }
+    if (run.conclusion === "success") {
+      count += 1;
+      continue;
+    }
+    break;
+  }
+
+  return count;
 }

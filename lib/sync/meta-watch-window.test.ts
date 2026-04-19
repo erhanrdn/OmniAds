@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  countConsecutiveSuccessfulMetaWatchWindowRuns,
   evaluateMetaWatchWindowAcceptance,
   evaluateMetaWatchWindowStability,
+  isMetaWatchWindowStreakEligible,
 } from "@/lib/sync/meta-watch-window";
 
 describe("evaluateMetaWatchWindowAcceptance", () => {
@@ -220,5 +222,33 @@ describe("evaluateMetaWatchWindowAcceptance", () => {
     expect(result.stabilityWindowPassed).toBe(true);
     expect(result.manualRemediationObserved).toBe(true);
     expect(result.reasons).toContain("manual_remediation_observed");
+  });
+
+  it("counts only consecutive deploy-triggered successful watch runs toward the official streak", () => {
+    expect(
+      countConsecutiveSuccessfulMetaWatchWindowRuns([
+        { conclusion: "success", event: "workflow_dispatch" },
+        { conclusion: "success", event: "workflow_run" },
+        { conclusion: "success", event: "workflow_run" },
+        { conclusion: "failure", event: "workflow_run" },
+        { conclusion: "success", event: "workflow_run" },
+      ]),
+    ).toBe(2);
+  });
+
+  it("ignores non-terminal watch runs when calculating the official streak", () => {
+    expect(
+      countConsecutiveSuccessfulMetaWatchWindowRuns([
+        { conclusion: null, event: "workflow_run" },
+        { conclusion: "success", event: "workflow_run" },
+        { conclusion: "success", event: "workflow_run" },
+      ]),
+    ).toBe(2);
+  });
+
+  it("marks only deploy-triggered runs as streak eligible", () => {
+    expect(isMetaWatchWindowStreakEligible("workflow_run")).toBe(true);
+    expect(isMetaWatchWindowStreakEligible("workflow_dispatch")).toBe(false);
+    expect(isMetaWatchWindowStreakEligible(null)).toBe(false);
   });
 });
