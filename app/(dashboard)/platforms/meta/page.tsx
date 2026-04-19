@@ -1309,7 +1309,7 @@ export default function MetaPage() {
             <LoadingSkeleton
               rows={6}
               title="Loading campaign performance"
-              description="Account-level performance is prepared first, then campaigns and breakdowns open."
+              description="Campaign, breakdown, and recovery surfaces will appear as sync finishes."
             />
           )}
 

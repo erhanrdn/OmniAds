@@ -909,13 +909,6 @@ export async function buildMetaWorkerLeasePlan(input: {
   const hasCore = hasMetaCoreBacklog(queueHealth);
   const hasExtended = hasMetaExtendedBacklog(queueHealth);
   const steps: ProviderLeasePlan["steps"] = [];
-  if (hasMaintenance) {
-    steps.push({
-      key: "maintenance",
-      lane: "maintenance",
-      limit: META_MAINTENANCE_WORKER_LIMIT,
-    });
-  }
   if (hasCore) {
     steps.push({
       key: "core",
@@ -928,6 +921,13 @@ export async function buildMetaWorkerLeasePlan(input: {
       key: "extended",
       lane: "extended",
       limit: META_EXTENDED_WORKER_LIMIT,
+    });
+  }
+  if (hasMaintenance) {
+    steps.push({
+      key: "maintenance",
+      lane: "maintenance",
+      limit: META_MAINTENANCE_WORKER_LIMIT,
     });
   }
   return {

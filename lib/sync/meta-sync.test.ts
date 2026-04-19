@@ -334,6 +334,39 @@ describe("resolveMetaBackgroundLoopDelayMs", () => {
 });
 
 describe("buildMetaWorkerLeasePlan", () => {
+  it("returns normal queue order without maintenance jumping ahead of core and extended work", async () => {
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 9,
+      leasedPartitions: 0,
+      coreQueueDepth: 3,
+      historicalCoreQueueDepth: 3,
+      historicalCoreLeasedPartitions: 0,
+      maintenanceQueueDepth: 2,
+      maintenanceLeasedPartitions: 0,
+      extendedQueueDepth: 4,
+      extendedRecentQueueDepth: 1,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 3,
+      extendedHistoricalLeasedPartitions: 0,
+      deadLetterPartitions: 0,
+      retryableFailedPartitions: 0,
+      latestExtendedActivityAt: "2026-04-02T09:28:00.000Z",
+      latestCoreActivityAt: "2026-04-02T09:29:00.000Z",
+      latestMaintenanceActivityAt: "2026-04-02T09:27:00.000Z",
+    } as never);
+
+    const plan = await buildMetaWorkerLeasePlan({
+      businessId: "biz-1",
+      leaseLimit: 1,
+    });
+
+    expect(plan.steps.map((step) => step.key)).toEqual([
+      "core",
+      "extended",
+      "maintenance",
+    ]);
+  });
+
   it("leases all extended backlog through the unified extended lane", async () => {
     vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
       queueDepth: 12,

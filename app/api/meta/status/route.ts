@@ -91,6 +91,7 @@ import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { getLatestSyncRepairExecution } from "@/lib/sync/remediation-executions";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { buildSyncLagMetrics } from "@/lib/sync/lag-metrics";
+import { readThroughCache } from "@/lib/server-cache";
 import type {
   MetaCoreSurfaceKey,
   MetaStatusResponse,
@@ -159,6 +160,29 @@ const META_RECENT_RECOVERY_DAYS = Math.max(
   1,
   Number(process.env.META_RECENT_RECOVERY_DAYS ?? 14) || 14
 );
+const META_STATUS_CACHE_TTL_MS = Math.max(
+  1_000,
+  Number(process.env.META_STATUS_CACHE_TTL_MS ?? 5_000) || 5_000
+);
+
+function shouldBypassMetaStatusCache() {
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
+function buildMetaStatusCacheKey(input: {
+  buildId: string;
+  businessId: string;
+  startDate: string | null;
+  endDate: string | null;
+}) {
+  return [
+    "meta-status:v1",
+    input.buildId,
+    input.businessId,
+    input.startDate ?? "recent",
+    input.endDate ?? "recent",
+  ].join(":");
+}
 
 function getTodayIsoForTimeZoneServer(timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -287,6 +311,7 @@ export async function GET(request: NextRequest) {
   if (isDemoBusinessId(businessId)) {
     return NextResponse.json(getDemoMetaStatus(), { headers: { "Cache-Control": "no-store" } });
   }
+  const buildResponse = async () => {
   const [
     integration,
     assignments,
@@ -2232,11 +2257,24 @@ export async function GET(request: NextRequest) {
     d1FinalizeState,
   };
 
-  return NextResponse.json(
-    {
-      ...response,
-      integrationSummary: buildMetaIntegrationSummary(integrationSummaryInput),
-    },
-    { headers: { "Cache-Control": "no-store" } }
-  );
+  return {
+    ...response,
+    integrationSummary: buildMetaIntegrationSummary(integrationSummaryInput),
+  };
+  };
+
+  const payload = shouldBypassMetaStatusCache()
+    ? await buildResponse()
+    : await readThroughCache({
+        key: buildMetaStatusCacheKey({
+          buildId: runtimeContract.buildId,
+          businessId: businessId!,
+          startDate: selectedStartDate,
+          endDate: selectedEndDate,
+        }),
+        ttlMs: META_STATUS_CACHE_TTL_MS,
+        loader: buildResponse,
+      });
+
+  return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 }

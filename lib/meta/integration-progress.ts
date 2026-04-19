@@ -46,7 +46,7 @@ function localizePriorityTitle(
   if (scope === "current_day") {
     return language === "tr" ? "Bugün" : "Current day";
   }
-  return language === "tr" ? "Yakın pencere" : "Recent window";
+  return language === "tr" ? "Çekirdek kapsam" : "Core coverage";
 }
 
 function getStageTitle(
@@ -116,13 +116,13 @@ function localizeStageLabel(
     case "core_blocked":
       return language === "tr" ? "çekirdek bloklu" : "core blocked";
     case "recent_window_ready":
-      return language === "tr" ? "yakın pencere hazır" : "recent window ready";
+      return language === "tr" ? "çekirdek kapsam hazır" : "core coverage ready";
     case "recent_window_preparing":
       return language === "tr"
-        ? "yakın pencere hazırlanıyor"
-        : "recent window preparing";
+        ? "çekirdek kapsam hazırlanıyor"
+        : "core coverage preparing";
     case "recent_window_waiting":
-      return language === "tr" ? "yakın pencere beklemede" : "recent window waiting";
+      return language === "tr" ? "çekirdek kapsam beklemede" : "core coverage waiting";
     case "selected_range_ready":
       return language === "tr" ? "aralık hazır" : "range ready";
     case "selected_range_preparing":
@@ -478,12 +478,12 @@ function getPriorityDetail(
   switch (code) {
     case "recent_window_ready":
       return language === "tr"
-        ? "Yakın özet ve kampanya günleri hazır."
-        : "Recent summary and campaign days are ready.";
+        ? "Özet ve kampanya kapsamı hazır."
+        : "Summary and campaign coverage is ready.";
     case "recent_window_waiting":
       return language === "tr"
-        ? "Yakın özet ve kampanya günleri kuyrukta bekliyor."
-        : "Recent summary and campaign days are queued and waiting.";
+        ? "Özet ve kampanya kapsamı kuyrukta bekliyor."
+        : "Summary and campaign coverage is queued and waiting.";
     case "selected_range_ready":
       return language === "tr"
         ? "Seçili aralık doğrusu hazır."
@@ -519,8 +519,8 @@ function getPriorityDetail(
     case "recent_window_preparing":
     default:
       return language === "tr"
-        ? "Yakın özet ve kampanya günleri önce hazırlanıyor."
-        : "Recent summary and campaign days are being prepared first.";
+        ? "Özet ve kampanya kapsamı hâlâ hazırlanıyor."
+        : "Summary and campaign coverage is still preparing.";
   }
 }
 
