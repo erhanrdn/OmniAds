@@ -349,10 +349,9 @@ async function resolveShopifyOverviewAggregateForRead(input: {
   endDate: string;
   purpose?: "summary" | "full";
 }) {
-  const candidate =
-    input.purpose === "summary"
-      ? await getShopifyOverviewSummaryReadCandidate(input)
-      : await getShopifyOverviewReadCandidate(input);
+  // Request-time reads stay projection-backed; the full diagnostic candidate remains
+  // available to sync/evidence lanes that still need live-vs-warehouse comparison.
+  const candidate = await getShopifyOverviewSummaryReadCandidate(input);
   const liveDailyByDate = new Map(
     (candidate.live?.dailyTrends ?? []).map((row) => [row.date, row])
   );
@@ -362,8 +361,8 @@ async function resolveShopifyOverviewAggregateForRead(input: {
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
-      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
-      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
+      revenueDeltaPercent: null,
+      purchaseDelta: null,
     });
 
     return {
@@ -403,12 +402,9 @@ async function resolveShopifyOverviewAggregateForRead(input: {
       businessId: input.businessId,
       startDate: input.startDate,
       endDate: input.endDate,
-      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
-      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
-      ledgerRevenueDeltaPercent:
-        typeof candidate.ledgerConsistency?.revenueDeltaPercent === "number"
-          ? candidate.ledgerConsistency.revenueDeltaPercent
-          : null,
+      revenueDeltaPercent: null,
+      purchaseDelta: null,
+      ledgerRevenueDeltaPercent: null,
     });
 
     return {
@@ -451,10 +447,10 @@ async function resolveShopifyOverviewAggregateForRead(input: {
       status: candidate.status.state,
       preferredSource: candidate.preferredSource,
       reasons: candidate.decisionReasons,
-      revenueDeltaPercent: candidate.divergence?.revenueDeltaPercent ?? null,
-      maxDailyRevenueDeltaPercent: candidate.divergence?.maxDailyRevenueDeltaPercent ?? null,
-      purchaseDelta: candidate.divergence?.purchaseDelta ?? null,
-      maxDailyPurchaseDelta: candidate.divergence?.maxDailyPurchaseDelta ?? null,
+      revenueDeltaPercent: null,
+      maxDailyRevenueDeltaPercent: null,
+      purchaseDelta: null,
+      maxDailyPurchaseDelta: null,
     });
   }
 

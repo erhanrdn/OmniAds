@@ -351,8 +351,8 @@ describe("overview-service canonical orchestration", () => {
     ]);
   });
 
-  it("exposes the full Shopify read candidate via getShopifyOverviewServingData", async () => {
-    vi.mocked(shopifyReadAdapter.getShopifyOverviewReadCandidate).mockResolvedValue(
+  it("uses the summary Shopify read candidate via getShopifyOverviewServingData", async () => {
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
       buildReadCandidate({
         live: {
           revenue: 75,
@@ -374,7 +374,8 @@ describe("overview-service canonical orchestration", () => {
       endDate: "2026-03-02",
     });
 
-    expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).toHaveBeenCalled();
+    expect(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).toHaveBeenCalled();
+    expect(shopifyReadAdapter.getShopifyOverviewReadCandidate).not.toHaveBeenCalled();
     expect(result.aggregate?.revenue).toBe(75);
     expect(result.aggregate?.purchases).toBe(5);
   });
