@@ -154,11 +154,13 @@ export async function warmShopifyOverviewReportCache(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  forceRefresh?: boolean;
 }) {
   const payload = await getShopifyOverviewAggregate({
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    forceRefresh: input.forceRefresh,
   });
   if (!payload) {
     return {

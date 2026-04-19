@@ -1,5 +1,5 @@
 [Unit]
-Description=Adsecute PostgreSQL Core Backup
+Description=Adsecute PostgreSQL Application Core Backup
 After=postgresql.service
 Wants=postgresql.service
 

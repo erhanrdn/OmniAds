@@ -17,8 +17,6 @@ CORE_TABLES=(
   public.businesses
   public.memberships
   public.invites
-  public.integrations
-  public.provider_account_assignments
   public.business_cost_models
   public.business_target_packs
   public.business_country_economics

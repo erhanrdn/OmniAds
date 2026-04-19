@@ -23,6 +23,7 @@ vi.mock("@/lib/shopify/sync-state", () => ({
 }));
 
 import {
+  buildRuntimeValidateSyncChildCommand,
   parseRuntimeValidateShopifySalesEventsArgs,
   resolveValidationWindow,
 } from "@/scripts/runtime-validate-shopify-sales-events";
@@ -127,5 +128,20 @@ describe("runtime validate shopify sales events", () => {
       endDate: "2026-04-18",
       providerDateRangeKey: "2026-04-12:2026-04-18",
     });
+  });
+
+  it("builds the sync child command without forcing a different env file", () => {
+    const command = buildRuntimeValidateSyncChildCommand({
+      businessId: "biz-1",
+      childConfig: {
+        allowHistorical: false,
+        materializeOverviewState: true,
+      },
+    });
+
+    expect(command[0]).toBe(process.execPath);
+    expect(command).not.toContain("--env-file=.env.local");
+    expect(command).toContain("--import");
+    expect(command).toContain("tsx");
   });
 });

@@ -872,6 +872,28 @@ export async function syncShopifyCommerceReports(
     });
     if (shouldMaterializeOverviewState) {
       try {
+        logValidationPhase("post_recent_overview_snapshot_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("overview_snapshot_warm_started", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        await warmShopifyOverviewReportCache({
+          businessId,
+          startDate: window.startDate,
+          endDate: window.endDate,
+          forceRefresh: true,
+        });
+        logValidationPhase("overview_snapshot_warm_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
+        logValidationPhase("post_recent_overview_snapshot_succeeded", {
+          startDate: window.startDate,
+          endDate: window.endDate,
+        });
         logValidationPhase("overview_materialization_started", {
           startDate: window.startDate,
           endDate: window.endDate,
@@ -894,7 +916,7 @@ export async function syncShopifyCommerceReports(
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        console.warn("[shopify-sync] overview_materialization_failed", {
+        console.warn("[shopify-sync] overview_snapshot_or_materialization_failed", {
           businessId,
           providerAccountId: credentials.shopId,
           startDate: window.startDate,
@@ -904,7 +926,7 @@ export async function syncShopifyCommerceReports(
         materialization = {
           preferredSource: "none",
           trustState: "no_data",
-          fallbackReason: "materialization_failed",
+          fallbackReason: "overview_snapshot_or_materialization_failed",
           pendingRepair: false,
           canServeWarehouse: false,
           recordedAt: new Date().toISOString(),
@@ -922,41 +944,6 @@ export async function syncShopifyCommerceReports(
         skipped: true,
         reason: "disabled_for_call_site",
       };
-    }
-
-    if (shouldMaterializeOverviewState) {
-      try {
-        logValidationPhase("post_recent_overview_snapshot_started", {
-          startDate: window.startDate,
-          endDate: window.endDate,
-        });
-        logValidationPhase("overview_snapshot_warm_started", {
-          startDate: window.startDate,
-          endDate: window.endDate,
-        });
-        await warmShopifyOverviewReportCache({
-          businessId,
-          startDate: window.startDate,
-          endDate: window.endDate,
-        });
-        logValidationPhase("overview_snapshot_warm_succeeded", {
-          startDate: window.startDate,
-          endDate: window.endDate,
-        });
-        logValidationPhase("post_recent_overview_snapshot_succeeded", {
-          startDate: window.startDate,
-          endDate: window.endDate,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn("[shopify-sync] overview_snapshot_warm_failed", {
-          businessId,
-          providerAccountId: credentials.shopId,
-          startDate: window.startDate,
-          endDate: window.endDate,
-          message,
-        });
-      }
     }
 
     return {

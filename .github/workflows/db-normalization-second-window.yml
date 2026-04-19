@@ -600,21 +600,6 @@ jobs:
               fi
             }
 
-            export_legacy_table() {
-              table_name="$1"
-              output_file="$2"
-              table_regclass="$(
-                psql "${DATABASE_URL}" -Atqc "SELECT to_regclass('public.${table_name}')::text" 2>/dev/null || true
-              )"
-              if [ -n "${table_regclass}" ] && [ "${table_regclass}" != "null" ]; then
-                pg_dump "${DATABASE_URL}" --data-only --table="${table_name}" --file "${output_file}"
-                assert_host_file "${output_file}"
-              else
-                printf 'missing\n' > "${output_file}.missing.txt"
-                assert_host_file "${output_file}.missing.txt"
-              fi
-            }
-
             export APP_IMAGE_TAG="${EXPECTED_SHA}"
             export APP_BUILD_ID="${EXPECTED_SHA}"
             mkdir -p "${REMOTE_RUN_DIR}" "${REMOTE_RUN_DIR}/logs"
@@ -639,18 +624,6 @@ jobs:
             copy_worker_file_to_host "${WORKER_TMP_DIR}/audit/audit.md" "${REMOTE_RUN_DIR}/audit-before/audit.md"
 
             log "Using runner-captured production DB backup manifest"
-
-            log "Exporting retired compatibility tables"
-            NORMALIZATION_RUN_DIR="${REMOTE_RUN_DIR}"
-            set -a
-            . ./.env.production
-            set +a
-            REMOTE_RUN_DIR="${NORMALIZATION_RUN_DIR}"
-            export REMOTE_RUN_DIR
-            mkdir -p "${REMOTE_RUN_DIR}/exports"
-            export_legacy_table "integrations" "${REMOTE_RUN_DIR}/exports/integrations.sql"
-            export_legacy_table "provider_account_assignments" "${REMOTE_RUN_DIR}/exports/provider_account_assignments.sql"
-            export_legacy_table "provider_account_snapshots" "${REMOTE_RUN_DIR}/exports/provider_account_snapshots.sql"
 
             if [ "${WINDOW_MODE}" = "execute" ]; then
               log "Stopping web and worker for maintenance"
@@ -748,7 +721,6 @@ jobs:
           copy_remote_file_to_runner "${REMOTE_RUN_DIR}/audit-after/audit.json" "${LOCAL_RUN_DIR}/audit-after/audit.json"
           copy_remote_file_to_runner "${REMOTE_RUN_DIR}/audit-after/audit.md" "${LOCAL_RUN_DIR}/audit-after/audit.md"
           copy_remote_file_to_runner "${REMOTE_RUN_DIR}/backup-manifest.txt" "${LOCAL_RUN_DIR}/backup-manifest.txt"
-          copy_remote_directory_files_to_runner "${REMOTE_RUN_DIR}/exports" "${LOCAL_RUN_DIR}/exports"
           copy_remote_directory_files_to_runner "${REMOTE_RUN_DIR}/logs" "${LOCAL_RUN_DIR}/logs"
 
           REMOTE_RUN_PARENT="$(dirname "${REMOTE_RUN_DIR}")"
@@ -788,11 +760,6 @@ jobs:
               missing=1
             fi
           done
-
-          if [ ! -d "${local_run_dir}/exports" ] || ! find "${local_run_dir}/exports" -maxdepth 1 -type f | grep -q .; then
-            echo "Missing export files in ${local_run_dir}/exports"
-            missing=1
-          fi
 
           if [ "${missing}" -ne 0 ]; then
             echo "Discovered artifact paths under ${local_run_dir}:"

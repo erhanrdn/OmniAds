@@ -127,12 +127,14 @@ describe("user-facing report cache owners", () => {
       businessId: "biz_1",
       startDate: "2026-03-01",
       endDate: "2026-03-31",
+      forceRefresh: true,
     });
 
     expect(shopifyOverview.getShopifyOverviewAggregate).toHaveBeenCalledWith({
       businessId: "biz_1",
       startDate: "2026-03-01",
       endDate: "2026-03-31",
+      forceRefresh: true,
     });
     expect(reportingCacheWriter.writeCachedReportSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({

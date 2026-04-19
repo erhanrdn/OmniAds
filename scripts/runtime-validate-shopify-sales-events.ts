@@ -87,6 +87,22 @@ export function buildRecentTargets(mode: RecentTargetsMode) {
   };
 }
 
+export function buildRuntimeValidateSyncChildCommand(input: {
+  businessId: string;
+  childConfig: Record<string, unknown>;
+}) {
+  const childCode = `const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('${input.businessId}', ${JSON.stringify(
+    input.childConfig,
+  )}); console.log(JSON.stringify(result, null, 2));`;
+  return [
+    process.execPath,
+    "--import",
+    "tsx",
+    "-e",
+    childCode,
+  ] as const;
+}
+
 export function shiftIsoDate(date: string, dayDelta: number) {
   const base = new Date(`${date}T00:00:00.000Z`);
   base.setUTCDate(base.getUTCDate() + dayDelta);
@@ -413,17 +429,10 @@ async function main() {
         })
       : null;
 
-    const childCode = `const mod = await import('./lib/sync/shopify-sync.ts'); const result = await mod.default.syncShopifyCommerceReports('${args.businessId}', ${JSON.stringify(
+    const command = buildRuntimeValidateSyncChildCommand({
+      businessId: args.businessId,
       childConfig,
-    )}); console.log(JSON.stringify(result, null, 2));`;
-    const command = [
-      process.execPath,
-      "--env-file=.env.local",
-      "--import",
-      "tsx",
-      "-e",
-      childCode,
-    ];
+    });
     const child = spawn(command[0], command.slice(1), {
       cwd: process.cwd(),
       env: process.env,

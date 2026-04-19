@@ -255,7 +255,13 @@ describe("syncShopifyCommerceReports", () => {
         businessId: "biz_1",
         startDate: expect.any(String),
         endDate: expect.any(String),
+        forceRefresh: true,
       })
+    );
+    expect(
+      vi.mocked(cacheOwners.warmShopifyOverviewReportCache).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(readAdapter.getShopifyOverviewReadCandidate).mock.invocationCallOrder[0],
     );
     expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -592,14 +598,20 @@ describe("syncShopifyCommerceReports", () => {
     expect(result).toEqual(
       expect.objectContaining({
         success: true,
+        materialization: expect.objectContaining({
+          canServeWarehouse: false,
+          reason: "snapshot warm failed",
+        }),
       }),
     );
     expect(warnSpy).toHaveBeenCalledWith(
-      "[shopify-sync] overview_snapshot_warm_failed",
+      "[shopify-sync] overview_snapshot_or_materialization_failed",
       expect.objectContaining({
         businessId: "biz_1",
       }),
     );
+    expect(overviewMaterializer.persistShopifyOverviewServingState).not.toHaveBeenCalled();
+    expect(overviewMaterializer.recordShopifyOverviewReconciliationRun).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 });

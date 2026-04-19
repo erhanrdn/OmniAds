@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Adsecute PostgreSQL Core Backup Daily
+Description=Run Adsecute PostgreSQL Application Core Backup Daily
 
 [Timer]
 OnCalendar=03:25

@@ -463,6 +463,7 @@ export async function getShopifyOverviewAggregate(params: {
   businessId: string;
   startDate: string;
   endDate: string;
+  forceRefresh?: boolean;
 }): Promise<ShopifyOverviewAggregate | null> {
   const integration = await getIntegration(params.businessId, "shopify");
   if (
@@ -486,14 +487,16 @@ export async function getShopifyOverviewAggregate(params: {
   }
 
   const dateRangeKey = getReportingDateRangeKey(params.startDate, params.endDate);
-  const cached = await getCachedReport<ShopifyOverviewAggregate>({
-    businessId: params.businessId,
-    provider: "shopify",
-    reportType: SHOPIFY_OVERVIEW_REPORT_TYPE,
-    dateRangeKey,
-    maxAgeMinutes: SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES,
-  });
-  if (cached) return cached;
+  if (params.forceRefresh !== true) {
+    const cached = await getCachedReport<ShopifyOverviewAggregate>({
+      businessId: params.businessId,
+      provider: "shopify",
+      reportType: SHOPIFY_OVERVIEW_REPORT_TYPE,
+      dateRangeKey,
+      maxAgeMinutes: SHOPIFY_OVERVIEW_CACHE_TTL_MINUTES,
+    });
+    if (cached) return cached;
+  }
 
   const dates = enumerateDays(params.startDate, params.endDate);
   const trendsByDate = new Map<

@@ -162,6 +162,53 @@ describe("getShopifyOverviewAggregate", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("bypasses cached snapshots when forceRefresh is requested", async () => {
+    vi.mocked(reportingCache.getCachedReport).mockResolvedValue({
+      revenue: 1,
+      purchases: 1,
+      averageOrderValue: 1,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [],
+    } as never);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          orders: {
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+            },
+            edges: [
+              {
+                node: {
+                  createdAt: "2026-03-01T10:00:00Z",
+                  processedAt: "2026-03-01T10:05:00Z",
+                  totalPriceSet: { shopMoney: { amount: "100.00" } },
+                  currentTotalPriceSet: { shopMoney: { amount: "100.00" } },
+                },
+              },
+            ],
+          },
+        },
+      }),
+    } as Response);
+
+    const aggregate = await getShopifyOverviewAggregate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-01",
+      forceRefresh: true,
+    });
+
+    expect(aggregate?.revenue).toBe(100);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("returns commerce metrics even when optional customer fields are unavailable", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce({
