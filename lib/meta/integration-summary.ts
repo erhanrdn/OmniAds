@@ -512,30 +512,29 @@ function buildExtendedStage(
   const recentWindowScope = scope === "recent_window";
   const recentWindowReadyByRange =
     recentWindowScope && status.recentExtendedReady !== false;
+  const historicalLag = status.historicalExtendedReady === false;
   const recentWindowReady =
     recentWindowScope &&
     (status.extendedCompleteness?.complete === true || recentWindowReadyByRange);
+  const recentLag = status.recentExtendedReady === false;
   const pendingSurfaces = Array.from(
     new Set(
       recentWindowReady
         ? []
         : (status.extendedCompleteness?.missingSurfaces?.length ?? 0) > 0
           ? status.extendedCompleteness?.missingSurfaces ?? []
-          : status.warehouse?.coverage?.pendingSurfaces ?? []
+          : recentWindowScope
+            ? []
+            : status.warehouse?.coverage?.pendingSurfaces ?? []
     )
   );
   const pendingSurfaceCount = pendingSurfaces.length;
   const breakdownMetrics = getBreakdownMetrics(status);
   const extendedSurfaceMetrics = getExtendedSurfaceMetrics(status);
-  const recentLag = status.recentExtendedReady === false;
-  const historicalLag = status.historicalExtendedReady === false;
-  const recentExtendedQueueActive =
-    (status.jobHealth?.extendedRecentQueueDepth ?? 0) > 0 ||
-    (status.jobHealth?.extendedRecentLeasedPartitions ?? 0) > 0;
   const historicalOnlyExtendedLag =
     recentWindowScope &&
     historicalLag &&
-    !recentExtendedQueueActive;
+    !recentWindowReady;
   const percent =
     recentWindowScope
       ? status.extendedCompleteness?.complete

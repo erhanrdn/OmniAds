@@ -394,6 +394,54 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
+  it("keeps recent-window extended surfaces ready when generic warehouse pending surfaces remain but recent breakdown truth is complete", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        extendedCompleteness: {
+          state: "partial",
+          complete: false,
+          percent: 83,
+          reason: "Breakdown history is still being prepared.",
+          summary: "Breakdown history is still being prepared.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        warehouse: {
+          coverage: {
+            pendingSurfaces: ["account_daily", "campaign_daily", "adset_daily", "creative_daily"],
+            breakdowns: {
+              completedDays: 5,
+              totalDays: 6,
+              readyThroughDate: "2026-04-18",
+            },
+          },
+        } as never,
+        recentExtendedReady: true,
+        historicalExtendedReady: false,
+        jobHealth: {
+          queueDepth: 0,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+          extendedRecentQueueDepth: 2,
+          extendedRecentLeasedPartitions: 1,
+          extendedHistoricalQueueDepth: 3,
+          extendedHistoricalLeasedPartitions: 1,
+        } as never,
+      })
+    );
+
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+      percent: null,
+      evidence: {
+        readyThroughDate: "2026-04-18",
+      },
+    });
+  });
+
   it("marks blocked selected-range truth and adds the attention stage", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({

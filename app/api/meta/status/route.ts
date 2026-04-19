@@ -733,23 +733,31 @@ export async function GET(request: NextRequest) {
           campaignsAvailable: false,
         }))
       : null;
+  const selectedRangeReadyTargetDays =
+    selectedRangeIsToday
+      ? selectedRangeTotalDays ?? 0
+      : selectedRangeIncludesCurrentDay
+        ? selectedRangeHistoricalTotalDays
+        : selectedRangeTotalDays ?? 0;
+  const selectedRangeCurrentDayLiveReady =
+    currentDayLive?.summaryAvailable === true &&
+    currentDayLive?.campaignsAvailable === true;
   const selectedRangeHybridCoreCompletedDays =
     selectedRangeIncludesCurrentDay && selectedRangeTotalDays
       ? Math.min(
-          selectedRangeTotalDays,
+          selectedRangeReadyTargetDays,
           selectedRangeHistoricalCompletedDays +
-            (currentDayLive?.summaryAvailable === true &&
-            currentDayLive?.campaignsAvailable === true
-              ? 1
-              : 0),
+            (selectedRangeCurrentDayLiveReady ? 1 : 0),
         )
       : selectedRangeCoreCompletedDays;
   const selectedRangeEffectiveCompletedDays = selectedRangeUsesLiveFallback
-    ? selectedRangeTotalDays ?? 0
-    : selectedRangeHybridCoreCompletedDays;
+    ? selectedRangeReadyTargetDays
+    : selectedRangeIncludesCurrentDay && !selectedRangeIsToday
+      ? Math.min(selectedRangeReadyTargetDays, selectedRangeHistoricalCompletedDays)
+      : selectedRangeHybridCoreCompletedDays;
   const selectedRangeEffectiveReady =
-    Boolean(selectedRangeTotalDays) &&
-    selectedRangeEffectiveCompletedDays >= (selectedRangeTotalDays ?? 0);
+    selectedRangeReadyTargetDays > 0 &&
+    selectedRangeEffectiveCompletedDays >= selectedRangeReadyTargetDays;
   const selectedRangeIncomplete =
     selectedRangeRequested
       ? selectedRangeUsesLiveFallback
@@ -759,7 +767,7 @@ export async function GET(request: NextRequest) {
   const selectedRangeCoreReadyThroughDate = selectedRangeUsesLiveFallback
     ? selectedEndDate ?? null
     : selectedRangeIncludesCurrentDay && selectedRangeEffectiveReady
-      ? selectedEndDate ?? null
+      ? selectedRangeTruthEndDate ?? null
       : earliestReadyThroughDate([
           selectedRangeCoverage?.ready_through_date ?? null,
           selectedRangeCampaignCoverage?.ready_through_date ?? null,
@@ -847,7 +855,9 @@ export async function GET(request: NextRequest) {
     selectedRangeRequested && selectedRangeTotalDays
       ? Math.min(
           100,
-          Math.round((selectedRangeEffectiveCompletedDays / selectedRangeTotalDays) * 100)
+          Math.round(
+            (selectedRangeEffectiveCompletedDays / Math.max(1, selectedRangeReadyTargetDays)) * 100
+          )
         )
       : recentWindowTotalDays > 0
         ? Math.min(
@@ -2098,9 +2108,9 @@ export async function GET(request: NextRequest) {
             selectedStartDate && selectedEndDate && selectedRangeTotalDays
               ? {
                   startDate: selectedStartDate,
-                  endDate: selectedEndDate,
+                  endDate: selectedRangeTruthEndDate ?? selectedEndDate,
                   completedDays: selectedRangeEffectiveCompletedDays,
-                  totalDays: selectedRangeTotalDays,
+                  totalDays: selectedRangeReadyTargetDays,
                   readyThroughDate: selectedRangeCoreReadyThroughDate,
                   isComplete: !selectedRangeIncomplete,
                 }
@@ -2330,9 +2340,9 @@ export async function GET(request: NextRequest) {
         selectedStartDate && selectedEndDate && selectedRangeTotalDays
           ? {
               startDate: selectedStartDate,
-              endDate: selectedEndDate,
+              endDate: selectedRangeTruthEndDate ?? selectedEndDate,
               completedDays: selectedRangeEffectiveCompletedDays,
-              totalDays: selectedRangeTotalDays,
+              totalDays: selectedRangeReadyTargetDays,
               isActive: Boolean(selectedRangeIncomplete) && (queueHealth?.leasedPartitions ?? 0) > 0,
             }
           : null,
