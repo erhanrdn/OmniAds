@@ -506,7 +506,8 @@ function buildPriorityStage(
 }
 
 function buildExtendedStage(
-  status: MetaIntegrationSummaryInput
+  status: MetaIntegrationSummaryInput,
+  scope: MetaIntegrationSummaryScope
 ): MetaIntegrationSummaryStage {
   const pendingSurfaces = Array.from(
     new Set(status.warehouse?.coverage?.pendingSurfaces ?? [])
@@ -516,18 +517,22 @@ function buildExtendedStage(
   const extendedSurfaceMetrics = getExtendedSurfaceMetrics(status);
   const recentLag = status.recentExtendedReady === false;
   const historicalLag = status.historicalExtendedReady === false;
+  const recentWindowScope = scope === "recent_window";
+  const recentWindowReady = recentWindowScope && status.recentExtendedReady !== false;
   const percent =
-    status.extendedCompleteness &&
-    !status.extendedCompleteness.complete &&
-    status.extendedCompleteness.percent != null
-      ? clampPercent(status.extendedCompleteness.percent)
-      : recentLag
+    recentWindowScope
+      ? recentLag
         ? extendedSurfaceMetrics.recentPercent
+        : null
+      : status.extendedCompleteness &&
+          !status.extendedCompleteness.complete &&
+          status.extendedCompleteness.percent != null
+        ? clampPercent(status.extendedCompleteness.percent)
         : historicalLag
           ? extendedSurfaceMetrics.historicalPercent
           : null;
 
-  if (status.extendedCompleteness?.state === "blocked") {
+  if (!recentWindowScope && status.extendedCompleteness?.state === "blocked") {
     return {
       key: "extended_surfaces",
       state: "blocked",
@@ -546,9 +551,10 @@ function buildExtendedStage(
   }
 
   if (
-    status.extendedCompleteness?.complete &&
-    status.recentExtendedReady !== false &&
-    status.historicalExtendedReady !== false &&
+    (recentWindowReady ||
+      (status.extendedCompleteness?.complete &&
+        status.recentExtendedReady !== false &&
+        status.historicalExtendedReady !== false)) &&
     pendingSurfaceCount === 0
   ) {
     return {
@@ -598,33 +604,38 @@ function buildExtendedStage(
     key: "extended_surfaces",
     state: "working",
     percent,
-    code: !status.extendedCompleteness?.complete
-      ? "breakdowns_preparing"
-      : recentLag
-        ? "recent_extended_preparing"
+    code: recentWindowScope
+      ? "recent_extended_preparing"
+      : !status.extendedCompleteness?.complete
+        ? "breakdowns_preparing"
         : historicalLag
           ? "historical_extended_preparing"
           : "breakdowns_preparing",
     evidence: compactEvidence({
-      completedDays: !status.extendedCompleteness?.complete
-        ? breakdownMetrics?.completedDays
-        : recentLag
+      completedDays: recentWindowScope
+        ? recentLag
           ? extendedSurfaceMetrics.recentCompleted
+          : undefined
+        : !status.extendedCompleteness?.complete
+          ? breakdownMetrics?.completedDays
           : historicalLag
             ? extendedSurfaceMetrics.historicalCompleted
             : undefined,
-      totalDays: !status.extendedCompleteness?.complete
-        ? breakdownMetrics?.totalDays
-        : recentLag
+      totalDays: recentWindowScope
+        ? recentLag
           ? extendedSurfaceMetrics.recentTotal
+          : undefined
+        : !status.extendedCompleteness?.complete
+          ? breakdownMetrics?.totalDays
           : historicalLag
             ? extendedSurfaceMetrics.historicalTotal
             : undefined,
       pendingSurfaceCount,
       pendingSurfaces,
-      readyThroughDate:
-        breakdownMetrics?.readyThroughDate ??
-        extendedSurfaceMetrics.readyThroughDate,
+      readyThroughDate: recentWindowScope
+        ? extendedSurfaceMetrics.readyThroughDate
+        : breakdownMetrics?.readyThroughDate ??
+          extendedSurfaceMetrics.readyThroughDate,
     }),
   };
 }
@@ -750,7 +761,7 @@ export function buildMetaIntegrationSummary(
     buildQueueStage(status),
     buildCoreStage(status),
     buildPriorityStage(status, scope),
-    buildExtendedStage(status),
+    buildExtendedStage(status, scope),
   ];
 
   if (shouldRenderAttentionStage(status)) {

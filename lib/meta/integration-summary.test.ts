@@ -172,11 +172,97 @@ describe("buildMetaIntegrationSummary", () => {
     expect(summary.stages[4]).toMatchObject({
       key: "extended_surfaces",
       state: "working",
-      code: "breakdowns_preparing",
-      percent: 33,
+      code: "recent_extended_preparing",
+      percent: 43,
       evidence: {
+        completedDays: 6,
+        totalDays: 14,
         pendingSurfaceCount: 2,
         pendingSurfaces: ["creative_daily", "ad_daily"],
+      },
+    });
+  });
+
+  it("keeps recent-window extended surfaces ready even when historical breakdown history still lags", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "ready",
+        latestSync: {
+          status: "succeeded",
+          readyThroughDate: "2026-04-14",
+          progressPercent: 100,
+          completedDays: 14,
+          totalDays: 14,
+        },
+        extendedCompleteness: {
+          state: "syncing",
+          complete: false,
+          percent: 0,
+          reason: "Breakdown history is still being prepared.",
+          summary: "Breakdown history is still being prepared.",
+          missingSurfaces: ["breakdowns.age"],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        rangeCompletionBySurface: {
+          account_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 180,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          campaign_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 180,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          adset_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 160,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          creative_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 120,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+          ad_daily: {
+            recentCompletedDays: 14,
+            recentTotalDays: 14,
+            historicalCompletedDays: 110,
+            historicalTotalDays: 365,
+            readyThroughDate: "2026-04-14",
+          },
+        },
+        recentExtendedReady: true,
+        historicalExtendedReady: false,
+        warehouse: {
+          coverage: {
+            pendingSurfaces: [],
+            breakdowns: {
+              completedDays: 0,
+              totalDays: 365,
+              readyThroughDate: null,
+            },
+          },
+        } as never,
+      })
+    );
+
+    expect(summary.scope).toBe("recent_window");
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+      percent: null,
+      evidence: {
+        readyThroughDate: "2026-04-14",
       },
     });
   });
