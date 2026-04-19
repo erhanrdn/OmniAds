@@ -14,6 +14,10 @@ import {
   getShopifyServingOverride,
   listShopifyReconciliationRuns,
 } from "@/lib/shopify/warehouse";
+import type { ShopifyOverviewAggregate } from "@/lib/shopify/overview";
+import type { ShopifyRevenueLedgerAggregate } from "@/lib/shopify/revenue-ledger";
+import type { ShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-overview";
+import type { ShopifyServingOverrideRecord } from "@/lib/shopify/warehouse-types";
 
 export type ShopifyProductionServingMode = "disabled" | "auto" | "force_live" | "force_warehouse";
 export type ShopifyPreferredOverviewSource =
@@ -52,6 +56,21 @@ export interface ShopifyOverviewServingMetadata {
   transactionCoverageAmountRate: number | null;
   explainedAdjustmentRevenue: number | null;
   unexplainedAdjustmentRevenue: number | null;
+}
+
+export interface ShopifyOverviewReadCandidate {
+  status: Awaited<ReturnType<typeof getShopifyStatus>>;
+  live: ShopifyOverviewAggregate | null;
+  warehouse: ShopifyWarehouseOverviewAggregate | null;
+  ledger: ShopifyRevenueLedgerAggregate | null;
+  override: ShopifyServingOverrideRecord | null;
+  divergence: ReturnType<typeof compareShopifyAggregates> | null;
+  ledgerConsistency: ReturnType<typeof compareShopifyWarehouseAndLedger> | null;
+  decisionReasons: string[];
+  canaryEnabled: boolean;
+  preferredSource: ShopifyPreferredOverviewSource;
+  canServeWarehouse: boolean;
+  servingMetadata: ShopifyOverviewServingMetadata;
 }
 
 function resolveProductionMode(raw: unknown): ShopifyProductionServingMode {
@@ -252,7 +271,7 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
   businessId: string;
   startDate: string;
   endDate: string;
-}) {
+}): Promise<ShopifyOverviewReadCandidate> {
   const integration = await getIntegrationMetadata(input.businessId, "shopify").catch(() => null);
   const providerAccountId =
     integration?.status === "connected" && integration.provider_account_id
@@ -332,9 +351,6 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
       persistedServing?.trustState === "pending_repair" ||
       persistedServing?.trustState === "disabled";
     if (persistedExplicitLiveFallback) {
-      live = await getShopifyOverviewAggregate(input).catch(() => null);
-    }
-    if (live) {
       preferredSource = "live";
     } else if (!warehouse && persistedPreferredSource === "warehouse") {
       warehouse = await getShopifyWarehouseOverviewAggregate({
@@ -398,7 +414,7 @@ export async function getShopifyOverviewReadCandidate(input: {
   businessId: string;
   startDate: string;
   endDate: string;
-}) {
+}): Promise<ShopifyOverviewReadCandidate> {
   const [integration, status, live, warehouse, ledger] = await Promise.all([
     getIntegrationMetadata(input.businessId, "shopify").catch(() => null),
     getShopifyStatus({

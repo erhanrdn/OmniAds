@@ -172,7 +172,7 @@ describe("getShopifyOverviewReadCandidate", () => {
     });
   });
 
-  it("uses persisted live fallback for summary reads without running full status resolution", async () => {
+  it("keeps persisted live fallback metadata for summary reads without live raw requests", async () => {
     vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue({
       businessId: "biz_1",
       providerAccountId: "shop",
@@ -190,17 +190,6 @@ describe("getShopifyOverviewReadCandidate", () => {
       assessedAt: "2026-04-02T10:00:00.000Z",
       decisionReasons: ["pending_repair"],
     } as never);
-    vi.mocked(overview.getShopifyOverviewAggregate).mockResolvedValue({
-      revenue: 1000,
-      purchases: 10,
-      averageOrderValue: 100,
-      sessions: null,
-      conversionRate: null,
-      newCustomers: null,
-      returningCustomers: null,
-      dailyTrends: [],
-    } as never);
-
     const result = await getShopifyOverviewSummaryReadCandidate({
       businessId: "biz_1",
       startDate: "2026-03-01",
@@ -208,10 +197,11 @@ describe("getShopifyOverviewReadCandidate", () => {
     });
 
     expect(result.preferredSource).toBe("live");
-    expect(result.live?.revenue).toBe(1000);
+    expect(result.live).toBeNull();
     expect(result.servingMetadata.trustState).toBe("live_fallback");
     expect(result.servingMetadata.fallbackReason).toBe("pending_repair");
     expect(status.getShopifyStatus).not.toHaveBeenCalled();
+    expect(overview.getShopifyOverviewAggregate).not.toHaveBeenCalled();
     expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
   });
 
