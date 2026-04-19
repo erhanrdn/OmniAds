@@ -2614,6 +2614,13 @@ describe("GET /api/meta/status", () => {
         endDate: "2026-04-12",
       })
     );
+    expect(vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-04-07",
+        endDate: "2026-04-12",
+      })
+    );
     expect(payload.currentCoreProgressPercent).toBe(100);
     expect(payload.coreReadiness).toMatchObject({
       state: "ready",
@@ -2626,10 +2633,39 @@ describe("GET /api/meta/status", () => {
       complete: true,
       selectedRangeMode: "historical_live_fallback",
     });
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
     expect(payload.warehouse.coverage.selectedRange).toMatchObject({
       completedDays: 7,
       totalDays: 7,
       isComplete: true,
+    });
+    expect(payload.warehouse.coverage.breakdownsBySurface).toEqual({
+      age: {
+        completedDays: 6,
+        totalDays: 6,
+        readyThroughDate: "2026-04-12",
+        isComplete: true,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+      location: {
+        completedDays: 6,
+        totalDays: 6,
+        readyThroughDate: "2026-04-12",
+        isComplete: true,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+      placement: {
+        completedDays: 6,
+        totalDays: 6,
+        readyThroughDate: "2026-04-12",
+        isComplete: true,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
     });
     expect(payload.priorityWindow).toMatchObject({
       completedDays: 7,

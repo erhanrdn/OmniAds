@@ -590,16 +590,6 @@ export async function GET(request: NextRequest) {
           endDate: selectedEndDate,
         }).catch(() => null)
       : null;
-  const selectedRangeBreakdownCoverageByEndpoint =
-    selectedStartDate && selectedEndDate
-      ? await getMetaRawSnapshotCoverageByEndpoint({
-          businessId: businessId!,
-          providerAccountId: null,
-          endpointNames: [...META_BREAKDOWN_ENDPOINTS],
-          startDate: selectedStartDate,
-          endDate: selectedEndDate,
-        }).catch(() => null)
-      : null;
   const selectedRangeTotalDays =
     selectedStartDate && selectedEndDate ? dayCountInclusive(selectedStartDate, selectedEndDate) : null;
   const selectedRangeRequested = Boolean(selectedStartDate && selectedEndDate && selectedRangeTotalDays);
@@ -642,6 +632,19 @@ export async function GET(request: NextRequest) {
       : 0;
   const selectedRangeTruthEndDate =
     selectedRangeIncludesCurrentDay ? selectedRangeHistoricalEndDate : selectedEndDate;
+  const selectedRangeBreakdownCoverageByEndpoint =
+    selectedRangeRequested &&
+    selectedStartDate &&
+    selectedRangeTruthEndDate &&
+    selectedStartDate <= selectedRangeTruthEndDate
+      ? await getMetaRawSnapshotCoverageByEndpoint({
+          businessId: businessId!,
+          providerAccountId: null,
+          endpointNames: [...META_BREAKDOWN_ENDPOINTS],
+          startDate: selectedStartDate,
+          endDate: selectedRangeTruthEndDate,
+        }).catch(() => null)
+      : null;
   const selectedRangeTruth =
     selectedRangeRequested &&
     selectedStartDate &&
