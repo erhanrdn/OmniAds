@@ -3481,7 +3481,6 @@ export async function runMigrations(options?: {
           total_price              NUMERIC(18, 4) NOT NULL DEFAULT 0,
           original_total_price     NUMERIC(18, 4) NOT NULL DEFAULT 0,
           current_total_price      NUMERIC(18, 4) NOT NULL DEFAULT 0,
-          payload_json             JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id       UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3524,7 +3523,6 @@ export async function runMigrations(options?: {
           discounted_total     NUMERIC(18, 4) NOT NULL DEFAULT 0,
           original_total       NUMERIC(18, 4) NOT NULL DEFAULT 0,
           tax_total            NUMERIC(18, 4) NOT NULL DEFAULT 0,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3545,7 +3543,6 @@ export async function runMigrations(options?: {
           refunded_shipping    NUMERIC(18, 4) NOT NULL DEFAULT 0,
           refunded_taxes       NUMERIC(18, 4) NOT NULL DEFAULT 0,
           total_refunded       NUMERIC(18, 4) NOT NULL DEFAULT 0,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3575,7 +3572,6 @@ export async function runMigrations(options?: {
           processed_at         TIMESTAMPTZ,
           amount               NUMERIC(18, 4) NOT NULL DEFAULT 0,
           currency_code        TEXT,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3595,7 +3591,6 @@ export async function runMigrations(options?: {
           created_date_local   DATE,
           updated_at_provider  TIMESTAMPTZ,
           updated_date_local   DATE,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3627,7 +3622,6 @@ export async function runMigrations(options?: {
           page_type            TEXT,
           page_url             TEXT,
           consent_state        TEXT,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, shop_id, event_id)
@@ -3653,7 +3647,6 @@ export async function runMigrations(options?: {
           refunded_taxes       NUMERIC(18,2) NOT NULL DEFAULT 0,
           net_revenue          NUMERIC(18,2) NOT NULL DEFAULT 0,
           currency_code        TEXT,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           source_snapshot_id   UUID REFERENCES shopify_raw_snapshots(id) ON DELETE SET NULL,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3686,11 +3679,9 @@ export async function runMigrations(options?: {
           shop_domain          TEXT NOT NULL,
           webhook_id           TEXT,
           payload_hash         TEXT NOT NULL,
-          payload_json         JSONB NOT NULL DEFAULT '{}'::jsonb,
           received_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           processed_at         TIMESTAMPTZ,
           processing_state     TEXT NOT NULL DEFAULT 'received',
-          result_summary       JSONB,
           error_message        TEXT,
           created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3900,7 +3891,6 @@ export async function runMigrations(options?: {
           status TEXT NOT NULL DEFAULT 'pending',
           attempt_count INTEGER NOT NULL DEFAULT 0,
           last_error TEXT,
-          last_sync_result JSONB,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           UNIQUE (business_id, provider_account_id, entity_type, entity_id, topic, payload_hash)
@@ -3922,7 +3912,6 @@ export async function runMigrations(options?: {
           latest_sync_window_start DATE,
           latest_sync_window_end   DATE,
           last_error               TEXT,
-          last_result_summary      JSONB,
           updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
           PRIMARY KEY (business_id, provider_account_id, sync_target)
         )`.catch(() => {}),
@@ -3930,8 +3919,6 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS cursor_timestamp TIMESTAMPTZ`.catch(() => {}),
         sql`ALTER TABLE shopify_sync_state
           ADD COLUMN IF NOT EXISTS cursor_value TEXT`.catch(() => {}),
-        sql`ALTER TABLE shopify_sync_state
-          ADD COLUMN IF NOT EXISTS last_result_summary JSONB`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_shopify_sync_state_business
           ON shopify_sync_state (business_id, updated_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS platform_overview_daily_summary (
@@ -4374,6 +4361,31 @@ export async function runMigrations(options?: {
               updated_at = now()
           `,
         ).catch(() => {}),
+      ]);
+
+      await runMigrationBatchSequentially([
+        sql`ALTER TABLE shopify_orders
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_order_lines
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_refunds
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_order_transactions
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_returns
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_sales_events
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_customer_events
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_webhook_deliveries
+          DROP COLUMN IF EXISTS payload_json`.catch(() => {}),
+        sql`ALTER TABLE shopify_webhook_deliveries
+          DROP COLUMN IF EXISTS result_summary`.catch(() => {}),
+        sql`ALTER TABLE shopify_repair_intents
+          DROP COLUMN IF EXISTS last_sync_result`.catch(() => {}),
+        sql`ALTER TABLE shopify_sync_state
+          DROP COLUMN IF EXISTS last_result_summary`.catch(() => {}),
       ]);
 
       await runMigrationBatchSequentially([

@@ -62,6 +62,11 @@ Acceptance:
 
 ## Shopify epic
 
+Status:
+- Cleanup cutover complete.
+- Fact payload blobs and mutable webhook/repair/sync detail now live in archive/state lanes.
+- Request-time Shopify summary stays projection-backed and read-only.
+
 Targets:
 - Introduce dimensions:
   - shops

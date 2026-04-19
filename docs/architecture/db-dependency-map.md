@@ -65,8 +65,8 @@ Legend:
 | `google_ads_runner_leases` | Google Ads worker/runner lease ownership. | `lib/google-ads/warehouse` | Google status, admin health, sync workers | expiry index | No (worker/admin) |
 | `sync_runner_leases` | Shared worker runner lease ledger. | `lib/sync/worker-runtime` | admin health, worker runtime | expiry index | No (worker/admin) |
 | `sync_worker_heartbeats` | Sync worker liveness snapshot. | `lib/sync/worker-runtime`, worker health helpers | admin health, Meta/Google status | status/heartbeat index | Indirect GET |
-| `shopify_sync_state` | Shopify sync cursors, readiness, and checkpoint dates. | `lib/shopify/sync-state`, webhooks, `lib/sync/shopify-sync` | `lib/shopify/status`, `lib/shopify/read-adapter` | business/provider index | Indirect GET |
-| `shopify_repair_intents` | Shopify repair work backlog. | `lib/shopify/warehouse`, webhook/sync handlers | status, read-adapter, admin health | business/updated index | Indirect GET |
+| `shopify_sync_state` | Shopify sync cursors, readiness, and checkpoint dates. Archive-backed `lastResultSummary` is intentionally kept out of the base row. | `lib/shopify/sync-state`, webhooks, `lib/sync/shopify-sync` | `lib/shopify/status`, `lib/shopify/read-adapter` | business/provider index | Indirect GET |
+| `shopify_repair_intents` | Shopify repair work backlog. Archive-backed `lastSyncResult` is intentionally kept out of the base row. | `lib/shopify/warehouse`, webhook/sync handlers | status, read-adapter, admin health | business/updated index | Indirect GET |
 | `shopify_serving_overrides` | Manual serving-mode override lane. | `app/api/admin/integrations/health/shopify/route.ts`, `lib/shopify/warehouse` | `lib/shopify/read-adapter`, admin health | PK `(business_id, provider_account_id, override_key)`; business/range index | Indirect GET |
 
 ## raw
@@ -126,6 +126,7 @@ Legend:
 | `shopify_returns` | Return-event facts. | `lib/shopify/warehouse`, webhooks, `lib/sync/shopify-sync` | `lib/shopify/warehouse-overview`, read-adapter, status | Unique `(business_id, provider_account_id, shop_id, return_id)`; local/fallback date indexes | Yes |
 | `shopify_customer_events` | Storefront/customer event stream. | webhook routes, `lib/shopify/warehouse` | customer-event analytics, status | Unique `(business_id, provider_account_id, shop_id, event_id)`; session index | Indirect GET |
 | `shopify_sales_events` | Ledger-style sales event stream used for warehouse serving/divergence. | `lib/shopify/warehouse`, webhooks, reconciliation flows | revenue-ledger, warehouse overview, divergence | Unique `(business_id, provider_account_id, shop_id, event_id)`; business/date index | Yes |
+| `shopify_entity_payload_archives` | Archive lane for Shopify fact payloads plus mutable webhook/repair/sync debug detail. | `lib/shopify/warehouse`, `lib/shopify/sync-state`, cleanup backfills | admin health/debug surfaces, sync-state detail hydration, cleanup audit tooling | Unique `(business_id, provider_account_id, shop_id, entity_type, entity_id)`; entity/business-account indexes | Indirect GET |
 
 ## serving
 
@@ -157,7 +158,7 @@ Legend:
 | `google_ads_advisor_execution_logs` | Per-action advisor execution audit log. | `lib/google-ads/advisor-memory`, mutate flows | admin/debug/advisor tooling | scope index `(business_id, account_id, created_at desc)` | Indirect GET |
 | `google_ads_decision_action_outcome_logs` | Recommendation outcome/rollback evidence log. | `lib/google-ads/search-intelligence-storage` | advisor/outcome analysis | business and recommendation indexes | Indirect GET |
 | `meta_authoritative_reconciliation_events` | Meta authoritative truth drift/reconciliation events. | `lib/meta/warehouse` | Meta status/admin health/reconciliation views | lookup index `(business_id, provider_account_id, day, surface)` | Indirect GET |
-| `shopify_webhook_deliveries` | Raw webhook receipt and processing audit trail. | Shopify webhook routes | admin health, repair/debug flows | unique `(shop_domain, topic, payload_hash)`; business index | No (webhook/admin) |
+| `shopify_webhook_deliveries` | Raw webhook receipt and processing audit trail. Payload/result detail is archive-backed and no longer lives inline. | Shopify webhook routes | admin health, repair/debug flows | unique `(shop_domain, topic, payload_hash)`; business index | No (webhook/admin) |
 | `sync_reclaim_events` | Lease reclaim/repair audit log across providers. | `lib/sync/worker-health`, orchestration helpers | admin sync health | provider/status index | Indirect GET |
 
 ## Notes
@@ -168,5 +169,6 @@ Legend:
 - Shared read helpers (`lib/overview-summary-store.ts`, `lib/reporting-cache.ts`, `lib/route-report-cache.ts`, `lib/seo/results-cache.ts`, `lib/shopify/read-adapter.ts`, `lib/shopify/overview.ts`) are intentionally write-free for these surfaces; ownership is recorded in `docs/architecture/serving-write-ownership-map.md`.
 - The hottest request-path pivots are `memberships`, `provider_connections`, `integration_credentials`, `business_provider_accounts`, `provider_account_snapshot_runs`, `provider_account_snapshot_items`, `meta_account_daily`, `google_ads_account_daily`, `shopify_orders`, `shopify_refunds`, `shopify_returns`, `platform_overview_*`, and `shopify_serving_state`.
 - `provider_reporting_snapshots`, `platform_overview_*`, and `shopify_*serving*` are serving/projection tables, not source-of-truth tables.
+- Shopify cleanup cutover moved request/admin detail reads off inline `payload_json` / `result_summary` / `last_sync_result` / `last_result_summary`; those now live in `shopify_entity_payload_archives`.
 - `meta_*_daily` and `google_ads_*_daily` are the historical warehouse truth tables currently mixed with live exceptions in request-time orchestration.
 - `integrations`, `provider_account_assignments`, and `provider_account_snapshots` remain only as retired compatibility surface until the second maintenance window drops them.

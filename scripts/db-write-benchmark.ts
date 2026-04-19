@@ -590,14 +590,14 @@ async function main() {
           INSERT INTO shopify_orders (
             business_id, provider_account_id, shop_id, order_id, order_name, order_created_at, order_created_date_local,
             subtotal_price, total_discounts, total_shipping, total_tax, total_refunded, total_price, original_total_price,
-            current_total_price, payload_json, updated_at
+            current_total_price, updated_at
           )
-          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,now())
+          VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13,$14,$15,now())
           ON CONFLICT (business_id, provider_account_id, shop_id, order_id) DO UPDATE SET
             total_price = EXCLUDED.total_price,
             updated_at = now()
         `,
-        [`${marker}-shopify-explain`, "shopify-act-explain", "shop-explain", "order-explain", "Order", normalizeTimestamp(new Date()), normalizeDate(new Date()), 10, 0, 1, 1, 0, 12, 12, 12, JSON.stringify({ explain: true })],
+        [`${marker}-shopify-explain`, "shopify-act-explain", "shop-explain", "order-explain", "Order", normalizeTimestamp(new Date()), normalizeDate(new Date()), 10, 0, 1, 1, 0, 12, 12, 12],
       ),
       await captureExplainPlan(
         "platform_overview_daily_summary_upsert",
