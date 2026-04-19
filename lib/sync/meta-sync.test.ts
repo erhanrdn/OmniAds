@@ -458,6 +458,20 @@ describe("syncMetaRepairRange trigger source precedence", () => {
   });
 });
 
+describe("recoverMetaD1FinalizePartitions partition updates", () => {
+  it("does not reference run.finished_at from partition-only UPDATE statements", () => {
+    const source = readFileSync(
+      new URL("./meta-sync.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain(
+      "finished_at = COALESCE(run.finished_at, now())",
+    );
+    expect(source).toContain("finished_at = COALESCE(finished_at, now())");
+  });
+});
+
 describe("logMetaQueueVisibility", () => {
   it("emits structured background scheduling visibility events", () => {
     const infoSpy = vi
