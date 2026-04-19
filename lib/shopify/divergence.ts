@@ -81,13 +81,32 @@ export interface ShopifyLedgerConsistency {
 export function compareShopifyAggregates(input: {
   live: ShopifyOverviewAggregate;
   warehouse: ShopifyWarehouseOverviewAggregate;
+  ledger?: ShopifyRevenueLedgerAggregate | null;
   maxRevenueDeltaPercent?: number;
   maxPurchaseDelta?: number;
   maxAovDelta?: number;
   maxDailyRevenueDeltaPercent?: number;
   maxDailyPurchaseDelta?: number;
 }) {
-  const revenueDelta = round2(input.warehouse.revenue - input.live.revenue);
+  const currentOrderRevenue =
+    typeof input.ledger?.currentOrderRevenue === "number"
+      ? round2(input.ledger.currentOrderRevenue)
+      : null;
+  const grossMinusRefundsOrderRevenue =
+    typeof input.ledger?.grossMinusRefundsOrderRevenue === "number"
+      ? round2(input.ledger.grossMinusRefundsOrderRevenue)
+      : null;
+  const comparisonWarehouseRevenue =
+    currentOrderRevenue !== null || grossMinusRefundsOrderRevenue !== null
+      ? pickClosestToZero(
+          [currentOrderRevenue, grossMinusRefundsOrderRevenue].filter(
+            (value): value is number => value !== null,
+          ).map((value) => round2(value - input.live.revenue)),
+        ) + input.live.revenue
+      : round2(input.warehouse.revenue);
+  const compareAgainstOrderRevenue =
+    comparisonWarehouseRevenue !== round2(input.warehouse.revenue);
+  const revenueDelta = round2(comparisonWarehouseRevenue - input.live.revenue);
   const revenueDeltaPercent = percentDelta(input.live.revenue, revenueDelta);
   const purchaseDelta = input.warehouse.purchases - input.live.purchases;
   const aovDelta =
@@ -113,7 +132,11 @@ export function compareShopifyAggregates(input: {
     const liveRow = liveDailyByDate.get(date);
     const warehouseRow = warehouseDailyByDate.get(date);
     const liveRevenue = round2(liveRow?.revenue ?? 0);
-    const warehouseRevenue = round2(warehouseRow?.netRevenue ?? 0);
+    const warehouseRevenue = round2(
+      compareAgainstOrderRevenue
+        ? warehouseRow?.orderRevenue ?? 0
+        : warehouseRow?.netRevenue ?? 0,
+    );
     const revenueDeltaForDay = round2(warehouseRevenue - liveRevenue);
     const revenueDeltaPercentForDay = percentDelta(liveRevenue, revenueDeltaForDay);
     if (
@@ -134,7 +157,7 @@ export function compareShopifyAggregates(input: {
 
   return {
     liveRevenue: round2(input.live.revenue),
-    warehouseRevenue: round2(input.warehouse.revenue),
+    warehouseRevenue: round2(comparisonWarehouseRevenue),
     revenueDelta,
     revenueDeltaPercent,
     livePurchases: input.live.purchases,

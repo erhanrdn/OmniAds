@@ -205,6 +205,154 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
   });
 
+  it("trusts ledger reads when live divergence is explained by carryover refund semantics", async () => {
+    vi.mocked(status.getShopifyStatus).mockResolvedValue({
+      state: "ready",
+      connected: true,
+      shopId: "shop",
+      warehouse: null,
+      sync: {
+        ordersRecent: {
+          latestSuccessfulSyncAt: "2026-04-19T06:45:28.766Z",
+          cursorTimestamp: "2026-04-19T06:34:42.000Z",
+          cursorValue: "2026-04-19T06:34:42Z",
+        },
+        returnsRecent: {
+          latestSuccessfulSyncAt: "2026-04-19T06:45:28.770Z",
+          cursorTimestamp: "2026-04-18T23:59:59.000Z",
+          cursorValue: "2026-04-18",
+        },
+        ordersHistorical: null,
+        returnsHistorical: null,
+      },
+      serving: null,
+      reconciliation: null,
+      issues: [],
+    } as never);
+    vi.mocked(overview.getShopifyOverviewAggregate).mockResolvedValue({
+      revenue: 20310.43,
+      purchases: 104,
+      averageOrderValue: 195.29,
+      sessions: null,
+      conversionRate: null,
+      newCustomers: null,
+      returningCustomers: null,
+      dailyTrends: [
+        {
+          date: "2026-04-12",
+          revenue: 3495.86,
+          purchases: 16,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        },
+        {
+          date: "2026-04-18",
+          revenue: 2137.55,
+          purchases: 16,
+          sessions: null,
+          conversionRate: null,
+          newCustomers: null,
+          returningCustomers: null,
+        },
+      ],
+    } as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 19591.82,
+      grossRevenue: 20460.22,
+      refundedRevenue: 868.4,
+      purchases: 105,
+      returnEvents: 0,
+      averageOrderValue: 194.86,
+      daily: [
+        {
+          date: "2026-04-12",
+          orderRevenue: 3495.86,
+          refundedRevenue: 67.12,
+          netRevenue: 3428.74,
+          orders: 16,
+          returnEvents: 0,
+        },
+        {
+          date: "2026-04-18",
+          orderRevenue: 2287.34,
+          refundedRevenue: 102.23,
+          netRevenue: 2185.11,
+          orders: 17,
+          returnEvents: 0,
+        },
+      ],
+    } as never);
+    vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
+      revenue: 19591.82,
+      grossRevenue: 20460.22,
+      refundedRevenue: 868.4,
+      purchases: 105,
+      returnEvents: 0,
+      averageOrderValue: 186.59,
+      currentOrderRevenue: 20238.5,
+      grossMinusRefundsOrderRevenue: 20238.5,
+      transactionCapturedRevenue: 20460.26,
+      transactionRefundedRevenue: 233.4,
+      transactionNetRevenue: 20226.86,
+      transactionCoveredOrders: 105,
+      transactionCoveredRevenue: 20460.26,
+      transactionCoverageRate: 100,
+      transactionCoverageAmountRate: 100,
+      daily: [
+        {
+          date: "2026-04-12",
+          orderRevenue: 3495.86,
+          refundedRevenue: 67.12,
+          netRevenue: 3428.74,
+          orders: 16,
+          returnEvents: 0,
+          orderEventCount: 16,
+          adjustmentEventCount: 1,
+          refundEventCount: 1,
+          adjustmentRevenue: -67.12,
+          refundPressure: 67.12,
+          dailySemanticDrift: 134.24,
+        },
+        {
+          date: "2026-04-18",
+          orderRevenue: 2287.34,
+          refundedRevenue: 102.23,
+          netRevenue: 2185.11,
+          orders: 17,
+          returnEvents: 0,
+          orderEventCount: 17,
+          adjustmentEventCount: 2,
+          refundEventCount: 2,
+          adjustmentRevenue: -59.35,
+          refundPressure: 102.23,
+          dailySemanticDrift: 161.58,
+        },
+      ],
+      ledgerRows: 7,
+      orderEventCount: 105,
+      adjustmentEventCount: 8,
+      refundEventCount: 9,
+      adjustmentRevenue: -825.52,
+      refundPressure: 868.4,
+      dailySemanticDrift: 1693.92,
+      carryoverRefundRevenue: 646.68,
+    } as never);
+
+    const result = await getShopifyOverviewReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-04-12",
+      endDate: "2026-04-18",
+    });
+
+    expect(result.divergence?.withinThreshold).toBe(true);
+    expect(result.preferredSource).toBe("ledger");
+    expect(result.canServeWarehouse).toBe(true);
+    expect(result.servingMetadata.trustState).toBe("trusted");
+    expect(result.decisionReasons).toEqual([]);
+  });
+
   it("uses fresh trusted reconciliation evidence for summary reads without live fallback", async () => {
     const now = new Date().toISOString();
     vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue(null as never);

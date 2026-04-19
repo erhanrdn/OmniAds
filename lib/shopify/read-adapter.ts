@@ -453,6 +453,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       ? compareShopifyAggregates({
           live,
           warehouse,
+          ledger,
         })
       : null;
   const ledgerConsistency =
