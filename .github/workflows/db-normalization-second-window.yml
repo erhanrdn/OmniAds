@@ -171,19 +171,115 @@ jobs:
           echo "Timed out waiting for public runtime to serve ${EXPECTED_SHA}."
           exit 1
 
-      - name: Setup Node
+      - name: Evaluate public closeout readiness
+        id: readiness
         if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          WINDOW_MODE: ${{ steps.execution.outputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          attempts=30
+          sleep_seconds=10
+          attempt=1
+          action_on_unready="fail"
+          if [ "${EVENT_NAME}" = "workflow_run" ] && [ "${WINDOW_MODE}" = "preflight" ]; then
+            action_on_unready="skip"
+          fi
+
+          read_build_info_fields() {
+            python3 -c '
+              import json, sys
+              data = json.load(sys.stdin)
+              cp = data.get("controlPlanePersistence") or {}
+              repair = data.get("repairPlan") or {}
+              recommendations = repair.get("recommendations")
+              repair_count = len(recommendations) if isinstance(recommendations, list) else -1
+              print("\t".join([
+                str(data.get("buildId") or ""),
+                "true" if cp.get("exactRowsPresent") is True else "false",
+                str((data.get("deployGate") or {}).get("verdict") or ""),
+                str((data.get("releaseGate") or {}).get("verdict") or ""),
+                str(repair_count),
+              ]), end="")
+            '
+          }
+
+          readiness_reason="unavailable"
+          while [ "${attempt}" -le "${attempts}" ]; do
+            if payload="$(curl -fsSL https://adsecute.com/api/build-info 2>/dev/null)"; then
+              fields="$(printf '%s' "${payload}" | read_build_info_fields)"
+              IFS=$'\t' read -r current_sha exact_rows_present deploy_gate release_gate repair_plan_count <<< "${fields}"
+              echo "public_closeout attempt=${attempt}/${attempts} build=${current_sha} exactRowsPresent=${exact_rows_present} deployGate=${deploy_gate} releaseGate=${release_gate} repairPlanCount=${repair_plan_count}"
+
+              if [ "${current_sha}" != "${EXPECTED_SHA}" ]; then
+                readiness_reason="build_mismatch"
+              elif [ "${exact_rows_present}" != "true" ]; then
+                readiness_reason="exact_rows_missing"
+              elif [ "${deploy_gate}" != "pass" ]; then
+                readiness_reason="deploy_gate_${deploy_gate:-missing}"
+              elif [ "${release_gate}" != "pass" ]; then
+                readiness_reason="release_gate_${release_gate:-missing}"
+              elif [ "${repair_plan_count}" != "0" ]; then
+                readiness_reason="repair_plan_count_${repair_plan_count}"
+              else
+                echo "ready=true" >> "$GITHUB_OUTPUT"
+                echo "reason=ready" >> "$GITHUB_OUTPUT"
+                {
+                  echo "### DB Normalization Second Window"
+                  echo
+                  echo "- status: ready"
+                  echo "- buildId: ${current_sha}"
+                  echo "- exactRowsPresent: ${exact_rows_present}"
+                  echo "- deployGate: ${deploy_gate}"
+                  echo "- releaseGate: ${release_gate}"
+                  echo "- repairPlanCount: ${repair_plan_count}"
+                } >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            else
+              echo "public_closeout attempt=${attempt}/${attempts} fetch_failed"
+              readiness_reason="fetch_failed"
+            fi
+
+            sleep "${sleep_seconds}"
+            attempt=$((attempt + 1))
+          done
+
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "reason=${readiness_reason}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### DB Normalization Second Window"
+            echo
+            echo "- status: ${action_on_unready}"
+            echo "- buildId: ${EXPECTED_SHA}"
+            echo "- reason: ${readiness_reason}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${action_on_unready}" = "skip" ]; then
+            echo "Skipping automatic second-window preflight for ${EXPECTED_SHA}; public closeout readiness is not clean (${readiness_reason})."
+            exit 0
+          fi
+
+          echo "Public closeout readiness is not clean for ${EXPECTED_SHA}: ${readiness_reason}."
+          exit 1
+
+      - name: Setup Node
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install
-        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         run: npm ci
 
       - name: Validate second-window shell block syntax
-        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -205,7 +301,7 @@ jobs:
           bash -n /tmp/db-normalization-second-window-run.sh
 
       - name: Run second window over SSH and collect artifacts
-        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
           WINDOW_MODE: ${{ steps.execution.outputs.mode }}
@@ -736,7 +832,7 @@ jobs:
           fi
 
       - name: Assert second-window artifact completeness
-        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         run: |
           set -euo pipefail
 
@@ -768,7 +864,7 @@ jobs:
           fi
 
       - name: Compare before/after artifacts
-        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         run: |
           set -euo pipefail
 
@@ -778,7 +874,7 @@ jobs:
           node --import tsx scripts/db-normalization-compare.ts --run-dir "${local_run_dir}"
 
       - name: Verify strict public watch window
-        if: steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true'
+        if: (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -796,7 +892,7 @@ jobs:
             --out-file ".artifacts/db-normalization-second-window/${{ steps.expected.outputs.sha }}/${{ steps.execution.outputs.mode }}/meta-watch-window.json"
 
       - name: Upload second-window artifact bundle
-        if: ${{ always() && (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') }}
+        if: ${{ always() && (steps.execution.outputs.require_current_main_head != 'true' || steps.freshness.outputs.should_run == 'true') && steps.readiness.outputs.ready == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: db-normalization-second-window-${{ steps.expected.outputs.sha }}-${{ steps.execution.outputs.mode }}
