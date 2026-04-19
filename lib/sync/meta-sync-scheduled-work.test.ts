@@ -668,7 +668,7 @@ describe("enqueueMetaScheduledWork", () => {
     vi.useRealTimers();
   });
 
-  it("starts historical backfill from D-2 only after D-1 is published", async () => {
+  it("starts historical backfill from the oldest incomplete day without waiting for recent publish", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
     vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
@@ -685,7 +685,7 @@ describe("enqueueMetaScheduledWork", () => {
     expect(historicalCalls).toEqual([
       expect.objectContaining({
         providerAccountId: "act_1",
-        partitionDate: "2026-04-04",
+        partitionDate: "2025-04-06",
         source: "historical",
       }),
     ]);
@@ -693,7 +693,7 @@ describe("enqueueMetaScheduledWork", () => {
     vi.useRealTimers();
   });
 
-  it("moves historical backfill to the next older day only after D-1 and D-2 are published", async () => {
+  it("keeps historical backfill anchored to the oldest incomplete day even when recent days are already published", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-06T09:00:00.000Z"));
     vi.mocked(warehouse.listMetaAuthoritativeDayStates).mockResolvedValue(
@@ -710,7 +710,7 @@ describe("enqueueMetaScheduledWork", () => {
     expect(historicalCalls).toEqual([
       expect.objectContaining({
         providerAccountId: "act_1",
-        partitionDate: "2026-04-03",
+        partitionDate: "2025-04-06",
         source: "historical",
       }),
     ]);
