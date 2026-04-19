@@ -12,6 +12,7 @@ import { getShopifyWarehouseOverviewAggregate } from "@/lib/shopify/warehouse-ov
 import {
   getShopifyServingState,
   getShopifyServingOverride,
+  listShopifyReconciliationRuns,
 } from "@/lib/shopify/warehouse";
 
 export type ShopifyProductionServingMode = "disabled" | "auto" | "force_live" | "force_warehouse";
@@ -124,11 +125,67 @@ function defaultCutoverEnabled() {
   return raw === "1" || raw === "true";
 }
 
-function buildServingMetadataFromPersisted(input: {
+function shopifyCanaryTrustTtlMinutes() {
+  const parsed = Number(process.env.SHOPIFY_CANARY_TRUST_TTL_MINUTES ?? "30");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+}
+
+function isFreshTimestampMinutes(value: string | null | undefined, maxAgeMinutes: number) {
+  if (!value) return false;
+  const ageMs = Date.now() - new Date(value).getTime();
+  return Number.isFinite(ageMs) && ageMs <= maxAgeMinutes * 60_000;
+}
+
+function pickLatestTrustedReconciliationRun(
+  runs: Array<{
+    recordedAt?: string | null;
+    canServeWarehouse?: boolean;
+    preferredSource?: string | null;
+    divergence?: Record<string, unknown> | null;
+  }>,
+) {
+  return (
+    runs.find((run) => {
+      const preferredSource =
+        run.preferredSource === "ledger"
+          ? "ledger"
+          : run.preferredSource === "warehouse"
+            ? "warehouse"
+            : null;
+      const divergenceWithin = run.divergence?.withinThreshold === true;
+      const ledgerWithin =
+        run.divergence?.ledgerConsistency == null ||
+        (
+          typeof run.divergence.ledgerConsistency === "object" &&
+          (run.divergence.ledgerConsistency as Record<string, unknown>).withinThreshold ===
+            true
+        );
+      return (
+        run.canServeWarehouse === true &&
+        preferredSource !== null &&
+        divergenceWithin &&
+        ledgerWithin &&
+        isFreshTimestampMinutes(run.recordedAt ?? null, shopifyCanaryTrustTtlMinutes())
+      );
+    }) ?? null
+  );
+}
+
+function buildServingMetadata(input: {
   persistedServing: Awaited<ReturnType<typeof getShopifyServingState>> | null;
   preferredSource: ShopifyPreferredOverviewSource;
+  productionMode?: ShopifyProductionServingMode;
+  fallbackReason?: string | null;
+  trustState?: ShopifyServingTrustState;
+  lastSyncedAt?: string | null;
+  coverageStatus?: ShopifyServingCoverageStatus;
+  divergence?: Record<string, unknown> | null;
 }) {
   const persistedServing = input.persistedServing;
+  const divergence =
+    (input.divergence && typeof input.divergence === "object"
+      ? input.divergence
+      : persistedServing?.divergence) ?? null;
   return {
     source:
       input.preferredSource === "ledger"
@@ -139,40 +196,56 @@ function buildServingMetadataFromPersisted(input: {
             ? "none"
             : "live",
     provider: "shopify" as const,
-    trustState: persistedServing?.trustState ?? (input.preferredSource === "none" ? "no_data" : "live_fallback"),
-    fallbackReason: persistedServing?.fallbackReason ?? null,
-    lastSyncedAt: persistedServing?.assessedAt ?? null,
-    coverageStatus: persistedServing?.coverageStatus ?? "unknown",
-    productionMode: persistedServing?.productionMode ?? "disabled",
+    trustState:
+      input.trustState ??
+      persistedServing?.trustState ??
+      (input.preferredSource === "none" ? "no_data" : "live_fallback"),
+    fallbackReason: input.fallbackReason ?? persistedServing?.fallbackReason ?? null,
+    lastSyncedAt:
+      input.lastSyncedAt ??
+      persistedServing?.assessedAt ??
+      null,
+    coverageStatus: input.coverageStatus ?? persistedServing?.coverageStatus ?? "unknown",
+    productionMode: input.productionMode ?? persistedServing?.productionMode ?? "disabled",
     pendingRepair: persistedServing?.pendingRepair === true,
     pendingRepairStartedAt: persistedServing?.pendingRepairStartedAt ?? null,
     pendingRepairLastTopic: persistedServing?.pendingRepairLastTopic ?? null,
     pendingRepairLastReceivedAt: persistedServing?.pendingRepairLastReceivedAt ?? null,
     selectedRevenueTruthBasis:
-      typeof persistedServing?.divergence?.selectedRevenueTruthBasis === "string"
-        ? persistedServing.divergence.selectedRevenueTruthBasis
+      typeof divergence?.selectedRevenueTruthBasis === "string"
+        ? divergence.selectedRevenueTruthBasis
         : null,
     basisSelectionReason:
-      typeof persistedServing?.divergence?.basisSelectionReason === "string"
-        ? persistedServing.divergence.basisSelectionReason
+      typeof divergence?.basisSelectionReason === "string"
+        ? divergence.basisSelectionReason
         : null,
     transactionCoverageOrderRate:
-      typeof persistedServing?.divergence?.transactionCoverageOrderRate === "number"
-        ? persistedServing.divergence.transactionCoverageOrderRate
+      typeof divergence?.transactionCoverageOrderRate === "number"
+        ? divergence.transactionCoverageOrderRate
         : null,
     transactionCoverageAmountRate:
-      typeof persistedServing?.divergence?.transactionCoverageAmountRate === "number"
-        ? persistedServing.divergence.transactionCoverageAmountRate
+      typeof divergence?.transactionCoverageAmountRate === "number"
+        ? divergence.transactionCoverageAmountRate
         : null,
     explainedAdjustmentRevenue:
-      typeof persistedServing?.divergence?.explainedAdjustmentRevenue === "number"
-        ? persistedServing.divergence.explainedAdjustmentRevenue
+      typeof divergence?.explainedAdjustmentRevenue === "number"
+        ? divergence.explainedAdjustmentRevenue
         : null,
     unexplainedAdjustmentRevenue:
-      typeof persistedServing?.divergence?.unexplainedAdjustmentRevenue === "number"
-        ? persistedServing.divergence.unexplainedAdjustmentRevenue
+      typeof divergence?.unexplainedAdjustmentRevenue === "number"
+        ? divergence.unexplainedAdjustmentRevenue
         : null,
   } satisfies ShopifyOverviewServingMetadata;
+}
+
+function buildServingMetadataFromPersisted(input: {
+  persistedServing: Awaited<ReturnType<typeof getShopifyServingState>> | null;
+  preferredSource: ShopifyPreferredOverviewSource;
+}) {
+  return buildServingMetadata({
+    persistedServing: input.persistedServing,
+    preferredSource: input.preferredSource,
+  });
 }
 
 export async function getShopifyOverviewSummaryReadCandidate(input: {
@@ -200,19 +273,41 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
           canaryKey,
         }).catch(() => null)
       : null;
+  const reconciliationRuns =
+    providerAccountId && canaryKey
+      ? await listShopifyReconciliationRuns({
+          businessId: input.businessId,
+          providerAccountId,
+          reconciliationKey: canaryKey,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          limit: 5,
+        }).catch(() => [])
+      : [];
 
   let live = null;
   let warehouse = null;
   let ledger = null;
   let preferredSource: ShopifyPreferredOverviewSource = "none";
+  const productionMode = resolveProductionMode(
+    integration?.metadata?.shopifyProductionServingMode,
+  );
 
   const persistedPreferredSource =
     persistedServing?.preferredSource === "ledger" || persistedServing?.preferredSource === "warehouse"
       ? (persistedServing.preferredSource as ShopifyPreferredOverviewSource)
       : "live";
   const persistedTrusted = persistedServing?.trustState === "trusted";
+  const trustedReconciliationRun = pickLatestTrustedReconciliationRun(reconciliationRuns);
+  const trustedProjectionSource =
+    persistedTrusted && persistedPreferredSource !== "live"
+      ? persistedPreferredSource
+      : trustedReconciliationRun?.preferredSource === "ledger" ||
+          trustedReconciliationRun?.preferredSource === "warehouse"
+        ? (trustedReconciliationRun.preferredSource as ShopifyPreferredOverviewSource)
+        : null;
 
-  if (persistedTrusted && persistedPreferredSource === "ledger") {
+  if (trustedProjectionSource === "ledger") {
     ledger = await getShopifyRevenueLedgerAggregate({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -221,7 +316,7 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
     if (ledger) preferredSource = "ledger";
   }
 
-  if (preferredSource === "none" && persistedTrusted && persistedPreferredSource === "warehouse") {
+  if (preferredSource === "none" && trustedProjectionSource === "warehouse") {
     warehouse = await getShopifyWarehouseOverviewAggregate({
       businessId: input.businessId,
       startDate: input.startDate,
@@ -231,7 +326,14 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
   }
 
   if (preferredSource === "none") {
-    live = await getShopifyOverviewAggregate(input).catch(() => null);
+    const persistedExplicitLiveFallback =
+      persistedServing?.preferredSource === "live" ||
+      persistedServing?.trustState === "live_fallback" ||
+      persistedServing?.trustState === "pending_repair" ||
+      persistedServing?.trustState === "disabled";
+    if (persistedExplicitLiveFallback) {
+      live = await getShopifyOverviewAggregate(input).catch(() => null);
+    }
     if (live) {
       preferredSource = "live";
     } else if (!warehouse && persistedPreferredSource === "warehouse") {
@@ -269,13 +371,26 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
     divergence: null,
     ledgerConsistency: null,
     decisionReasons: persistedServing?.decisionReasons ?? [],
-    canaryEnabled: persistedServing?.canaryEnabled === true,
+    canaryEnabled:
+      persistedServing?.canaryEnabled === true || trustedReconciliationRun != null,
     preferredSource,
     canServeWarehouse: preferredSource === "ledger" || preferredSource === "warehouse",
-    servingMetadata: buildServingMetadataFromPersisted({
-      persistedServing,
-      preferredSource,
-    }),
+    servingMetadata:
+      trustedReconciliationRun && !persistedTrusted && preferredSource !== "live"
+        ? buildServingMetadata({
+            persistedServing,
+            preferredSource,
+            productionMode,
+            trustState: preferredSource === "none" ? "no_data" : "trusted",
+            fallbackReason: null,
+            lastSyncedAt: trustedReconciliationRun.recordedAt ?? null,
+            coverageStatus: persistedServing?.coverageStatus ?? "unknown",
+            divergence: trustedReconciliationRun.divergence ?? null,
+          })
+        : buildServingMetadataFromPersisted({
+            persistedServing,
+            preferredSource,
+          }),
   } as const;
 }
 

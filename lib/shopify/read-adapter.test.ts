@@ -215,6 +215,53 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
   });
 
+  it("uses fresh trusted reconciliation evidence for summary reads without live fallback", async () => {
+    const now = new Date().toISOString();
+    vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouseState.listShopifyReconciliationRuns).mockResolvedValue([
+      {
+        recordedAt: now,
+        canServeWarehouse: true,
+        preferredSource: "ledger",
+        divergence: {
+          withinThreshold: true,
+          ledgerConsistency: {
+            withinThreshold: true,
+          },
+          selectedRevenueTruthBasis: "gross_minus_total_refunded",
+          basisSelectionReason: "closest_gross_minus_refunds_revenue",
+        },
+      },
+    ] as never);
+    vi.mocked(revenueLedger.getShopifyRevenueLedgerAggregate).mockResolvedValue({
+      revenue: 1001,
+      grossRevenue: 1020,
+      refundedRevenue: 19,
+      purchases: 10,
+      returnEvents: 0,
+      averageOrderValue: 100.1,
+      daily: [],
+      ledgerRows: 1,
+    } as never);
+
+    const result = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(result.preferredSource).toBe("ledger");
+    expect(result.live).toBeNull();
+    expect(result.ledger?.revenue).toBe(1001);
+    expect(result.servingMetadata.trustState).toBe("trusted");
+    expect(result.servingMetadata.source).toBe("ledger");
+    expect(result.servingMetadata.selectedRevenueTruthBasis).toBe(
+      "gross_minus_total_refunded",
+    );
+    expect(overview.getShopifyOverviewAggregate).not.toHaveBeenCalled();
+    expect(status.getShopifyStatus).not.toHaveBeenCalled();
+  });
+
   it("allows warehouse canary when status is ready and divergence is within threshold", async () => {
     process.env.SHOPIFY_WAREHOUSE_READ_CANARY = "true";
     vi.mocked(status.getShopifyStatus).mockResolvedValue({

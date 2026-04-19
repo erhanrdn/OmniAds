@@ -151,6 +151,19 @@ function summarizeReconciliationRuns(
   };
 }
 
+function hasFreshStableReconciliationTrust(
+  reconciliation: ShopifyReconciliationSummary | null,
+) {
+  return Boolean(
+    reconciliation &&
+      reconciliation.stableRunCount > 0 &&
+      isFreshTimestampMinutes(
+        reconciliation.latestRecordedAt ?? null,
+        shopifyCanaryTrustTtlMinutes(),
+      ),
+  );
+}
+
 function hasFreshServingTrust(input: {
   serving: Awaited<ReturnType<typeof getShopifyServingState>> | null;
   ordersRecent: Awaited<ReturnType<typeof getShopifySyncState>>;
@@ -353,6 +366,7 @@ export async function getShopifyStatus(
     );
   const ignoreServingTrust =
     typeof input !== "string" && input.ignoreServingTrust === true;
+  const reconciliationTrustReady = hasFreshStableReconciliationTrust(reconciliation);
   const servingTrustFresh = hasFreshServingTrust({
     serving,
     ordersRecent,
@@ -387,16 +401,31 @@ export async function getShopifyStatus(
   if (!historicalReady) {
     issues.push("Historical Shopify backfill is not complete yet.");
   }
-  if (!ignoreServingTrust && serving?.canaryEnabled && serving.canServeWarehouse === false) {
+  if (
+    !ignoreServingTrust &&
+    !reconciliationTrustReady &&
+    serving?.canaryEnabled &&
+    serving.canServeWarehouse === false
+  ) {
     issues.push("Shopify warehouse canary is blocked by trust checks.");
   }
-  if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustFresh) {
+  if (!ignoreServingTrust && !reconciliationTrustReady && serving?.canaryEnabled && !servingTrustFresh) {
     issues.push("Shopify warehouse canary trust is stale relative to recent sync.");
   }
-  if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustMatchesSyncBasis) {
+  if (
+    !ignoreServingTrust &&
+    !reconciliationTrustReady &&
+    serving?.canaryEnabled &&
+    !servingTrustMatchesSyncBasis
+  ) {
     issues.push("Shopify warehouse canary trust no longer matches the latest sync watermark state.");
   }
-  if (!ignoreServingTrust && serving?.canaryEnabled && !servingTrustMatchesHistoricalBasis) {
+  if (
+    !ignoreServingTrust &&
+    !reconciliationTrustReady &&
+    serving?.canaryEnabled &&
+    !servingTrustMatchesHistoricalBasis
+  ) {
     issues.push("Shopify warehouse canary trust no longer matches the latest historical backfill state.");
   }
   if (!ignoreServingTrust && defaultCutoverEnabled() && reconciliation && !reconciliation.defaultCutoverEligible) {
@@ -405,6 +434,7 @@ export async function getShopifyStatus(
 
   const servingTrustReady =
     ignoreServingTrust ||
+    reconciliationTrustReady ||
     !serving?.canaryEnabled ||
     (
       serving.canServeWarehouse !== false &&
