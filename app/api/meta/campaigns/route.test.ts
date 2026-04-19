@@ -44,6 +44,10 @@ vi.mock("@/lib/meta/live", () => ({
   getMetaLiveCampaignRows: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/meta-sync", () => ({
+  getMetaSelectedRangeTruthReadiness: vi.fn(),
+}));
+
 const businessMode = await import("@/lib/business-mode.server");
 const access = await import("@/lib/access");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
@@ -53,6 +57,7 @@ const migrations = await import("@/lib/migrations");
 const readiness = await import("@/lib/meta/readiness");
 const serving = await import("@/lib/meta/serving");
 const live = await import("@/lib/meta/live");
+const metaSync = await import("@/lib/sync/meta-sync");
 
 describe("GET /api/meta/campaigns", () => {
   beforeEach(() => {
@@ -90,6 +95,11 @@ describe("GET /api/meta/campaigns", () => {
     vi.mocked(readiness.getMetaPartialReason).mockReturnValue(
       "Current-day live Meta campaign data is still being prepared.",
     );
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: true,
+      verificationState: "finalized_verified",
+      state: "ready",
+    } as never);
   });
 
   it("serves warehouse-backed historical data even without a live access token", async () => {
@@ -230,6 +240,62 @@ describe("GET /api/meta/campaigns", () => {
     expect(payload.notReadyReason).toContain("Current-day live Meta campaign data");
     expect(live.getMetaLiveCampaignRows).toHaveBeenCalledTimes(1);
     expect(serving.getMetaWarehouseCampaignTable).not.toHaveBeenCalled();
+  });
+
+  it("uses the historical truth end date when a selected range includes today", async () => {
+    vi.mocked(integrations.getIntegration).mockResolvedValue({
+      status: "connected",
+    } as never);
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: true,
+      selectedRangeHistoricalEndDate: "2026-03-30",
+      selectedRangeTruthEndDate: "2026-03-30",
+      currentDateInTimezone: "2026-03-31",
+      primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
+    } as never);
+    vi.mocked(serving.getMetaWarehouseCampaignTable).mockResolvedValue([
+      {
+        id: "cmp_hist",
+        name: "Historical Campaign",
+        status: "ACTIVE",
+        objective: "Sales",
+        spend: 75,
+        revenue: 210,
+        roas: 2.8,
+        cpa: 15,
+        dailyBudget: 1500,
+        lifetimeBudget: null,
+        previousDailyBudget: null,
+        previousLifetimeBudget: null,
+        previousBudgetCapturedAt: null,
+      },
+    ] as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/campaigns?businessId=biz&startDate=2026-03-25&endDate=2026-03-31"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.rows).toHaveLength(1);
+    expect(payload.isPartial).toBe(false);
+    expect(payload.notReadyReason).toBeNull();
+    expect(serving.getMetaWarehouseCampaignTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-03-25",
+        endDate: "2026-03-30",
+        includePrev: false,
+      })
+    );
+    expect(live.getMetaLiveCampaignRows).not.toHaveBeenCalled();
   });
 
   it("forwards includePrev for the current page budget-change contract", async () => {

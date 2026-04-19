@@ -43,6 +43,7 @@ const {
   getMetaPublishedVerificationSummary,
   upsertMetaAdDailyRows,
   getMetaAdSetDailyRange,
+  getMetaBreakdownDailyRange,
   getMetaCampaignDailyRange,
   getMetaDirtyRecentDates,
   getMetaRecentAuthoritativeSliceGuard,
@@ -88,6 +89,25 @@ describe("meta warehouse ownership safety", () => {
       day: "2026-04-06",
       surface: "campaign_daily",
     });
+  });
+
+  it("accepts finalized_verified breakdown rows in the serving range reader", async () => {
+    let capturedQuery = "";
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      capturedQuery = strings.join(" ");
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await getMetaBreakdownDailyRange({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-02",
+      providerAccountIds: ["act_1"],
+      breakdownTypes: ["age"],
+    });
+
+    expect(capturedQuery).toContain("COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')");
   });
 
   it("builds a normalized authoritative day-state lookup key and required surface buckets", () => {

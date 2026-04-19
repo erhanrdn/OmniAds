@@ -174,6 +174,7 @@ function buildMetaStatusCacheKey(input: {
   businessId: string;
   startDate: string | null;
   endDate: string | null;
+  diagnostics: boolean;
 }) {
   return [
     "meta-status:v1",
@@ -181,6 +182,7 @@ function buildMetaStatusCacheKey(input: {
     input.businessId,
     input.startDate ?? "recent",
     input.endDate ?? "recent",
+    input.diagnostics ? "diagnostics" : "default",
   ].join(":");
 }
 
@@ -301,6 +303,7 @@ export async function GET(request: NextRequest) {
   const businessId = url.searchParams.get("businessId");
   const selectedStartDate = url.searchParams.get("startDate");
   const selectedEndDate = url.searchParams.get("endDate");
+  const includeDiagnostics = url.searchParams.get("diagnostics") === "1";
   const runtimeContract = assertRuntimeContractStartup({ service: "web" });
   const controlPlaneIdentity = resolveSyncControlPlaneKey({
     buildId: runtimeContract.buildId,
@@ -354,7 +357,9 @@ export async function GET(request: NextRequest) {
       }).catch(() => []),
       getLatestMetaRetentionRun().catch(() => null),
       getLatestMetaRetentionCanaryRun(businessId!).catch(() => null),
-      getMetaProtectedPublishedTruthReview({ businessIds: [businessId!] }).catch(() => null),
+      includeDiagnostics
+        ? getMetaProtectedPublishedTruthReview({ businessIds: [businessId!] }).catch(() => null)
+        : Promise.resolve(null),
       getMetaAuthoritativeBusinessOpsSnapshot({ businessId: businessId! }).catch(() => null),
       getRuntimeRegistryStatus({
         buildId: runtimeContract.buildId,
@@ -2409,6 +2414,7 @@ export async function GET(request: NextRequest) {
           businessId: businessId!,
           startDate: selectedStartDate,
           endDate: selectedEndDate,
+          diagnostics: includeDiagnostics,
         }),
         ttlMs: META_STATUS_CACHE_TTL_MS,
         loader: buildResponse,

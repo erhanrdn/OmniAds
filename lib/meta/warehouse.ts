@@ -10051,7 +10051,7 @@ export async function getMetaBreakdownDailyRange(input: {
       )
       AND (
         ${input.includeProvisional ?? false}::boolean = TRUE
-        OR COALESCE(truth_state, 'finalized') = 'finalized'
+        OR COALESCE(truth_state, 'finalized') IN ('finalized', 'finalized_verified')
       )
     ORDER BY date ASC, provider_account_id ASC, breakdown_type ASC, breakdown_key ASC
   ` as Array<Record<string, unknown>>;

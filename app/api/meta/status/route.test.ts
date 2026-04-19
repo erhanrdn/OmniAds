@@ -401,7 +401,7 @@ describe("GET /api/meta/status", () => {
 
   it("reports warehouse readiness even when the provider is disconnected", async () => {
     const response = await GET(
-      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+      new NextRequest("http://localhost/api/meta/status?businessId=biz&diagnostics=1")
     );
     const payload = await response.json();
 
@@ -496,7 +496,9 @@ describe("GET /api/meta/status", () => {
     ] as never);
 
     const response = await GET(
-      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&diagnostics=1"
+      )
     );
     const payload = await response.json();
 
@@ -602,7 +604,9 @@ describe("GET /api/meta/status", () => {
     } as never);
 
     const response = await GET(
-      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&diagnostics=1"
+      )
     );
     const payload = await response.json();
 
@@ -782,7 +786,9 @@ describe("GET /api/meta/status", () => {
       .mockReturnValueOnce("orphaned_stale_artifact" as never);
 
     const response = await GET(
-      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&diagnostics=1"
+      )
     );
     const payload = await response.json();
 
@@ -1561,7 +1567,9 @@ describe("GET /api/meta/status", () => {
     } as never);
 
     const response = await GET(
-      new NextRequest("http://localhost/api/meta/status?businessId=biz")
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&diagnostics=1"
+      )
     );
     const payload = await response.json();
 
@@ -1675,7 +1683,7 @@ describe("GET /api/meta/status", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-10&endDate=2026-04-10"
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-10&endDate=2026-04-10&diagnostics=1"
       )
     );
     const payload = await response.json();

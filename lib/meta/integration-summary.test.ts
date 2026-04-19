@@ -342,6 +342,84 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
+  it("keeps selected-range extended surfaces ready when extended completeness is complete", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "ready",
+        pageReadiness: {
+          state: "ready",
+          usable: true,
+          complete: true,
+          selectedRangeMode: "historical_live_fallback",
+          reason: null,
+          missingRequiredSurfaces: [],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
+        priorityWindow: {
+          startDate: "2026-04-13",
+          endDate: "2026-04-18",
+          completedDays: 6,
+          totalDays: 6,
+          isActive: false,
+        },
+        selectedRangeTruth: {
+          truthReady: true,
+          state: "finalized_verified",
+          verificationState: "finalized_verified",
+          completedCoreDays: 6,
+          totalDays: 6,
+          blockingReasons: [],
+          reasonCounts: {},
+        },
+        extendedCompleteness: {
+          state: "ready",
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Breakdowns are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        warehouse: {
+          coverage: {
+            selectedRange: {
+              startDate: "2026-04-13",
+              endDate: "2026-04-18",
+              completedDays: 6,
+              totalDays: 6,
+              readyThroughDate: "2026-04-18",
+              isComplete: true,
+            },
+            pendingSurfaces: [
+              "account_daily",
+              "campaign_daily",
+              "adset_daily",
+              "creative_daily",
+              "ad_daily",
+            ],
+            breakdowns: {
+              completedDays: 6,
+              totalDays: 6,
+              readyThroughDate: "2026-04-18",
+            },
+          },
+        } as never,
+      })
+    );
+
+    expect(summary.scope).toBe("selected_range");
+    expect(summary.stages.find((stage) => stage.key === "extended_surfaces")).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+      percent: null,
+      evidence: {
+        readyThroughDate: "2026-04-18",
+      },
+    });
+  });
+
   it("uses historical breakdown progress when recent extended queues are idle but background extended truth is still incomplete", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({

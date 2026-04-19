@@ -124,4 +124,72 @@ describe("meta canonical overview summary", () => {
     expect(result.notReadyReason).toContain("being prepared");
     expect(result.readSource).toBe("warehouse_published");
   });
+
+  it("uses the historical truth end date when a selected range includes today", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: true,
+      selectedRangeHistoricalEndDate: "2026-04-18",
+      selectedRangeTruthEndDate: "2026-04-18",
+      currentDateInTimezone: "2026-04-19",
+      primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
+    } as never);
+    vi.mocked(serving.getMetaWarehouseSummary).mockResolvedValue({
+      freshness: {
+        dataState: "ready",
+        lastSyncedAt: "2026-04-19T00:00:00Z",
+        liveRefreshedAt: null,
+        isPartial: false,
+        missingWindows: [],
+        warnings: [],
+      },
+      historicalSync: {
+        progressPercent: 100,
+        completedDays: 6,
+        totalDays: 6,
+        readyThroughDate: "2026-04-18",
+        state: "ready",
+      },
+      isPartial: false,
+      verification: {
+        verificationState: "finalized_verified",
+        sourceFetchedAt: "2026-04-19T00:00:00Z",
+        publishedAt: "2026-04-19T00:05:00Z",
+        asOf: "2026-04-19T00:05:00Z",
+      },
+      totals: {
+        spend: 100,
+        revenue: 250,
+        conversions: 4,
+        roas: 2.5,
+        cpa: 25,
+        ctr: 1.2,
+        cpc: 2.4,
+        impressions: 1000,
+        clicks: 42,
+        reach: 900,
+      },
+      accounts: [],
+    } as never);
+
+    const result = await canonical.getMetaCanonicalOverviewSummary({
+      businessId: "biz-1",
+      startDate: "2026-04-13",
+      endDate: "2026-04-19",
+    });
+
+    expect(serving.getMetaWarehouseSummary).toHaveBeenCalledWith({
+      businessId: "biz-1",
+      startDate: "2026-04-13",
+      endDate: "2026-04-18",
+      providerAccountIds: ["act_1"],
+    });
+    expect(result.isPartial).toBe(false);
+    expect(result.notReadyReason).toBeNull();
+    expect(result.readSource).toBe("warehouse_published");
+  });
 });

@@ -42,8 +42,15 @@ export async function getMetaCanonicalOverviewSummary(input: {
     getIntegration(input.businessId, "meta").catch(() => null),
   ]);
   const providerAccountIds = assignment?.account_ids ?? [];
+  const effectiveEndDate =
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.selectedRangeTruthEndDate &&
+    input.startDate <= rangeContext.selectedRangeTruthEndDate
+      ? rangeContext.selectedRangeTruthEndDate
+      : input.endDate;
   const warehouseSummary = await getMetaWarehouseSummary({
     ...input,
+    endDate: effectiveEndDate,
     providerAccountIds,
   });
 
@@ -172,7 +179,7 @@ export async function getMetaCanonicalOverviewSummary(input: {
   logRuntimeDebug("meta-canonical", "summary_read", {
     businessId: input.businessId,
     startDate: input.startDate,
-    endDate: input.endDate,
+    endDate: effectiveEndDate,
     readSource: result.readSource,
     isPartial: result.isPartial,
     accountCount: result.accounts.length,

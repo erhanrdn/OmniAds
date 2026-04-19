@@ -510,6 +510,8 @@ function buildExtendedStage(
   scope: MetaIntegrationSummaryScope
 ): MetaIntegrationSummaryStage {
   const recentWindowScope = scope === "recent_window";
+  const nonRecentRangeReady =
+    !recentWindowScope && status.extendedCompleteness?.complete === true;
   const recentWindowReadyByRange =
     recentWindowScope && status.recentExtendedReady !== false;
   const historicalLag = status.historicalExtendedReady === false;
@@ -519,7 +521,7 @@ function buildExtendedStage(
   const recentLag = status.recentExtendedReady === false;
   const pendingSurfaces = Array.from(
     new Set(
-      recentWindowReady
+      recentWindowReady || nonRecentRangeReady
         ? []
         : (status.extendedCompleteness?.missingSurfaces?.length ?? 0) > 0
           ? status.extendedCompleteness?.missingSurfaces ?? []
@@ -619,9 +621,7 @@ function buildExtendedStage(
   }
 
   if (
-    (recentWindowReady ||
-      (status.extendedCompleteness?.complete &&
-        status.historicalExtendedReady !== false)) &&
+    (recentWindowReady || nonRecentRangeReady) &&
     pendingSurfaceCount === 0
   ) {
     return {

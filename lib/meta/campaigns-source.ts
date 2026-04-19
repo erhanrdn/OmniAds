@@ -92,6 +92,12 @@ export async function getMetaCampaignsForRange(input: {
     startDate: resolvedStart,
     endDate: resolvedEnd,
   });
+  const effectiveEndDate =
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.selectedRangeTruthEndDate &&
+    resolvedStart <= rangeContext.selectedRangeTruthEndDate
+      ? rangeContext.selectedRangeTruthEndDate
+      : resolvedEnd;
   const historicalTruth =
     !rangeContext.isSelectedCurrentDay &&
     rangeContext.withinAuthoritativeHistory &&
@@ -99,7 +105,7 @@ export async function getMetaCampaignsForRange(input: {
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
-          endDate: resolvedEnd,
+          endDate: effectiveEndDate,
         }).catch(() => null)
       : null;
 
@@ -167,7 +173,7 @@ export async function getMetaCampaignsForRange(input: {
     rows = (await getMetaWarehouseCampaignTable({
       businessId: input.businessId,
       startDate: resolvedStart,
-      endDate: resolvedEnd,
+      endDate: effectiveEndDate,
       providerAccountIds: targetAccountIds,
       includePrev: input.includePrev,
     })) as MetaCampaignRow[];
@@ -207,7 +213,7 @@ export async function getMetaCampaignsForRange(input: {
       rows = (await getMetaWarehouseCampaignTable({
         businessId: input.businessId,
         startDate: resolvedStart,
-        endDate: resolvedEnd,
+        endDate: effectiveEndDate,
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       })) as MetaCampaignRow[];
