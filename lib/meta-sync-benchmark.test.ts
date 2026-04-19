@@ -263,6 +263,28 @@ describe("resolveMetaBenchmarkTruthWindows", () => {
 });
 
 describe("resolveMetaBusinessCurrentDayReference", () => {
+  it("prefers the explicit warehouse reference when it is available", () => {
+    expect(
+      resolveMetaBusinessCurrentDayReference({
+        capturedAt: "2026-04-19T04:50:00.000Z",
+        currentDayReference: "2026-04-18",
+        providerDateBoundaries: [{ currentDate: "2026-04-19" }],
+        authoritativeAccountTimeZones: ["UTC"],
+      }),
+    ).toBe("2026-04-18");
+  });
+
+  it("prefers authoritative account timezones over stale provider boundaries", () => {
+    expect(
+      resolveMetaBusinessCurrentDayReference({
+        capturedAt: "2026-04-19T04:50:00.000Z",
+        currentDayReference: null,
+        providerDateBoundaries: [{ currentDate: "2026-04-19" }],
+        authoritativeAccountTimeZones: ["America/Chicago", "America/Chicago"],
+      }),
+    ).toBe("2026-04-18");
+  });
+
   it("prefers the earliest provider account current day over a missing warehouse reference", () => {
     expect(
       resolveMetaBusinessCurrentDayReference({
@@ -282,6 +304,7 @@ describe("resolveMetaBusinessCurrentDayReference", () => {
         capturedAt: "2026-04-16T09:00:00.000Z",
         currentDayReference: "2026-04-15",
         providerDateBoundaries: [],
+        authoritativeAccountTimeZones: [],
       }),
     ).toBe("2026-04-15");
   });

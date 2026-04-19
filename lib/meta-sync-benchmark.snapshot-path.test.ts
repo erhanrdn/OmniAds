@@ -118,9 +118,26 @@ function makeAuthoritative() {
     priorityTruthMatrix: null,
     validationFailures24h: 3,
     d1FinalizeSla: {
-      totalAccounts: 0,
+      totalAccounts: 2,
       breachedAccounts: 4,
-      accounts: [],
+      accounts: [
+        {
+          providerAccountId: "act-1",
+          accountTimezone: "America/Chicago",
+          expectedDay: "2026-04-14",
+          verificationState: "processing",
+          publishedAt: null,
+          breached: true,
+        },
+        {
+          providerAccountId: "act-2",
+          accountTimezone: "America/Chicago",
+          expectedDay: "2026-04-14",
+          verificationState: "processing",
+          publishedAt: null,
+          breached: true,
+        },
+      ],
     },
     lastSuccessfulPublishAt: "2026-04-15T10:00:00.000Z",
   };
@@ -213,6 +230,18 @@ describe("collectMetaSyncReadinessSnapshot snapshot path", () => {
   });
 
   it("uses the scoped business collector and propagates the 60000ms snapshot budget", async () => {
+    const providerPlatformDate = await import("@/lib/provider-platform-date");
+    vi.mocked(providerPlatformDate.getProviderPlatformDateBoundaries).mockResolvedValue([
+      {
+        provider: "meta",
+        businessId: "biz-1",
+        providerAccountId: "act-1",
+        timeZone: "UTC",
+        currentDate: "2026-04-16",
+        previousDate: "2026-04-15",
+        isPrimary: true,
+      },
+    ] as never);
     const snapshot = await benchmark.collectMetaSyncReadinessSnapshot({
       businessId: "biz-1",
       recentDays: 7,
@@ -255,6 +284,8 @@ describe("collectMetaSyncReadinessSnapshot snapshot path", () => {
     expect(vi.mocked(db.getDbWithTimeout)).toHaveBeenCalledWith(60_000);
     expect(snapshot.operator.dbConstraint).toBe("db");
     expect(snapshot.authoritative.repairBacklog).toBe(2);
+    expect(snapshot.windows.recent.endDate).toBe("2026-04-14");
+    expect(snapshot.windows.priority.endDate).toBe("2026-04-14");
   });
 
   it("surfaces the exact stage name when a nested snapshot read fails", async () => {

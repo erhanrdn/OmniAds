@@ -5,6 +5,7 @@ import { getDbWithTimeout } from "@/lib/db";
 import { dayCountInclusive } from "@/lib/meta/history";
 import {
   getProviderPlatformDateBoundaries,
+  getTodayIsoForTimeZoneServer,
   type ProviderPlatformBoundary,
 } from "@/lib/provider-platform-date";
 import {
@@ -299,14 +300,33 @@ function earliestProviderCurrentDate(
   return normalized[0] ?? null;
 }
 
+function earliestCurrentDateForTimeZones(
+  timeZones: Array<string | null | undefined> | null | undefined,
+  referenceDate: string,
+) {
+  const reference = new Date(referenceDate);
+  const normalized = (timeZones ?? [])
+    .map((timeZone) =>
+      timeZone ? getTodayIsoForTimeZoneServer(timeZone, reference) : null,
+    )
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => left.localeCompare(right));
+  return normalized[0] ?? null;
+}
+
 export function resolveMetaBusinessCurrentDayReference(input: {
   capturedAt: string;
   currentDayReference?: string | null;
   providerDateBoundaries?: Array<Pick<ProviderPlatformBoundary, "currentDate">> | null;
+  authoritativeAccountTimeZones?: Array<string | null | undefined> | null;
 }) {
   return (
-    earliestProviderCurrentDate(input.providerDateBoundaries) ??
     toIsoDate(input.currentDayReference) ??
+    earliestCurrentDateForTimeZones(
+      input.authoritativeAccountTimeZones,
+      input.capturedAt,
+    ) ??
+    earliestProviderCurrentDate(input.providerDateBoundaries) ??
     toIsoDate(input.capturedAt) ??
     new Date().toISOString().slice(0, 10)
   );
@@ -741,6 +761,16 @@ export async function collectMetaSyncReadinessSnapshot(
     );
   }
 
+  const authoritative = await runSnapshotStage({
+    businessId: input.businessId,
+    stage: "snapshot.authoritative",
+    work: () =>
+      getMetaAuthoritativeBusinessOpsSnapshot({
+        businessId: input.businessId,
+        timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
+      }),
+  });
+
   const {
     recentDays,
     priorityWindowDays,
@@ -754,6 +784,9 @@ export async function collectMetaSyncReadinessSnapshot(
       capturedAt,
       currentDayReference: businessHealth.currentDayReference,
       providerDateBoundaries,
+      authoritativeAccountTimeZones: authoritative.d1FinalizeSla.accounts.map(
+        (account) => account.accountTimezone,
+      ),
     }),
     recentDays: input.recentDays,
     priorityWindowDays: input.priorityWindowDays,
@@ -783,15 +816,6 @@ export async function collectMetaSyncReadinessSnapshot(
     stage: "snapshot.latest_sync",
     work: () =>
       getLatestMetaSyncHealth({
-        businessId: input.businessId,
-        timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
-      }),
-  });
-  const authoritative = await runSnapshotStage({
-    businessId: input.businessId,
-    stage: "snapshot.authoritative",
-    work: () =>
-      getMetaAuthoritativeBusinessOpsSnapshot({
         businessId: input.businessId,
         timeoutMs: META_RELEASE_GATE_SNAPSHOT_TIMEOUT_MS,
       }),
