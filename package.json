@@ -69,6 +69,7 @@
     "google:ads:closeout-benchmark": "node --import tsx scripts/google-ads-closeout-benchmark.ts",
     "shopify:read-compare": "node --import tsx scripts/shopify-read-compare.ts",
     "shopify:health-snapshot": "node --import tsx scripts/shopify-health-snapshot.ts",
+    "shopify:cleanup-audit": "node --import tsx scripts/shopify-cleanup-audit.ts",
     "playwright:install": "playwright install chromium",
     "benchmark:overview": "node --import tsx scripts/overview-benchmark.ts",
     "benchmark:db-normalization:audit": "node --import tsx scripts/db-normalization-audit.ts",

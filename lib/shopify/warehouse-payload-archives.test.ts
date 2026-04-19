@@ -189,11 +189,9 @@ describe("shopify warehouse payload archives", () => {
           shop_domain: "shop-1.myshopify.com",
           webhook_id: "webhook-1",
           payload_hash: "hash-1",
-          payload_json: {},
           received_at: "2026-04-19T00:00:00.000Z",
           processed_at: "2026-04-19T00:01:00.000Z",
           processing_state: "processed",
-          result_summary: null,
           error_message: null,
         },
       ])
@@ -221,7 +219,6 @@ describe("shopify warehouse payload archives", () => {
           status: "processed",
           attempt_count: 1,
           last_error: null,
-          last_sync_result: null,
           created_at: "2026-04-19T00:00:00.000Z",
           updated_at: "2026-04-19T00:01:00.000Z",
         },
@@ -249,5 +246,59 @@ describe("shopify warehouse payload archives", () => {
     expect(delivery?.payloadJson).toEqual({ id: "gid://shopify/Order/1" });
     expect(delivery?.resultSummary).toEqual({ ok: true });
     expect(repairIntents[0]?.lastSyncResult).toEqual({ ok: true, repairs: 1 });
+  });
+
+  it("returns null debug detail when archive rows are absent", async () => {
+    sql
+      .mockResolvedValueOnce([
+        {
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          topic: "orders/create",
+          shop_domain: "shop-1.myshopify.com",
+          webhook_id: "webhook-1",
+          payload_hash: "hash-1",
+          received_at: "2026-04-19T00:00:00.000Z",
+          processed_at: "2026-04-19T00:01:00.000Z",
+          processing_state: "processed",
+          error_message: null,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "repair-1",
+          business_id: "biz-1",
+          provider_account_id: "shop-1.myshopify.com",
+          entity_type: "order",
+          entity_id: "order-1",
+          topic: "orders/create",
+          payload_hash: "hash-1",
+          event_timestamp: null,
+          event_age_days: null,
+          escalation_level: 0,
+          status: "processed",
+          attempt_count: 1,
+          last_error: null,
+          created_at: "2026-04-19T00:00:00.000Z",
+          updated_at: "2026-04-19T00:01:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    const delivery = await warehouse.getShopifyWebhookDelivery({
+      shopDomain: "shop-1.myshopify.com",
+      topic: "orders/create",
+      payloadHash: "hash-1",
+    });
+    const repairIntents = await warehouse.listShopifyRepairIntents({
+      businessId: "biz-1",
+      providerAccountId: "shop-1.myshopify.com",
+      limit: 5,
+    });
+
+    expect(delivery?.payloadJson).toEqual({});
+    expect(delivery?.resultSummary).toBeNull();
+    expect(repairIntents[0]?.lastSyncResult).toBeNull();
   });
 });

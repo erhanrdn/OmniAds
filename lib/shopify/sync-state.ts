@@ -95,40 +95,31 @@ export async function getShopifySyncState(input: {
   syncTarget: string;
 }) {
   const stateReadiness = await getDbSchemaReadiness({
-    tables: ["shopify_sync_state"],
+    tables: ["shopify_sync_state", "shopify_entity_payload_archives"],
   }).catch(() => null);
   if (!stateReadiness?.ready) {
     return null;
   }
   const sql = getDb();
   const rows = (await sql`
-    SELECT *
+    SELECT
+      shopify_sync_state.*,
+      archive.payload_json AS archived_payload_json
     FROM shopify_sync_state
-    WHERE business_id = ${input.businessId}
-      AND provider_account_id = ${input.providerAccountId}
-      AND sync_target = ${input.syncTarget}
+    LEFT JOIN shopify_entity_payload_archives AS archive
+      ON archive.business_id = shopify_sync_state.business_id
+     AND archive.provider_account_id = shopify_sync_state.provider_account_id
+     AND archive.shop_id = shopify_sync_state.provider_account_id
+     AND archive.entity_type = 'sync_state_detail'
+     AND archive.entity_id = ${buildShopifySyncStateDetailArchiveEntityId(input.syncTarget)}
+    WHERE shopify_sync_state.business_id = ${input.businessId}
+      AND shopify_sync_state.provider_account_id = ${input.providerAccountId}
+      AND shopify_sync_state.sync_target = ${input.syncTarget}
     LIMIT 1
   `) as Array<Record<string, unknown>>;
   const row = rows[0];
   if (!row) return null;
-  const archiveReadiness = await getDbSchemaReadiness({
-    tables: ["shopify_entity_payload_archives"],
-  }).catch(() => null);
-  const archivedPayload =
-    archiveReadiness?.ready === true
-      ? await sql`
-          SELECT payload_json
-          FROM shopify_entity_payload_archives
-          WHERE business_id = ${input.businessId}
-            AND provider_account_id = ${input.providerAccountId}
-            AND shop_id = ${input.providerAccountId}
-            AND entity_type = 'sync_state_detail'
-            AND entity_id = ${buildShopifySyncStateDetailArchiveEntityId(input.syncTarget)}
-          LIMIT 1
-        `
-          .then((archiveRows) => asArchivedObject((archiveRows as Array<Record<string, unknown>>)[0]?.payload_json))
-          .catch(() => null)
-      : null;
+  const archivedPayload = asArchivedObject(row.archived_payload_json);
   return {
     businessId: String(row.business_id),
     providerAccountId: String(row.provider_account_id),
@@ -144,11 +135,7 @@ export async function getShopifySyncState(input: {
     latestSyncWindowStart: normalizeDate(row.latest_sync_window_start),
     latestSyncWindowEnd: normalizeDate(row.latest_sync_window_end),
     lastError: row.last_error ? String(row.last_error) : null,
-    lastResultSummary:
-      asArchivedObject(archivedPayload?.lastResultSummary) ??
-      (row.last_result_summary && typeof row.last_result_summary === "object"
-        ? (row.last_result_summary as Record<string, unknown>)
-        : null),
+    lastResultSummary: asArchivedObject(archivedPayload?.lastResultSummary) ?? null,
   } satisfies ShopifySyncStateRecord;
 }
 

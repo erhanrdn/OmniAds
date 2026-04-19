@@ -82,6 +82,11 @@ function buildRecentTargets(mode: RecentTargetsMode) {
   };
 }
 
+function asArchivedObject(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 async function getTrackedSnapshot(input: {
   businessId: string;
   providerDateRangeKey: string;
@@ -112,18 +117,24 @@ async function getTrackedSnapshot(input: {
     `,
     sql`
       SELECT
-        sync_target,
-        latest_sync_status,
-        latest_sync_started_at::text,
-        latest_successful_sync_at::text,
-        cursor_timestamp::text,
-        cursor_value,
-        updated_at::text,
-        last_result_summary
+        shopify_sync_state.sync_target,
+        shopify_sync_state.latest_sync_status,
+        shopify_sync_state.latest_sync_started_at::text,
+        shopify_sync_state.latest_successful_sync_at::text,
+        shopify_sync_state.cursor_timestamp::text,
+        shopify_sync_state.cursor_value,
+        shopify_sync_state.updated_at::text,
+        archive.payload_json AS archived_payload_json
       FROM shopify_sync_state
-      WHERE business_id = ${input.businessId}
-        AND sync_target IN ('commerce_orders_recent', 'commerce_returns_recent')
-      ORDER BY sync_target
+      LEFT JOIN shopify_entity_payload_archives AS archive
+        ON archive.business_id = shopify_sync_state.business_id
+       AND archive.provider_account_id = shopify_sync_state.provider_account_id
+       AND archive.shop_id = shopify_sync_state.provider_account_id
+       AND archive.entity_type = 'sync_state_detail'
+       AND archive.entity_id = shopify_sync_state.sync_target
+      WHERE shopify_sync_state.business_id = ${input.businessId}
+        AND shopify_sync_state.sync_target IN ('commerce_orders_recent', 'commerce_returns_recent')
+      ORDER BY shopify_sync_state.sync_target
     `,
   ])) as [
     Array<Record<string, unknown>>,
@@ -137,27 +148,27 @@ async function getTrackedSnapshot(input: {
     providerRecent7d: providerRows[0] ?? null,
     servingStateRecent: servingRows[0] ?? null,
     reconciliationRecent: reconciliationRows[0] ?? null,
-    syncState: (syncRows as Array<Record<string, unknown>>).map((row) => ({
-      syncTarget: row.sync_target,
-      latestSyncStatus: row.latest_sync_status,
-      latestSyncStartedAt: row.latest_sync_started_at,
-      latestSuccessfulSyncAt: row.latest_successful_sync_at,
-      cursorTimestamp: row.cursor_timestamp,
-      cursorValue: row.cursor_value,
-      updatedAt: row.updated_at,
-      triggerReason:
-        row.last_result_summary &&
-        typeof row.last_result_summary === "object" &&
-        "triggerReason" in row.last_result_summary
-          ? (row.last_result_summary as Record<string, unknown>).triggerReason
-          : null,
-      recentTargets:
-        row.last_result_summary &&
-        typeof row.last_result_summary === "object" &&
-        "recentTargets" in row.last_result_summary
-          ? (row.last_result_summary as Record<string, unknown>).recentTargets
-          : null,
-    })),
+    syncState: (syncRows as Array<Record<string, unknown>>).map((row) => {
+      const archivedPayload = asArchivedObject(row.archived_payload_json);
+      const lastResultSummary = asArchivedObject(archivedPayload?.lastResultSummary);
+      return {
+        syncTarget: row.sync_target,
+        latestSyncStatus: row.latest_sync_status,
+        latestSyncStartedAt: row.latest_sync_started_at,
+        latestSuccessfulSyncAt: row.latest_successful_sync_at,
+        cursorTimestamp: row.cursor_timestamp,
+        cursorValue: row.cursor_value,
+        updatedAt: row.updated_at,
+        triggerReason:
+          lastResultSummary && "triggerReason" in lastResultSummary
+            ? lastResultSummary.triggerReason
+            : null,
+        recentTargets:
+          lastResultSummary && "recentTargets" in lastResultSummary
+            ? lastResultSummary.recentTargets
+            : null,
+      };
+    }),
   };
 }
 

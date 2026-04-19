@@ -2271,9 +2271,7 @@ export async function upsertShopifyRepairIntent(input: ShopifyRepairIntentRecord
         lastSyncResult:
           input.lastSyncResult && typeof input.lastSyncResult === "object"
             ? input.lastSyncResult
-            : row.last_sync_result && typeof row.last_sync_result === "object"
-              ? (row.last_sync_result as Record<string, unknown>)
-              : null,
+            : null,
         createdAt: normalizeTimestamp(row.created_at),
         updatedAt: normalizeTimestamp(row.updated_at),
       } satisfies ShopifyRepairIntentRecord)
@@ -2325,10 +2323,7 @@ export async function listShopifyRepairIntents(input: {
             repairIntentId: String(row.id),
           }),
         )?.lastSyncResult,
-      ) ??
-      (row.last_sync_result && typeof row.last_sync_result === "object"
-        ? (row.last_sync_result as Record<string, unknown>)
-        : null),
+      ) ?? null,
     createdAt: normalizeTimestamp(row.created_at),
     updatedAt: normalizeTimestamp(row.updated_at),
   })) satisfies ShopifyRepairIntentRecord[];
@@ -2385,18 +2380,14 @@ export async function getShopifyWebhookDelivery(input: {
     payloadJson:
       archivedPayload?.payload && typeof archivedPayload.payload === "object"
         ? archivedPayload.payload
-        : row.payload_json && typeof row.payload_json === "object"
-          ? row.payload_json
-          : {},
+        : {},
     receivedAt: normalizeTimestamp(row.received_at),
     processedAt: normalizeTimestamp(row.processed_at),
     processingState: String(row.processing_state) as ShopifyWebhookDeliveryRecord["processingState"],
     resultSummary:
       archivedPayload?.resultSummary && typeof archivedPayload.resultSummary === "object"
         ? (archivedPayload.resultSummary as Record<string, unknown>)
-        : row.result_summary && typeof row.result_summary === "object"
-          ? (row.result_summary as Record<string, unknown>)
-          : null,
+        : null,
     errorMessage: row.error_message ? String(row.error_message) : null,
   } satisfies ShopifyWebhookDeliveryRecord;
 }
@@ -2459,7 +2450,6 @@ export async function listShopifyWebhookDeliveries(input: {
           payloadHash: String(row.payload_hash),
         })}`,
       )?.payload ??
-      row.payload_json ??
       null,
     receivedAt: normalizeTimestamp(row.received_at),
     processedAt: normalizeTimestamp(row.processed_at),
@@ -2473,10 +2463,7 @@ export async function listShopifyWebhookDeliveries(input: {
             payloadHash: String(row.payload_hash),
           })}`,
         )?.resultSummary,
-      ) ??
-      (row.result_summary && typeof row.result_summary === "object"
-        ? (row.result_summary as Record<string, unknown>)
-        : null),
+      ) ?? null,
     errorMessage: row.error_message ? String(row.error_message) : null,
   })) satisfies ShopifyWebhookDeliveryRecord[];
 }
