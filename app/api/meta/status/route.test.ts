@@ -1594,7 +1594,7 @@ describe("GET /api/meta/status", () => {
     });
   });
 
-  it("does not treat historical coverage alone as ready when selected-range publication truth is unavailable", async () => {
+  it("keeps selected-range surfaces usable when historical coverage is complete but publication truth is unavailable", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -1641,20 +1641,20 @@ describe("GET /api/meta/status", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.state).toBe("partial");
+    expect(payload.state).toBe("ready");
     expect(payload.selectedRangeTruth).toBeNull();
-    expect(payload.currentCoreUsable).toBe(false);
-    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("partial");
-    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("partial");
+    expect(payload.currentCoreUsable).toBe(true);
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
     expect(payload.warehouse.coverage.selectedRange).toMatchObject({
-      completedDays: 0,
+      completedDays: 1,
       totalDays: 1,
-      isComplete: false,
+      isComplete: true,
     });
     expect(payload.latestSync).toMatchObject({
-      completedDays: 0,
+      completedDays: 1,
       totalDays: 1,
-      readyThroughDate: null,
+      readyThroughDate: "2026-03-30",
     });
   });
 
@@ -2009,7 +2009,7 @@ describe("GET /api/meta/status", () => {
     });
   });
 
-  it("keeps historical surfaces syncing while finalize is pending", async () => {
+  it("keeps historical surfaces ready while finalize is pending in the background", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -2088,11 +2088,11 @@ describe("GET /api/meta/status", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("syncing");
-    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("syncing");
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
     expect(payload.d1FinalizeState).toBe("processing");
     expect(payload.d1BlockedReason).toBe("active_finalize_day_partition");
   });
@@ -2385,6 +2385,87 @@ describe("GET /api/meta/status", () => {
     });
     expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("syncing");
     expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("syncing");
+  });
+
+  it("keeps selected-range core and breakdown surfaces ready when warehouse coverage is complete but publication proof is still processing", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 7,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 7,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaAdSetDailyCoverage).mockResolvedValue({
+      completed_days: 7,
+      ready_through_date: "2026-04-07",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 7, ready_through_date: "2026-04-07" }],
+        ["breakdown_country", { completed_days: 7, ready_through_date: "2026-04-07" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 7, ready_through_date: "2026-04-07" },
+        ],
+      ]) as never
+    );
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      verificationState: "processing",
+      totalDays: 7,
+      completedCoreDays: 6,
+      blockingReasons: [],
+      reasonCounts: { non_finalized: 1 },
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-07"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.selectedRangeTruth).toMatchObject({
+      truthReady: false,
+      verificationState: "processing",
+    });
+    expect(payload.coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      percent: 100,
+    });
+    expect(payload.pageReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      selectedRangeMode: "historical_warehouse",
+    });
+    expect(payload.pageReadiness.requiredSurfaces.summary.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces.campaigns.state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
   });
 
   it("reports current-day selected-range truth as partial when live breakdowns are still preparing", async () => {

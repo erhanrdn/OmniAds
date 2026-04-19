@@ -55,7 +55,7 @@ describe("worker runtime heartbeat repair metadata", () => {
     process.env.META_WORKER_CONCURRENCY = "1";
   });
 
-  it("includes auto-heal cleanup details in provider heartbeats", async () => {
+  it("includes auto-heal cleanup details in provider heartbeats and defers maintenance at startup", async () => {
     const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
     const cleanupOwnedLeasedPartitions = vi.fn().mockResolvedValue(1);
 
@@ -170,11 +170,8 @@ describe("worker runtime heartbeat repair metadata", () => {
         );
       })
     ).toBe(true);
-    expect(executeGoogleAdsRetentionPolicy).toHaveBeenCalledWith({
-      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-    });
-    expect(executeMetaRetentionPolicy).toHaveBeenCalledWith({
-      asOfDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-    });
+    expect(pruneSyncLifecycleData).not.toHaveBeenCalled();
+    expect(executeGoogleAdsRetentionPolicy).not.toHaveBeenCalled();
+    expect(executeMetaRetentionPolicy).not.toHaveBeenCalled();
   });
 });

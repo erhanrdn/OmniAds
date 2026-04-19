@@ -216,13 +216,14 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
   const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getCurrentRuntimeBuildId();
+  const startedAtMs = Date.now();
   const discoveredBusinesses = new Set<string>();
   const lastAutoHealAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
-  let nextPruneAt = 0;
-  let nextGoogleAdsRetentionAt = 0;
-  let nextMetaRetentionAt = 0;
+  let nextPruneAt = startedAtMs + pruneIntervalMs;
+  let nextGoogleAdsRetentionAt = startedAtMs + googleAdsRetentionIntervalMs;
+  let nextMetaRetentionAt = startedAtMs + metaRetentionIntervalMs;
   const providerScopes = Array.from(
     new Set(options.adapters.map((adapter) => adapter.providerScope).filter(Boolean)),
   );

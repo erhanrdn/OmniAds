@@ -121,7 +121,7 @@ const META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES: MetaWarehouseScope[] = [
   "breakdown_daily",
 ];
 
-const META_SELECTED_RANGE_TRUTH_CACHE_TTL_MS = 15_000;
+const META_SELECTED_RANGE_TRUTH_CACHE_TTL_MS = 60_000;
 
 function shouldBypassMetaSelectedRangeTruthCache() {
   return process.env.NODE_ENV === "test" || process.env.VITEST === "true";

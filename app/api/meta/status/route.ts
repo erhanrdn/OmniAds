@@ -643,34 +643,32 @@ export async function GET(request: NextRequest) {
       !selectedRangeIsToday &&
       selectedRangeWithinAuthoritativeHistory
   );
+  const selectedRangeCoreCoverageCompletedDays = minCompletedDays(
+    [
+      selectedRangeCoverage?.completed_days ?? 0,
+      selectedRangeCampaignCoverage?.completed_days ?? 0,
+    ],
+    selectedRangeTotalDays,
+  );
   const selectedRangeCoreCompletedDays = minCompletedDays(
     selectedRangeUsesLiveFallback
       ? [selectedRangeTotalDays ?? 0]
-      : selectedRangeRequiresPublishedTruth
-        ? [selectedRangeTruth?.completedCoreDays ?? 0]
-        : [
-            selectedRangeCoverage?.completed_days ?? 0,
-            selectedRangeCampaignCoverage?.completed_days ?? 0,
-          ],
+      : [selectedRangeCoreCoverageCompletedDays],
     selectedRangeTotalDays,
   );
+  const selectedRangeCoreCoverageReady =
+    Boolean(selectedRangeTotalDays) &&
+    selectedRangeCoreCompletedDays >= (selectedRangeTotalDays ?? 0);
   const selectedRangeIncomplete =
     selectedRangeUsesLiveFallback
       ? false
-      : selectedRangeRequiresPublishedTruth
-        ? !(selectedRangeTruth?.truthReady ?? false)
-        : Boolean(selectedRangeTotalDays) &&
-          selectedRangeCoreCompletedDays < (selectedRangeTotalDays ?? 0);
+      : !selectedRangeCoreCoverageReady;
   const selectedRangeCoreReadyThroughDate = selectedRangeUsesLiveFallback
     ? selectedEndDate ?? null
-    : selectedRangeRequiresPublishedTruth
-      ? selectedRangeTruth?.truthReady
-        ? selectedEndDate ?? null
-        : null
-      : earliestReadyThroughDate([
-          selectedRangeCoverage?.ready_through_date ?? null,
-          selectedRangeCampaignCoverage?.ready_through_date ?? null,
-        ]);
+    : earliestReadyThroughDate([
+        selectedRangeCoverage?.ready_through_date ?? null,
+        selectedRangeCampaignCoverage?.ready_through_date ?? null,
+      ]);
   const selectedRangeBreakdownReadyThroughDate =
     selectedRangeRequested
       ? META_BREAKDOWN_ENDPOINTS.map(
@@ -949,7 +947,7 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.summaryAvailable === true
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
-      : selectedRangeTruth?.truthReady === true;
+      : selectedRangeCoreCoverageReady;
   const campaignsReady =
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (campaignCoverage?.completed_days ?? 0) > 0
@@ -957,7 +955,7 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.campaignsAvailable === true
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
-      : selectedRangeTruth?.truthReady === true;
+      : selectedRangeCoreCoverageReady;
   const summarySurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -995,11 +993,7 @@ export async function GET(request: NextRequest) {
   const breakdownRequiredSurfaces = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
       const coverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
-      const ready = selectedRangeIsToday
-        ? coverage.isComplete
-        : coverage.isComplete &&
-          (!selectedRangeRequiresPublishedTruth ||
-            selectedRangeTruth?.truthReady === true);
+      const ready = coverage.isComplete || selectedRangePublishedBreakdownsReady;
       const blockedReason =
         coverage.isBlocked && coverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${coverage.supportStartDate} onward for the selected range.`
@@ -1095,9 +1089,7 @@ export async function GET(request: NextRequest) {
         ? connected && accountIds.length > 0
       : Boolean(selectedRangeTotalDays) &&
         (selectedRangeAdsetCoverage?.completed_days ?? 0) >=
-          (selectedRangeTotalDays ?? 0) &&
-        (!selectedRangeRequiresPublishedTruth ||
-          selectedRangeTruth?.truthReady === true);
+          (selectedRangeTotalDays ?? 0);
   const decisionOsEnabled = isMetaDecisionOsV1EnabledForBusiness(businessId);
   const pageOptionalSurfaces = {
     adsets: {
