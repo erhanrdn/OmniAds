@@ -465,10 +465,15 @@ describe("recoverMetaD1FinalizePartitions partition updates", () => {
       "utf8",
     );
 
-    expect(source).not.toContain(
-      "finished_at = COALESCE(run.finished_at, now())",
+    const runQualifiedMatches = source.match(
+      /finished_at = COALESCE\(run\.finished_at, now\(\)\)/g,
     );
-    expect(source).toContain("finished_at = COALESCE(finished_at, now())");
+    const partitionQualifiedMatches = source.match(
+      /finished_at = COALESCE\(finished_at, now\(\)\)/g,
+    );
+
+    expect(runQualifiedMatches).toHaveLength(1);
+    expect(partitionQualifiedMatches).toHaveLength(2);
   });
 });
 

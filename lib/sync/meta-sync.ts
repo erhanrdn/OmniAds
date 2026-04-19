@@ -4855,7 +4855,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
           WHEN run.partition_id = ANY(${pollutedPartitionIds}::uuid[]) THEN COALESCE(error_message, 'historical finalize_day run reclassified automatically')
           ELSE COALESCE(error_message, 'stale D-1 finalize run closed automatically')
         END,
-        finished_at = COALESCE(finished_at, now()),
+        finished_at = COALESCE(run.finished_at, now()),
         duration_ms = COALESCE(
           duration_ms,
           GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (now() - COALESCE(run.started_at, run.created_at))) * 1000))::int
