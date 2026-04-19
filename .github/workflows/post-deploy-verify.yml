@@ -1,0 +1,178 @@
+name: Post-Deploy Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact deployed commit SHA to observe post-deploy
+        required: true
+        type: string
+      require_block_modes:
+        description: Require deploy and release gates to remain in block mode for watch-window reporting
+        required: false
+        default: "false"
+        type: string
+
+concurrency:
+  group: post-deploy-verify-${{ inputs.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: inputs.sha != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Resolve expected SHA
+        id: expected
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+
+          expected_sha="${INPUT_SHA}"
+
+          if [ -z "${expected_sha}" ]; then
+            echo "Expected SHA is required."
+            exit 1
+          fi
+
+          case "${expected_sha}" in
+            *[!0-9a-fA-F]*)
+              echo "Expected SHA must be hexadecimal."
+              exit 1
+              ;;
+          esac
+
+          if [ "${#expected_sha}" -ne 40 ]; then
+            echo "Expected SHA must be the full 40-character commit SHA."
+            exit 1
+          fi
+
+          echo "sha=${expected_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout expected ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.expected.outputs.sha }}
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Observe Meta watch window (report-only)
+        id: watch_window
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRE_BLOCK_MODES: ${{ inputs.require_block_modes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          extra_args=()
+          if [ "${REQUIRE_BLOCK_MODES}" = "true" ]; then
+            extra_args+=(--require-block-modes)
+          fi
+
+          node --import tsx scripts/meta-watch-window.ts \
+            --expected-build-id "${{ steps.expected.outputs.sha }}" \
+            --base-url "https://adsecute.com" \
+            --attempts 12 \
+            --sleep-ms 5000 \
+            --minimum-successful-runs 3 \
+            --workflow-file "meta-watch-window.yml" \
+            --out-file ".artifacts/post-deploy-meta-watch-window.json" \
+            "${extra_args[@]}"
+
+      - name: Verify public release authority (report-only)
+        id: release_authority
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p .artifacts
+
+          node --import tsx scripts/verify-release-authority.ts \
+            --mode=post_deploy \
+            --base-url=https://adsecute.com \
+            --expected-build-id=${{ steps.expected.outputs.sha }} \
+            | tee .artifacts/post-deploy-release-authority.json >/dev/null
+
+      - name: Write verification summary
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary_lines = [
+              "## Post-Deploy Verification",
+              "",
+              f"- expectedBuildId: `{os.environ['EXPECTED_SHA']}`",
+              f"- metaWatchWindowStep: `{os.environ['WATCH_WINDOW_OUTCOME']}`",
+              f"- releaseAuthorityStep: `{os.environ['RELEASE_AUTHORITY_OUTCOME']}`",
+          ]
+
+          watch_path = Path(".artifacts/post-deploy-meta-watch-window.json")
+          if watch_path.exists():
+              payload = json.loads(watch_path.read_text(encoding="utf-8"))
+              acceptance = payload.get("acceptance") or {}
+              summary_lines.extend(
+                  [
+                      "",
+                      "### Meta Watch Window",
+                      f"- accepted: `{acceptance.get('accepted')}`",
+                      f"- observedBuildId: `{acceptance.get('observedBuildId')}`",
+                      f"- acceptedAtAttempt: `{payload.get('acceptedAtAttempt')}`",
+                      f"- watchWindowSatisfied: `{payload.get('watchWindowSatisfied')}`",
+                  ]
+              )
+              reasons = acceptance.get("reasons") or []
+              if reasons:
+                  summary_lines.append("- reasons: `" + ", ".join(str(reason) for reason in reasons) + "`")
+
+          release_path = Path(".artifacts/post-deploy-release-authority.json")
+          if release_path.exists():
+              payload = json.loads(release_path.read_text(encoding="utf-8"))
+              report = payload.get("summary") or {}
+              summary_lines.extend(
+                  [
+                      "",
+                      "### Release Authority",
+                      f"- result: `{report.get('result')}`",
+                      f"- blockerCount: `{len(report.get('blockers') or [])}`",
+                  ]
+              )
+              blockers = report.get("blockers") or []
+              if blockers:
+                  summary_lines.append("- blockers: `" + " | ".join(str(blocker) for blocker in blockers) + "`")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+          PY
+        env:
+          EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
+          WATCH_WINDOW_OUTCOME: ${{ steps.watch_window.outcome }}
+          RELEASE_AUTHORITY_OUTCOME: ${{ steps.release_authority.outcome }}
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-deploy-verify-${{ steps.expected.outputs.sha }}
+          path: .artifacts
+          if-no-files-found: warn

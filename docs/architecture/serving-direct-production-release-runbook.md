@@ -21,7 +21,9 @@ This runbook uses only deploy machinery already present in the repo:
   - pulls exact-SHA images
   - runs the existing `migrate` service
   - force-recreates `web` and `worker`
-  - verifies container images, `/api/build-info`, optional container health, and public ingress build-id match
+  - verifies container images, `/api/build-info`, optional container health, public ingress build-id match, and ingress smoke
+- `.github/workflows/post-deploy-verify.yml`
+  - records report-only post-deploy release authority and Meta watch-window observation for the exact deployed SHA
 - `deploy/nginx/adsecute.conf`
   - public reverse-proxy shape for the Hetzner host
 - `scripts/verify-serving-direct-release.ts`
@@ -97,6 +99,7 @@ The repo-supported direct production deploy path is:
    - exact-SHA GHCR image publish
    - deploy workflow dispatch
 3. Let `.github/workflows/deploy-hetzner.yml` perform the server cutover.
+4. Let `.github/workflows/post-deploy-verify.yml` capture report-only release authority and watch-window observation for the same SHA.
 
 What the deploy workflow already does on the server:
 
@@ -110,6 +113,7 @@ What the deploy workflow already does on the server:
 - checks optional container health
 - verifies `https://adsecute.com/api/build-info` and `https://www.adsecute.com/api/build-info`
 - runs public ingress smoke on `https://adsecute.com/about` and `https://www.adsecute.com/about`
+- dispatches `.github/workflows/post-deploy-verify.yml` for report-only post-deploy observation
 
 If an operator needs a direct manual deploy of an already-published SHA, use the existing GitHub Actions workflow dispatch:
 

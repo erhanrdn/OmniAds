@@ -32,6 +32,7 @@ jobs:
     if: inputs.sha != ''
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: read
     steps:
       - name: Resolve deploy SHA
@@ -443,8 +444,6 @@ jobs:
               persist_sync_control_plane() {
                 persist_sync_control_plane_via_web meta
                 verify_local_sync_control_plane meta
-                persist_sync_control_plane_via_web google_ads
-                verify_local_sync_control_plane google_ads
               }
 
               verify_service_image() {
@@ -583,98 +582,6 @@ jobs:
           EOF
           }
 
-          public_build_matches() {
-            url="$1"
-            attempts="$2"
-            sleep_seconds="$3"
-            attempt=1
-
-            while [ "$attempt" -le "$attempts" ]; do
-              if build_info_json="$(curl -fsSL "$url" 2>/dev/null)"; then
-                build_id="$(
-                  printf '%s' "${build_info_json}" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
-                )"
-                echo "url=${url} build_id=${build_id} attempt=${attempt}/${attempts}"
-                if [ -n "${build_id}" ] && [ "${build_id}" = "${DEPLOY_SHA}" ]; then
-                  return 0
-                fi
-              fi
-
-              sleep "${sleep_seconds}"
-              attempt=$((attempt + 1))
-            done
-
-            return 1
-          }
-
-          public_control_plane_matches() {
-            url="$1"
-            attempts="$2"
-            sleep_seconds="$3"
-            attempt=1
-
-            while [ "$attempt" -le "$attempts" ]; do
-              if build_info_json="$(curl -fsSL "$url" 2>/dev/null)"; then
-                if BUILD_INFO_JSON="${build_info_json}" EXPECTED_BUILD="${DEPLOY_SHA}" python3 -c 'import json, os; payload=json.loads(os.environ["BUILD_INFO_JSON"]); expected=os.environ["EXPECTED_BUILD"]; deploy_gate=payload.get("deployGate") or {}; release_gate=payload.get("releaseGate") or {}; repair_plan=payload.get("repairPlan") or {}; raise SystemExit(0 if (payload.get("buildId") or "") == expected and deploy_gate.get("id") and release_gate.get("id") and repair_plan.get("id") else 1)'
-                then
-                  echo "url=${url} control_plane_ready=yes attempt=${attempt}/${attempts}"
-                  return 0
-                fi
-                echo "url=${url} control_plane_ready=no attempt=${attempt}/${attempts}"
-              fi
-
-              sleep "${sleep_seconds}"
-              attempt=$((attempt + 1))
-            done
-
-            return 1
-          }
-
-          require_public_control_plane_match() {
-            public_control_plane_matches "https://adsecute.com/api/build-info" 36 5
-          }
-
-          require_public_build_match() {
-            public_build_matches "https://adsecute.com/api/build-info" 24 5
-            public_build_matches "https://www.adsecute.com/api/build-info" 24 5
-          }
-
-          remediate_primary_public_ingress() {
-            target_host="$1"
-
-            echo "Attempting nginx ingress remediation on ${target_host}"
-
-            ssh_with_retry "${target_host}" "bash -seuo pipefail" <<'EOF'
-              if command -v sudo >/dev/null 2>&1 && [ "$(id -u)" -ne 0 ]; then
-                SUDO="sudo"
-              else
-                SUDO=""
-              fi
-
-              candidates="$($SUDO grep -RIl 'server_name .*adsecute\.com' /etc/nginx/sites-enabled /etc/nginx/sites-available 2>/dev/null || true)"
-
-              if [ -z "${candidates}" ]; then
-                echo "No nginx config with adsecute.com server_name found."
-                exit 1
-              fi
-
-              printf '%s\n' "${candidates}" | while IFS= read -r file; do
-                [ -n "${file}" ] || continue
-                if $SUDO grep -Eq 'proxy_pass\s+http://(127\.0\.0\.1|localhost):[0-9]+' "${file}"; then
-                  echo "Normalizing proxy_pass in ${file}"
-                  $SUDO cp "${file}" "${file}.bak-codex"
-                  $SUDO perl -0pi -e 's#proxy_pass\s+http://(?:127\.0\.0\.1|localhost):\d+;#proxy_pass http://127.0.0.1:3000;#g' "${file}"
-                fi
-              done
-
-              $SUDO nginx -t
-              $SUDO systemctl reload nginx || $SUDO service nginx reload
-
-              curl -fsSL https://adsecute.com/api/build-info
-              curl -fsSL https://www.adsecute.com/api/build-info
-          EOF
-          }
-
           echo "primary_deploy_host=${PRIMARY_DEPLOY_HOST} primary_deploy_host_ip=${PRIMARY_DEPLOY_HOST_IP}"
           echo "public_deploy_host=${PUBLIC_DEPLOY_HOST} public_deploy_host_ip=${PUBLIC_DEPLOY_HOST_IP}"
 
@@ -684,51 +591,52 @@ jobs:
             deploy_target "${PUBLIC_DEPLOY_HOST_IP}" "public"
           fi
 
-          if ! require_public_build_match; then
-            echo "Public build info does not match ${DEPLOY_SHA} after deploy."
-
-            if [ -z "${PUBLIC_DEPLOY_HOST_IP}" ]; then
-              echo "Unable to resolve public deploy host for remediation."
-              exit 1
-            fi
-
-            if [ "${PUBLIC_DEPLOY_HOST_IP}" = "${PRIMARY_DEPLOY_HOST_IP}" ]; then
-              remediate_primary_public_ingress "${PRIMARY_DEPLOY_HOST}"
-              require_public_build_match
-              exit 0
-            fi
-
-            remediate_primary_public_ingress "${PUBLIC_DEPLOY_HOST_IP}"
-            require_public_build_match
-
-            exit 0
-          fi
-
-          if ! require_public_control_plane_match; then
-            echo "::warning::Public control-plane rows are still missing for ${DEPLOY_SHA} after deploy. Local exact-row verification already passed; watch-window will continue tracking public acceptance."
-          fi
-
-      - name: Setup Node for release verifier
+      - name: Verify public build propagation
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install verifier dependencies
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
-        run: npm ci
-
-      - name: Verify public release authority (report-only)
-        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
-        continue-on-error: true
+        env:
+          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          node --import tsx scripts/verify-release-authority.ts \
-            --mode=post_deploy \
-            --base-url=https://adsecute.com \
-            --expected-build-id=${{ steps.deploy_sha.outputs.sha }}
+          urls=(
+            "https://adsecute.com/api/build-info"
+            "https://www.adsecute.com/api/build-info"
+          )
+          attempts=24
+          sleep_seconds=5
+          attempt=1
+
+          while [ "${attempt}" -le "${attempts}" ]; do
+            pending=0
+
+            for url in "${urls[@]}"; do
+              if build_info_json="$(curl -fsSL "${url}" 2>/dev/null)"; then
+                build_id="$(
+                  printf '%s' "${build_info_json}" | python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
+                )"
+                echo "url=${url} build_id=${build_id:-unknown} attempt=${attempt}/${attempts}"
+                if [ -z "${build_id}" ] || [ "${build_id}" != "${DEPLOY_SHA}" ]; then
+                  pending=1
+                fi
+              else
+                echo "url=${url} build_info_fetch_failed attempt=${attempt}/${attempts}"
+                pending=1
+              fi
+            done
+
+            if [ "${pending}" -eq 0 ]; then
+              exit 0
+            fi
+
+            if [ "${attempt}" -lt "${attempts}" ]; then
+              sleep "${sleep_seconds}"
+            fi
+            attempt=$((attempt + 1))
+          done
+
+          echo "Public build info did not converge to ${DEPLOY_SHA} across all ingress URLs."
+          exit 1
 
       - name: Smoke test public ingress
         if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
@@ -738,3 +646,27 @@ jobs:
 
           curl -fsSI https://adsecute.com/about >/dev/null
           curl -fsSI https://www.adsecute.com/about >/dev/null
+
+      - name: Dispatch post-deploy verification workflow
+        if: inputs.require_current_main_head != 'true' || steps.freshness.outputs.should_deploy == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          DEPLOY_SHA: ${{ steps.deploy_sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          curl -fsSL \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/post-deploy-verify.yml/dispatches" \
+            -d @- <<EOF
+          {
+            "ref": "main",
+            "inputs": {
+              "sha": "${DEPLOY_SHA}"
+            }
+          }
+          EOF
