@@ -1014,6 +1014,74 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("keeps no-date page readiness ready when recent breakdown coverage is complete but historical extended history still lags", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 20, ready_through_date: "2026-04-12" }],
+        ["breakdown_country", { completed_days: 20, ready_through_date: "2026-04-12" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 20, ready_through_date: "2026-04-12" },
+        ],
+      ]) as never,
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.pageReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      selectedRangeMode: "historical_warehouse",
+    });
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "partial",
+      complete: false,
+      missingSurfaces: [
+        "breakdowns.age",
+        "breakdowns.location",
+        "breakdowns.placement",
+      ],
+    });
+    expect(payload.integrationSummary).toMatchObject({
+      scope: "recent_window",
+      attentionNeeded: false,
+    });
+    expect(
+      payload.integrationSummary.stages.find(
+        (stage: { key: string }) => stage.key === "extended_surfaces",
+      ),
+    ).toMatchObject({
+      state: "ready",
+      code: "extended_ready",
+    });
+  });
+
   it("surfaces forward-progress evidence and activity state through operations truth", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",

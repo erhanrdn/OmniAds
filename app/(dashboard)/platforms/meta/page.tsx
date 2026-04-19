@@ -562,7 +562,6 @@ export default function MetaPage() {
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
-  const [bootstrapRequestedForBusiness, setBootstrapRequestedForBusiness] = useState<string | null>(null);
   const [resolvedMetaReferenceDate, setResolvedMetaReferenceDate] = useState<string | null>(null);
   const [resolvedMetaTimeZoneLabel, setResolvedMetaTimeZoneLabel] = useState<string | null>(null);
   const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
@@ -718,39 +717,6 @@ export default function MetaPage() {
     staleTime: 60 * 1000,
     queryFn: () => fetchMetaDecisionOs(businessId, startDate, endDate),
   });
-
-  useEffect(() => {
-    if (!businessId || !metaConnected) return;
-    const status = effectiveStatus;
-    if (!status?.needsBootstrap) return;
-    if (status.latestSync?.status === "running") return;
-    if (bootstrapRequestedForBusiness === businessId) return;
-
-    setBootstrapRequestedForBusiness(businessId);
-    void fetch("/api/sync/refresh", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        businessId,
-        provider: "meta",
-        mode: "initial",
-      }),
-    }).finally(() => {
-      void baseStatusQuery.refetch();
-      void statusQuery.refetch();
-      void summaryQuery.refetch();
-    });
-  }, [
-    baseStatusQuery,
-    bootstrapRequestedForBusiness,
-    businessId,
-    effectiveStatus,
-    metaConnected,
-    summaryQuery,
-  ]);
 
   // Scroll the left panel item into view when a campaign is selected from recommendations.
   useEffect(() => {

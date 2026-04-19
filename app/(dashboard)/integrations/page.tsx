@@ -266,7 +266,6 @@ export default function IntegrationsPage() {
   const [properties, setProperties] = useState<SearchConsoleProperty[]>([]);
   const [selectedPropertyUrl, setSelectedPropertyUrl] = useState("");
   const [viewStateLogCache] = useState(() => new Map<string, string>());
-  const [metaBootstrapRequestedForBusiness, setMetaBootstrapRequestedForBusiness] = useState<string | null>(null);
 
   const integrations = useMemo(() => {
     if (!businessId) return null;
@@ -300,30 +299,6 @@ export default function IntegrationsPage() {
       ),
     queryFn: () => fetchGoogleAdsStatus(businessId!),
   });
-
-  useEffect(() => {
-    if (!businessId) return;
-    const status = metaStatusQuery.data;
-    if (!status?.connected || !status.needsBootstrap) return;
-    if (status.latestSync?.status === "running") return;
-    if (metaBootstrapRequestedForBusiness === businessId) return;
-
-    setMetaBootstrapRequestedForBusiness(businessId);
-    void fetch("/api/sync/refresh", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        businessId,
-        provider: "meta",
-        mode: "initial",
-      }),
-    }).finally(() => {
-      void metaStatusQuery.refetch();
-    });
-  }, [businessId, metaBootstrapRequestedForBusiness, metaStatusQuery]);
 
   const closeSearchConsoleSelector = useCallback(() => {
     setIsPropertySelectorOpen(false);
