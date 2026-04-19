@@ -1,6 +1,6 @@
 # DB Target Architecture
 
-Goal: define the final request-path, serving-write, and operator-lane policy for the current repository state, while keeping the remaining architecture cleanup priorities explicit.
+Goal: define the final request-path, serving-write, and operator-lane policy for the current repository state, while separating accepted normalization closeout from later non-blocking architecture cleanup.
 
 ## Current implemented state
 
@@ -14,7 +14,7 @@ The current repo state already enforces these hardening outcomes:
 - Runtime validation evidence exists for passive `GET` non-mutation and explicit owner advancement.
 - Direct production release guidance, verification, rollback, and release execution evidence exist in the repo.
 - Core integration authority now lives in the canonical backbone: `provider_accounts`, `provider_connections`, `integration_credentials`, `business_provider_accounts`, `provider_account_snapshot_runs`, and `provider_account_snapshot_items`.
-- Legacy tables `integrations`, `provider_account_assignments`, and `provider_account_snapshots` are retained compatibility surface only. They are no longer request-path source-of-truth tables and are scheduled for removal in the second maintenance window.
+- Legacy tables `integrations`, `provider_account_assignments`, and `provider_account_snapshots` are removed from the live schema. They are no longer request-path source-of-truth tables and remain relevant only as historical references in architecture docs and artifacts.
 
 ## Canonical core backbone
 
@@ -28,7 +28,7 @@ The current authoritative integration/account model is:
 
 Rules:
 - Request/runtime code reads the canonical backbone only.
-- Legacy core tables may remain populated for compatibility/reporting until the second maintenance window, but they are not authoritative.
+- Legacy core compatibility tables are removed and must not be reintroduced as active dependencies.
 - New DB work must prefer FK-backed `business_ref_id` and `provider_account_ref_id` columns over text-only joins whenever the table already supports them.
 
 ## Request-path rule
@@ -130,7 +130,7 @@ The target architecture still allows narrow live exceptions, but they must be ex
    - User-facing serving/projection/cache persistence stays in named materializer/writer modules and explicit non-`GET` owner lanes.
    - If no safe automated owner exists, keep the boundary intentional and operator-owned; do not reintroduce write-on-read.
 
-## Remaining follow-up priorities
+## Post-closeout architecture follow-up priorities
 
 1. Isolate live lanes further.
    - Split Meta live, Google live overlay, Shopify live fallback, and GA4 fallback behind narrower adapters with explicit precedence rules.
@@ -145,14 +145,10 @@ The target architecture still allows narrow live exceptions, but they must be ex
 4. Break large mixed-concern modules after the seams are stable.
    - `lib/google-ads/warehouse.ts`, `lib/google-ads/serving.ts`, `lib/meta/serving.ts`, `lib/migrations.ts`, and `app/api/overview-summary/route.ts` remain the highest-value cleanup targets.
 
-5. Complete provider warehouse normalization in isolated epics.
-   - Meta first, then Google Ads, then Shopify.
-   - Each provider slice should separate dimension/history/config tables from daily metric facts without changing route response contracts.
-
 ## Non-goals of the current policy
 
 - No endpoint response-shape changes.
 - No same-window destructive cleanup during stabilization observation.
 - No monolithic schema rewrite.
 - No cutover from live lane to warehouse lane in one step.
-- No behavior-changing refactor outside explicitly planned provider normalization slices.
+- No behavior-changing refactor under the banner of reopening accepted normalization closeout.

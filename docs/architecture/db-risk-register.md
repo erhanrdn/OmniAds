@@ -2,6 +2,8 @@
 
 Scope: current repo state after request-path migration retirement, passive `GET` side-effect removal, explicit serving-write ownership, runtime validation closeout, and direct-release documentation.
 
+Normalization is closed. Any `Open` or `Partially resolved` items below are non-blocking post-closeout architecture follow-ups unless they are explicitly reclassified elsewhere.
+
 Priority scale:
 - `P0`: remove from request path before any DB cutover/refactor.
 - `P1`: isolate during later architecture cleanup without changing current contracts.

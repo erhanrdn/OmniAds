@@ -30,9 +30,12 @@ Current production build:
   - worker runtime `healthy`
 - Strict product-ready closeout is complete.
   - Runtime config now satisfies the strict closeout posture.
-  - Legacy compatibility tables were removed in the second maintenance window.
-  - Provider warehouse cleanup closeout is complete for Google Ads and Shopify.
+  - Legacy-core compatibility tables are removed from the live schema.
+  - Google Ads short-gate closeout is complete, including accepted parity, smoke, and benchmark evidence.
+  - Shopify cleanup cutover closeout is complete.
+  - Shopify archive/state/dimension lanes are the accepted storage truth, and inline legacy payload/detail columns are dropped.
   - Meta closeout is gate-clean with a residual benchmark caveat recorded below.
+  - DB Normalization Second Window destructive execute is not required for closeout.
 
 ## Removed compatibility surface
 
@@ -41,7 +44,7 @@ These legacy tables have been removed from the live database:
 - `provider_account_assignments`
 - `provider_account_snapshots`
 
-Historical export/backup dependencies for that removal were also deleted from the deploy and normalization workflows.
+Historical export/backup dependencies for that removal were deleted from the live deploy and normalization workflows. The remaining workflow path is historical/manual preflight only.
 
 ## Operator controls
 
@@ -54,8 +57,13 @@ Historical export/backup dependencies for that removal were also deleted from th
 
 ## Closeout notes
 
-- The second maintenance window has completed.
+- Normalization is closed.
 - Strict control-plane closeout is satisfied.
+- No active repair recommendations remain on the accepted build.
+- The accepted second-window evidence is the current-build manual preflight bundle at `/tmp/adsecute-db-normalization-second-window-manual/463aa4b69cb5708c3a6d9bc3d73246a47477023c/preflight`.
+- Historical failed second-window workflow runs are superseded by that accepted manual preflight evidence.
+- `.github/workflows/db-normalization-second-window.yml` is now historical/manual preflight only and is retained for CI hygiene and historical traceability, not for destructive closeout execution.
+- No pending provider normalization epic remains in the accepted product state.
 - Same-build Meta evidence on `463aa4b69cb5708c3a6d9bc3d73246a47477023c` is clean for gate truth, watch-window acceptance, smoke, and parity.
 - Fresh Meta short-gate benchmark evidence on the same build still shows historical-range `p95` regressions for campaigns, adsets, and breakdowns versus the `2026-04-18` baseline.
 - The gate-led readiness policy in `docs/architecture/meta-short-gate-readiness-note.md` treats Meta closure as gate/smoke/parity-led, so the current benchmark regression remains a documented non-blocking caveat rather than a release-gate blocker.

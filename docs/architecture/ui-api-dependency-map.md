@@ -14,7 +14,7 @@ Former compatibility surface:
 - `provider_account_assignments`
 - `provider_account_snapshots`
 
-The canonical backbone is authoritative for current request/runtime behavior. The former compatibility tables were removed in the second maintenance window and are listed here only for historical traceability.
+The canonical backbone is authoritative for current request/runtime behavior. The former compatibility tables are removed from the live schema and are listed here only for historical traceability.
 
 ## Cross-cutting pivots
 
