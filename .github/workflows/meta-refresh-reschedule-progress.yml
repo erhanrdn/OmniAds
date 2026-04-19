@@ -229,7 +229,12 @@ jobs:
 
             runtime_service="worker"
             if ! docker compose ps --status running --services | grep -qx "worker"; then
-              runtime_service="web"
+              docker compose up -d worker >/dev/null
+              sleep 5
+            fi
+            if ! docker compose ps --status running --services | grep -qx "worker"; then
+              echo "worker service is not running and could not be started"
+              exit 1
             fi
 
             read_build_info() {
