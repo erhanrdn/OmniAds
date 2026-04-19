@@ -122,6 +122,12 @@ export async function getMetaBreakdownsForRange(input: {
     startDate: resolvedStart,
     endDate: resolvedEnd,
   });
+  const effectiveEndDate =
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.selectedRangeTruthEndDate &&
+    resolvedStart <= rangeContext.selectedRangeTruthEndDate
+      ? rangeContext.selectedRangeTruthEndDate
+      : resolvedEnd;
   const breakdownGuardrail = getMetaBreakdownGuardrail({
     startDate: resolvedStart,
     endDate: resolvedEnd,
@@ -133,7 +139,7 @@ export async function getMetaBreakdownsForRange(input: {
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
-          endDate: resolvedEnd,
+          endDate: effectiveEndDate,
         }).catch(() => null)
       : null;
 
@@ -150,7 +156,7 @@ export async function getMetaBreakdownsForRange(input: {
     const warehouse = await getMetaWarehouseBreakdowns({
       businessId: input.businessId,
       startDate: resolvedStart,
-      endDate: resolvedEnd,
+      endDate: effectiveEndDate,
       providerAccountIds: assignedAccountIds,
     });
     const hasWarehouseRows =
@@ -289,6 +295,12 @@ export async function getMetaCountryBreakdownsForRange(input: {
     startDate: resolvedStart,
     endDate: resolvedEnd,
   });
+  const effectiveEndDate =
+    !rangeContext.isSelectedCurrentDay &&
+    rangeContext.selectedRangeTruthEndDate &&
+    resolvedStart <= rangeContext.selectedRangeTruthEndDate
+      ? rangeContext.selectedRangeTruthEndDate
+      : resolvedEnd;
   const breakdownGuardrail = getMetaBreakdownGuardrail({
     startDate: resolvedStart,
     endDate: resolvedEnd,
@@ -299,7 +311,7 @@ export async function getMetaCountryBreakdownsForRange(input: {
       ? await getMetaSelectedRangeTruthReadiness({
           businessId: input.businessId,
           startDate: resolvedStart,
-          endDate: resolvedEnd,
+          endDate: effectiveEndDate,
         }).catch(() => null)
       : null;
 
@@ -307,7 +319,7 @@ export async function getMetaCountryBreakdownsForRange(input: {
     const warehouse = await getMetaWarehouseCountryBreakdowns({
       businessId: input.businessId,
       startDate: resolvedStart,
-      endDate: resolvedEnd,
+      endDate: effectiveEndDate,
       providerAccountIds: assignedAccountIds,
     });
     if (warehouse.rows.length > 0) {

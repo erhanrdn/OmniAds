@@ -36,6 +36,17 @@ export async function getMetaRangePreparationContext(input: {
     Boolean(currentDateInTimezone) &&
     input.startDate === input.endDate &&
     input.startDate === currentDateInTimezone;
+  const selectedRangeIncludesCurrentDay =
+    Boolean(
+      !isSelectedCurrentDay &&
+        currentDateInTimezone &&
+        input.endDate === currentDateInTimezone
+    );
+  const selectedRangeHistoricalEndDate =
+    selectedRangeIncludesCurrentDay
+      ? addDaysToIsoDateUtc(input.endDate, -1)
+      : input.endDate;
+  const selectedRangeTruthEndDate = selectedRangeHistoricalEndDate;
   const withinAuthoritativeHistory = isMetaRangeWithinAuthoritativeHistory({
     startDate: input.startDate,
     referenceToday: currentDateInTimezone,
@@ -59,11 +70,20 @@ export async function getMetaRangePreparationContext(input: {
     primaryAccountTimezone,
     currentDateInTimezone,
     isSelectedCurrentDay,
+    selectedRangeIncludesCurrentDay,
+    selectedRangeHistoricalEndDate,
+    selectedRangeTruthEndDate,
     withinAuthoritativeHistory,
     withinBreakdownHistory,
     historicalReadMode,
     breakdownReadMode,
   };
+}
+
+function addDaysToIsoDateUtc(date: string, days: number) {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
 }
 
 export function getMetaPartialReason(input: {

@@ -230,6 +230,7 @@ function earliestReadyThroughDate(values: Array<string | null | undefined>) {
 function buildPhaseLabel(input: {
   selectedRangeIncomplete: boolean;
   selectedRangeIsToday: boolean;
+  defaultCoverageReady: boolean;
   historicalQueuePaused: boolean;
   staleLeasedQueue: boolean;
   stateMissingWhileQueued: boolean;
@@ -242,6 +243,7 @@ function buildPhaseLabel(input: {
   if (input.selectedRangeIncomplete && input.selectedRangeIsToday) return "Preparing today's data";
   if (input.selectedRangeIncomplete) return "Preparing selected dates";
   if (input.historicalQueuePaused) return "Historical sync is paused";
+  if (input.defaultCoverageReady) return "Ready";
   if (input.overallCompletedDays < input.totalDays) return "Backfilling historical data";
   if (input.totalDays <= 0 || input.overallCompletedDays >= input.totalDays) {
     return "Ready";
@@ -898,9 +900,23 @@ export async function GET(request: NextRequest) {
     (queueHealth?.queueDepth ?? 0) > 0 &&
     (queueHealth?.leasedPartitions ?? 0) === 0 &&
     scopeSummaries.every((summary) => summary.completedDays === 0);
+  const defaultBreakdownCoverageReadyForPhase =
+    recentWindowTotalDays > 0 &&
+    META_BREAKDOWN_ENDPOINTS.every((endpointName) => {
+      const coverage = breakdownCoverageByEndpoint?.get(endpointName) ?? null;
+      return Math.min(recentWindowTotalDays, coverage?.completed_days ?? 0) >= recentWindowTotalDays;
+    });
+  const defaultCoverageReadyForPhase =
+    !selectedRangeRequested &&
+    connected &&
+    accountIds.length > 0 &&
+    (recentAccountCoverage?.completed_days ?? 0) >= recentWindowTotalDays &&
+    (recentCampaignCoverage?.completed_days ?? 0) >= recentWindowTotalDays &&
+    defaultBreakdownCoverageReadyForPhase;
   const phaseLabel = buildPhaseLabel({
     selectedRangeIncomplete: Boolean(selectedRangeIncomplete),
     selectedRangeIsToday,
+    defaultCoverageReady: defaultCoverageReadyForPhase,
     historicalQueuePaused,
     staleLeasedQueue,
     stateMissingWhileQueued,
@@ -1069,6 +1085,58 @@ export async function GET(request: NextRequest) {
       isBlocked: boolean;
     };
   };
+  const historicalBreakdownTotalDays = Math.min(
+    historicalTotalDays,
+    META_BREAKDOWN_MAX_HISTORY_DAYS
+  );
+  const historicalBreakdownsBySurface = Object.fromEntries(
+    META_BREAKDOWN_SURFACES.map((surface) => {
+      const coverage = breakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
+      const totalDays = historicalBreakdownTotalDays;
+      const completedDays = Math.min(totalDays, coverage?.completed_days ?? 0);
+      return [
+        surface.coverageKey,
+        {
+          completedDays,
+          totalDays,
+          readyThroughDate: coverage?.ready_through_date ?? null,
+          isComplete: totalDays > 0 && completedDays >= totalDays,
+          supportStartDate: breakdownSupportStartDate,
+          isBlocked: false,
+        },
+      ];
+    })
+  ) as {
+    age: {
+      completedDays: number;
+      totalDays: number;
+      readyThroughDate: string | null;
+      isComplete: boolean;
+      supportStartDate: string | null;
+      isBlocked: boolean;
+    };
+    location: {
+      completedDays: number;
+      totalDays: number;
+      readyThroughDate: string | null;
+      isComplete: boolean;
+      supportStartDate: string | null;
+      isBlocked: boolean;
+    };
+    placement: {
+      completedDays: number;
+      totalDays: number;
+      readyThroughDate: string | null;
+      isComplete: boolean;
+      supportStartDate: string | null;
+      isBlocked: boolean;
+    };
+  };
+  const defaultBreakdownCompletedDays = Math.min(
+    recentBreakdownsBySurface.age.completedDays,
+    recentBreakdownsBySurface.location.completedDays,
+    recentBreakdownsBySurface.placement.completedDays
+  );
   const selectedRangeBreakdownCompletedDays =
     selectedRangeRequested
       ? Math.min(
@@ -1389,20 +1457,19 @@ export async function GET(request: NextRequest) {
                 : "Recent campaign warehouse data is still being prepared for this workspace.",
         },
       };
-  const historicalBreakdownTotalDays = Math.min(historicalTotalDays, META_BREAKDOWN_MAX_HISTORY_DAYS);
   const extendedSurfaceReadiness = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
       const selectedRangeCoverage = selectedRangeBreakdownsBySurface[surface.coverageKey];
-      const historicalCoverage = breakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
+      const defaultCoverage = defaultBreakdownSurfaceCoverage[surface.coverageKey];
       const totalDays = selectedRangeRequested
         ? selectedRangeCoverage.totalDays
-        : historicalBreakdownTotalDays;
+        : defaultCoverage.totalDays;
       const completedDays = selectedRangeRequested
         ? selectedRangeCoverage.completedDays
-        : Math.min(totalDays, historicalCoverage?.completed_days ?? 0);
+        : defaultCoverage.completedDays;
       const ready = selectedRangeRequested
         ? selectedRangeCoverage.isComplete
-        : totalDays > 0 && completedDays >= totalDays;
+        : defaultCoverage.isComplete;
       const blockedReason = selectedRangeRequested
         ? selectedRangeCoverage.isBlocked && selectedRangeCoverage.supportStartDate
           ? `${surface.label} breakdown data is only supported from ${selectedRangeCoverage.supportStartDate} onward for the selected range.`
@@ -1423,9 +1490,9 @@ export async function GET(request: NextRequest) {
               ? null
               : selectedRangeRequested
                 ? selectedRangeIsToday
-                  ? `${surface.label} breakdown data for the current Meta account day is still preparing.`
+              ? `${surface.label} breakdown data for the current Meta account day is still preparing.`
                   : `${surface.label} breakdown data is still being prepared for the selected range.`
-                : `${surface.label} breakdown history is still being prepared for this workspace.`;
+                : `${surface.label} breakdown data is still being prepared for Meta's default coverage window.`;
       return [
         surface.surfaceKey,
         {
@@ -1488,8 +1555,8 @@ export async function GET(request: NextRequest) {
             ? (selectedRangeBreakdownCompletedDays /
                 Math.max(1, selectedRangeBreakdownExpectedTotalDays)) *
                 100
-            : historicalBreakdownTotalDays > 0
-              ? (breakdownCoverageDays / historicalBreakdownTotalDays) * 100
+            : recentWindowTotalDays > 0
+              ? (defaultBreakdownCompletedDays / recentWindowTotalDays) * 100
               : null
         );
   const extendedCompleteness = buildMetaExtendedCompleteness({
@@ -1510,15 +1577,23 @@ export async function GET(request: NextRequest) {
             ? selectedRangeIsToday
               ? "Current-day Meta breakdowns are ready."
               : "Breakdown data is ready for the selected range."
-            : "Breakdown history is ready for Meta's extended reporting surfaces."
+            : "Breakdown data is ready for Meta's default coverage window."
           : selectedRangeRequested
             ? selectedRangeIsToday
               ? "Current-day Meta breakdowns are still preparing."
               : selectedRangeBreakdownGuardrailBlocked
                 ? "Some Meta breakdowns are unavailable for the selected range."
                 : "Breakdown data is still being prepared for the selected range."
-            : "Extended Meta breakdown history is still being prepared in the background.");
+            : "Breakdown data is still being prepared for Meta's default coverage window.");
 
+  const recentExtendedReady =
+    recentBreakdownsBySurface.age.isComplete &&
+    recentBreakdownsBySurface.location.isComplete &&
+    recentBreakdownsBySurface.placement.isComplete;
+  const defaultCoverageReady =
+    !selectedRangeRequested &&
+    currentCoreUsable &&
+    recentExtendedReady;
   const state: MetaStatusResponse["state"] = !connected
     ? "not_connected"
     : accountIds.length === 0
@@ -1533,7 +1608,7 @@ export async function GET(request: NextRequest) {
           ? "paused"
         : historicalQueuePaused
           ? "paused"
-        : selectedRangeReportReady
+        : selectedRangeReportReady || defaultCoverageReady
           ? "ready"
         : (legacyJobHealth?.staleRunningJobs ?? 0) > 0
             ? "stale"
@@ -1823,14 +1898,10 @@ export async function GET(request: NextRequest) {
     },
   } as const;
 
-  const recentExtendedReady =
-    recentBreakdownsBySurface.age.isComplete &&
-    recentBreakdownsBySurface.location.isComplete &&
-    recentBreakdownsBySurface.placement.isComplete;
   const historicalExtendedReady =
-    extendedSurfaceReadiness["breakdowns.age"].state === "ready" &&
-    extendedSurfaceReadiness["breakdowns.location"].state === "ready" &&
-    extendedSurfaceReadiness["breakdowns.placement"].state === "ready";
+    historicalBreakdownsBySurface.age.isComplete &&
+    historicalBreakdownsBySurface.location.isComplete &&
+    historicalBreakdownsBySurface.placement.isComplete;
   const extendedRecoveryState =
     !recentExtendedReady
       ? "core_only"
@@ -2057,7 +2128,7 @@ export async function GET(request: NextRequest) {
           },
           breakdownsBySurface: selectedRangeRequested
             ? selectedRangeBreakdownsBySurface
-            : null,
+            : recentBreakdownsBySurface,
           creatives: {
             completedDays: creativeCoverage?.completed_days ?? 0,
             totalDays: historicalTotalDays,

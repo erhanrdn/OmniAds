@@ -77,6 +77,9 @@ describe("GET /api/meta/campaigns", () => {
     });
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-03-15",
+      selectedRangeTruthEndDate: "2026-03-15",
       currentDateInTimezone: "2026-03-31",
       primaryAccountTimezone: "UTC",
       withinAuthoritativeHistory: true,
@@ -155,6 +158,9 @@ describe("GET /api/meta/campaigns", () => {
     } as never);
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: true,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-03-31",
+      selectedRangeTruthEndDate: "2026-03-31",
       currentDateInTimezone: "2026-03-31",
       primaryAccountTimezone: "UTC",
       withinAuthoritativeHistory: true,
@@ -200,6 +206,9 @@ describe("GET /api/meta/campaigns", () => {
     } as never);
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: true,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-03-31",
+      selectedRangeTruthEndDate: "2026-03-31",
       currentDateInTimezone: "2026-03-31",
       primaryAccountTimezone: "UTC",
       withinAuthoritativeHistory: true,

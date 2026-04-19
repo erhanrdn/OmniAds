@@ -78,6 +78,9 @@ describe("GET /api/meta/breakdowns", () => {
     } as never);
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-04-03",
+      selectedRangeTruthEndDate: "2026-04-03",
       currentDateInTimezone: "2026-04-05",
       primaryAccountTimezone: "UTC",
       withinAuthoritativeHistory: true,
@@ -189,6 +192,9 @@ describe("GET /api/meta/breakdowns", () => {
   it("keeps current-day breakdown behavior unchanged", async () => {
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: true,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-04-05",
+      selectedRangeTruthEndDate: "2026-04-05",
       currentDateInTimezone: "2026-04-05",
       primaryAccountTimezone: "UTC",
       withinAuthoritativeHistory: true,
@@ -215,6 +221,46 @@ describe("GET /api/meta/breakdowns", () => {
     expect(metaSync.getMetaSelectedRangeTruthReadiness).not.toHaveBeenCalled();
     expect(payload.isPartial).toBe(false);
     expect(payload.age).toHaveLength(1);
+  });
+
+  it("uses the published historical end date when a selected range includes today", async () => {
+    vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
+      isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: true,
+      selectedRangeHistoricalEndDate: "2026-04-04",
+      selectedRangeTruthEndDate: "2026-04-04",
+      currentDateInTimezone: "2026-04-05",
+      primaryAccountTimezone: "UTC",
+      withinAuthoritativeHistory: true,
+      withinBreakdownHistory: true,
+      historicalReadMode: "historical_authoritative",
+      breakdownReadMode: "historical_authoritative",
+    });
+    vi.mocked(serving.getMetaWarehouseBreakdowns).mockResolvedValue({
+      age: [{ key: "18-24", label: "18-24", spend: 10, revenue: 22 }],
+      location: [],
+      placement: [],
+      budget: { campaign: [], adset: [] },
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/breakdowns?businessId=biz&startDate=2026-04-01&endDate=2026-04-05"
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(metaSync.getMetaSelectedRangeTruthReadiness).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-04",
+    });
+    expect(serving.getMetaWarehouseBreakdowns).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-04",
+      providerAccountIds: ["act_1"],
+    });
   });
 
   it("degrades to the existing no-accounts contract when assignment schema is not ready", async () => {

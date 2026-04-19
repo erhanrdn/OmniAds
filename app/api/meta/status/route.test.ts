@@ -1060,14 +1060,18 @@ describe("GET /api/meta/status", () => {
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
     expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
     expect(payload.extendedCompleteness).toMatchObject({
-      state: "partial",
-      complete: false,
-      missingSurfaces: [
-        "breakdowns.age",
-        "breakdowns.location",
-        "breakdowns.placement",
-      ],
+      state: "ready",
+      complete: true,
+      missingSurfaces: [],
     });
+    expect(payload.state).toBe("ready");
+    expect(payload.latestSync?.phaseLabel ?? null).toBeNull();
+    expect(payload.warehouse?.coverage?.breakdownsBySurface).toMatchObject({
+      age: { completedDays: 14, totalDays: 14, isComplete: true },
+      location: { completedDays: 14, totalDays: 14, isComplete: true },
+      placement: { completedDays: 14, totalDays: 14, isComplete: true },
+    });
+    expect(payload.historicalExtendedReady).toBe(false);
     expect(payload.integrationSummary).toMatchObject({
       scope: "recent_window",
       attentionNeeded: false,

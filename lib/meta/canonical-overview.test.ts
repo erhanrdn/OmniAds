@@ -45,6 +45,9 @@ describe("meta canonical overview summary", () => {
     } as never);
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: false,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-04-07",
+      selectedRangeTruthEndDate: "2026-04-07",
       currentDateInTimezone: "2026-04-08",
       primaryAccountTimezone: "America/Los_Angeles",
       withinAuthoritativeHistory: true,

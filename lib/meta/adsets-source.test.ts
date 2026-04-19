@@ -49,6 +49,9 @@ describe("meta adsets source", () => {
     } as never);
     vi.mocked(readiness.getMetaRangePreparationContext).mockResolvedValue({
       isSelectedCurrentDay: true,
+      selectedRangeIncludesCurrentDay: false,
+      selectedRangeHistoricalEndDate: "2026-04-05",
+      selectedRangeTruthEndDate: "2026-04-05",
       currentDateInTimezone: "2026-04-05",
       primaryAccountTimezone: "UTC",
       withinAuthoritativeHistory: true,
