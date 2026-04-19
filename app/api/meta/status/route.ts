@@ -681,6 +681,19 @@ export async function GET(request: NextRequest) {
       : null;
   const selectedRangeBreakdownGuardrailBlocked =
     selectedRangeRequested && !selectedRangeWithinBreakdownHistory;
+  const selectedRangeBreakdownCoverageMissing =
+    selectedRangeRequested &&
+    META_BREAKDOWN_ENDPOINTS.every((endpointName) => {
+      const coverage = selectedRangeBreakdownCoverageByEndpoint?.get(endpointName) ?? null;
+      return (coverage?.completed_days ?? 0) === 0 && !coverage?.ready_through_date;
+    });
+  const selectedRangePublishedBreakdownsReady = Boolean(
+    selectedRangeRequested &&
+      selectedRangeRequiresPublishedTruth &&
+      !selectedRangeBreakdownGuardrailBlocked &&
+      selectedRangeBreakdownCoverageMissing &&
+      selectedRangeTruth?.truthReady
+  );
   const scopeSummaries = [
     {
       scope: "account_daily",
@@ -842,8 +855,19 @@ export async function GET(request: NextRequest) {
     META_BREAKDOWN_SURFACES.map((surface) => {
       const coverage = selectedRangeBreakdownCoverageByEndpoint?.get(surface.endpointName) ?? null;
       const totalDays = selectedRangeTotalDays ?? 0;
-      const completedDays = selectedRangeRequested ? coverage?.completed_days ?? 0 : 0;
-      const readyThroughDate = selectedRangeRequested ? coverage?.ready_through_date ?? null : null;
+      const completedDays = selectedRangeRequested
+        ? Math.min(
+            totalDays,
+            Math.max(
+              coverage?.completed_days ?? 0,
+              selectedRangePublishedBreakdownsReady ? totalDays : 0,
+            ),
+          )
+        : 0;
+      const readyThroughDate = selectedRangeRequested
+        ? coverage?.ready_through_date ??
+          (selectedRangePublishedBreakdownsReady ? selectedEndDate ?? null : null)
+        : null;
       const isBlocked = Boolean(selectedRangeBreakdownGuardrailBlocked);
       return [
         surface.coverageKey,
@@ -851,7 +875,9 @@ export async function GET(request: NextRequest) {
           completedDays,
           totalDays,
           readyThroughDate,
-          isComplete: Boolean(selectedRangeRequested) && completedDays >= totalDays,
+          isComplete:
+            Boolean(selectedRangeRequested) &&
+            (selectedRangePublishedBreakdownsReady || completedDays >= totalDays),
           supportStartDate: breakdownSupportStartDate,
           isBlocked,
         },

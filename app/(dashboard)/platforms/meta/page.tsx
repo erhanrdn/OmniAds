@@ -652,6 +652,7 @@ export default function MetaPage() {
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
     enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
+    staleTime: 60 * 1000,
     queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, false),
   });
 
@@ -665,6 +666,7 @@ export default function MetaPage() {
   const breakdownsQuery = useQuery({
     queryKey: ["meta-breakdowns", businessId, startDate, endDate],
     enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
+    staleTime: 60 * 1000,
     queryFn: () => fetchMetaBreakdowns(businessId, startDate, endDate),
   });
 

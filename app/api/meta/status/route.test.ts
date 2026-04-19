@@ -2207,6 +2207,102 @@ describe("GET /api/meta/status", () => {
     );
   });
 
+  it("treats selected-range breakdowns as complete when published truth is finalized even if raw coverage lags", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: true,
+      state: "finalized_verified",
+      verificationState: "finalized_verified",
+      totalDays: 2,
+      completedCoreDays: 2,
+      blockingReasons: [],
+      reasonCounts: {},
+      sourceFetchedAt: "2026-04-02T00:00:00Z",
+      publishedAt: "2026-04-02T00:05:00Z",
+      asOf: "2026-04-02T00:05:00Z",
+    } as never);
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockResolvedValue({
+      completed_days: 2,
+      ready_through_date: "2026-04-02",
+    } as never);
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 0, ready_through_date: null }],
+        ["breakdown_country", { completed_days: 0, ready_through_date: null }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 0, ready_through_date: null },
+        ],
+      ]) as never
+    );
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-01&endDate=2026-04-02"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "ready",
+      complete: true,
+      percent: 100,
+      missingSurfaces: [],
+      blockedSurfaces: [],
+    });
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.age"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.location"].state).toBe("ready");
+    expect(payload.pageReadiness.requiredSurfaces["breakdowns.placement"].state).toBe("ready");
+    expect(payload.warehouse.coverage.breakdownsBySurface).toEqual({
+      age: {
+        completedDays: 2,
+        totalDays: 2,
+        readyThroughDate: "2026-04-02",
+        isComplete: true,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+      location: {
+        completedDays: 2,
+        totalDays: 2,
+        readyThroughDate: "2026-04-02",
+        isComplete: true,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+      placement: {
+        completedDays: 2,
+        totalDays: 2,
+        readyThroughDate: "2026-04-02",
+        isComplete: true,
+        supportStartDate: "2000-01-01",
+        isBlocked: false,
+      },
+    });
+  });
+
   it("reports selected-range truth as syncing when no required surface is usable and active work exists", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",

@@ -96,6 +96,7 @@ import { recordSyncReclaimEvents } from "@/lib/sync/worker-health";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
+import { readThroughCache } from "@/lib/server-cache";
 import {
   markProviderDayRolloverFinalizeStarted,
   markProviderDayRolloverFinalizeCompleted,
@@ -119,6 +120,27 @@ const META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES: MetaWarehouseScope[] = [
   ...META_AUTHORITATIVE_CORE_PUBLISHED_SURFACES,
   "breakdown_daily",
 ];
+
+const META_SELECTED_RANGE_TRUTH_CACHE_TTL_MS = 15_000;
+
+function shouldBypassMetaSelectedRangeTruthCache() {
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
+function buildMetaSelectedRangeTruthCacheKey(input: {
+  businessId: string;
+  startDate: string;
+  endDate: string;
+  providerAccountIds: string[];
+}) {
+  return [
+    "meta-selected-range-truth:v1",
+    input.businessId,
+    input.startDate,
+    input.endDate,
+    input.providerAccountIds.join(","),
+  ].join(":");
+}
 
 async function upsertMetaCheckpointOrThrow(input: MetaSyncCheckpointRecord) {
   const checkpointId = await upsertMetaSyncCheckpoint(input);
@@ -1716,49 +1738,66 @@ export async function getMetaSelectedRangeTruthReadiness(input: {
   if (providerAccountIds.length === 0) {
     return pendingState;
   }
-  const verification = await getMetaPublishedVerificationSummary({
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
-    providerAccountIds,
-    surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
-    timeoutMs: input.timeoutMs,
-  }).catch(() => null);
-  if (!verification) {
-    return pendingState;
-  }
-  const detectorReasonCodes = Object.entries(verification.reasonCounts)
-    .filter(
-      ([code, count]) =>
-        count > 0 &&
-        ![
-          "blocked",
-          "failed",
-          "processing",
-          "queued",
-          "repair_required",
-          "running",
-        ].includes(code),
-    )
-    .map(([code]) => code);
-  return {
-    truthReady: verification.truthReady,
-    state: verification.verificationState,
-    totalDays: verification.totalDays,
-    completedCoreDays: verification.completedCoreDays,
-    blockingReasons:
-      verification.verificationState === "failed"
-        ? ["validation_failed"]
-        : verification.verificationState === "repair_required"
-          ? ["non_finalized"]
-          : [],
-    reasonCounts: verification.reasonCounts,
-    detectorReasonCodes,
-    sourceFetchedAt: verification.sourceFetchedAt,
-    publishedAt: verification.publishedAt,
-    verificationState: verification.verificationState,
-    asOf: verification.asOf,
+  const loadReadiness = async (): Promise<MetaSelectedRangeTruthReadiness> => {
+    const verification = await getMetaPublishedVerificationSummary({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds,
+      surfaces: META_AUTHORITATIVE_PLANNER_PUBLISHED_SURFACES,
+      timeoutMs: input.timeoutMs,
+    }).catch(() => null);
+    if (!verification) {
+      return pendingState;
+    }
+    const detectorReasonCodes = Object.entries(verification.reasonCounts)
+      .filter(
+        ([code, count]) =>
+          count > 0 &&
+          ![
+            "blocked",
+            "failed",
+            "processing",
+            "queued",
+            "repair_required",
+            "running",
+          ].includes(code),
+      )
+      .map(([code]) => code);
+    return {
+      truthReady: verification.truthReady,
+      state: verification.verificationState,
+      totalDays: verification.totalDays,
+      completedCoreDays: verification.completedCoreDays,
+      blockingReasons:
+        verification.verificationState === "failed"
+          ? ["validation_failed"]
+          : verification.verificationState === "repair_required"
+            ? ["non_finalized"]
+            : [],
+      reasonCounts: verification.reasonCounts,
+      detectorReasonCodes,
+      sourceFetchedAt: verification.sourceFetchedAt,
+      publishedAt: verification.publishedAt,
+      verificationState: verification.verificationState,
+      asOf: verification.asOf,
+    };
   };
+
+  if (shouldBypassMetaSelectedRangeTruthCache()) {
+    return loadReadiness();
+  }
+
+  return readThroughCache({
+    key: buildMetaSelectedRangeTruthCacheKey({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      providerAccountIds,
+    }),
+    ttlMs: META_SELECTED_RANGE_TRUTH_CACHE_TTL_MS,
+    loader: loadReadiness,
+  });
 }
 
 async function getMetaDailyCoverageState(input: {
