@@ -212,8 +212,8 @@ export function getMetaPageStatusMessaging(
           description:
             pageReadiness?.reason ??
             (language === "tr"
-              ? "Yakın tarihler önce hazırlanır; seçili aralığın kalan yüzeyleri arka planda tamamlanıyor."
-              : "Recent dates are prepared first while the remaining selected-range surfaces continue in the background."),
+              ? "Seçili aralığın kalan yüzeyleri arka planda tamamlanıyor."
+              : "The remaining selected-range surfaces continue preparing in the background."),
           tone: "info",
         },
         emptyState: {
@@ -224,8 +224,8 @@ export function getMetaPageStatusMessaging(
           description:
             pageReadiness?.reason ??
             (language === "tr"
-              ? "Yakın tarihler önce açılır; seçili aralığın geri kalanı arka planda hazırlanıyor."
-              : "Recent dates unlock first while the remaining selected-range surfaces keep preparing in the background."),
+              ? "Hazır olan yüzeyleri kullanabilirsiniz; seçili aralığın geri kalanı arka planda hazırlanıyor."
+              : "You can use the surfaces that are ready while the remaining selected-range surfaces keep preparing in the background."),
         },
         currentDayPreparing: {
           title:
@@ -320,8 +320,8 @@ export function getMetaPageStatusMessaging(
           description:
             pageReadiness?.reason ??
             (language === "tr"
-              ? "Hazır olan yakın tarih yüzeylerini kullanabilirsiniz; kalan gerekli yüzeyler arka planda hazırlanıyor."
-              : "You can use the recent surfaces that are ready while the remaining required surfaces continue in the background."),
+              ? "Hazır olan yüzeyleri kullanabilirsiniz; kalan gerekli yüzeyler arka planda hazırlanıyor."
+              : "You can use the surfaces that are ready while the remaining required surfaces continue in the background."),
           tone: "info",
         },
         emptyState: {
@@ -332,8 +332,8 @@ export function getMetaPageStatusMessaging(
           description:
             pageReadiness?.reason ??
             (language === "tr"
-              ? "Hazır olan yakın tarih yüzeylerini kullanabilirsiniz; kalan gerekli yüzeyler arka planda hazırlanıyor."
-              : "You can use the recent surfaces that are ready while the remaining required surfaces continue in the background."),
+              ? "Hazır olan yüzeyleri kullanabilirsiniz; kalan gerekli yüzeyler arka planda hazırlanıyor."
+              : "You can use the surfaces that are ready while the remaining required surfaces continue in the background."),
         },
         currentDayPreparing: {
           title:

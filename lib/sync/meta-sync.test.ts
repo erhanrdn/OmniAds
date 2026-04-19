@@ -208,7 +208,7 @@ describe("buildMetaFollowupLeasePlan", () => {
     expect(plan.historicalCoreLimit).toBe(0);
   });
 
-  it("holds historical tail leasing until recent backlog is drained", () => {
+  it("keeps historical tail leasing available while recent backlog exists", () => {
     const plan = buildMetaFollowupLeasePlan({
       queueHealth: {
         maintenanceQueueDepth: 0,
@@ -218,14 +218,14 @@ describe("buildMetaFollowupLeasePlan", () => {
       } as never,
       leasedCoreFairnessCount: 1,
       leasedExtendedHistoricalFairnessCount: 1,
-      leasedExtendedRecentCount: 1,
+      leasedExtendedRecentCount: 0,
     });
 
-    expect(plan.extendedHistoricalLimit).toBe(0);
+    expect(plan.extendedHistoricalLimit).toBeGreaterThan(0);
     expect(plan.extendedRecentLimit).toBeGreaterThan(0);
   });
 
-  it("holds historical core follow-up while priority core work is queued", () => {
+  it("keeps historical core follow-up available while core backlog exists", () => {
     const plan = buildMetaFollowupLeasePlan({
       queueHealth: {
         maintenanceQueueDepth: 0,
@@ -238,7 +238,7 @@ describe("buildMetaFollowupLeasePlan", () => {
       leasedExtendedHistoricalFairnessCount: 0,
     });
 
-    expect(plan.historicalCoreLimit).toBe(0);
+    expect(plan.historicalCoreLimit).toBeGreaterThan(0);
   });
 });
 
@@ -334,7 +334,7 @@ describe("resolveMetaBackgroundLoopDelayMs", () => {
 });
 
 describe("buildMetaWorkerLeasePlan", () => {
-  it("prioritizes recent extended work ahead of historical tail work", async () => {
+  it("leases all extended backlog through the unified extended lane", async () => {
     vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
       queueDepth: 12,
       leasedPartitions: 0,
@@ -362,7 +362,7 @@ describe("buildMetaWorkerLeasePlan", () => {
 
     expect(plan.requestedLimit).toBeGreaterThanOrEqual(1);
     expect(plan.steps.map((step) => step.key)).toEqual([
-      "extended_recent",
+      "extended",
     ]);
   });
 });

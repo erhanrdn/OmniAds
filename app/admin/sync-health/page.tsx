@@ -1462,7 +1462,7 @@ export default function AdminSyncHealthPage() {
                         Quota calls {business.quotaCallCount ?? 0} • Quota errors {business.quotaErrorCount ?? 0} • Budget {business.quotaBudget ?? 0} • Pressure {Math.round((business.quotaPressure ?? 0) * 100)}%
                       </p>
                       <p className="mt-1 text-xs text-gray-500">
-                        Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling prioritizes recent dates first
+                        Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling runs in normal queue order
                       </p>
                       {business.latestPoisonReason ? (
                         <p className="mt-1 text-xs text-amber-700">
@@ -1581,7 +1581,7 @@ export default function AdminSyncHealthPage() {
                         <MetricPill label="Creative days" value={business.creativeCompletedDays} />
                       </div>
                       <p className="mt-3 text-xs text-gray-500">
-                        Recovery {business.effectiveMode ?? "core_only"} • Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling prioritizes recent dates first
+                        Recovery {business.effectiveMode ?? "core_only"} • Recent ready {business.recentExtendedReady ? "yes" : "no"} • Historical ready {business.historicalExtendedReady ? "yes" : "no"} • Scheduling runs in normal queue order
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <MetricPill label="Progress" value={business.progressState ?? "unknown"} />

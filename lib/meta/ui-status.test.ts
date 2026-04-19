@@ -76,6 +76,9 @@ describe("meta page ui status messaging", () => {
     expect(model.pill.label).toBe("Partially ready");
     expect(model.banner.title).toBe("Meta page is partially ready");
     expect(model.emptyState.title).toBe("Campaign data is still being prepared");
+    expect(model.banner.description).toBe(
+      "Placement breakdown data is still being prepared for the selected range."
+    );
   });
 
   it("maps blocked to warning language across pill and banner", () => {

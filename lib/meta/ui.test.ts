@@ -216,4 +216,16 @@ describe("meta ui helpers", () => {
       "Campaign data for the current Meta account day is still preparing."
     );
   });
+
+  it("uses generic background preparation wording for usable partial ranges", () => {
+    const status = buildStatus({
+      state: "partial",
+      pageReadiness: null as never,
+      readinessLevel: "usable",
+    });
+
+    expect(getMetaSyncDescription(status, "en")).toBe(
+      "Summary and campaign views are ready. Breakdown and creative surfaces continue in the background."
+    );
+  });
 });
