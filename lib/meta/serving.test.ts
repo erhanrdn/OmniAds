@@ -841,6 +841,131 @@ describe("meta historical serving", () => {
     });
   });
 
+  it("keeps published breakdown rows when warehouse dates arrive as Date objects", async () => {
+    process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
+    process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";
+
+    vi.mocked(warehouse.getMetaBreakdownDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: new Date("2026-04-01T00:00:00.000Z"),
+        breakdownType: "age",
+        breakdownKey: "25-34",
+        breakdownLabel: "25-34",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 42,
+        impressions: 900,
+        clicks: 27,
+        reach: 700,
+        frequency: 1.2,
+        conversions: 3,
+        revenue: 126,
+        roas: 3,
+        cpa: 14,
+        ctr: 3,
+        cpc: 1.55,
+        sourceSnapshotId: null,
+        truthState: "finalized_verified",
+        truthVersion: 2,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-age-date-object",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: new Date("2026-04-01T00:00:00.000Z"),
+        breakdownType: "country",
+        breakdownKey: "US",
+        breakdownLabel: "United States",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 38,
+        impressions: 860,
+        clicks: 22,
+        reach: 680,
+        frequency: 1.15,
+        conversions: 2,
+        revenue: 84,
+        roas: 2.21,
+        cpa: 19,
+        ctr: 2.56,
+        cpc: 1.73,
+        sourceSnapshotId: null,
+        truthState: "finalized_verified",
+        truthVersion: 2,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-country-date-object",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: new Date("2026-04-01T00:00:00.000Z"),
+        breakdownType: "placement",
+        breakdownKey: "facebook|feed|mobile",
+        breakdownLabel: "facebook • feed • mobile",
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 40,
+        impressions: 880,
+        clicks: 24,
+        reach: 690,
+        frequency: 1.18,
+        conversions: 2,
+        revenue: 92,
+        roas: 2.3,
+        cpa: 20,
+        ctr: 2.72,
+        cpc: 1.67,
+        sourceSnapshotId: null,
+        truthState: "finalized_verified",
+        truthVersion: 2,
+        finalizedAt: "2026-04-02T00:00:00Z",
+        validationStatus: "passed",
+        sourceRunId: "run-placement-date-object",
+        createdAt: "2026-04-02T00:00:00Z",
+        updatedAt: "2026-04-02T00:00:00Z",
+      },
+    ] as never);
+    vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue({
+      verificationState: "finalized_verified",
+      truthReady: true,
+      totalDays: 1,
+      completedCoreDays: 1,
+      sourceFetchedAt: "2026-04-02T00:00:00Z",
+      publishedAt: "2026-04-02T00:05:00Z",
+      asOf: "2026-04-02T00:05:00Z",
+      publishedSlices: 1,
+      totalExpectedSlices: 1,
+      reasonCounts: {},
+      publishedKeysBySurface: {
+        account_daily: ["act_1:2026-04-01"],
+      },
+    } as never);
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([] as never);
+
+    const payload = await getMetaWarehouseBreakdowns({
+      businessId: "biz-1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+      providerAccountIds: ["act_1"],
+    });
+
+    expect(payload.age).toEqual([expect.objectContaining({ key: "25-34", spend: 42 })]);
+    expect(payload.location).toEqual([expect.objectContaining({ key: "US", spend: 38 })]);
+    expect(payload.placement).toEqual([
+      expect.objectContaining({ key: "facebook|feed|mobile", spend: 40 }),
+    ]);
+  });
+
   it("serves country-only breakdown rows even when age and placement rows are absent", async () => {
     process.env.META_AUTHORITATIVE_FINALIZATION_V2 = "1";
     process.env.META_AUTHORITATIVE_FINALIZATION_CANARY_BUSINESSES = "";

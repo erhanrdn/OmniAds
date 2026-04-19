@@ -380,20 +380,22 @@ function normalizeMetaServingDate(value: string | Date) {
   return text.slice(0, 10);
 }
 
-function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string }>(
+function filterRowsToPublishedKeys<T extends { providerAccountId: string; date: string | Date }>(
   rows: T[],
   verification: MetaPublishedVerificationSummary | null | undefined,
   surface: "account_daily" | "campaign_daily" | "adset_daily",
 ) {
   const keys = new Set(verification?.publishedKeysBySurface[surface] ?? []);
   if (keys.size === 0) return [] as T[];
-  return rows.filter((row) => keys.has(`${row.providerAccountId}:${row.date}`));
+  return rows.filter((row) =>
+    keys.has(`${row.providerAccountId}:${normalizeMetaServingDate(row.date)}`),
+  );
 }
 
 function filterBreakdownRowsToPublishedKeys<
   T extends {
     providerAccountId: string;
-    date: string;
+    date: string | Date;
     breakdownType: string;
   },
 >(input: {
@@ -409,7 +411,7 @@ function filterBreakdownRowsToPublishedKeys<
   const requiredTypes = new Set(input.requiredBreakdownTypes);
   const breakdownTypesByKey = new Map<string, Set<string>>();
   for (const row of input.rows) {
-    const key = `${row.providerAccountId}:${row.date}`;
+    const key = `${row.providerAccountId}:${normalizeMetaServingDate(row.date)}`;
     if (!publishedKeys.has(key)) continue;
     const types = breakdownTypesByKey.get(key);
     if (types) {
@@ -420,7 +422,7 @@ function filterBreakdownRowsToPublishedKeys<
   }
 
   return input.rows.filter((row) => {
-    const key = `${row.providerAccountId}:${row.date}`;
+    const key = `${row.providerAccountId}:${normalizeMetaServingDate(row.date)}`;
     if (!publishedKeys.has(key)) return false;
     const presentTypes = breakdownTypesByKey.get(key);
     if (!presentTypes) return false;
