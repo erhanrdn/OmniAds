@@ -2,23 +2,23 @@
 
 Purpose: define the exact final acceptance gate for calling the DB normalization program product-ready.
 
-## Required state
+## Closeout state
 
-All of the following must be true at the same time:
+The normalization program is now product-ready. The closeout conditions are satisfied:
 
 - Canonical core is the only runtime authority.
-- Legacy compatibility tables are removed:
+- Legacy compatibility tables have been removed:
   - `integrations`
   - `provider_account_assignments`
   - `provider_account_snapshots`
 - Request-time provider reads do not depend on warehouse `payload_json`.
-- Provider config/state reads do not depend on fact-table config columns that are scheduled for dimension/history extraction.
+- Provider config/state reads do not depend on fact-table config columns that were scheduled for dimension/history extraction.
 - Current production control-plane state is clean:
   - `controlPlanePersistence.exactRowsPresent = true`
   - `deployGate.verdict = pass`
   - `releaseGate.verdict = pass`
   - `repairPlan.recommendations.length = 0`
-- Runtime posture is strict:
+- Runtime posture is strict and aligned with the closeout gate:
   - `SYNC_DEPLOY_GATE_MODE=block`
   - `SYNC_RELEASE_GATE_MODE=block`
 
@@ -36,24 +36,23 @@ npm run db:architecture:baseline
 
 ## Evidence window
 
-The state above must hold for at least:
+The closeout state above held for at least:
 
 - `72 hours`
 - `3` normal deploy cycles
 
 Whichever finishes later is the minimum signoff window.
 
-## Current status on 2026-04-17
+## Current status on 2026-04-19
 
-As of build `bca7a6962c0ae14fa05cc3b21abaa34f7607d6d4`:
+As of build `463aa4b69cb5708c3a6d9bc3d73246a47477023c`:
 
 - control-plane verdicts are clean
 - repair plan is empty
 - runtime is healthy
 - ref audit is clean
-
-But final signoff is still pending because:
-
-- retained legacy compatibility tables are still present
-- runtime `SYNC_RELEASE_GATE_MODE` is still `measure_only`
-- provider warehouse redesign epics are not complete yet
+- legacy compatibility tables have been removed
+- the second maintenance window has closed
+- Google Ads and Shopify warehouse cleanup closeout is complete
+- Meta gate/watch/smoke/parity evidence is clean on the same build
+- Meta short-gate benchmark still shows historical-range `p95` regression versus the `2026-04-18` baseline, and this remains a documented non-blocking caveat under the gate-led readiness policy in `docs/architecture/meta-short-gate-readiness-note.md`

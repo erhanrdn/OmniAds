@@ -9,12 +9,12 @@ Canonical core backbone for these surfaces:
 - `provider_account_snapshot_runs`
 - `provider_account_snapshot_items`
 
-Retired compatibility surface:
+Former compatibility surface:
 - `integrations`
 - `provider_account_assignments`
 - `provider_account_snapshots`
 
-The canonical backbone is authoritative for current request/runtime behavior. Retired compatibility tables are listed only for cleanup planning, not as active request-path dependencies.
+The canonical backbone is authoritative for current request/runtime behavior. The former compatibility tables were removed in the second maintenance window and are listed here only for historical traceability.
 
 ## Cross-cutting pivots
 

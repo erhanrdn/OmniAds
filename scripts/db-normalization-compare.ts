@@ -229,7 +229,8 @@ export function filterBlockingBaselineDiffs(input: {
   );
   return input.baselineDiffs.filter(
     (diff) =>
-      (diff.rowCountDelta !== null || diff.errorChanged === true) &&
+      ((diff.rowCountDelta !== null && diff.rowCountDelta !== 0) ||
+        diff.errorChanged === true) &&
       !expectedIndexes.has(diff.index),
   );
 }

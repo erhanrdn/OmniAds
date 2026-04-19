@@ -88,4 +88,25 @@ describe("db normalization compare", () => {
     expect(expectedTransitions).toHaveLength(0);
     expect(blockingDiffs).toHaveLength(1);
   });
+
+  it("does not treat zero baseline row deltas as blocking", () => {
+    const baselineDiffs = [
+      {
+        index: 1,
+        beforeRowCount: 96,
+        afterRowCount: 96,
+        rowCountDelta: 0,
+        beforeError: null,
+        afterError: null,
+        errorChanged: false,
+      },
+    ];
+
+    const blockingDiffs = filterBlockingBaselineDiffs({
+      baselineDiffs,
+      expectedBaselineTransitions: [],
+    });
+
+    expect(blockingDiffs).toHaveLength(0);
+  });
 });

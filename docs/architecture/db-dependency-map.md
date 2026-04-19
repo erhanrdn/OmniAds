@@ -10,12 +10,12 @@ Canonical core authority:
 - `provider_account_snapshot_runs`
 - `provider_account_snapshot_items`
 
-Retired compatibility surface:
+Former compatibility surface:
 - `integrations`
 - `provider_account_assignments`
 - `provider_account_snapshots`
 
-The retired compatibility tables may still exist during stabilization, but they are not authoritative request-path sources.
+The former compatibility tables were removed in the second maintenance window and are kept here only for historical traceability.
 
 Legend:
 - `Request path` means the table is touched by UI-triggered API requests, including protected `GET` routes.
@@ -171,4 +171,4 @@ Legend:
 - `provider_reporting_snapshots`, `platform_overview_*`, and `shopify_*serving*` are serving/projection tables, not source-of-truth tables.
 - Shopify cleanup cutover moved request/admin detail reads off inline `payload_json` / `result_summary` / `last_sync_result` / `last_result_summary`; those now live in `shopify_entity_payload_archives`.
 - `meta_*_daily` and `google_ads_*_daily` are the historical warehouse truth tables currently mixed with live exceptions in request-time orchestration.
-- `integrations`, `provider_account_assignments`, and `provider_account_snapshots` remain only as retired compatibility surface until the second maintenance window drops them.
+- `integrations`, `provider_account_assignments`, and `provider_account_snapshots` were removed in the second maintenance window and remain in this map only as historical cleanup references.
