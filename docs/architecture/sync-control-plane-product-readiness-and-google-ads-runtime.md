@@ -138,6 +138,8 @@ Current production runtime is still hybrid by design:
 - repair supervision
 - cooldown / retry-budget enforcement
 - control-plane truth emission
+- guaranteed inclusion and prioritization of release-canary businesses in the
+  worker batch, even when the nominal business limit would otherwise trim them
 
 ### Provider runtime owns
 
@@ -158,6 +160,8 @@ Current rule:
 - it must not create a second operational truth
 - it must not bypass incidents, gates, or postcondition semantics
 - it must remain observable
+- it does not replace batch prioritization; release canary businesses must be
+  present and ordered before this fallback even becomes relevant
 
 The goal is not to keep `consumeBusiness` forever. The goal is to keep one
 authoritative control loop while the provider runtimes still own real execution.

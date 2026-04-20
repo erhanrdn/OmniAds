@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildProviderHeartbeatWorkerId,
   createRunnerLeaseGuard,
+  getPriorityBusinessIdsForAdapter,
   prioritizeBusinessesForAdapter,
   resolveConsumeBusinessFallbackDecision,
   runAdapterLifecycleTick,
@@ -23,10 +24,35 @@ describe("prioritizeBusinessesForAdapter", () => {
 
   it("prioritizes meta businesses from META_DEBUG_PRIORITY_BUSINESS_IDS", () => {
     const previous = process.env.META_DEBUG_PRIORITY_BUSINESS_IDS;
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
     process.env.META_DEBUG_PRIORITY_BUSINESS_IDS = "biz-3,biz-1";
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "";
     const result = prioritizeBusinessesForAdapter("meta", businesses);
     expect(result.map((row) => row.id)).toEqual(["biz-3", "biz-1", "biz-2"]);
     process.env.META_DEBUG_PRIORITY_BUSINESS_IDS = previous;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+
+  it("prioritizes release canaries when no adapter debug list is set", () => {
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-2,biz-3";
+    const result = prioritizeBusinessesForAdapter("google_ads", businesses);
+    expect(result.map((row) => row.id)).toEqual(["biz-2", "biz-3", "biz-1"]);
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+
+  it("keeps adapter debug priority ahead of release canaries", () => {
+    const previous = process.env.META_DEBUG_PRIORITY_BUSINESS_IDS;
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.META_DEBUG_PRIORITY_BUSINESS_IDS = "biz-1";
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-3,biz-2";
+    expect(getPriorityBusinessIdsForAdapter("meta")).toEqual([
+      "biz-1",
+      "biz-2",
+      "biz-3",
+    ]);
+    process.env.META_DEBUG_PRIORITY_BUSINESS_IDS = previous;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
   });
 
   it("keeps other providers in original order without matching debug ids", () => {

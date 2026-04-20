@@ -14,6 +14,7 @@ import { pruneSyncLifecycleData } from "@/lib/sync/retention";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 import { getDbRuntimeDiagnostics } from "@/lib/db";
 import { getProviderJobLockState } from "@/lib/sync/provider-job-lock";
+import { getSyncReleaseCanaryBusinessIds } from "@/lib/sync/runtime-contract";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -62,17 +63,29 @@ function parseEnvList(name: string) {
     .filter(Boolean);
 }
 
-export function prioritizeBusinessesForAdapter(
+export function getPriorityBusinessIdsForAdapter(
   providerScope: string,
-  businesses: Array<{ id: string; name: string }>
+  env: NodeJS.ProcessEnv = process.env,
 ) {
-  const prioritizedIds = parseEnvList(
+  const debugPriorityIds = parseEnvList(
     providerScope === "google_ads"
       ? "GOOGLE_ADS_DEBUG_PRIORITY_BUSINESS_IDS"
       : providerScope === "meta"
         ? "META_DEBUG_PRIORITY_BUSINESS_IDS"
-        : ""
+        : "",
   );
+  const releaseCanaryIds =
+    providerScope === "meta" || providerScope === "google_ads"
+      ? getSyncReleaseCanaryBusinessIds(env)
+      : [];
+  return Array.from(new Set([...debugPriorityIds, ...releaseCanaryIds]));
+}
+
+export function prioritizeBusinessesForAdapter(
+  providerScope: string,
+  businesses: Array<{ id: string; name: string }>
+) {
+  const prioritizedIds = getPriorityBusinessIdsForAdapter(providerScope);
   if (prioritizedIds.length === 0) return businesses;
   const priorityRank = new Map(prioritizedIds.map((id, index) => [id, index]));
   return [...businesses].sort((left, right) => {
@@ -433,7 +446,16 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       force: true,
     }).catch(() => null);
 
-    const businesses = await getActiveBusinesses(maxBusinessesPerTick).catch(() => []);
+    const prioritizedBusinessIds = Array.from(
+      new Set(
+        options.adapters.flatMap((adapter) =>
+          getPriorityBusinessIdsForAdapter(adapter.providerScope),
+        ),
+      ),
+    );
+    const businesses = await getActiveBusinesses(maxBusinessesPerTick, {
+      prioritizedIds: prioritizedBusinessIds,
+    }).catch(() => []);
     for (const business of businesses) {
       discoveredBusinesses.add(business.id);
     }
