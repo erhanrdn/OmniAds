@@ -7,11 +7,6 @@ on:
         description: Exact deployed commit SHA to observe post-deploy
         required: true
         type: string
-      require_block_modes:
-        description: Require deploy and release gates to remain in block mode for watch-window reporting
-        required: false
-        default: "false"
-        type: string
 
 concurrency:
   group: post-deploy-verify-${{ inputs.sha }}
@@ -69,32 +64,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Observe Meta watch window (report-only)
-        id: watch_window
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          REQUIRE_BLOCK_MODES: ${{ inputs.require_block_modes }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          extra_args=()
-          if [ "${REQUIRE_BLOCK_MODES}" = "true" ]; then
-            extra_args+=(--require-block-modes)
-          fi
-
-          node --import tsx scripts/meta-watch-window.ts \
-            --expected-build-id "${{ steps.expected.outputs.sha }}" \
-            --base-url "https://adsecute.com" \
-            --attempts 12 \
-            --sleep-ms 5000 \
-            --minimum-successful-runs 3 \
-            --workflow-file "meta-watch-window.yml" \
-            --out-file ".artifacts/post-deploy-meta-watch-window.json" \
-            "${extra_args[@]}"
-
       - name: Verify public release authority (report-only)
         id: release_authority
         continue-on-error: true
@@ -123,27 +92,8 @@ jobs:
               "## Post-Deploy Verification",
               "",
               f"- expectedBuildId: `{os.environ['EXPECTED_SHA']}`",
-              f"- metaWatchWindowStep: `{os.environ['WATCH_WINDOW_OUTCOME']}`",
               f"- releaseAuthorityStep: `{os.environ['RELEASE_AUTHORITY_OUTCOME']}`",
           ]
-
-          watch_path = Path(".artifacts/post-deploy-meta-watch-window.json")
-          if watch_path.exists():
-              payload = json.loads(watch_path.read_text(encoding="utf-8"))
-              acceptance = payload.get("acceptance") or {}
-              summary_lines.extend(
-                  [
-                      "",
-                      "### Meta Watch Window",
-                      f"- accepted: `{acceptance.get('accepted')}`",
-                      f"- observedBuildId: `{acceptance.get('observedBuildId')}`",
-                      f"- acceptedAtAttempt: `{payload.get('acceptedAtAttempt')}`",
-                      f"- watchWindowSatisfied: `{payload.get('watchWindowSatisfied')}`",
-                  ]
-              )
-              reasons = acceptance.get("reasons") or []
-              if reasons:
-                  summary_lines.append("- reasons: `" + ", ".join(str(reason) for reason in reasons) + "`")
 
           release_path = Path(".artifacts/post-deploy-release-authority.json")
           if release_path.exists():
@@ -166,7 +116,6 @@ jobs:
           PY
         env:
           EXPECTED_SHA: ${{ steps.expected.outputs.sha }}
-          WATCH_WINDOW_OUTCOME: ${{ steps.watch_window.outcome }}
           RELEASE_AUTHORITY_OUTCOME: ${{ steps.release_authority.outcome }}
 
       - name: Upload verification artifacts

@@ -1,10 +1,6 @@
 name: Meta Watch Window
 
 on:
-  workflow_run:
-    workflows: ["Deploy to Hetzner"]
-    types:
-      - completed
   workflow_dispatch:
     inputs:
       sha:
@@ -24,11 +20,7 @@ on:
 
 jobs:
   watch-window:
-    if: |
-      (github.event_name == 'workflow_dispatch' && inputs.sha != '') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+    if: inputs.sha != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,13 +44,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            expected_sha="${{ github.event.workflow_run.head_sha }}"
-            streak_eligible="true"
-          else
-            expected_sha="${{ inputs.sha }}"
-            streak_eligible="false"
-          fi
+          expected_sha="${{ inputs.sha }}"
+          streak_eligible="false"
 
           if [ -z "${expected_sha}" ]; then
             echo "Expected SHA is required."
@@ -72,8 +59,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          REQUIRE_BLOCK_MODES: ${{ github.event_name == 'workflow_dispatch' && inputs.require_block_modes || 'false' }}
-          STABILITY_WINDOW_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.stability_window_minutes || '30' }}
+          REQUIRE_BLOCK_MODES: ${{ inputs.require_block_modes }}
+          STABILITY_WINDOW_MINUTES: ${{ inputs.stability_window_minutes }}
         run: |
           set -euo pipefail
 
