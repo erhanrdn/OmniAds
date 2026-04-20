@@ -8,6 +8,7 @@ const releaseSyncRunnerLease = vi.fn();
 const pruneSyncLifecycleData = vi.fn();
 const executeGoogleAdsRetentionPolicy = vi.fn();
 const executeMetaRetentionPolicy = vi.fn();
+const getLatestSyncGateRecords = vi.fn();
 
 vi.mock("@/lib/sync/active-businesses", () => ({
   getActiveBusinesses,
@@ -32,6 +33,10 @@ vi.mock("@/lib/meta/warehouse-retention", () => ({
   executeMetaRetentionPolicy,
 }));
 
+vi.mock("@/lib/sync/release-gates", () => ({
+  getLatestSyncGateRecords,
+}));
+
 describe("worker runtime heartbeat repair metadata", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -53,6 +58,11 @@ describe("worker runtime heartbeat repair metadata", () => {
     process.env.WORKER_PARTITION_TICK_LIMIT = "1";
     process.env.WORKER_GLOBAL_DB_CONCURRENCY = "1";
     process.env.META_WORKER_CONCURRENCY = "1";
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "";
+    getLatestSyncGateRecords.mockResolvedValue({
+      deployGate: null,
+      releaseGate: null,
+    });
   });
 
   it("includes auto-heal cleanup details in provider heartbeats and defers maintenance at startup", async () => {
@@ -173,5 +183,69 @@ describe("worker runtime heartbeat repair metadata", () => {
     expect(pruneSyncLifecycleData).not.toHaveBeenCalled();
     expect(executeGoogleAdsRetentionPolicy).not.toHaveBeenCalled();
     expect(executeMetaRetentionPolicy).not.toHaveBeenCalled();
+  });
+
+  it("limits blocked provider ticks to prioritized canaries", async () => {
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-priority";
+    getActiveBusinesses.mockResolvedValue([
+      { id: "biz-priority", name: "Priority" },
+      { id: "biz-other", name: "Other" },
+    ]);
+    getLatestSyncGateRecords.mockResolvedValue({
+      deployGate: null,
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "test",
+        mode: "block",
+        baseResult: "fail",
+        verdict: "blocked",
+        blockerClass: "not_release_ready",
+        summary: "blocked",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: { providerScope: "meta" },
+        emittedAt: "2026-04-20T00:00:00.000Z",
+      },
+    });
+
+    const consumedBusinesses: string[] = [];
+    const { runDurableWorkerRuntime } = await import("@/lib/sync/worker-runtime");
+
+    const runtime = runDurableWorkerRuntime({
+      adapters: [
+        {
+          providerScope: "meta",
+          planPartitions: async () => ({ partitions: [] }),
+          leasePartitions: async () => [],
+          getCheckpoint: async () => null,
+          fetchChunk: async () => ({}),
+          persistChunk: async () => {},
+          transformChunk: async () => {},
+          writeFacts: async () => {},
+          advanceCheckpoint: async () => {},
+          completePartition: async () => {},
+          classifyFailure: () => "x",
+          buildLeasePlan: async () => null,
+          getReadiness: async () => ({
+            readinessLevel: "usable",
+            checkpointHealth: null,
+            domainReadiness: null,
+          }),
+          runAutoHeal: async () => null,
+          consumeBusiness: async (businessId: string) => {
+            consumedBusinesses.push(businessId);
+            process.emit("SIGTERM");
+            return { outcome: "consume_succeeded" };
+          },
+        },
+      ],
+    });
+
+    await runtime;
+
+    expect(consumedBusinesses).toEqual(["biz-priority"]);
   });
 });

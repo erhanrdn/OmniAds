@@ -15,6 +15,7 @@ import { logRuntimeInfo } from "@/lib/runtime-logging";
 import { getDbRuntimeDiagnostics } from "@/lib/db";
 import { getProviderJobLockState } from "@/lib/sync/provider-job-lock";
 import { getSyncReleaseCanaryBusinessIds } from "@/lib/sync/runtime-contract";
+import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -96,6 +97,34 @@ export function prioritizeBusinessesForAdapter(
     if (rightRank == null) return -1;
     return leftRank - rightRank;
   });
+}
+
+export async function resolveTickBusinessesForAdapter(input: {
+  providerScope: string;
+  businesses: Array<{ id: string; name: string }>;
+}) {
+  const prioritizedIds = getPriorityBusinessIdsForAdapter(input.providerScope);
+  if (prioritizedIds.length === 0) return input.businesses;
+
+  const prioritizedSet = new Set(prioritizedIds);
+  const prioritizedBusinesses = input.businesses.filter((business) =>
+    prioritizedSet.has(business.id)
+  );
+  if (prioritizedBusinesses.length === 0) return input.businesses;
+
+  if (input.providerScope !== "meta" && input.providerScope !== "google_ads") {
+    return input.businesses;
+  }
+
+  const gateRecords = await getLatestSyncGateRecords({
+    buildId: getCurrentRuntimeBuildId(),
+    providerScope: input.providerScope,
+  }).catch(() => null);
+  if (gateRecords?.releaseGate?.verdict === "pass") {
+    return input.businesses;
+  }
+
+  return prioritizedBusinesses;
 }
 
 export function buildProviderHeartbeatWorkerId(workerId: string, providerScope: string) {
@@ -460,7 +489,14 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
       discoveredBusinesses.add(business.id);
     }
     for (const adapter of options.adapters) {
-      const adapterBusinesses = prioritizeBusinessesForAdapter(adapter.providerScope, businesses);
+      const prioritizedBusinesses = prioritizeBusinessesForAdapter(
+        adapter.providerScope,
+        businesses
+      );
+      const adapterBusinesses = await resolveTickBusinessesForAdapter({
+        providerScope: adapter.providerScope,
+        businesses: prioritizedBusinesses,
+      });
       await heartbeat({
         providerScope: adapter.providerScope,
         status: "idle",

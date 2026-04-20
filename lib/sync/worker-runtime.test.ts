@@ -4,6 +4,7 @@ import {
   createRunnerLeaseGuard,
   getPriorityBusinessIdsForAdapter,
   prioritizeBusinessesForAdapter,
+  resolveTickBusinessesForAdapter,
   resolveConsumeBusinessFallbackDecision,
   runAdapterLifecycleTick,
   resolveAdapterLifecycleSnapshot,
@@ -13,7 +14,12 @@ vi.mock("@/lib/sync/provider-job-lock", () => ({
   getProviderJobLockState: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/release-gates", () => ({
+  getLatestSyncGateRecords: vi.fn(),
+}));
+
 const providerJobLock = await import("@/lib/sync/provider-job-lock");
+const releaseGates = await import("@/lib/sync/release-gates");
 
 describe("prioritizeBusinessesForAdapter", () => {
   const businesses = [
@@ -58,6 +64,77 @@ describe("prioritizeBusinessesForAdapter", () => {
   it("keeps other providers in original order without matching debug ids", () => {
     const result = prioritizeBusinessesForAdapter("other", businesses);
     expect(result.map((row) => row.id)).toEqual(["biz-1", "biz-2", "biz-3"]);
+  });
+});
+
+describe("resolveTickBusinessesForAdapter", () => {
+  const businesses = [
+    { id: "biz-priority", name: "Priority" },
+    { id: "biz-other", name: "Other" },
+  ];
+
+  it("restricts blocked release-gate ticks to prioritized businesses", async () => {
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-priority";
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: null,
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "test",
+        mode: "block",
+        baseResult: "fail",
+        verdict: "blocked",
+        blockerClass: "not_release_ready",
+        summary: "blocked",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-20T00:00:00.000Z",
+      },
+    });
+
+    const result = await resolveTickBusinessesForAdapter({
+      providerScope: "meta",
+      businesses,
+    });
+
+    expect(result).toEqual([{ id: "biz-priority", name: "Priority" }]);
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+
+  it("keeps the full business list when the release gate passes", async () => {
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-priority";
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: null,
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "test",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "pass",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-20T00:00:00.000Z",
+      },
+    });
+
+    const result = await resolveTickBusinessesForAdapter({
+      providerScope: "meta",
+      businesses,
+    });
+
+    expect(result).toEqual(businesses);
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
   });
 });
 
