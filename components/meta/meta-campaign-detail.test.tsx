@@ -240,9 +240,6 @@ describe("MetaCampaignDetail render contract", () => {
         onToggleCheck={vi.fn()}
         onAnalyze={vi.fn()}
         onClearSelection={vi.fn()}
-        ageRows={[]}
-        placementRows={[]}
-        isBreakdownLoading={false}
         businessId="biz"
         since="2026-04-01"
         until="2026-04-05"
@@ -252,9 +249,10 @@ describe("MetaCampaignDetail render contract", () => {
 
     expect(html).toContain("decision-os-overview:empty:compact");
     expect(html).toContain("Account Drilldown");
-    expect(html).toContain("operating-mode-card");
-    expect(html).toContain("account-recommendations");
-    expect(html).toContain("performance-breakdown");
+    expect(html).toContain("Workflow and context");
+    expect(html).not.toContain("operating-mode-card");
+    expect(html).not.toContain("account-recommendations");
+    expect(html).not.toContain("performance-breakdown");
   });
 
   it("renders the selected campaign visible details including the optional budget tile when budget exists", () => {
@@ -270,9 +268,6 @@ describe("MetaCampaignDetail render contract", () => {
         onToggleCheck={vi.fn()}
         onAnalyze={vi.fn()}
         onClearSelection={vi.fn()}
-        ageRows={[]}
-        placementRows={[]}
-        isBreakdownLoading={false}
         businessId="biz"
         since="2026-04-01"
         until="2026-04-05"
@@ -313,9 +308,6 @@ describe("MetaCampaignDetail render contract", () => {
         onToggleCheck={vi.fn()}
         onAnalyze={vi.fn()}
         onClearSelection={vi.fn()}
-        ageRows={[]}
-        placementRows={[]}
-        isBreakdownLoading={false}
         businessId="biz"
         since="2026-04-01"
         until="2026-04-05"
@@ -340,9 +332,6 @@ describe("MetaCampaignDetail render contract", () => {
         onToggleCheck={vi.fn()}
         onAnalyze={vi.fn()}
         onClearSelection={vi.fn()}
-        ageRows={[]}
-        placementRows={[]}
-        isBreakdownLoading={false}
         businessId="biz"
         since="2026-04-01"
         until="2026-04-05"
@@ -374,9 +363,6 @@ describe("MetaCampaignDetail render contract", () => {
         onToggleCheck={vi.fn()}
         onAnalyze={vi.fn()}
         onClearSelection={vi.fn()}
-        ageRows={[]}
-        placementRows={[]}
-        isBreakdownLoading={false}
         businessId="biz"
         since="2026-04-01"
         until="2026-04-05"
@@ -427,9 +413,6 @@ describe("MetaCampaignDetail render contract", () => {
         onToggleCheck={vi.fn()}
         onAnalyze={vi.fn()}
         onClearSelection={vi.fn()}
-        ageRows={[]}
-        placementRows={[]}
-        isBreakdownLoading={false}
         businessId="biz"
         since="2026-04-01"
         until="2026-04-05"

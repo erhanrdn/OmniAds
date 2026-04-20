@@ -49,7 +49,10 @@ function enrichManifestRow(row: ManifestRow): ManifestRow {
   };
 }
 
-export function useBusinessIntegrationsBootstrap(businessId: string | null) {
+export function useBusinessIntegrationsBootstrap(
+  businessId: string | null,
+  options?: { providers?: IntegrationProvider[] }
+) {
   const ensureBusinessDomains = useIntegrationsStore((state) => state.ensureBusinessDomains);
   const startBusinessBootstrap = useIntegrationsStore((state) => state.startBusinessBootstrap);
   const finishBusinessBootstrap = useIntegrationsStore((state) => state.finishBusinessBootstrap);
@@ -61,6 +64,9 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
   const bootstrapStatus = useIntegrationsStore((state) =>
     businessId ? state.bootstrapStatusByBusiness[businessId] ?? "idle" : "idle"
   );
+  const providerFilterKey = options?.providers?.length
+    ? [...new Set(options.providers)].sort().join(",")
+    : "all";
 
   useEffect(() => {
     if (!businessId) return;
@@ -69,12 +75,17 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
 
   useEffect(() => {
     if (!businessId) return;
+    const lockKey = `${businessId}:${providerFilterKey}`;
     const locks = getBootstrapLocks();
-    if (locks.has(businessId)) {
+    if (locks.has(lockKey)) {
       return;
     }
 
     const bootstrapPromise = (async () => {
+      const allowedProviders =
+        providerFilterKey === "all"
+          ? null
+          : new Set(providerFilterKey.split(",") as IntegrationProvider[]);
       startBusinessBootstrap(businessId);
       logClientAuthEvent("integration_bootstrap_started", { businessId });
 
@@ -113,8 +124,12 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
           rowCount: manifestRows.length,
         });
 
+        const snapshotRows = allowedProviders
+          ? manifestRows.filter((row) => allowedProviders.has(row.provider))
+          : manifestRows;
+
         await Promise.all(
-          manifestRows.map(async (row) => {
+          snapshotRows.map(async (row) => {
             const provider = row.provider;
             if (!supportsProviderAssignments(provider)) return;
             if (row.status !== "connected") {
@@ -200,15 +215,16 @@ export function useBusinessIntegrationsBootstrap(businessId: string | null) {
         );
       } finally {
         finishBusinessBootstrap(businessId);
-        locks.delete(businessId);
+        locks.delete(lockKey);
       }
     })();
 
-    locks.set(businessId, bootstrapPromise);
+    locks.set(lockKey, bootstrapPromise);
   }, [
     businessId,
     ensureBusinessDomains,
     finishBusinessBootstrap,
+    providerFilterKey,
     setManifestConnections,
     setProviderAssignmentState,
     setProviderDiscovery,

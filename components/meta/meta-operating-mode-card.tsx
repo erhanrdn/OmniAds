@@ -62,13 +62,16 @@ export function MetaOperatingModeCard({
   businessId,
   startDate,
   endDate,
+  enabled = true,
 }: {
   businessId: string;
   startDate: string;
   endDate: string;
+  enabled?: boolean;
 }) {
   const query = useQuery({
     queryKey: ["business-operating-mode", businessId, startDate, endDate],
+    enabled: enabled && Boolean(businessId && startDate && endDate),
     staleTime: 5 * 60 * 1000,
     queryFn: () => fetchBusinessOperatingMode({ businessId, startDate, endDate }),
   });

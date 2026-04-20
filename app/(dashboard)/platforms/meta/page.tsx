@@ -38,7 +38,6 @@ import { LoadingSkeleton } from "@/components/states/loading-skeleton";
 import { DataEmptyState } from "@/components/states/DataEmptyState";
 import { Button } from "@/components/ui/button";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import type { MetaCampaignRow, MetaCampaignsResponse } from "@/app/api/meta/campaigns/route";
 import type { MetaSummaryRouteResponse } from "@/app/api/meta/summary/route";
 import {
@@ -86,10 +85,12 @@ async function fetchMetaCampaigns(
   businessId: string,
   startDate: string,
   endDate: string,
-  includePrev = false
+  includePrev = false,
+  campaignId?: string | null
 ): Promise<MetaCampaignsResponse> {
   const params = new URLSearchParams({ businessId, startDate, endDate });
   if (includePrev) params.set("includePrev", "1");
+  if (campaignId) params.set("campaignId", campaignId);
   const res = await fetch(`/api/meta/campaigns?${params.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
@@ -100,24 +101,6 @@ async function fetchMetaCampaigns(
       payload?.message ?? `Request failed (${res.status})`
     );
   return payload as MetaCampaignsResponse;
-}
-
-async function fetchMetaBreakdowns(
-  businessId: string,
-  startDate: string,
-  endDate: string
-): Promise<MetaBreakdownsResponse> {
-  const params = new URLSearchParams({ businessId, startDate, endDate });
-  const res = await fetch(`/api/meta/breakdowns?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const payload = await res.json().catch(() => null);
-  if (!res.ok)
-    throw new Error(
-      payload?.message ?? `Request failed (${res.status})`
-    );
-  return payload as MetaBreakdownsResponse;
 }
 
 async function fetchMetaRecommendations(
@@ -171,7 +154,7 @@ async function fetchMetaSummary(
   return payload as MetaSummaryRouteResponse;
 }
 
-async function fetchMetaStatus(
+async function fetchMetaPageStatus(
   businessId: string,
   startDate?: string,
   endDate?: string
@@ -179,7 +162,7 @@ async function fetchMetaStatus(
   const params = new URLSearchParams({ businessId });
   if (startDate) params.set("startDate", startDate);
   if (endDate) params.set("endDate", endDate);
-  const res = await fetch(`/api/meta/status?${params.toString()}`, {
+  const res = await fetch(`/api/meta/page-status?${params.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
@@ -556,7 +539,8 @@ export default function MetaPage() {
     selectedBusinessId ? s.domainsByBusinessId[selectedBusinessId] : undefined
   );
   const { isBootstrapping, bootstrapStatus } = useBusinessIntegrationsBootstrap(
-    selectedBusinessId ?? null
+    selectedBusinessId ?? null,
+    { providers: ["meta"] }
   );
 
   const [dateRange, setDateRange] = usePersistentMetaDateRange();
@@ -565,8 +549,6 @@ export default function MetaPage() {
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
-  const [resolvedMetaReferenceDate, setResolvedMetaReferenceDate] = useState<string | null>(null);
-  const [resolvedMetaTimeZoneLabel, setResolvedMetaTimeZoneLabel] = useState<string | null>(null);
   const allowedHistoryDays = PRICING_PLANS[currentPlan].limits.analyticsHistoryDays;
   const previousYearAllowed = allowedHistoryDays === null || allowedHistoryDays > 365;
   const campaignIdParam = searchParams.get("campaignId");
@@ -595,46 +577,44 @@ export default function MetaPage() {
   });
   const showBootstrapGuard =
     !isDemoBusiness &&
+    !metaView.isConnected &&
     (isBootstrapping ||
       metaView.status === "loading_data" ||
-      (bootstrapStatus !== "ready" && !metaView.isConnected));
+      bootstrapStatus !== "ready");
   const metaConnected = metaView.isConnected || isDemoBusiness;
-
-  const baseStatusQuery = useQuery({
-    queryKey: ["meta-status-base", businessId],
-    enabled: metaConnected,
-    staleTime: 30 * 1000,
-    refetchInterval: (query) =>
-      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
-    queryFn: () => fetchMetaStatus(businessId),
-  });
-  const metaReferenceDate = baseStatusQuery.data?.currentDateInTimezone ?? undefined;
-  const metaTimeZoneLabel = baseStatusQuery.data?.primaryAccountTimezone ?? undefined;
-
-  useEffect(() => {
-    if (metaReferenceDate) setResolvedMetaReferenceDate(metaReferenceDate);
-  }, [metaReferenceDate]);
-
-  useEffect(() => {
-    if (metaTimeZoneLabel) setResolvedMetaTimeZoneLabel(metaTimeZoneLabel);
-  }, [metaTimeZoneLabel]);
 
   useEffect(() => {
     if (campaignIdParam === selectedCampaignId) return;
     setSelectedCampaignId(campaignIdParam);
   }, [campaignIdParam, selectedCampaignId]);
 
-  const effectiveMetaReferenceDate = metaReferenceDate ?? resolvedMetaReferenceDate;
-  const effectiveMetaTimeZoneLabel = metaTimeZoneLabel ?? resolvedMetaTimeZoneLabel;
-  const resolvedMetaRange = getMetaPresetDates({
-    value: dateRange,
-    referenceDate: effectiveMetaReferenceDate,
+  const metaReferenceQuery = useQuery({
+    queryKey: ["meta-page-reference", businessId],
+    enabled: metaConnected,
+    staleTime: 60 * 1000,
+    queryFn: () => fetchMetaPageStatus(businessId),
   });
-  const startDate = resolvedMetaRange?.start ?? dateRange.customStart;
-  const endDate = resolvedMetaRange?.end ?? dateRange.customEnd;
-  const needsMetaReferenceDate = metaConnected && dateRange.rangePreset !== "custom";
+
+  const effectiveMetaReferenceDate =
+    metaReferenceQuery.data?.currentDateInTimezone ?? null;
+  const effectiveMetaTimeZoneLabel =
+    metaReferenceQuery.data?.primaryAccountTimezone ?? null;
+  const shouldFallbackToLocalMetaReference =
+    metaConnected &&
+    !effectiveMetaReferenceDate &&
+    (metaReferenceQuery.isSuccess || metaReferenceQuery.isError);
   const isMetaReferenceReady =
-    !needsMetaReferenceDate || Boolean(effectiveMetaReferenceDate);
+    !metaConnected ||
+    Boolean(effectiveMetaReferenceDate) ||
+    shouldFallbackToLocalMetaReference;
+  const resolvedMetaRange = isMetaReferenceReady
+    ? getMetaPresetDates({
+        value: dateRange,
+        referenceDate: effectiveMetaReferenceDate,
+      })
+    : null;
+  const startDate = resolvedMetaRange?.start ?? null;
+  const endDate = resolvedMetaRange?.end ?? null;
 
   useEffect(() => {
     if (allowedHistoryDays === null && previousYearAllowed) return;
@@ -653,16 +633,6 @@ export default function MetaPage() {
       setDateRange(normalized);
     }
   }, [allowedHistoryDays, dateRange, effectiveMetaReferenceDate, previousYearAllowed, setDateRange]);
-  const statusQuery = useQuery({
-    queryKey: ["meta-status", businessId, startDate, endDate],
-    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
-    staleTime: 30 * 1000,
-    refetchInterval: (query) =>
-      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
-    queryFn: () => fetchMetaStatus(businessId, startDate, endDate),
-    placeholderData: baseStatusQuery.data,
-  });
-  const effectiveStatus = statusQuery.data ?? baseStatusQuery.data;
   const comparisonWindow =
     startDate && endDate
       ? getComparisonWindow(
@@ -678,40 +648,73 @@ export default function MetaPage() {
     dateRange.comparisonStart,
     dateRange.comparisonEnd
   );
+  const isTodayRange =
+    dateRange.rangePreset === "today" ||
+    (Boolean(effectiveMetaReferenceDate) &&
+      Boolean(startDate && endDate) &&
+      startDate === endDate &&
+      startDate === effectiveMetaReferenceDate);
+  const shouldFetchSummary =
+    metaConnected && isMetaReferenceReady && Boolean(startDate && endDate) && !isTodayRange;
 
+  const pageStatusQuery = useQuery({
+    queryKey: ["meta-page-status", businessId, startDate, endDate],
+    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getMetaStatusRefetchInterval(query.state.data as MetaStatusResponse | undefined),
+    queryFn: () => fetchMetaPageStatus(businessId, startDate!, endDate!),
+  });
+
+  const effectiveStatus = pageStatusQuery.data ?? metaReferenceQuery.data;
   const campaignsQuery = useQuery({
     queryKey: ["meta-campaigns", businessId, startDate, endDate],
     enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
     staleTime: 60 * 1000,
-    queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, false),
+    queryFn: () => fetchMetaCampaigns(businessId, startDate!, endDate!, false),
   });
 
-  const campaignPrevQuery = useQuery({
-    queryKey: ["meta-campaigns-prev", businessId, startDate, endDate],
-    enabled: metaConnected && isMetaReferenceReady && campaignsQuery.isSuccess,
+  const selectedCampaignPrevQuery = useQuery({
+    queryKey: [
+      "meta-campaigns-prev",
+      businessId,
+      startDate,
+      endDate,
+      selectedCampaignId,
+    ],
+    enabled:
+      metaConnected &&
+      isMetaReferenceReady &&
+      campaignsQuery.isSuccess &&
+      Boolean(selectedCampaignId),
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchMetaCampaigns(businessId, startDate, endDate, true),
-  });
-
-  const breakdownsQuery = useQuery({
-    queryKey: ["meta-breakdowns", businessId, startDate, endDate],
-    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
-    staleTime: 60 * 1000,
-    queryFn: () => fetchMetaBreakdowns(businessId, startDate, endDate),
+    queryFn: () =>
+      fetchMetaCampaigns(
+        businessId,
+        startDate!,
+        endDate!,
+        true,
+        selectedCampaignId
+      ),
   });
 
   const summaryQuery = useQuery({
     queryKey: ["meta-warehouse-summary", businessId, startDate, endDate],
-    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
+    enabled: shouldFetchSummary,
     staleTime: 60 * 1000,
-    queryFn: () => fetchMetaSummary(businessId, startDate, endDate),
+    queryFn: () => fetchMetaSummary(businessId, startDate!, endDate!),
   });
+
+  const coreQueriesSettled =
+    (pageStatusQuery.isSuccess || pageStatusQuery.isError) &&
+    (campaignsQuery.isSuccess || campaignsQuery.isError) &&
+    (!shouldFetchSummary || summaryQuery.isSuccess || summaryQuery.isError);
 
   const recommendationsQuery = useQuery({
     queryKey: ["meta-recommendations-v8", businessId, startDate, endDate],
     enabled: false,
     staleTime: Infinity,
-    queryFn: () => fetchMetaRecommendations(businessId, startDate, endDate),
+    queryFn: () => fetchMetaRecommendations(businessId, startDate!, endDate!),
   });
 
   const decisionOsQuery = useQuery({
@@ -719,7 +722,7 @@ export default function MetaPage() {
     enabled: false,
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
-    queryFn: () => fetchMetaDecisionOs(businessId, startDate, endDate),
+    queryFn: () => fetchMetaDecisionOs(businessId, startDate!, endDate!),
   });
   const isAnalysisRunning =
     recommendationsQuery.isFetching || decisionOsQuery.isFetching;
@@ -810,35 +813,47 @@ export default function MetaPage() {
       }
       const refreshPayload = await response.json().catch(() => null);
 
-      await Promise.allSettled([
-        statusQuery.refetch(),
-        summaryQuery.refetch(),
-        campaignsQuery.refetch(),
-        campaignPrevQuery.refetch(),
-        breakdownsQuery.refetch(),
-        comparisonCampaignsQuery.refetch(),
-        comparisonSummaryQuery.refetch(),
-      ]);
+      await Promise.allSettled(
+        [
+          pageStatusQuery.refetch(),
+          campaignsQuery.refetch(),
+          shouldFetchSummary ? summaryQuery.refetch() : null,
+          selectedCampaignId ? selectedCampaignPrevQuery.refetch() : null,
+          comparisonWindow ? comparisonCampaignsQuery.refetch() : null,
+          comparisonWindow ? comparisonSummaryQuery.refetch() : null,
+        ].filter(Boolean)
+      );
 
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await sleep(2_000);
-        const [statusResult, summaryResult, campaignsResult, campaignPrevResult, breakdownsResult, compareCampaignsResult, compareSummaryResult] =
-          await Promise.allSettled([
-            statusQuery.refetch(),
-            summaryQuery.refetch(),
-            campaignsQuery.refetch(),
-            campaignPrevQuery.refetch(),
-            breakdownsQuery.refetch(),
-            comparisonCampaignsQuery.refetch(),
-            comparisonSummaryQuery.refetch(),
-          ]);
+        const [
+          statusResult,
+          campaignsResult,
+          summaryResult,
+          campaignPrevResult,
+          compareCampaignsResult,
+          compareSummaryResult,
+        ] = await Promise.allSettled([
+          pageStatusQuery.refetch(),
+          campaignsQuery.refetch(),
+          shouldFetchSummary ? summaryQuery.refetch() : Promise.resolve(undefined),
+          selectedCampaignId
+            ? selectedCampaignPrevQuery.refetch()
+            : Promise.resolve(undefined),
+          comparisonWindow
+            ? comparisonCampaignsQuery.refetch()
+            : Promise.resolve(undefined),
+          comparisonWindow
+            ? comparisonSummaryQuery.refetch()
+            : Promise.resolve(undefined),
+        ]);
 
         const refreshedStatus =
           statusResult.status === "fulfilled" ? statusResult.value.data : undefined;
-        const refreshedSummary =
-          summaryResult.status === "fulfilled" ? summaryResult.value.data : undefined;
         const refreshedCampaigns =
           campaignsResult.status === "fulfilled" ? campaignsResult.value.data : undefined;
+        const refreshedSummary =
+          summaryResult.status === "fulfilled" ? summaryResult.value?.data : undefined;
 
         const queueDepth = refreshedStatus?.jobHealth?.queueDepth ?? 0;
         const leasedPartitions = refreshedStatus?.jobHealth?.leasedPartitions ?? 0;
@@ -868,7 +883,6 @@ export default function MetaPage() {
           (refreshPayload?.status === "finalized" && syncSettled)
         ) {
           void campaignPrevResult;
-          void breakdownsResult;
           void compareCampaignsResult;
           void compareSummaryResult;
           break;
@@ -886,7 +900,7 @@ export default function MetaPage() {
       comparisonWindow?.startDate,
       comparisonWindow?.endDate,
     ],
-    enabled: metaConnected && Boolean(comparisonWindow),
+    enabled: metaConnected && Boolean(comparisonWindow) && coreQueriesSettled,
     queryFn: () =>
       fetchMetaCampaigns(
         businessId,
@@ -903,7 +917,7 @@ export default function MetaPage() {
       comparisonWindow?.startDate,
       comparisonWindow?.endDate,
     ],
-    enabled: metaConnected && Boolean(comparisonWindow),
+    enabled: metaConnected && Boolean(comparisonWindow) && coreQueriesSettled,
     staleTime: 60 * 1000,
     queryFn: () =>
       fetchMetaSummary(
@@ -928,18 +942,6 @@ export default function MetaPage() {
     () => computeKpis(campaignsQuery.data?.rows ?? []),
     [campaignsQuery.data]
   );
-  const isTodayRange =
-    dateRange.rangePreset === "today" ||
-    (Boolean(effectiveMetaReferenceDate) &&
-      Boolean(startDate && endDate) &&
-      startDate === endDate &&
-      startDate === effectiveMetaReferenceDate);
-  const historicalBackfillEnd =
-    effectiveMetaReferenceDate ? addDaysToISO(effectiveMetaReferenceDate, -1) : null;
-  const historicalBackfillStart =
-    historicalBackfillEnd
-      ? addDaysToISO(historicalBackfillEnd, -(META_WAREHOUSE_HISTORY_DAYS - 1))
-      : null;
   const statusHistoricalProgress = effectiveStatus?.latestSync
     ? {
         progressPercent: effectiveStatus.latestSync.progressPercent ?? 0,
@@ -950,21 +952,9 @@ export default function MetaPage() {
           ? "ready"
           : effectiveStatus.state === "partial"
             ? "partial"
-            : "syncing") as "ready" | "syncing" | "partial",
+          : "syncing") as "ready" | "syncing" | "partial",
       }
     : null;
-  const statusWarehouseWindowReady =
-    !isTodayRange &&
-    Boolean(
-      effectiveStatus?.warehouse?.firstDate &&
-        effectiveStatus?.warehouse?.lastDate &&
-        effectiveStatus.warehouse.firstDate <= startDate &&
-        effectiveStatus.warehouse.lastDate >= endDate
-    );
-  const historicalWarehouseReady =
-    statusWarehouseWindowReady ||
-    (statusHistoricalProgress?.state === "ready" &&
-      (statusHistoricalProgress?.progressPercent ?? 0) >= 100);
   const hasCampaignSpend =
     (campaignsQuery.data?.rows ?? []).some((row) => (row.spend ?? 0) > 0);
   const emptyKpis: KpiData = {
@@ -979,10 +969,14 @@ export default function MetaPage() {
   const shouldShowHistoricalProgress =
     metaConnected &&
     (metaSyncPill?.state ?? "active") !== "active";
+  const isCoreRangePending =
+    metaConnected &&
+    !isMetaReferenceReady &&
+    !shouldFallbackToLocalMetaReference;
   const isStatusLoading =
     metaConnected &&
-    (!isMetaReferenceReady ||
-      (!effectiveStatus && (baseStatusQuery.isLoading || statusQuery.isLoading)));
+    !effectiveStatus &&
+    (metaReferenceQuery.isLoading || pageStatusQuery.isLoading);
   const isSyncInProgress =
     metaSyncPill?.state === "syncing";
 
@@ -1014,7 +1008,6 @@ export default function MetaPage() {
     summaryLoading: summaryQuery.isLoading,
   });
   const canRenderKpis =
-    !summaryQuery.isLoading &&
     !shouldMaskKpisAsPreparing &&
     Boolean(warehouseKpis ?? campaignWarehouseKpis);
   const campaignCountLabel = shouldMaskKpisAsPreparing
@@ -1053,7 +1046,7 @@ export default function MetaPage() {
       });
     }
     const prevConfigById = new Map(
-      (campaignPrevQuery.data?.rows ?? []).map((row) => [row.id, row])
+      (selectedCampaignPrevQuery.data?.rows ?? []).map((row) => [row.id, row])
     );
     if (!comparisonWindow || !comparisonCampaignsQuery.data?.rows?.length) {
       return rows.map((row) => ({
@@ -1104,7 +1097,7 @@ export default function MetaPage() {
       };
     });
   }, [
-    campaignPrevQuery.data?.rows,
+    selectedCampaignPrevQuery.data?.rows,
     campaignsQuery.data?.rows,
     comparisonCampaignsQuery.data?.rows,
     comparisonWindow,
@@ -1307,7 +1300,7 @@ export default function MetaPage() {
           <MetaStatusBanner status={effectiveStatus} language={language} />
 
           {/* ── Master-detail layout ─────────────────────────────────────── */}
-          {campaignsQuery.isLoading && (
+          {(isCoreRangePending || campaignsQuery.isLoading) && (
             <LoadingSkeleton
               rows={6}
               title={campaignSurfaceLoadingTitle}
@@ -1315,7 +1308,7 @@ export default function MetaPage() {
             />
           )}
 
-          {campaignsQuery.isError && (
+          {!isCoreRangePending && campaignsQuery.isError && (
             <SectionError
               message={
                 campaignsQuery.error instanceof Error
@@ -1327,7 +1320,7 @@ export default function MetaPage() {
             />
           )}
 
-          {!campaignsQuery.isLoading && !campaignsQuery.isError && (() => {
+          {!isCoreRangePending && !campaignsQuery.isLoading && !campaignsQuery.isError && (() => {
             const status = campaignsQuery.data?.status;
             if (status === "no_accounts_assigned") return <NoAccountsAssigned />;
 
@@ -1352,13 +1345,6 @@ export default function MetaPage() {
 
             const selectedCampaign =
               campaignRowsForTable.find((c) => c.id === selectedCampaignId) ?? null;
-
-            const placementRows = (breakdownsQuery.data?.placement ?? []).map((row) => ({
-              key: row.key,
-              label: row.label,
-              spend: row.spend,
-              roas: row.spend > 0 ? row.revenue / row.spend : 0,
-            }));
 
             return (
               <div className="flex gap-4" style={{ minHeight: "520px" }}>
@@ -1394,12 +1380,9 @@ export default function MetaPage() {
                     onToggleCheck={handleToggleCheck}
                     onAnalyze={handleAnalyze}
                     onClearSelection={() => setSelectedCampaignId(null)}
-                    ageRows={breakdownsQuery.data?.age ?? []}
-                    placementRows={placementRows}
-                    isBreakdownLoading={breakdownsQuery.isLoading}
                     businessId={businessId}
-                    since={startDate}
-                    until={endDate}
+                    since={startDate!}
+                    until={endDate!}
                     language={language}
                   />
                 </div>

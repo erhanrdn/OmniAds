@@ -112,6 +112,7 @@ export async function GET(request: NextRequest) {
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
   const requestedAccountId = searchParams.get("accountId");
+  const campaignId = searchParams.get("campaignId");
   const includePrev = searchParams.get("includePrev") === "1";
 
   if (!businessId) {
@@ -132,6 +133,7 @@ export async function GET(request: NextRequest) {
     startDate,
     endDate,
     accountId: requestedAccountId,
+    campaignId,
     includePrev,
   });
   return NextResponse.json(payload satisfies MetaCampaignsResponse, {

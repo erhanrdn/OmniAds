@@ -1,0 +1,153 @@
+import { getIntegration } from "@/lib/integrations";
+import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
+import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
+import { readThroughCache } from "@/lib/server-cache";
+
+const META_ACCOUNT_CONTEXT_CACHE_TTL_MS = Math.max(
+  1_000,
+  Number(process.env.META_ACCOUNT_CONTEXT_CACHE_TTL_MS ?? 60_000) || 60_000
+);
+const META_ACCOUNT_PROFILE_TIMEOUT_MS = 8_000;
+
+export interface MetaAccountProfileContext {
+  currency: string;
+  timezone: string | null;
+  name: string | null;
+}
+
+export interface MetaAccountContext {
+  businessId: string;
+  connected: boolean;
+  accessToken: string | null;
+  accountIds: string[];
+  primaryAccountId: string | null;
+  primaryAccountTimezone: string | null;
+  currency: string;
+  accountProfiles: Record<string, MetaAccountProfileContext>;
+}
+
+function shouldBypassMetaAccountContextCache() {
+  return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+}
+
+function buildMetaAccountContextCacheKey(businessId: string) {
+  return `meta-account-context:v1:${businessId}`;
+}
+
+async function fetchMetaAccountProfile(
+  accountId: string,
+  accessToken: string
+): Promise<MetaAccountProfileContext> {
+  try {
+    const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
+    url.searchParams.set("fields", "currency,name,timezone_name");
+    url.searchParams.set("access_token", accessToken);
+    const res = await fetch(url.toString(), {
+      cache: "no-store",
+      signal: AbortSignal.timeout(META_ACCOUNT_PROFILE_TIMEOUT_MS),
+    });
+    if (!res.ok) return { currency: "USD", timezone: null, name: null };
+    const json = (await res.json()) as {
+      currency?: string;
+      name?: string;
+      timezone_name?: string;
+    };
+    return {
+      currency: json.currency ?? "USD",
+      timezone: json.timezone_name ?? null,
+      name: json.name ?? null,
+    };
+  } catch {
+    return { currency: "USD", timezone: null, name: null };
+  }
+}
+
+async function loadMetaAccountContext(businessId: string): Promise<MetaAccountContext> {
+  const [integration, assignments, snapshot] = await Promise.all([
+    getIntegration(businessId, "meta").catch(() => null),
+    getProviderAccountAssignments(businessId, "meta").catch(() => null),
+    readProviderAccountSnapshot({
+      businessId,
+      provider: "meta",
+    }).catch(() => null),
+  ]);
+
+  const accessToken = integration?.access_token ?? null;
+  const accountIds = assignments?.account_ids ?? [];
+  const snapshotProfiles = new Map(
+    (snapshot?.accounts ?? []).map((account) => [
+      account.id,
+      {
+        currency: account.currency ?? "USD",
+        timezone: account.timezone ?? null,
+        name: account.name ?? null,
+      } satisfies MetaAccountProfileContext,
+    ])
+  );
+
+  const accountProfiles = Object.fromEntries(
+    await Promise.all(
+      accountIds.map(async (accountId) => {
+        const snapshotProfile = snapshotProfiles.get(accountId);
+        if (
+          snapshotProfile?.currency &&
+          (snapshotProfile.timezone || snapshotProfile.name)
+        ) {
+          return [accountId, snapshotProfile] as const;
+        }
+        if (!accessToken) {
+          return [
+            accountId,
+            snapshotProfile ?? {
+              currency: "USD",
+              timezone: null,
+              name: null,
+            },
+          ] as const;
+        }
+        const liveProfile = await fetchMetaAccountProfile(accountId, accessToken);
+        return [
+          accountId,
+          {
+            currency: liveProfile.currency ?? snapshotProfile?.currency ?? "USD",
+            timezone: liveProfile.timezone ?? snapshotProfile?.timezone ?? null,
+            name: liveProfile.name ?? snapshotProfile?.name ?? null,
+          },
+        ] as const;
+      })
+    )
+  );
+
+  const primaryAccountId = accountIds[0] ?? null;
+  const primaryAccountTimezone =
+    primaryAccountId && accountProfiles[primaryAccountId]?.timezone
+      ? accountProfiles[primaryAccountId].timezone
+      : null;
+
+  return {
+    businessId,
+    connected: integration?.status === "connected",
+    accessToken,
+    accountIds,
+    primaryAccountId,
+    primaryAccountTimezone,
+    currency: primaryAccountId
+      ? accountProfiles[primaryAccountId]?.currency ?? "USD"
+      : "USD",
+    accountProfiles,
+  };
+}
+
+export async function getMetaAccountContext(
+  businessId: string
+): Promise<MetaAccountContext> {
+  if (shouldBypassMetaAccountContextCache()) {
+    return loadMetaAccountContext(businessId);
+  }
+
+  return readThroughCache({
+    key: buildMetaAccountContextCacheKey(businessId),
+    ttlMs: META_ACCOUNT_CONTEXT_CACHE_TTL_MS,
+    loader: () => loadMetaAccountContext(businessId),
+  });
+}

@@ -339,20 +339,11 @@ describe("Meta page render contract", () => {
     observedQueryOptions = {};
     const readyStatus = baseStatus();
     mockQueries = {
-      "meta-status-base": baseQueryState({ data: readyStatus, state: { data: readyStatus } }),
-      "meta-status": baseQueryState({ data: readyStatus, state: { data: readyStatus } }),
+      "meta-page-reference": baseQueryState({ data: readyStatus, state: { data: readyStatus } }),
+      "meta-page-status": baseQueryState({ data: readyStatus, state: { data: readyStatus } }),
       "meta-campaigns": baseQueryState({ data: { status: "ok", rows: [campaignRow()] } }),
       "meta-campaigns-prev": baseQueryState({ data: { rows: [] } }),
-      "meta-breakdowns": baseQueryState({
-        data: {
-          age: [],
-          location: [],
-          placement: [],
-        },
-      }),
-      "meta-warehouse-summary": baseQueryState({
-        data: { totals: { spend: 120, revenue: 360, cpa: 20, roas: 3 } },
-      }),
+      "meta-warehouse-summary": baseQueryState({ data: undefined }),
       "meta-recommendations-v8": baseQueryState({
         data: { status: "ok", summary: {}, recommendations: [] },
         isFetching: false,
@@ -383,8 +374,7 @@ describe("Meta page render contract", () => {
         complete: false,
       },
     });
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "no_accounts_assigned", rows: [] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
@@ -411,8 +401,7 @@ describe("Meta page render contract", () => {
         },
       },
     });
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
@@ -471,8 +460,7 @@ describe("Meta page render contract", () => {
       state: "syncing",
     };
     mockDateRange = { ...mockDateRange, rangePreset: "7d", customStart: "2026-04-01", customEnd: "2026-04-05" };
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
@@ -526,8 +514,7 @@ describe("Meta page render contract", () => {
       state: "syncing",
     };
     mockDateRange = { ...mockDateRange, rangePreset: "7d", customStart: "2026-04-01", customEnd: "2026-04-05" };
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
     mockQueries["meta-recommendations-v8"] = baseQueryState({ data: undefined, isFetching: false });
 
@@ -552,8 +539,7 @@ describe("Meta page render contract", () => {
       },
     });
     mockDateRange = { ...mockDateRange, rangePreset: "7d", customStart: "2026-04-01", customEnd: "2026-04-05" };
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
@@ -565,8 +551,7 @@ describe("Meta page render contract", () => {
 
   it("renders ready data without empty-state or preparing-state UI", () => {
     const status = baseStatus();
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
@@ -579,14 +564,66 @@ describe("Meta page render contract", () => {
 
   it("keeps Decision OS manual and exposes a run-analysis action in the header", () => {
     const status = baseStatus();
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
 
     const html = renderToStaticMarkup(React.createElement(MetaPage));
 
     expect(observedQueryOptions["meta-decision-os"]?.enabled).toBe(false);
     expect(html).toContain("Run analysis");
+  });
+
+  it("keeps supporting and comparison queries deferred on the initial today load", () => {
+    const status = baseStatus({
+      pageReadiness: {
+        ...baseStatus().pageReadiness!,
+        selectedRangeMode: "current_day_live",
+      },
+    });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
+
+    renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(observedQueryOptions["meta-warehouse-summary"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-campaigns-prev"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-campaigns-compare"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-warehouse-summary-compare"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-breakdowns"]).toBeUndefined();
+  });
+
+  it("waits for the Meta account day before enabling ranged core queries", () => {
+    mockQueries["meta-page-reference"] = baseQueryState({
+      data: undefined,
+      isLoading: true,
+      isSuccess: false,
+      state: { data: undefined },
+    });
+    mockQueries["meta-page-status"] = baseQueryState({
+      data: undefined,
+      isLoading: false,
+      isSuccess: false,
+      state: { data: undefined },
+    });
+    mockQueries["meta-campaigns"] = baseQueryState({
+      data: undefined,
+      isLoading: false,
+      isSuccess: false,
+      state: { data: undefined },
+    });
+    mockQueries["meta-warehouse-summary"] = baseQueryState({
+      data: undefined,
+      isLoading: false,
+      isSuccess: false,
+      state: { data: undefined },
+    });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(observedQueryOptions["meta-page-status"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-campaigns"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-warehouse-summary"]?.enabled).toBe(false);
+    expect(html).toContain("loading:Loading campaign performance|Campaign, breakdown, and recovery surfaces will appear as sync finishes.");
   });
 
   it("renders summary KPIs while campaign drilldown is still loading", () => {
@@ -599,8 +636,7 @@ describe("Meta page render contract", () => {
       comparisonStart: null,
       comparisonEnd: null,
     };
-    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
-    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
     mockQueries["meta-warehouse-summary"] = baseQueryState({
       data: { totals: { spend: 1776.83, revenue: 3291.76, cpa: 126.92, roas: 1.85 } },
     });

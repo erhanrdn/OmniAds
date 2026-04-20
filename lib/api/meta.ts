@@ -13,9 +13,7 @@
  * - Historical snapshot analysis for AI/recommendations lives outside this module.
  */
 
-import { getIntegration } from "@/lib/integrations";
 import { getDb } from "@/lib/db";
-import { getProviderAccountAssignments } from "@/lib/provider-account-assignments";
 import {
   appendMetaConfigSnapshots,
   readLatestMetaConfigSnapshots,
@@ -72,6 +70,7 @@ import type {
 } from "@/lib/meta/warehouse-types";
 import { createMetaFinalizationCompletenessProof } from "@/lib/meta/finalization-proof";
 import { isMetaAuthoritativeFinalizationV2EnabledForBusiness } from "@/lib/meta/authoritative-finalization-config";
+import { getMetaAccountContext } from "@/lib/meta/account-context";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 
 // ── Core metric interface ─────────────────────────────────────────────────────
@@ -442,55 +441,18 @@ function normalizeMetaApiDate(value: string): string {
 export async function resolveMetaCredentials(
   businessId: string
 ): Promise<MetaCredentials | null> {
-  const [integration, accountRow] = await Promise.all([
-    getIntegration(businessId, "meta").catch(() => null),
-    getProviderAccountAssignments(businessId, "meta").catch(() => null),
-  ]);
-
-  const accessToken = integration?.access_token;
-  const accountIds = accountRow?.account_ids ?? [];
-
+  const context = await getMetaAccountContext(businessId).catch(() => null);
+  const accessToken = context?.accessToken;
+  const accountIds = context?.accountIds ?? [];
   if (!accessToken || accountIds.length === 0) return null;
 
-  const accountProfiles = Object.fromEntries(
-    await Promise.all(
-      accountIds.map(async (accountId) => [
-        accountId,
-        await fetchAccountProfile(accountId, accessToken),
-      ])
-    )
-  );
-  const currency = accountProfiles[accountIds[0]]?.currency ?? "USD";
-
-  return { businessId, accessToken, accountIds, currency, accountProfiles };
-}
-
-async function fetchAccountProfile(
-  accountId: string,
-  accessToken: string
-): Promise<{ currency: string; timezone: string | null; name: string | null }> {
-  try {
-    const url = new URL(`https://graph.facebook.com/v25.0/${accountId}`);
-    url.searchParams.set("fields", "currency,name,timezone_name");
-    url.searchParams.set("access_token", accessToken);
-    const res = await fetch(url.toString(), {
-      cache: "no-store",
-      signal: AbortSignal.timeout(META_ACCOUNT_PROFILE_TIMEOUT_MS),
-    });
-    if (!res.ok) return { currency: "USD", timezone: null, name: null };
-    const json = (await res.json()) as {
-      currency?: string;
-      name?: string;
-      timezone_name?: string;
-    };
-    return {
-      currency: json.currency ?? "USD",
-      timezone: json.timezone_name ?? null,
-      name: json.name ?? null,
-    };
-  } catch {
-    return { currency: "USD", timezone: null, name: null };
-  }
+  return {
+    businessId,
+    accessToken,
+    accountIds,
+    currency: context?.currency ?? "USD",
+    accountProfiles: context?.accountProfiles ?? {},
+  };
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

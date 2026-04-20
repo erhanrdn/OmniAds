@@ -48,6 +48,7 @@ export async function getMetaCampaignsForRange(input: {
   startDate?: string | null;
   endDate?: string | null;
   accountId?: string | null;
+  campaignId?: string | null;
   includePrev?: boolean;
 }): Promise<MetaCampaignsSourceResult> {
   if (await isDemoBusiness(input.businessId)) {
@@ -128,6 +129,9 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
+      if (input.campaignId) {
+        rows = rows.filter((row) => row.id === input.campaignId);
+      }
       return {
         status: "ok",
         rows,
@@ -153,6 +157,9 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       });
+      if (input.campaignId) {
+        rows = rows.filter((row) => row.id === input.campaignId);
+      }
       return {
         status: "ok",
         rows,
@@ -177,6 +184,9 @@ export async function getMetaCampaignsForRange(input: {
       providerAccountIds: targetAccountIds,
       includePrev: input.includePrev,
     })) as MetaCampaignRow[];
+    if (input.campaignId) {
+      rows = rows.filter((row) => row.id === input.campaignId);
+    }
   } catch (error) {
     console.warn("[meta-campaigns] data_fetch_failed", {
       businessId: input.businessId,
@@ -217,6 +227,9 @@ export async function getMetaCampaignsForRange(input: {
         providerAccountIds: targetAccountIds,
         includePrev: input.includePrev,
       })) as MetaCampaignRow[];
+      if (input.campaignId) {
+        rows = rows.filter((row) => row.id === input.campaignId);
+      }
     } catch {
       rows = [];
     }

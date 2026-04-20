@@ -1,4 +1,4 @@
-import { resolveMetaCredentials } from "@/lib/api/meta";
+import { getMetaAccountContext } from "@/lib/meta/account-context";
 import {
   isMetaRangeWithinAuthoritativeHistory,
   isMetaRangeWithinBreakdownHistory,
@@ -23,12 +23,8 @@ export async function getMetaRangePreparationContext(input: {
   startDate: string;
   endDate: string;
 }) {
-  const credentials = await resolveMetaCredentials(input.businessId).catch(() => null);
-  const primaryAccountId = credentials?.accountIds?.[0] ?? null;
-  const primaryAccountTimezone =
-    primaryAccountId && credentials?.accountProfiles?.[primaryAccountId]?.timezone
-      ? credentials.accountProfiles[primaryAccountId].timezone
-      : null;
+  const accountContext = await getMetaAccountContext(input.businessId).catch(() => null);
+  const primaryAccountTimezone = accountContext?.primaryAccountTimezone ?? null;
   const currentDateInTimezone = primaryAccountTimezone
     ? getTodayIsoForTimeZoneServer(primaryAccountTimezone)
     : null;

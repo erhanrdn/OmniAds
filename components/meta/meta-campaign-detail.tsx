@@ -11,12 +11,14 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
 import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
+import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
 import { MetaBreakdownGrid, type BreakdownRow } from "@/components/meta/meta-breakdown-grid";
 import type { PlacementChartRow } from "@/components/meta/placement-breakdown-chart";
 import { MetaOperatingModeCard } from "@/components/meta/meta-operating-mode-card";
@@ -108,9 +110,11 @@ function MetricTile({
 function MetaCommandCenterCard({
   actions,
   href,
+  isLoading = false,
 }: {
   actions: CommandCenterAction[];
   href: string;
+  isLoading?: boolean;
 }) {
   const pendingCount = actions.filter((action) => action.status === "pending").length;
   const approvedCount = actions.filter((action) => action.status === "approved").length;
@@ -127,7 +131,9 @@ function MetaCommandCenterCard({
             Command Center
           </p>
           <p className="mt-1 text-sm font-semibold text-slate-950">
-            {actions.length > 0
+            {isLoading
+              ? "Loading workflow items for this surface"
+              : actions.length > 0
               ? `${actions.length} workflow items linked to this surface`
               : "Open the shared team workflow panel"}
           </p>
@@ -289,9 +295,6 @@ interface MetaCampaignDetailProps {
   onToggleCheck: (id: string) => void;
   onAnalyze: () => void;
   onClearSelection: () => void;
-  ageRows: BreakdownRow[];
-  placementRows: PlacementChartRow[];
-  isBreakdownLoading: boolean;
   businessId: string;
   since: string;
   until: string;
@@ -458,6 +461,9 @@ interface AccountOverviewProps {
   until: string;
   language: "en" | "tr";
   commandCenterActions: CommandCenterAction[];
+  isCommandCenterLoading: boolean;
+  supportingContextOpen: boolean;
+  onSupportingContextToggle: (open: boolean) => void;
 }
 
 function AccountOverview(props: AccountOverviewProps) {
@@ -480,37 +486,47 @@ function AccountOverview(props: AccountOverviewProps) {
           context now stay together in this detail pane.
         </p>
       </div>
-      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-supporting-context">
+      <details
+        className="rounded-2xl border border-slate-200 bg-white shadow-sm"
+        data-testid="meta-supporting-context"
+        onToggle={(event) =>
+          props.onSupportingContextToggle(event.currentTarget.open)
+        }
+      >
         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
           Workflow and context
         </summary>
-        <div className="space-y-4 border-t border-slate-200 px-4 py-4">
-          <MetaOperatingModeCard
-            businessId={props.businessId}
-            startDate={props.since}
-            endDate={props.until}
-          />
-          <MetaCommandCenterCard
-            actions={props.commandCenterActions}
-            href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
-          />
-          <MetaAccountRecs
-            recommendationsData={props.recommendationsData}
-            isRecsLoading={props.isRecsLoading}
-            lastAnalyzedAt={props.lastAnalyzedAt}
-            checkedRecIds={props.checkedRecIds}
-            onToggleCheck={props.onToggleCheck}
-            onAnalyze={props.onAnalyze}
-            analysisError={props.recommendationsError}
-            language={props.language}
-          />
-          <MetaBreakdownGrid
-            ageRows={props.ageRows}
-            placementRows={props.placementRows}
-            isLoading={props.isBreakdownLoading}
-            language={props.language}
-          />
-        </div>
+        {props.supportingContextOpen ? (
+          <div className="space-y-4 border-t border-slate-200 px-4 py-4">
+            <MetaOperatingModeCard
+              businessId={props.businessId}
+              startDate={props.since}
+              endDate={props.until}
+              enabled={props.supportingContextOpen}
+            />
+            <MetaCommandCenterCard
+              actions={props.commandCenterActions}
+              href={`/command-center?startDate=${encodeURIComponent(props.since)}&endDate=${encodeURIComponent(props.until)}`}
+              isLoading={props.isCommandCenterLoading}
+            />
+            <MetaAccountRecs
+              recommendationsData={props.recommendationsData}
+              isRecsLoading={props.isRecsLoading}
+              lastAnalyzedAt={props.lastAnalyzedAt}
+              checkedRecIds={props.checkedRecIds}
+              onToggleCheck={props.onToggleCheck}
+              onAnalyze={props.onAnalyze}
+              analysisError={props.recommendationsError}
+              language={props.language}
+            />
+            <MetaBreakdownGrid
+              ageRows={props.ageRows}
+              placementRows={props.placementRows}
+              isLoading={props.isBreakdownLoading}
+              language={props.language}
+            />
+          </div>
+        ) : null}
       </details>
     </div>
   );
@@ -530,25 +546,71 @@ export function MetaCampaignDetail({
   onToggleCheck,
   onAnalyze,
   onClearSelection,
-  ageRows,
-  placementRows,
-  isBreakdownLoading,
   businessId,
   since,
   until,
   language,
 }: MetaCampaignDetailProps) {
   const sym = useCurrencySymbol();
+  const [supportingContextOpen, setSupportingContextOpen] = useState(false);
+  const [workflowContextOpen, setWorkflowContextOpen] = useState(false);
+  const shouldLoadBreakdowns = Boolean(
+    !campaign && supportingContextOpen && businessId && since && until
+  );
   const commandCenterQuery = useQuery<CommandCenterResponse>({
     queryKey: ["command-center-meta-overlay", businessId, since, until],
-    enabled: Boolean(businessId && since && until),
+    enabled: Boolean(
+      businessId &&
+        since &&
+        until &&
+        (supportingContextOpen || workflowContextOpen)
+    ),
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
     queryFn: () => getCommandCenter(businessId, since, until),
   });
+  const breakdownsQuery = useQuery<MetaBreakdownsResponse>({
+    queryKey: ["meta-breakdowns", businessId, since, until],
+    enabled: shouldLoadBreakdowns,
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        businessId,
+        startDate: since,
+        endDate: until,
+      });
+      const res = await fetch(`/api/meta/breakdowns?${params.toString()}`, {
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.message ?? `Request failed (${res.status})`);
+      }
+      return payload as MetaBreakdownsResponse;
+    },
+  });
   const metaCommandCenterActions = (commandCenterQuery.data?.actions ?? []).filter(
     (action) => action.sourceSystem === "meta",
   );
+  const placementRows = useMemo(
+    () =>
+      (breakdownsQuery.data?.placement ?? []).map((row) => ({
+        key: row.key,
+        label: row.label,
+        spend: row.spend,
+        roas: row.spend > 0 ? row.revenue / row.spend : 0,
+      })),
+    [breakdownsQuery.data?.placement]
+  );
+
+  useEffect(() => {
+    if (campaign) setSupportingContextOpen(false);
+  }, [campaign]);
+
+  useEffect(() => {
+    if (!campaign) setWorkflowContextOpen(false);
+  }, [campaign]);
 
   if (!campaign) {
     return (
@@ -562,14 +624,17 @@ export function MetaCampaignDetail({
         checkedRecIds={checkedRecIds}
         onToggleCheck={onToggleCheck}
         onAnalyze={onAnalyze}
-        ageRows={ageRows}
+        ageRows={breakdownsQuery.data?.age ?? []}
         placementRows={placementRows}
-        isBreakdownLoading={isBreakdownLoading}
+        isBreakdownLoading={breakdownsQuery.isLoading}
         businessId={businessId}
         since={since}
         until={until}
         language={language}
         commandCenterActions={metaCommandCenterActions}
+        isCommandCenterLoading={commandCenterQuery.isLoading}
+        supportingContextOpen={supportingContextOpen}
+        onSupportingContextToggle={setSupportingContextOpen}
       />
     );
   }
@@ -668,16 +733,23 @@ export function MetaCampaignDetail({
         )}
       </div>
 
-      <details className="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="meta-campaign-secondary-context">
+      <details
+        className="rounded-2xl border border-slate-200 bg-white shadow-sm"
+        data-testid="meta-campaign-secondary-context"
+        onToggle={(event) => setWorkflowContextOpen(event.currentTarget.open)}
+      >
         <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900">
           Workflow context
         </summary>
-        <div className="border-t border-slate-200 px-4 py-4">
-          <MetaCommandCenterCard
-            actions={campaignCommandCenterActions}
-            href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
-          />
-        </div>
+        {workflowContextOpen ? (
+          <div className="border-t border-slate-200 px-4 py-4">
+            <MetaCommandCenterCard
+              actions={campaignCommandCenterActions}
+              href={`/command-center?startDate=${encodeURIComponent(since)}&endDate=${encodeURIComponent(until)}${campaignCommandCenterActions[0] ? `&action=${encodeURIComponent(campaignCommandCenterActions[0].actionFingerprint)}` : ""}`}
+              isLoading={commandCenterQuery.isLoading}
+            />
+          </div>
+        ) : null}
       </details>
 
       {/* Ad sets */}
