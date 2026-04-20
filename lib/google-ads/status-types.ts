@@ -15,6 +15,8 @@ import type {
   SyncTruthState,
 } from "@/lib/sync/provider-status-truth";
 import type { GlobalOperatorReviewWorkflow } from "@/lib/global-operator-review";
+import type { SyncGateRecord } from "@/lib/sync/release-gates";
+import type { SyncRepairPlanRecord } from "@/lib/sync/repair-planner";
 
 export interface GoogleAdsSyncDetails {
   id?: string | null;
@@ -105,6 +107,9 @@ export interface GoogleAdsStatusResponse {
     | "action_required"
     | "ready";
   connected: boolean;
+  deployGate?: SyncGateRecord | null;
+  releaseGate?: SyncGateRecord | null;
+  repairPlan?: SyncRepairPlanRecord | null;
   syncTruthState?: SyncTruthState | null;
   blockerClass?: SyncBlockerClass | null;
   readinessLevel?: ProviderReadinessLevel;

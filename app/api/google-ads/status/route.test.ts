@@ -212,6 +212,14 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
   isGoogleAdsIncidentSafeModeEnabled: vi.fn(() => false),
 }));
 
+vi.mock("@/lib/sync/release-gates", () => ({
+  getLatestSyncGateRecords: vi.fn(),
+}));
+
+vi.mock("@/lib/sync/repair-planner", () => ({
+  getLatestSyncRepairPlan: vi.fn(),
+}));
+
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
@@ -225,6 +233,8 @@ const searchIntelligenceStorage = await import("@/lib/google-ads/search-intellig
 const migrations = await import("@/lib/migrations");
 const statusMachine = await import("@/lib/google-ads/status-machine");
 const requestGovernance = await import("@/lib/provider-request-governance");
+const releaseGates = await import("@/lib/sync/release-gates");
+const repairPlanner = await import("@/lib/sync/repair-planner");
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
@@ -296,6 +306,11 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsSyncState).mockResolvedValue([]);
     vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("not_connected");
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: null,
+      releaseGate: null,
+    } as never);
+    vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockResolvedValue(null);
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
     vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue(null);
     vi.mocked(searchIntelligenceStorage.readGoogleAdsSearchIntelligenceCoverage).mockResolvedValue({
@@ -430,6 +445,53 @@ describe("GET /api/google-ads/status", () => {
       readinessModel: "recent_84d_required_support",
     });
     vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: {
+        id: "dg-1",
+        gateKind: "deploy_gate",
+        gateScope: "service_liveness",
+        buildId: "runtime-build",
+        environment: "production",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "deploy ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-10T00:00:00.000Z",
+      },
+      releaseGate: {
+        id: "rg-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "runtime-build",
+        environment: "production",
+        mode: "measure_only",
+        baseResult: "fail",
+        verdict: "measure_only",
+        blockerClass: "not_release_ready",
+        summary: "release pending",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-10T00:00:00.000Z",
+      },
+    } as never);
+    vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockResolvedValue({
+      id: "rp-1",
+      buildId: "runtime-build",
+      environment: "production",
+      providerScope: "google_ads",
+      planMode: "dry_run",
+      eligible: true,
+      blockedReason: null,
+      breakGlass: false,
+      summary: "Google repair dry-run proposed 0 recommendation(s).",
+      recommendations: [],
+      emittedAt: "2026-04-10T00:00:00.000Z",
+    } as never);
 
     const response = await GET(
       new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
@@ -488,6 +550,19 @@ describe("GET /api/google-ads/status", () => {
     });
     expect(payload.syncTruthState).toBe("ready");
     expect(payload.blockerClass).toBe("none");
+    expect(payload.deployGate).toMatchObject({
+      id: "dg-1",
+      verdict: "pass",
+    });
+    expect(payload.releaseGate).toMatchObject({
+      id: "rg-1",
+      verdict: "measure_only",
+    });
+    expect(payload.repairPlan).toMatchObject({
+      id: "rp-1",
+      providerScope: "google_ads",
+      recommendations: [],
+    });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 

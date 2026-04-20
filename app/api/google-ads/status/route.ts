@@ -74,6 +74,9 @@ import {
   getGoogleAdsWorkerSchedulingState,
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
+import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
+import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import {
   buildBlockingReason,
   deriveProviderActivityState,
@@ -493,6 +496,11 @@ export async function GET(request: NextRequest) {
   if ("error" in access) return access.error;
 
   const sql = getDb();
+  const currentRuntimeBuildId = getCurrentRuntimeBuildId();
+  const controlPlaneIdentity = resolveSyncControlPlaneKey({
+    buildId: currentRuntimeBuildId,
+    providerScope: "google_ads",
+  });
   const statusDegradedReasons: string[] = [];
   const statusSchemaReadiness = await getDbSchemaReadiness({
     tables: [
@@ -581,7 +589,7 @@ export async function GET(request: NextRequest) {
     updated_at?: string | null;
   }>>;
 
-  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateRecords, repairPlan, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
     captureOptional("integration", getIntegrationMetadata(businessId!, "google"), null),
     captureOptional(
@@ -602,6 +610,21 @@ export async function GET(request: NextRequest) {
     captureOptional(
       "worker_scheduling_state",
       getGoogleAdsWorkerSchedulingState({ businessId: businessId! }),
+      null
+    ),
+    captureOptional(
+      "sync_gate_records",
+      getLatestSyncGateRecords({
+        buildId: controlPlaneIdentity.buildId,
+        environment: controlPlaneIdentity.environment,
+      }),
+      { deployGate: null, releaseGate: null }
+    ),
+    captureOptional(
+      "sync_repair_plan",
+      getLatestSyncRepairPlan({
+        ...controlPlaneIdentity,
+      }),
       null
     ),
     staleRunPressurePromise.catch(() => []),
@@ -633,7 +656,6 @@ export async function GET(request: NextRequest) {
           lastError: effectiveLatestSync.last_error ? String(effectiveLatestSync.last_error) : null,
         }
       : null;
-  const currentRuntimeBuildId = getCurrentRuntimeBuildId();
   const workerBuildId =
     workerSchedulingState?.workerMeta?.workerBuildId != null
       ? String(workerSchedulingState.workerMeta.workerBuildId)
@@ -1909,6 +1931,9 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     state: overallState,
+    deployGate: gateRecords?.deployGate ?? null,
+    releaseGate: gateRecords?.releaseGate ?? null,
+    repairPlan: repairPlan ?? null,
     syncTruthState: googleUnifiedTruth.syncTruthState,
     blockerClass: googleUnifiedTruth.blockerClass,
     credentialState: providerState.credentialState,
