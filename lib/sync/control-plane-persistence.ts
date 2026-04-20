@@ -1,6 +1,10 @@
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
+  selectLatestSyncGateRecords,
+  type SyncGateRecord,
+} from "@/lib/sync/release-gates";
+import {
   resolveSyncControlPlaneKey,
   type SyncControlPlaneKey,
 } from "@/lib/sync/control-plane-key";
@@ -56,27 +60,70 @@ function toIso(value: unknown) {
   return null;
 }
 
-function mapGateRows(rows: Array<Record<string, unknown>>): SyncGateIdentityMap {
-  return rows.reduce<SyncGateIdentityMap>(
-    (accumulator, row) => {
-      const gateKind = row.gate_kind === "release_gate" ? "release_gate" : "deploy_gate";
-      const key = gateKind === "deploy_gate" ? "deployGate" : "releaseGate";
-      if (accumulator[key]) return accumulator;
-      accumulator[key] = {
-        id: String(row.id),
-        buildId: String(row.build_id),
-        environment: String(row.environment),
-        gateKind,
-        verdict: typeof row.verdict === "string" ? row.verdict : null,
-        emittedAt: toIso(row.emitted_at),
-      };
-      return accumulator;
-    },
-    {
-      deployGate: null,
-      releaseGate: null,
-    },
+function mapGateRowToRecord(row: Record<string, unknown>): SyncGateRecord {
+  return {
+    id: String(row.id),
+    gateKind: row.gate_kind === "release_gate" ? "release_gate" : "deploy_gate",
+    gateScope:
+      row.gate_scope === "runtime_contract"
+        ? "runtime_contract"
+        : row.gate_scope === "service_liveness"
+          ? "service_liveness"
+          : "release_readiness",
+    buildId: String(row.build_id),
+    environment: String(row.environment),
+    mode: row.mode === "warn_only" ? "warn_only" : row.mode === "block" ? "block" : "measure_only",
+    baseResult:
+      row.base_result === "misconfigured"
+        ? "misconfigured"
+        : row.base_result === "pass"
+          ? "pass"
+          : "fail",
+    verdict:
+      row.verdict === "pass" ||
+      row.verdict === "fail" ||
+      row.verdict === "misconfigured" ||
+      row.verdict === "measure_only" ||
+      row.verdict === "warn_only" ||
+      row.verdict === "blocked"
+        ? row.verdict
+        : "fail",
+    blockerClass: typeof row.blocker_class === "string" ? (row.blocker_class as SyncGateRecord["blockerClass"]) : null,
+    summary: typeof row.summary === "string" ? row.summary : "",
+    breakGlass: Boolean(row.break_glass),
+    overrideReason: typeof row.override_reason === "string" ? row.override_reason : null,
+    evidence:
+      row.evidence_json && typeof row.evidence_json === "object"
+        ? (row.evidence_json as Record<string, unknown>)
+        : {},
+    emittedAt: toIso(row.emitted_at) ?? new Date(0).toISOString(),
+  };
+}
+
+function toGateIdentity(record: SyncGateRecord | null): SyncGateIdentity | null {
+  if (!record?.id) return null;
+  return {
+    id: record.id,
+    buildId: record.buildId,
+    environment: record.environment,
+    gateKind: record.gateKind,
+    verdict: record.verdict,
+    emittedAt: record.emittedAt,
+  };
+}
+
+function mapGateRows(
+  rows: Array<Record<string, unknown>>,
+  providerScope: string,
+): SyncGateIdentityMap {
+  const selected = selectLatestSyncGateRecords(
+    rows.map((row) => mapGateRowToRecord(row)),
+    { providerScope },
   );
+  return {
+    deployGate: toGateIdentity(selected.deployGate),
+    releaseGate: toGateIdentity(selected.releaseGate),
+  };
 }
 
 function mapRepairPlanRow(row: Record<string, unknown> | undefined): SyncRepairPlanIdentity | null {
@@ -104,6 +151,7 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
     await Promise.all([
       sql`
         SELECT id, build_id, environment, gate_kind, verdict, emitted_at
+        , gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
         FROM sync_release_gates
         WHERE build_id = ${identity.buildId}
           AND environment = ${identity.environment}
@@ -111,15 +159,17 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
       ` as Promise<Array<Record<string, unknown>>>,
       sql`
         SELECT id, build_id, environment, gate_kind, verdict, emitted_at
+        , gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
         FROM sync_release_gates
         WHERE build_id = ${identity.buildId}
         ORDER BY emitted_at DESC
       ` as Promise<Array<Record<string, unknown>>>,
       sql`
-        SELECT DISTINCT ON (gate_kind)
-          id, build_id, environment, gate_kind, verdict, emitted_at
+        SELECT
+          id, build_id, environment, gate_kind, verdict, emitted_at,
+          gate_scope, mode, base_result, blocker_class, summary, break_glass, override_reason, evidence_json
         FROM sync_release_gates
-        ORDER BY gate_kind, emitted_at DESC
+        ORDER BY emitted_at DESC
       ` as Promise<Array<Record<string, unknown>>>,
       sql`
         SELECT id, build_id, environment, provider_scope, eligible, emitted_at
@@ -148,15 +198,15 @@ export async function getSyncControlPlanePersistenceStatus(input?: {
     ]);
 
   const exact = {
-    ...mapGateRows(exactGateRows),
+    ...mapGateRows(exactGateRows, identity.providerScope),
     repairPlan: mapRepairPlanRow(exactRepairRows[0]),
   };
   const fallbackByBuild = {
-    ...mapGateRows(fallbackGateRows),
+    ...mapGateRows(fallbackGateRows, identity.providerScope),
     repairPlan: mapRepairPlanRow(fallbackRepairRows[0]),
   };
   const latest = {
-    ...mapGateRows(latestGateRows),
+    ...mapGateRows(latestGateRows, identity.providerScope),
     repairPlan: mapRepairPlanRow(latestRepairRows[0]),
   };
   const missingExact = ([

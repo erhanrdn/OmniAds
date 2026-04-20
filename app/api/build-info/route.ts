@@ -45,6 +45,7 @@ export async function GET(request: Request) {
     getLatestSyncGateRecords({
       buildId: controlPlaneIdentity.buildId,
       environment: controlPlaneIdentity.environment,
+      providerScope,
     })
       .then((value) => ({ value, error: null }))
       .catch((error) => ({
@@ -87,6 +88,7 @@ export async function GET(request: Request) {
   let persistenceError = persistenceResult.error;
 
   if (
+    providerScope === "meta" &&
     registry &&
     gates.releaseGate &&
     persistence?.exact?.repairPlan == null

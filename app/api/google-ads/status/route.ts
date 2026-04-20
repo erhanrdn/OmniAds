@@ -77,7 +77,6 @@ import {
 } from "@/lib/sync/google-ads-sync";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import {
-  evaluateAndPersistSyncRepairPlan,
   getLatestSyncRepairPlan,
 } from "@/lib/sync/repair-planner";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
@@ -620,6 +619,7 @@ export async function GET(request: NextRequest) {
     getLatestSyncGateRecords({
       buildId: controlPlaneIdentity.buildId,
       environment: controlPlaneIdentity.environment,
+      providerScope: controlPlaneIdentity.providerScope,
     })
       .then((value) => ({ value, error: null }))
       .catch((error) => ({
@@ -651,37 +651,6 @@ export async function GET(request: NextRequest) {
   let repairPlanError = repairPlanResult.error;
   let controlPlanePersistence = persistenceResult.value;
   let controlPlanePersistenceError = persistenceResult.error;
-  if (
-    gateRecords?.releaseGate &&
-    controlPlanePersistence?.exact?.repairPlan == null
-  ) {
-    const healedRepairPlan = await evaluateAndPersistSyncRepairPlan({
-      ...controlPlaneIdentity,
-      persist: true,
-      releaseGate: gateRecords.releaseGate,
-    })
-      .then((value) => ({ value, error: null }))
-      .catch((error) => ({
-        value: null,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    if (healedRepairPlan.value) {
-      repairPlan = healedRepairPlan.value;
-      repairPlanError = null;
-      const refreshedPersistence = await getSyncControlPlanePersistenceStatus({
-        ...controlPlaneIdentity,
-      })
-        .then((value) => ({ value, error: null }))
-        .catch((error) => ({
-          value: controlPlanePersistence,
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      controlPlanePersistence = refreshedPersistence.value;
-      controlPlanePersistenceError = refreshedPersistence.error;
-    } else if (!repairPlanError) {
-      repairPlanError = healedRepairPlan.error;
-    }
-  }
   const controlPlaneErrors = {
     syncGates: gateResult.error,
     repairPlan: repairPlanError,

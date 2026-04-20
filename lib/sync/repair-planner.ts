@@ -135,7 +135,10 @@ function normalizeCanaryRows(releaseGate: SyncGateRecord | null): ReleaseGateCan
   return rows.filter((row): row is ReleaseGateCanaryEvidence => Boolean(row?.businessId));
 }
 
-function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommendation | null {
+function buildRecommendation(
+  row: ReleaseGateCanaryEvidence,
+  providerLabel: string,
+): SyncRepairRecommendation | null {
   const beforeEvidence = {
     activityState: row.evidence.activityState ?? null,
     progressState: row.evidence.progressState ?? null,
@@ -159,9 +162,9 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
       businessName: row.businessName,
       blockerClass: row.blockerClass,
       recommendedAction: "replay_dead_letter",
-      reason: "Dead-lettered Meta partitions are blocking release readiness for this canary.",
+      reason: `Dead-lettered ${providerLabel} partitions are blocking release readiness for this canary.`,
       beforeEvidence,
-      expectedOutcome: "Dead-letter partitions are replayed into the normal queue so publish eligibility can be re-evaluated.",
+      expectedOutcome: `Dead-letter partitions are replayed into the normal ${providerLabel} queue so publish eligibility can be re-evaluated.`,
       safetyClassification: "safe_guarded",
     };
   }
@@ -177,11 +180,11 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
       recommendedAction: "stale_lease_reclaim",
       reason:
         (row.evidence.staleLeasePartitions ?? 0) > 0
-          ? "Stale Meta leases are present and should be reclaimed before more work is admitted."
-          : "Active Meta reclaim candidates are blocking fresh admission and should be cleaned up first.",
+          ? `Stale ${providerLabel} leases are present and should be reclaimed before more work is admitted.`
+          : `Active ${providerLabel} reclaim candidates are blocking fresh admission and should be cleaned up first.`,
       beforeEvidence,
       expectedOutcome:
-        "Expired or reclaimable Meta work is cleaned up so queued partitions become eligible for fresh admission.",
+        `Expired or reclaimable ${providerLabel} work is cleaned up so queued partitions become eligible for fresh admission.`,
       safetyClassification: "safe_guarded",
     };
   }
@@ -209,9 +212,9 @@ function buildRecommendation(row: ReleaseGateCanaryEvidence): SyncRepairRecommen
       businessName: row.businessName,
       blockerClass: row.blockerClass,
       recommendedAction: "reschedule",
-      reason: "Queued Meta work exists but no active leases are attached to the canary snapshot.",
+      reason: `Queued ${providerLabel} work exists but no active leases are attached to the canary snapshot.`,
       beforeEvidence,
-      expectedOutcome: "Queued work is re-admitted into the lease planner on the next worker cycle without changing deploy posture.",
+      expectedOutcome: `Queued ${providerLabel} work is re-admitted into the lease planner on the next worker cycle without changing deploy posture.`,
       safetyClassification: "safe_idempotent",
     };
   }
@@ -441,11 +444,12 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
             ? "release_gate_missing"
             : null;
   const eligible = blockedReason == null;
+  const providerLabel = providerScope === "google_ads" ? "Google Ads" : "Meta";
   const canaries = normalizeCanaryRows(releaseGate);
   const recommendations = eligible
     ? canaries
         .filter((row) => !row.pass)
-        .map((row) => buildRecommendation(row))
+        .map((row) => buildRecommendation(row, providerLabel))
         .filter((row): row is SyncRepairRecommendation => Boolean(row))
     : [];
   const record: SyncRepairPlanRecord = {

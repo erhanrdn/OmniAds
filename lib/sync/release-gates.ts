@@ -58,6 +58,22 @@ export interface SyncGateRecord {
   emittedAt: string;
 }
 
+function normalizeRequestedReleaseGateProviderScope(
+  providerScope?: string | null,
+) {
+  const normalized = providerScope?.trim();
+  return normalized && normalized.length > 0 ? normalized : "meta";
+}
+
+function readReleaseGateProviderScope(
+  evidence: Record<string, unknown> | null | undefined,
+) {
+  const value = evidence?.providerScope;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
 export type ProviderReleaseTruthInput = {
   activityState: string | null;
   progressState: string | null;
@@ -154,156 +170,9 @@ export async function upsertSyncGateRecord(input: SyncGateRecord) {
   };
 }
 
-export async function getLatestSyncGateRecords(input?: {
-  buildId?: string;
-  environment?: string;
-}) : Promise<{
-  deployGate: SyncGateRecord | null;
-  releaseGate: SyncGateRecord | null;
-}> {
-  await assertGateTablesReady("sync_release_gates:get_latest");
-  const sql = getDb();
-  const { buildId, environment } = resolveSyncControlPlaneKey({
-    buildId: input?.buildId,
-    environment: input?.environment,
-  });
-  let rows = await sql`
-    SELECT
-      id,
-      build_id,
-      environment,
-      gate_kind,
-      gate_scope,
-      mode,
-      base_result,
-      verdict,
-      blocker_class,
-      summary,
-      break_glass,
-      override_reason,
-      evidence_json,
-      emitted_at
-    FROM sync_release_gates
-    WHERE build_id = ${buildId}
-      AND environment = ${environment}
-    ORDER BY emitted_at DESC
-  ` as Array<Record<string, unknown>>;
-
-  if (rows.length === 0) {
-    rows = await sql`
-      SELECT
-        id,
-        build_id,
-        environment,
-        gate_kind,
-        gate_scope,
-        mode,
-        base_result,
-        verdict,
-        blocker_class,
-        summary,
-        break_glass,
-        override_reason,
-        evidence_json,
-        emitted_at
-      FROM sync_release_gates
-      WHERE build_id = ${buildId}
-      ORDER BY emitted_at DESC
-    ` as Array<Record<string, unknown>>;
-  }
-
-  const records = rows.reduce<{
-    deploy_gate: SyncGateRecord | null;
-    release_gate: SyncGateRecord | null;
-  }>(
-    (accumulator, row) => {
-      const record: SyncGateRecord = {
-        id: row.id ? String(row.id) : null,
-        gateKind: String(row.gate_kind) === "release_gate" ? "release_gate" : "deploy_gate",
-        gateScope:
-          row.gate_scope === "runtime_contract"
-            ? "runtime_contract"
-            : row.gate_scope === "service_liveness"
-              ? "service_liveness"
-              : "release_readiness",
-        buildId: String(row.build_id),
-        environment: String(row.environment),
-        mode: row.mode === "warn_only" ? "warn_only" : row.mode === "block" ? "block" : "measure_only",
-        baseResult:
-          row.base_result === "misconfigured"
-            ? "misconfigured"
-            : row.base_result === "pass"
-              ? "pass"
-              : "fail",
-        verdict:
-          row.verdict === "pass" ||
-          row.verdict === "fail" ||
-          row.verdict === "misconfigured" ||
-          row.verdict === "measure_only" ||
-          row.verdict === "warn_only" ||
-          row.verdict === "blocked"
-            ? row.verdict
-            : "fail",
-        blockerClass: (row.blocker_class as SyncBlockerClass | null) ?? null,
-        summary: String(row.summary ?? ""),
-        breakGlass: Boolean(row.break_glass),
-        overrideReason: row.override_reason ? String(row.override_reason) : null,
-        evidence:
-          row.evidence_json && typeof row.evidence_json === "object"
-            ? (row.evidence_json as Record<string, unknown>)
-            : {},
-        emittedAt: typeof row.emitted_at === "string"
-          ? row.emitted_at
-          : row.emitted_at instanceof Date
-            ? row.emitted_at.toISOString()
-            : nowIso(),
-      };
-      if (!accumulator[record.gateKind]) {
-        accumulator[record.gateKind] = record;
-      }
-      return accumulator;
-    },
-    {
-      deploy_gate: null,
-      release_gate: null,
-    },
-  );
-
+function hydrateSyncGateRecordRow(row: Record<string, unknown>): SyncGateRecord {
   return {
-    deployGate: records.deploy_gate,
-    releaseGate: records.release_gate,
-  };
-}
-
-export async function getSyncGateRecordById(input: {
-  id: string;
-}): Promise<SyncGateRecord | null> {
-  await assertGateTablesReady("sync_release_gates:get_by_id");
-  const sql = getDb();
-  const rows = await sql`
-    SELECT
-      id,
-      build_id,
-      environment,
-      gate_kind,
-      gate_scope,
-      mode,
-      base_result,
-      verdict,
-      blocker_class,
-      summary,
-      break_glass,
-      override_reason,
-      evidence_json,
-      emitted_at
-    FROM sync_release_gates
-    WHERE id = ${input.id}
-    LIMIT 1
-  ` as Array<Record<string, unknown>>;
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    id: String(row.id),
+    id: row.id ? String(row.id) : null,
     gateKind: String(row.gate_kind) === "release_gate" ? "release_gate" : "deploy_gate",
     gateScope:
       row.gate_scope === "runtime_contract"
@@ -337,13 +206,147 @@ export async function getSyncGateRecordById(input: {
       row.evidence_json && typeof row.evidence_json === "object"
         ? (row.evidence_json as Record<string, unknown>)
         : {},
-    emittedAt:
-      typeof row.emitted_at === "string"
-        ? row.emitted_at
-        : row.emitted_at instanceof Date
-          ? row.emitted_at.toISOString()
-          : nowIso(),
+    emittedAt: typeof row.emitted_at === "string"
+      ? row.emitted_at
+      : row.emitted_at instanceof Date
+        ? row.emitted_at.toISOString()
+        : nowIso(),
   };
+}
+
+export function selectLatestSyncGateRecords(
+  records: SyncGateRecord[],
+  input?: {
+    providerScope?: string | null;
+  },
+): {
+  deployGate: SyncGateRecord | null;
+  releaseGate: SyncGateRecord | null;
+} {
+  const requestedProviderScope = normalizeRequestedReleaseGateProviderScope(
+    input?.providerScope,
+  );
+  const deployGate =
+    records.find((record) => record.gateKind === "deploy_gate") ?? null;
+  const releaseGate =
+    records.find((record) => {
+      if (record.gateKind !== "release_gate") return false;
+      const recordProviderScope = readReleaseGateProviderScope(record.evidence);
+      if (requestedProviderScope === "meta") {
+        return recordProviderScope == null || recordProviderScope === "meta";
+      }
+      return recordProviderScope === requestedProviderScope;
+    }) ?? null;
+
+  return {
+    deployGate,
+    releaseGate,
+  };
+}
+
+export async function getLatestSyncGateRecords(input?: {
+  buildId?: string;
+  environment?: string;
+  providerScope?: string;
+}) : Promise<{
+  deployGate: SyncGateRecord | null;
+  releaseGate: SyncGateRecord | null;
+}> {
+  await assertGateTablesReady("sync_release_gates:get_latest");
+  const sql = getDb();
+  const { buildId, environment } = resolveSyncControlPlaneKey({
+    buildId: input?.buildId,
+    environment: input?.environment,
+  });
+  const exactRows = await sql`
+    SELECT
+      id,
+      build_id,
+      environment,
+      gate_kind,
+      gate_scope,
+      mode,
+      base_result,
+      verdict,
+      blocker_class,
+      summary,
+      break_glass,
+      override_reason,
+      evidence_json,
+      emitted_at
+    FROM sync_release_gates
+    WHERE build_id = ${buildId}
+      AND environment = ${environment}
+    ORDER BY emitted_at DESC
+  ` as Array<Record<string, unknown>>;
+  const fallbackRows = await sql`
+    SELECT
+      id,
+      build_id,
+      environment,
+      gate_kind,
+      gate_scope,
+      mode,
+      base_result,
+      verdict,
+      blocker_class,
+      summary,
+      break_glass,
+      override_reason,
+      evidence_json,
+      emitted_at
+    FROM sync_release_gates
+    WHERE build_id = ${buildId}
+    ORDER BY emitted_at DESC
+  ` as Array<Record<string, unknown>>;
+
+  const exactRecords = selectLatestSyncGateRecords(
+    exactRows.map((row) => hydrateSyncGateRecordRow(row)),
+    {
+      providerScope: input?.providerScope,
+    },
+  );
+  const fallbackRecords = selectLatestSyncGateRecords(
+    fallbackRows.map((row) => hydrateSyncGateRecordRow(row)),
+    {
+      providerScope: input?.providerScope,
+    },
+  );
+
+  return {
+    deployGate: exactRecords.deployGate ?? fallbackRecords.deployGate,
+    releaseGate: exactRecords.releaseGate ?? fallbackRecords.releaseGate,
+  };
+}
+
+export async function getSyncGateRecordById(input: {
+  id: string;
+}): Promise<SyncGateRecord | null> {
+  await assertGateTablesReady("sync_release_gates:get_by_id");
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      id,
+      build_id,
+      environment,
+      gate_kind,
+      gate_scope,
+      mode,
+      base_result,
+      verdict,
+      blocker_class,
+      summary,
+      break_glass,
+      override_reason,
+      evidence_json,
+      emitted_at
+    FROM sync_release_gates
+    WHERE id = ${input.id}
+    LIMIT 1
+  ` as Array<Record<string, unknown>>;
+  const row = rows[0];
+  if (!row) return null;
+  return hydrateSyncGateRecordRow(row);
 }
 
 export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {

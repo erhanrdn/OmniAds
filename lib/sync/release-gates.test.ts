@@ -288,6 +288,97 @@ describe("sync release gates", () => {
     });
   });
 
+  it("prefers google-scoped release gates over meta and legacy rows", () => {
+    const selected = releaseGates.selectLatestSyncGateRecords(
+      [
+        {
+          id: "deploy-1",
+          gateKind: "deploy_gate",
+          gateScope: "service_liveness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "pass",
+          verdict: "pass",
+          blockerClass: null,
+          summary: "deploy ok",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {},
+          emittedAt: "2026-04-20T00:00:00.000Z",
+        },
+        {
+          id: "meta-1",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "fail",
+          verdict: "blocked",
+          blockerClass: "not_release_ready",
+          summary: "meta failed",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {},
+          emittedAt: "2026-04-20T00:02:00.000Z",
+        },
+        {
+          id: "google-1",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "pass",
+          verdict: "pass",
+          blockerClass: null,
+          summary: "google ok",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {
+            providerScope: "google_ads",
+          },
+          emittedAt: "2026-04-20T00:01:00.000Z",
+        },
+      ],
+      {
+        providerScope: "google_ads",
+      },
+    );
+
+    expect(selected.deployGate?.id).toBe("deploy-1");
+    expect(selected.releaseGate?.id).toBe("google-1");
+  });
+
+  it("treats unscoped legacy release gates as meta-only", () => {
+    const selected = releaseGates.selectLatestSyncGateRecords(
+      [
+        {
+          id: "legacy-meta-1",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "pass",
+          verdict: "pass",
+          blockerClass: null,
+          summary: "legacy meta ok",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {},
+          emittedAt: "2026-04-20T00:00:00.000Z",
+        },
+      ],
+      {
+        providerScope: "meta",
+      },
+    );
+
+    expect(selected.releaseGate?.id).toBe("legacy-meta-1");
+  });
+
   it("blocks deploy gate when runtime contract evidence fails under block mode", async () => {
     vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue({
       sampledAt: "2026-04-15T00:00:00.000Z",

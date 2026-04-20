@@ -167,6 +167,7 @@ vi.mock("@/lib/sync/control-plane-persistence", () => ({
 
 const repairPlanner = await import("@/lib/sync/repair-planner");
 const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
+const releaseGates = await import("@/lib/sync/release-gates");
 
 describe("GET /api/build-info", () => {
   it("surfaces pinned gate ids and remediation summary", async () => {
@@ -277,11 +278,18 @@ describe("GET /api/build-info", () => {
       environment: "test",
       providerScope: "google_ads",
     });
+    expect(releaseGates.getLatestSyncGateRecords).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "build-1",
+        environment: "test",
+        providerScope: "google_ads",
+      }),
+    );
     expect(payload.repairPlan.providerScope).toBe("google_ads");
     expect(payload.controlPlanePersistence.identity.providerScope).toBe("google_ads");
   });
 
-  it("self-heals a missing exact repair plan for google_ads when gates already exist", async () => {
+  it("does not self-heal a missing exact repair plan for google_ads", async () => {
     vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockImplementationOnce(async () => null);
     vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus)
       .mockImplementationOnce(async (input) => ({
@@ -373,24 +381,11 @@ describe("GET /api/build-info", () => {
     );
     const payload = await response.json();
 
-    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buildId: "build-1",
-        environment: "test",
-        providerScope: "google_ads",
-        persist: true,
-        releaseGate: expect.objectContaining({
-          id: "rg-1",
-        }),
-      }),
-    );
-    expect(payload.repairPlan).toMatchObject({
-      id: "rp-healed",
-      providerScope: "google_ads",
-    });
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).not.toHaveBeenCalled();
+    expect(payload.repairPlan).toBeNull();
     expect(payload.controlPlanePersistence).toMatchObject({
-      exactRowsPresent: true,
-      missingExact: [],
+      exactRowsPresent: false,
+      missingExact: ["repairPlan"],
     });
     expect(payload.controlPlaneErrors.repairPlan).toBeNull();
   });

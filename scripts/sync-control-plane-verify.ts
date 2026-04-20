@@ -141,6 +141,7 @@ async function main() {
     getLatestSyncGateRecords({
       buildId: args.buildId ?? undefined,
       environment: args.environment ?? undefined,
+      providerScope: args.providerScope,
     }),
     getLatestSyncRepairPlan({
       buildId: args.buildId ?? undefined,

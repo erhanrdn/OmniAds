@@ -1052,7 +1052,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.readinessLevel).not.toBe("ready");
   });
 
-  it("self-heals a missing exact google repair plan when shared gates already exist", async () => {
+  it("does not self-heal a missing exact google repair plan from the status route", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_google",
       business_id: "biz",
@@ -1195,24 +1195,18 @@ describe("GET /api/google-ads/status", () => {
     );
     const payload = await response.json();
 
-    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith(
+    expect(releaseGates.getLatestSyncGateRecords).toHaveBeenCalledWith(
       expect.objectContaining({
         buildId: "dev-build",
         environment: "test",
         providerScope: "google_ads",
-        persist: true,
-        releaseGate: expect.objectContaining({
-          id: "rg-1",
-        }),
-      })
+      }),
     );
-    expect(payload.repairPlan).toMatchObject({
-      id: "rp-healed",
-      providerScope: "google_ads",
-    });
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).not.toHaveBeenCalled();
+    expect(payload.repairPlan).toBeNull();
     expect(payload.controlPlanePersistence).toMatchObject({
-      exactRowsPresent: true,
-      missingExact: [],
+      exactRowsPresent: false,
+      missingExact: ["repairPlan"],
     });
     expect(payload.controlPlaneErrors).toEqual({
       syncGates: null,
@@ -1240,7 +1234,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.controlPlaneErrors).toEqual({
       syncGates: "gate read failed",
       repairPlan: null,
-      controlPlanePersistence: "persistence read failed",
+      controlPlanePersistence: null,
     });
   });
 });

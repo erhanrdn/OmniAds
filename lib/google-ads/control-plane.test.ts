@@ -1,7 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { buildGoogleAdsReleaseReadinessCandidate } from "@/lib/google-ads/control-plane";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  buildGoogleAdsReleaseGateRecord,
+  buildGoogleAdsReleaseReadinessCandidate,
+} from "@/lib/google-ads/control-plane";
 
 describe("google ads control plane helper", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
   it("returns null when google is disconnected", () => {
     expect(
       buildGoogleAdsReleaseReadinessCandidate({
@@ -44,6 +53,47 @@ describe("google ads control plane helper", () => {
         truthReady: true,
         queueDepth: 4,
         leasedPartitions: 1,
+      },
+    });
+  });
+
+  it("builds a provider-scoped google release gate record", () => {
+    process.env = {
+      ...originalEnv,
+      SYNC_RELEASE_GATE_MODE: "block",
+    };
+
+    expect(
+      buildGoogleAdsReleaseGateRecord({
+        buildId: "build-1",
+        environment: "production",
+        canaries: [
+          {
+            businessId: "biz-1",
+            businessName: "Google Biz",
+            pass: true,
+            blockerClass: null,
+            evidence: {
+              truthReady: true,
+            },
+          },
+        ],
+      }),
+    ).toMatchObject({
+      gateKind: "release_gate",
+      mode: "block",
+      baseResult: "pass",
+      verdict: "pass",
+      blockerClass: null,
+      evidence: {
+        providerScope: "google_ads",
+        canaries: [
+          {
+            businessId: "biz-1",
+            businessName: "Google Biz",
+            pass: true,
+          },
+        ],
       },
     });
   });
