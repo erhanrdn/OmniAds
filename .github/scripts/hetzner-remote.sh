@@ -191,6 +191,8 @@ persist_sync_control_plane_via_web() {
 persist_sync_control_plane() {
   persist_sync_control_plane_via_web meta
   verify_local_sync_control_plane meta
+  persist_sync_control_plane_via_web google_ads
+  verify_local_sync_control_plane google_ads
 }
 
 verify_service_image() {
