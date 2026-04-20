@@ -1007,11 +1007,6 @@ describe("GET /api/meta/status", () => {
           code: "core_ready",
         }),
         expect.objectContaining({
-          key: "priority_window",
-          state: "ready",
-          code: "recent_window_ready",
-        }),
-        expect.objectContaining({
           key: "extended_surfaces",
           state: "ready",
           code: "extended_ready",
@@ -1239,11 +1234,11 @@ describe("GET /api/meta/status", () => {
     });
     expect(
       payload.integrationSummary.stages.find(
-        (stage: { key: string }) => stage.key === "priority_window",
+        (stage: { key: string }) => stage.key === "core_data",
       ),
     ).toMatchObject({
       state: "ready",
-      code: "recent_window_ready",
+      code: "core_ready",
     });
   });
 
