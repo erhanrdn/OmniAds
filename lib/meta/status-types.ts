@@ -244,6 +244,32 @@ export interface MetaStatusResponse {
   latestRemediationExecution?: SyncRepairExecutionRecord | null;
   syncTruthState?: SyncTruthState | null;
   blockerClass?: SyncBlockerClass | null;
+  userVisibleSyncState?: {
+    kind:
+      | "healthy"
+      | "refreshing_in_background"
+      | "using_latest_available_data"
+      | "setup_required"
+      | "reconnect_required"
+      | "data_unavailable";
+    label: string;
+    suppressRecoverableAttention: boolean;
+    degradedServing: boolean;
+  } | null;
+  operationalSyncState?:
+    | "healthy"
+    | "detected"
+    | "eligible"
+    | "repairing"
+    | "cooldown"
+    | "half_open"
+    | "cleared"
+    | "quarantined"
+    | "exhausted"
+    | "manual_required"
+    | null;
+  degradedServing?: boolean;
+  openIncidents?: number | null;
   domainReadiness?: ProviderDomainReadiness | null;
   assignedAccountIds: string[];
   primaryAccountTimezone?: string | null;

@@ -11,6 +11,10 @@ import {
   getLatestSyncRepairPlan,
 } from "@/lib/sync/repair-planner";
 import { getLatestSyncRepairExecutionSummary } from "@/lib/sync/remediation-executions";
+import {
+  deriveOperationalSyncState,
+  getSyncIncidentSummary,
+} from "@/lib/sync/incidents";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { getSyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
 
@@ -33,7 +37,7 @@ export async function GET(request: Request) {
   await upsertRuntimeContractInstance({
     contract,
   }).catch(() => null);
-  const [registryResult, gateResult, repairPlanResult, remediationSummaryResult, persistenceResult] = await Promise.all([
+  const [registryResult, gateResult, repairPlanResult, remediationSummaryResult, persistenceResult, incidentSummaryResult] = await Promise.all([
     getRuntimeRegistryStatus({
       buildId: contract.buildId,
     })
@@ -79,6 +83,14 @@ export async function GET(request: Request) {
         value: null,
         error: error instanceof Error ? error.message : String(error),
       })),
+    getSyncIncidentSummary({
+      ...controlPlaneIdentity,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
   ]);
   const registry = registryResult.value;
   const gates = gateResult.value;
@@ -86,6 +98,7 @@ export async function GET(request: Request) {
   let repairPlanError = repairPlanResult.error;
   let persistence = persistenceResult.value;
   let persistenceError = persistenceResult.error;
+  const incidentSummary = incidentSummaryResult.value;
 
   if (
     providerScope === "meta" &&
@@ -137,12 +150,29 @@ export async function GET(request: Request) {
       releaseGate: gates.releaseGate,
       repairPlan,
       remediationSummary: remediationSummaryResult.value,
+      selfHealSummary: incidentSummary
+        ? {
+            operationalSyncState: deriveOperationalSyncState({
+              releaseGateVerdict: gates.releaseGate?.verdict ?? null,
+              recommendationCount: repairPlan?.recommendations.length ?? 0,
+              incidentSummary,
+            }),
+            openIncidents: incidentSummary.openCount,
+            openCircuitCount: incidentSummary.openCircuitCount,
+            degradedServing: incidentSummary.degradedServing,
+            latestSeenAt: incidentSummary.latestSeenAt,
+          }
+        : null,
+      incidentCounts: incidentSummary?.counts ?? null,
+      openCircuitCount: incidentSummary?.openCircuitCount ?? 0,
+      degradedServing: incidentSummary?.degradedServing ?? false,
       controlPlaneErrors: {
         runtimeRegistry: registryResult.error,
         syncGates: gateResult.error,
         repairPlan: repairPlanError,
         remediationSummary: remediationSummaryResult.error,
         controlPlanePersistence: persistenceError,
+        syncIncidents: incidentSummaryResult.error,
       },
     },
     {

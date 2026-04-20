@@ -5,6 +5,7 @@ import {
   type SyncBlockerClass,
   type SyncGateRecord,
 } from "@/lib/sync/release-gates";
+import { reconcileSyncIncidentsFromRepairPlan } from "@/lib/sync/incidents";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { getRuntimeRegistryStatus } from "@/lib/sync/runtime-contract";
 
@@ -481,7 +482,17 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
     emittedAt: nowIso(),
   };
   if (input?.persist ?? true) {
-    return upsertSyncRepairPlanRecord(record);
+    const persisted = await upsertSyncRepairPlanRecord(record);
+    if (persisted.eligible) {
+      await reconcileSyncIncidentsFromRepairPlan({
+        buildId,
+        environment,
+        providerScope,
+        repairPlan: persisted,
+        releaseGate,
+      }).catch(() => null);
+    }
+    return persisted;
   }
   return record;
 }

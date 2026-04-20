@@ -10,6 +10,7 @@ import {
   type SyncRepairExecutionOutcome,
   type SyncRepairExecutionRecord,
 } from "@/lib/sync/remediation-executions";
+import { transitionSyncIncident } from "@/lib/sync/incidents";
 import {
   acquireProviderJobLock,
   releaseExpiredProviderJobLock,
@@ -594,6 +595,18 @@ export async function executeAutoSyncRepairRecommendation(input: {
   };
 
   if (input.recommendation.safetyClassification === "blocked") {
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "manual_required",
+      metadata: {
+        source: input.source,
+        skippedReason: "blocked_recommendation",
+        executionSignature,
+      },
+    }).catch(() => null);
     return {
       execution: null,
       releaseGate: null,
@@ -605,6 +618,19 @@ export async function executeAutoSyncRepairRecommendation(input: {
   }
 
   if (cooldownRemainingMs > 0) {
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "cooldown",
+      cooldownUntil: new Date(nowMs + cooldownRemainingMs).toISOString(),
+      metadata: {
+        source: input.source,
+        skippedReason: "cooldown_active",
+        executionSignature,
+      },
+    }).catch(() => null);
     return {
       execution: null,
       releaseGate: null,
@@ -616,6 +642,19 @@ export async function executeAutoSyncRepairRecommendation(input: {
   }
 
   if (exhaustionRemainingMs > 0) {
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "exhausted",
+      cooldownUntil: new Date(nowMs + exhaustionRemainingMs).toISOString(),
+      metadata: {
+        source: input.source,
+        skippedReason: "exhaustion_cooldown_active",
+        executionSignature,
+      },
+    }).catch(() => null);
     return {
       execution: null,
       releaseGate: null,
@@ -654,6 +693,20 @@ export async function executeAutoSyncRepairRecommendation(input: {
       startedAt: nowIso(),
       finishedAt: nowIso(),
     });
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "exhausted",
+      cooldownUntil: new Date(nowMs + AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS).toISOString(),
+      metadata: {
+        source: input.source,
+        executionId: exhausted.id,
+        executionSignature,
+        reason: "retry_budget_exhausted",
+      },
+    }).catch(() => null);
     return {
       execution: exhausted,
       releaseGate: null,
@@ -706,6 +759,19 @@ export async function executeAutoSyncRepairRecommendation(input: {
       startedAt: nowIso(),
       finishedAt: nowIso(),
     });
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "repairing",
+      metadata: {
+        source: input.source,
+        executionId: locked.id,
+        executionSignature,
+        skippedReason: "lock_unavailable",
+      },
+    }).catch(() => null);
     return {
       execution: locked,
       releaseGate: null,
@@ -734,6 +800,18 @@ export async function executeAutoSyncRepairRecommendation(input: {
       retryBudgetState: budgetState,
     },
   });
+  await transitionSyncIncident({
+    buildId: input.buildId,
+    environment: input.environment,
+    providerScope: input.providerScope,
+    recommendation: input.recommendation,
+    nextStatus: "repairing",
+    metadata: {
+      source: input.source,
+      executionId: execution.id,
+      executionSignature,
+    },
+  }).catch(() => null);
 
   let completedExecution: SyncRepairExecutionRecord | null = execution;
   let releaseGate: SyncGateRecord | null = null;
@@ -777,6 +855,28 @@ export async function executeAutoSyncRepairRecommendation(input: {
       },
       afterEvidence: classified.afterEvidence,
     });
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus:
+        classified.outcome === "cleared"
+          ? "cleared"
+          : classified.outcome === "manual_follow_up_required"
+            ? "manual_required"
+            : "cooldown",
+      cooldownUntil:
+        classified.outcome === "cleared"
+          ? null
+          : new Date(Date.now() + AUTO_REPAIR_COOLDOWN_MS).toISOString(),
+      metadata: {
+        source: input.source,
+        executionId: completedExecution?.id ?? execution.id,
+        executionSignature,
+        outcomeClassification: classified.outcome,
+      },
+    }).catch(() => null);
     releaseLockStatus = "done";
   } catch (error) {
     releaseLockError = error instanceof Error ? error.message : String(error);
@@ -788,6 +888,20 @@ export async function executeAutoSyncRepairRecommendation(input: {
       error,
       budgetState,
     });
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "cooldown",
+      cooldownUntil: new Date(Date.now() + AUTO_REPAIR_COOLDOWN_MS).toISOString(),
+      lastError: releaseLockError,
+      metadata: {
+        source: input.source,
+        executionId: completedExecution?.id ?? execution.id,
+        executionSignature,
+      },
+    }).catch(() => null);
   } finally {
     await releaseProviderJobLock({
       businessId: input.recommendation.businessId,

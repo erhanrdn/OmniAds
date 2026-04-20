@@ -2124,6 +2124,53 @@ export async function runMigrations(options?: {
           ON sync_repair_executions (business_id, provider_scope, started_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_signature
           ON sync_repair_executions (provider_scope, business_id, execution_signature, started_at DESC)`.catch(() => {}),
+        sql`CREATE TABLE IF NOT EXISTS sync_incidents (
+          id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          build_id             TEXT NOT NULL,
+          environment          TEXT NOT NULL,
+          provider_scope       TEXT NOT NULL,
+          business_id          TEXT NOT NULL,
+          resource_scope       TEXT NOT NULL DEFAULT 'business',
+          fault_class          TEXT NOT NULL,
+          fault_signature      TEXT NOT NULL,
+          status               TEXT NOT NULL
+                               CHECK (
+                                 status IN (
+                                   'detected',
+                                   'eligible',
+                                   'repairing',
+                                   'cooldown',
+                                   'half_open',
+                                   'cleared',
+                                   'quarantined',
+                                   'exhausted',
+                                   'manual_required'
+                                 )
+                               ),
+          blocker_class        TEXT,
+          summary              TEXT NOT NULL,
+          observation_count    INTEGER NOT NULL DEFAULT 1,
+          first_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+          eligible_at          TIMESTAMPTZ,
+          repairing_at         TIMESTAMPTZ,
+          cooldown_until       TIMESTAMPTZ,
+          half_open_at         TIMESTAMPTZ,
+          cleared_at           TIMESTAMPTZ,
+          quarantined_at       TIMESTAMPTZ,
+          exhausted_at         TIMESTAMPTZ,
+          manual_required_at   TIMESTAMPTZ,
+          last_error           TEXT,
+          evidence_json        JSONB NOT NULL DEFAULT '{}'::jsonb,
+          metadata_json        JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (provider_scope, business_id, resource_scope, fault_class, fault_signature)
+        )`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_incidents_active
+          ON sync_incidents (build_id, environment, provider_scope, business_id, status, last_seen_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_incidents_fault
+          ON sync_incidents (provider_scope, business_id, resource_scope, fault_class, fault_signature, last_seen_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,

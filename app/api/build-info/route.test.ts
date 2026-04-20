@@ -165,6 +165,27 @@ vi.mock("@/lib/sync/control-plane-persistence", () => ({
   })),
 }));
 
+vi.mock("@/lib/sync/incidents", () => ({
+  getSyncIncidentSummary: vi.fn(async () => ({
+    openCount: 3,
+    openCircuitCount: 1,
+    latestSeenAt: "2026-04-15T12:06:00.000Z",
+    degradedServing: true,
+    counts: {
+      detected: 0,
+      eligible: 1,
+      repairing: 1,
+      cooldown: 0,
+      half_open: 0,
+      cleared: 0,
+      quarantined: 0,
+      exhausted: 1,
+      manual_required: 0,
+    },
+  })),
+  deriveOperationalSyncState: vi.fn(() => "repairing"),
+}));
+
 const repairPlanner = await import("@/lib/sync/repair-planner");
 const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
 const releaseGates = await import("@/lib/sync/release-gates");
@@ -195,12 +216,26 @@ describe("GET /api/build-info", () => {
         improving_not_cleared: 1,
       },
     });
+    expect(payload.selfHealSummary).toMatchObject({
+      operationalSyncState: "repairing",
+      openIncidents: 3,
+      openCircuitCount: 1,
+      degradedServing: true,
+    });
+    expect(payload.incidentCounts).toMatchObject({
+      eligible: 1,
+      repairing: 1,
+      exhausted: 1,
+    });
+    expect(payload.openCircuitCount).toBe(1);
+    expect(payload.degradedServing).toBe(true);
     expect(payload.controlPlaneErrors).toEqual({
       runtimeRegistry: null,
       syncGates: null,
       repairPlan: null,
       remediationSummary: null,
       controlPlanePersistence: null,
+      syncIncidents: null,
     });
   });
 

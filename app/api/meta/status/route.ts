@@ -62,6 +62,10 @@ import {
 import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
+  deriveOperationalSyncState,
+} from "@/lib/sync/incidents";
+import { deriveMetaUserVisibleSyncState } from "@/lib/sync/user-visible-sync";
+import {
   getMetaRetentionCanaryRuntimeStatus,
   getMetaRetentionDeleteScope,
   getMetaProtectedPublishedTruthReview,
@@ -2418,8 +2422,19 @@ export async function GET(request: NextRequest) {
     d1FinalizeState,
   };
 
+  const userVisibleSyncState = deriveMetaUserVisibleSyncState(
+    response as MetaStatusResponse,
+  );
+
   return {
     ...response,
+    userVisibleSyncState,
+    operationalSyncState: deriveOperationalSyncState({
+      releaseGateVerdict: response.releaseGate?.verdict ?? null,
+      recommendationCount: response.repairPlan?.recommendations.length ?? 0,
+    }),
+    degradedServing: userVisibleSyncState.degradedServing,
+    openIncidents: response.repairPlan?.recommendations.length ?? 0,
     integrationSummary: buildMetaIntegrationSummary(integrationSummaryInput),
   };
   };

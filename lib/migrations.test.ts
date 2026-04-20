@@ -77,6 +77,7 @@ describe("runMigrations", () => {
     expect(queries.join("\n")).toContain("google_ads_keyword_dimensions");
     expect(queries.join("\n")).toContain("google_ads_asset_group_dimensions");
     expect(queries.join("\n")).toContain("google_ads_product_dimensions");
+    expect(queries.join("\n")).toContain("CREATE TABLE IF NOT EXISTS sync_incidents");
     expect(queries.join("\n")).toContain("business_ref_id");
     expect(queries.join("\n")).toContain("provider_account_ref_id");
     expect(queries.join("\n")).toContain("idx_meta_account_daily_business_account_date");

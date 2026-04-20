@@ -94,10 +94,13 @@ import {
   deriveUnifiedSyncTruth,
 } from "@/lib/sync/provider-status-truth";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
+import { deriveOperationalSyncState } from "@/lib/sync/incidents";
+import { deriveGoogleUserVisibleSyncState } from "@/lib/sync/user-visible-sync";
 import type {
   GoogleAdsExtendedRangeCompletion,
   GoogleAdsPanelRecoveryMode,
   GoogleAdsPanelSurfaceState,
+  GoogleAdsStatusResponse,
   GoogleAdsStatusDomainSummary,
 } from "@/lib/google-ads/status-types";
 
@@ -1969,7 +1972,7 @@ export async function GET(request: NextRequest) {
         summary: retentionRuntime.gateReason,
       };
 
-  return NextResponse.json({
+  const payload = {
     state: overallState,
     controlPlaneIdentity,
     controlPlanePersistence,
@@ -2385,5 +2388,19 @@ export async function GET(request: NextRequest) {
           readyThroughDate: historicalReadyThroughDate,
           phaseLabel: phaseLabel === "Ready" ? null : phaseLabel,
         },
+  };
+  const userVisibleSyncState = deriveGoogleUserVisibleSyncState(
+    payload as GoogleAdsStatusResponse,
+  );
+
+  return NextResponse.json({
+    ...payload,
+    userVisibleSyncState,
+    operationalSyncState: deriveOperationalSyncState({
+      releaseGateVerdict: payload.releaseGate?.verdict ?? null,
+      recommendationCount: payload.repairPlan?.recommendations.length ?? 0,
+    }),
+    degradedServing: userVisibleSyncState.degradedServing,
+    openIncidents: payload.repairPlan?.recommendations.length ?? 0,
   });
 }

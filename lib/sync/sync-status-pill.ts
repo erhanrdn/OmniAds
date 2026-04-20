@@ -11,6 +11,8 @@ import {
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { getMetaPageStatusMessaging } from "@/lib/meta/ui-status";
 import {
+  deriveGoogleUserVisibleSyncState,
+  deriveMetaUserVisibleSyncState,
   shouldSuppressRecoverableGoogleSyncIssue,
   shouldSuppressRecoverableMetaSyncIssue,
 } from "@/lib/sync/user-visible-sync";
@@ -125,6 +127,7 @@ export function resolveMetaSyncStatusPill(
   const coreReadiness = getMetaCoreReadiness(status);
   const percent = resolveMetaPercent(status);
   const suppressRecoverableAttention = shouldSuppressRecoverableMetaSyncIssue(status);
+  const userVisibleState = deriveMetaUserVisibleSyncState(status);
   const isAttentionState =
     coreReadiness?.state === "blocked" ||
     pageReadiness?.state === "blocked" ||
@@ -138,7 +141,7 @@ export function resolveMetaSyncStatusPill(
   }
 
   if (isAttentionState && suppressRecoverableAttention) {
-    return buildInfoPill("Refreshing in background");
+    return buildInfoPill(userVisibleState.label);
   }
 
   if (coreReadiness?.usable && hasMetaExtendedCompletenessLag(status)) {
@@ -221,6 +224,7 @@ export function resolveGoogleAdsSyncStatusPill(
 
   const percent = resolveGooglePercent(status);
   const progressLabel = resolveGoogleProgressLabel(status, percent);
+  const userVisibleState = deriveGoogleUserVisibleSyncState(status);
   const controlPlaneAttention =
     status.controlPlanePersistence?.exactRowsPresent === true &&
     ((status.releaseGate?.verdict != null &&
@@ -239,7 +243,7 @@ export function resolveGoogleAdsSyncStatusPill(
   }
 
   if (isAttentionState) {
-    return buildInfoPill("Refreshing in background");
+    return buildInfoPill(userVisibleState.label);
   }
 
   if (status.state === "ready") {
