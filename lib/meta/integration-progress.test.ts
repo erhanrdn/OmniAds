@@ -230,7 +230,6 @@ describe("resolveMetaIntegrationProgress", () => {
       "Connection",
       "Queue / worker",
       "Core data",
-      "Core coverage",
       "Extended surfaces",
     ]);
     expect(model?.stages[0]).toMatchObject({
@@ -245,13 +244,6 @@ describe("resolveMetaIntegrationProgress", () => {
       evidence: "Queue 8 • Leased 2",
     });
     expect(model?.stages[3]).toMatchObject({
-      state: "working",
-      label: "core coverage preparing",
-      detail: "Summary and campaign coverage is still preparing.",
-      percent: 71,
-      evidence: "10/14 days • Ready through Apr 10, 2026",
-    });
-    expect(model?.stages[4]).toMatchObject({
       state: "working",
       label: "history continuing",
       detail: "Ads and creatives continue backfilling in the background.",
@@ -302,7 +294,6 @@ describe("resolveMetaIntegrationProgress", () => {
       "Bağlantı",
       "Kuyruk / worker",
       "Çekirdek veri",
-      "Çekirdek kapsam",
       "Genişletilmiş yüzeyler",
     ]);
     expect(model?.stages[0]).toMatchObject({
@@ -315,11 +306,6 @@ describe("resolveMetaIntegrationProgress", () => {
       evidence: "Kuyruk 8 • Lease 2",
     });
     expect(model?.stages[3]).toMatchObject({
-      label: "çekirdek kapsam hazırlanıyor",
-      detail: "Özet ve kampanya kapsamı hâlâ hazırlanıyor.",
-      evidence: expect.stringContaining("10/14 gün"),
-    });
-    expect(model?.stages[4]).toMatchObject({
       label: "geçmiş tamamlanıyor",
       detail: "Reklamlar ve kreatifler arka planda geçmişi tamamlamayı sürdürüyor.",
       evidence: expect.stringContaining("Bekleyen breakdowns.age"),

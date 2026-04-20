@@ -833,9 +833,12 @@ export function buildMetaIntegrationSummary(
     buildConnectionStage(status),
     buildQueueStage(status),
     buildCoreStage(status),
-    buildPriorityStage(status, scope),
     buildExtendedStage(status, scope),
   ];
+
+  if (scope !== "recent_window") {
+    stages.splice(3, 0, buildPriorityStage(status, scope));
+  }
 
   if (shouldRenderAttentionStage(status)) {
     stages.push(buildAttentionStage(status));

@@ -147,7 +147,6 @@ describe("buildMetaIntegrationSummary", () => {
       "connection",
       "queue_worker",
       "core_data",
-      "priority_window",
       "extended_surfaces",
     ]);
     expect(summary.stages[1]).toMatchObject({
@@ -160,16 +159,6 @@ describe("buildMetaIntegrationSummary", () => {
       },
     });
     expect(summary.stages[3]).toMatchObject({
-      key: "priority_window",
-      state: "working",
-      code: "recent_window_preparing",
-      percent: 71,
-      evidence: {
-        completedDays: 10,
-        totalDays: 14,
-      },
-    });
-    expect(summary.stages[4]).toMatchObject({
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
@@ -199,7 +188,7 @@ describe("buildMetaIntegrationSummary", () => {
       })
     );
 
-    expect(summary.stages[4]).toMatchObject({
+    expect(summary.stages[3]).toMatchObject({
       key: "extended_surfaces",
       state: "working",
       code: "historical_extended_preparing",
@@ -407,9 +396,9 @@ describe("buildMetaIntegrationSummary", () => {
         queueDepth: 3,
       },
     });
-    expect(summary.stages.find((stage) => stage.key === "priority_window")).toMatchObject({
+    expect(summary.stages.find((stage) => stage.key === "core_data")).toMatchObject({
       state: "ready",
-      code: "recent_window_ready",
+      code: "core_ready",
     });
   });
 
