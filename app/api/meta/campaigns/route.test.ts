@@ -147,6 +147,7 @@ describe("GET /api/meta/campaigns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.status).toBe("ok");
     expect(payload.rows).toHaveLength(1);
     assertMetaCampaignRowPageContract(payload.rows[0]);
@@ -204,6 +205,7 @@ describe("GET /api/meta/campaigns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.rows).toHaveLength(1);
     assertMetaCampaignRowPageContract(payload.rows[0]);
     expect(live.getMetaLiveCampaignRows).toHaveBeenCalledTimes(1);
@@ -235,6 +237,7 @@ describe("GET /api/meta/campaigns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.rows).toHaveLength(0);
     expect(payload.isPartial).toBe(true);
     expect(payload.notReadyReason).toContain("Current-day live Meta campaign data");

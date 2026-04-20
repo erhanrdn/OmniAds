@@ -91,6 +91,7 @@ async function fetchMetaCampaigns(
   if (includePrev) params.set("includePrev", "1");
   const res = await fetch(`/api/meta/campaigns?${params.toString()}`, {
     headers: { Accept: "application/json" },
+    cache: "no-store",
   });
   const payload = await res.json().catch(() => null);
   if (!res.ok)
@@ -108,6 +109,7 @@ async function fetchMetaBreakdowns(
   const params = new URLSearchParams({ businessId, startDate, endDate });
   const res = await fetch(`/api/meta/breakdowns?${params.toString()}`, {
     headers: { Accept: "application/json" },
+    cache: "no-store",
   });
   const payload = await res.json().catch(() => null);
   if (!res.ok)

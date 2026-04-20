@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaCampaignsForRange } from "@/lib/meta/campaigns-source";
 
+export const dynamic = "force-dynamic";
+
 export interface MetaCampaignRow {
   id: string;
   accountId: string;
@@ -132,5 +134,7 @@ export async function GET(request: NextRequest) {
     accountId: requestedAccountId,
     includePrev,
   });
-  return NextResponse.json(payload satisfies MetaCampaignsResponse);
+  return NextResponse.json(payload satisfies MetaCampaignsResponse, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

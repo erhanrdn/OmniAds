@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
 import { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 
+export const dynamic = "force-dynamic";
+
 type BreakdownType = "age" | "country" | "placement" | "adset" | "campaign";
 
 interface MetaActionValue {
@@ -201,5 +203,7 @@ export async function GET(request: NextRequest) {
     startDate,
     endDate,
   });
-  return NextResponse.json(payload satisfies MetaBreakdownsResponse);
+  return NextResponse.json(payload satisfies MetaBreakdownsResponse, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }

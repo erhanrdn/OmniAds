@@ -118,6 +118,7 @@ describe("GET /api/meta/breakdowns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     assertMetaBreakdownsPageContract(payload);
     expect(payload.age).toHaveLength(1);
     expect(payload.location).toHaveLength(1);
@@ -141,6 +142,7 @@ describe("GET /api/meta/breakdowns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     assertMetaBreakdownsPageContract(payload);
     expect(payload).toHaveProperty("budget");
     expect(payload).toHaveProperty("audience");
@@ -182,6 +184,7 @@ describe("GET /api/meta/breakdowns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.age).toEqual([]);
     expect(payload.location).toEqual([]);
     expect(payload.placement).toEqual([]);
@@ -218,6 +221,7 @@ describe("GET /api/meta/breakdowns", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(metaSync.getMetaSelectedRangeTruthReadiness).not.toHaveBeenCalled();
     expect(payload.isPartial).toBe(false);
     expect(payload.age).toHaveLength(1);
