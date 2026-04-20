@@ -58,6 +58,26 @@ export interface SyncGateRecord {
   emittedAt: string;
 }
 
+export type ProviderReleaseTruthInput = {
+  activityState: string | null;
+  progressState: string | null;
+  workerOnline: boolean | null;
+  queueDepth: number;
+  leasedPartitions: number;
+  truthReady: boolean;
+  retryableFailedPartitions?: number;
+  deadLetterPartitions?: number;
+  staleLeasePartitions?: number;
+  repairBacklog?: number;
+  validationFailures24h?: number;
+  reclaimCandidateCount?: number;
+  staleRunCount24h?: number;
+  d1FinalizeNonTerminalCount?: number;
+  recentTruthState?: string | null;
+  priorityTruthState?: string | null;
+  stallFingerprints?: string[];
+};
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -327,31 +347,47 @@ export async function getSyncGateRecordById(input: {
 }
 
 export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
-  const truthReady =
-    snapshot.userFacing.recentSelectedRangeTruth.truthReady ||
-    snapshot.userFacing.priorityWindowTruth.truthReady;
-  const healthyActivity =
-    snapshot.operator.activityState === "ready" ||
-    snapshot.operator.activityState === "busy";
-  const draining =
-    snapshot.velocity.drainState === "clear" ||
-    snapshot.velocity.drainState === "large_but_draining";
-  const blocked =
-    snapshot.operator.progressState === "blocked" ||
-    snapshot.operator.activityState === "blocked";
-  const workerUnavailable =
-    snapshot.operator.workerOnline === false &&
-    snapshot.queue.queueDepth > 0 &&
-    snapshot.queue.leasedPartitions === 0;
+  return classifyProviderReleaseTruth({
+    activityState: snapshot.operator.activityState,
+    progressState: snapshot.operator.progressState,
+    workerOnline: snapshot.operator.workerOnline,
+    queueDepth: snapshot.queue.queueDepth,
+    leasedPartitions: snapshot.queue.leasedPartitions,
+    truthReady:
+      snapshot.userFacing.recentSelectedRangeTruth.truthReady ||
+      snapshot.userFacing.priorityWindowTruth.truthReady,
+    retryableFailedPartitions: snapshot.queue.retryableFailedPartitions,
+    deadLetterPartitions: snapshot.queue.deadLetterPartitions,
+    staleLeasePartitions: snapshot.queue.staleLeasePartitions,
+    repairBacklog: snapshot.authoritative.repairBacklog,
+    validationFailures24h: snapshot.authoritative.validationFailures24h,
+    reclaimCandidateCount: snapshot.operator.reclaimCandidateCount ?? 0,
+    staleRunCount24h: snapshot.operator.staleRunCount24h ?? 0,
+    d1FinalizeNonTerminalCount: snapshot.operator.d1FinalizeNonTerminalCount,
+    recentTruthState: snapshot.userFacing.recentSelectedRangeTruth.state,
+    priorityTruthState: snapshot.userFacing.priorityWindowTruth.state,
+    stallFingerprints: snapshot.operator.stallFingerprints,
+  });
+}
 
-  const pass = healthyActivity && draining && truthReady && !blocked;
+export function classifyProviderReleaseTruth(input: ProviderReleaseTruthInput) {
+  const healthyActivity = input.activityState === "ready" || input.activityState === "busy";
+  const draining = input.queueDepth === 0 || input.leasedPartitions > 0;
+  const blocked =
+    input.progressState === "blocked" || input.activityState === "blocked";
+  const workerUnavailable =
+    input.workerOnline === false &&
+    input.queueDepth > 0 &&
+    input.leasedPartitions === 0;
+  const stalled =
+    input.activityState === "stalled" || input.progressState === "partial_stuck";
+  const pass = healthyActivity && draining && input.truthReady && !blocked;
   const blockerClass: SyncBlockerClass =
     workerUnavailable
       ? "worker_unavailable"
       : blocked
         ? "queue_blocked"
-        : snapshot.operator.activityState === "stalled" ||
-            snapshot.operator.progressState === "partial_stuck"
+        : stalled
           ? "stalled"
           : pass
             ? "none"
@@ -361,24 +397,23 @@ export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
     pass,
     blockerClass,
     evidence: {
-      activityState: snapshot.operator.activityState,
-      progressState: snapshot.operator.progressState,
-      workerOnline: snapshot.operator.workerOnline,
-      queueDepth: snapshot.queue.queueDepth,
-      leasedPartitions: snapshot.queue.leasedPartitions,
-      drainState: snapshot.velocity.drainState,
-      recentTruthState: snapshot.userFacing.recentSelectedRangeTruth.state,
-      priorityTruthState: snapshot.userFacing.priorityWindowTruth.state,
-      truthReady,
-      retryableFailedPartitions: snapshot.queue.retryableFailedPartitions,
-      deadLetterPartitions: snapshot.queue.deadLetterPartitions,
-      staleLeasePartitions: snapshot.queue.staleLeasePartitions,
-      repairBacklog: snapshot.authoritative.repairBacklog,
-      validationFailures24h: snapshot.authoritative.validationFailures24h,
-      reclaimCandidateCount: snapshot.operator.reclaimCandidateCount ?? 0,
-      staleRunCount24h: snapshot.operator.staleRunCount24h ?? 0,
-      d1FinalizeNonTerminalCount: snapshot.operator.d1FinalizeNonTerminalCount,
-      stallFingerprints: snapshot.operator.stallFingerprints,
+      activityState: input.activityState,
+      progressState: input.progressState,
+      workerOnline: input.workerOnline,
+      queueDepth: input.queueDepth,
+      leasedPartitions: input.leasedPartitions,
+      recentTruthState: input.recentTruthState ?? null,
+      priorityTruthState: input.priorityTruthState ?? null,
+      truthReady: input.truthReady,
+      retryableFailedPartitions: input.retryableFailedPartitions ?? 0,
+      deadLetterPartitions: input.deadLetterPartitions ?? 0,
+      staleLeasePartitions: input.staleLeasePartitions ?? 0,
+      repairBacklog: input.repairBacklog ?? 0,
+      validationFailures24h: input.validationFailures24h ?? 0,
+      reclaimCandidateCount: input.reclaimCandidateCount ?? 0,
+      staleRunCount24h: input.staleRunCount24h ?? 0,
+      d1FinalizeNonTerminalCount: input.d1FinalizeNonTerminalCount ?? 0,
+      stallFingerprints: input.stallFingerprints ?? [],
     },
   };
 }

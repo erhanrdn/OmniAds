@@ -244,6 +244,50 @@ describe("sync release gates", () => {
     process.env = { ...originalEnv };
   });
 
+  it("classifies a ready provider release truth as pass", () => {
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        activityState: "busy",
+        progressState: "syncing",
+        workerOnline: true,
+        queueDepth: 6,
+        leasedPartitions: 1,
+        truthReady: true,
+        recentTruthState: "finalized_verified",
+        priorityTruthState: "finalized_verified",
+      })
+    ).toMatchObject({
+      pass: true,
+      blockerClass: "none",
+      evidence: {
+        truthReady: true,
+        queueDepth: 6,
+        leasedPartitions: 1,
+      },
+    });
+  });
+
+  it("classifies queued work without a worker as worker_unavailable", () => {
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        activityState: "busy",
+        progressState: "syncing",
+        workerOnline: false,
+        queueDepth: 3,
+        leasedPartitions: 0,
+        truthReady: true,
+      })
+    ).toMatchObject({
+      pass: false,
+      blockerClass: "worker_unavailable",
+      evidence: {
+        truthReady: true,
+        queueDepth: 3,
+        leasedPartitions: 0,
+      },
+    });
+  });
+
   it("blocks deploy gate when runtime contract evidence fails under block mode", async () => {
     vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue({
       sampledAt: "2026-04-15T00:00:00.000Z",
