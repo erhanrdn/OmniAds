@@ -4,7 +4,7 @@
  * components/meta/meta-account-recs.tsx
  *
  * Account-level derived operator context.
- * - Before analysis: "Refresh context" button
+ * - Before analysis: "Run analysis" button
  * - After analysis: compact cards derived from the same authority snapshot
  */
 
@@ -229,13 +229,13 @@ export function MetaAccountRecs({
               {language === "tr" ? "Çalıştırılıyor..." : "Running..."}
             </>
           ) : lastAnalyzedAt === null ? (
-            language === "tr" ? "Bağlamı Yenile" : "Refresh Context"
+            language === "tr" ? "Analizi Çalıştır" : "Run Analysis"
           ) : canReanalyze ? (
-            language === "tr" ? "Bağlamı Yenile" : "Refresh Context"
+            language === "tr" ? "Analizi Yeniden Çalıştır" : "Run Analysis Again"
           ) : (
             language === "tr"
-              ? `Yenilemek için tüm maddeleri işaretle (${checkedRecIds.size}/${accountRecs.length})`
-              : `Check all items before refresh (${checkedRecIds.size}/${accountRecs.length})`
+              ? `Yeniden çalıştırmak için tüm maddeleri işaretle (${checkedRecIds.size}/${accountRecs.length})`
+              : `Check all items before re-running (${checkedRecIds.size}/${accountRecs.length})`
           )}
         </button>
         {lastAnalyzedAt && (

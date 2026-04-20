@@ -28,6 +28,7 @@ let mockDateRange = {
 
 let mockQueries: Record<string, Record<string, unknown>>;
 let mockSyncPill: { visible: boolean; label: string; tone: "info" | "success" | "warning"; percent: number | null; state: "syncing" | "active" | "needs_attention"; } | null = null;
+let observedQueryOptions: Record<string, { enabled?: boolean }> = {};
 
 function baseStatus(overrides: Partial<MetaStatusResponse> = {}): MetaStatusResponse {
   return {
@@ -177,8 +178,9 @@ function baseQueryState(overrides: Record<string, unknown> = {}) {
 }
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: vi.fn((input: { queryKey: unknown[] }) => {
+  useQuery: vi.fn((input: { queryKey: unknown[]; enabled?: boolean }) => {
     const key = Array.isArray(input.queryKey) ? String(input.queryKey[0]) : String(input.queryKey);
+    observedQueryOptions[key] = { enabled: input.enabled as boolean | undefined };
     return mockQueries[key] ?? baseQueryState();
   }),
 }));
@@ -334,6 +336,7 @@ describe("Meta page render contract", () => {
       comparisonEnd: null,
     };
     mockSyncPill = null;
+    observedQueryOptions = {};
     const readyStatus = baseStatus();
     mockQueries = {
       "meta-status-base": baseQueryState({ data: readyStatus, state: { data: readyStatus } }),
@@ -572,6 +575,18 @@ describe("Meta page render contract", () => {
     expect(html).toContain("campaign-detail:overview");
     expect(html).not.toContain("data-empty:");
     expect(html).not.toContain("Selected range is preparing");
+  });
+
+  it("keeps Decision OS manual and exposes a run-analysis action in the header", () => {
+    const status = baseStatus();
+    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(observedQueryOptions["meta-decision-os"]?.enabled).toBe(false);
+    expect(html).toContain("Run analysis");
   });
 
   it("renders summary KPIs while campaign drilldown is still loading", () => {

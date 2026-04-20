@@ -28,7 +28,7 @@ describe("MetaAccountRecs", () => {
       />
     );
 
-    expect(html).toContain("Refresh Context");
+    expect(html).toContain("Run Analysis");
     expect(html).toContain("Internal fetch failed (/api/meta/campaigns 500)");
   });
 });

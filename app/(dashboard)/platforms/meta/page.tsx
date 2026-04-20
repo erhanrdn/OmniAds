@@ -24,6 +24,7 @@ import {
   Target,
   BarChart2,
   RefreshCw,
+  Sparkles,
 
 } from "lucide-react";
 
@@ -715,10 +716,13 @@ export default function MetaPage() {
 
   const decisionOsQuery = useQuery({
     queryKey: ["meta-decision-os", businessId, startDate, endDate],
-    enabled: metaConnected && isMetaReferenceReady && Boolean(startDate && endDate),
+    enabled: false,
     staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
     queryFn: () => fetchMetaDecisionOs(businessId, startDate, endDate),
   });
+  const isAnalysisRunning =
+    recommendationsQuery.isFetching || decisionOsQuery.isFetching;
 
   // Scroll the left panel item into view when a campaign is selected from recommendations.
   useEffect(() => {
@@ -746,12 +750,19 @@ export default function MetaPage() {
   }, [businessId, startDate, endDate]);
 
   async function handleAnalyze() {
+    if (!businessId || !startDate || !endDate || !isMetaReferenceReady) return;
     setRecommendationsError(null);
-    const result = await recommendationsQuery.refetch();
-    if (result.error) {
+    const [recommendationsResult, decisionOsResult] = await Promise.all([
+      recommendationsQuery.refetch(),
+      decisionOsQuery.refetch(),
+    ]);
+    const error =
+      recommendationsResult.error ??
+      decisionOsResult.error;
+    if (error) {
       setRecommendationsError(
-        result.error instanceof Error
-          ? result.error.message
+        error instanceof Error
+          ? error.message
           : "Recommendations could not be completed."
       );
       return;
@@ -805,21 +816,19 @@ export default function MetaPage() {
         campaignsQuery.refetch(),
         campaignPrevQuery.refetch(),
         breakdownsQuery.refetch(),
-        decisionOsQuery.refetch(),
         comparisonCampaignsQuery.refetch(),
         comparisonSummaryQuery.refetch(),
       ]);
 
       for (let attempt = 0; attempt < 20; attempt += 1) {
         await sleep(2_000);
-        const [statusResult, summaryResult, campaignsResult, campaignPrevResult, breakdownsResult, decisionOsResult, compareCampaignsResult, compareSummaryResult] =
+        const [statusResult, summaryResult, campaignsResult, campaignPrevResult, breakdownsResult, compareCampaignsResult, compareSummaryResult] =
           await Promise.allSettled([
             statusQuery.refetch(),
             summaryQuery.refetch(),
             campaignsQuery.refetch(),
             campaignPrevQuery.refetch(),
             breakdownsQuery.refetch(),
-            decisionOsQuery.refetch(),
             comparisonCampaignsQuery.refetch(),
             comparisonSummaryQuery.refetch(),
           ]);
@@ -860,7 +869,6 @@ export default function MetaPage() {
         ) {
           void campaignPrevResult;
           void breakdownsResult;
-          void decisionOsResult;
           void compareCampaignsResult;
           void compareSummaryResult;
           break;
@@ -1142,6 +1150,19 @@ export default function MetaPage() {
             <Button
               variant="outline"
               className="shrink-0"
+              onClick={() => void handleAnalyze()}
+              disabled={isAnalysisRunning || !isMetaReferenceReady || !startDate || !endDate}
+            >
+              <Sparkles
+                className={`mr-2 h-4 w-4 ${isAnalysisRunning ? "animate-spin" : ""}`}
+              />
+              {isAnalysisRunning ? "Running analysis" : "Run analysis"}
+            </Button>
+          )}
+          {metaConnected && (
+            <Button
+              variant="outline"
+              className="shrink-0"
               onClick={() => void handleRefreshData()}
               disabled={isManualRefreshRunning || isSyncInProgress || !isMetaReferenceReady || !startDate || !endDate}
             >
@@ -1365,7 +1386,7 @@ export default function MetaPage() {
                     campaign={selectedCampaign}
                     recommendationsData={recommendationsQuery.data}
                     decisionOsData={decisionOsQuery.data}
-                    isDecisionOsLoading={decisionOsQuery.isLoading}
+                    isDecisionOsLoading={decisionOsQuery.isFetching}
                     isRecsLoading={recommendationsQuery.isFetching}
                     lastAnalyzedAt={lastAnalyzedAt}
                     recommendationsError={recommendationsError}
