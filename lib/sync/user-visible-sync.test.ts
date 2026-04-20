@@ -9,6 +9,9 @@ describe("user-visible sync state", () => {
     const state = deriveMetaUserVisibleSyncState({
       connected: true,
       assignedAccountIds: ["act_1"],
+      controlPlanePersistence: {
+        exactRowsPresent: true,
+      },
       coreReadiness: {
         usable: true,
       },
@@ -28,6 +31,33 @@ describe("user-visible sync state", () => {
     expect(state).toMatchObject({
       kind: "refreshing_in_background",
       suppressRecoverableAttention: true,
+      degradedServing: true,
+    });
+  });
+
+  it("does not mark Meta healthy when exact control-plane rows are missing", () => {
+    const state = deriveMetaUserVisibleSyncState({
+      connected: true,
+      assignedAccountIds: ["act_1"],
+      controlPlanePersistence: {
+        exactRowsPresent: false,
+      },
+      coreReadiness: {
+        usable: true,
+      },
+      releaseGate: {
+        verdict: "pass",
+      },
+      syncTruthState: "ready",
+      blockerClass: "none",
+      repairPlan: {
+        recommendations: [],
+      },
+    } as never);
+
+    expect(state).toMatchObject({
+      kind: "using_latest_available_data",
+      suppressRecoverableAttention: false,
       degradedServing: true,
     });
   });

@@ -95,6 +95,7 @@ import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
 import { getLatestSyncRepairExecution } from "@/lib/sync/remediation-executions";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
+import { getSyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
 import { buildSyncLagMetrics } from "@/lib/sync/lag-metrics";
 import { readThroughCache } from "@/lib/server-cache";
 import type {
@@ -339,10 +340,11 @@ export async function GET(request: NextRequest) {
     protectedPublishedTruthReview,
     authoritativeSnapshot,
     runtimeRegistry,
-    gateRecords,
-    repairPlan,
+    gateResult,
+    repairPlanResult,
     latestRemediationExecution,
-    incidentSummary,
+    persistenceResult,
+    incidentSummaryResult,
   ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
@@ -373,22 +375,55 @@ export async function GET(request: NextRequest) {
       getLatestSyncGateRecords({
         buildId: controlPlaneIdentity.buildId,
         environment: controlPlaneIdentity.environment,
-      }).catch(() => ({
-        deployGate: null,
-        releaseGate: null,
-      })),
+      })
+        .then((value) => ({ value, error: null }))
+        .catch((error) => ({
+          value: {
+            deployGate: null,
+            releaseGate: null,
+          },
+          error: error instanceof Error ? error.message : String(error),
+        })),
       getLatestSyncRepairPlan({
         ...controlPlaneIdentity,
-      }).catch(() => null),
+      })
+        .then((value) => ({ value, error: null }))
+        .catch((error) => ({
+          value: null,
+          error: error instanceof Error ? error.message : String(error),
+        })),
       getLatestSyncRepairExecution({
         ...controlPlaneIdentity,
         businessId: businessId!,
       }).catch(() => null),
+      getSyncControlPlanePersistenceStatus({
+        ...controlPlaneIdentity,
+      })
+        .then((value) => ({ value, error: null }))
+        .catch((error) => ({
+          value: null,
+          error: error instanceof Error ? error.message : String(error),
+        })),
       getSyncIncidentSummary({
         ...controlPlaneIdentity,
         businessId: businessId!,
-      }).catch(() => null),
+      })
+        .then((value) => ({ value, error: null }))
+        .catch((error) => ({
+          value: null,
+          error: error instanceof Error ? error.message : String(error),
+        })),
     ]);
+  const gateRecords = gateResult.value;
+  const repairPlan = repairPlanResult.value;
+  const controlPlanePersistence = persistenceResult.value;
+  const incidentSummary = incidentSummaryResult.value;
+  const controlPlaneErrors = {
+    syncGates: gateResult.error,
+    repairPlan: repairPlanResult.error,
+    controlPlanePersistence: persistenceResult.error,
+    syncIncidents: incidentSummaryResult.error,
+  };
   const retentionRuntime = getMetaRetentionRuntimeStatus();
   const retentionCanaryRuntime = getMetaRetentionCanaryRuntimeStatus({
     businessId: businessId!,
@@ -2036,6 +2071,9 @@ export async function GET(request: NextRequest) {
 
   const response = {
       state,
+      controlPlaneIdentity,
+      controlPlanePersistence,
+      controlPlaneErrors,
       credentialState: providerState.credentialState,
       assignmentState: providerState.assignmentState,
       warehouseState: providerState.warehouseState,

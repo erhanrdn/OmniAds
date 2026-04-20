@@ -146,7 +146,7 @@ export function deriveMetaUserVisibleSyncState(
       status?.coreReadiness?.usable === true ||
       status?.pageReadiness?.state === "ready" ||
       status?.pageReadiness?.state === "partial",
-    controlPlaneExact: true,
+    controlPlaneExact: status?.controlPlanePersistence?.exactRowsPresent === true,
     releaseGateVerdict:
       typeof status?.releaseGate?.verdict === "string"
         ? status.releaseGate.verdict

@@ -121,6 +121,10 @@ vi.mock("@/lib/sync/repair-planner", () => ({
   getLatestSyncRepairPlan: vi.fn(async () => null),
 }));
 
+vi.mock("@/lib/sync/control-plane-persistence", () => ({
+  getSyncControlPlanePersistenceStatus: vi.fn(),
+}));
+
 vi.mock("@/lib/sync/remediation-executions", () => ({
   getLatestSyncRepairExecution: vi.fn(async () => null),
 }));
@@ -226,6 +230,7 @@ const metaSync = await import("@/lib/sync/meta-sync");
 const metaRetention = await import("@/lib/meta/warehouse-retention");
 const remediationExecutions = await import("@/lib/sync/remediation-executions");
 const incidents = await import("@/lib/sync/incidents");
+const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -434,6 +439,30 @@ describe("GET /api/meta/status", () => {
       blockingReasons: [],
       reasonCounts: {},
     } as never);
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus).mockResolvedValue({
+      identity: {
+        buildId: "dev-build",
+        environment: "test",
+        providerScope: "meta",
+      },
+      exact: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      fallbackByBuild: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      latest: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      missingExact: [],
+      exactRowsPresent: true,
+    });
   });
 
   afterEach(() => {
@@ -1057,6 +1086,16 @@ describe("GET /api/meta/status", () => {
     expect(payload.operationalSyncState).toBe("healthy");
     expect(payload.openIncidents).toBe(0);
     expect(payload.degradedServing).toBe(false);
+    expect(payload.controlPlanePersistence).toMatchObject({
+      exactRowsPresent: true,
+      missingExact: [],
+    });
+    expect(payload.controlPlaneErrors).toEqual({
+      syncGates: null,
+      repairPlan: null,
+      controlPlanePersistence: null,
+      syncIncidents: null,
+    });
   });
 
   it("keeps no-date page readiness ready when recent breakdown coverage is complete but historical extended history still lags", async () => {

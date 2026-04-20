@@ -25,6 +25,8 @@ import type { SyncGateRecord } from "@/lib/sync/release-gates";
 import type { SyncRepairPlanRecord } from "@/lib/sync/repair-planner";
 import type { SyncRepairExecutionRecord, SyncRepairExecutionSummary } from "@/lib/sync/remediation-executions";
 import type { SyncLagMetrics } from "@/lib/sync/lag-metrics";
+import type { SyncControlPlaneKey } from "@/lib/sync/control-plane-key";
+import type { SyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
 
 export interface MetaSyncDetails {
   id?: string | null;
@@ -237,6 +239,14 @@ export interface MetaStatusResponse {
   } | null;
   runtimeContract?: RuntimeContract | null;
   runtimeRegistry?: RuntimeRegistryStatus | null;
+  controlPlaneIdentity?: SyncControlPlaneKey | null;
+  controlPlanePersistence?: SyncControlPlanePersistenceStatus | null;
+  controlPlaneErrors?: {
+    syncGates: string | null;
+    repairPlan: string | null;
+    controlPlanePersistence: string | null;
+    syncIncidents: string | null;
+  } | null;
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;
