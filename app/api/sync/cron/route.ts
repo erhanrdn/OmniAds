@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActiveBusinesses } from "@/lib/sync/active-businesses";
+import { evaluateAndPersistGoogleAdsControlPlane } from "@/lib/google-ads/control-plane-runtime";
 import { enqueueMetaScheduledWork } from "@/lib/sync/meta-sync";
 import { enqueueGoogleAdsScheduledWork } from "@/lib/sync/google-ads-sync";
 import { syncGA4Reports } from "@/lib/sync/ga4-sync";
@@ -38,6 +39,12 @@ function normalizeProviderScope(value: string | null) {
   return normalized && normalized.length > 0 ? normalized : "meta";
 }
 
+function isSupportedControlPlaneProviderScope(
+  value: string,
+): value is "meta" | "google_ads" {
+  return value === "meta" || value === "google_ads";
+}
+
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
@@ -59,11 +66,31 @@ export async function POST(request: NextRequest) {
   const overrideReason = url.searchParams.get("overrideReason")?.trim() || null;
 
   if (controlPlaneOnly) {
-    const gateVerdicts = await evaluateAndPersistSyncGates({
-      buildId: requestedBuildId,
-      breakGlass,
-      overrideReason,
-    }).catch((error) => {
+    if (!isSupportedControlPlaneProviderScope(providerScope)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          controlPlaneOnly: true,
+          providerScope,
+          error: "unsupported_provider_scope",
+        },
+        { status: 400 },
+      );
+    }
+
+    const gateVerdicts = await (
+      providerScope === "google_ads"
+        ? evaluateAndPersistGoogleAdsControlPlane({
+            buildId: requestedBuildId,
+            breakGlass,
+            overrideReason,
+          })
+        : evaluateAndPersistSyncGates({
+            buildId: requestedBuildId,
+            breakGlass,
+            overrideReason,
+          })
+    ).catch((error) => {
       console.error("[sync-cron] control_plane_gate_evaluation_failed", error);
       return null;
     });

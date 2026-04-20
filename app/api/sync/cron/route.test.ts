@@ -40,6 +40,10 @@ vi.mock("@/lib/sync/repair-planner", () => ({
   evaluateAndPersistSyncRepairPlan: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
+  evaluateAndPersistGoogleAdsControlPlane: vi.fn(),
+}));
+
 const activeBusinesses = await import("@/lib/sync/active-businesses");
 const metaSync = await import("@/lib/sync/meta-sync");
 const googleSync = await import("@/lib/sync/google-ads-sync");
@@ -49,6 +53,7 @@ const shopifySync = await import("@/lib/sync/shopify-sync");
 const soakGate = await import("@/lib/sync/soak-gate");
 const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
+const googleControlPlane = await import("@/lib/google-ads/control-plane-runtime");
 const { POST } = await import("@/app/api/sync/cron/route");
 
 describe("POST /api/sync/cron", () => {
@@ -112,6 +117,46 @@ describe("POST /api/sync/cron", () => {
       summary: "no-op",
       recommendations: [],
       emittedAt: "2026-04-15T00:00:00.000Z",
+    } as never);
+    vi.mocked(googleControlPlane.evaluateAndPersistGoogleAdsControlPlane).mockResolvedValue({
+      identity: {
+        buildId: "sha",
+        environment: "test",
+        providerScope: "google_ads",
+      },
+      checkedAt: "2026-04-15T00:00:00.000Z",
+      deployGate: {
+        gateKind: "deploy_gate",
+        gateScope: "service_liveness",
+        buildId: "sha",
+        environment: "test",
+        mode: "measure_only",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-15T00:00:00.000Z",
+      },
+      releaseGate: {
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "sha",
+        environment: "test",
+        mode: "measure_only",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {
+          providerScope: "google_ads",
+        },
+        emittedAt: "2026-04-15T00:00:00.000Z",
+      },
     } as never);
   });
 
@@ -230,13 +275,40 @@ describe("POST /api/sync/cron", () => {
     expect(response.status).toBe(200);
     expect(payload.controlPlaneOnly).toBe(true);
     expect(payload.providerScope).toBe("google_ads");
+    expect(googleControlPlane.evaluateAndPersistGoogleAdsControlPlane).toHaveBeenCalledWith({
+      buildId: "build-123",
+      breakGlass: false,
+      overrideReason: null,
+    });
+    expect(releaseGates.evaluateAndPersistSyncGates).not.toHaveBeenCalled();
     expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith({
       buildId: "build-123",
       providerScope: "google_ads",
       releaseGate: expect.objectContaining({
         gateKind: "release_gate",
+        evidence: expect.objectContaining({
+          providerScope: "google_ads",
+        }),
       }),
     });
+  });
+
+  it("rejects unsupported provider scopes in control-plane-only mode", async () => {
+    const request = new NextRequest(
+      "http://localhost/api/sync/cron?controlPlaneOnly=1&providerScope=shopify",
+      {
+        method: "POST",
+        headers: { authorization: "Bearer secret" },
+      },
+    );
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toBe("unsupported_provider_scope");
+    expect(releaseGates.evaluateAndPersistSyncGates).not.toHaveBeenCalled();
+    expect(googleControlPlane.evaluateAndPersistGoogleAdsControlPlane).not.toHaveBeenCalled();
   });
 
   it("returns 503 for control-plane-only mode when deploy gate enforcement fails", async () => {
