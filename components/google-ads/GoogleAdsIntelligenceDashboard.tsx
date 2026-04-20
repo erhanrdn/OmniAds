@@ -217,8 +217,8 @@ function SurfaceRecoveryNotice({
           </span>
         ) : null}
         {rangeCompletion ? (
-        <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
-            Selected range {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
+          <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+            Visible coverage {rangeCompletion.selectedRange.completedDays}/{rangeCompletion.selectedRange.totalDays} {rangeCompletion.selectedRange.ready ? "ready" : "backfilling"}
           </span>
         ) : null}
         {rangeCompletion ? (
@@ -1230,7 +1230,7 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       <div className="rounded-xl border border-border/70 bg-card/70 p-3">
         <div className="space-y-1.5">
           <StatusDomainRow label="Core" summary={syncStatus?.domains?.core} />
-          <StatusDomainRow label="Selected range" summary={syncStatus?.domains?.selectedRange} />
+          <StatusDomainRow label="Visible coverage" summary={syncStatus?.domains?.selectedRange} />
           <StatusDomainRow label="Advisor" summary={syncStatus?.domains?.advisor} />
         </div>
       </div>

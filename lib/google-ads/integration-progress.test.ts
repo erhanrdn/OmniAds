@@ -144,6 +144,10 @@ describe("resolveGoogleIntegrationProgress", () => {
       state: "ready",
       label: "queue clear",
     });
+    expect(model?.stages.find((stage) => stage.key === "selected_range")).toMatchObject({
+      title: "Visible coverage",
+      label: "coverage ready",
+    });
   });
 
   it("renders the attention stage when release truth is actually blocked", () => {

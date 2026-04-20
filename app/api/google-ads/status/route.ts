@@ -435,25 +435,25 @@ function buildGoogleAdsStatusDomains(input: {
     !input.coreUsable || input.selectedRangeCoreIncomplete
       ? {
           state: "syncing" as const,
-          label: "Selected range syncing",
-          detail: "Selected-range campaign coverage is still preparing.",
+          label: "Visible coverage syncing",
+          detail: "Visible campaign coverage is still preparing.",
         }
       : input.selectedRangeMode === "current_day_live"
         ? {
             state: "ready" as const,
-            label: "Selected range live",
+            label: "Visible coverage live",
             detail: "Current-day core coverage is served from the live overlay.",
           }
       : input.selectedRangePendingSurfaces.length > 0
         ? {
             state: "partial" as const,
-            label: "Selected range partial",
-            detail: `Extended selected-range coverage is still preparing for ${input.selectedRangePendingSurfaces.join(", ")}.`,
+            label: "Visible coverage partial",
+            detail: `Extended visible coverage is still preparing for ${input.selectedRangePendingSurfaces.join(", ")}.`,
           }
         : {
             state: "ready" as const,
-            label: "Selected range ready",
-            detail: "Visible selected-range surfaces are ready.",
+            label: "Visible coverage ready",
+            detail: "Visible reporting surfaces are ready.",
           };
 
   const advisor =

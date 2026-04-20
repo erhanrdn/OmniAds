@@ -431,4 +431,30 @@ describe("sync status pill resolver", () => {
       state: "syncing",
     });
   });
+
+  it("prefers historical Google coverage over selected-range coverage for generic sync percent", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "syncing",
+        warehouse: {
+          coverage: {
+            selectedRange: {
+              completedDays: 7,
+              totalDays: 7,
+            },
+            historical: {
+              completedDays: 42,
+              totalDays: 84,
+            },
+          },
+        },
+      } as never)
+    ).toMatchObject({
+      label: "50% Syncing",
+      tone: "info",
+      state: "syncing",
+    });
+  });
 });

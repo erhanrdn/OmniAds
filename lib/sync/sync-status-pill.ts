@@ -183,15 +183,20 @@ function resolveGooglePercent(status: GoogleAdsStatusResponse) {
     return clampPercent(resolvedProgress.percent);
   }
 
+  const historicalCoverage = status.warehouse?.coverage?.historical;
+  const historicalPercent = percentFromCoverage(
+    historicalCoverage?.completedDays,
+    historicalCoverage?.totalDays
+  );
+  if (historicalPercent !== null) return historicalPercent;
+
   const selectedRangeCoverage = status.warehouse?.coverage?.selectedRange;
   const selectedRangePercent = percentFromCoverage(
     selectedRangeCoverage?.completedDays,
     selectedRangeCoverage?.totalDays
   );
   if (selectedRangePercent !== null) return selectedRangePercent;
-
-  const historicalCoverage = status.warehouse?.coverage?.historical;
-  return percentFromCoverage(historicalCoverage?.completedDays, historicalCoverage?.totalDays);
+  return null;
 }
 
 function resolveGoogleProgressLabel(

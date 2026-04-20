@@ -49,7 +49,7 @@ function getStageTitle(
     case "core_data":
       return language === "tr" ? "Çekirdek veri" : "Core data";
     case "selected_range":
-      return language === "tr" ? "Seçili aralık" : "Selected range";
+      return language === "tr" ? "Görünür kapsam" : "Visible coverage";
     case "analysis":
       return language === "tr" ? "Analiz / advisor" : "Analysis / advisor";
     default:
@@ -383,24 +383,24 @@ function buildSelectedRangeStage(
     label:
       selectedRange?.state === "ready"
         ? language === "tr"
-          ? "aralık hazır"
-          : "range ready"
+          ? "kapsam hazır"
+          : "coverage ready"
         : selectedRange?.state === "partial"
           ? language === "tr"
-            ? "aralık kısmi"
-            : "range partial"
+            ? "kapsam kısmi"
+            : "coverage partial"
           : status.selectedRangeReadinessBasis?.mode === "current_day_live"
             ? language === "tr"
-              ? "bugün canlı"
-              : "today live"
+              ? "canlı kapsam"
+              : "live coverage"
             : language === "tr"
-              ? "aralık hazırlanıyor"
-              : "range preparing",
+              ? "kapsam hazırlanıyor"
+              : "coverage preparing",
     detail:
       selectedRange?.detail ??
       (language === "tr"
-        ? "Seçili aralık için görünür yüzeyler hazırlanıyor."
-        : "Visible selected-range surfaces are still preparing."),
+        ? "Görünür raporlama yüzeyleri hazırlanıyor."
+        : "Visible reporting surfaces are still preparing."),
     percent,
     evidence: buildSelectedRangeEvidence(status, language),
   };
