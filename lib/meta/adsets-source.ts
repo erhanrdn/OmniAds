@@ -200,11 +200,15 @@ export async function getMetaAdSetsForRange(input: {
     }
   }
 
+  const warehouseUnavailableWithReadyTruth = historicalTruth?.truthReady === true;
+
   return {
     status: "ok",
     rows: [],
-    isPartial: historicalTruth ? !historicalTruth.truthReady : true,
-    notReadyReason: historicalTruth
+    isPartial: historicalTruth ? !historicalTruth.truthReady || warehouseUnavailableWithReadyTruth : true,
+    notReadyReason: warehouseUnavailableWithReadyTruth
+      ? "Ad set data is temporarily unavailable for the requested range."
+      : historicalTruth
       ? historicalTruth.truthReady
         ? null
         : getMetaHistoricalVerificationReason({

@@ -184,6 +184,19 @@ export interface MetaWarehouseCampaignResponse {
     campaignStatus: string | null;
     objective: string | null;
     buyingType: string | null;
+    optimizationGoal?: string | null;
+    bidStrategyType?: string | null;
+    bidStrategyLabel?: string | null;
+    manualBidAmount?: number | null;
+    bidValue?: number | null;
+    bidValueFormat?: "currency" | "roas" | null;
+    dailyBudget?: number | null;
+    lifetimeBudget?: number | null;
+    isBudgetMixed?: boolean;
+    isConfigMixed?: boolean;
+    isOptimizationGoalMixed?: boolean;
+    isBidStrategyMixed?: boolean;
+    isBidValueMixed?: boolean;
     spend: number;
     revenue: number;
     conversions: number;
@@ -1019,20 +1032,47 @@ export async function getMetaWarehouseCampaigns(input: {
     };
   });
 
+  const campaignIds = aggregated.map((row) => row.campaignId);
+  if (campaignIds.length === 0) {
+    return {
+      freshness: {
+        ...buildFreshnessFromRows(rows, rows.length > 0 ? "ready" : "stale"),
+      },
+      isPartial: v2Enabled ? !verification?.truthReady : rows.length === 0,
+      verification: buildVerificationMetadata(verification),
+      rows: [],
+    };
+  }
+
   const [dimensions, latestConfigHistory] = await Promise.all([
     readMetaCampaignDimensions({
       businessId: input.businessId,
-      campaignIds: aggregated.map((row) => row.campaignId),
+      campaignIds,
+    }).catch((error) => {
+      console.warn("[meta-serving] campaign_dimensions_unavailable", {
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return new Map();
     }),
     readLatestMetaCampaignConfigHistory({
       businessId: input.businessId,
-      campaignIds: aggregated.map((row) => row.campaignId),
+      campaignIds,
+    }).catch((error) => {
+      console.warn("[meta-serving] campaign_config_history_unavailable", {
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return new Map();
     }),
   ]);
 
   aggregated = aggregated.map((row) => {
     const dimension = dimensions.get(row.campaignId);
     const latestConfig = latestConfigHistory.get(row.campaignId);
+    const currentConfig = latestConfig
+      ? buildCurrentConfigFromSnapshot(latestConfig)
+      : null;
     return {
       ...row,
       campaignName:
@@ -1040,8 +1080,21 @@ export async function getMetaWarehouseCampaigns(input: {
         dimension?.campaignNameHistorical ??
         row.campaignName,
       campaignStatus: dimension?.campaignStatus ?? row.campaignStatus,
-      objective: latestConfig?.objective ?? null,
+      objective: currentConfig?.objective ?? row.objective,
       buyingType: dimension?.buyingType ?? row.buyingType,
+      optimizationGoal: currentConfig?.optimizationGoal ?? null,
+      bidStrategyType: currentConfig?.bidStrategyType ?? null,
+      bidStrategyLabel: currentConfig?.bidStrategyLabel ?? null,
+      manualBidAmount: currentConfig?.manualBidAmount ?? null,
+      bidValue: currentConfig?.bidValue ?? null,
+      bidValueFormat: currentConfig?.bidValueFormat ?? null,
+      dailyBudget: currentConfig?.dailyBudget ?? null,
+      lifetimeBudget: currentConfig?.lifetimeBudget ?? null,
+      isBudgetMixed: currentConfig?.isBudgetMixed ?? false,
+      isConfigMixed: currentConfig?.isConfigMixed ?? false,
+      isOptimizationGoalMixed: currentConfig?.isOptimizationGoalMixed ?? false,
+      isBidStrategyMixed: currentConfig?.isBidStrategyMixed ?? false,
+      isBidValueMixed: currentConfig?.isBidValueMixed ?? false,
     };
   });
 
@@ -1185,6 +1238,28 @@ function hasInformativeCurrentConfig(config: MetaWarehouseCurrentConfig | null |
     config.isBidStrategyMixed ||
     config.isBidValueMixed
   );
+}
+
+function buildCurrentConfigFromCampaignResponseRow(
+  row: MetaWarehouseCampaignResponse["rows"][number],
+): MetaWarehouseCurrentConfig | null {
+  const config: MetaWarehouseCurrentConfig = {
+    objective: row.objective ?? null,
+    optimizationGoal: row.optimizationGoal ?? null,
+    bidStrategyType: row.bidStrategyType ?? null,
+    bidStrategyLabel: row.bidStrategyLabel ?? null,
+    manualBidAmount: row.manualBidAmount ?? null,
+    bidValue: row.bidValue ?? null,
+    bidValueFormat: row.bidValueFormat ?? null,
+    dailyBudget: row.dailyBudget ?? null,
+    lifetimeBudget: row.lifetimeBudget ?? null,
+    isBudgetMixed: Boolean(row.isBudgetMixed),
+    isConfigMixed: Boolean(row.isConfigMixed),
+    isOptimizationGoalMixed: Boolean(row.isOptimizationGoalMixed),
+    isBidStrategyMixed: Boolean(row.isBidStrategyMixed),
+    isBidValueMixed: Boolean(row.isBidValueMixed),
+  };
+  return hasInformativeCurrentConfig(config) ? config : null;
 }
 
 function resolveCurrentConfig(input: {
@@ -1610,43 +1685,27 @@ export async function getMetaWarehouseCampaignTable(input: {
   providerAccountIds?: string[] | null;
   includePrev?: boolean;
 }): Promise<MetaWarehouseCampaignTableRow[]> {
-  const providerAccountIds = input.providerAccountIds ?? [];
-  const v2Enabled =
-    isMetaAuthoritativeFinalizationV2EnabledForBusiness(input.businessId) &&
-    providerAccountIds.length > 0;
-  const verification = v2Enabled
-    ? await getMetaPublishedVerificationSummary({
-        businessId: input.businessId,
-        startDate: input.startDate,
-        endDate: input.endDate,
-        providerAccountIds,
-        surfaces: ["campaign_daily"],
-      }).catch(() => null)
-    : null;
   const payload = await getMetaWarehouseCampaigns(input);
+  if (payload.rows.length === 0) return [];
   const entityIds = Array.from(new Set(payload.rows.map((row) => row.campaignId)));
-  const resolvedProviderAccountIds = Array.from(
-    new Set(payload.rows.map((row) => row.providerAccountId).filter(Boolean)),
-  );
-  const [latestConfigHistory, previousHistoryDiffs] = await Promise.all([
-    readLatestMetaCampaignConfigHistory({
-      businessId: input.businessId,
-      campaignIds: entityIds,
-    }),
-    input.includePrev
-      ? readPreviousDifferentMetaCampaignConfigHistoryDiffs({
+  const previousHistoryDiffs =
+    input.includePrev && entityIds.length > 0
+      ? await readPreviousDifferentMetaCampaignConfigHistoryDiffs({
           businessId: input.businessId,
           campaignIds: entityIds,
+        }).catch((error) => {
+          console.warn("[meta-serving] campaign_previous_config_unavailable", {
+            businessId: input.businessId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return new Map<string, MetaPreviousConfigDiff>();
         })
-      : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
-  ]);
+      : new Map<string, MetaPreviousConfigDiff>();
 
   return payload.rows.map((row) =>
     buildCampaignTableRow({
       row,
-      latestConfig: latestConfigHistory.get(row.campaignId)
-        ? buildCurrentConfigFromSnapshot(latestConfigHistory.get(row.campaignId)!)
-        : null,
+      latestConfig: buildCurrentConfigFromCampaignResponseRow(row),
       previousConfig: input.includePrev
         ? mergePreviousConfig(null, previousHistoryDiffs.get(row.campaignId))
         : null,
@@ -1770,19 +1829,38 @@ export async function getMetaWarehouseAdSets(input: {
   });
 
   const adsetIds = Array.from(new Set(aggregated.map((row) => row.adsetId)));
+  if (adsetIds.length === 0) return [];
   const [dimensions, latestConfigHistory, previousHistoryDiffs] = await Promise.all([
     readMetaAdSetDimensions({
       businessId: input.businessId,
       adsetIds,
+    }).catch((error) => {
+      console.warn("[meta-serving] adset_dimensions_unavailable", {
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return new Map();
     }),
     readLatestMetaAdSetConfigHistory({
       businessId: input.businessId,
       adsetIds,
+    }).catch((error) => {
+      console.warn("[meta-serving] adset_config_history_unavailable", {
+        businessId: input.businessId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return new Map();
     }),
     input.includePrev
       ? readPreviousDifferentMetaAdSetConfigHistoryDiffs({
           businessId: input.businessId,
           adsetIds,
+        }).catch((error) => {
+          console.warn("[meta-serving] adset_previous_config_unavailable", {
+            businessId: input.businessId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return new Map<string, MetaPreviousConfigDiff>();
         })
       : Promise.resolve(new Map<string, MetaPreviousConfigDiff>()),
   ]);

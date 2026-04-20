@@ -222,12 +222,16 @@ export async function getMetaCampaignsForRange(input: {
     }
   }
 
+  const warehouseUnavailableWithReadyTruth = rows.length === 0 && Boolean(historicalTruth?.truthReady);
+
   return {
     status: "ok",
     rows,
-    isPartial: historicalTruth ? !historicalTruth.truthReady : rows.length === 0,
+    isPartial: historicalTruth ? !historicalTruth.truthReady || rows.length === 0 : rows.length === 0,
     notReadyReason:
-      historicalTruth
+      warehouseUnavailableWithReadyTruth
+        ? "Campaign data is temporarily unavailable for the requested range."
+        : historicalTruth
         ? historicalTruth.truthReady
           ? null
           : getMetaHistoricalVerificationReason({

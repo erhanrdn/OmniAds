@@ -80,6 +80,148 @@ describe("meta historical serving", () => {
     vi.mocked(warehouse.getMetaPublishedVerificationSummary).mockResolvedValue(null as never);
   });
 
+  it("keeps campaign table rows when optional enrichment queries fail", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        campaignNameCurrent: "Campaign 1",
+        campaignNameHistorical: "Campaign 1",
+        campaignStatus: "ACTIVE",
+        objective: "OUTCOME_SALES",
+        buyingType: "AUCTION",
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 20,
+        impressions: 100,
+        clicks: 4,
+        reach: 100,
+        frequency: null,
+        conversions: 2,
+        revenue: 50,
+        roas: 2.5,
+        cpa: 10,
+        ctr: 4,
+        cpc: 5,
+        sourceSnapshotId: null,
+      },
+    ] as never);
+    vi.mocked(requestModelStore.readMetaCampaignDimensions).mockRejectedValue(
+      new Error("dimensions timeout"),
+    );
+    vi.mocked(requestModelStore.readLatestMetaCampaignConfigHistory).mockRejectedValue(
+      new Error("config timeout"),
+    );
+    vi.mocked(
+      requestModelStore.readPreviousDifferentMetaCampaignConfigHistoryDiffs,
+    ).mockRejectedValue(new Error("previous timeout"));
+
+    const rows = await getMetaWarehouseCampaignTable({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      includePrev: true,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "cmp-1",
+      name: "Campaign 1",
+      objective: "OUTCOME_SALES",
+      spend: 20,
+      revenue: 50,
+      previousDailyBudget: null,
+    });
+    warn.mockRestore();
+  });
+
+  it("keeps ad set table rows when optional enrichment queries fail", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(warehouse.getMetaAdSetDailyRange).mockResolvedValue([
+      {
+        businessId: "biz-1",
+        providerAccountId: "act_1",
+        date: "2026-04-03",
+        campaignId: "cmp-1",
+        adsetId: "adset-1",
+        adsetNameCurrent: "Adset 1",
+        adsetNameHistorical: "Adset 1",
+        adsetStatus: "ACTIVE",
+        optimizationGoal: null,
+        bidStrategyType: null,
+        bidStrategyLabel: null,
+        manualBidAmount: null,
+        bidValue: null,
+        bidValueFormat: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        isBudgetMixed: false,
+        isConfigMixed: false,
+        isOptimizationGoalMixed: false,
+        isBidStrategyMixed: false,
+        isBidValueMixed: false,
+        accountTimezone: "UTC",
+        accountCurrency: "USD",
+        spend: 12,
+        impressions: 80,
+        clicks: 3,
+        reach: 80,
+        frequency: null,
+        conversions: 1,
+        revenue: 24,
+        roas: 2,
+        cpa: 12,
+        ctr: 3.75,
+        cpc: 4,
+        sourceSnapshotId: null,
+      },
+    ] as never);
+    vi.mocked(requestModelStore.readMetaAdSetDimensions).mockRejectedValue(
+      new Error("dimensions timeout"),
+    );
+    vi.mocked(requestModelStore.readLatestMetaAdSetConfigHistory).mockRejectedValue(
+      new Error("config timeout"),
+    );
+    vi.mocked(
+      requestModelStore.readPreviousDifferentMetaAdSetConfigHistoryDiffs,
+    ).mockRejectedValue(new Error("previous timeout"));
+
+    const rows = await getMetaWarehouseAdSets({
+      businessId: "biz-1",
+      startDate: "2026-04-03",
+      endDate: "2026-04-03",
+      campaignId: "cmp-1",
+      includePrev: true,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "adset-1",
+      name: "Adset 1",
+      campaignId: "cmp-1",
+      spend: 12,
+      revenue: 24,
+      previousDailyBudget: null,
+    });
+    warn.mockRestore();
+  });
+
   it("returns campaign current config from typed history instead of warehouse fact config", async () => {
     vi.mocked(warehouse.getMetaCampaignDailyRange).mockResolvedValue([
       {
