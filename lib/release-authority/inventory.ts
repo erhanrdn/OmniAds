@@ -249,21 +249,4 @@ export const RELEASE_AUTHORITY_SURFACES: ReleaseAuthoritySurfaceDefinition[] = [
       "Authority coverage is explicit so /copies cannot disappear into baseline ambiguity.",
     ],
   },
-  {
-    id: "legacy_meta_alias",
-    label: "Legacy Meta Alias",
-    area: "legacy",
-    repositoryState: "merged",
-    runtimeState: "legacy",
-    docsState: "current",
-    references: [
-      { kind: "alias", path: "app/(dashboard)/meta/page.tsx", label: "/meta -> /platforms/meta" },
-      { kind: "page", path: "app/(dashboard)/platforms/meta/page.tsx", label: "Canonical Meta page" },
-      { kind: "doc", path: RELEASE_AUTHORITY_CANONICAL_DOC, label: "V3-01 authority doc" },
-    ],
-    notes: [
-      "The legacy alias remains intentionally shipped as a redirect.",
-      "It is marked legacy rather than hidden so drift stays explicit.",
-    ],
-  },
 ];

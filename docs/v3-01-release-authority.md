@@ -31,7 +31,6 @@ Current accepted authority contract for this layer:
 | `Command Center Execution Preview` | `live` | `current` | enabled: COMMAND_CENTER_EXECUTION_V1 | Preview-first execution posture is tracked separately from apply/rollback authority. This surface is operator-visible only when the execution preview flag is enabled. The current preview baseline exposes an explicit capability registry, preflight drift checks, post-apply validation status, and rollback-truth copy without widening provider-backed scope. |
 | `Command Center Apply & Rollback` | `flagged` | `current` | disabled: COMMAND_CENTER_EXECUTION_V1, META_EXECUTION_APPLY_ENABLED, META_EXECUTION_KILL_SWITCH, META_EXECUTION_CANARY_BUSINESSES | Apply and rollback authority stay explicit and canary-gated. A disabled or allowlist-only apply posture is intentional and not treated as hidden. The apply subset stays kill-switch-aware, post-validated, and backed by immutable provider diff evidence. Duplicate client mutation IDs now replay terminal results or stop with a non-dispatching conflict instead of issuing a second provider write. |
 | `/copies` | `live` | `current` | n/a | The surface remains live and intentionally unchanged in this phase. Authority coverage is explicit so /copies cannot disappear into baseline ambiguity. |
-| `Legacy Meta Alias` | `legacy` | `current` | n/a | The legacy alias remains intentionally shipped as a redirect. It is marked legacy rather than hidden so drift stays explicit. |
 
 ## Unresolved Drift
 
