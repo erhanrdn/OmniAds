@@ -342,6 +342,77 @@ describe("buildMetaIntegrationSummary", () => {
     });
   });
 
+  it("treats worker-unavailable queue lag as non-blocking when default page truth is already ready", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "ready",
+        coreReadiness: {
+          state: "ready",
+          usable: true,
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Summary and campaign data are ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        extendedCompleteness: {
+          state: "ready",
+          complete: true,
+          percent: 100,
+          reason: null,
+          summary: "Breakdown data is ready.",
+          missingSurfaces: [],
+          blockedSurfaces: [],
+          surfaces: {} as never,
+        },
+        pageReadiness: {
+          state: "ready",
+          usable: true,
+          complete: true,
+          selectedRangeMode: "historical_warehouse",
+          reason: null,
+          missingRequiredSurfaces: [],
+          requiredSurfaces: {} as never,
+          optionalSurfaces: {} as never,
+        },
+        jobHealth: {
+          queueDepth: 3,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 0,
+        } as never,
+        operations: {
+          workerHealthy: false,
+          progressState: "partial_stuck",
+          blockingReasons: [
+            {
+              code: "operations_worker_offline",
+              detail: "Meta sync operations are currently limited by worker_offline.",
+              repairable: false,
+            },
+          ],
+          repairableActions: [],
+          stallFingerprints: ["worker_unavailable"],
+        },
+      })
+    );
+
+    expect(summary.attentionNeeded).toBe(false);
+    expect(summary.stages.find((stage) => stage.key === "queue_worker")).toMatchObject({
+      state: "waiting",
+      code: "queue_waiting",
+      evidence: {
+        queueDepth: 3,
+      },
+    });
+    expect(summary.stages.find((stage) => stage.key === "priority_window")).toMatchObject({
+      state: "ready",
+      code: "recent_window_ready",
+    });
+  });
+
   it("keeps selected-range extended surfaces ready when extended completeness is complete", () => {
     const summary = buildMetaIntegrationSummary(
       buildStatus({

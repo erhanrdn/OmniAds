@@ -1150,6 +1150,103 @@ describe("GET /api/meta/status", () => {
     });
   });
 
+  it("keeps no-date status ready when default surfaces are ready but recent window backlog is still draining", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockImplementation(
+      async ({ startDate }: { startDate: string }) =>
+        ({
+          completed_days: startDate >= "2026-03-30" ? 13 : 365,
+          ready_through_date: startDate >= "2026-03-30" ? "2026-04-11" : "2026-04-12",
+        }) as never,
+    );
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockImplementation(
+      async ({ startDate }: { startDate: string }) =>
+        ({
+          completed_days: startDate >= "2026-03-30" ? 13 : 365,
+          ready_through_date: startDate >= "2026-03-30" ? "2026-04-11" : "2026-04-12",
+        }) as never,
+    );
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockResolvedValue(
+      new Map([
+        ["breakdown_age", { completed_days: 20, ready_through_date: "2026-04-12" }],
+        ["breakdown_country", { completed_days: 20, ready_through_date: "2026-04-12" }],
+        [
+          "breakdown_publisher_platform,platform_position,impression_device",
+          { completed_days: 20, ready_through_date: "2026-04-12" },
+        ],
+      ]) as never,
+    );
+    vi.mocked(warehouse.getMetaQueueHealth).mockResolvedValue({
+      queueDepth: 3,
+      leasedPartitions: 0,
+      retryableFailedPartitions: 0,
+      deadLetterPartitions: 0,
+      latestCoreActivityAt: "2026-04-13T11:59:00.000Z",
+      latestExtendedActivityAt: null,
+      latestMaintenanceActivityAt: null,
+      oldestQueuedPartition: "2026-04-11",
+      historicalCoreQueueDepth: 3,
+      historicalCoreLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 0,
+      extendedHistoricalLeasedPartitions: 0,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/meta/status?businessId=biz"),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("ready");
+    expect(payload.readinessLevel).toBe("ready");
+    expect(payload.currentCoreProgressPercent).toBe(100);
+    expect(payload.coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      percent: 100,
+    });
+    expect(payload.integrationSummary).toMatchObject({
+      scope: "recent_window",
+      attentionNeeded: false,
+    });
+    expect(
+      payload.integrationSummary.stages.find(
+        (stage: { key: string }) => stage.key === "queue_worker",
+      ),
+    ).toMatchObject({
+      state: "waiting",
+      code: "queue_waiting",
+    });
+    expect(
+      payload.integrationSummary.stages.find(
+        (stage: { key: string }) => stage.key === "priority_window",
+      ),
+    ).toMatchObject({
+      state: "ready",
+      code: "recent_window_ready",
+    });
+  });
+
   it("surfaces forward-progress evidence and activity state through operations truth", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
@@ -1231,7 +1328,7 @@ describe("GET /api/meta/status", () => {
     });
   });
 
-  it("surfaces worker-unavailable queue truth through the compact integration summary", async () => {
+  it("treats worker-unavailable queue truth as waiting when default surfaces are otherwise ready", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       id: "int_meta",
       business_id: "biz",
@@ -1291,12 +1388,13 @@ describe("GET /api/meta/status", () => {
       progressState: "partial_stuck",
     });
     expect(payload.integrationSummary).toMatchObject({
-      state: "blocked",
+      state: "waiting",
+      attentionNeeded: false,
       stages: expect.arrayContaining([
         expect.objectContaining({
           key: "queue_worker",
-          state: "blocked",
-          code: "queue_blocked",
+          state: "waiting",
+          code: "queue_waiting",
           evidence: expect.objectContaining({
             queueDepth: 11,
           }),
@@ -2924,6 +3022,160 @@ describe("GET /api/meta/status", () => {
     });
     expect(payload.priorityWindow).toMatchObject({
       endDate: "2026-04-12",
+      completedDays: 6,
+      totalDays: 6,
+    });
+  });
+
+  it("aligns selected-range status with current-day-live detector proof when the route-local date boundary already rolled forward", async () => {
+    vi.setSystemTime(new Date("2026-04-20T00:05:00Z"));
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_meta",
+      business_id: "biz",
+      provider: "meta",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(snapshots.readProviderAccountSnapshot).mockResolvedValue({
+      accounts: [{ id: "act_1", name: "Main", timezone: "UTC" }],
+      meta: {
+        source: "snapshot",
+        sourceHealth: "healthy_cached",
+        fetchedAt: null,
+        stale: false,
+        refreshFailed: false,
+        failureClass: null,
+        lastError: null,
+        lastKnownGoodAvailable: true,
+        refreshRequestedAt: null,
+        lastRefreshAttemptAt: null,
+        nextRefreshAfter: null,
+        retryAfterAt: null,
+        refreshInProgress: false,
+        sourceReason: null,
+      },
+    });
+    vi.mocked(warehouse.getMetaAccountDailyCoverage).mockImplementation(
+      async ({ startDate, endDate }: { startDate: string; endDate: string }) =>
+        ({
+          completed_days:
+            startDate === "2026-04-13" && endDate === "2026-04-19" ? 6 : 365,
+          ready_through_date:
+            startDate === "2026-04-13" && endDate === "2026-04-19"
+              ? "2026-04-18"
+              : "2026-04-19",
+        }) as never,
+    );
+    vi.mocked(warehouse.getMetaCampaignDailyCoverage).mockImplementation(
+      async ({ startDate, endDate }: { startDate: string; endDate: string }) =>
+        ({
+          completed_days:
+            startDate === "2026-04-13" && endDate === "2026-04-19" ? 6 : 365,
+          ready_through_date:
+            startDate === "2026-04-13" && endDate === "2026-04-19"
+              ? "2026-04-18"
+              : "2026-04-19",
+        }) as never,
+    );
+    vi.mocked(warehouse.getMetaRawSnapshotCoverageByEndpoint).mockImplementation(
+      async ({ startDate, endDate }: { startDate: string; endDate: string }) =>
+        new Map([
+          [
+            "breakdown_age",
+            {
+              completed_days:
+                startDate === "2026-04-13" && endDate === "2026-04-19" ? 6 : 365,
+              ready_through_date:
+                startDate === "2026-04-13" && endDate === "2026-04-19"
+                  ? "2026-04-18"
+                  : "2026-04-19",
+            },
+          ],
+          [
+            "breakdown_country",
+            {
+              completed_days:
+                startDate === "2026-04-13" && endDate === "2026-04-19" ? 6 : 365,
+              ready_through_date:
+                startDate === "2026-04-13" && endDate === "2026-04-19"
+                  ? "2026-04-18"
+                  : "2026-04-19",
+            },
+          ],
+          [
+            "breakdown_publisher_platform,platform_position,impression_device",
+            {
+              completed_days:
+                startDate === "2026-04-13" && endDate === "2026-04-19" ? 6 : 365,
+              ready_through_date:
+                startDate === "2026-04-13" && endDate === "2026-04-19"
+                  ? "2026-04-18"
+                  : "2026-04-19",
+            },
+          ],
+        ]) as never,
+    );
+    vi.mocked(metaSync.getMetaSelectedRangeTruthReadiness).mockResolvedValue({
+      truthReady: false,
+      state: "processing",
+      verificationState: "processing",
+      totalDays: 7,
+      completedCoreDays: 6,
+      blockingReasons: [],
+      reasonCounts: { current_day_live: 10, processing: 10 },
+      detectorReasonCodes: ["current_day_live"],
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/status?businessId=biz&startDate=2026-04-13&endDate=2026-04-19",
+      ),
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.state).toBe("ready");
+    expect(payload.currentCoreProgressPercent).toBe(100);
+    expect(payload.selectedRangeTruth).toMatchObject({
+      verificationState: "processing",
+      detectorReasonCodes: ["current_day_live"],
+    });
+    expect(payload.pageReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      selectedRangeMode: "historical_live_fallback",
+    });
+    expect(payload.coreReadiness).toMatchObject({
+      state: "ready",
+      usable: true,
+      complete: true,
+      percent: 100,
+    });
+    expect(payload.extendedCompleteness).toMatchObject({
+      state: "ready",
+      complete: true,
+      percent: 100,
+    });
+    expect(payload.warehouse.coverage.selectedRange).toMatchObject({
+      endDate: "2026-04-18",
+      completedDays: 6,
+      totalDays: 6,
+      isComplete: true,
+    });
+    expect(payload.priorityWindow).toMatchObject({
+      endDate: "2026-04-18",
       completedDays: 6,
       totalDays: 6,
     });

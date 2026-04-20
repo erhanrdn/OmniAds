@@ -102,6 +102,15 @@ function getStallFingerprintCount(status: MetaIntegrationSummaryInput) {
   return status.operations?.stallFingerprints?.length ?? 0;
 }
 
+function hasNonBlockingDefaultCoverage(status: MetaIntegrationSummaryInput) {
+  return (
+    status.pageReadiness?.selectedRangeMode === "historical_warehouse" &&
+    status.pageReadiness?.state === "ready" &&
+    status.coreReadiness?.usable === true &&
+    status.extendedCompleteness?.complete === true
+  );
+}
+
 function getCoreReadyThroughDate(status: MetaIntegrationSummaryInput) {
   return earliestDate([
     status.warehouse?.coverage?.selectedRange?.readyThroughDate ?? null,
@@ -283,8 +292,9 @@ function buildQueueStage(
     queueDepth > 0 &&
     leasedPartitions === 0 &&
     status.operations?.workerHealthy === false;
+  const nonBlockingDefaultCoverage = hasNonBlockingDefaultCoverage(status);
 
-  if (status.state === "stale") {
+  if (status.state === "stale" && !nonBlockingDefaultCoverage) {
     return {
       key: "queue_worker",
       state: "blocked",
@@ -294,7 +304,7 @@ function buildQueueStage(
     };
   }
 
-  if (workerUnavailable) {
+  if (workerUnavailable && !nonBlockingDefaultCoverage) {
     return {
       key: "queue_worker",
       state: "blocked",
@@ -415,6 +425,8 @@ function buildPriorityStage(
   scope: MetaIntegrationSummaryScope
 ): MetaIntegrationSummaryStage {
   const metrics = getPriorityMetrics(status, scope);
+  const defaultCoverageReady =
+    scope === "recent_window" && hasNonBlockingDefaultCoverage(status);
   const evidence = compactEvidence({
     completedDays: metrics.completedDays,
     totalDays: metrics.totalDays,
@@ -427,7 +439,7 @@ function buildPriorityStage(
   });
   const selectedRangeState =
     status.selectedRangeTruth?.verificationState ??
-    status.selectedRangeTruth?.state ??
+      status.selectedRangeTruth?.state ??
     null;
   const selectedRangeBlocked =
     scope === "selected_range" &&
@@ -440,6 +452,16 @@ function buildPriorityStage(
     !status.coreReadiness?.usable;
   const ready =
     metrics.totalDays > 0 && metrics.completedDays >= metrics.totalDays;
+
+  if (defaultCoverageReady) {
+    return {
+      key: "priority_window",
+      state: "ready",
+      percent: null,
+      code: "recent_window_ready",
+      evidence,
+    };
+  }
 
   if (selectedRangeBlocked) {
     return {
@@ -669,6 +691,14 @@ function buildExtendedStage(
 }
 
 function shouldRenderAttentionStage(status: MetaIntegrationSummaryInput) {
+  if (
+    hasNonBlockingDefaultCoverage(status) &&
+    (status.jobHealth?.deadLetterPartitions ?? 0) === 0 &&
+    (status.jobHealth?.retryableFailedPartitions ?? 0) === 0 &&
+    status.d1FinalizeState !== "blocked"
+  ) {
+    return false;
+  }
   return (
     status.state === "action_required" ||
     status.state === "paused" ||

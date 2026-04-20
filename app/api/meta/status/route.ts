@@ -658,13 +658,6 @@ export async function GET(request: NextRequest) {
     selectedRangeIncludesCurrentDay && selectedEndDate
       ? addDaysToIsoDateUtc(selectedEndDate, -1)
       : selectedEndDate;
-  const selectedRangeHistoricalTotalDays =
-    selectedRangeRequested &&
-    selectedStartDate &&
-    selectedRangeHistoricalEndDate &&
-    selectedStartDate <= selectedRangeHistoricalEndDate
-      ? dayCountInclusive(selectedStartDate, selectedRangeHistoricalEndDate)
-      : 0;
   const selectedRangeTruthEndDate =
     selectedRangeIncludesCurrentDay ? selectedRangeHistoricalEndDate : selectedEndDate;
   const selectedRangeBreakdownCoverageByEndpoint =
@@ -692,6 +685,26 @@ export async function GET(request: NextRequest) {
           endDate: selectedRangeTruthEndDate,
         }).catch(() => null)
       : null;
+  const selectedRangeTruthSuggestsCurrentDayLive = Boolean(
+    selectedRangeRequested &&
+      !selectedRangeIsToday &&
+      !selectedRangeIncludesCurrentDay &&
+      (selectedRangeTruth?.detectorReasonCodes?.includes("current_day_live") ||
+        Number(selectedRangeTruth?.reasonCounts?.current_day_live ?? 0) > 0)
+  );
+  const selectedRangeNeedsCurrentDayFallback =
+    selectedRangeIncludesCurrentDay || selectedRangeTruthSuggestsCurrentDayLive;
+  const selectedRangeEffectiveHistoricalEndDate =
+    selectedRangeNeedsCurrentDayFallback && selectedEndDate
+      ? addDaysToIsoDateUtc(selectedEndDate, -1)
+      : selectedRangeHistoricalEndDate;
+  const selectedRangeHistoricalTotalDays =
+    selectedRangeRequested &&
+    selectedStartDate &&
+    selectedRangeEffectiveHistoricalEndDate &&
+    selectedStartDate <= selectedRangeEffectiveHistoricalEndDate
+      ? dayCountInclusive(selectedStartDate, selectedRangeEffectiveHistoricalEndDate)
+      : 0;
   const selectedRangeUsesLiveFallback = Boolean(
     selectedRangeRequested &&
       !selectedRangeIsToday &&
@@ -715,16 +728,19 @@ export async function GET(request: NextRequest) {
       : [selectedRangeCoreCoverageCompletedDays],
     selectedRangeTotalDays,
   );
-  const selectedRangeHistoricalCompletedDays = selectedRangeIncludesCurrentDay
+  const selectedRangeHistoricalCompletedDays = selectedRangeNeedsCurrentDayFallback
     ? Math.min(selectedRangeHistoricalTotalDays, selectedRangeCoreCoverageCompletedDays)
     : selectedRangeCoreCompletedDays;
+  const selectedRangeHistoricalReady =
+    selectedRangeHistoricalTotalDays > 0 &&
+    selectedRangeHistoricalCompletedDays >= selectedRangeHistoricalTotalDays;
   const selectedRangeMode = selectedRangeIsToday
     ? "current_day_live"
-    : selectedRangeUsesLiveFallback || selectedRangeIncludesCurrentDay
+    : selectedRangeUsesLiveFallback || selectedRangeNeedsCurrentDayFallback
       ? "historical_live_fallback"
       : "historical_warehouse";
   const currentDayLive =
-    (selectedRangeIsToday || selectedRangeIncludesCurrentDay) &&
+    (selectedRangeIsToday || selectedRangeNeedsCurrentDayFallback) &&
     connected &&
     accountIds.length > 0 &&
     selectedEndDate
@@ -741,14 +757,14 @@ export async function GET(request: NextRequest) {
   const selectedRangeReadyTargetDays =
     selectedRangeIsToday
       ? selectedRangeTotalDays ?? 0
-      : selectedRangeIncludesCurrentDay
+      : selectedRangeNeedsCurrentDayFallback
         ? selectedRangeHistoricalTotalDays
         : selectedRangeTotalDays ?? 0;
   const selectedRangeCurrentDayLiveReady =
     currentDayLive?.summaryAvailable === true &&
     currentDayLive?.campaignsAvailable === true;
   const selectedRangeHybridCoreCompletedDays =
-    selectedRangeIncludesCurrentDay && selectedRangeTotalDays
+    selectedRangeNeedsCurrentDayFallback && selectedRangeTotalDays
       ? Math.min(
           selectedRangeReadyTargetDays,
           selectedRangeHistoricalCompletedDays +
@@ -757,7 +773,7 @@ export async function GET(request: NextRequest) {
       : selectedRangeCoreCompletedDays;
   const selectedRangeEffectiveCompletedDays = selectedRangeUsesLiveFallback
     ? selectedRangeReadyTargetDays
-    : selectedRangeIncludesCurrentDay && !selectedRangeIsToday
+    : selectedRangeNeedsCurrentDayFallback && !selectedRangeIsToday
       ? Math.min(selectedRangeReadyTargetDays, selectedRangeHistoricalCompletedDays)
       : selectedRangeHybridCoreCompletedDays;
   const selectedRangeEffectiveReady =
@@ -771,8 +787,8 @@ export async function GET(request: NextRequest) {
       : false;
   const selectedRangeCoreReadyThroughDate = selectedRangeUsesLiveFallback
     ? selectedEndDate ?? null
-    : selectedRangeIncludesCurrentDay && selectedRangeEffectiveReady
-      ? selectedRangeTruthEndDate ?? null
+    : selectedRangeNeedsCurrentDayFallback && selectedRangeEffectiveReady
+      ? selectedRangeEffectiveHistoricalEndDate ?? null
       : earliestReadyThroughDate([
           selectedRangeCoverage?.ready_through_date ?? null,
           selectedRangeCampaignCoverage?.ready_through_date ?? null,
@@ -878,13 +894,6 @@ export async function GET(request: NextRequest) {
           )
         : 0;
   const historicalArchiveComplete = historicalArchiveCompletedDays >= historicalTotalDays;
-  const currentCoreUsable = selectedRangeRequested
-    ? Boolean(selectedRangeTotalDays) &&
-      selectedRangeEffectiveCompletedDays >= (selectedRangeTotalDays ?? 0)
-    : minCompletedDays(
-          [recentAccountCoverage?.completed_days ?? 0, recentCampaignCoverage?.completed_days ?? 0],
-          recentWindowTotalDays
-        ) >= recentWindowTotalDays;
   const latestBackgroundActivityAt =
     queueHealth?.latestCoreActivityAt ??
     queueHealth?.latestMaintenanceActivityAt ??
@@ -921,24 +930,6 @@ export async function GET(request: NextRequest) {
       const coverage = breakdownCoverageByEndpoint?.get(endpointName) ?? null;
       return Math.min(recentWindowTotalDays, coverage?.completed_days ?? 0) >= recentWindowTotalDays;
     });
-  const defaultCoverageReadyForPhase =
-    !selectedRangeRequested &&
-    connected &&
-    accountIds.length > 0 &&
-    (recentAccountCoverage?.completed_days ?? 0) >= recentWindowTotalDays &&
-    (recentCampaignCoverage?.completed_days ?? 0) >= recentWindowTotalDays &&
-    defaultBreakdownCoverageReadyForPhase;
-  const phaseLabel = buildPhaseLabel({
-    selectedRangeIncomplete: Boolean(selectedRangeIncomplete),
-    selectedRangeIsToday,
-    defaultCoverageReady: defaultCoverageReadyForPhase,
-    historicalQueuePaused,
-    staleLeasedQueue,
-    stateMissingWhileQueued,
-    overallCompletedDays: historicalArchiveCompletedDays,
-    totalDays: historicalTotalDays,
-    latestSyncType: latestSync?.sync_type ? String(latestSync.sync_type) : null,
-  });
   const selectedRangeVerificationState =
     selectedRangeTruth?.verificationState ?? selectedRangeTruth?.state ?? null;
   const selectedRangeActionRequired =
@@ -995,7 +986,7 @@ export async function GET(request: NextRequest) {
     : null;
   const selectedRangeBreakdownExpectedTotalDays =
     selectedRangeRequested
-      ? Math.max(0, (selectedRangeTotalDays ?? 0) - (selectedRangeIncludesCurrentDay ? 1 : 0))
+      ? Math.max(0, (selectedRangeTotalDays ?? 0) - (selectedRangeNeedsCurrentDayFallback ? 1 : 0))
       : 0;
   const selectedRangeBreakdownsBySurface = Object.fromEntries(
     META_BREAKDOWN_SURFACES.map((surface) => {
@@ -1013,7 +1004,7 @@ export async function GET(request: NextRequest) {
       const readyThroughDate = selectedRangeRequested
         ? coverage?.ready_through_date ??
           (selectedRangePublishedBreakdownsReady
-            ? selectedRangeHistoricalEndDate ?? null
+            ? selectedRangeEffectiveHistoricalEndDate ?? null
             : null)
         : null;
       const isBlocked = Boolean(selectedRangeBreakdownGuardrailBlocked);
@@ -1160,14 +1151,6 @@ export async function GET(request: NextRequest) {
           selectedRangeBreakdownsBySurface.placement.completedDays
         )
       : 0;
-  const recentSummaryReady =
-    connected &&
-    accountIds.length > 0 &&
-    (recentAccountCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
-  const recentCampaignsReady =
-    connected &&
-    accountIds.length > 0 &&
-    (recentCampaignCoverage?.completed_days ?? 0) >= recentWindowTotalDays;
   const summaryReady =
     !selectedRangeRequested
       ? connected && accountIds.length > 0 && (accountCoverage?.completed_days ?? 0) > 0
@@ -1175,6 +1158,8 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.summaryAvailable === true
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
+      : selectedRangeNeedsCurrentDayFallback
+        ? connected && accountIds.length > 0 && selectedRangeHistoricalReady
         : selectedRangeEffectiveReady;
   const campaignsReady =
     !selectedRangeRequested
@@ -1183,7 +1168,34 @@ export async function GET(request: NextRequest) {
       ? currentDayLive?.campaignsAvailable === true
       : selectedRangeUsesLiveFallback
         ? connected && accountIds.length > 0
+      : selectedRangeNeedsCurrentDayFallback
+        ? connected && accountIds.length > 0 && selectedRangeHistoricalReady
         : selectedRangeEffectiveReady;
+  const defaultCoreSurfacesReady =
+    !selectedRangeRequested && summaryReady && campaignsReady;
+  const defaultCoverageReadyForPhase =
+    !selectedRangeRequested &&
+    connected &&
+    accountIds.length > 0 &&
+    defaultCoreSurfacesReady &&
+    defaultBreakdownCoverageReadyForPhase;
+  const phaseLabel = buildPhaseLabel({
+    selectedRangeIncomplete: Boolean(selectedRangeIncomplete),
+    selectedRangeIsToday,
+    defaultCoverageReady: defaultCoverageReadyForPhase,
+    historicalQueuePaused,
+    staleLeasedQueue,
+    stateMissingWhileQueued,
+    overallCompletedDays: historicalArchiveCompletedDays,
+    totalDays: historicalTotalDays,
+    latestSyncType: latestSync?.sync_type ? String(latestSync.sync_type) : null,
+  });
+  const effectiveCurrentCoreProgressPercent =
+    defaultCoreSurfacesReady ? 100 : currentCoreProgressPercent;
+  const currentCoreUsable = selectedRangeRequested
+    ? Boolean(selectedRangeReadyTargetDays) &&
+      selectedRangeEffectiveCompletedDays >= selectedRangeReadyTargetDays
+    : defaultCoreSurfacesReady;
   const summarySurfaceReason = !connected
     ? "Meta integration is not connected."
     : accountIds.length === 0
@@ -1191,10 +1203,10 @@ export async function GET(request: NextRequest) {
       : summaryReady
         ? null
         : !selectedRangeRequested
-          ? "Recent summary warehouse data is still being prepared for this workspace."
+          ? "Summary data is still being prepared for Meta's primary reporting surfaces."
         : selectedRangeIsToday
         ? "Summary data for the current Meta account day is still preparing."
-        : selectedRangeIncludesCurrentDay
+        : selectedRangeNeedsCurrentDayFallback
           ? "Current-day summary data is still preparing for the selected range."
         : getMetaHistoricalVerificationReason({
               verificationState: selectedRangeVerificationState,
@@ -1210,10 +1222,10 @@ export async function GET(request: NextRequest) {
       : campaignsReady
         ? null
         : !selectedRangeRequested
-          ? "Recent campaign warehouse data is still being prepared for this workspace."
+          ? "Campaign data is still being prepared for Meta's primary reporting surfaces."
         : selectedRangeIsToday
         ? "Campaign data for the current Meta account day is still preparing."
-        : selectedRangeIncludesCurrentDay
+        : selectedRangeNeedsCurrentDayFallback
           ? "Current-day campaign data is still preparing for the selected range."
         : getMetaHistoricalVerificationReason({
               verificationState: selectedRangeVerificationState,
@@ -1427,49 +1439,49 @@ export async function GET(request: NextRequest) {
           state: buildPageSurfaceState({
             connected,
             hasAssignedAccounts: accountIds.length > 0,
-            ready: recentSummaryReady,
+            ready: summaryReady,
             activeProgress: overallSyncActive,
             blockedReason: null,
             syncingReason:
-              recentSummaryReady
-                ? "Recent summary warehouse data is ready."
-                : "Recent summary warehouse data is still being prepared for this workspace.",
-            blockedFallbackReason: "Recent summary warehouse data is unavailable.",
+              summaryReady
+                ? "Summary data is ready on Meta's primary reporting surfaces."
+                : "Summary data is still being prepared for Meta's primary reporting surfaces.",
+            blockedFallbackReason: "Summary data is unavailable on Meta's primary reporting surfaces.",
           }),
-          blocking: !recentSummaryReady,
+          blocking: !summaryReady,
           countsForPageCompleteness: true,
           truthClass: "historical_warehouse",
           reason: !connected
             ? "Meta integration is not connected."
             : accountIds.length === 0
               ? "No Meta ad account is assigned to this workspace."
-              : recentSummaryReady
+              : summaryReady
                 ? null
-                : "Recent summary warehouse data is still being prepared for this workspace.",
+                : "Summary data is still being prepared for Meta's primary reporting surfaces.",
         },
         campaigns: {
           state: buildPageSurfaceState({
             connected,
             hasAssignedAccounts: accountIds.length > 0,
-            ready: recentCampaignsReady,
+            ready: campaignsReady,
             activeProgress: overallSyncActive,
             blockedReason: null,
             syncingReason:
-              recentCampaignsReady
-                ? "Recent campaign warehouse data is ready."
-                : "Recent campaign warehouse data is still being prepared for this workspace.",
-            blockedFallbackReason: "Recent campaign warehouse data is unavailable.",
+              campaignsReady
+                ? "Campaign data is ready on Meta's primary reporting surfaces."
+                : "Campaign data is still being prepared for Meta's primary reporting surfaces.",
+            blockedFallbackReason: "Campaign data is unavailable on Meta's primary reporting surfaces.",
           }),
-          blocking: !recentCampaignsReady,
+          blocking: !campaignsReady,
           countsForPageCompleteness: true,
           truthClass: "historical_warehouse",
           reason: !connected
             ? "Meta integration is not connected."
             : accountIds.length === 0
               ? "No Meta ad account is assigned to this workspace."
-              : recentCampaignsReady
+              : campaignsReady
                 ? null
-                : "Recent campaign warehouse data is still being prepared for this workspace.",
+                : "Campaign data is still being prepared for Meta's primary reporting surfaces.",
         },
       };
   const extendedSurfaceReadiness = Object.fromEntries(
@@ -1538,7 +1550,7 @@ export async function GET(request: NextRequest) {
   const coreReadiness = buildMetaCoreReadiness({
     connected,
     hasAssignedAccounts: accountIds.length > 0,
-    percent: clampPercent(currentCoreProgressPercent),
+    percent: clampPercent(effectiveCurrentCoreProgressPercent),
     summary: null,
     surfaces: providerCoreSurfaces,
   });
@@ -1561,7 +1573,7 @@ export async function GET(request: NextRequest) {
             ? selectedRangeIsToday
               ? "Summary and campaign data for the current Meta account day are still preparing."
               : "Summary and campaign data are still being prepared for the selected range."
-            : "Recent summary and campaign data are still being prepared for this workspace.");
+            : "Summary and campaign data are still being prepared for Meta's primary reporting surfaces.");
   const extendedPercent =
     selectedRangeRequested && selectedRangeBreakdownGuardrailBlocked
       ? null
@@ -1617,13 +1629,15 @@ export async function GET(request: NextRequest) {
         ? "action_required"
         : (queueHealth?.deadLetterPartitions ?? 0) > 0
           ? "action_required"
+        : !selectedRangeRequested && defaultCoverageReady
+          ? "ready"
         : staleLeasedQueue
           ? "stale"
         : stateMissingWhileQueued
           ? "paused"
         : historicalQueuePaused
           ? "paused"
-        : selectedRangeReportReady || defaultCoverageReady
+        : selectedRangeReportReady
           ? "ready"
         : (legacyJobHealth?.staleRunningJobs ?? 0) > 0
             ? "stale"
@@ -1863,7 +1877,7 @@ export async function GET(request: NextRequest) {
     available: availableSurfaces,
   });
   const readinessLevel: "usable" | "partial" | "ready" =
-    selectedRangeReportReady
+    selectedRangeReportReady || defaultCoverageReady
       ? "ready"
       : accountSurfaceReady && campaignSurfaceReady
       ? "ready"
@@ -2091,7 +2105,7 @@ export async function GET(request: NextRequest) {
       assignedAccountIds: accountIds,
       primaryAccountTimezone,
       currentDateInTimezone,
-      currentCoreProgressPercent,
+      currentCoreProgressPercent: effectiveCurrentCoreProgressPercent,
       historicalArchiveProgressPercent,
       currentCoreUsable,
       historicalArchiveComplete,
@@ -2113,7 +2127,8 @@ export async function GET(request: NextRequest) {
             selectedStartDate && selectedEndDate && selectedRangeTotalDays
               ? {
                   startDate: selectedStartDate,
-                  endDate: selectedRangeTruthEndDate ?? selectedEndDate,
+                  endDate:
+                    selectedRangeEffectiveHistoricalEndDate ?? selectedEndDate,
                   completedDays: selectedRangeEffectiveCompletedDays,
                   totalDays: selectedRangeReadyTargetDays,
                   readyThroughDate: selectedRangeCoreReadyThroughDate,
@@ -2345,7 +2360,10 @@ export async function GET(request: NextRequest) {
         selectedStartDate && selectedEndDate && selectedRangeTotalDays
           ? {
               startDate: selectedStartDate,
-              endDate: selectedRangeTruthEndDate ?? selectedEndDate,
+              endDate:
+                selectedRangeNeedsCurrentDayFallback
+                  ? selectedRangeEffectiveHistoricalEndDate ?? selectedEndDate
+                  : selectedRangeTruthEndDate ?? selectedEndDate,
               completedDays: selectedRangeEffectiveCompletedDays,
               totalDays: selectedRangeReadyTargetDays,
               isActive: Boolean(selectedRangeIncomplete) && (queueHealth?.leasedPartitions ?? 0) > 0,
