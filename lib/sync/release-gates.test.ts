@@ -379,6 +379,54 @@ describe("sync release gates", () => {
     expect(selected.releaseGate?.id).toBe("legacy-meta-1");
   });
 
+  it("never falls back to a cross-environment release gate", () => {
+    const merged = releaseGates.mergeLatestSyncGateRecords({
+      exact: {
+        deployGate: {
+          id: "deploy-prod",
+          gateKind: "deploy_gate",
+          gateScope: "service_liveness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "pass",
+          verdict: "pass",
+          blockerClass: null,
+          summary: "deploy ok",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {},
+          emittedAt: "2026-04-20T00:00:00.000Z",
+        },
+        releaseGate: null,
+      },
+      fallbackByBuild: {
+        deployGate: null,
+        releaseGate: {
+          id: "release-test",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "test",
+          mode: "block",
+          baseResult: "fail",
+          verdict: "blocked",
+          blockerClass: "not_release_ready",
+          summary: "test release",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {
+            providerScope: "google_ads",
+          },
+          emittedAt: "2026-04-20T00:00:00.000Z",
+        },
+      },
+    });
+
+    expect(merged.deployGate?.id).toBe("deploy-prod");
+    expect(merged.releaseGate).toBeNull();
+  });
+
   it("blocks deploy gate when runtime contract evidence fails under block mode", async () => {
     vi.mocked(runtimeContract.getRuntimeRegistryStatus).mockResolvedValue({
       sampledAt: "2026-04-15T00:00:00.000Z",

@@ -1,4 +1,5 @@
 import { configureOperationalScriptRuntime } from "./_operational-runtime";
+import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 
 type ParsedArgs = {
   buildId: string | null;
@@ -248,7 +249,11 @@ async function buildGoogleAdsReleaseGateCanaries(
 async function main() {
   configureOperationalScriptRuntime();
   const args = parseArgs(process.argv.slice(2));
-  const environment = args.environment ?? process.env.NODE_ENV?.trim() ?? "production";
+  const identity = resolveSyncControlPlaneKey({
+    buildId: args.buildId ?? undefined,
+    environment: args.environment ?? process.env.NODE_ENV?.trim() ?? "production",
+    providerScope: args.providerScope,
+  });
   const {
     evaluateAndPersistSyncGates,
     evaluateDeployGate,
@@ -266,19 +271,16 @@ async function main() {
       ? {
           checkedAt: new Date().toISOString(),
           deployGate: await evaluateDeployGate({
-            buildId: args.buildId ?? undefined,
-            environment,
+            buildId: identity.buildId,
+            environment: identity.environment,
             breakGlass: args.breakGlass,
             overrideReason: args.overrideReason,
             persist: true,
           }),
           releaseGate: await upsertSyncGateRecord(
-              buildGoogleAdsReleaseGateRecord({
-              buildId:
-                args.buildId ??
-                process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ??
-                "dev-build",
-              environment,
+            buildGoogleAdsReleaseGateRecord({
+              buildId: identity.buildId,
+              environment: identity.environment,
               canaries: await buildGoogleAdsReleaseGateCanaries(
                 await readConnectedGoogleAdsControlPlaneBusinesses(),
               ),
@@ -288,21 +290,21 @@ async function main() {
           ),
         }
       : await evaluateAndPersistSyncGates({
-          buildId: args.buildId ?? undefined,
-          environment,
+          buildId: identity.buildId,
+          environment: identity.environment,
           breakGlass: args.breakGlass,
           overrideReason: args.overrideReason,
         });
   const repairPlan = await evaluateAndPersistSyncRepairPlan({
-    buildId: args.buildId ?? undefined,
-    environment,
-    providerScope: args.providerScope,
+    buildId: identity.buildId,
+    environment: identity.environment,
+    providerScope: identity.providerScope,
     releaseGate: gateVerdicts.releaseGate,
   });
   const persistence = await getSyncControlPlanePersistenceStatus({
-    buildId: args.buildId ?? undefined,
-    environment,
-    providerScope: args.providerScope,
+    buildId: identity.buildId,
+    environment: identity.environment,
+    providerScope: identity.providerScope,
   });
 
   const result = {

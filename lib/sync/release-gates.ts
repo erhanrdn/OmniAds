@@ -244,6 +244,22 @@ export function selectLatestSyncGateRecords(
   };
 }
 
+export function mergeLatestSyncGateRecords(input: {
+  exact: {
+    deployGate: SyncGateRecord | null;
+    releaseGate: SyncGateRecord | null;
+  };
+  fallbackByBuild: {
+    deployGate: SyncGateRecord | null;
+    releaseGate: SyncGateRecord | null;
+  };
+}) {
+  return {
+    deployGate: input.exact.deployGate ?? input.fallbackByBuild.deployGate,
+    releaseGate: input.exact.releaseGate,
+  };
+}
+
 export async function getLatestSyncGateRecords(input?: {
   buildId?: string;
   environment?: string;
@@ -313,10 +329,10 @@ export async function getLatestSyncGateRecords(input?: {
     },
   );
 
-  return {
-    deployGate: exactRecords.deployGate ?? fallbackRecords.deployGate,
-    releaseGate: exactRecords.releaseGate ?? fallbackRecords.releaseGate,
-  };
+  return mergeLatestSyncGateRecords({
+    exact: exactRecords,
+    fallbackByBuild: fallbackRecords,
+  });
 }
 
 export async function getSyncGateRecordById(input: {
