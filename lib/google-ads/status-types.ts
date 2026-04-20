@@ -111,6 +111,11 @@ export interface GoogleAdsStatusResponse {
   connected: boolean;
   controlPlaneIdentity?: SyncControlPlaneKey | null;
   controlPlanePersistence?: SyncControlPlanePersistenceStatus | null;
+  controlPlaneErrors?: {
+    syncGates: string | null;
+    repairPlan: string | null;
+    controlPlanePersistence: string | null;
+  } | null;
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;

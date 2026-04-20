@@ -593,7 +593,7 @@ export async function GET(request: NextRequest) {
     updated_at?: string | null;
   }>>;
 
-  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateRecords, repairPlanResult, persistenceResult, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateResult, repairPlanResult, persistenceResult, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
     captureOptional("integration", getIntegrationMetadata(businessId!, "google"), null),
     captureOptional(
@@ -616,58 +616,76 @@ export async function GET(request: NextRequest) {
       getGoogleAdsWorkerSchedulingState({ businessId: businessId! }),
       null
     ),
-    captureOptional(
-      "sync_gate_records",
-      getLatestSyncGateRecords({
-        buildId: controlPlaneIdentity.buildId,
-        environment: controlPlaneIdentity.environment,
-      }),
-      { deployGate: null, releaseGate: null }
-    ),
-    captureOptional(
-      "sync_repair_plan",
-      getLatestSyncRepairPlan({
-        ...controlPlaneIdentity,
-      }),
-      null
-    ),
-    captureOptional(
-      "sync_control_plane_persistence",
-      getSyncControlPlanePersistenceStatus({
-        ...controlPlaneIdentity,
-      }),
-      null
-    ),
+    getLatestSyncGateRecords({
+      buildId: controlPlaneIdentity.buildId,
+      environment: controlPlaneIdentity.environment,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: { deployGate: null, releaseGate: null },
+        error: error instanceof Error ? error.message : String(error),
+      })),
+    getLatestSyncRepairPlan({
+      ...controlPlaneIdentity,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
+    getSyncControlPlanePersistenceStatus({
+      ...controlPlaneIdentity,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
     staleRunPressurePromise.catch(() => []),
     recentRepairRowsPromise.catch(() => []),
     recentRepairAttemptRowsPromise.catch(() => []),
   ]);
-  let repairPlan = repairPlanResult;
-  let controlPlanePersistence = persistenceResult;
+  const gateRecords = gateResult.value;
+  let repairPlan = repairPlanResult.value;
+  let repairPlanError = repairPlanResult.error;
+  let controlPlanePersistence = persistenceResult.value;
+  let controlPlanePersistenceError = persistenceResult.error;
   if (
     gateRecords?.releaseGate &&
     controlPlanePersistence?.exact?.repairPlan == null
   ) {
-    const healedRepairPlan = await captureOptional(
-      "sync_repair_plan_heal",
-      evaluateAndPersistSyncRepairPlan({
+    const healedRepairPlan = await evaluateAndPersistSyncRepairPlan({
+      ...controlPlaneIdentity,
+      persist: true,
+      releaseGate: gateRecords.releaseGate,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    if (healedRepairPlan.value) {
+      repairPlan = healedRepairPlan.value;
+      repairPlanError = null;
+      const refreshedPersistence = await getSyncControlPlanePersistenceStatus({
         ...controlPlaneIdentity,
-        persist: true,
-        releaseGate: gateRecords.releaseGate,
-      }),
-      null
-    );
-    if (healedRepairPlan) {
-      repairPlan = healedRepairPlan;
-      controlPlanePersistence = await captureOptional(
-        "sync_control_plane_persistence_refresh",
-        getSyncControlPlanePersistenceStatus({
-          ...controlPlaneIdentity,
-        }),
-        controlPlanePersistence
-      );
+      })
+        .then((value) => ({ value, error: null }))
+        .catch((error) => ({
+          value: controlPlanePersistence,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      controlPlanePersistence = refreshedPersistence.value;
+      controlPlanePersistenceError = refreshedPersistence.error;
+    } else if (!repairPlanError) {
+      repairPlanError = healedRepairPlan.error;
     }
   }
+  const controlPlaneErrors = {
+    syncGates: gateResult.error,
+    repairPlan: repairPlanError,
+    controlPlanePersistence: controlPlanePersistenceError,
+  };
   const currentMode = decidePanelRecoveryMode();
   const globalExtendedExecutionEnabled = currentMode === "global_reopen";
   const effectiveLatestSync = latestSync;
@@ -1970,6 +1988,7 @@ export async function GET(request: NextRequest) {
     state: overallState,
     controlPlaneIdentity,
     controlPlanePersistence,
+    controlPlaneErrors,
     deployGate: gateRecords?.deployGate ?? null,
     releaseGate: gateRecords?.releaseGate ?? null,
     repairPlan: repairPlan ?? null,

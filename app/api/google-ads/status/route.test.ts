@@ -646,6 +646,11 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.controlPlanePersistence).toMatchObject({
       exactRowsPresent: true,
     });
+    expect(payload.controlPlaneErrors).toEqual({
+      syncGates: null,
+      repairPlan: null,
+      controlPlanePersistence: null,
+    });
     expect(payload.deployGate).toMatchObject({
       id: "dg-1",
       verdict: "pass",
@@ -1178,6 +1183,34 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.controlPlanePersistence).toMatchObject({
       exactRowsPresent: true,
       missingExact: [],
+    });
+    expect(payload.controlPlaneErrors).toEqual({
+      syncGates: null,
+      repairPlan: null,
+      controlPlanePersistence: null,
+    });
+  });
+
+  it("surfaces control-plane read errors without failing the route", async () => {
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockRejectedValue(
+      new Error("gate read failed")
+    );
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus).mockRejectedValue(
+      new Error("persistence read failed")
+    );
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.deployGate).toBeNull();
+    expect(payload.releaseGate).toBeNull();
+    expect(payload.controlPlaneErrors).toEqual({
+      syncGates: "gate read failed",
+      repairPlan: null,
+      controlPlanePersistence: "persistence read failed",
     });
   });
 });
