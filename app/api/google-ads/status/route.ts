@@ -74,7 +74,10 @@ import {
   getGoogleAdsWorkerSchedulingState,
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
-import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
+import {
+  classifyProviderReleaseTruth,
+  getLatestSyncGateRecords,
+} from "@/lib/sync/release-gates";
 import {
   evaluateAndPersistSyncRepairPlan,
   getLatestSyncRepairPlan,
@@ -1808,6 +1811,30 @@ export async function GET(request: NextRequest) {
           queueDepth: queueHealth?.queueDepth ?? 0,
           leasedPartitions: queueHealth?.leasedPartitions ?? 0,
         });
+  const googleReleaseReadinessCandidate =
+    !connected || accountIds.length === 0
+      ? null
+      : classifyProviderReleaseTruth({
+          activityState: googleActivityState,
+          progressState: googleProgressState,
+          workerOnline: workerSchedulingState?.healthy ?? null,
+          queueDepth: queueHealth?.queueDepth ?? 0,
+          leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+          truthReady: googleUnifiedTruth.syncTruthState === "ready",
+          retryableFailedPartitions: advisorRelevantFailedPartitions,
+          deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+          staleLeasePartitions: advisorRelevantUnhealthyLeases,
+          reclaimCandidateCount: 0,
+          recentTruthState:
+            googleUnifiedTruth.syncTruthState === "ready"
+              ? "ready"
+              : googleUnifiedTruth.syncTruthState,
+          priorityTruthState:
+            googleUnifiedTruth.syncTruthState === "ready"
+              ? "ready"
+              : googleUnifiedTruth.syncTruthState,
+          stallFingerprints: googleStallFingerprints,
+        });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
@@ -1989,6 +2016,7 @@ export async function GET(request: NextRequest) {
     controlPlaneIdentity,
     controlPlanePersistence,
     controlPlaneErrors,
+    releaseReadinessCandidate: googleReleaseReadinessCandidate,
     deployGate: gateRecords?.deployGate ?? null,
     releaseGate: gateRecords?.releaseGate ?? null,
     repairPlan: repairPlan ?? null,

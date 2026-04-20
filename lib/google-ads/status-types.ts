@@ -97,6 +97,12 @@ export interface GoogleAdsStatusDomainSummary {
   detail: string;
 }
 
+export interface GoogleAdsReleaseReadinessCandidate {
+  pass: boolean;
+  blockerClass: SyncBlockerClass;
+  evidence: Record<string, unknown>;
+}
+
 export interface GoogleAdsStatusResponse {
   state:
     | "not_connected"
@@ -116,6 +122,7 @@ export interface GoogleAdsStatusResponse {
     repairPlan: string | null;
     controlPlanePersistence: string | null;
   } | null;
+  releaseReadinessCandidate?: GoogleAdsReleaseReadinessCandidate | null;
   deployGate?: SyncGateRecord | null;
   releaseGate?: SyncGateRecord | null;
   repairPlan?: SyncRepairPlanRecord | null;

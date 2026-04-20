@@ -213,6 +213,31 @@ vi.mock("@/lib/sync/google-ads-sync", () => ({
 }));
 
 vi.mock("@/lib/sync/release-gates", () => ({
+  classifyProviderReleaseTruth: vi.fn((input) => ({
+    pass:
+      (input?.activityState === "ready" || input?.activityState === "busy") &&
+      (input?.queueDepth === 0 || input?.leasedPartitions > 0) &&
+      input?.truthReady === true &&
+      input?.progressState !== "blocked" &&
+      input?.activityState !== "blocked",
+    blockerClass:
+      input?.workerOnline === false && input?.queueDepth > 0 && input?.leasedPartitions === 0
+        ? "worker_unavailable"
+        : input?.progressState === "blocked" || input?.activityState === "blocked"
+          ? "queue_blocked"
+          : input?.activityState === "stalled" || input?.progressState === "partial_stuck"
+            ? "stalled"
+            : (input?.activityState === "ready" || input?.activityState === "busy") &&
+                (input?.queueDepth === 0 || input?.leasedPartitions > 0) &&
+                input?.truthReady === true
+              ? "none"
+              : "not_release_ready",
+    evidence: {
+      truthReady: input?.truthReady ?? false,
+      queueDepth: input?.queueDepth ?? 0,
+      leasedPartitions: input?.leasedPartitions ?? 0,
+    },
+  })),
   getLatestSyncGateRecords: vi.fn(),
 }));
 
@@ -651,6 +676,10 @@ describe("GET /api/google-ads/status", () => {
       repairPlan: null,
       controlPlanePersistence: null,
     });
+    expect(payload.releaseReadinessCandidate).toMatchObject({
+      pass: true,
+      blockerClass: "none",
+    });
     expect(payload.deployGate).toMatchObject({
       id: "dg-1",
       verdict: "pass",
@@ -863,6 +892,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.state).toBe("not_connected");
     expect(payload.syncTruthState).toBe("waiting");
     expect(payload.blockerClass).toBe("none");
+    expect(payload.releaseReadinessCandidate).toBeNull();
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");
