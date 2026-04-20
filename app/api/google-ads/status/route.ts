@@ -54,6 +54,7 @@ import {
   GOOGLE_ADS_ADVISOR_REQUIRED_SURFACES,
   isGoogleAdsAdvisorWindowReady,
 } from "@/lib/google-ads/advisor-readiness";
+import { buildGoogleAdsReleaseReadinessCandidate } from "@/lib/google-ads/control-plane";
 import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
 import {
@@ -74,10 +75,7 @@ import {
   getGoogleAdsWorkerSchedulingState,
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
-import {
-  classifyProviderReleaseTruth,
-  getLatestSyncGateRecords,
-} from "@/lib/sync/release-gates";
+import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
 import {
   evaluateAndPersistSyncRepairPlan,
   getLatestSyncRepairPlan,
@@ -1812,29 +1810,20 @@ export async function GET(request: NextRequest) {
           leasedPartitions: queueHealth?.leasedPartitions ?? 0,
         });
   const googleReleaseReadinessCandidate =
-    !connected || accountIds.length === 0
-      ? null
-      : classifyProviderReleaseTruth({
-          activityState: googleActivityState,
-          progressState: googleProgressState,
-          workerOnline: workerSchedulingState?.healthy ?? null,
-          queueDepth: queueHealth?.queueDepth ?? 0,
-          leasedPartitions: queueHealth?.leasedPartitions ?? 0,
-          truthReady: googleUnifiedTruth.syncTruthState === "ready",
-          retryableFailedPartitions: advisorRelevantFailedPartitions,
-          deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
-          staleLeasePartitions: advisorRelevantUnhealthyLeases,
-          reclaimCandidateCount: 0,
-          recentTruthState:
-            googleUnifiedTruth.syncTruthState === "ready"
-              ? "ready"
-              : googleUnifiedTruth.syncTruthState,
-          priorityTruthState:
-            googleUnifiedTruth.syncTruthState === "ready"
-              ? "ready"
-              : googleUnifiedTruth.syncTruthState,
-          stallFingerprints: googleStallFingerprints,
-        });
+    buildGoogleAdsReleaseReadinessCandidate({
+      connected,
+      assignedAccountCount: accountIds.length,
+      activityState: googleActivityState,
+      progressState: googleProgressState,
+      workerOnline: workerSchedulingState?.healthy ?? null,
+      queueDepth: queueHealth?.queueDepth ?? 0,
+      leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+      retryableFailedPartitions: advisorRelevantFailedPartitions,
+      deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+      staleLeasePartitions: advisorRelevantUnhealthyLeases,
+      syncTruthState: googleUnifiedTruth.syncTruthState,
+      stallFingerprints: googleStallFingerprints,
+    });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
