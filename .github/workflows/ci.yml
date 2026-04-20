@@ -271,7 +271,7 @@ jobs:
             "inputs": {
               "sha": "${DEPLOY_SHA}",
               "require_current_main_head": "true",
-              "run_migrations": "true"
+              "run_migrations": "${{ needs.detect-runtime-changes.outputs.schema_changed }}"
             }
           }
           EOF
