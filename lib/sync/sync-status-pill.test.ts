@@ -309,6 +309,75 @@ describe("sync status pill resolver", () => {
     });
   });
 
+  it("prefers shared control-plane closure for Google Ads even when provider-local state lags", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "partial",
+        syncTruthState: "ready",
+        blockerClass: "none",
+        controlPlanePersistence: {
+          identity: {
+            buildId: "build-1",
+            environment: "production",
+            providerScope: "google_ads",
+          },
+          exact: {
+            deployGate: null,
+            releaseGate: null,
+            repairPlan: null,
+          },
+          fallbackByBuild: {
+            deployGate: null,
+            releaseGate: null,
+            repairPlan: null,
+          },
+          latest: {
+            deployGate: null,
+            releaseGate: null,
+            repairPlan: null,
+          },
+          missingExact: [],
+          exactRowsPresent: true,
+        },
+        releaseGate: {
+          id: "gate-1",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "pass",
+          verdict: "pass",
+          blockerClass: null,
+          summary: "passed",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {},
+          emittedAt: "2026-04-20T07:22:20.362Z",
+        },
+        repairPlan: {
+          id: "plan-1",
+          buildId: "build-1",
+          environment: "production",
+          providerScope: "google_ads",
+          planMode: "dry_run",
+          eligible: true,
+          blockedReason: null,
+          breakGlass: false,
+          summary: "no recommendations",
+          recommendations: [],
+          emittedAt: "2026-04-20T07:22:20.672Z",
+        },
+      } as never)
+    ).toMatchObject({
+      label: "Active",
+      tone: "success",
+      state: "active",
+    });
+  });
+
   it("renders an attention pill for stale Google Ads status", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({

@@ -1,5 +1,8 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
-import { resolveGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
+import {
+  isGoogleAdsControlPlaneClosed,
+  resolveGoogleAdsSyncProgress,
+} from "@/lib/google-ads/sync-progress-ux";
 import {
   getMetaCoreReadiness,
   getMetaPageReadiness,
@@ -198,10 +201,20 @@ export function resolveGoogleAdsSyncStatusPill(
 ): SyncStatusPillState | null {
   if (!status?.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
+  if (isGoogleAdsControlPlaneClosed(status)) {
+    return buildActivePill();
+  }
 
   const percent = resolveGooglePercent(status);
   const progressLabel = resolveGoogleProgressLabel(status, percent);
+  const controlPlaneAttention =
+    status.controlPlanePersistence?.exactRowsPresent === true &&
+    ((status.releaseGate?.verdict != null &&
+      status.releaseGate.verdict !== "pass") ||
+      (status.repairPlan?.recommendations?.length ?? 0) > 0 ||
+      (status.blockerClass != null && status.blockerClass !== "none"));
   const isAttentionState =
+    controlPlaneAttention ||
     status.state === "action_required" ||
     status.state === "paused" ||
     status.state === "stale" ||

@@ -27,6 +27,7 @@ import { usePreferencesStore } from "@/store/preferences-store";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 import {
   formatMetaDateTime,
   getMetaStatusNotice,
@@ -174,28 +175,6 @@ function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
         : false;
     }
     return 10_000;
-  }
-  if (
-    state === "paused" ||
-    state === "stale" ||
-    (status?.jobHealth?.queueDepth ?? 0) > 0 ||
-    (status?.jobHealth?.leasedPartitions ?? 0) > 0
-  ) {
-    return 10_000;
-  }
-  return false;
-}
-
-function getGoogleAdsStatusRefetchInterval(
-  status: GoogleAdsStatusResponse | undefined
-) {
-  const state = status?.state;
-  if (
-    state === "syncing" ||
-    state === "partial" ||
-    state === "advisor_not_ready"
-  ) {
-    return 5_000;
   }
   if (
     state === "paused" ||

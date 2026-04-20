@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
-import { resolveGoogleAdsSyncProgress, shouldRenderGoogleAdsSyncProgress } from "@/lib/google-ads/sync-progress-ux";
+import {
+  getGoogleAdsStatusRefetchInterval,
+  resolveGoogleAdsSyncProgress,
+  shouldRenderGoogleAdsSyncProgress,
+} from "@/lib/google-ads/sync-progress-ux";
 
 const baseStatus: GoogleAdsStatusResponse = {
   state: "syncing",
@@ -146,5 +150,76 @@ describe("google ads sync progress ux", () => {
 
     expect(shouldRenderGoogleAdsSyncProgress(status, "inline")).toBe(false);
     expect(resolveGoogleAdsSyncProgress(status, "inline")).toBeNull();
+  });
+
+  it("hides progress when shared control-plane is fully closed", () => {
+    const status: GoogleAdsStatusResponse = {
+      ...baseStatus,
+      state: "partial",
+      syncTruthState: "ready",
+      blockerClass: "none",
+      controlPlanePersistence: {
+        identity: {
+          buildId: "build-1",
+          environment: "production",
+          providerScope: "google_ads",
+        },
+        exact: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        fallbackByBuild: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        latest: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        missingExact: [],
+        exactRowsPresent: true,
+      },
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "production",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "passed",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-20T07:22:20.362Z",
+      },
+      repairPlan: {
+        id: "plan-1",
+        buildId: "build-1",
+        environment: "production",
+        providerScope: "google_ads",
+        planMode: "dry_run",
+        eligible: true,
+        blockedReason: null,
+        breakGlass: false,
+        summary: "no recommendations",
+        recommendations: [],
+        emittedAt: "2026-04-20T07:22:20.672Z",
+      },
+      historicalProgress: {
+        percent: 61,
+        visible: true,
+        summary: "Historical sync continues in the background with recent dates prioritized first.",
+      },
+    };
+
+    expect(resolveGoogleAdsSyncProgress(status, "inline")).toBeNull();
+    expect(shouldRenderGoogleAdsSyncProgress(status, "inline")).toBe(false);
+    expect(getGoogleAdsStatusRefetchInterval(status)).toBe(false);
   });
 });

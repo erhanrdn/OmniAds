@@ -14,12 +14,61 @@ function isVisibleProgress(progress: GoogleAdsProgressState | null | undefined) 
   return Boolean(progress?.visible && typeof progress.percent === "number");
 }
 
+export function isGoogleAdsControlPlaneClosed(
+  status: GoogleAdsStatusResponse | undefined | null,
+) {
+  if (!status || !status.connected) return false;
+  if ((status.assignedAccountIds?.length ?? 0) === 0) return false;
+  return (
+    status.controlPlanePersistence?.exactRowsPresent === true &&
+    status.releaseGate?.verdict === "pass" &&
+    (status.repairPlan?.recommendations?.length ?? 0) === 0 &&
+    status.syncTruthState === "ready" &&
+    status.blockerClass === "none"
+  );
+}
+
+export function getGoogleAdsStatusRefetchInterval(
+  status: GoogleAdsStatusResponse | undefined | null,
+) {
+  if (!status) return false;
+  if (isGoogleAdsControlPlaneClosed(status)) return false;
+
+  const state = status.state;
+  const queueDepth = status.jobHealth?.queueDepth ?? 0;
+  const leasedPartitions = status.jobHealth?.leasedPartitions ?? 0;
+  const repairCount = status.repairPlan?.recommendations?.length ?? 0;
+  const exactRowsPresent = status.controlPlanePersistence?.exactRowsPresent === true;
+
+  if (
+    state === "syncing" ||
+    state === "partial" ||
+    state === "advisor_not_ready"
+  ) {
+    return 5_000;
+  }
+
+  if (
+    state === "paused" ||
+    state === "stale" ||
+    queueDepth > 0 ||
+    leasedPartitions > 0 ||
+    repairCount > 0 ||
+    (exactRowsPresent && status.releaseGate?.verdict && status.releaseGate.verdict !== "pass")
+  ) {
+    return 10_000;
+  }
+
+  return false;
+}
+
 export function resolveGoogleAdsSyncProgress(
   status: GoogleAdsStatusResponse | undefined | null,
   variant: GoogleAdsSyncProgressVariant = "default"
 ): GoogleAdsResolvedSyncProgress | null {
   if (!status || !status.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
+  if (isGoogleAdsControlPlaneClosed(status)) return null;
 
   if (
     status.requiredScopeCompletion &&

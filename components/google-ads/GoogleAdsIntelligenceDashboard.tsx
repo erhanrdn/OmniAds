@@ -60,6 +60,7 @@ import {
   getGoogleAdsAdvisorHelperText,
   getGoogleAdsAdvisorIdleState,
 } from "@/lib/google-ads/advisor-ux";
+import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
 import {
   DropdownMenu,
@@ -341,15 +342,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const state = query.state.data?.state;
-      return state === "syncing" ||
-        state === "partial" ||
-        state === "stale" ||
-        state === "advisor_not_ready"
-        ? 15 * 1000
-        : false;
-    },
+    refetchInterval: (query) =>
+      getGoogleAdsStatusRefetchInterval(query.state.data),
     enabled: Boolean(businessId),
   });
   const googleReferenceDate = baseStatusQuery.data?.currentDateInTimezone ?? undefined;
@@ -595,15 +589,8 @@ export function GoogleAdsIntelligenceDashboard({ businessId }: { businessId: str
       return res.json();
     },
     staleTime: 30 * 1000,
-    refetchInterval: (query) => {
-      const state = query.state.data?.state;
-      return state === "syncing" ||
-        state === "partial" ||
-        state === "stale" ||
-        state === "advisor_not_ready"
-        ? 15 * 1000
-        : false;
-    },
+    refetchInterval: (query) =>
+      getGoogleAdsStatusRefetchInterval(query.state.data),
   });
   const advisorReady = Boolean(syncStatus?.advisor?.ready);
   const advisorCanOpen = canOpenGoogleAdsAdvisor({
