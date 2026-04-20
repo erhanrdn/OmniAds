@@ -4564,7 +4564,7 @@ export async function recoverMetaD1FinalizePartitions(input: {
     SELECT
       partition.id,
       partition.provider_account_id,
-      partition.partition_date,
+      partition.partition_date::text AS partition_date,
       partition.status,
       partition.updated_at,
       partition.lease_owner,

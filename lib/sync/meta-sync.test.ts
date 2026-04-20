@@ -508,6 +508,15 @@ describe("recoverMetaD1FinalizePartitions partition updates", () => {
     expect(runQualifiedMatches).toHaveLength(1);
     expect(partitionQualifiedMatches).toHaveLength(2);
   });
+
+  it("casts finalize candidate partition dates to text before comparison", () => {
+    const source = readFileSync(
+      new URL("./meta-sync.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("partition.partition_date::text AS partition_date");
+  });
 });
 
 describe("logMetaQueueVisibility", () => {
