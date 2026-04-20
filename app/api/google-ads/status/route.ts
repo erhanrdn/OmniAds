@@ -76,6 +76,7 @@ import {
 } from "@/lib/sync/google-ads-sync";
 import {
   buildBlockingReason,
+  deriveProviderActivityState,
   buildProviderProgressEvidence,
   buildRepairableAction,
   buildRequiredCoverage,
@@ -83,6 +84,7 @@ import {
   compactRepairableActions,
   deriveProviderStallFingerprints,
   deriveProviderProgressState,
+  deriveUnifiedSyncTruth,
 } from "@/lib/sync/provider-status-truth";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
 import type {
@@ -1694,6 +1696,15 @@ export async function GET(request: NextRequest) {
     staleRunPressure,
     progressEvidence: googleProgressEvidence,
   });
+  const googleActivityState =
+    !connected || accountIds.length === 0
+      ? ("waiting" as const)
+      : deriveProviderActivityState({
+          progressState: googleProgressState,
+          queueDepth: queueHealth?.queueDepth ?? 0,
+          leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+          blocked: overallState === "action_required",
+        });
   const googleStallFingerprints = deriveProviderStallFingerprints({
     queueDepth: queueHealth?.queueDepth ?? 0,
     leasedPartitions: queueHealth?.leasedPartitions ?? 0,
@@ -1707,6 +1718,19 @@ export async function GET(request: NextRequest) {
       (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
       (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
   });
+  const googleUnifiedTruth =
+    !connected || accountIds.length === 0
+      ? {
+          syncTruthState: "waiting" as const,
+          blockerClass: "none" as const,
+        }
+      : deriveUnifiedSyncTruth({
+          activityState: googleActivityState,
+          progressState: googleProgressState,
+          workerOnline: workerSchedulingState?.healthy ?? null,
+          queueDepth: queueHealth?.queueDepth ?? 0,
+          leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+        });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
     hasAssignedAccounts: accountIds.length > 0,
@@ -1885,6 +1909,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     state: overallState,
+    syncTruthState: googleUnifiedTruth.syncTruthState,
+    blockerClass: googleUnifiedTruth.blockerClass,
     credentialState: providerState.credentialState,
     assignmentState: providerState.assignmentState,
     warehouseState: providerState.warehouseState,
@@ -2192,6 +2218,7 @@ export async function GET(request: NextRequest) {
       controlledAutonomyEligible: autonomyBoundary.controlledAutonomyEligible,
       autonomyBlockedReasons: autonomyBoundary.blockedReasons,
       bundleCooldownHours: automationConfig.bundleCooldownHours,
+      activityState: googleActivityState,
       blockingReasons: googleBlockingReasons,
       repairableActions: googleRepairableActions,
       requiredCoverage: googleRequiredCoverage,

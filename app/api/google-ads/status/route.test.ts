@@ -295,6 +295,7 @@ describe("GET /api/google-ads/status", () => {
     vi.mocked(warehouse.getGoogleAdsAdvisorQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValue(null as never);
     vi.mocked(warehouse.getGoogleAdsSyncState).mockResolvedValue([]);
+    vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("not_connected");
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
     vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue(null);
     vi.mocked(searchIntelligenceStorage.readGoogleAdsSearchIntelligenceCoverage).mockResolvedValue({
@@ -428,6 +429,7 @@ describe("GET /api/google-ads/status", () => {
       notReady: false,
       readinessModel: "recent_84d_required_support",
     });
+    vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
 
     const response = await GET(
       new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
@@ -450,6 +452,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.operations).toMatchObject({
       currentMode: "global_backfill",
       globalExtendedExecutionEnabled: false,
+      activityState: "ready",
       advisorReadinessModel: "recent_84d_required_support",
       advisorReadinessWindowDays: 84,
       retentionRuntimeAvailable: false,
@@ -483,6 +486,8 @@ describe("GET /api/google-ads/status", () => {
         command: "npm run google:ads:retention-canary -- biz",
       },
     });
+    expect(payload.syncTruthState).toBe("ready");
+    expect(payload.blockerClass).toBe("none");
     expect(migrations.runMigrations).not.toHaveBeenCalled();
   });
 
@@ -680,6 +685,8 @@ describe("GET /api/google-ads/status", () => {
 
     expect(response.status).toBe(200);
     expect(payload.state).toBe("not_connected");
+    expect(payload.syncTruthState).toBe("waiting");
+    expect(payload.blockerClass).toBe("none");
     expect(payload.credentialState).toBe("not_connected");
     expect(payload.assignmentState).toBe("assigned");
     expect(payload.warehouseState).toBe("ready");

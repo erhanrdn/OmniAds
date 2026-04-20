@@ -5,11 +5,14 @@ import type {
   ProviderSurfaceSummary,
 } from "@/lib/provider-readiness";
 import type {
+  ProviderActivityState,
   ProviderBlockingReason,
   ProviderRepairableAction,
   ProviderRequiredCoverage,
   ProviderSecondaryReadiness,
   ProviderStallFingerprint,
+  SyncBlockerClass,
+  SyncTruthState,
 } from "@/lib/sync/provider-status-truth";
 import type { GlobalOperatorReviewWorkflow } from "@/lib/global-operator-review";
 
@@ -102,6 +105,8 @@ export interface GoogleAdsStatusResponse {
     | "action_required"
     | "ready";
   connected: boolean;
+  syncTruthState?: SyncTruthState | null;
+  blockerClass?: SyncBlockerClass | null;
   readinessLevel?: ProviderReadinessLevel;
   surfaces?: ProviderSurfaceSummary;
   checkpointHealth?: ProviderCheckpointHealth | null;
@@ -357,6 +362,7 @@ export interface GoogleAdsStatusResponse {
     controlledAutonomyEligible?: boolean;
     autonomyBlockedReasons?: string[];
     bundleCooldownHours?: number | null;
+    activityState?: ProviderActivityState;
     staleRunPressure?: number;
     progressState?: "ready" | "syncing" | "partial_progressing" | "partial_stuck" | "blocked";
     extendedSuppressionDecisionTrace?: Record<string, unknown> | null;
