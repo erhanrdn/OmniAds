@@ -41,10 +41,10 @@ export async function getActiveBusinesses(
         name,
         created_at,
         CASE
-          WHEN id = ANY(${prioritizedIds}::text[]) THEN 0
+          WHEN id::text = ANY(${prioritizedIds}::text[]) THEN 0
           ELSE 1
         END AS priority_group,
-        COALESCE(array_position(${prioritizedIds}::text[], id), 2147483647) AS priority_rank
+        COALESCE(array_position(${prioritizedIds}::text[], id::text), 2147483647) AS priority_rank
       FROM businesses
       WHERE is_demo_business = FALSE
     )
