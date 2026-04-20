@@ -22,6 +22,9 @@ import {
   shouldBlockGoogleAdsHistoricalExtendedWork,
   shouldLeaseGoogleAdsRecentRepair,
   summarizeGoogleAdsIntegrityIncidents,
+  planGoogleAdsRecentMaintenanceDates,
+  getGoogleAdsD1FinalizeScopesToQueue,
+  resolveGoogleAdsCoveredD1FinalizeResolution,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -1040,5 +1043,84 @@ describe("evaluateGoogleAdsWorkerSchedulingState", () => {
     expect(result.healthy).toBe(true);
     expect(result.hasFreshHeartbeat).toBe(true);
     expect(result.heartbeatAgeMs).toBe(60_000);
+  });
+});
+
+describe("planGoogleAdsRecentMaintenanceDates", () => {
+  it("skips recent maintenance dates that are already covered or active", () => {
+    expect(
+      planGoogleAdsRecentMaintenanceDates({
+        recentDates: ["2026-04-19", "2026-04-18", "2026-04-17", "2026-04-16"],
+        coveredDates: ["2026-04-18", "2026-04-16"],
+        activeDates: ["2026-04-17"],
+        skipDates: ["2026-04-19"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns only uncovered inactive non-skipped dates", () => {
+    expect(
+      planGoogleAdsRecentMaintenanceDates({
+        recentDates: ["2026-04-19", "2026-04-18", "2026-04-17", "2026-04-16"],
+        coveredDates: ["2026-04-18"],
+        activeDates: ["2026-04-16"],
+        skipDates: ["2026-04-19"],
+      }),
+    ).toEqual(["2026-04-17"]);
+  });
+});
+
+describe("getGoogleAdsD1FinalizeScopesToQueue", () => {
+  it("queues only scopes still missing coverage", () => {
+    expect(
+      getGoogleAdsD1FinalizeScopesToQueue({
+        accountDailyCovered: true,
+        campaignDailyCovered: false,
+      }),
+    ).toEqual(["campaign_daily"]);
+    expect(
+      getGoogleAdsD1FinalizeScopesToQueue({
+        accountDailyCovered: false,
+        campaignDailyCovered: true,
+      }),
+    ).toEqual(["account_daily"]);
+    expect(
+      getGoogleAdsD1FinalizeScopesToQueue({
+        accountDailyCovered: true,
+        campaignDailyCovered: true,
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("resolveGoogleAdsCoveredD1FinalizeResolution", () => {
+  it("cancels queued finalize rows and marks completed when no live lease remains", () => {
+    expect(
+      resolveGoogleAdsCoveredD1FinalizeResolution({
+        matchingRows: [
+          { id: "a", source: "finalize_day", status: "queued" },
+          { id: "b", source: "recent", status: "queued" },
+        ],
+      }),
+    ).toEqual({
+      queuedFinalizePartitionIds: ["a"],
+      hasLiveFinalizeLeaseOrRun: false,
+      shouldMarkCompleted: true,
+    });
+  });
+
+  it("does not mark completed while a finalize row is still leased or running", () => {
+    expect(
+      resolveGoogleAdsCoveredD1FinalizeResolution({
+        matchingRows: [
+          { id: "a", source: "finalize_day", status: "leased" },
+          { id: "b", source: "finalize_day", status: "queued" },
+        ],
+      }),
+    ).toEqual({
+      queuedFinalizePartitionIds: ["b"],
+      hasLiveFinalizeLeaseOrRun: true,
+      shouldMarkCompleted: false,
+    });
   });
 });

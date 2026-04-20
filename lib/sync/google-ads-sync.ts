@@ -2859,6 +2859,29 @@ async function queueGoogleAdsD1FinalizePartitions(input: {
         accounts: [{ externalAccountId: input.providerAccountId }],
       })
     ).get(input.providerAccountId) ?? null;
+  const [accountRows, campaignRows] = await Promise.all([
+    getGoogleAdsCoveredDates({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      scope: "account_daily",
+      startDate: input.targetDate,
+      endDate: input.targetDate,
+    }).catch(() => [] as string[]),
+    getGoogleAdsCoveredDates({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      scope: "campaign_daily",
+      startDate: input.targetDate,
+      endDate: input.targetDate,
+    }).catch(() => [] as string[]),
+  ]);
+  const scopesToQueue = getGoogleAdsD1FinalizeScopesToQueue({
+    accountDailyCovered: accountRows.includes(input.targetDate),
+    campaignDailyCovered: campaignRows.includes(input.targetDate),
+  });
+  if (scopesToQueue.length === 0) {
+    return 0;
+  }
   await sql`
     UPDATE google_ads_sync_partitions
     SET
@@ -2873,13 +2896,13 @@ async function queueGoogleAdsD1FinalizePartitions(input: {
     WHERE business_id = ${input.businessId}
       AND provider_account_id = ${input.providerAccountId}
       AND lane = 'maintenance'
-      AND scope = ANY(${GOOGLE_ADS_D1_FINALIZE_SCOPES}::text[])
+      AND scope = ANY(${scopesToQueue}::text[])
       AND partition_date = ${input.targetDate}::date
       AND source IN ('today', 'recent')
       AND status IN ('queued', 'leased', 'running')
   `;
   let queued = 0;
-  for (const scope of GOOGLE_ADS_D1_FINALIZE_SCOPES) {
+  for (const scope of scopesToQueue) {
     const row = await queueGoogleAdsSyncPartition({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId,
@@ -3133,6 +3156,38 @@ export async function recoverGoogleAdsD1FinalizePartitions(input: {
         String(row.partition_date).slice(0, 10) === targetDate &&
         row.status !== "cancelled",
     );
+    if (covered) {
+      const coveredResolution = resolveGoogleAdsCoveredD1FinalizeResolution({
+        matchingRows: matchingRows.map((row) => ({
+          id: String(row.id),
+          source: String(row.source),
+          status: String(row.status),
+        })),
+      });
+      if (coveredResolution.queuedFinalizePartitionIds.length > 0) {
+        await sql`
+          UPDATE google_ads_sync_partitions
+          SET
+            status = 'cancelled',
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            finished_at = COALESCE(finished_at, now()),
+            business_ref_id = COALESCE(business_ref_id, ${businessRefId}),
+            last_error = COALESCE(last_error, 'covered D-1 finalize partition superseded by canonical warehouse coverage'),
+            updated_at = now()
+          WHERE id = ANY(${coveredResolution.queuedFinalizePartitionIds}::uuid[])
+        `;
+      }
+      if (coveredResolution.shouldMarkCompleted) {
+        await markProviderDayRolloverFinalizeCompleted({
+          provider: "google_ads",
+          businessId: input.businessId,
+          providerAccountId: account.providerAccountId,
+          targetDate,
+        }).catch(() => null);
+      }
+      continue;
+    }
     const hasActiveAuthoritativeRow = matchingRows.some(
       (row) => row.source === "finalize_day" && !stalledPartitionIds.includes(String(row.id)),
     );
@@ -3178,6 +3233,53 @@ export function shouldBlockGoogleAdsHistoricalExtendedWork(input: {
   recent90Complete: boolean;
 }) {
   return !input.recent90Complete;
+}
+
+export function planGoogleAdsRecentMaintenanceDates(input: {
+  recentDates: string[];
+  coveredDates: string[];
+  activeDates: string[];
+  skipDates?: string[];
+}) {
+  const blockedDates = new Set([
+    ...input.coveredDates,
+    ...input.activeDates,
+    ...(input.skipDates ?? []),
+  ]);
+  return input.recentDates.filter((date) => !blockedDates.has(date));
+}
+
+export function getGoogleAdsD1FinalizeScopesToQueue(input: {
+  accountDailyCovered: boolean;
+  campaignDailyCovered: boolean;
+}) {
+  const scopes: GoogleAdsWarehouseScope[] = [];
+  if (!input.accountDailyCovered) scopes.push("account_daily");
+  if (!input.campaignDailyCovered) scopes.push("campaign_daily");
+  return scopes;
+}
+
+export function resolveGoogleAdsCoveredD1FinalizeResolution(input: {
+  matchingRows: Array<{
+    id: string;
+    source: string;
+    status: string;
+  }>;
+}) {
+  const finalizeRows = input.matchingRows.filter(
+    (row) => row.source === "finalize_day",
+  );
+  const queuedFinalizePartitionIds = finalizeRows
+    .filter((row) => row.status === "queued")
+    .map((row) => row.id);
+  const hasLiveFinalizeLeaseOrRun = finalizeRows.some(
+    (row) => row.status === "leased" || row.status === "running",
+  );
+  return {
+    queuedFinalizePartitionIds,
+    hasLiveFinalizeLeaseOrRun,
+    shouldMarkCompleted: !hasLiveFinalizeLeaseOrRun,
+  };
 }
 
 export async function getGoogleAdsRecent90CompletionState(input: {
@@ -3287,28 +3389,44 @@ async function enqueueMaintenancePartitions(businessId: string) {
       businessId,
       providerAccountId,
     );
+    const recentStartDate = addDaysToIsoDate(
+      yesterday,
+      -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1),
+    );
     const recentDates = enumerateDays(
-      addDaysToIsoDate(yesterday, -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1)),
+      recentStartDate,
       yesterday,
       true,
     );
-    const activeRecentDates = new Set(
-      await getGoogleAdsPartitionDates({
+    const [coveredRecentDates, activeRecentDates] = await Promise.all([
+      getGoogleAdsCoveredDates({
+        businessId,
+        providerAccountId,
+        scope: "campaign_daily",
+        startDate: recentStartDate,
+        endDate: today,
+      }).catch(() => [] as string[]),
+      getGoogleAdsPartitionDates({
         businessId,
         providerAccountId,
         lane: "maintenance",
         scope: "campaign_daily",
-        startDate: addDaysToIsoDate(
-          yesterday,
-          -(GOOGLE_ADS_RECENT_MAINTENANCE_DAYS - 1),
-        ),
+        startDate: recentStartDate,
         endDate: today,
         statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
-      }).catch(() => []),
-    );
-    for (const date of recentDates) {
-      if (date === yesterday) continue;
-      if (activeRecentDates.has(date)) continue;
+      }).catch(() => [] as string[]),
+    ]);
+    const blockedRecentDates = new Set([
+      ...coveredRecentDates,
+      ...activeRecentDates,
+    ]);
+    const recentDatesToQueue = planGoogleAdsRecentMaintenanceDates({
+      recentDates,
+      coveredDates: coveredRecentDates,
+      activeDates: activeRecentDates,
+      skipDates: [yesterday],
+    });
+    for (const date of recentDatesToQueue) {
       await queueGoogleAdsSyncPartition({
         businessId,
         providerAccountId,
@@ -3326,7 +3444,7 @@ async function enqueueMaintenancePartitions(businessId: string) {
       providerAccountId,
       targetDate: yesterday,
     }).catch(() => 0);
-    if (activeRecentDates.has(today)) continue;
+    if (blockedRecentDates.has(today)) continue;
     await queueGoogleAdsSyncPartition({
       businessId,
       providerAccountId,
