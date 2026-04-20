@@ -1003,6 +1003,23 @@ export default function MetaPage() {
     hasCampaignSpend,
     summaryLoading: summaryQuery.isLoading,
   });
+  const canRenderKpis =
+    !summaryQuery.isLoading &&
+    !shouldMaskKpisAsPreparing &&
+    Boolean(warehouseKpis ?? campaignWarehouseKpis);
+  const campaignCountLabel = shouldMaskKpisAsPreparing
+    ? pageMessages.kpi.spendSubLabel
+    : campaignsQuery.isLoading
+      ? "Campaign drilldown is loading"
+      : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`;
+  const campaignSurfaceLoadingTitle =
+    summaryQuery.data && pageReadiness?.state === "ready"
+      ? "Loading campaign drilldown"
+      : "Loading campaign performance";
+  const campaignSurfaceLoadingDescription =
+    summaryQuery.data && pageReadiness?.state === "ready"
+      ? "Summary truth is ready. Campaign rows are still loading in the background."
+      : "Campaign, breakdown, and recovery surfaces will appear as sync finishes.";
   const campaignRowsForTable = useMemo<MetaCampaignTableRow[]>(() => {
     const rows = campaignsQuery.data?.rows ?? [];
     const laneById = buildMetaCampaignLaneSignals(rows);
@@ -1186,15 +1203,11 @@ export default function MetaPage() {
             <KpiCard
               label="Total Spend"
               value={
-                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                !canRenderKpis
                   ? "—"
                   : fmtK(kpis.totalSpend, sym)
               }
-              subLabel={
-                shouldMaskKpisAsPreparing
-                  ? pageMessages.kpi.spendSubLabel
-                  : `${campaignsQuery.data?.rows?.length ?? 0} campaigns`
-              }
+              subLabel={campaignCountLabel}
               icon={DollarSign}
               accentClass="border-l-4 border-l-blue-500/60"
               comparisonLabel={comparisonLabel}
@@ -1203,7 +1216,7 @@ export default function MetaPage() {
             <KpiCard
               label="Total Revenue"
               value={
-                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                !canRenderKpis
                   ? "—"
                   : fmtK(kpis.totalRevenue, sym)
               }
@@ -1221,7 +1234,7 @@ export default function MetaPage() {
             <KpiCard
               label="Avg. CPA"
               value={
-                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                !canRenderKpis
                   ? "—"
                   : fmt$(kpis.avgCpa, sym)
               }
@@ -1239,7 +1252,7 @@ export default function MetaPage() {
             <KpiCard
               label="Blended ROAS"
               value={
-                campaignsQuery.isLoading || shouldMaskKpisAsPreparing
+                !canRenderKpis
                   ? "—"
                   : `${kpis.blendedRoas.toFixed(2)}×`
               }
@@ -1274,8 +1287,8 @@ export default function MetaPage() {
           {campaignsQuery.isLoading && (
             <LoadingSkeleton
               rows={6}
-              title="Loading campaign performance"
-              description="Campaign, breakdown, and recovery surfaces will appear as sync finishes."
+              title={campaignSurfaceLoadingTitle}
+              description={campaignSurfaceLoadingDescription}
             />
           )}
 

@@ -574,4 +574,36 @@ describe("Meta page render contract", () => {
     expect(html).not.toContain("Selected range is preparing");
   });
 
+  it("renders summary KPIs while campaign drilldown is still loading", () => {
+    const status = baseStatus();
+    mockDateRange = {
+      rangePreset: "7d",
+      customStart: "2026-04-13",
+      customEnd: "2026-04-19",
+      comparisonPreset: "none",
+      comparisonStart: null,
+      comparisonEnd: null,
+    };
+    mockQueries["meta-status-base"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-warehouse-summary"] = baseQueryState({
+      data: { totals: { spend: 1776.83, revenue: 3291.76, cpa: 126.92, roas: 1.85 } },
+    });
+    mockQueries["meta-campaigns"] = baseQueryState({
+      isLoading: true,
+      isSuccess: false,
+      data: undefined,
+    });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(html).toContain("$1.8k");
+    expect(html).toContain("$3.3k");
+    expect(html).toContain("$126.92");
+    expect(html).toContain("1.85×");
+    expect(html).toContain("Campaign drilldown is loading");
+    expect(html).toContain("loading:Loading campaign drilldown|Summary truth is ready. Campaign rows are still loading in the background.");
+    expect(html).not.toContain("Campaign, breakdown, and recovery surfaces will appear as sync finishes.");
+  });
+
 });
