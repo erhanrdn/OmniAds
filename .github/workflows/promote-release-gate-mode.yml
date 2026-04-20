@@ -257,6 +257,9 @@ jobs:
               curl -fsS -X POST \
                 "http://127.0.0.1:3000/api/sync/cron?controlPlaneOnly=1&buildId=${EXPECTED_SHA}&enforceDeployGate=1" \
                 -H "Authorization: Bearer ${cron_secret}" >/dev/null
+              curl -fsS -X POST \
+                "http://127.0.0.1:3000/api/sync/cron?controlPlaneOnly=1&buildId=${EXPECTED_SHA}&enforceDeployGate=1&providerScope=google_ads" \
+                -H "Authorization: Bearer ${cron_secret}" >/dev/null
             }
 
             verify_local_sync_control_plane() {
@@ -265,6 +268,12 @@ jobs:
                   --build-id "${EXPECTED_SHA}" \
                   --environment production \
                   --provider-scope meta \
+                  --require-block-modes
+              docker compose exec -T worker \
+                node --import tsx scripts/sync-control-plane-verify.ts \
+                  --build-id "${EXPECTED_SHA}" \
+                  --environment production \
+                  --provider-scope google_ads \
                   --require-block-modes
             }
 
