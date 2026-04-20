@@ -245,6 +245,7 @@ export function selectLatestSyncGateRecords(
 }
 
 export function mergeLatestSyncGateRecords(input: {
+  environment: string;
   exact: {
     deployGate: SyncGateRecord | null;
     releaseGate: SyncGateRecord | null;
@@ -254,9 +255,16 @@ export function mergeLatestSyncGateRecords(input: {
     releaseGate: SyncGateRecord | null;
   };
 }) {
+  const fallbackReleaseGate =
+    input.fallbackByBuild.releaseGate != null &&
+    (input.fallbackByBuild.releaseGate.environment === input.environment ||
+      input.fallbackByBuild.releaseGate.environment === "unknown")
+      ? input.fallbackByBuild.releaseGate
+      : null;
+
   return {
     deployGate: input.exact.deployGate ?? input.fallbackByBuild.deployGate,
-    releaseGate: input.exact.releaseGate,
+    releaseGate: input.exact.releaseGate ?? fallbackReleaseGate,
   };
 }
 
@@ -330,6 +338,7 @@ export async function getLatestSyncGateRecords(input?: {
   );
 
   return mergeLatestSyncGateRecords({
+    environment,
     exact: exactRecords,
     fallbackByBuild: fallbackRecords,
   });

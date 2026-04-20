@@ -381,6 +381,7 @@ describe("sync release gates", () => {
 
   it("never falls back to a cross-environment release gate", () => {
     const merged = releaseGates.mergeLatestSyncGateRecords({
+      environment: "production",
       exact: {
         deployGate: {
           id: "deploy-prod",
@@ -425,6 +426,39 @@ describe("sync release gates", () => {
 
     expect(merged.deployGate?.id).toBe("deploy-prod");
     expect(merged.releaseGate).toBeNull();
+  });
+
+  it("falls back to an unknown-environment release gate", () => {
+    const merged = releaseGates.mergeLatestSyncGateRecords({
+      environment: "production",
+      exact: {
+        deployGate: null,
+        releaseGate: null,
+      },
+      fallbackByBuild: {
+        deployGate: null,
+        releaseGate: {
+          id: "release-unknown",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "unknown",
+          mode: "block",
+          baseResult: "pass",
+          verdict: "pass",
+          blockerClass: null,
+          summary: "legacy release",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {
+            providerScope: "google_ads",
+          },
+          emittedAt: "2026-04-20T00:00:00.000Z",
+        },
+      },
+    });
+
+    expect(merged.releaseGate?.id).toBe("release-unknown");
   });
 
   it("blocks deploy gate when runtime contract evidence fails under block mode", async () => {
