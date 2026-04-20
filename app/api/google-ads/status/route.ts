@@ -75,8 +75,12 @@ import {
   isGoogleAdsIncidentSafeModeEnabled,
 } from "@/lib/sync/google-ads-sync";
 import { getLatestSyncGateRecords } from "@/lib/sync/release-gates";
-import { getLatestSyncRepairPlan } from "@/lib/sync/repair-planner";
+import {
+  evaluateAndPersistSyncRepairPlan,
+  getLatestSyncRepairPlan,
+} from "@/lib/sync/repair-planner";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
+import { getSyncControlPlanePersistenceStatus } from "@/lib/sync/control-plane-persistence";
 import {
   buildBlockingReason,
   deriveProviderActivityState,
@@ -589,7 +593,7 @@ export async function GET(request: NextRequest) {
     updated_at?: string | null;
   }>>;
 
-  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateRecords, repairPlan, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateRecords, repairPlanResult, persistenceResult, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
     captureOptional("integration", getIntegrationMetadata(businessId!, "google"), null),
     captureOptional(
@@ -627,10 +631,43 @@ export async function GET(request: NextRequest) {
       }),
       null
     ),
+    captureOptional(
+      "sync_control_plane_persistence",
+      getSyncControlPlanePersistenceStatus({
+        ...controlPlaneIdentity,
+      }),
+      null
+    ),
     staleRunPressurePromise.catch(() => []),
     recentRepairRowsPromise.catch(() => []),
     recentRepairAttemptRowsPromise.catch(() => []),
   ]);
+  let repairPlan = repairPlanResult;
+  let controlPlanePersistence = persistenceResult;
+  if (
+    gateRecords?.releaseGate &&
+    controlPlanePersistence?.exact?.repairPlan == null
+  ) {
+    const healedRepairPlan = await captureOptional(
+      "sync_repair_plan_heal",
+      evaluateAndPersistSyncRepairPlan({
+        ...controlPlaneIdentity,
+        persist: true,
+        releaseGate: gateRecords.releaseGate,
+      }),
+      null
+    );
+    if (healedRepairPlan) {
+      repairPlan = healedRepairPlan;
+      controlPlanePersistence = await captureOptional(
+        "sync_control_plane_persistence_refresh",
+        getSyncControlPlanePersistenceStatus({
+          ...controlPlaneIdentity,
+        }),
+        controlPlanePersistence
+      );
+    }
+  }
   const currentMode = decidePanelRecoveryMode();
   const globalExtendedExecutionEnabled = currentMode === "global_reopen";
   const effectiveLatestSync = latestSync;
@@ -1931,6 +1968,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     state: overallState,
+    controlPlaneIdentity,
+    controlPlanePersistence,
     deployGate: gateRecords?.deployGate ?? null,
     releaseGate: gateRecords?.releaseGate ?? null,
     repairPlan: repairPlan ?? null,

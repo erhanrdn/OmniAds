@@ -217,7 +217,12 @@ vi.mock("@/lib/sync/release-gates", () => ({
 }));
 
 vi.mock("@/lib/sync/repair-planner", () => ({
+  evaluateAndPersistSyncRepairPlan: vi.fn(),
   getLatestSyncRepairPlan: vi.fn(),
+}));
+
+vi.mock("@/lib/sync/control-plane-persistence", () => ({
+  getSyncControlPlanePersistenceStatus: vi.fn(),
 }));
 
 const access = await import("@/lib/access");
@@ -235,6 +240,7 @@ const statusMachine = await import("@/lib/google-ads/status-machine");
 const requestGovernance = await import("@/lib/provider-request-governance");
 const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
+const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
@@ -311,6 +317,43 @@ describe("GET /api/google-ads/status", () => {
       releaseGate: null,
     } as never);
     vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockResolvedValue(null);
+    vi.mocked(repairPlanner.evaluateAndPersistSyncRepairPlan).mockResolvedValue({
+      id: "rp-healed",
+      buildId: "runtime-build",
+      environment: "production",
+      providerScope: "google_ads",
+      planMode: "dry_run",
+      eligible: true,
+      blockedReason: null,
+      breakGlass: false,
+      summary: "Google repair dry-run proposed 0 recommendation(s).",
+      recommendations: [],
+      emittedAt: "2026-04-10T00:00:00.000Z",
+    } as never);
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus).mockResolvedValue({
+      identity: {
+        buildId: "runtime-build",
+        environment: "production",
+        providerScope: "google_ads",
+      },
+      exact: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      fallbackByBuild: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      latest: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      missingExact: ["deployGate", "releaseGate", "repairPlan"],
+      exactRowsPresent: false,
+    } as never);
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
     vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue(null);
     vi.mocked(searchIntelligenceStorage.readGoogleAdsSearchIntelligenceCoverage).mockResolvedValue({
@@ -492,6 +535,51 @@ describe("GET /api/google-ads/status", () => {
       recommendations: [],
       emittedAt: "2026-04-10T00:00:00.000Z",
     } as never);
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus).mockResolvedValue({
+      identity: {
+        buildId: "dev-build",
+        environment: "test",
+        providerScope: "google_ads",
+      },
+      exact: {
+        deployGate: {
+          id: "dg-1",
+          buildId: "runtime-build",
+          environment: "production",
+          gateKind: "deploy_gate",
+          verdict: "pass",
+          emittedAt: "2026-04-10T00:00:00.000Z",
+        },
+        releaseGate: {
+          id: "rg-1",
+          buildId: "runtime-build",
+          environment: "production",
+          gateKind: "release_gate",
+          verdict: "measure_only",
+          emittedAt: "2026-04-10T00:00:00.000Z",
+        },
+        repairPlan: {
+          id: "rp-1",
+          buildId: "runtime-build",
+          environment: "production",
+          providerScope: "google_ads",
+          eligible: true,
+          emittedAt: "2026-04-10T00:00:00.000Z",
+        },
+      },
+      fallbackByBuild: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      latest: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      missingExact: [],
+      exactRowsPresent: true,
+    } as never);
 
     const response = await GET(
       new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
@@ -550,6 +638,14 @@ describe("GET /api/google-ads/status", () => {
     });
     expect(payload.syncTruthState).toBe("ready");
     expect(payload.blockerClass).toBe("none");
+    expect(payload.controlPlaneIdentity).toEqual({
+      buildId: "dev-build",
+      environment: "test",
+      providerScope: "google_ads",
+    });
+    expect(payload.controlPlanePersistence).toMatchObject({
+      exactRowsPresent: true,
+    });
     expect(payload.deployGate).toMatchObject({
       id: "dg-1",
       verdict: "pass",
@@ -919,5 +1015,169 @@ describe("GET /api/google-ads/status", () => {
       },
     });
     expect(payload.readinessLevel).not.toBe("ready");
+  });
+
+  it("self-heals a missing exact google repair plan when shared gates already exist", async () => {
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: {
+        id: "dg-1",
+        gateKind: "deploy_gate",
+        buildId: "runtime-build",
+        environment: "production",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "deploy ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-10T00:00:00.000Z",
+      },
+      releaseGate: {
+        id: "rg-1",
+        gateKind: "release_gate",
+        buildId: "runtime-build",
+        environment: "production",
+        mode: "measure_only",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "release ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-10T00:00:00.000Z",
+      },
+    } as never);
+    vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockResolvedValue(null);
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus)
+      .mockResolvedValueOnce({
+        identity: {
+          buildId: "runtime-build",
+          environment: "production",
+          providerScope: "google_ads",
+        },
+        exact: {
+          deployGate: {
+            id: "dg-1",
+            buildId: "runtime-build",
+            environment: "production",
+            gateKind: "deploy_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-10T00:00:00.000Z",
+          },
+          releaseGate: {
+            id: "rg-1",
+            buildId: "runtime-build",
+            environment: "production",
+            gateKind: "release_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-10T00:00:00.000Z",
+          },
+          repairPlan: null,
+        },
+        fallbackByBuild: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        latest: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        missingExact: ["repairPlan"],
+        exactRowsPresent: false,
+      } as never)
+      .mockResolvedValueOnce({
+        identity: {
+          buildId: "runtime-build",
+          environment: "production",
+          providerScope: "google_ads",
+        },
+        exact: {
+          deployGate: {
+            id: "dg-1",
+            buildId: "runtime-build",
+            environment: "production",
+            gateKind: "deploy_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-10T00:00:00.000Z",
+          },
+          releaseGate: {
+            id: "rg-1",
+            buildId: "runtime-build",
+            environment: "production",
+            gateKind: "release_gate",
+            verdict: "pass",
+            emittedAt: "2026-04-10T00:00:00.000Z",
+          },
+          repairPlan: {
+            id: "rp-healed",
+            buildId: "runtime-build",
+            environment: "production",
+            providerScope: "google_ads",
+            eligible: true,
+            emittedAt: "2026-04-10T00:00:00.000Z",
+          },
+        },
+        fallbackByBuild: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        latest: {
+          deployGate: null,
+          releaseGate: null,
+          repairPlan: null,
+        },
+        missingExact: [],
+        exactRowsPresent: true,
+      } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(repairPlanner.evaluateAndPersistSyncRepairPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: "dev-build",
+        environment: "test",
+        providerScope: "google_ads",
+        persist: true,
+        releaseGate: expect.objectContaining({
+          id: "rg-1",
+        }),
+      })
+    );
+    expect(payload.repairPlan).toMatchObject({
+      id: "rp-healed",
+      providerScope: "google_ads",
+    });
+    expect(payload.controlPlanePersistence).toMatchObject({
+      exactRowsPresent: true,
+      missingExact: [],
+    });
   });
 });
