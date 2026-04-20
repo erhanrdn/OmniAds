@@ -1,4 +1,5 @@
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
+import type { GoogleAdsSyncStateRecord } from "@/lib/google-ads/warehouse-types";
 
 const GOOGLE_ADS_CONTROL_PLANE_SCOPES = [
   "account_daily",
@@ -17,6 +18,47 @@ export type GoogleAdsControlPlaneBusiness = {
   businessName: string | null;
   assignedAccountCount: number;
 };
+
+export function resolveGoogleAdsControlPlaneSyncTruth(input: {
+  latestSyncStatus?: string | null;
+  queueDepth: number;
+  deadLetterPartitions: number;
+  scopeStates: GoogleAdsSyncStateRecord[];
+  recentWindowMinutes?: number;
+  nowMs?: number;
+}) {
+  const recentWindowMinutes = Math.max(1, input.recentWindowMinutes ?? 20);
+  const nowMs = input.nowMs ?? Date.now();
+  const latestSuccessfulScopeSyncAt =
+    input.scopeStates
+      .map((row) => row.latestSuccessfulSyncAt)
+      .filter((value): value is string => Boolean(value))
+      .map((value) => Date.parse(value))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => b - a)[0] ?? null;
+  const hasRecentSuccessfulScopeSync =
+    latestSuccessfulScopeSyncAt != null &&
+    nowMs - latestSuccessfulScopeSyncAt <= recentWindowMinutes * 60_000;
+  const effectiveLatestSyncStatus =
+    input.latestSyncStatus === "failed"
+      ? "failed"
+      : input.queueDepth === 0 &&
+          input.deadLetterPartitions === 0 &&
+          hasRecentSuccessfulScopeSync
+        ? "succeeded"
+        : input.latestSyncStatus ?? null;
+
+  return {
+    effectiveLatestSyncStatus,
+    hasRecentSuccessfulScopeSync,
+    fullyReady:
+      input.queueDepth === 0 &&
+      input.deadLetterPartitions === 0 &&
+      effectiveLatestSyncStatus !== "failed" &&
+      (effectiveLatestSyncStatus === "succeeded" ||
+        hasRecentSuccessfulScopeSync),
+  };
+}
 
 export async function readConnectedGoogleAdsControlPlaneBusinesses() {
   const { getDb } = await import("@/lib/db");
@@ -100,26 +142,31 @@ export async function buildGoogleAdsReleaseGateCanaries(
         queueHealth.latestExtendedActivityAt ??
         queueHealth.latestMaintenanceActivityAt ??
         null;
+      const flattenedScopeStates = scopeStates.flatMap((rows) => rows);
       const progressEvidence = buildProviderProgressEvidence({
-        states: scopeStates.flatMap((rows) => rows),
+        states: flattenedScopeStates,
         checkpointUpdatedAt: checkpointHealth?.latestCheckpointUpdatedAt ?? null,
         recentActivityWindowMinutes: 20,
         aggregation: "latest",
       });
       const latestSyncStatus =
         latestSyncHealth?.status != null ? String(latestSyncHealth.status) : null;
+      const controlPlaneSyncTruth = resolveGoogleAdsControlPlaneSyncTruth({
+        latestSyncStatus,
+        queueDepth: queueHealth.queueDepth,
+        deadLetterPartitions: queueHealth.deadLetterPartitions,
+        scopeStates: flattenedScopeStates,
+      });
       const blocked =
-        queueHealth.deadLetterPartitions > 0 || latestSyncStatus === "failed";
+        queueHealth.deadLetterPartitions > 0 ||
+        controlPlaneSyncTruth.effectiveLatestSyncStatus === "failed";
       const progressState = deriveProviderProgressState({
         queueDepth: queueHealth.queueDepth,
         leasedPartitions: queueHealth.leasedPartitions,
         checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
         latestPartitionActivityAt: latestGoogleActivityAt,
         blocked,
-        fullyReady:
-          latestSyncStatus === "succeeded" &&
-          queueHealth.queueDepth === 0 &&
-          queueHealth.deadLetterPartitions === 0,
+        fullyReady: controlPlaneSyncTruth.fullyReady,
         staleRunPressure: 0,
         progressEvidence,
       });
@@ -139,7 +186,7 @@ export async function buildGoogleAdsReleaseGateCanaries(
         progressEvidence,
         blockedReasonCodes: queueHealth.deadLetterPartitions > 0
           ? ["required_dead_letter_partitions"]
-          : latestSyncStatus === "failed"
+          : controlPlaneSyncTruth.effectiveLatestSyncStatus === "failed"
             ? ["latest_sync_failed"]
             : [],
         historicalBacklogDepth:
@@ -175,7 +222,7 @@ export async function buildGoogleAdsReleaseGateCanaries(
         blockerClass: candidate?.blockerClass ?? "not_release_ready",
         evidence: {
           ...(candidate?.evidence ?? {}),
-          latestSyncStatus,
+          latestSyncStatus: controlPlaneSyncTruth.effectiveLatestSyncStatus,
         },
       };
     }),
