@@ -77,6 +77,7 @@ const {
   backfillGoogleAdsRunningRunsForTerminalPartition,
   cleanupGoogleAdsPartitionOrchestration,
   completeGoogleAdsPartitionAttempt,
+  getGoogleAdsPartitionHealth,
   getGoogleAdsWarehouseIntegrityIncidents,
   heartbeatGoogleAdsPartitionLease,
   leaseGoogleAdsSyncPartitions,
@@ -980,6 +981,42 @@ describe("google ads warehouse ownership safety", () => {
     expect(cleanupQuery).toContain(
       "COALESCE(partition.lease_epoch, 0) AS partition_lease_epoch",
     );
+  });
+});
+
+describe("getGoogleAdsPartitionHealth", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("ignores terminal partition timestamps when reporting latest activity", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("MAX(updated_at) FILTER")) {
+        return [
+          {
+            queue_depth: 0,
+            leased_partitions: 0,
+            dead_letter_partitions: 0,
+            oldest_queued_partition: null,
+            latest_activity_at: null,
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const result = await getGoogleAdsPartitionHealth({
+      businessId: "biz-1",
+      providerAccountId: "acct-1",
+      scope: "asset_daily",
+      lane: "extended",
+    });
+
+    expect(result.latestActivityAt).toBeNull();
+    expect(result.queueDepth).toBe(0);
+    expect(result.leasedPartitions).toBe(0);
   });
 });
 

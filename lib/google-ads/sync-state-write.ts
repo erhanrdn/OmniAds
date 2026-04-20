@@ -1,18 +1,5 @@
 import type { GoogleAdsSyncStateRecord } from "@/lib/google-ads/warehouse-types";
 
-function pickNewestTimestamp(
-  left: string | null | undefined,
-  right: string | null | undefined,
-) {
-  if (!left) return right ?? null;
-  if (!right) return left;
-  const leftMs = Date.parse(left);
-  const rightMs = Date.parse(right);
-  if (!Number.isFinite(leftMs)) return right;
-  if (!Number.isFinite(rightMs)) return left;
-  return leftMs >= rightMs ? left : right;
-}
-
 export function mergeGoogleAdsSyncStateWrite(input: {
   existing: GoogleAdsSyncStateRecord | null;
   next: GoogleAdsSyncStateRecord;
@@ -30,13 +17,14 @@ export function mergeGoogleAdsSyncStateWrite(input: {
     lastSuccessfulPartitionDate: wouldEraseKnownCoverage
       ? existing.lastSuccessfulPartitionDate ?? next.lastSuccessfulPartitionDate ?? null
       : next.lastSuccessfulPartitionDate,
-    latestBackgroundActivityAt: pickNewestTimestamp(
-      existing.latestBackgroundActivityAt,
-      next.latestBackgroundActivityAt,
-    ),
-    latestSuccessfulSyncAt: pickNewestTimestamp(
-      existing.latestSuccessfulSyncAt,
-      next.latestSuccessfulSyncAt,
-    ),
+    // Current background activity should mirror active partition truth, not
+    // keep stale terminal-partition timestamps alive forever.
+    latestBackgroundActivityAt: next.latestBackgroundActivityAt ?? null,
+    // Successful sync time follows warehouse coverage truth. Only preserve the
+    // existing value when a no-op refresh temporarily erases known coverage.
+    latestSuccessfulSyncAt:
+      wouldEraseKnownCoverage && !next.latestSuccessfulSyncAt
+        ? existing.latestSuccessfulSyncAt ?? null
+        : next.latestSuccessfulSyncAt ?? null,
   };
 }

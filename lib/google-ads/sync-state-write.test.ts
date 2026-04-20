@@ -34,6 +34,7 @@ describe("mergeGoogleAdsSyncStateWrite", () => {
     expect(result.completedDays).toBe(730);
     expect(result.readyThroughDate).toBe("2025-12-31");
     expect(result.lastSuccessfulPartitionDate).toBe("2025-12-31");
+    expect(result.latestSuccessfulSyncAt).toBe("2026-03-31T07:00:00.000Z");
   });
 
   it("allows valid non-zero updates through", () => {
@@ -51,23 +52,21 @@ describe("mergeGoogleAdsSyncStateWrite", () => {
     expect(result.readyThroughDate).toBe("2026-01-01");
   });
 
-  it("preserves the last real activity and success timestamps when a no-op refresh reports none", () => {
+  it("clears stale background activity when no active partitions remain", () => {
     const result = mergeGoogleAdsSyncStateWrite({
       existing: baseState,
       next: {
         ...baseState,
         latestBackgroundActivityAt: null,
-        latestSuccessfulSyncAt: null,
+        latestSuccessfulSyncAt: "2026-03-31T07:00:00.000Z",
       },
     });
 
-    expect(result.latestBackgroundActivityAt).toBe(
-      "2026-03-31T07:00:00.000Z",
-    );
+    expect(result.latestBackgroundActivityAt).toBeNull();
     expect(result.latestSuccessfulSyncAt).toBe("2026-03-31T07:00:00.000Z");
   });
 
-  it("accepts newer real activity timestamps", () => {
+  it("accepts authoritative activity timestamps", () => {
     const result = mergeGoogleAdsSyncStateWrite({
       existing: baseState,
       next: {
@@ -81,5 +80,22 @@ describe("mergeGoogleAdsSyncStateWrite", () => {
       "2026-04-01T07:00:00.000Z",
     );
     expect(result.latestSuccessfulSyncAt).toBe("2026-04-01T07:00:00.000Z");
+  });
+
+  it("allows authoritative warehouse success time to overwrite a falsely newer timestamp", () => {
+    const result = mergeGoogleAdsSyncStateWrite({
+      existing: {
+        ...baseState,
+        latestSuccessfulSyncAt: "2026-04-20T20:40:00.000Z",
+      },
+      next: {
+        ...baseState,
+        latestBackgroundActivityAt: null,
+        latestSuccessfulSyncAt: "2026-01-14T08:00:00.000Z",
+      },
+    });
+
+    expect(result.latestBackgroundActivityAt).toBeNull();
+    expect(result.latestSuccessfulSyncAt).toBe("2026-01-14T08:00:00.000Z");
   });
 });

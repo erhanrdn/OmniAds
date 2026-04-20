@@ -5032,7 +5032,7 @@ export async function getGoogleAdsPartitionHealth(input: {
       COUNT(*) FILTER (WHERE status IN ('leased', 'running')) AS leased_partitions,
       COUNT(*) FILTER (WHERE status = 'dead_letter') AS dead_letter_partitions,
       MIN(partition_date) FILTER (WHERE status = 'queued') AS oldest_queued_partition,
-      MAX(updated_at) AS latest_activity_at
+      MAX(updated_at) FILTER (WHERE status IN ('queued', 'leased', 'running', 'dead_letter')) AS latest_activity_at
     FROM google_ads_sync_partitions
     WHERE business_id = ${input.businessId}
       AND (${input.providerAccountId ?? null}::text IS NULL OR provider_account_id = ${input.providerAccountId ?? null})
