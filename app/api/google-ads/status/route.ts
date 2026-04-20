@@ -674,7 +674,7 @@ export async function GET(request: NextRequest) {
     syncIncidents: incidentSummaryResult.error,
   };
   const currentMode = decidePanelRecoveryMode();
-  const globalExtendedExecutionEnabled = currentMode === "global_reopen";
+  const globalExtendedExecutionEnabled = currentMode !== "safe_mode";
   const effectiveLatestSync = latestSync;
   const lastTargetedRepair =
     effectiveLatestSync?.trigger_source &&
@@ -1969,7 +1969,9 @@ export async function GET(request: NextRequest) {
         ? {
             state: "globally_enabled" as const,
             summary:
-              "Extended Google Ads rebuild execution is globally enabled under explicit operator posture, subject to quota, breaker, and worker-safety guards.",
+              currentMode === "global_reopen"
+                ? "Extended Google Ads rebuild execution is globally enabled under explicit operator posture, subject to quota, breaker, and worker-safety guards."
+                : "Extended Google Ads rebuild execution is enabled under bounded backfill posture, subject to quota, breaker, worker-safety, and priority guards.",
           }
         : {
             state: "disabled" as const,

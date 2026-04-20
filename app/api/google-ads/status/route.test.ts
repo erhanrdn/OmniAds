@@ -667,7 +667,7 @@ describe("GET /api/google-ads/status", () => {
     });
     expect(payload.operations).toMatchObject({
       currentMode: "global_backfill",
-      globalExtendedExecutionEnabled: false,
+      globalExtendedExecutionEnabled: true,
       activityState: "ready",
       advisorReadinessModel: "recent_84d_required_support",
       advisorReadinessWindowDays: 84,
@@ -687,7 +687,7 @@ describe("GET /api/google-ads/status", () => {
         automaticEnablement: false,
       },
       execution: {
-        sync: { state: "disabled" },
+        sync: { state: "globally_enabled" },
         retention: { state: "dry_run" },
       },
     });
@@ -877,7 +877,7 @@ describe("GET /api/google-ads/status", () => {
     });
     expect(payload.operations).toMatchObject({
       currentMode: "global_backfill",
-      globalExtendedExecutionEnabled: false,
+      globalExtendedExecutionEnabled: true,
       advisorActionContractVersion: "google_ads_advisor_action_v2",
       advisorActionContractSource: "native",
       advisorAggregateTopQueryWeeklyAvailable: true,
@@ -943,7 +943,7 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.warehouseState).toBe("ready");
     expect(payload.operatorTruth).toMatchObject({
       execution: {
-        sync: { state: "disabled" },
+        sync: { state: "globally_enabled" },
       },
     });
     expect(payload.completionBasis).toEqual(

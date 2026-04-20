@@ -1,5 +1,9 @@
 # ADR-001 — Legacy-First Sync Control Plane
 
+See also:
+
+- [Sync Control Plane Product Readiness And Google Ads Runtime](/Users/harmelek/Adsecute/docs/architecture/sync-control-plane-product-readiness-and-google-ads-runtime.md)
+
 ## Status
 Accepted
 

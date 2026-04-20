@@ -900,8 +900,7 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
   const quotaPressure = input.quotaPressure ?? 0;
   const maintenanceBudgetAllowed = input.maintenanceBudgetAllowed ?? true;
   const extendedBudgetAllowed = input.extendedBudgetAllowed ?? true;
-  const extendedCanaryEligible =
-    input.extendedCanaryEligible ?? GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED;
+  const extendedCanaryEligible = input.extendedCanaryEligible ?? true;
   const suspendExtendedRecent =
     input.safeModeEnabled ||
     !input.workerHealthy ||
@@ -1220,9 +1219,15 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
     policy: incidentPolicy,
     fullSyncPriorityRequired: fullSyncPriority.required,
   });
+  const allowPriorityHistoricalReplay =
+    shouldAllowGoogleAdsPriorityHistoricalReplay({
+      fullSyncPriorityRequired: fullSyncPriority.required,
+      fullSyncPriorityTargetScopes: fullSyncPriority.targetScopes,
+    });
   const blockHistoricalExtendedWork =
     shouldBlockGoogleAdsHistoricalExtendedWork({
       recent90Complete: recent90State?.complete ?? true,
+      allowPriorityHistorical: allowPriorityHistoricalReplay,
     });
   const historicalLeaseStartDate =
     fullSyncPriority.historicalStart && recent90State?.recent90Start
@@ -1587,7 +1592,7 @@ export async function getGoogleAdsIncidentPolicy(input: {
           GOOGLE_ADS_EXTENDED_WORKER_LIMIT,
         1,
       );
-  const extendedCanaryEligible = GOOGLE_ADS_EXTENDED_REOPEN_GENERAL_ENABLED;
+  const extendedCanaryEligible = true;
 
   const policy = buildGoogleAdsLaneAdmissionPolicy({
     safeModeEnabled: isGoogleAdsIncidentSafeModeEnabled(),
@@ -1654,11 +1659,13 @@ async function enqueueExtendedRecoveryPartitions(input: {
   policy: Awaited<ReturnType<typeof getGoogleAdsIncidentPolicy>>;
   scopes?: GoogleAdsWarehouseScope[];
   recent90Complete?: boolean;
+  allowPriorityHistorical?: boolean;
 }) {
   if (
     input.policy.lanePolicy.extendedHistorical === "suspended" ||
     shouldBlockGoogleAdsHistoricalExtendedWork({
       recent90Complete: input.recent90Complete ?? true,
+      allowPriorityHistorical: input.allowPriorityHistorical,
     })
   ) {
     return {
@@ -1748,10 +1755,12 @@ async function cancelHistoricalExtendedBacklog(input: {
   businessId: string;
   recent90Complete: boolean;
   scopeFilter?: GoogleAdsWarehouseScope[];
+  allowPriorityHistorical?: boolean;
 }) {
   if (
     !shouldBlockGoogleAdsHistoricalExtendedWork({
       recent90Complete: input.recent90Complete,
+      allowPriorityHistorical: input.allowPriorityHistorical,
     })
   ) {
     return 0;
@@ -3231,8 +3240,19 @@ export function decideGoogleAdsHistoricalFrontier(input: {
 
 export function shouldBlockGoogleAdsHistoricalExtendedWork(input: {
   recent90Complete: boolean;
+  allowPriorityHistorical?: boolean;
 }) {
-  return !input.recent90Complete;
+  return !input.recent90Complete && !input.allowPriorityHistorical;
+}
+
+export function shouldAllowGoogleAdsPriorityHistoricalReplay(input: {
+  fullSyncPriorityRequired: boolean;
+  fullSyncPriorityTargetScopes: GoogleAdsWarehouseScope[];
+}) {
+  return (
+    input.fullSyncPriorityRequired &&
+    input.fullSyncPriorityTargetScopes.length > 0
+  );
 }
 
 export function planGoogleAdsRecentMaintenanceDates(input: {
@@ -4836,10 +4856,8 @@ async function refreshGoogleAdsSyncStateForPartition(input: {
     effectiveTargetEnd: yesterday,
     readyThroughDate,
     lastSuccessfulPartitionDate: coverage?.ready_through_date ?? null,
-    latestBackgroundActivityAt:
-      partitionHealth?.latestActivityAt ?? new Date().toISOString(),
-    latestSuccessfulSyncAt:
-      coverage?.latest_updated_at ?? new Date().toISOString(),
+    latestBackgroundActivityAt: partitionHealth?.latestActivityAt ?? null,
+    latestSuccessfulSyncAt: coverage?.latest_updated_at ?? null,
     completedDays: coverage?.completed_days ?? 0,
     deadLetterCount: partitionHealth?.deadLetterPartitions ?? 0,
   });
@@ -5852,9 +5870,15 @@ export async function syncGoogleAdsReports(
       policy: initialIncidentPolicy,
       fullSyncPriorityRequired: fullSyncPriority.required,
     });
+  const allowPriorityHistoricalReplay =
+    shouldAllowGoogleAdsPriorityHistoricalReplay({
+      fullSyncPriorityRequired: fullSyncPriority.required,
+      fullSyncPriorityTargetScopes: fullSyncPriority.targetScopes,
+    });
   const blockHistoricalExtendedWork =
     shouldBlockGoogleAdsHistoricalExtendedWork({
       recent90Complete: recent90State?.complete ?? true,
+      allowPriorityHistorical: allowPriorityHistoricalReplay,
     });
   if (effectiveInitialIncidentPolicy) {
     await compactGoogleAdsIncidentBacklog({
@@ -5868,6 +5892,7 @@ export async function syncGoogleAdsReports(
     scopeFilter: fullSyncPriority.required
       ? fullSyncPriority.targetScopes
       : undefined,
+    allowPriorityHistorical: allowPriorityHistoricalReplay,
   }).catch(() => 0);
 
   const backgroundSyncKeys = getBackgroundSyncKeys();
@@ -5981,6 +6006,7 @@ export async function syncGoogleAdsReports(
         scopes: fullSyncPriority.required
           ? fullSyncPriority.targetScopes
           : undefined,
+        allowPriorityHistorical: allowPriorityHistoricalReplay,
       }).catch(() => ({ queuedHistorical: 0 }));
     }
 

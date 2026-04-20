@@ -20,6 +20,7 @@ import {
   logGoogleAdsPhaseTelemetry,
   shouldRetryGoogleAdsEmptyCampaignDaily,
   shouldBlockGoogleAdsHistoricalExtendedWork,
+  shouldAllowGoogleAdsPriorityHistoricalReplay,
   shouldLeaseGoogleAdsRecentRepair,
   summarizeGoogleAdsIntegrityIncidents,
   planGoogleAdsRecentMaintenanceDates,
@@ -54,6 +55,22 @@ describe("hasGoogleAdsInProcessBackgroundWorkerIdentity", () => {
 });
 
 describe("buildGoogleAdsLaneAdmissionPolicy", () => {
+  it("admits extended lanes by default when runtime safety guards allow them", () => {
+    const policy = buildGoogleAdsLaneAdmissionPolicy({
+      safeModeEnabled: false,
+      workerHealthy: true,
+      workerCapacityAvailable: true,
+      breakerOpen: false,
+      queueDepth: 0,
+      extendedQueueDepth: 0,
+      extendedBudgetAllowed: true,
+    });
+
+    expect(policy.lanePolicy.extended).toBe("admit");
+    expect(policy.lanePolicy.extendedHistorical).toBe("admit");
+    expect(policy.extendedCanaryEligible).toBe(true);
+  });
+
   it("suspends extended lanes when safe mode is enabled", () => {
     const policy = buildGoogleAdsLaneAdmissionPolicy({
       safeModeEnabled: true,
@@ -948,6 +965,31 @@ describe("buildGoogleAdsPrimaryLeasePlan", () => {
     expect(plan.historicalFairnessLimit).toBeGreaterThan(0);
     expect(plan.recentRepairLimit).toBeGreaterThan(0);
     expect(plan.fullSyncPriorityLimit).toBeGreaterThan(0);
+  });
+});
+
+describe("shouldBlockGoogleAdsHistoricalExtendedWork", () => {
+  it("keeps historical extended blocked until the recent 90-day frontier is complete", () => {
+    expect(
+      shouldBlockGoogleAdsHistoricalExtendedWork({
+        recent90Complete: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows priority historical replay while full-sync priority scopes are still incomplete", () => {
+    expect(
+      shouldAllowGoogleAdsPriorityHistoricalReplay({
+        fullSyncPriorityRequired: true,
+        fullSyncPriorityTargetScopes: ["search_term_daily", "product_daily"],
+      }),
+    ).toBe(true);
+    expect(
+      shouldBlockGoogleAdsHistoricalExtendedWork({
+        recent90Complete: false,
+        allowPriorityHistorical: true,
+      }),
+    ).toBe(false);
   });
 });
 

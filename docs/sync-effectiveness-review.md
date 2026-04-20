@@ -1,5 +1,9 @@
 # Sync Effectiveness Review
 
+See also:
+
+- [Sync Control Plane Product Readiness And Google Ads Runtime](/Users/harmelek/Adsecute/docs/architecture/sync-control-plane-product-readiness-and-google-ads-runtime.md)
+
 Use one global workflow to judge whether the rebuilt Google Ads and Meta syncs are actually improving right now:
 
 - Admin: `/admin/sync-health`

@@ -50,4 +50,36 @@ describe("mergeGoogleAdsSyncStateWrite", () => {
     expect(result.completedDays).toBe(731);
     expect(result.readyThroughDate).toBe("2026-01-01");
   });
+
+  it("preserves the last real activity and success timestamps when a no-op refresh reports none", () => {
+    const result = mergeGoogleAdsSyncStateWrite({
+      existing: baseState,
+      next: {
+        ...baseState,
+        latestBackgroundActivityAt: null,
+        latestSuccessfulSyncAt: null,
+      },
+    });
+
+    expect(result.latestBackgroundActivityAt).toBe(
+      "2026-03-31T07:00:00.000Z",
+    );
+    expect(result.latestSuccessfulSyncAt).toBe("2026-03-31T07:00:00.000Z");
+  });
+
+  it("accepts newer real activity timestamps", () => {
+    const result = mergeGoogleAdsSyncStateWrite({
+      existing: baseState,
+      next: {
+        ...baseState,
+        latestBackgroundActivityAt: "2026-04-01T07:00:00.000Z",
+        latestSuccessfulSyncAt: "2026-04-01T07:00:00.000Z",
+      },
+    });
+
+    expect(result.latestBackgroundActivityAt).toBe(
+      "2026-04-01T07:00:00.000Z",
+    );
+    expect(result.latestSuccessfulSyncAt).toBe("2026-04-01T07:00:00.000Z");
+  });
 });

@@ -1,5 +1,9 @@
 # Google Ads Product Truth Matrix
 
+See also:
+
+- [Sync Control Plane Product Readiness And Google Ads Runtime](/Users/harmelek/Adsecute/docs/architecture/sync-control-plane-product-readiness-and-google-ads-runtime.md)
+
 This document is the canonical source of truth for Google Ads product posture in this repo.
 
 It separates what is implemented and usable now from what is gated, partial, docs-only, or future work.
