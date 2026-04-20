@@ -3852,26 +3852,29 @@ export async function upsertGoogleAdsDailyRows(
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const table = tableNameForScope(scope);
-  const batchSize = 100;
+  const batchSize = 250;
+  const {
+    rows: dedupedRows,
+    duplicateCount,
+    duplicateExamples,
+  } = dedupeGoogleAdsWarehouseRows(rows);
 
-  for (let batchStart = 0; batchStart < rows.length; batchStart += batchSize) {
-    const batch = rows.slice(batchStart, batchStart + batchSize);
-    const {
-      rows: dedupedBatch,
+  if (duplicateCount > 0) {
+    console.warn("[google-ads-warehouse] deduped-conflicting-input-rows", {
+      scope,
+      inputSize: rows.length,
+      dedupedSize: dedupedRows.length,
       duplicateCount,
       duplicateExamples,
-    } = dedupeGoogleAdsWarehouseRows(batch);
+    });
+  }
 
-    if (duplicateCount > 0) {
-      console.warn("[google-ads-warehouse] deduped-conflicting-batch-rows", {
-        scope,
-        batchStart,
-        batchSize: batch.length,
-        dedupedSize: dedupedBatch.length,
-        duplicateCount,
-        duplicateExamples,
-      });
-    }
+  for (
+    let batchStart = 0;
+    batchStart < dedupedRows.length;
+    batchStart += batchSize
+  ) {
+    const dedupedBatch = dedupedRows.slice(batchStart, batchStart + batchSize);
     const businessRefIds = await resolveBusinessReferenceIds(
       dedupedBatch.map((row) => row.businessId),
     );

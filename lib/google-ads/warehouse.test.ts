@@ -1397,6 +1397,53 @@ describe("google ads typed dimension dual-write", () => {
     expect(dimensionInsert).toMatch(/\(\$13,\$14,\$15,\$16,\$17,\$18,\$19,\$20,\$21::jsonb,\$22::timestamptz,\$23::timestamptz,\$24::timestamptz,now\(\),now\(\)\)/);
     expect(stateHistoryInsert).toMatch(/\(\$15,\$16,\$17,\$18,\$19,\$20,\$21,\$22,\$23,\$24::jsonb,'warehouse_daily',\$25,\$26::timestamptz,\$27::date,\$28::date,now\(\)\)/);
   });
+
+  it("dedupes conflicting fact rows before batching and writing", async () => {
+    const queries: string[] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string) => {
+        queries.push(query);
+        return [];
+      }),
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertGoogleAdsDailyRows("campaign_daily", [
+      buildRow({
+        date: "2026-03-30",
+        entityKey: "cmp_1",
+        campaignId: "cmp_1",
+        campaignName: "Campaign One",
+        spend: 1,
+      }),
+      buildRow({
+        date: "2026-03-30",
+        entityKey: "cmp_1",
+        campaignId: "cmp_1",
+        campaignName: "Campaign One",
+        spend: 99,
+      }),
+    ]);
+
+    const factInsert = queries.find((query) =>
+      query.includes("INSERT INTO google_ads_campaign_daily"),
+    );
+
+    expect(factInsert).toContain("VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,now())");
+    expect(factInsert).not.toContain("),($30,");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[google-ads-warehouse] deduped-conflicting-input-rows",
+      expect.objectContaining({
+        scope: "campaign_daily",
+        inputSize: 2,
+        dedupedSize: 1,
+        duplicateCount: 1,
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe("google ads control-plane ref writes", () => {
