@@ -62,6 +62,7 @@ import {
 } from "@/lib/google-ads/advisor-ux";
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 import { resolveGoogleAdsSyncStatusPill } from "@/lib/sync/sync-status-pill";
+import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -104,27 +105,26 @@ function getGoogleAdsSyncEmptyState(
       description: `Assign at least one Google Ads account to prepare ${areaLabel.toLowerCase()}.`,
     };
   }
+  if (shouldSuppressRecoverableGoogleSyncIssue(status)) {
+    return {
+      title: `Using latest available ${areaLabel.toLowerCase()}`,
+      description: "The latest persisted Google Ads data stays visible while background refresh continues.",
+    };
+  }
   if (status.state === "action_required") {
     return {
-      title: `${areaLabel} needs a sync retry`,
+      title: `${areaLabel} is refreshing in the background`,
       description:
         status.latestSync?.lastError ??
-        "The warehouse paused while preparing this data. Existing data stays visible while sync retries in the background.",
+        "The latest persisted Google Ads data stays visible while background refresh continues.",
     };
   }
   if (status.state === "paused") {
     return {
-      title: `${areaLabel} is waiting for background sync`,
+      title: `${areaLabel} is refreshing in the background`,
       description:
         status.latestSync?.lastError ??
-        "Historical sync is currently paused. Ready data stays visible while the background worker resumes.",
-    };
-  }
-  if (status.priorityWindow?.isActive) {
-    return {
-      title: `${areaLabel} is being prepared`,
-      description:
-        "Your selected date range is being prioritized now. Ready data will appear here progressively.",
+        "The latest persisted Google Ads data stays visible while background refresh continues.",
     };
   }
   if (

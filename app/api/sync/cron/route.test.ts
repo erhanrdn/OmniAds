@@ -40,6 +40,10 @@ vi.mock("@/lib/sync/repair-planner", () => ({
   evaluateAndPersistSyncRepairPlan: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/repair-executor", () => ({
+  executeAutoSyncRepairPlan: vi.fn(),
+}));
+
 vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
   evaluateAndPersistGoogleAdsControlPlane: vi.fn(),
 }));
@@ -53,6 +57,7 @@ const shopifySync = await import("@/lib/sync/shopify-sync");
 const soakGate = await import("@/lib/sync/soak-gate");
 const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
+const repairExecutor = await import("@/lib/sync/repair-executor");
 const googleControlPlane = await import("@/lib/google-ads/control-plane-runtime");
 const { POST } = await import("@/app/api/sync/cron/route");
 
@@ -117,6 +122,22 @@ describe("POST /api/sync/cron", () => {
       summary: "no-op",
       recommendations: [],
       emittedAt: "2026-04-15T00:00:00.000Z",
+    } as never);
+    vi.mocked(repairExecutor.executeAutoSyncRepairPlan).mockResolvedValue({
+      releaseGate: null,
+      repairPlan: {
+        buildId: "sha",
+        environment: "test",
+        providerScope: "meta",
+        planMode: "auto_execute",
+        eligible: true,
+        blockedReason: null,
+        breakGlass: false,
+        summary: "no-op",
+        recommendations: [],
+        emittedAt: "2026-04-15T00:00:00.000Z",
+      },
+      results: [],
     } as never);
     vi.mocked(googleControlPlane.evaluateAndPersistGoogleAdsControlPlane).mockResolvedValue({
       identity: {
@@ -257,6 +278,7 @@ describe("POST /api/sync/cron", () => {
       releaseGate: expect.objectContaining({
         gateKind: "release_gate",
       }),
+      planMode: "auto_execute",
     });
   });
 
@@ -290,6 +312,7 @@ describe("POST /api/sync/cron", () => {
           providerScope: "google_ads",
         }),
       }),
+      planMode: "auto_execute",
     });
   });
 

@@ -2047,7 +2047,7 @@ export async function runMigrations(options?: {
           environment         TEXT NOT NULL,
           provider_scope      TEXT NOT NULL,
           plan_mode           TEXT NOT NULL
-                              CHECK (plan_mode IN ('dry_run')),
+                              CHECK (plan_mode IN ('dry_run', 'auto_execute', 'escalated_manual')),
           eligible            BOOLEAN NOT NULL DEFAULT FALSE,
           blocked_reason      TEXT,
           break_glass         BOOLEAN NOT NULL DEFAULT FALSE,
@@ -2078,8 +2078,9 @@ export async function runMigrations(options?: {
           workflow_run_id         TEXT,
           workflow_actor          TEXT,
           lock_owner              TEXT,
+          execution_signature     TEXT,
           status                  TEXT NOT NULL
-                                  CHECK (status IN ('running', 'completed', 'failed', 'locked')),
+                                  CHECK (status IN ('queued', 'running', 'succeeded', 'completed', 'failed', 'exhausted', 'locked')),
           outcome_classification  TEXT
                                   CHECK (
                                     outcome_classification IS NULL OR
@@ -2105,10 +2106,24 @@ export async function runMigrations(options?: {
           ADD COLUMN IF NOT EXISTS post_run_release_gate_id UUID`.catch(() => {}),
         sql`ALTER TABLE sync_repair_executions
           ADD COLUMN IF NOT EXISTS post_run_repair_plan_id UUID`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_executions
+          ADD COLUMN IF NOT EXISTS execution_signature TEXT`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_plans
+          DROP CONSTRAINT IF EXISTS sync_repair_plans_plan_mode_check`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_plans
+          ADD CONSTRAINT sync_repair_plans_plan_mode_check
+          CHECK (plan_mode IN ('dry_run', 'auto_execute', 'escalated_manual'))`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_executions
+          DROP CONSTRAINT IF EXISTS sync_repair_executions_status_check`.catch(() => {}),
+        sql`ALTER TABLE sync_repair_executions
+          ADD CONSTRAINT sync_repair_executions_status_check
+          CHECK (status IN ('queued', 'running', 'succeeded', 'completed', 'failed', 'exhausted', 'locked'))`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_build
           ON sync_repair_executions (build_id, environment, provider_scope, started_at DESC)`.catch(() => {}),
         sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_business
           ON sync_repair_executions (business_id, provider_scope, started_at DESC)`.catch(() => {}),
+        sql`CREATE INDEX IF NOT EXISTS idx_sync_repair_executions_signature
+          ON sync_repair_executions (provider_scope, business_id, execution_signature, started_at DESC)`.catch(() => {}),
         sql`CREATE TABLE IF NOT EXISTS meta_sync_state (
           business_id                   TEXT NOT NULL,
           provider_account_id           TEXT NOT NULL,

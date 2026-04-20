@@ -12,6 +12,7 @@ import {
   shouldEnforceSyncGateFailure,
 } from "@/lib/sync/release-gates";
 import { evaluateAndPersistSyncRepairPlan } from "@/lib/sync/repair-planner";
+import { executeAutoSyncRepairPlan } from "@/lib/sync/repair-executor";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 /**
@@ -107,10 +108,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const repairPlan = await evaluateAndPersistSyncRepairPlan({
+    let repairPlan = await evaluateAndPersistSyncRepairPlan({
       buildId: requestedBuildId,
       providerScope,
       releaseGate: gateVerdicts.releaseGate,
+      planMode: "auto_execute",
     }).catch((error) => {
       console.error("[sync-cron] control_plane_repair_plan_failed", error);
       return null;
@@ -129,14 +131,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const blocked = enforceDeployGate && shouldEnforceSyncGateFailure([gateVerdicts.deployGate]);
+    const autoRepair =
+      repairPlan.recommendations.length > 0
+        ? await executeAutoSyncRepairPlan({
+            buildId: requestedBuildId,
+            providerScope,
+            source: "cron",
+            consumeQueuedMetaWork: providerScope === "meta",
+            releaseGate: gateVerdicts.releaseGate,
+            repairPlan,
+          }).catch((error) => {
+            console.error("[sync-cron] control_plane_auto_repair_failed", error);
+            return null;
+          })
+        : null;
+
+    const responseGateVerdicts =
+      autoRepair?.releaseGate != null
+        ? {
+            ...gateVerdicts,
+            releaseGate: autoRepair.releaseGate,
+          }
+        : gateVerdicts;
+    if (autoRepair?.repairPlan) {
+      repairPlan = autoRepair.repairPlan;
+    }
+
+    const blocked =
+      enforceDeployGate && shouldEnforceSyncGateFailure([responseGateVerdicts.deployGate]);
     return NextResponse.json(
       {
         ok: !blocked,
         controlPlaneOnly: true,
         providerScope,
-        gateVerdicts,
+        gateVerdicts: responseGateVerdicts,
         repairPlan,
+        autoRepairResults: autoRepair?.results ?? [],
       },
       { status: blocked ? 503 : 200 },
     );
@@ -217,16 +247,77 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const gateVerdicts = await evaluateAndPersistSyncGates().catch((error) => {
+  let gateVerdicts = await evaluateAndPersistSyncGates().catch((error) => {
     console.error("[sync-cron] sync_gate_evaluation_failed", error);
     return null;
   });
-  const repairPlan = await evaluateAndPersistSyncRepairPlan({
+  let repairPlan = await evaluateAndPersistSyncRepairPlan({
     providerScope: "meta",
+    releaseGate: gateVerdicts?.releaseGate ?? null,
+    planMode: "auto_execute",
   }).catch((error) => {
     console.error("[sync-cron] sync_repair_plan_failed", error);
     return null;
   });
+  const metaAutoRepair =
+    gateVerdicts && repairPlan && repairPlan.recommendations.length > 0
+      ? await executeAutoSyncRepairPlan({
+          providerScope: "meta",
+          source: "cron",
+          consumeQueuedMetaWork: true,
+          releaseGate: gateVerdicts.releaseGate,
+          repairPlan,
+        }).catch((error) => {
+          console.error("[sync-cron] meta_auto_repair_failed", error);
+          return null;
+        })
+      : null;
+  if (metaAutoRepair?.releaseGate) {
+    gateVerdicts = {
+      ...gateVerdicts!,
+      releaseGate: metaAutoRepair.releaseGate,
+    };
+  }
+  if (metaAutoRepair?.repairPlan) {
+    repairPlan = metaAutoRepair.repairPlan;
+  }
+
+  let googleGateVerdicts = await evaluateAndPersistGoogleAdsControlPlane().catch((error) => {
+    console.error("[sync-cron] google_control_plane_evaluation_failed", error);
+    return null;
+  });
+  let googleRepairPlan = await evaluateAndPersistSyncRepairPlan({
+    providerScope: "google_ads",
+    releaseGate: googleGateVerdicts?.releaseGate ?? null,
+    planMode: "auto_execute",
+  }).catch((error) => {
+    console.error("[sync-cron] google_sync_repair_plan_failed", error);
+    return null;
+  });
+  const googleAutoRepair =
+    googleGateVerdicts && googleRepairPlan && googleRepairPlan.recommendations.length > 0
+      ? await executeAutoSyncRepairPlan({
+          providerScope: "google_ads",
+          source: "cron",
+          releaseGate: googleGateVerdicts.releaseGate,
+          repairPlan: googleRepairPlan,
+        }).catch((error) => {
+          console.error("[sync-cron] google_auto_repair_failed", error);
+          return null;
+        })
+      : null;
+  if (googleAutoRepair?.releaseGate) {
+    googleGateVerdicts = {
+      ...googleGateVerdicts!,
+      releaseGate:
+        googleAutoRepair.releaseGate as NonNullable<
+          typeof googleGateVerdicts
+        >["releaseGate"],
+    };
+  }
+  if (googleAutoRepair?.repairPlan) {
+    googleRepairPlan = googleAutoRepair.repairPlan;
+  }
 
   logRuntimeInfo("sync-cron", "completed", {
     businessCount: businesses.length,
@@ -237,6 +328,8 @@ export async function POST(request: NextRequest) {
     releaseGateVerdict: gateVerdicts?.releaseGate?.verdict ?? null,
     repairPlanEligible: repairPlan?.eligible ?? null,
     repairRecommendationCount: repairPlan?.recommendations.length ?? null,
+    googleReleaseGateVerdict: googleGateVerdicts?.releaseGate?.verdict ?? null,
+    googleRepairRecommendationCount: googleRepairPlan?.recommendations.length ?? null,
   });
   return NextResponse.json(
     {
@@ -246,6 +339,10 @@ export async function POST(request: NextRequest) {
       ...(soakGate ? { soakGate } : {}),
       ...(gateVerdicts ? { gateVerdicts } : {}),
       ...(repairPlan ? { repairPlan } : {}),
+      ...(googleGateVerdicts ? { googleGateVerdicts } : {}),
+      ...(googleRepairPlan ? { googleRepairPlan } : {}),
+      ...(metaAutoRepair ? { metaAutoRepairResults: metaAutoRepair.results } : {}),
+      ...(googleAutoRepair ? { googleAutoRepairResults: googleAutoRepair.results } : {}),
     },
     { status: soakGate?.outcome === "fail" ? 503 : 200 }
   );

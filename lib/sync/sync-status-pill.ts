@@ -10,6 +10,10 @@ import {
 } from "@/lib/meta/page-readiness";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { getMetaPageStatusMessaging } from "@/lib/meta/ui-status";
+import {
+  shouldSuppressRecoverableGoogleSyncIssue,
+  shouldSuppressRecoverableMetaSyncIssue,
+} from "@/lib/sync/user-visible-sync";
 
 export interface SyncStatusPillState {
   visible: boolean;
@@ -120,6 +124,7 @@ export function resolveMetaSyncStatusPill(
   const pageMessages = getMetaPageStatusMessaging(status, "en");
   const coreReadiness = getMetaCoreReadiness(status);
   const percent = resolveMetaPercent(status);
+  const suppressRecoverableAttention = shouldSuppressRecoverableMetaSyncIssue(status);
   const isAttentionState =
     coreReadiness?.state === "blocked" ||
     pageReadiness?.state === "blocked" ||
@@ -128,8 +133,12 @@ export function resolveMetaSyncStatusPill(
     status.state === "stale" ||
     status.operations?.progressState === "blocked";
 
-  if (isAttentionState) {
+  if (isAttentionState && !suppressRecoverableAttention) {
     return buildAttentionPill();
+  }
+
+  if (isAttentionState && suppressRecoverableAttention) {
+    return buildInfoPill("Refreshing in background");
   }
 
   if (coreReadiness?.usable && hasMetaExtendedCompletenessLag(status)) {
@@ -220,8 +229,12 @@ export function resolveGoogleAdsSyncStatusPill(
     status.state === "stale" ||
     status.operations?.progressState === "blocked";
 
-  if (isAttentionState) {
+  if (isAttentionState && !shouldSuppressRecoverableGoogleSyncIssue(status)) {
     return buildAttentionPill();
+  }
+
+  if (isAttentionState) {
+    return buildInfoPill("Refreshing in background");
   }
 
   if (status.state === "ready") {

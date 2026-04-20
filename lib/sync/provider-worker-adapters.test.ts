@@ -23,6 +23,8 @@ const consumeMetaQueuedWork = vi.fn();
 const releaseMetaLeasedPartitionsForWorker = vi.fn();
 const runMetaRepairCycle = vi.fn();
 const runGoogleAdsRepairCycle = vi.fn();
+const runAutoSyncRepairPass = vi.fn();
+const mergeAutoRepairResult = vi.fn();
 
 vi.mock("@/lib/google-ads-gaql", () => ({
   getAssignedGoogleAccounts,
@@ -67,6 +69,11 @@ vi.mock("@/lib/sync/provider-repair-engine", () => ({
   runGoogleAdsRepairCycle,
 }));
 
+vi.mock("@/lib/sync/repair-executor", () => ({
+  runAutoSyncRepairPass,
+  mergeAutoRepairResult,
+}));
+
 vi.mock("@/lib/sync/shopify-sync", () => ({
   syncShopifyCommerceReports: vi.fn(),
 }));
@@ -74,6 +81,12 @@ vi.mock("@/lib/sync/shopify-sync", () => ({
 describe("provider-worker-adapters", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mergeAutoRepairResult.mockImplementation((base, results) => ({
+      ...(base ?? {}),
+      meta: {
+        autoExecutions: results,
+      },
+    }));
   });
 
   it("queues Google core partitions through the shared adapter plan contract", async () => {
@@ -268,6 +281,15 @@ describe("provider-worker-adapters", () => {
       },
     });
 
+    runAutoSyncRepairPass.mockResolvedValue({
+      execution: { id: "exec-1", status: "succeeded" },
+      recommendation: { businessId: "biz-1", recommendedAction: "replay_dead_letter" },
+      skippedReason: null,
+      budgetState: null,
+      releaseGate: null,
+      repairPlan: null,
+    });
+
     const { metaWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
     const repair = await metaWorkerAdapter.runAutoHeal?.("biz-1");
 
@@ -280,12 +302,57 @@ describe("provider-worker-adapters", () => {
         "request_runtime",
       ],
     });
+    expect(runAutoSyncRepairPass).toHaveBeenCalledWith({
+      providerScope: "meta",
+      source: "worker",
+      businessId: "biz-1",
+      consumeQueuedMetaWork: true,
+    });
     expect(repair).toEqual(
       expect.objectContaining({
         reclaimed: 1,
         replayed: 2,
         requeued: 3,
       })
+    );
+  });
+
+  it("runs Google auto-heal through the shared repair executor", async () => {
+    runGoogleAdsRepairCycle.mockResolvedValue({
+      repair: {
+        reclaimed: 0,
+        replayed: 1,
+        requeued: 2,
+        blocked: false,
+        blockingReasons: [],
+        repairableActions: [],
+      },
+    });
+    runAutoSyncRepairPass.mockResolvedValue({
+      execution: { id: "exec-2", status: "succeeded" },
+      recommendation: { businessId: "biz-1", recommendedAction: "refresh_state" },
+      skippedReason: null,
+      budgetState: null,
+      releaseGate: null,
+      repairPlan: null,
+    });
+
+    const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");
+    const repair = await googleAdsWorkerAdapter.runAutoHeal?.("biz-1");
+
+    expect(runGoogleAdsRepairCycle).toHaveBeenCalledWith("biz-1", {
+      enqueueScheduledWork: false,
+    });
+    expect(runAutoSyncRepairPass).toHaveBeenCalledWith({
+      providerScope: "google_ads",
+      source: "worker",
+      businessId: "biz-1",
+    });
+    expect(repair).toEqual(
+      expect.objectContaining({
+        replayed: 1,
+        requeued: 2,
+      }),
     );
   });
 

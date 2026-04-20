@@ -160,8 +160,8 @@ function buildPanelSurfaceState(input: {
     ...base,
     state: "extended_backfilling",
     message: input.readyThroughDate
-      ? `${input.label} is backfilling in the background with recent dates prioritized first. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.`
-      : `${input.label} is backfilling in the background with recent dates prioritized first. Coverage: ${coverageLabel}.`,
+      ? `${input.label} is backfilling in the background. Ready through ${input.readyThroughDate}. Coverage: ${coverageLabel}.`
+      : `${input.label} is backfilling in the background. Coverage: ${coverageLabel}.`,
   };
 }
 

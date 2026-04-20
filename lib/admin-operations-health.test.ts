@@ -1207,6 +1207,7 @@ describe("buildAdminSyncHealth", () => {
       latestRepairExecutionsByBusiness: {
         "biz-meta": {
           id: "exec-1",
+          executionSignature: "sig-1",
           buildId: "build-1",
           environment: "production",
           providerScope: "meta",

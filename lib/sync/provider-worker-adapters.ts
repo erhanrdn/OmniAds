@@ -51,6 +51,10 @@ import {
   runGoogleAdsRepairCycle,
   runMetaRepairCycle,
 } from "@/lib/sync/provider-repair-engine";
+import {
+  mergeAutoRepairResult,
+  runAutoSyncRepairPass,
+} from "@/lib/sync/repair-executor";
 import { syncShopifyCommerceReports } from "@/lib/sync/shopify-sync";
 
 export interface ProviderWorkerAdapter
@@ -503,7 +507,16 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
         "request_runtime",
       ],
     });
-    return result.repair;
+    const autoRepair = await runAutoSyncRepairPass({
+      providerScope: "meta",
+      source: "worker",
+      businessId,
+      consumeQueuedMetaWork: true,
+    }).catch(() => null);
+    return mergeAutoRepairResult(
+      result.repair,
+      autoRepair ? [autoRepair] : [],
+    );
   },
 };
 
@@ -656,7 +669,15 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     const result = await runGoogleAdsRepairCycle(businessId, {
       enqueueScheduledWork: false,
     });
-    return result.repair;
+    const autoRepair = await runAutoSyncRepairPass({
+      providerScope: "google_ads",
+      source: "worker",
+      businessId,
+    }).catch(() => null);
+    return mergeAutoRepairResult(
+      result.repair,
+      autoRepair ? [autoRepair] : [],
+    );
   },
 };
 

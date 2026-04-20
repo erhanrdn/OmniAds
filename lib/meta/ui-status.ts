@@ -1,5 +1,6 @@
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
 import { getMetaPageReadiness } from "@/lib/meta/page-readiness";
+import { shouldSuppressRecoverableMetaSyncIssue } from "@/lib/sync/user-visible-sync";
 
 export type MetaUiLanguage = "en" | "tr";
 
@@ -113,6 +114,63 @@ export function getMetaPageStatusMessaging(
             : readyButEmpty
               ? "ready_empty"
               : "ready";
+
+  if (state === "blocked" && shouldSuppressRecoverableMetaSyncIssue(status)) {
+    const description =
+      language === "tr"
+        ? "Son başarılı Meta verisi gösteriliyor. Arka plandaki toparlama devam ediyor."
+        : "The latest available Meta data is shown while background recovery continues.";
+    return {
+      state: "syncing_historical",
+      pill: {
+        visible: true,
+        label: language === "tr" ? "Arka planda yenileniyor" : "Refreshing in background",
+        state: "syncing",
+        tone: "info",
+      },
+      banner: {
+        visible: true,
+        title:
+          language === "tr"
+            ? "Son başarılı veri gösteriliyor"
+            : "Using latest available data",
+        description,
+        tone: "info",
+      },
+      emptyState: {
+        title:
+          language === "tr"
+            ? "Meta verisi arka planda yenileniyor"
+            : "Meta data is refreshing in the background",
+        description,
+      },
+      currentDayPreparing: {
+        title:
+          language === "tr"
+            ? "Bugünün Meta verisi hazırlanıyor"
+            : "Current-day Meta data is preparing",
+        description: currentDayDescription,
+      },
+      kpi: {
+        spendSubLabel:
+          language === "tr"
+            ? "Son başarılı veri gösteriliyor"
+            : "Using latest available data",
+        revenueSubLabel:
+          language === "tr"
+            ? "Son başarılı veri gösteriliyor"
+            : "Using latest available data",
+        avgCpaSubLabel:
+          language === "tr"
+            ? "Arka plan toparlaması sürüyor"
+            : "Background recovery continues",
+        roasSubLabel:
+          language === "tr"
+            ? "Arka plan toparlaması sürüyor"
+            : "Background recovery continues",
+      },
+    };
+  }
 
   switch (state) {
     case "not_connected":

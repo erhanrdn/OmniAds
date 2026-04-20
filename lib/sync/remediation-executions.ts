@@ -3,9 +3,12 @@ import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 
 export type SyncRepairExecutionStatus =
+  | "queued"
   | "running"
+  | "succeeded"
   | "completed"
   | "failed"
+  | "exhausted"
   | "locked";
 
 export type SyncRepairExecutionOutcome =
@@ -23,6 +26,7 @@ export interface SyncRepairExecutionRecord {
   providerScope: string;
   businessId: string;
   businessName: string | null;
+  executionSignature: string | null;
   sourceReleaseGateId: string | null;
   sourceRepairPlanId: string | null;
   postRunReleaseGateId: string | null;
@@ -95,6 +99,7 @@ function mapExecutionRow(row: Record<string, unknown>): SyncRepairExecutionRecor
     providerScope: String(row.provider_scope),
     businessId: String(row.business_id),
     businessName: toText(row.business_name),
+    executionSignature: toText(row.execution_signature),
     sourceReleaseGateId: toText(row.source_release_gate_id),
     sourceRepairPlanId: toText(row.source_repair_plan_id),
     postRunReleaseGateId: toText(row.post_run_release_gate_id),
@@ -105,7 +110,12 @@ function mapExecutionRow(row: Record<string, unknown>): SyncRepairExecutionRecor
     workflowActor: toText(row.workflow_actor),
     lockOwner: toText(row.lock_owner),
     status:
-      row.status === "completed" || row.status === "failed" || row.status === "locked"
+      row.status === "queued" ||
+      row.status === "succeeded" ||
+      row.status === "completed" ||
+      row.status === "failed" ||
+      row.status === "exhausted" ||
+      row.status === "locked"
         ? row.status
         : "running",
     outcomeClassification:
@@ -142,6 +152,7 @@ export async function createSyncRepairExecution(input: {
   providerScope: string;
   businessId: string;
   businessName?: string | null;
+  executionSignature?: string | null;
   sourceReleaseGateId?: string | null;
   sourceRepairPlanId?: string | null;
   postRunReleaseGateId?: string | null;
@@ -174,6 +185,7 @@ export async function createSyncRepairExecution(input: {
       provider_scope,
       business_id,
       business_name,
+      execution_signature,
       source_release_gate_id,
       source_repair_plan_id,
       post_run_release_gate_id,
@@ -199,6 +211,7 @@ export async function createSyncRepairExecution(input: {
       ${input.providerScope},
       ${input.businessId},
       ${input.businessName ?? null},
+      ${input.executionSignature ?? null},
       ${input.sourceReleaseGateId ?? null},
       ${input.sourceRepairPlanId ?? null},
       ${input.postRunReleaseGateId ?? null},
@@ -227,6 +240,7 @@ export async function updateSyncRepairExecution(
   executionId: string,
   input: {
     businessName?: string | null;
+    executionSignature?: string | null;
     executedAction?: string | null;
     postRunReleaseGateId?: string | null;
     postRunRepairPlanId?: string | null;
@@ -245,6 +259,7 @@ export async function updateSyncRepairExecution(
     UPDATE sync_repair_executions
     SET
       business_name = COALESCE(${input.businessName ?? null}, business_name),
+      execution_signature = COALESCE(${input.executionSignature ?? null}, execution_signature),
       executed_action = COALESCE(${input.executedAction ?? null}, executed_action),
       post_run_release_gate_id = COALESCE(${input.postRunReleaseGateId ?? null}, post_run_release_gate_id),
       post_run_repair_plan_id = COALESCE(${input.postRunRepairPlanId ?? null}, post_run_repair_plan_id),
@@ -292,6 +307,31 @@ export async function getLatestSyncRepairExecution(input: {
     LIMIT 1
   ` as Array<Record<string, unknown>>;
   return rows[0] ? mapExecutionRow(rows[0]) : null;
+}
+
+export async function listRecentSyncRepairExecutions(input: {
+  buildId?: string;
+  environment?: string;
+  providerScope?: string;
+  businessId: string;
+  executionSignature?: string | null;
+  sinceMinutes: number;
+}) {
+  await assertRepairExecutionTablesReady("sync_repair_executions:list_recent");
+  const sql = getDb();
+  const { buildId, environment, providerScope } = resolveSyncControlPlaneKey(input);
+  const rows = await sql`
+    SELECT *
+    FROM sync_repair_executions
+    WHERE build_id = ${buildId}
+      AND environment = ${environment}
+      AND provider_scope = ${providerScope}
+      AND business_id = ${input.businessId}
+      AND (${input.executionSignature ?? null}::text IS NULL OR execution_signature = ${input.executionSignature ?? null})
+      AND started_at >= now() - (${Math.max(1, Math.floor(input.sinceMinutes))} || ' minutes')::interval
+    ORDER BY started_at DESC, created_at DESC
+  ` as Array<Record<string, unknown>>;
+  return rows.map(mapExecutionRow);
 }
 
 export async function getLatestSyncRepairExecutions(input?: {

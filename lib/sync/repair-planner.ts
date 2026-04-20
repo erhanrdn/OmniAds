@@ -8,7 +8,7 @@ import {
 import { resolveSyncControlPlaneKey } from "@/lib/sync/control-plane-key";
 import { getRuntimeRegistryStatus } from "@/lib/sync/runtime-contract";
 
-export type SyncRepairPlanMode = "dry_run";
+export type SyncRepairPlanMode = "dry_run" | "auto_execute" | "escalated_manual";
 export type SyncRepairActionKind =
   | "stale_lease_reclaim"
   | "refresh_state"
@@ -341,7 +341,12 @@ export async function getLatestSyncRepairPlan(input?: {
     buildId: String(row.build_id),
     environment: String(row.environment),
     providerScope: String(row.provider_scope),
-    planMode: "dry_run",
+    planMode:
+      row.plan_mode === "auto_execute"
+        ? "auto_execute"
+        : row.plan_mode === "escalated_manual"
+          ? "escalated_manual"
+          : "dry_run",
     eligible: Boolean(row.eligible),
     blockedReason: toText(row.blocked_reason),
     breakGlass: Boolean(row.break_glass),
@@ -391,7 +396,12 @@ export async function getSyncRepairPlanById(input: {
     buildId: String(row.build_id),
     environment: String(row.environment),
     providerScope: String(row.provider_scope),
-    planMode: "dry_run",
+    planMode:
+      row.plan_mode === "auto_execute"
+        ? "auto_execute"
+        : row.plan_mode === "escalated_manual"
+          ? "escalated_manual"
+          : "dry_run",
     eligible: Boolean(row.eligible),
     blockedReason: toText(row.blocked_reason),
     breakGlass: Boolean(row.break_glass),
@@ -412,6 +422,7 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
   buildId?: string;
   environment?: string;
   providerScope?: string;
+  planMode?: SyncRepairPlanMode;
   persist?: boolean;
   releaseGate?: SyncGateRecord | null;
   runtimeRegistry?: Awaited<ReturnType<typeof getRuntimeRegistryStatus>> | null;
@@ -457,7 +468,7 @@ export async function evaluateAndPersistSyncRepairPlan(input?: {
     buildId,
     environment,
     providerScope,
-    planMode: "dry_run",
+    planMode: input?.planMode ?? "dry_run",
     eligible,
     blockedReason,
     breakGlass: Boolean(releaseGate?.breakGlass),

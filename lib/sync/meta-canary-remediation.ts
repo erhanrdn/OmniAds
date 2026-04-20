@@ -47,6 +47,7 @@ import {
   type SyncGateRecord,
 } from "@/lib/sync/release-gates";
 import { runMetaRepairCycle } from "@/lib/sync/provider-repair-engine";
+import { executeSyncRepairAction } from "@/lib/sync/repair-executor";
 import { logRuntimeInfo, logRuntimeWarn } from "@/lib/runtime-logging";
 
 const META_REMEDIATION_LOCK = {
@@ -757,186 +758,14 @@ async function executeRecommendation(input: {
   workflowRunId?: string | null;
   budget: MetaRemediationBudget;
 }) {
-  const consumeQueuedWork = async () => {
-    const workerId = buildRemediationConsumeWorkerId({
-      workflowRunId: input.workflowRunId,
-      businessId: input.businessId,
-    });
-    const leaseMinutes = META_REMEDIATION_BUDGET_POLICY.consumeLeaseMinutes;
-    const leaseAcquired = await acquireSyncRunnerLease({
-      businessId: input.businessId,
-      providerScope: "meta",
-      leaseOwner: workerId,
-      leaseMinutes,
-    }).catch(() => false);
-    if (!leaseAcquired) {
-      return {
-        leaseAcquired: false,
-        workerId,
-        reason: "runner_lease_unavailable",
-      } as const;
-    }
-
-    let renewalStopped = false;
-    let renewalInFlight: Promise<void> | null = null;
-    const renewalIntervalMs = Math.max(
-      10_000,
-      Math.floor((leaseMinutes * 60_000) / 2),
-    );
-    const renewalTimer = setInterval(() => {
-      if (renewalStopped) return;
-      renewalInFlight = renewSyncRunnerLease({
-        businessId: input.businessId,
-        providerScope: "meta",
-        leaseOwner: workerId,
-        leaseMinutes,
-      }).then(() => undefined, () => undefined);
-    }, renewalIntervalMs);
-
-    try {
-      const passResults: unknown[] = [];
-      const consumeStartedAt = Date.now();
-      let consumeResult = await consumeMetaQueuedWork(input.businessId, {
-        runtimeWorkerId: workerId,
-      });
-      passResults.push({
-        pass: 1,
-        result: toSafeJson(consumeResult),
-      });
-
-      for (
-        let pass = 2;
-        pass <= input.budget.consumeMaxPasses &&
-        consumeResult.hasPendingWork &&
-        consumeResult.hasForwardProgress &&
-        Date.now() - consumeStartedAt < input.budget.consumeDurationMs;
-        pass += 1
-      ) {
-        const delayMs = Math.max(
-          0,
-          Math.min(
-            consumeResult.nextDelayMs ?? 0,
-            META_REMEDIATION_BUDGET_POLICY.consumeMaxDelayMs,
-          ),
-        );
-        if (delayMs > 0) {
-          await sleep(delayMs);
-        }
-        if (Date.now() - consumeStartedAt >= input.budget.consumeDurationMs) {
-          break;
-        }
-        consumeResult = await consumeMetaQueuedWork(input.businessId, {
-          runtimeWorkerId: workerId,
-        });
-        passResults.push({
-          pass,
-          result: toSafeJson(consumeResult),
-        });
-      }
-
-      return {
-        leaseAcquired: true,
-        workerId,
-        budget: input.budget,
-        durationMs: Date.now() - consumeStartedAt,
-        consumeBudgetExhausted:
-          consumeResult.hasPendingWork &&
-          consumeResult.hasForwardProgress &&
-          passResults.length >= input.budget.consumeMaxPasses,
-        consumeDurationExhausted:
-          consumeResult.hasPendingWork &&
-          consumeResult.hasForwardProgress &&
-          Date.now() - consumeStartedAt >= input.budget.consumeDurationMs,
-        passCount: passResults.length,
-        passResults,
-        consumeResult: toSafeJson(consumeResult),
-      } as const;
-    } finally {
-      renewalStopped = true;
-      clearInterval(renewalTimer);
-      const pendingRenewal: Promise<void> | null = renewalInFlight;
-      if (pendingRenewal) {
-        await pendingRenewal;
-      }
-      await releaseSyncRunnerLease({
-        businessId: input.businessId,
-        providerScope: "meta",
-        leaseOwner: workerId,
-      }).catch(() => null);
-    }
-  };
-
-  switch (input.recommendation.recommendedAction) {
-    case "integrity_repair_enqueue": {
-      const repair = await runMetaRepairCycle(input.businessId, {
-        enqueueScheduledWork: true,
-        queueWarehouseRepairs: true,
-      });
-      return {
-        executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: toSafeJson({
-          repair,
-          queueOnly: true,
-        }),
-      };
-    }
-    case "reschedule": {
-      const scheduled = await enqueueMetaScheduledWork(input.businessId);
-      const consume = await consumeQueuedWork();
-      return {
-        executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: toSafeJson({
-          scheduled,
-          consume,
-        }),
-      };
-    }
-    case "refresh_state":
-      await refreshMetaSyncStateForBusiness({ businessId: input.businessId });
-      return {
-        executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: { ok: true },
-      };
-    case "replay_dead_letter": {
-      const replayed = await replayMetaDeadLetterPartitions({
-        businessId: input.businessId,
-        sources: null,
-      });
-      const scheduled = await enqueueMetaScheduledWork(input.businessId);
-      const consume = await consumeQueuedWork();
-      return {
-        executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: toSafeJson({
-          replayed,
-          scheduled,
-          consume,
-        }),
-      };
-    }
-    case "stale_lease_reclaim": {
-      const cleanup = await cleanupMetaPartitionOrchestration({
-        businessId: input.businessId,
-      });
-      const queueHealth = await getMetaQueueHealth({
-        businessId: input.businessId,
-      }).catch(() => null);
-      const scheduled = (queueHealth?.queueDepth ?? 0) > 0
-        ? await enqueueMetaScheduledWork(input.businessId)
-        : null;
-      const consume = (queueHealth?.queueDepth ?? 0) > 0
-        ? await consumeQueuedWork()
-        : null;
-      return {
-        executedAction: mapRepairRecommendationToExecutionAction(input.recommendation.recommendedAction),
-        result: toSafeJson({
-          cleanup,
-          queueHealth,
-          scheduled,
-          consume,
-        }),
-      };
-    }
-  }
+  void input.budget;
+  return executeSyncRepairAction({
+    providerScope: "meta",
+    businessId: input.businessId,
+    recommendation: input.recommendation,
+    consumeQueuedMetaWork: true,
+    workflowRunId: input.workflowRunId,
+  });
 }
 
 export function mapRepairRecommendationToExecutionAction(

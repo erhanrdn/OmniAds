@@ -4,6 +4,7 @@ import type {
   MetaIntegrationSummaryStage,
   MetaStatusResponse,
 } from "@/lib/meta/status-types";
+import { shouldSuppressRecoverableMetaSyncIssue } from "@/lib/sync/user-visible-sync";
 
 type MetaIntegrationSummaryInput = Pick<
   MetaStatusResponse,
@@ -293,8 +294,9 @@ function buildQueueStage(
     leasedPartitions === 0 &&
     status.operations?.workerHealthy === false;
   const nonBlockingDefaultCoverage = hasNonBlockingDefaultCoverage(status);
+  const suppressRecoverableSync = shouldSuppressRecoverableMetaSyncIssue(status);
 
-  if (status.state === "stale" && !nonBlockingDefaultCoverage) {
+  if (status.state === "stale" && !nonBlockingDefaultCoverage && !suppressRecoverableSync) {
     return {
       key: "queue_worker",
       state: "blocked",
@@ -304,7 +306,7 @@ function buildQueueStage(
     };
   }
 
-  if (workerUnavailable && !nonBlockingDefaultCoverage) {
+  if (workerUnavailable && !nonBlockingDefaultCoverage && !suppressRecoverableSync) {
     return {
       key: "queue_worker",
       state: "blocked",
@@ -319,6 +321,15 @@ function buildQueueStage(
     status.operations?.progressState === "blocked" ||
     deadLetterPartitions > 0
   ) {
+    if (suppressRecoverableSync) {
+      return {
+        key: "queue_worker",
+        state: "working",
+        percent: null,
+        code: "queue_active",
+        evidence,
+      };
+    }
     return {
       key: "queue_worker",
       state: "blocked",
@@ -450,6 +461,7 @@ function buildPriorityStage(
     scope === "current_day" &&
     status.state === "action_required" &&
     !status.coreReadiness?.usable;
+  const suppressRecoverableSync = shouldSuppressRecoverableMetaSyncIssue(status);
   const ready =
     metrics.totalDays > 0 && metrics.completedDays >= metrics.totalDays;
 
@@ -463,7 +475,7 @@ function buildPriorityStage(
     };
   }
 
-  if (selectedRangeBlocked) {
+  if (selectedRangeBlocked && !suppressRecoverableSync) {
     return {
       key: "priority_window",
       state: "blocked",
@@ -473,7 +485,7 @@ function buildPriorityStage(
     };
   }
 
-  if (currentDayBlocked) {
+  if (currentDayBlocked && !suppressRecoverableSync) {
     return {
       key: "priority_window",
       state: "blocked",
@@ -691,6 +703,9 @@ function buildExtendedStage(
 }
 
 function shouldRenderAttentionStage(status: MetaIntegrationSummaryInput) {
+  if (shouldSuppressRecoverableMetaSyncIssue(status)) {
+    return false;
+  }
   if (
     hasNonBlockingDefaultCoverage(status) &&
     (status.jobHealth?.deadLetterPartitions ?? 0) === 0 &&

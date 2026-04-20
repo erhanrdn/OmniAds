@@ -1,6 +1,7 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import { isGoogleAdsControlPlaneClosed } from "@/lib/google-ads/sync-progress-ux";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
+import { shouldSuppressRecoverableGoogleSyncIssue } from "@/lib/sync/user-visible-sync";
 
 export type GoogleIntegrationProgressStageState =
   | "ready"
@@ -123,25 +124,6 @@ function buildSelectedRangeEvidence(
       .join(" • ");
   }
 
-  const selectedWindow = status.advisor?.selectedWindow;
-  if (selectedWindow?.totalDays && selectedWindow.totalDays > 0) {
-    const missing = selectedWindow.missingSurfaces
-      .slice(0, 3)
-      .map((scope) => localizeSurfaceName(scope, language));
-    const missingText =
-      missing.length > 0
-        ? language === "tr"
-          ? `Bekleyen ${missing.join(", ")}`
-          : `Pending ${missing.join(", ")}`
-        : null;
-    return [
-      `${selectedWindow.totalDays} ${language === "tr" ? "gün" : "days"}`,
-      missingText,
-    ]
-      .filter(Boolean)
-      .join(" • ");
-  }
-
   return null;
 }
 
@@ -252,6 +234,7 @@ function buildQueueStage(
       evidence: getQueueEvidence(status, language),
     };
   }
+  const suppressRecoverableSync = shouldSuppressRecoverableGoogleSyncIssue(status);
 
   const queueDepth = status.jobHealth?.queueDepth ?? 0;
   const leasedPartitions = status.jobHealth?.leasedPartitions ?? 0;
@@ -261,7 +244,9 @@ function buildQueueStage(
     deadLetterPartitions > 0 ||
     progressState === "blocked" ||
     status.blockerClass === "queue_blocked"
-      ? "blocked"
+      ? suppressRecoverableSync
+        ? "working"
+        : "blocked"
       : status.state === "paused" ||
           progressState === "partial_stuck" ||
           (queueDepth > 0 && leasedPartitions === 0)
@@ -469,6 +454,9 @@ function buildAnalysisStage(
 }
 
 function shouldRenderAttentionStage(status: GoogleAdsStatusResponse) {
+  if (shouldSuppressRecoverableGoogleSyncIssue(status)) {
+    return false;
+  }
   if (isGoogleAdsControlPlaneClosed(status)) {
     return false;
   }
