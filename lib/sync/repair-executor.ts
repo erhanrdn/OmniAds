@@ -69,6 +69,9 @@ const AUTO_REPAIR_COOLDOWN_MS = 60_000;
 const AUTO_REPAIR_ATTEMPT_WINDOW_MINUTES = 15;
 const AUTO_REPAIR_ATTEMPT_LIMIT = 3;
 const AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS = 60 * 60_000;
+const AUTO_REPAIR_QUARANTINE_WINDOW_MINUTES = 60 * 24;
+const AUTO_REPAIR_QUARANTINE_STRIKE_LIMIT = 3;
+const AUTO_REPAIR_QUARANTINE_COOLDOWN_MS = 24 * 60 * 60_000;
 const AUTO_REPAIR_STALE_EXECUTION_TIMEOUT_MINUTES = 15;
 const META_AUTO_REPAIR_CONSUME_LEASE_MINUTES = 10;
 const META_AUTO_REPAIR_CONSUME_MAX_PASSES = 12;
@@ -110,6 +113,8 @@ export interface SyncRepairExecutionWindowState {
   cooldownRemainingMs: number;
   exhaustionRemainingMs: number;
   halfOpenProbe: boolean;
+  quarantineStrikeCount: number;
+  quarantineEligible: boolean;
 }
 
 export interface SyncRepairActionExecutionResult {
@@ -270,6 +275,20 @@ export function resolveSyncRepairExecutionWindowState(input: {
           (nowMs - Date.parse(recentExhausted.finishedAt)),
       )
     : 0;
+  const quarantineStrikeCount = input.recentExecutions.filter((execution) => {
+    const startedAtMs = Date.parse(execution.startedAt);
+    if (
+      !Number.isFinite(startedAtMs) ||
+      nowMs - startedAtMs > AUTO_REPAIR_QUARANTINE_WINDOW_MINUTES * 60_000
+    ) {
+      return false;
+    }
+    return (
+      execution.status === "failed" ||
+      execution.status === "exhausted" ||
+      execution.outcomeClassification === "manual_follow_up_required"
+    );
+  }).length;
   return {
     recentAttempts,
     recentExhausted,
@@ -278,6 +297,8 @@ export function resolveSyncRepairExecutionWindowState(input: {
     halfOpenProbe:
       Boolean(input.recentExecutions.some((execution) => execution.status === "exhausted")) &&
       exhaustionRemainingMs === 0,
+    quarantineStrikeCount,
+    quarantineEligible: quarantineStrikeCount >= AUTO_REPAIR_QUARANTINE_STRIKE_LIMIT,
   };
 }
 
@@ -635,7 +656,10 @@ export async function executeAutoSyncRepairRecommendation(input: {
     providerScope: input.providerScope,
     businessId: input.recommendation.businessId,
     executionSignature,
-    sinceMinutes: Math.ceil(AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS / 60_000),
+    sinceMinutes: Math.max(
+      Math.ceil(AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS / 60_000),
+      AUTO_REPAIR_QUARANTINE_WINDOW_MINUTES,
+    ),
   }).catch(() => []);
   const executionWindow = resolveSyncRepairExecutionWindowState({
     executionSignature,
@@ -671,6 +695,35 @@ export async function executeAutoSyncRepairRecommendation(input: {
       recommendation: input.recommendation,
       skippedReason: "blocked_recommendation",
       budgetState,
+    };
+  }
+
+  if (executionWindow.quarantineEligible) {
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "quarantined",
+      cooldownUntil: new Date(nowMs + AUTO_REPAIR_QUARANTINE_COOLDOWN_MS).toISOString(),
+      lastError: "repeated_terminal_failures_quarantined",
+      metadata: {
+        source: input.source,
+        skippedReason: "quarantined",
+        executionSignature,
+        quarantineStrikeCount: executionWindow.quarantineStrikeCount,
+      },
+    }).catch(() => null);
+    return {
+      execution: null,
+      releaseGate: null,
+      repairPlan: null,
+      recommendation: input.recommendation,
+      skippedReason: "quarantined",
+      budgetState: {
+        ...budgetState,
+        exhausted: true,
+      },
     };
   }
 

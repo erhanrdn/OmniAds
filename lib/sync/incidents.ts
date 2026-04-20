@@ -362,6 +362,22 @@ export function buildSyncRepairExecutionSignature(input: {
   });
 }
 
+export function mergeReconciledSyncIncidentStatus(input: {
+  existingStatus?: SyncIncidentStatus | null;
+  plannedStatus: SyncIncidentStatus;
+}) : SyncIncidentStatus {
+  if (
+    input.existingStatus === "repairing" ||
+    input.existingStatus === "cooldown" ||
+    input.existingStatus === "half_open" ||
+    input.existingStatus === "quarantined" ||
+    input.existingStatus === "exhausted"
+  ) {
+    return input.existingStatus;
+  }
+  return input.plannedStatus;
+}
+
 function deriveIncidentStatusFromPlan(input: {
   recommendation: SyncRepairRecommendation;
   planMode: SyncRepairPlanMode;
@@ -619,9 +635,23 @@ export async function reconcileSyncIncidentsFromRepairPlan(input: {
 
   for (const recommendation of input.repairPlan.recommendations) {
     const descriptor = buildSyncIncidentDescriptor(recommendation);
-    const incidentStatus = deriveIncidentStatusFromPlan({
+    const plannedStatus = deriveIncidentStatusFromPlan({
       recommendation,
       planMode: input.repairPlan.planMode,
+    });
+    const existingIncident = await getLatestSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      businessId: recommendation.businessId,
+      resourceScope: descriptor.resourceScope,
+      faultClass: descriptor.faultClass,
+      faultSignature: descriptor.faultSignature,
+      sinceMinutes: 60 * 24 * 365,
+    });
+    const incidentStatus = mergeReconciledSyncIncidentStatus({
+      existingStatus: existingIncident?.status,
+      plannedStatus,
     });
     const activeKeys = activeKeysByBusiness.get(recommendation.businessId) ?? new Set<string>();
     activeKeys.add(`${descriptor.faultClass}:${descriptor.faultSignature}`);

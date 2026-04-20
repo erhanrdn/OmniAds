@@ -3,6 +3,7 @@ import {
   buildSyncIncidentDescriptor,
   buildSyncRepairExecutionSignature,
   deriveOperationalSyncState,
+  mergeReconciledSyncIncidentStatus,
   type SyncIncidentSummary,
 } from "@/lib/sync/incidents";
 import type { SyncRepairRecommendation } from "@/lib/sync/repair-planner";
@@ -189,5 +190,29 @@ describe("sync incidents helpers", () => {
     });
 
     expect(state).toBe("healthy");
+  });
+
+  it("preserves in-flight incident states during repair-plan reconciliation", () => {
+    expect(
+      mergeReconciledSyncIncidentStatus({
+        existingStatus: "cooldown",
+        plannedStatus: "eligible",
+      }),
+    ).toBe("cooldown");
+    expect(
+      mergeReconciledSyncIncidentStatus({
+        existingStatus: "quarantined",
+        plannedStatus: "eligible",
+      }),
+    ).toBe("quarantined");
+  });
+
+  it("allows cleared incidents to reopen when the fault is active again", () => {
+    expect(
+      mergeReconciledSyncIncidentStatus({
+        existingStatus: "cleared",
+        plannedStatus: "eligible",
+      }),
+    ).toBe("eligible");
   });
 });
