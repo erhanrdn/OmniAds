@@ -57,11 +57,28 @@ async function main() {
           WHERE lease_epoch IS NULL
           LIMIT 1
         )
-      )
+      ),
+      'syncIncidentsExists',
+      to_regclass('public.sync_incidents') IS NOT NULL
     ) AS summary
   `) as Array<{ summary: unknown }>;
 
-  console.log(JSON.stringify(verification?.summary ?? null, null, 2));
+  const summary =
+    verification?.summary && typeof verification.summary === "object"
+      ? (verification.summary as {
+          metaSyncPartitionsLeaseEpochExists?: boolean;
+          metaSyncCheckpointsLeaseEpochExists?: boolean;
+          metaSyncPartitionsLeaseEpochNullCount?: number;
+          metaSyncCheckpointsLeaseEpochNullRowsPresent?: boolean;
+          syncIncidentsExists?: boolean;
+        })
+      : null;
+
+  if (!summary?.syncIncidentsExists) {
+    throw new Error("Migration verification failed: sync_incidents table is missing after deploy migration.");
+  }
+
+  console.log(JSON.stringify(summary, null, 2));
 }
 
 main()

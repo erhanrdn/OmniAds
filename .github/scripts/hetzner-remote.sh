@@ -77,6 +77,16 @@ extract_build_id() {
   python3 -c 'import json, sys; print((json.load(sys.stdin).get("buildId") or ""), end="")'
 }
 
+assert_sync_incidents_ready() {
+  BUILD_INFO_JSON="$1" python3 -c '
+import json, os, sys
+payload = json.loads(os.environ["BUILD_INFO_JSON"])
+errors = payload.get("controlPlaneErrors") or {}
+sync_incidents_error = errors.get("syncIncidents")
+sys.exit(0 if sync_incidents_error in (None, "") else 1)
+'
+}
+
 check_optional_health() {
   service_name="$1"
   max_attempts="${2:-40}"
@@ -351,6 +361,8 @@ case "${phase}" in
     echo "BUILD_ID=${BUILD_ID}"
     test -n "${BUILD_ID}"
     test "${BUILD_ID}" = "${DEPLOY_SHA}"
+    log "Checking sync_incidents schema readiness through build-info"
+    assert_sync_incidents_ready "${BUILD_INFO_JSON}"
 
     log "Checking optional container health"
     check_optional_health web 20

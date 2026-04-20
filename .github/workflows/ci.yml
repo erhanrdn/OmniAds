@@ -231,7 +231,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           DEPLOY_SHA: ${{ github.sha }}
-          RUN_MIGRATIONS: ${{ needs.detect-runtime-changes.outputs.schema_changed }}
         run: |
           set -euo pipefail
 
@@ -246,7 +245,7 @@ jobs:
             "inputs": {
               "sha": "${DEPLOY_SHA}",
               "require_current_main_head": "true",
-              "run_migrations": "${RUN_MIGRATIONS}"
+              "run_migrations": "true"
             }
           }
           EOF
