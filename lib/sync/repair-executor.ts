@@ -104,6 +104,14 @@ export interface SyncRepairExecutionBudgetState {
   exhausted: boolean;
 }
 
+export interface SyncRepairExecutionWindowState {
+  recentAttempts: SyncRepairExecutionRecord[];
+  recentExhausted: SyncRepairExecutionRecord | undefined;
+  cooldownRemainingMs: number;
+  exhaustionRemainingMs: number;
+  halfOpenProbe: boolean;
+}
+
 export interface SyncRepairActionExecutionResult {
   executedAction: SyncRepairRecommendation["recommendedAction"] | "repair_cycle";
   result: Record<string, unknown>;
@@ -220,6 +228,56 @@ function classifyExecutionOutcome(input: {
     outcome: "no_change" as SyncRepairExecutionOutcome,
     expectedOutcomeMet: false,
     afterEvidence: toSafeRecord(afterCanary?.evidence),
+  };
+}
+
+export function resolveSyncRepairExecutionWindowState(input: {
+  executionSignature: string;
+  latestExecution: SyncRepairExecutionRecord | null;
+  recentExecutions: SyncRepairExecutionRecord[];
+  nowMs?: number;
+}): SyncRepairExecutionWindowState {
+  const nowMs = input.nowMs ?? Date.now();
+  const latestStartedAtMs = input.latestExecution?.startedAt
+    ? Date.parse(input.latestExecution.startedAt)
+    : NaN;
+  const cooldownRemainingMs =
+    input.latestExecution?.executionSignature === input.executionSignature &&
+    Number.isFinite(latestStartedAtMs) &&
+    nowMs - latestStartedAtMs < AUTO_REPAIR_COOLDOWN_MS
+      ? AUTO_REPAIR_COOLDOWN_MS - (nowMs - latestStartedAtMs)
+      : 0;
+  const recentAttempts = input.recentExecutions.filter((execution) => {
+    const startedAtMs = Date.parse(execution.startedAt);
+    return (
+      Number.isFinite(startedAtMs) &&
+      nowMs - startedAtMs <= AUTO_REPAIR_ATTEMPT_WINDOW_MINUTES * 60_000 &&
+      execution.status !== "locked"
+    );
+  });
+  const recentExhausted = input.recentExecutions.find((execution) => {
+    if (execution.status !== "exhausted" || !execution.finishedAt) return false;
+    const finishedAtMs = Date.parse(execution.finishedAt);
+    return (
+      Number.isFinite(finishedAtMs) &&
+      nowMs - finishedAtMs < AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS
+    );
+  });
+  const exhaustionRemainingMs = recentExhausted?.finishedAt
+    ? Math.max(
+        0,
+        AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS -
+          (nowMs - Date.parse(recentExhausted.finishedAt)),
+      )
+    : 0;
+  return {
+    recentAttempts,
+    recentExhausted,
+    cooldownRemainingMs,
+    exhaustionRemainingMs,
+    halfOpenProbe:
+      Boolean(input.recentExecutions.some((execution) => execution.status === "exhausted")) &&
+      exhaustionRemainingMs === 0,
   };
 }
 
@@ -579,31 +637,18 @@ export async function executeAutoSyncRepairRecommendation(input: {
     executionSignature,
     sinceMinutes: Math.ceil(AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS / 60_000),
   }).catch(() => []);
-  const recentAttempts = recentExecutions.filter((execution) => {
-    const startedAtMs = Date.parse(execution.startedAt);
-    return (
-      Number.isFinite(startedAtMs) &&
-      nowMs - startedAtMs <= AUTO_REPAIR_ATTEMPT_WINDOW_MINUTES * 60_000 &&
-      execution.status !== "locked"
-    );
+  const executionWindow = resolveSyncRepairExecutionWindowState({
+    executionSignature,
+    latestExecution,
+    recentExecutions,
+    nowMs,
   });
-  const recentExhausted = recentExecutions.find((execution) => {
-    if (execution.status !== "exhausted" || !execution.finishedAt) return false;
-    const finishedAtMs = Date.parse(execution.finishedAt);
-    return Number.isFinite(finishedAtMs) && nowMs - finishedAtMs < AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS;
-  });
-  const exhaustionRemainingMs = recentExhausted?.finishedAt
-    ? Math.max(
-        0,
-        AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS - (nowMs - Date.parse(recentExhausted.finishedAt)),
-      )
-    : 0;
   const budgetState: SyncRepairExecutionBudgetState = {
     executionSignature,
-    recentAttemptCount: recentAttempts.length,
-    cooldownRemainingMs,
-    exhaustionRemainingMs,
-    exhausted: exhaustionRemainingMs > 0,
+    recentAttemptCount: executionWindow.recentAttempts.length,
+    cooldownRemainingMs: executionWindow.cooldownRemainingMs,
+    exhaustionRemainingMs: executionWindow.exhaustionRemainingMs,
+    exhausted: executionWindow.exhaustionRemainingMs > 0,
   };
 
   if (input.recommendation.safetyClassification === "blocked") {
@@ -629,14 +674,14 @@ export async function executeAutoSyncRepairRecommendation(input: {
     };
   }
 
-  if (cooldownRemainingMs > 0) {
+  if (executionWindow.cooldownRemainingMs > 0) {
     await transitionSyncIncident({
       buildId: input.buildId,
       environment: input.environment,
       providerScope: input.providerScope,
       recommendation: input.recommendation,
       nextStatus: "cooldown",
-      cooldownUntil: new Date(nowMs + cooldownRemainingMs).toISOString(),
+      cooldownUntil: new Date(nowMs + executionWindow.cooldownRemainingMs).toISOString(),
       metadata: {
         source: input.source,
         skippedReason: "cooldown_active",
@@ -653,14 +698,14 @@ export async function executeAutoSyncRepairRecommendation(input: {
     };
   }
 
-  if (exhaustionRemainingMs > 0) {
+  if (executionWindow.exhaustionRemainingMs > 0) {
     await transitionSyncIncident({
       buildId: input.buildId,
       environment: input.environment,
       providerScope: input.providerScope,
       recommendation: input.recommendation,
       nextStatus: "exhausted",
-      cooldownUntil: new Date(nowMs + exhaustionRemainingMs).toISOString(),
+      cooldownUntil: new Date(nowMs + executionWindow.exhaustionRemainingMs).toISOString(),
       metadata: {
         source: input.source,
         skippedReason: "exhaustion_cooldown_active",
@@ -677,7 +722,7 @@ export async function executeAutoSyncRepairRecommendation(input: {
     };
   }
 
-  if (recentAttempts.length >= AUTO_REPAIR_ATTEMPT_LIMIT) {
+  if (executionWindow.recentAttempts.length >= AUTO_REPAIR_ATTEMPT_LIMIT) {
     const exhausted = await createSyncRepairExecution({
       buildId: input.buildId,
       environment: input.environment,
@@ -731,6 +776,21 @@ export async function executeAutoSyncRepairRecommendation(input: {
         exhaustionRemainingMs: AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS,
       },
     };
+  }
+
+  if (executionWindow.halfOpenProbe) {
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "half_open",
+      metadata: {
+        source: input.source,
+        executionSignature,
+        probe: "post_exhaustion",
+      },
+    }).catch(() => null);
   }
 
   const lockOwner = `${input.source}:${input.recommendation.businessId}:${Math.random().toString(36).slice(2, 10)}`;
