@@ -1,4 +1,5 @@
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
+import { isGoogleAdsControlPlaneClosed } from "@/lib/google-ads/sync-progress-ux";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
 
 export type GoogleIntegrationProgressStageState =
@@ -237,6 +238,21 @@ function buildQueueStage(
   status: GoogleAdsStatusResponse,
   language: MetaUiLanguage,
 ): GoogleIntegrationProgressStage {
+  if (isGoogleAdsControlPlaneClosed(status)) {
+    return {
+      key: "queue_worker",
+      title: getStageTitle("queue_worker", language),
+      state: "ready",
+      label: language === "tr" ? "kuyruk temiz" : "queue clear",
+      detail:
+        language === "tr"
+          ? "Bekleyen Google Ads işi yok."
+          : "No queued Google Ads work is waiting right now.",
+      percent: null,
+      evidence: getQueueEvidence(status, language),
+    };
+  }
+
   const queueDepth = status.jobHealth?.queueDepth ?? 0;
   const leasedPartitions = status.jobHealth?.leasedPartitions ?? 0;
   const deadLetterPartitions = status.jobHealth?.deadLetterPartitions ?? 0;
@@ -453,6 +469,10 @@ function buildAnalysisStage(
 }
 
 function shouldRenderAttentionStage(status: GoogleAdsStatusResponse) {
+  if (isGoogleAdsControlPlaneClosed(status)) {
+    return false;
+  }
+
   return Boolean(
     status.controlPlaneErrors &&
       Object.values(status.controlPlaneErrors).some(Boolean),

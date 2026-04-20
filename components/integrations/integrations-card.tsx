@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GoogleIntegrationProgress } from "@/components/integrations/google-integration-progress";
 import { getProviderLabel } from "@/components/integrations/oauth";
 import { MetaIntegrationProgress } from "@/components/integrations/meta-integration-progress";
 import {
@@ -143,6 +144,10 @@ export function IntegrationsCard({
 
       {provider === "meta" && !showSyncSkeleton ? (
         <MetaIntegrationProgress status={metaSyncStatus} language={language} />
+      ) : null}
+
+      {provider === "google" && !showSyncSkeleton ? (
+        <GoogleIntegrationProgress status={googleSyncStatus} language={language} />
       ) : null}
 
       {syncNotice ? (

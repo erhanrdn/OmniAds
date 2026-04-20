@@ -314,9 +314,11 @@ describe("sync status pill resolver", () => {
       resolveGoogleAdsSyncStatusPill({
         connected: true,
         assignedAccountIds: ["acc_1"],
-        state: "partial",
-        syncTruthState: "ready",
+        state: "action_required",
         blockerClass: "none",
+        operations: {
+          progressState: "blocked",
+        },
         controlPlanePersistence: {
           identity: {
             buildId: "build-1",

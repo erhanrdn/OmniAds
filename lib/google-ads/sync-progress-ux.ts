@@ -23,7 +23,6 @@ export function isGoogleAdsControlPlaneClosed(
     status.controlPlanePersistence?.exactRowsPresent === true &&
     status.releaseGate?.verdict === "pass" &&
     (status.repairPlan?.recommendations?.length ?? 0) === 0 &&
-    status.syncTruthState === "ready" &&
     status.blockerClass === "none"
   );
 }

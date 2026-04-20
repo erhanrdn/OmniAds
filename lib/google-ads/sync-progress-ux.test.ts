@@ -155,9 +155,11 @@ describe("google ads sync progress ux", () => {
   it("hides progress when shared control-plane is fully closed", () => {
     const status: GoogleAdsStatusResponse = {
       ...baseStatus,
-      state: "partial",
-      syncTruthState: "ready",
+      state: "action_required",
       blockerClass: "none",
+      operations: {
+        progressState: "blocked",
+      } as never,
       controlPlanePersistence: {
         identity: {
           buildId: "build-1",

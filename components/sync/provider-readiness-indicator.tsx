@@ -18,7 +18,7 @@ function getReadinessLabel(
   if (sourceHealth === "healthy_cached" || sourceHealth === "stale_cached") {
     return "Cached account list in use";
   }
-  if (readinessLevel === "ready") return "Ready";
+  if (readinessLevel === "ready") return "Data ready";
   if (readinessLevel === "usable") return "Partially ready";
   return "Preparing data";
 }
