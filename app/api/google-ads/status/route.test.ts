@@ -250,6 +250,29 @@ vi.mock("@/lib/sync/control-plane-persistence", () => ({
   getSyncControlPlanePersistenceStatus: vi.fn(),
 }));
 
+vi.mock("@/lib/sync/incidents", () => ({
+  deriveOperationalSyncState: vi.fn((input) =>
+    input?.incidentSummary?.openCount > 0 ? "repairing" : "healthy"
+  ),
+  getSyncIncidentSummary: vi.fn(async () => ({
+    openCount: 0,
+    openCircuitCount: 0,
+    latestSeenAt: null,
+    degradedServing: false,
+    counts: {
+      detected: 0,
+      eligible: 0,
+      repairing: 0,
+      cooldown: 0,
+      half_open: 0,
+      cleared: 0,
+      quarantined: 0,
+      exhausted: 0,
+      manual_required: 0,
+    },
+  })),
+}));
+
 const access = await import("@/lib/access");
 const db = await import("@/lib/db");
 const schemaReadiness = await import("@/lib/db-schema-readiness");
@@ -266,6 +289,7 @@ const requestGovernance = await import("@/lib/provider-request-governance");
 const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
 const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
+const incidents = await import("@/lib/sync/incidents");
 
 describe("GET /api/google-ads/status", () => {
   beforeEach(() => {
@@ -379,6 +403,23 @@ describe("GET /api/google-ads/status", () => {
       missingExact: ["deployGate", "releaseGate", "repairPlan"],
       exactRowsPresent: false,
     } as never);
+    vi.mocked(incidents.getSyncIncidentSummary).mockResolvedValue({
+      openCount: 0,
+      openCircuitCount: 0,
+      latestSeenAt: null,
+      degradedServing: false,
+      counts: {
+        detected: 0,
+        eligible: 0,
+        repairing: 0,
+        cooldown: 0,
+        half_open: 0,
+        cleared: 0,
+        quarantined: 0,
+        exhausted: 0,
+        manual_required: 0,
+      },
+    });
     vi.mocked(advisorSnapshots.getLatestGoogleAdsAdvisorSnapshot).mockResolvedValue(null);
     vi.mocked(warehouseRetention.getLatestGoogleAdsRetentionRun).mockResolvedValue(null);
     vi.mocked(searchIntelligenceStorage.readGoogleAdsSearchIntelligenceCoverage).mockResolvedValue({
@@ -675,7 +716,11 @@ describe("GET /api/google-ads/status", () => {
       syncGates: null,
       repairPlan: null,
       controlPlanePersistence: null,
+      syncIncidents: null,
     });
+    expect(payload.operationalSyncState).toBe("healthy");
+    expect(payload.openIncidents).toBe(0);
+    expect(payload.degradedServing).toBe(false);
     expect(payload.releaseReadinessCandidate).toMatchObject({
       pass: true,
       blockerClass: "none",
@@ -1212,6 +1257,7 @@ describe("GET /api/google-ads/status", () => {
       syncGates: null,
       repairPlan: null,
       controlPlanePersistence: null,
+      syncIncidents: null,
     });
   });
 
@@ -1235,6 +1281,7 @@ describe("GET /api/google-ads/status", () => {
       syncGates: "gate read failed",
       repairPlan: null,
       controlPlanePersistence: null,
+      syncIncidents: null,
     });
   });
 });

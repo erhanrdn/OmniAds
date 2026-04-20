@@ -334,6 +334,58 @@ export async function listRecentSyncRepairExecutions(input: {
   return rows.map(mapExecutionRow);
 }
 
+export async function finalizeStaleRunningSyncRepairExecutions(input: {
+  buildId?: string;
+  environment?: string;
+  providerScope?: string;
+  businessId: string;
+  executionSignature?: string | null;
+  staleAfterMinutes?: number;
+  maxLookbackMinutes?: number;
+}) {
+  const staleAfterMinutes = Math.max(1, Math.floor(input.staleAfterMinutes ?? 15));
+  const lookbackMinutes = Math.max(
+    staleAfterMinutes,
+    Math.floor(input.maxLookbackMinutes ?? 60 * 24),
+  );
+  const staleBeforeMs = Date.now() - staleAfterMinutes * 60_000;
+  const executions = await listRecentSyncRepairExecutions({
+    buildId: input.buildId,
+    environment: input.environment,
+    providerScope: input.providerScope,
+    businessId: input.businessId,
+    executionSignature: input.executionSignature ?? null,
+    sinceMinutes: lookbackMinutes,
+  });
+  const staleExecutions = executions.filter((execution) => {
+    if (execution.status !== "running" || execution.finishedAt) return false;
+    const startedAtMs = Date.parse(execution.startedAt);
+    return Number.isFinite(startedAtMs) && startedAtMs <= staleBeforeMs;
+  });
+  const finalized: SyncRepairExecutionRecord[] = [];
+  for (const execution of staleExecutions) {
+    const updated = await updateSyncRepairExecution(execution.id, {
+      status: "failed",
+      outcomeClassification: "manual_follow_up_required",
+      expectedOutcomeMet: false,
+      actionResult: {
+        ...execution.actionResult,
+        reason: "stale_running_execution_finalized",
+        staleExecutionFinalizedAt: nowIso(),
+      },
+      afterEvidence:
+        Object.keys(execution.afterEvidence).length > 0
+          ? execution.afterEvidence
+          : execution.beforeEvidence,
+      finishedAt: nowIso(),
+    });
+    if (updated) {
+      finalized.push(updated);
+    }
+  }
+  return finalized;
+}
+
 export async function getLatestSyncRepairExecutions(input?: {
   buildId?: string;
   environment?: string;

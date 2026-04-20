@@ -90,16 +90,22 @@ export function deriveUserVisibleSyncState(
     };
   }
 
-  if (
+  const recoverable =
     input.hasUsableSnapshot &&
-    hasOnlyRecoverableRecommendations(input.recommendations)
-  ) {
+    hasOnlyRecoverableRecommendations(input.recommendations) &&
+    input.blockerClass !== "queue_blocked" &&
+    input.blockerClass !== "stalled" &&
+    input.blockerClass !== "not_release_ready";
+
+  if (recoverable) {
     const isActivelyRefreshing =
       input.syncTruthState === "syncing" ||
       input.syncTruthState === "blocked" ||
       input.syncTruthState === "repairing" ||
       input.syncTruthState === "partial" ||
-      input.releaseGateVerdict === "blocked";
+      input.releaseGateVerdict === "blocked" ||
+      input.releaseGateVerdict === "measure_only" ||
+      input.releaseGateVerdict === "warn_only";
 
     return {
       kind: isActivelyRefreshing
@@ -117,7 +123,7 @@ export function deriveUserVisibleSyncState(
     return {
       kind: "using_latest_available_data",
       label: "Using latest available data",
-      suppressRecoverableAttention: true,
+      suppressRecoverableAttention: false,
       degradedServing: true,
     };
   }

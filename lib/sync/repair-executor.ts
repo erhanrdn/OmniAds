@@ -5,12 +5,16 @@ import {
 } from "@/lib/sync/repair-planner";
 import {
   createSyncRepairExecution,
+  finalizeStaleRunningSyncRepairExecutions,
   getLatestSyncRepairExecution,
   listRecentSyncRepairExecutions,
   type SyncRepairExecutionOutcome,
   type SyncRepairExecutionRecord,
 } from "@/lib/sync/remediation-executions";
-import { transitionSyncIncident } from "@/lib/sync/incidents";
+import {
+  buildSyncRepairExecutionSignature,
+  transitionSyncIncident,
+} from "@/lib/sync/incidents";
 import {
   acquireProviderJobLock,
   releaseExpiredProviderJobLock,
@@ -65,6 +69,7 @@ const AUTO_REPAIR_COOLDOWN_MS = 60_000;
 const AUTO_REPAIR_ATTEMPT_WINDOW_MINUTES = 15;
 const AUTO_REPAIR_ATTEMPT_LIMIT = 3;
 const AUTO_REPAIR_EXHAUSTION_COOLDOWN_MS = 60 * 60_000;
+const AUTO_REPAIR_STALE_EXECUTION_TIMEOUT_MINUTES = 15;
 const META_AUTO_REPAIR_CONSUME_LEASE_MINUTES = 10;
 const META_AUTO_REPAIR_CONSUME_MAX_PASSES = 12;
 const META_AUTO_REPAIR_CONSUME_MAX_DELAY_MS = 2_000;
@@ -117,20 +122,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
-  }
-  if (!value || typeof value !== "object") {
-    return JSON.stringify(value ?? null);
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(",")}}`;
-}
-
 function toSafeRecord(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -164,12 +155,9 @@ function buildExecutionSignature(
   providerScope: SupportedProviderScope,
   recommendation: SyncRepairRecommendation,
 ) {
-  return stableStringify({
+  return buildSyncRepairExecutionSignature({
     providerScope,
-    businessId: recommendation.businessId,
-    recommendedAction: recommendation.recommendedAction,
-    blockerClass: recommendation.blockerClass ?? null,
-    beforeEvidence: recommendation.beforeEvidence,
+    recommendation,
   });
 }
 
@@ -543,6 +531,30 @@ export async function executeAutoSyncRepairRecommendation(input: {
     input.providerScope,
     input.recommendation,
   );
+  const finalizedStaleExecutions = await finalizeStaleRunningSyncRepairExecutions({
+    buildId: input.buildId,
+    environment: input.environment,
+    providerScope: input.providerScope,
+    businessId: input.recommendation.businessId,
+    executionSignature,
+    staleAfterMinutes: AUTO_REPAIR_STALE_EXECUTION_TIMEOUT_MINUTES,
+  }).catch(() => []);
+  if (finalizedStaleExecutions.length > 0) {
+    await transitionSyncIncident({
+      buildId: input.buildId,
+      environment: input.environment,
+      providerScope: input.providerScope,
+      recommendation: input.recommendation,
+      nextStatus: "cooldown",
+      cooldownUntil: new Date(Date.now() + AUTO_REPAIR_COOLDOWN_MS).toISOString(),
+      lastError: "stale_running_execution_finalized",
+      metadata: {
+        source: input.source,
+        executionSignature,
+        finalizedExecutionIds: finalizedStaleExecutions.map((execution) => execution.id),
+      },
+    }).catch(() => null);
+  }
   const latestExecution = await getLatestSyncRepairExecution({
     buildId: input.buildId,
     environment: input.environment,

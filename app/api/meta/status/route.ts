@@ -63,6 +63,7 @@ import { deriveMetaOperationsBlockReason } from "@/lib/meta/status-operations";
 import { GLOBAL_OPERATOR_REVIEW_WORKFLOW } from "@/lib/global-operator-review";
 import {
   deriveOperationalSyncState,
+  getSyncIncidentSummary,
 } from "@/lib/sync/incidents";
 import { deriveMetaUserVisibleSyncState } from "@/lib/sync/user-visible-sync";
 import {
@@ -341,6 +342,7 @@ export async function GET(request: NextRequest) {
     gateRecords,
     repairPlan,
     latestRemediationExecution,
+    incidentSummary,
   ] =
     await Promise.all([
       getIntegrationMetadata(businessId!, "meta").catch(() => null),
@@ -379,6 +381,10 @@ export async function GET(request: NextRequest) {
         ...controlPlaneIdentity,
       }).catch(() => null),
       getLatestSyncRepairExecution({
+        ...controlPlaneIdentity,
+        businessId: businessId!,
+      }).catch(() => null),
+      getSyncIncidentSummary({
         ...controlPlaneIdentity,
         businessId: businessId!,
       }).catch(() => null),
@@ -2431,10 +2437,11 @@ export async function GET(request: NextRequest) {
     userVisibleSyncState,
     operationalSyncState: deriveOperationalSyncState({
       releaseGateVerdict: response.releaseGate?.verdict ?? null,
+      incidentSummary,
       recommendationCount: response.repairPlan?.recommendations.length ?? 0,
     }),
-    degradedServing: userVisibleSyncState.degradedServing,
-    openIncidents: response.repairPlan?.recommendations.length ?? 0,
+    degradedServing: incidentSummary?.degradedServing ?? userVisibleSyncState.degradedServing,
+    openIncidents: incidentSummary?.openCount ?? response.repairPlan?.recommendations.length ?? 0,
     integrationSummary: buildMetaIntegrationSummary(integrationSummaryInput),
   };
   };

@@ -94,7 +94,10 @@ import {
   deriveUnifiedSyncTruth,
 } from "@/lib/sync/provider-status-truth";
 import { logRuntimeDebug } from "@/lib/runtime-logging";
-import { deriveOperationalSyncState } from "@/lib/sync/incidents";
+import {
+  deriveOperationalSyncState,
+  getSyncIncidentSummary,
+} from "@/lib/sync/incidents";
 import { deriveGoogleUserVisibleSyncState } from "@/lib/sync/user-visible-sync";
 import type {
   GoogleAdsExtendedRangeCompletion,
@@ -596,7 +599,7 @@ export async function GET(request: NextRequest) {
     updated_at?: string | null;
   }>>;
 
-  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateResult, repairPlanResult, persistenceResult, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
+  const [integration, assignments, latestSync, checkpointHealth, workerSchedulingState, gateResult, repairPlanResult, persistenceResult, incidentSummaryResult, staleRunRows, recentRepairRows, recentRepairAttemptRows] =
     await Promise.all([
     captureOptional("integration", getIntegrationMetadata(businessId!, "google"), null),
     captureOptional(
@@ -645,6 +648,15 @@ export async function GET(request: NextRequest) {
         value: null,
         error: error instanceof Error ? error.message : String(error),
       })),
+    getSyncIncidentSummary({
+      ...controlPlaneIdentity,
+      businessId: businessId!,
+    })
+      .then((value) => ({ value, error: null }))
+      .catch((error) => ({
+        value: null,
+        error: error instanceof Error ? error.message : String(error),
+      })),
     staleRunPressurePromise.catch(() => []),
     recentRepairRowsPromise.catch(() => []),
     recentRepairAttemptRowsPromise.catch(() => []),
@@ -654,10 +666,12 @@ export async function GET(request: NextRequest) {
   let repairPlanError = repairPlanResult.error;
   let controlPlanePersistence = persistenceResult.value;
   let controlPlanePersistenceError = persistenceResult.error;
+  const incidentSummary = incidentSummaryResult.value;
   const controlPlaneErrors = {
     syncGates: gateResult.error,
     repairPlan: repairPlanError,
     controlPlanePersistence: controlPlanePersistenceError,
+    syncIncidents: incidentSummaryResult.error,
   };
   const currentMode = decidePanelRecoveryMode();
   const globalExtendedExecutionEnabled = currentMode === "global_reopen";
@@ -2398,9 +2412,10 @@ export async function GET(request: NextRequest) {
     userVisibleSyncState,
     operationalSyncState: deriveOperationalSyncState({
       releaseGateVerdict: payload.releaseGate?.verdict ?? null,
+      incidentSummary,
       recommendationCount: payload.repairPlan?.recommendations.length ?? 0,
     }),
-    degradedServing: userVisibleSyncState.degradedServing,
-    openIncidents: payload.repairPlan?.recommendations.length ?? 0,
+    degradedServing: incidentSummary?.degradedServing ?? userVisibleSyncState.degradedServing,
+    openIncidents: incidentSummary?.openCount ?? payload.repairPlan?.recommendations.length ?? 0,
   });
 }

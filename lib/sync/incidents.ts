@@ -298,15 +298,9 @@ function normalizeCanaryBusinessIds(releaseGate: SyncGateRecord | null | undefin
   );
 }
 
-function toNonNegativeInt(value: unknown) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
-}
-
 export function buildSyncIncidentDescriptor(
   recommendation: SyncRepairRecommendation,
 ): SyncIncidentDescriptor {
-  const beforeEvidence = recommendation.beforeEvidence ?? {};
   const blockerClass =
     typeof recommendation.blockerClass === "string"
       ? recommendation.blockerClass
@@ -350,24 +344,22 @@ export function buildSyncIncidentDescriptor(
     faultSignature: stableStringify({
       blockerClass,
       recommendedAction,
-      queueDepth: toNonNegativeInt(beforeEvidence.queueDepth),
-      leasedPartitions: toNonNegativeInt(beforeEvidence.leasedPartitions),
-      retryableFailedPartitions: toNonNegativeInt(beforeEvidence.retryableFailedPartitions),
-      deadLetterPartitions: toNonNegativeInt(beforeEvidence.deadLetterPartitions),
-      staleLeasePartitions: toNonNegativeInt(beforeEvidence.staleLeasePartitions),
-      reclaimCandidateCount: toNonNegativeInt(beforeEvidence.reclaimCandidateCount),
-      repairBacklog: toNonNegativeInt(beforeEvidence.repairBacklog),
-      validationFailures24h: toNonNegativeInt(beforeEvidence.validationFailures24h),
-      d1FinalizeNonTerminalCount: toNonNegativeInt(beforeEvidence.d1FinalizeNonTerminalCount),
-      truthReady:
-        typeof beforeEvidence.truthReady === "boolean"
-          ? beforeEvidence.truthReady
-          : null,
-      stallFingerprints: Array.isArray(beforeEvidence.stallFingerprints)
-        ? beforeEvidence.stallFingerprints.map((entry) => String(entry))
-        : [],
     }),
   };
+}
+
+export function buildSyncRepairExecutionSignature(input: {
+  providerScope: string;
+  recommendation: SyncRepairRecommendation;
+}) {
+  const descriptor = buildSyncIncidentDescriptor(input.recommendation);
+  return stableStringify({
+    providerScope: input.providerScope,
+    businessId: input.recommendation.businessId,
+    resourceScope: descriptor.resourceScope,
+    faultClass: descriptor.faultClass,
+    faultSignature: descriptor.faultSignature,
+  });
 }
 
 function deriveIncidentStatusFromPlan(input: {
@@ -819,15 +811,21 @@ export function deriveOperationalSyncState(input: {
   recommendationCount?: number;
   incidentSummary?: SyncIncidentSummary | null;
 }) : OperationalSyncState {
-  const counts = input.incidentSummary?.counts ?? emptyIncidentCounts();
-  if (counts.exhausted > 0) return "exhausted";
-  if (counts.quarantined > 0) return "quarantined";
-  if (counts.manual_required > 0) return "manual_required";
-  if (counts.repairing > 0) return "repairing";
-  if (counts.cooldown > 0) return "cooldown";
-  if (counts.half_open > 0) return "half_open";
-  if (counts.eligible > 0 || (input.recommendationCount ?? 0) > 0) return "eligible";
-  if (counts.detected > 0) return "detected";
+  const counts = input.incidentSummary?.counts;
+  if (counts) {
+    if (counts.exhausted > 0) return "exhausted";
+    if (counts.quarantined > 0) return "quarantined";
+    if (counts.manual_required > 0) return "manual_required";
+    if (counts.repairing > 0) return "repairing";
+    if (counts.cooldown > 0) return "cooldown";
+    if (counts.half_open > 0) return "half_open";
+    if (counts.eligible > 0) return "eligible";
+    if (counts.detected > 0) return "detected";
+    if (input.releaseGateVerdict && input.releaseGateVerdict !== "pass") return "detected";
+    return "healthy";
+  }
+
+  if ((input.recommendationCount ?? 0) > 0) return "eligible";
   if (input.releaseGateVerdict && input.releaseGateVerdict !== "pass") return "detected";
   return "healthy";
 }

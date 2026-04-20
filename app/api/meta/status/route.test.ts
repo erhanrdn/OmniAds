@@ -129,6 +129,29 @@ vi.mock("@/lib/meta/status-operations", () => ({
   deriveMetaOperationsBlockReason: vi.fn(() => null),
 }));
 
+vi.mock("@/lib/sync/incidents", () => ({
+  deriveOperationalSyncState: vi.fn((input) =>
+    input?.incidentSummary?.openCount > 0 ? "repairing" : "healthy"
+  ),
+  getSyncIncidentSummary: vi.fn(async () => ({
+    openCount: 0,
+    openCircuitCount: 0,
+    latestSeenAt: null,
+    degradedServing: false,
+    counts: {
+      detected: 0,
+      eligible: 0,
+      repairing: 0,
+      cooldown: 0,
+      half_open: 0,
+      cleared: 0,
+      quarantined: 0,
+      exhausted: 0,
+      manual_required: 0,
+    },
+  })),
+}));
+
 vi.mock("@/lib/meta/live", () => ({
   getMetaCurrentDayLiveAvailability: vi.fn(),
 }));
@@ -202,6 +225,7 @@ const constraints = await import("@/lib/meta/constraints");
 const metaSync = await import("@/lib/sync/meta-sync");
 const metaRetention = await import("@/lib/meta/warehouse-retention");
 const remediationExecutions = await import("@/lib/sync/remediation-executions");
+const incidents = await import("@/lib/sync/incidents");
 
 function getUtcTodayIso() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -358,6 +382,23 @@ describe("GET /api/meta/status", () => {
       executionDisposition: "dry_run",
       canary: null,
     } as never);
+    vi.mocked(incidents.getSyncIncidentSummary).mockResolvedValue({
+      openCount: 0,
+      openCircuitCount: 0,
+      latestSeenAt: null,
+      degradedServing: false,
+      counts: {
+        detected: 0,
+        eligible: 0,
+        repairing: 0,
+        cooldown: 0,
+        half_open: 0,
+        cleared: 0,
+        quarantined: 0,
+        exhausted: 0,
+        manual_required: 0,
+      },
+    });
     vi.mocked(metaRetention.summarizeMetaRetentionRunRows).mockReturnValue(null as never);
     vi.mocked(metaRetention.getMetaProtectedPublishedTruthReview).mockResolvedValue({
       runtimeAvailable: false,
@@ -1013,6 +1054,9 @@ describe("GET /api/meta/status", () => {
         }),
       ],
     });
+    expect(payload.operationalSyncState).toBe("healthy");
+    expect(payload.openIncidents).toBe(0);
+    expect(payload.degradedServing).toBe(false);
   });
 
   it("keeps no-date page readiness ready when recent breakdown coverage is complete but historical extended history still lags", async () => {
