@@ -1,11 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildProviderHeartbeatWorkerId,
   createRunnerLeaseGuard,
   prioritizeBusinessesForAdapter,
+  resolveConsumeBusinessFallbackDecision,
   runAdapterLifecycleTick,
   resolveAdapterLifecycleSnapshot,
 } from "@/lib/sync/worker-runtime";
+
+vi.mock("@/lib/sync/provider-job-lock", () => ({
+  getProviderJobLockState: vi.fn(),
+}));
+
+const providerJobLock = await import("@/lib/sync/provider-job-lock");
 
 describe("prioritizeBusinessesForAdapter", () => {
   const businesses = [
@@ -51,6 +58,61 @@ describe("createRunnerLeaseGuard", () => {
 
     expect(guard.isLeaseLost()).toBe(true);
     expect(guard.getLeaseLossReason()).toBe("runner_lease_conflict");
+  });
+});
+
+describe("resolveConsumeBusinessFallbackDecision", () => {
+  it("blocks fallback during cooldown", async () => {
+    const decision = await resolveConsumeBusinessFallbackDecision({
+      providerScope: "meta",
+      businessId: "biz-1",
+      lastFallbackAtMs: Date.now(),
+      cooldownMs: 60_000,
+    });
+
+    expect(decision).toEqual({
+      allowed: false,
+      reason: "compatibility_cooldown",
+    });
+  });
+
+  it("blocks fallback while auto remediation lock is active", async () => {
+    vi.mocked(providerJobLock.getProviderJobLockState).mockResolvedValue({
+      id: "lock-1",
+      status: "running",
+      lockOwner: "worker-1",
+      lockExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      errorMessage: null,
+      isExpired: false,
+    });
+
+    const decision = await resolveConsumeBusinessFallbackDecision({
+      providerScope: "meta",
+      businessId: "biz-1",
+      cooldownMs: 60_000,
+    });
+
+    expect(decision).toEqual({
+      allowed: false,
+      reason: "repair_workflow_active",
+    });
+  });
+
+  it("allows fallback when no supported repair lock exists", async () => {
+    vi.mocked(providerJobLock.getProviderJobLockState).mockResolvedValue(null);
+
+    const decision = await resolveConsumeBusinessFallbackDecision({
+      providerScope: "shopify",
+      businessId: "biz-1",
+      cooldownMs: 60_000,
+    });
+
+    expect(decision).toEqual({
+      allowed: true,
+      reason: null,
+    });
   });
 });
 

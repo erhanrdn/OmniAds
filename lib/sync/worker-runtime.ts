@@ -13,6 +13,7 @@ import { executeMetaRetentionPolicy } from "@/lib/meta/warehouse-retention";
 import { pruneSyncLifecycleData } from "@/lib/sync/retention";
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 import { getDbRuntimeDiagnostics } from "@/lib/db";
+import { getProviderJobLockState } from "@/lib/sync/provider-job-lock";
 
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name];
@@ -118,6 +119,73 @@ export interface AdapterLifecycleTickResult {
   failureReasons: string[];
 }
 
+export interface ConsumeBusinessFallbackDecision {
+  allowed: boolean;
+  reason: "compatibility_cooldown" | "repair_workflow_active" | null;
+}
+
+const CONSUME_BUSINESS_REPAIR_LOCK_BY_PROVIDER = {
+  meta: {
+    provider: "meta",
+    reportType: "auto_remediation",
+    dateRangeKey: "control_plane",
+  },
+  google_ads: {
+    provider: "google_ads",
+    reportType: "auto_remediation",
+    dateRangeKey: "control_plane",
+  },
+} as const;
+
+export async function resolveConsumeBusinessFallbackDecision(input: {
+  providerScope: string;
+  businessId: string;
+  lastFallbackAtMs?: number | null;
+  cooldownMs: number;
+}): Promise<ConsumeBusinessFallbackDecision> {
+  const lastFallbackAtMs = input.lastFallbackAtMs ?? null;
+  if (
+    Number.isFinite(lastFallbackAtMs) &&
+    lastFallbackAtMs != null &&
+    Date.now() - lastFallbackAtMs < Math.max(1, input.cooldownMs)
+  ) {
+    return {
+      allowed: false,
+      reason: "compatibility_cooldown",
+    };
+  }
+
+  const repairLockKey =
+    input.providerScope === "meta" || input.providerScope === "google_ads"
+      ? CONSUME_BUSINESS_REPAIR_LOCK_BY_PROVIDER[input.providerScope]
+      : null;
+  if (!repairLockKey) {
+    return {
+      allowed: true,
+      reason: null,
+    };
+  }
+
+  const repairLockState = await getProviderJobLockState({
+    businessId: input.businessId,
+    ...repairLockKey,
+  }).catch(() => null);
+  if (
+    repairLockState?.status === "running" &&
+    repairLockState.isExpired !== true
+  ) {
+    return {
+      allowed: false,
+      reason: "repair_workflow_active",
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: null,
+  };
+}
+
 export async function runAdapterLifecycleTick(input: {
   adapter: ProviderWorkerAdapter;
   businessId: string;
@@ -214,11 +282,16 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
     15 * 60_000
   );
   const autoHealCooldownMs = envNumber("WORKER_AUTO_HEAL_COOLDOWN_MS", 60_000);
+  const consumeBusinessFallbackCooldownMs = envNumber(
+    "WORKER_CONSUME_BUSINESS_FALLBACK_COOLDOWN_MS",
+    60_000,
+  );
   const workerStartedAt = new Date().toISOString();
   const workerBuildId = getCurrentRuntimeBuildId();
   const startedAtMs = Date.now();
   const discoveredBusinesses = new Set<string>();
   const lastAutoHealAtByKey = new Map<string, number>();
+  const lastConsumeBusinessFallbackAtByKey = new Map<string, number>();
   let shuttingDown = false;
   let lastHeartbeatAt = 0;
   let nextPruneAt = startedAtMs + pruneIntervalMs;
@@ -568,6 +641,14 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
           let executionMode: "lifecycle_tick" | "consume_business_fallback" = "lifecycle_tick";
           if (lifecycleResult.attempted === 0 && lifecycleResult.failed === 0) {
             executionMode = "consume_business_fallback";
+            const fallbackKey = `${adapter.providerScope}:${business.id}`;
+            const fallbackDecision = await resolveConsumeBusinessFallbackDecision({
+              providerScope: adapter.providerScope,
+              businessId: business.id,
+              lastFallbackAtMs:
+                lastConsumeBusinessFallbackAtByKey.get(fallbackKey) ?? null,
+              cooldownMs: consumeBusinessFallbackCooldownMs,
+            });
             await heartbeat({
               providerScope: adapter.providerScope,
               status: "running",
@@ -586,6 +667,8 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
                 lifecycleFailed: lifecycleResult.failed,
                 lifecycleLeasedPartitionIds: lifecycleResult.leasedPartitionIds,
                 laneLeaseCounts: lifecycleResult.laneLeaseCounts,
+                compatibilityFallbackAllowed: fallbackDecision.allowed,
+                compatibilityFallbackReason: fallbackDecision.reason,
                 lifecycleCheckpointHealth: lifecycleSnapshot?.checkpointHealth ?? null,
                 leasePlanKind: leasePlan?.kind ?? null,
                 fairnessInputs: leasePlan?.fairnessInputs ?? null,
@@ -602,10 +685,25 @@ export async function runDurableWorkerRuntime(options: DurableWorkerRuntimeOptio
               },
               force: true,
             }).catch(() => null);
-            result = await adapter.consumeBusiness(business.id, {
-              runtimeLeaseGuard: leaseGuard,
-              runtimeWorkerId: workerId,
-            });
+            if (!fallbackDecision.allowed) {
+              result = {
+                businessId: business.id,
+                attempted: 0,
+                succeeded: 0,
+                failed: 0,
+                skipped: true,
+                outcome: "consume_business_fenced",
+                failureReason: fallbackDecision.reason,
+                lastPartitionId: null,
+                leasedPartitionIds: [],
+              };
+            } else {
+              lastConsumeBusinessFallbackAtByKey.set(fallbackKey, Date.now());
+              result = await adapter.consumeBusiness(business.id, {
+                runtimeLeaseGuard: leaseGuard,
+                runtimeWorkerId: workerId,
+              });
+            }
           } else {
             result = {
               businessId: business.id,
