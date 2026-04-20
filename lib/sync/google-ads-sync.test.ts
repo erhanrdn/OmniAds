@@ -23,6 +23,7 @@ import {
   shouldLeaseGoogleAdsRecentRepair,
   summarizeGoogleAdsIntegrityIncidents,
   planGoogleAdsRecentMaintenanceDates,
+  getGoogleAdsCoveredRecentMaintenanceDatesToCancel,
   getGoogleAdsD1FinalizeScopesToQueue,
   resolveGoogleAdsCoveredD1FinalizeResolution,
 } from "@/lib/sync/google-ads-sync";
@@ -1067,6 +1068,17 @@ describe("planGoogleAdsRecentMaintenanceDates", () => {
         skipDates: ["2026-04-19"],
       }),
     ).toEqual(["2026-04-17"]);
+  });
+});
+
+describe("getGoogleAdsCoveredRecentMaintenanceDatesToCancel", () => {
+  it("cancels only covered recent dates outside protected current-day slots", () => {
+    expect(
+      getGoogleAdsCoveredRecentMaintenanceDatesToCancel({
+        coveredDates: ["2026-04-19", "2026-04-18", "2026-04-17", "2026-04-16"],
+        protectedDates: ["2026-04-19", "2026-04-18"],
+      }),
+    ).toEqual(["2026-04-17", "2026-04-16"]);
   });
 });
 

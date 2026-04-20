@@ -3249,6 +3249,14 @@ export function planGoogleAdsRecentMaintenanceDates(input: {
   return input.recentDates.filter((date) => !blockedDates.has(date));
 }
 
+export function getGoogleAdsCoveredRecentMaintenanceDatesToCancel(input: {
+  coveredDates: string[];
+  protectedDates?: string[];
+}) {
+  const protectedDates = new Set(input.protectedDates ?? []);
+  return input.coveredDates.filter((date) => !protectedDates.has(date));
+}
+
 export function getGoogleAdsD1FinalizeScopesToQueue(input: {
   accountDailyCovered: boolean;
   campaignDailyCovered: boolean;
@@ -3380,6 +3388,7 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
 }
 
 async function enqueueMaintenancePartitions(businessId: string) {
+  const sql = getDb();
   const accountIds = await getAssignedGoogleAccounts(businessId).catch(
     () => [],
   );
@@ -3420,6 +3429,30 @@ async function enqueueMaintenancePartitions(businessId: string) {
       ...coveredRecentDates,
       ...activeRecentDates,
     ]);
+    const coveredRecentDatesToCancel =
+      getGoogleAdsCoveredRecentMaintenanceDatesToCancel({
+        coveredDates: coveredRecentDates,
+        protectedDates: [today, yesterday],
+      });
+    if (coveredRecentDatesToCancel.length > 0) {
+      await sql`
+        UPDATE google_ads_sync_partitions
+        SET
+          status = 'cancelled',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          finished_at = COALESCE(finished_at, now()),
+          last_error = COALESCE(last_error, 'covered recent maintenance partition superseded by canonical warehouse coverage'),
+          updated_at = now()
+        WHERE business_id = ${businessId}
+          AND provider_account_id = ${providerAccountId}
+          AND lane = 'maintenance'
+          AND scope = 'campaign_daily'
+          AND source = 'recent'
+          AND status = 'queued'
+          AND partition_date = ANY(${coveredRecentDatesToCancel}::date[])
+      `;
+    }
     const recentDatesToQueue = planGoogleAdsRecentMaintenanceDates({
       recentDates,
       coveredDates: coveredRecentDates,
