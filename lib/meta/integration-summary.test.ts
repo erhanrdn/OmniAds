@@ -743,4 +743,43 @@ describe("buildMetaIntegrationSummary", () => {
       },
     });
   });
+
+  it("suppresses recoverable queue attention when exact control-plane truth is closed", () => {
+    const summary = buildMetaIntegrationSummary(
+      buildStatus({
+        state: "action_required",
+        blockerClass: "none",
+        syncTruthState: "ready",
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        } as never,
+        releaseGate: {
+          verdict: "pass",
+        } as never,
+        repairPlan: {
+          recommendations: [],
+        } as never,
+        jobHealth: {
+          queueDepth: 2,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 1,
+        } as never,
+        operations: {
+          progressState: "blocked",
+          blockingReasons: [],
+          repairableActions: [],
+          stallFingerprints: ["dead_letter_blocking_completion"],
+        } as never,
+      })
+    );
+
+    expect(summary.attentionNeeded).toBe(false);
+    expect(summary.stages.some((stage) => stage.key === "attention")).toBe(false);
+    expect(summary.stages.find((stage) => stage.key === "queue_worker")).toMatchObject({
+      state: "ready",
+      code: "queue_clear",
+      evidence: null,
+    });
+  });
 });

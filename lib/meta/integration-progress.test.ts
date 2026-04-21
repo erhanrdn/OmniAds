@@ -223,6 +223,61 @@ describe("resolveMetaIntegrationProgress", () => {
     });
   });
 
+  it("rebuilds a stale attention summary when exact control-plane truth is closed", () => {
+    const model = resolveMetaIntegrationProgress(
+      buildStatus({
+        state: "action_required",
+        blockerClass: "none",
+        syncTruthState: "ready",
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        } as never,
+        releaseGate: {
+          verdict: "pass",
+        } as never,
+        repairPlan: {
+          recommendations: [],
+        } as never,
+        jobHealth: {
+          queueDepth: 3,
+          leasedPartitions: 0,
+          retryableFailedPartitions: 0,
+          deadLetterPartitions: 2,
+        } as never,
+        operations: {
+          progressState: "blocked",
+          blockingReasons: [],
+          repairableActions: [],
+          stallFingerprints: ["dead_letter_blocking_completion"],
+        } as never,
+        integrationSummary: {
+          visible: true,
+          state: "blocked",
+          scope: "recent_window",
+          attentionNeeded: true,
+          stages: [
+            {
+              key: "attention",
+              state: "blocked",
+              percent: null,
+              code: "attention_needed",
+              evidence: { deadLetterPartitions: 2 },
+            },
+          ],
+        },
+      }),
+      "en",
+    );
+
+    expect(model?.attentionNeeded).toBe(false);
+    expect(model?.stages.some((stage) => stage.key === "attention")).toBe(false);
+    expect(model?.stages.find((stage) => stage.key === "queue_worker")).toMatchObject({
+      state: "ready",
+      label: "queue clear",
+      evidence: null,
+    });
+  });
+
   it("localizes recent-window progress in English", () => {
     const model = resolveMetaIntegrationProgress(buildStatus(), "en");
 

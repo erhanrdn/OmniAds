@@ -150,6 +150,46 @@ describe("resolveGoogleIntegrationProgress", () => {
     });
   });
 
+  it("separates core readiness from historical backfill progress", () => {
+    const model = resolveGoogleIntegrationProgress(
+      buildGoogleStatus({
+        requiredScopeCompletion: {
+          completedDays: 10,
+          totalDays: 90,
+          percent: 11,
+          readyThroughDate: "2026-01-14",
+          complete: false,
+        },
+        warehouse: {
+          rowCount: 700,
+          firstDate: "2026-01-01",
+          lastDate: "2026-04-19",
+          coverage: {
+            historical: {
+              completedDays: 10,
+              totalDays: 90,
+              readyThroughDate: "2026-01-14",
+            },
+          },
+        },
+      }),
+      "en",
+    );
+
+    expect(model?.stages.find((stage) => stage.key === "core_data")).toMatchObject({
+      state: "ready",
+      label: "core ready",
+      percent: null,
+    });
+    expect(model?.stages.find((stage) => stage.key === "selected_range")).toMatchObject({
+      title: "Historical backfill",
+      state: "working",
+      label: "background",
+      percent: 11,
+      evidence: "Ready through 2026-01-14",
+    });
+  });
+
   it("renders the attention stage when release truth is actually blocked", () => {
     const model = resolveGoogleIntegrationProgress(
       buildGoogleStatus({

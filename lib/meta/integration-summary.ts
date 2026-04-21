@@ -10,6 +10,11 @@ type MetaIntegrationSummaryInput = Pick<
   MetaStatusResponse,
   | "state"
   | "connected"
+  | "controlPlanePersistence"
+  | "releaseGate"
+  | "repairPlan"
+  | "blockerClass"
+  | "syncTruthState"
   | "assignedAccountIds"
   | "primaryAccountTimezone"
   | "latestSync"
@@ -324,10 +329,10 @@ function buildQueueStage(
     if (suppressRecoverableSync) {
       return {
         key: "queue_worker",
-        state: "working",
+        state: "ready",
         percent: null,
-        code: "queue_active",
-        evidence,
+        code: "queue_clear",
+        evidence: null,
       };
     }
     return {

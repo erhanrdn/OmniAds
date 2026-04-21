@@ -380,6 +380,46 @@ describe("sync status pill resolver", () => {
     });
   });
 
+  it("shows background refresh instead of active when Google control-plane is closed but backfill is incomplete", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "ready",
+        blockerClass: "none",
+        panel: {
+          coreUsable: true,
+          extendedLimited: true,
+          headline: "Core metrics are live.",
+          detail: "Historical backfill continues.",
+          surfaceStates: [],
+        },
+        backgroundBackfill: {
+          state: "waiting",
+          percent: 11,
+          incomplete: true,
+          pendingScopes: ["account_daily", "campaign_daily"],
+          readyThroughDate: "2026-01-14",
+          latestProgressAt: null,
+          reason: "waiting",
+        },
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        },
+        releaseGate: {
+          verdict: "pass",
+        },
+        repairPlan: {
+          recommendations: [],
+        },
+      } as never)
+    ).toMatchObject({
+      label: "Refreshing in background",
+      tone: "info",
+      state: "syncing",
+    });
+  });
+
   it("renders an attention pill for stale Google Ads status", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({

@@ -228,10 +228,10 @@ function buildQueueStage(
       label: language === "tr" ? "kuyruk temiz" : "queue clear",
       detail:
         language === "tr"
-          ? "Bekleyen Google Ads işi yok."
-          : "No queued Google Ads work is waiting right now.",
+          ? "Kullanılabilir veri hazır; arka plan yenilemeleri planlandıkça çalışır."
+          : "Usable data is ready; background refresh runs when scheduled.",
       percent: null,
-      evidence: getQueueEvidence(status, language),
+      evidence: null,
     };
   }
   const suppressRecoverableSync = shouldSuppressRecoverableGoogleSyncIssue(status);
@@ -340,12 +340,16 @@ function buildCoreStage(
               ? "çekirdek hazırlanıyor"
               : "core preparing",
     detail:
-      core?.detail ??
+      state === "ready" && requiredCoverage && !requiredCoverage.complete
+        ? language === "tr"
+          ? "Çekirdek harcama ve kampanya özeti kullanılabilir; geçmiş kapsam arka planda tamamlanıyor."
+          : "Core spend and campaign summary are usable; historical coverage continues in the background."
+        : core?.detail ??
       (language === "tr"
         ? "Özet ve kampanya verisi hâlâ hazırlanıyor."
         : "Summary and campaign data are still being prepared."),
     percent:
-      requiredCoverage && !requiredCoverage.complete
+      state !== "ready" && requiredCoverage && !requiredCoverage.complete
         ? clampPercent(requiredCoverage.percent)
         : null,
     evidence:
@@ -363,12 +367,22 @@ function buildSelectedRangeStage(
 ): GoogleIntegrationProgressStage {
   const selectedRange = status.domains?.selectedRange;
   const range = status.warehouse?.coverage?.selectedRange;
+  const requiredCoverage = status.requiredScopeCompletion;
+  const showHistoricalBackfill =
+    status.panel?.coreUsable === true &&
+    requiredCoverage != null &&
+    !requiredCoverage.complete &&
+    !range;
   const percent =
     range && range.totalDays > 0 && !range.isComplete
       ? clampPercent((range.completedDays / Math.max(1, range.totalDays)) * 100)
+      : showHistoricalBackfill
+        ? clampPercent(requiredCoverage.percent)
       : null;
   const state: GoogleIntegrationProgressStageState =
-    selectedRange?.state === "ready"
+    showHistoricalBackfill
+      ? "working"
+      : selectedRange?.state === "ready"
       ? "ready"
       : selectedRange?.state === "partial"
         ? "working"
@@ -378,10 +392,18 @@ function buildSelectedRangeStage(
 
   return {
     key: "selected_range",
-    title: getStageTitle("selected_range", language),
+    title: showHistoricalBackfill
+      ? language === "tr"
+        ? "Geçmiş backfill"
+        : "Historical backfill"
+      : getStageTitle("selected_range", language),
     state,
     label:
-      selectedRange?.state === "ready"
+      showHistoricalBackfill
+        ? language === "tr"
+          ? "arka planda"
+          : "background"
+        : selectedRange?.state === "ready"
         ? language === "tr"
           ? "kapsam hazır"
           : "coverage ready"
@@ -397,12 +419,22 @@ function buildSelectedRangeStage(
               ? "kapsam hazırlanıyor"
               : "coverage preparing",
     detail:
-      selectedRange?.detail ??
+      showHistoricalBackfill
+        ? language === "tr"
+          ? "Google Ads geçmiş kapsamı kullanılabilir çekirdek veri üzerinden arka planda tamamlanıyor."
+          : "Google Ads historical coverage is backfilling in the background while core data stays usable."
+        : selectedRange?.detail ??
       (language === "tr"
         ? "Görünür raporlama yüzeyleri hazırlanıyor."
         : "Visible reporting surfaces are still preparing."),
     percent,
-    evidence: buildSelectedRangeEvidence(status, language),
+    evidence: showHistoricalBackfill
+      ? requiredCoverage.readyThroughDate
+        ? language === "tr"
+          ? `Hazır: ${requiredCoverage.readyThroughDate}`
+          : `Ready through ${requiredCoverage.readyThroughDate}`
+        : null
+      : buildSelectedRangeEvidence(status, language),
   };
 }
 
@@ -412,12 +444,13 @@ function buildAnalysisStage(
 ): GoogleIntegrationProgressStage {
   const advisor = status.domains?.advisor;
   const advisorProgress = status.advisorProgress;
+  const coreUsable = status.panel?.coreUsable === true;
   const state: GoogleIntegrationProgressStageState =
     advisor?.state === "ready"
       ? "ready"
       : status.state === "paused"
         ? "waiting"
-        : status.operations?.advisorSnapshotBlockedReason
+        : status.operations?.advisorSnapshotBlockedReason && !coreUsable
           ? "blocked"
           : "working";
 

@@ -3371,6 +3371,23 @@ export function dedupeGoogleAdsWarehouseRows(
   };
 }
 
+function googleAdsWarehouseEnvNumber(name: string, fallback: number) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getGoogleAdsWarehouseUpsertBatchSize(scope: GoogleAdsWarehouseScope) {
+  if (scope === "product_daily") {
+    return googleAdsWarehouseEnvNumber(
+      "GOOGLE_ADS_PRODUCT_WAREHOUSE_UPSERT_BATCH_SIZE",
+      1_000,
+    );
+  }
+  return 250;
+}
+
 async function upsertGoogleAdsScopeDimensionRows(input: {
   scope: GoogleAdsWarehouseScope;
   rows: GoogleAdsWarehouseDailyRow[];
@@ -3852,7 +3869,7 @@ export async function upsertGoogleAdsDailyRows(
   await assertGoogleAdsMutationTablesReady("google_ads_warehouse");
   const sql = getDb();
   const table = tableNameForScope(scope);
-  const batchSize = 250;
+  const batchSize = getGoogleAdsWarehouseUpsertBatchSize(scope);
   const {
     rows: dedupedRows,
     duplicateCount,

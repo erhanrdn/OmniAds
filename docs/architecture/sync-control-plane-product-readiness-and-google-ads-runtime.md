@@ -1,6 +1,6 @@
 # Sync Control Plane Product Readiness And Google Ads Runtime
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Goal / Scope
 
@@ -267,6 +267,32 @@ The key failure modes observed before the current fix set:
      happened
    - this created heartbeat-only progress signals and could leak into release
      truth
+
+### 2026-04-21 runtime closure update
+
+The Google user-facing and operational layers now explicitly split core serving
+readiness from historical / visible backfill:
+
+- `Core ready` means account and campaign serving data is usable.
+- historical/full coverage percentage is rendered as `Historical backfill` or
+  background progress, not beside the core-ready stage.
+- status routes expose additive `backgroundBackfill` and `runtimeProgress`
+  diagnostics.
+- heartbeat-only worker activity is not considered progress. If backfill is
+  incomplete and there is no queue drain, useful lease, checkpoint movement,
+  successful scope sync, or ready-through/publish movement in the observation
+  window, the internal state is classified as stalled through queue/starvation
+  fingerprints.
+
+Meta attention leakage was also tightened at the integration-card layer:
+
+- exact control-plane closed + usable data suppresses stale provider-local queue
+  or dead-letter attention on user surfaces.
+- admin/internal surfaces still keep exact queue, dead-letter, incident,
+  cooldown, and repair history.
+- completed sync does not mean no future maintenance queue; maintenance queues
+  can reopen, but they must not be presented to end users as failures while
+  serving truth remains healthy.
 
 ### Why Google is the next focus
 

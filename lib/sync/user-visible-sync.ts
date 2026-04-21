@@ -162,7 +162,7 @@ export function deriveMetaUserVisibleSyncState(
 export function deriveGoogleUserVisibleSyncState(
   status: GoogleAdsStatusResponse | null | undefined,
 ) {
-  return deriveUserVisibleSyncState({
+  const state = deriveUserVisibleSyncState({
     connected: Boolean(status?.connected),
     hasAssignment: (status?.assignedAccountIds?.length ?? 0) > 0,
     hasUsableSnapshot:
@@ -179,6 +179,19 @@ export function deriveGoogleUserVisibleSyncState(
       typeof status?.syncTruthState === "string" ? status.syncTruthState : null,
     recommendations: status?.repairPlan?.recommendations,
   });
+  if (
+    state.kind === "healthy" &&
+    status?.backgroundBackfill?.incomplete === true &&
+    (status.panel?.coreUsable === true || status.domains?.core?.state === "ready")
+  ) {
+    return {
+      kind: "refreshing_in_background" as const,
+      label: "Refreshing in background",
+      suppressRecoverableAttention: true,
+      degradedServing: true,
+    };
+  }
+  return state;
 }
 
 export function shouldSuppressRecoverableMetaSyncIssue(

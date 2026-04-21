@@ -1,11 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { loadEnvConfig } from "@next/env";
 import {
   getGoogleAdsAdvisorReport,
   getGoogleAdsOverviewReport,
   getGoogleAdsProductsReport,
   getGoogleAdsSearchIntelligenceReport,
 } from "@/lib/google-ads/serving";
+
+loadEnvConfig(process.cwd());
 
 type SurfaceName =
   | "overview"

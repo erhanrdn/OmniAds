@@ -366,6 +366,17 @@ function summarizeStatusDegradedReason(reasons: string[]) {
   return `Analysis status is degraded: ${reasons.slice(0, 2).join("; ")}.`;
 }
 
+function latestIsoTimestamp(values: Array<string | null | undefined>) {
+  return (
+    values
+      .filter((value): value is string => Boolean(value))
+      .map((value) => new Date(value).getTime())
+      .filter((value) => Number.isFinite(value))
+      .sort((left, right) => right - left)
+      .map((value) => new Date(value).toISOString())[0] ?? null
+  );
+}
+
 function buildAdvisorBlockingMessage(input: {
   connected: boolean;
   assignedAccountCount: number;
@@ -1782,6 +1793,108 @@ export async function GET(request: NextRequest) {
       (queueHealth?.extendedHistoricalQueueDepth ?? 0) +
       (queueHealth?.extendedHistoricalLeasedPartitions ?? 0),
   });
+  const quotaLimited =
+    Boolean(
+      quotaBudgetState &&
+        (!quotaBudgetState.withinDailyBudget ||
+          !quotaBudgetState.maintenanceAllowed ||
+          !quotaBudgetState.extendedAllowed ||
+          quotaBudgetState.errorCount > 0),
+    ) || extendedRecoveryBlockReason === "extended_budget_denied";
+  const latestSuccessfulScopeSyncAt = latestIsoTimestamp(
+    allStateScopes.flatMap((scope) =>
+      statesByScope[scope]
+        .filter((row) =>
+          accountIds.length === 0 ? true : accountIds.includes(row.providerAccountId),
+        )
+        .map((row) => row.latestSuccessfulSyncAt ?? null),
+    ),
+  );
+  const latestMeaningfulProgressAt = latestIsoTimestamp([
+    checkpointHealth?.latestCheckpointUpdatedAt ?? null,
+    latestGoogleActivityAt,
+    latestSuccessfulScopeSyncAt,
+  ]);
+  const runtimeObservationWindowMinutes = 30;
+  const latestMeaningfulProgressMs = latestMeaningfulProgressAt
+    ? new Date(latestMeaningfulProgressAt).getTime()
+    : null;
+  const meaningfulProgressRecent =
+    latestMeaningfulProgressMs != null &&
+    Number.isFinite(latestMeaningfulProgressMs) &&
+    Date.now() - latestMeaningfulProgressMs <=
+      runtimeObservationWindowMinutes * 60 * 1000;
+  const backgroundBackfillPendingScopes = Array.from(
+    new Set([
+      ...(!requiredScopeCompletion.complete ? ["account_daily", "campaign_daily"] : []),
+      ...extendedPendingSurfaces,
+      ...productPendingSurfaces,
+      ...advisorMissingSurfaces,
+    ]),
+  );
+  const backgroundBackfillIncomplete =
+    connected && accountIds.length > 0 && backgroundBackfillPendingScopes.length > 0;
+  const activeBackfillWork =
+    (queueHealth?.queueDepth ?? 0) > 0 || (queueHealth?.leasedPartitions ?? 0) > 0;
+  const backgroundBackfillStalled =
+    backgroundBackfillIncomplete &&
+    !activeBackfillWork &&
+    !meaningfulProgressRecent &&
+    !quotaLimited &&
+    breakerState === "closed" &&
+    overallState !== "action_required";
+  const heartbeatOnly =
+    Boolean(workerSchedulingState?.hasFreshHeartbeat) &&
+    backgroundBackfillIncomplete &&
+    !meaningfulProgressRecent;
+  const runtimeProgress = {
+    meaningfulProgressRecent,
+    heartbeatOnly,
+    latestMeaningfulProgressAt,
+    latestCheckpointUpdatedAt: checkpointHealth?.latestCheckpointUpdatedAt ?? null,
+    latestSuccessfulScopeSyncAt,
+    latestPartitionActivityAt: latestGoogleActivityAt,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    leasedPartitions: queueHealth?.leasedPartitions ?? 0,
+    observationWindowMinutes: runtimeObservationWindowMinutes,
+  };
+  const backgroundBackfill = {
+    state: !backgroundBackfillIncomplete
+      ? ("ready" as const)
+      : overallState === "action_required" || breakerState === "open"
+        ? ("blocked" as const)
+        : quotaLimited
+          ? ("quota_limited" as const)
+          : activeBackfillWork
+            ? ("active" as const)
+            : backgroundBackfillStalled
+              ? ("stalled" as const)
+              : ("waiting" as const),
+    percent: requiredScopeCompletion.percent,
+    incomplete: backgroundBackfillIncomplete,
+    pendingScopes: backgroundBackfillPendingScopes,
+    readyThroughDate: requiredScopeCompletion.readyThroughDate ?? historicalReadyThroughDate,
+    latestProgressAt: latestMeaningfulProgressAt,
+    reason: !backgroundBackfillIncomplete
+      ? null
+      : overallState === "action_required" || breakerState === "open"
+        ? "Google Ads backfill is blocked by operational recovery state."
+        : quotaLimited
+          ? "Google Ads quota or breaker budget is limiting backfill."
+          : activeBackfillWork
+            ? "Google Ads backfill work is queued or leased."
+            : backgroundBackfillStalled
+              ? "No queue drain, lease, checkpoint, publish, or successful scope movement was observed in the backfill window."
+              : "Google Ads backfill is waiting for the next worker scheduling window.",
+  };
+  const effectiveGoogleStallFingerprints = Array.from(
+    new Set([
+      ...googleStallFingerprints,
+      ...(backgroundBackfillStalled
+        ? (["historical_starvation", "checkpoint_not_advancing"] as const)
+        : []),
+    ]),
+  );
   const googleUnifiedTruth =
     !connected || accountIds.length === 0
       ? {
@@ -1808,7 +1921,7 @@ export async function GET(request: NextRequest) {
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
       staleLeasePartitions: advisorRelevantUnhealthyLeases,
       syncTruthState: googleUnifiedTruth.syncTruthState,
-      stallFingerprints: googleStallFingerprints,
+      stallFingerprints: effectiveGoogleStallFingerprints,
     });
   const providerState = buildProviderStateContract({
     credentialState: connected ? "connected" : "not_connected",
@@ -1910,14 +2023,6 @@ export async function GET(request: NextRequest) {
       : d1FinalizeState === "blocked"
         ? "missing_warehouse_coverage"
         : null;
-  const quotaLimited =
-    Boolean(
-      quotaBudgetState &&
-        (!quotaBudgetState.withinDailyBudget ||
-          !quotaBudgetState.maintenanceAllowed ||
-          !quotaBudgetState.extendedAllowed ||
-          quotaBudgetState.errorCount > 0),
-    ) || extendedRecoveryBlockReason === "extended_budget_denied";
   const coldBootstrap =
     connected &&
     accountIds.length > 0 &&
@@ -2010,6 +2115,8 @@ export async function GET(request: NextRequest) {
     platformDateBoundary,
     completionBasis,
     completionBlockers,
+    runtimeProgress,
+    backgroundBackfill,
     globalSyncProgress,
     currentDayLiveStatus,
     selectedRangeReadinessBasis,
@@ -2310,7 +2417,9 @@ export async function GET(request: NextRequest) {
       blockingReasons: googleBlockingReasons,
       repairableActions: googleRepairableActions,
       requiredCoverage: googleRequiredCoverage,
-      stallFingerprints: googleStallFingerprints,
+      stallFingerprints: effectiveGoogleStallFingerprints,
+      runtimeProgress,
+      backgroundBackfill,
       secondaryReadiness: [
         {
           key: "analysis",

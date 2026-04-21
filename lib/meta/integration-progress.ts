@@ -6,6 +6,7 @@ import type {
   MetaStatusResponse,
 } from "@/lib/meta/status-types";
 import type { MetaUiLanguage } from "@/lib/meta/ui-status";
+import { shouldSuppressRecoverableMetaSyncIssue } from "@/lib/sync/user-visible-sync";
 
 export type MetaIntegrationProgressStageState =
   | "ready"
@@ -643,6 +644,9 @@ function getStageDetail(
 }
 
 function getIntegrationSummary(status: MetaStatusResponse) {
+  if (shouldSuppressRecoverableMetaSyncIssue(status)) {
+    return buildMetaIntegrationSummary(status);
+  }
   return status.integrationSummary ?? buildMetaIntegrationSummary(status);
 }
 

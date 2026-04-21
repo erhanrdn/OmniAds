@@ -10,6 +10,7 @@ import {
   getGoogleAdsProductsReport,
   getGoogleAdsSearchIntelligenceReport,
 } from "@/lib/google-ads/reporting";
+import type { GoogleAdsReportMeta } from "@/lib/google-ads/normalizers";
 import { buildGoogleAdsQueryHash, normalizeGoogleAdsQueryText, persistGoogleAdsSearchIntelligenceFoundation } from "@/lib/google-ads/search-intelligence-storage";
 import { GOOGLE_ADS_CAMPAIGN_CORE_LIMIT, buildCustomerSummaryQuery } from "@/lib/google-ads/query-builders";
 import {
@@ -113,6 +114,13 @@ import {
 import { logRuntimeInfo } from "@/lib/runtime-logging";
 
 type GenericRow = Record<string, unknown>;
+type GoogleAdsWarehouseReportLike = {
+  rows?: unknown[];
+  meta?: Pick<
+    GoogleAdsReportMeta,
+    "failed_queries" | "query_names" | "row_counts"
+  > | null;
+};
 
 const runtimeSyncStore = globalThis as typeof globalThis & {
   __googleAdsBackgroundSyncKeys?: Set<string>;
@@ -152,7 +160,7 @@ const GOOGLE_ADS_D1_FINALIZE_SCOPES: GoogleAdsWarehouseScope[] = [
 ];
 const GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS = envNumber(
   "GOOGLE_ADS_BACKGROUND_LOOP_DELAY_MS",
-  5_000,
+  3_000,
 );
 const GOOGLE_ADS_CORE_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_CORE_WORKER_LIMIT",
@@ -164,7 +172,7 @@ const GOOGLE_ADS_MAINTENANCE_WORKER_LIMIT = envNumber(
 );
 const GOOGLE_ADS_EXTENDED_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_WORKER_LIMIT",
-  4,
+  6,
 );
 const GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT",
@@ -172,7 +180,7 @@ const GOOGLE_ADS_EXTENDED_BURST_WORKER_LIMIT = envNumber(
 );
 const GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_FULL_SYNC_PRIORITY_LIMIT",
-  2,
+  3,
 );
 const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
   "GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD",
@@ -225,6 +233,10 @@ const GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE = Math.min(
   GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE,
   envNumber("GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE", 125),
 );
+const GOOGLE_ADS_PRODUCT_CHECKPOINT_CHUNK_SIZE = envNumber(
+  "GOOGLE_ADS_PRODUCT_CHECKPOINT_CHUNK_SIZE",
+  1_000,
+);
 const GOOGLE_ADS_CAMPAIGN_CORE_LIMIT_ERROR_CODE =
   "google_ads_campaign_core_limit_exceeded";
 class GoogleAdsRetryableSyncError extends Error {
@@ -248,6 +260,8 @@ export function getGoogleAdsScopeCheckpointChunkSize(
   if (scope === "campaign_daily")
     return GOOGLE_ADS_CAMPAIGN_CHECKPOINT_CHUNK_SIZE;
   if (scope === "geo_daily") return GOOGLE_ADS_GEO_CHECKPOINT_CHUNK_SIZE;
+  if (scope === "product_daily")
+    return GOOGLE_ADS_PRODUCT_CHECKPOINT_CHUNK_SIZE;
   return GOOGLE_ADS_CHECKPOINT_CHUNK_SIZE;
 }
 
@@ -381,23 +395,23 @@ const GOOGLE_ADS_MAINTENANCE_BACKLOG_HARD_LIMIT = envNumber(
 );
 const GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_EXTENDED_CANARY_BURST_WORKER_LIMIT",
-  1,
+  2,
 );
 const GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT = envNumber(
   "GOOGLE_ADS_RECENT_REPAIR_WORKER_LIMIT",
-  1,
+  2,
 );
 const GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS = envNumber(
   "GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS",
-  14,
+  84,
 );
 const GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS = envNumber(
   "GOOGLE_ADS_EXTENDED_RECENT_BATCH_DAYS",
-  4,
+  6,
 );
 const GOOGLE_ADS_EXTENDED_HISTORICAL_BATCH_DAYS = envNumber(
   "GOOGLE_ADS_EXTENDED_HISTORICAL_BATCH_DAYS",
-  2,
+  3,
 );
 const GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT = Number(
   process.env.GOOGLE_ADS_EXTENDED_HISTORICAL_PRESSURE_LIMIT ?? "0.7",
@@ -1229,14 +1243,13 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
       recent90Complete: recent90State?.complete ?? true,
       allowPriorityHistorical: allowPriorityHistoricalReplay,
     });
-  const historicalLeaseStartDate =
-    fullSyncPriority.historicalStart && recent90State?.recent90Start
-      ? decideGoogleAdsHistoricalFrontier({
-          historicalStart: fullSyncPriority.historicalStart,
-          recent90Start: recent90State.recent90Start,
-          recent90Complete: recent90State.complete,
-        })
-      : (fullSyncPriority.historicalStart ?? null);
+  const historicalLeaseStartDate = resolveGoogleAdsHistoricalReplayStart({
+    historicalStart: fullSyncPriority.historicalStart,
+    recent90Start: recent90State?.recent90Start ?? null,
+    recent90Complete: recent90State?.complete ?? true,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+    allowPriorityHistorical: allowPriorityHistoricalReplay,
+  });
   const laneProgressEvidence = buildGoogleAdsLaneProgressEvidence({
     queueHealth,
   });
@@ -1688,11 +1701,17 @@ async function enqueueExtendedRecoveryPartitions(input: {
   const recent90State = await getGoogleAdsRecent90CompletionState({
     businessId: input.businessId,
   }).catch(() => null);
-  const frontierStart = decideGoogleAdsHistoricalFrontier({
+  const frontierStart = resolveGoogleAdsHistoricalReplayStart({
     historicalStart,
-    recent90Start: recent90State?.recent90Start ?? historicalStart,
+    recent90Start: recent90State?.recent90Start ?? null,
     recent90Complete: recent90State?.complete ?? true,
+    allowPriorityHistorical: input.allowPriorityHistorical,
   });
+  if (!frontierStart) {
+    return {
+      queuedHistorical: 0,
+    };
+  }
   const recentStart = addDaysToIsoDate(
     yesterday,
     -(GOOGLE_ADS_RECENT_EXTENDED_RECOVERY_DAYS - 1),
@@ -2784,6 +2803,73 @@ export function shouldRetryGoogleAdsEmptyCampaignDaily(input: {
   );
 }
 
+function isGoogleAdsFallbackCompatibleProductFailure(
+  failure: GoogleAdsReportMeta["failed_queries"][number],
+  meta: GoogleAdsWarehouseReportLike["meta"],
+) {
+  if (failure.query !== "product_performance") return false;
+  if (!meta?.query_names?.includes("product_performance_legacy")) return false;
+  return (
+    failure.category === "unsupported_query_shape" ||
+    failure.category === "unavailable_metric" ||
+    failure.category === "bad_query_shape"
+  );
+}
+
+function isGoogleAdsOptionalMetricFailure(
+  failure: GoogleAdsReportMeta["failed_queries"][number],
+) {
+  return (
+    failure.severity === "optional" &&
+    (failure.category === "unsupported_query_shape" ||
+      failure.category === "unavailable_metric" ||
+      failure.category === "bad_query_shape")
+  );
+}
+
+export function getGoogleAdsWarehouseFetchFailureReason(input: {
+  scope: GoogleAdsWarehouseScope;
+  report: GoogleAdsWarehouseReportLike | null | undefined;
+}) {
+  const failures = input.report?.meta?.failed_queries ?? [];
+  if (failures.length === 0) return null;
+  const rowCount = Array.isArray(input.report?.rows)
+    ? input.report.rows.length
+    : 0;
+  const blockingFailures = failures.filter((failure) => {
+    if (
+      input.scope === "product_daily" &&
+      isGoogleAdsFallbackCompatibleProductFailure(failure, input.report?.meta)
+    ) {
+      return false;
+    }
+    if (rowCount > 0 && isGoogleAdsOptionalMetricFailure(failure)) {
+      return false;
+    }
+    return true;
+  });
+  if (blockingFailures.length === 0) return null;
+  const first = blockingFailures[0];
+  return [
+    `google_ads_${input.scope}_fetch_failed`,
+    first?.query ? `query=${first.query}` : null,
+    first?.apiStatus ? `apiStatus=${first.apiStatus}` : null,
+    first?.apiErrorCode ? `apiErrorCode=${first.apiErrorCode}` : null,
+    first?.message ? `message=${first.message}` : null,
+  ]
+    .filter(Boolean)
+    .join(": ");
+}
+
+function assertGoogleAdsWarehouseFetchSucceeded(input: {
+  scope: GoogleAdsWarehouseScope;
+  report: GoogleAdsWarehouseReportLike | null | undefined;
+}) {
+  const reason = getGoogleAdsWarehouseFetchFailureReason(input);
+  if (!reason) return;
+  throw new GoogleAdsRetryableSyncError(reason);
+}
+
 async function resolveGoogleAdsCurrentDate(
   businessId: string,
   providerAccountId?: string | null,
@@ -3238,6 +3324,25 @@ export function decideGoogleAdsHistoricalFrontier(input: {
   return input.recent90Complete ? input.historicalStart : input.recent90Start;
 }
 
+export function resolveGoogleAdsHistoricalReplayStart(input: {
+  historicalStart: string | null;
+  recent90Start?: string | null;
+  recent90Complete?: boolean;
+  fullSyncPriorityRequired?: boolean;
+  allowPriorityHistorical?: boolean;
+}) {
+  if (!input.historicalStart) return null;
+  if (input.fullSyncPriorityRequired || input.allowPriorityHistorical) {
+    return input.historicalStart;
+  }
+  if (!input.recent90Start) return input.historicalStart;
+  return decideGoogleAdsHistoricalFrontier({
+    historicalStart: input.historicalStart,
+    recent90Start: input.recent90Start,
+    recent90Complete: input.recent90Complete ?? true,
+  });
+}
+
 export function shouldBlockGoogleAdsHistoricalExtendedWork(input: {
   recent90Complete: boolean;
   allowPriorityHistorical?: boolean;
@@ -3351,57 +3456,84 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
     () => [],
   );
   if (accountIds.length === 0) return 0;
-  const recent90State = await getGoogleAdsRecent90CompletionState({
-    businessId,
-  }).catch(() => null);
   let queued = 0;
   for (const providerAccountId of accountIds) {
     const { historicalStart, yesterday } = await computeHistoricalTargets(
       businessId,
       providerAccountId,
     );
-    const targetStart = decideGoogleAdsHistoricalFrontier({
-      historicalStart,
-      recent90Start: recent90State?.recent90Start ?? historicalStart,
-      recent90Complete: recent90State?.complete ?? true,
-    });
-    const [coveredDates, activePartitionDates] = await Promise.all([
-      getGoogleAdsCoveredDates({
-        scope: "campaign_daily",
-        businessId,
-        providerAccountId,
-        startDate: targetStart,
-        endDate: yesterday,
-      }).catch(() => []),
-      getGoogleAdsPartitionDates({
-        businessId,
-        providerAccountId,
-        lane: "core",
-        scope: "campaign_daily",
-        startDate: targetStart,
-        endDate: yesterday,
-        statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
-      }).catch(() => []),
-    ]);
-    const blockedDates = new Set([...coveredDates, ...activePartitionDates]);
-    const dates = enumerateDays(targetStart, yesterday, true)
-      .filter((date) => date !== yesterday)
-      .filter((date) => !blockedDates.has(date))
-      .slice(0, GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS);
+    const recent90Start = addDaysToIsoDate(yesterday, -89);
+    const frontierStart =
+      recent90Start > historicalStart ? recent90Start : historicalStart;
+    for (const scope of GOOGLE_ADS_D1_FINALIZE_SCOPES) {
+      const [recentCoveredDates, recentActivePartitionDates] = await Promise.all([
+        getGoogleAdsCoveredDates({
+          scope,
+          businessId,
+          providerAccountId,
+          startDate: frontierStart,
+          endDate: yesterday,
+        }).catch(() => []),
+        getGoogleAdsPartitionDates({
+          businessId,
+          providerAccountId,
+          lane: "core",
+          scope,
+          startDate: frontierStart,
+          endDate: yesterday,
+          statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
+        }).catch(() => []),
+      ]);
+      const recentBlockedDates = new Set([
+        ...recentCoveredDates,
+        ...recentActivePartitionDates,
+      ]);
+      const recentMissingDates = enumerateDays(frontierStart, yesterday, true)
+        .filter((date) => date !== yesterday)
+        .filter((date) => !recentBlockedDates.has(date));
+      const targetStart =
+        recentMissingDates.length > 0 ? frontierStart : historicalStart;
+      const [coveredDates, activePartitionDates] =
+        targetStart === frontierStart
+          ? [recentCoveredDates, recentActivePartitionDates]
+          : await Promise.all([
+              getGoogleAdsCoveredDates({
+                scope,
+                businessId,
+                providerAccountId,
+                startDate: targetStart,
+                endDate: yesterday,
+              }).catch(() => []),
+              getGoogleAdsPartitionDates({
+                businessId,
+                providerAccountId,
+                lane: "core",
+                scope,
+                startDate: targetStart,
+                endDate: yesterday,
+                statuses: [...getGoogleAdsGapPlannerBlockingStatuses()],
+              }).catch(() => []),
+            ]);
+      const blockedDates = new Set([...coveredDates, ...activePartitionDates]);
+      const dates = enumerateDays(targetStart, yesterday, true)
+        .filter((date) => date !== yesterday)
+        .filter((date) => !blockedDates.has(date))
+        .slice(0, GOOGLE_ADS_BOOTSTRAP_BATCH_DAYS);
 
-    for (const date of dates) {
-      const row = await queueGoogleAdsSyncPartition({
-        businessId,
-        providerAccountId,
-        lane: "core",
-        scope: "campaign_daily",
-        partitionDate: date,
-        status: "queued",
-        priority: 0,
-        source: "historical",
-        attemptCount: 0,
-      }).catch(() => null);
-      if (row?.id) queued++;
+      for (const date of dates) {
+        const row = await queueGoogleAdsSyncPartition({
+          businessId,
+          providerAccountId,
+          lane: "core",
+          scope,
+          partitionDate: date,
+          status: "queued",
+          priority: 0,
+          source: "historical",
+          attemptCount: 0,
+        }).catch(() => null);
+        if (row?.id) queued++;
+      }
     }
   }
   return queued;
@@ -3931,6 +4063,67 @@ async function syncGoogleAdsAccountDay(input: {
         })
       : null;
     fetchCompletedAtMs = Date.now();
+
+    if (wants("campaign_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "campaign_daily",
+        report: campaigns,
+      });
+    }
+    if (wants("search_term_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "search_term_daily",
+        report: searchIntelligence,
+      });
+    }
+    if (wants("keyword_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "keyword_daily",
+        report: keywords,
+      });
+    }
+    if (wants("ad_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "ad_daily",
+        report: ads,
+      });
+    }
+    if (wants("asset_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "asset_daily",
+        report: assets,
+      });
+    }
+    if (wants("asset_group_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "asset_group_daily",
+        report: assetGroups,
+      });
+    }
+    if (wants("audience_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "audience_daily",
+        report: audiences,
+      });
+    }
+    if (wants("geo_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "geo_daily",
+        report: geo,
+      });
+    }
+    if (wants("device_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "device_daily",
+        report: devices,
+      });
+    }
+    if (wants("product_daily")) {
+      assertGoogleAdsWarehouseFetchSucceeded({
+        scope: "product_daily",
+        report: products,
+      });
+    }
 
     if (wants("account_daily") && overview) {
       const transformStartedAtMs = Date.now();
@@ -5850,14 +6043,18 @@ export async function syncGoogleAdsReports(
   const recent90State = await getGoogleAdsRecent90CompletionState({
     businessId,
   }).catch(() => null);
-  const historicalLeaseStartDate =
-    fullSyncPriority.historicalStart && recent90State
-      ? decideGoogleAdsHistoricalFrontier({
-          historicalStart: fullSyncPriority.historicalStart,
-          recent90Start: recent90State.recent90Start,
-          recent90Complete: recent90State.complete,
-        })
-      : null;
+  const allowPriorityHistoricalReplay =
+    shouldAllowGoogleAdsPriorityHistoricalReplay({
+      fullSyncPriorityRequired: fullSyncPriority.required,
+      fullSyncPriorityTargetScopes: fullSyncPriority.targetScopes,
+    });
+  const historicalLeaseStartDate = resolveGoogleAdsHistoricalReplayStart({
+    historicalStart: fullSyncPriority.historicalStart,
+    recent90Start: recent90State?.recent90Start ?? null,
+    recent90Complete: recent90State?.complete ?? true,
+    fullSyncPriorityRequired: fullSyncPriority.required,
+    allowPriorityHistorical: allowPriorityHistoricalReplay,
+  });
   const initialQueueHealth = await getGoogleAdsQueueHealth({
     businessId,
   }).catch(() => null);
@@ -5869,11 +6066,6 @@ export async function syncGoogleAdsReports(
     applyGoogleAdsFullSyncPriorityPolicyOverride({
       policy: initialIncidentPolicy,
       fullSyncPriorityRequired: fullSyncPriority.required,
-    });
-  const allowPriorityHistoricalReplay =
-    shouldAllowGoogleAdsPriorityHistoricalReplay({
-      fullSyncPriorityRequired: fullSyncPriority.required,
-      fullSyncPriorityTargetScopes: fullSyncPriority.targetScopes,
     });
   const blockHistoricalExtendedWork =
     shouldBlockGoogleAdsHistoricalExtendedWork({

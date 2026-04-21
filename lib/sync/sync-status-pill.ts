@@ -218,13 +218,15 @@ export function resolveGoogleAdsSyncStatusPill(
 ): SyncStatusPillState | null {
   if (!status?.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
+  const userVisibleState = deriveGoogleUserVisibleSyncState(status);
   if (isGoogleAdsControlPlaneClosed(status)) {
-    return buildActivePill();
+    return status.backgroundBackfill?.incomplete === true
+      ? buildInfoPill(userVisibleState.label)
+      : buildActivePill(userVisibleState.label);
   }
 
   const percent = resolveGooglePercent(status);
   const progressLabel = resolveGoogleProgressLabel(status, percent);
-  const userVisibleState = deriveGoogleUserVisibleSyncState(status);
   const controlPlaneAttention =
     status.controlPlanePersistence?.exactRowsPresent === true &&
     ((status.releaseGate?.verdict != null &&

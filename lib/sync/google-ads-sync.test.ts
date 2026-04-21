@@ -7,10 +7,12 @@ import {
   buildGoogleAdsFallbackExtendedLeasePlan,
   buildGoogleAdsLaneProgressEvidence,
   decideGoogleAdsHistoricalFrontier,
+  resolveGoogleAdsHistoricalReplayStart,
   getGoogleAdsExtendedRecoveryBlockReason,
   getGoogleAdsHistoricalFairnessLeaseLimit,
   getGoogleAdsGapPlannerBlockingStatuses,
   hasGoogleAdsInProcessBackgroundWorkerIdentity,
+  getGoogleAdsWarehouseFetchFailureReason,
   buildGoogleAdsWarehouseFetchPlan,
   classifyGoogleAdsQueuedCampaignDailyPartition,
   canReuseExistingGoogleAdsSyncJob,
@@ -263,6 +265,12 @@ describe("Google Ads throughput telemetry", () => {
     );
   });
 
+  it("uses a larger product checkpoint chunk to avoid DB-bound backfill serialization", () => {
+    expect(getGoogleAdsScopeCheckpointChunkSize("product_daily")).toBeGreaterThan(
+      getGoogleAdsScopeCheckpointChunkSize("account_daily"),
+    );
+  });
+
   it("emits structured phase telemetry with campaign batch metrics", () => {
     const infoSpy = vi
       .spyOn(console, "info")
@@ -350,6 +358,89 @@ describe("shouldRetryGoogleAdsEmptyCampaignDaily", () => {
         campaignRowCount: 2,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getGoogleAdsWarehouseFetchFailureReason", () => {
+  it("treats failed zero-row warehouse fetches as retryable blockers", () => {
+    expect(
+      getGoogleAdsWarehouseFetchFailureReason({
+        scope: "search_term_daily",
+        report: {
+          rows: [],
+          meta: {
+            query_names: ["search_term_core"],
+            row_counts: { search_term_core: 0 },
+            failed_queries: [
+              {
+                query: "search_term_core",
+                family: "search_term_core",
+                customerId: "180-473-3335",
+                message: "This operation was aborted",
+                severity: "optional",
+                category: "unknown",
+              },
+            ],
+          },
+        },
+      }),
+    ).toContain("google_ads_search_term_daily_fetch_failed");
+  });
+
+  it("allows product fallback when the legacy product query completed", () => {
+    expect(
+      getGoogleAdsWarehouseFetchFailureReason({
+        scope: "product_daily",
+        report: {
+          rows: [],
+          meta: {
+            query_names: ["product_performance", "product_performance_legacy"],
+            row_counts: {
+              product_performance: 0,
+              product_performance_legacy: 0,
+            },
+            failed_queries: [
+              {
+                query: "product_performance",
+                family: "product_core",
+                customerId: "180-473-3335",
+                message: "metric cannot be requested",
+                severity: "optional",
+                category: "unavailable_metric",
+              },
+            ],
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("does not block optional metric failures when canonical rows were fetched", () => {
+    expect(
+      getGoogleAdsWarehouseFetchFailureReason({
+        scope: "campaign_daily",
+        report: {
+          rows: [{ id: "campaign-1" }],
+          meta: {
+            query_names: ["campaign_core_basic", "campaign_share"],
+            row_counts: {
+              campaign_core_basic: 1,
+              campaign_share: 0,
+            },
+            failed_queries: [
+              {
+                query: "campaign_share",
+                family: "campaign_share",
+                customerId: "180-473-3335",
+                message: "metric unavailable",
+                severity: "optional",
+                category: "unavailable_metric",
+              },
+            ],
+          },
+        },
+      }),
+    ).toBeNull();
   });
 });
 
@@ -990,6 +1081,29 @@ describe("shouldBlockGoogleAdsHistoricalExtendedWork", () => {
         allowPriorityHistorical: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("resolveGoogleAdsHistoricalReplayStart", () => {
+  it("uses the full historical frontier for priority replay even when recent frontier evidence is incomplete", () => {
+    expect(
+      resolveGoogleAdsHistoricalReplayStart({
+        historicalStart: "2024-03-21",
+        recent90Start: "2026-01-21",
+        recent90Complete: false,
+        fullSyncPriorityRequired: true,
+      }),
+    ).toBe("2024-03-21");
+  });
+
+  it("keeps non-priority work on the recent frontier until recent work is complete", () => {
+    expect(
+      resolveGoogleAdsHistoricalReplayStart({
+        historicalStart: "2024-03-21",
+        recent90Start: "2026-01-21",
+        recent90Complete: false,
+      }),
+    ).toBe("2026-01-21");
   });
 });
 

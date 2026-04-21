@@ -74,6 +74,34 @@ export interface GoogleAdsProgressState {
   summary: string;
 }
 
+export interface GoogleAdsRuntimeProgressState {
+  meaningfulProgressRecent: boolean;
+  heartbeatOnly: boolean;
+  latestMeaningfulProgressAt: string | null;
+  latestCheckpointUpdatedAt: string | null;
+  latestSuccessfulScopeSyncAt: string | null;
+  latestPartitionActivityAt: string | null;
+  queueDepth: number;
+  leasedPartitions: number;
+  observationWindowMinutes: number;
+}
+
+export interface GoogleAdsBackgroundBackfillState {
+  state:
+    | "ready"
+    | "active"
+    | "waiting"
+    | "stalled"
+    | "quota_limited"
+    | "blocked";
+  percent: number;
+  incomplete: boolean;
+  pendingScopes: string[];
+  readyThroughDate: string | null;
+  latestProgressAt: string | null;
+  reason: string | null;
+}
+
 export interface GoogleAdsGlobalSyncProgressState {
   kind: "advisor" | "historical";
   percent: number;
@@ -121,6 +149,7 @@ export interface GoogleAdsStatusResponse {
     syncGates: string | null;
     repairPlan: string | null;
     controlPlanePersistence: string | null;
+    syncIncidents?: string | null;
   } | null;
   releaseReadinessCandidate?: GoogleAdsReleaseReadinessCandidate | null;
   deployGate?: SyncGateRecord | null;
@@ -192,6 +221,8 @@ export interface GoogleAdsStatusResponse {
     complete: boolean;
   };
   completionBlockers?: string[];
+  runtimeProgress?: GoogleAdsRuntimeProgressState | null;
+  backgroundBackfill?: GoogleAdsBackgroundBackfillState | null;
   globalSyncProgress?: GoogleAdsGlobalSyncProgressState | null;
   currentDayLiveStatus?: GoogleAdsCurrentDayLiveStatus | null;
   selectedRangeReadinessBasis?: {
@@ -441,6 +472,8 @@ export interface GoogleAdsStatusResponse {
     blockingReasons?: ProviderBlockingReason[];
     repairableActions?: ProviderRepairableAction[];
     requiredCoverage?: ProviderRequiredCoverage | null;
+    runtimeProgress?: GoogleAdsRuntimeProgressState | null;
+    backgroundBackfill?: GoogleAdsBackgroundBackfillState | null;
     secondaryReadiness?: ProviderSecondaryReadiness[];
     stallFingerprints?: ProviderStallFingerprint[];
     workerBuildId?: string | null;

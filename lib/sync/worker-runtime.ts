@@ -99,12 +99,76 @@ export function prioritizeBusinessesForAdapter(
   });
 }
 
+async function resolveProviderScopedTickBusinesses(input: {
+  providerScope: string;
+  businesses: Array<{ id: string; name: string }>;
+}) {
+  if (input.providerScope !== "google_ads") {
+    return input.businesses;
+  }
+
+  const connectedGoogleBusinesses = await import(
+    "@/lib/google-ads/control-plane-runtime"
+  )
+    .then((module) => module.readConnectedGoogleAdsControlPlaneBusinesses())
+    .catch(() => []);
+  if (connectedGoogleBusinesses.length === 0) {
+    return input.businesses;
+  }
+
+  const existingNames = new Map(
+    input.businesses.map((business) => [business.id, business.name] as const),
+  );
+  const prioritizedIds = getPriorityBusinessIdsForAdapter(input.providerScope);
+  const priorityRank = new Map(prioritizedIds.map((id, index) => [id, index]));
+
+  return connectedGoogleBusinesses
+    .map((business) => ({
+      id: business.businessId,
+      name: existingNames.get(business.businessId) ?? business.businessName ?? business.businessId,
+      backfillIncomplete: business.backfillIncomplete === true,
+      incompleteScopeCount: Number(business.incompleteScopeCount ?? 0),
+      latestSuccessfulSyncAt: business.latestSuccessfulSyncAt ?? null,
+    }))
+    .sort((left, right) => {
+      const leftRank = priorityRank.get(left.id);
+      const rightRank = priorityRank.get(right.id);
+      if (leftRank == null && rightRank == null) {
+        if (left.backfillIncomplete !== right.backfillIncomplete) {
+          return left.backfillIncomplete ? -1 : 1;
+        }
+        if (left.incompleteScopeCount !== right.incompleteScopeCount) {
+          return right.incompleteScopeCount - left.incompleteScopeCount;
+        }
+        if (left.latestSuccessfulSyncAt == null && right.latestSuccessfulSyncAt != null) {
+          return -1;
+        }
+        if (left.latestSuccessfulSyncAt != null && right.latestSuccessfulSyncAt == null) {
+          return 1;
+        }
+        if (left.latestSuccessfulSyncAt != null && right.latestSuccessfulSyncAt != null) {
+          return left.latestSuccessfulSyncAt.localeCompare(right.latestSuccessfulSyncAt);
+        }
+        return 0;
+      }
+      if (leftRank == null) return 1;
+      if (rightRank == null) return -1;
+      return leftRank - rightRank;
+    })
+    .map((business) => ({
+      id: business.id,
+      name: business.name,
+    }));
+}
+
 export async function resolveTickBusinessesForAdapter(input: {
   providerScope: string;
   businesses: Array<{ id: string; name: string }>;
 }) {
   const prioritizedIds = getPriorityBusinessIdsForAdapter(input.providerScope);
-  if (prioritizedIds.length === 0) return input.businesses;
+  if (prioritizedIds.length === 0) {
+    return resolveProviderScopedTickBusinesses(input);
+  }
 
   const prioritizedSet = new Set(prioritizedIds);
   const prioritizedBusinesses = input.businesses.filter((business) =>
@@ -121,7 +185,7 @@ export async function resolveTickBusinessesForAdapter(input: {
     providerScope: input.providerScope,
   }).catch(() => null);
   if (gateRecords?.releaseGate?.verdict === "pass") {
-    return input.businesses;
+    return resolveProviderScopedTickBusinesses(input);
   }
 
   return prioritizedBusinesses;

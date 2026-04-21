@@ -2449,6 +2449,11 @@ export async function GET(request: NextRequest) {
   const integrationSummaryInput: Parameters<typeof buildMetaIntegrationSummary>[0] = {
     state,
     connected,
+    controlPlanePersistence,
+    releaseGate: gateRecords?.releaseGate ?? null,
+    repairPlan,
+    blockerClass: response.blockerClass,
+    syncTruthState: response.syncTruthState,
     assignedAccountIds: response.assignedAccountIds,
     primaryAccountTimezone,
     latestSync: response.latestSync,

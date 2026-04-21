@@ -17,6 +17,9 @@ export type GoogleAdsControlPlaneBusiness = {
   businessId: string;
   businessName: string | null;
   assignedAccountCount: number;
+  backfillIncomplete?: boolean;
+  incompleteScopeCount?: number;
+  latestSuccessfulSyncAt?: string | null;
 };
 
 export function resolveGoogleAdsControlPlaneSyncTruth(input: {
@@ -67,7 +70,9 @@ export async function readConnectedGoogleAdsControlPlaneBusinesses() {
     SELECT
       bpa.business_id,
       business.name AS business_name,
-      COUNT(*)::int AS assigned_account_count
+      COUNT(*)::int AS assigned_account_count,
+      COALESCE(sync_state.incomplete_scope_count, 1)::int AS incomplete_scope_count,
+      sync_state.latest_successful_sync_at
     FROM business_provider_accounts bpa
     INNER JOIN provider_connections connection
       ON connection.business_id = bpa.business_id
@@ -75,9 +80,28 @@ export async function readConnectedGoogleAdsControlPlaneBusinesses() {
      AND connection.status = 'connected'
     LEFT JOIN businesses business
       ON business.id::text = bpa.business_id
+    LEFT JOIN (
+      SELECT
+        business_id,
+        (COUNT(*) FILTER (
+          WHERE completed_days < GREATEST(1, (effective_target_end - effective_target_start + 1))
+        ))::int AS incomplete_scope_count,
+        MAX(latest_successful_sync_at)::text AS latest_successful_sync_at
+      FROM google_ads_sync_state
+      GROUP BY business_id
+    ) sync_state
+      ON sync_state.business_id = bpa.business_id
     WHERE bpa.provider = 'google'
-    GROUP BY bpa.business_id, business.name
-    ORDER BY business.name NULLS LAST, bpa.business_id
+    GROUP BY
+      bpa.business_id,
+      business.name,
+      sync_state.incomplete_scope_count,
+      sync_state.latest_successful_sync_at
+    ORDER BY
+      (COALESCE(sync_state.incomplete_scope_count, 1) > 0) DESC,
+      sync_state.latest_successful_sync_at NULLS FIRST,
+      business.name NULLS LAST,
+      bpa.business_id
   ` as Array<Record<string, unknown>>;
 
   return rows.map((row) => ({
@@ -87,6 +111,12 @@ export async function readConnectedGoogleAdsControlPlaneBusinesses() {
         ? row.business_name.trim()
         : null,
     assignedAccountCount: Number(row.assigned_account_count ?? 0),
+    incompleteScopeCount: Number(row.incomplete_scope_count ?? 0),
+    backfillIncomplete: Number(row.incomplete_scope_count ?? 0) > 0,
+    latestSuccessfulSyncAt:
+      typeof row.latest_successful_sync_at === "string"
+        ? row.latest_successful_sync_at
+        : null,
   })) satisfies GoogleAdsControlPlaneBusiness[];
 }
 

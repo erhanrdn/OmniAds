@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildProviderHeartbeatWorkerId,
   createRunnerLeaseGuard,
@@ -18,8 +18,24 @@ vi.mock("@/lib/sync/release-gates", () => ({
   getLatestSyncGateRecords: vi.fn(),
 }));
 
+vi.mock("@/lib/google-ads/control-plane-runtime", () => ({
+  readConnectedGoogleAdsControlPlaneBusinesses: vi.fn(),
+}));
+
 const providerJobLock = await import("@/lib/sync/provider-job-lock");
 const releaseGates = await import("@/lib/sync/release-gates");
+const googleControlPlaneRuntime = await import("@/lib/google-ads/control-plane-runtime");
+
+beforeEach(() => {
+  vi.mocked(providerJobLock.getProviderJobLockState).mockReset();
+  vi.mocked(releaseGates.getLatestSyncGateRecords).mockReset();
+  vi.mocked(
+    googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+  ).mockReset();
+  vi.mocked(
+    googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+  ).mockResolvedValue([]);
+});
 
 describe("prioritizeBusinessesForAdapter", () => {
   const businesses = [
@@ -134,6 +150,116 @@ describe("resolveTickBusinessesForAdapter", () => {
     });
 
     expect(result).toEqual(businesses);
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+
+  it("uses connected Google Ads businesses when the Google release gate passes", async () => {
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-priority";
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: null,
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "test",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "pass",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-20T00:00:00.000Z",
+      },
+    });
+    vi.mocked(
+      googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+    ).mockResolvedValue([
+      {
+        businessId: "biz-google",
+        businessName: "Google Connected",
+        assignedAccountCount: 1,
+        backfillIncomplete: true,
+        incompleteScopeCount: 2,
+        latestSuccessfulSyncAt: null,
+      },
+      {
+        businessId: "biz-priority",
+        businessName: "Priority",
+        assignedAccountCount: 1,
+        backfillIncomplete: true,
+        incompleteScopeCount: 1,
+        latestSuccessfulSyncAt: null,
+      },
+    ]);
+
+    const result = await resolveTickBusinessesForAdapter({
+      providerScope: "google_ads",
+      businesses,
+    });
+
+    expect(result).toEqual([
+      { id: "biz-priority", name: "Priority" },
+      { id: "biz-google", name: "Google Connected" },
+    ]);
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+
+  it("prioritizes incomplete Google Ads backfill businesses without business-specific ids", async () => {
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "";
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: null,
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "test",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "pass",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-20T00:00:00.000Z",
+      },
+    });
+    vi.mocked(
+      googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+    ).mockResolvedValue([
+      {
+        businessId: "biz-complete",
+        businessName: "Complete",
+        assignedAccountCount: 1,
+        backfillIncomplete: false,
+        incompleteScopeCount: 0,
+        latestSuccessfulSyncAt: "2026-04-21T03:00:00.000Z",
+      },
+      {
+        businessId: "biz-incomplete",
+        businessName: "Incomplete",
+        assignedAccountCount: 1,
+        backfillIncomplete: true,
+        incompleteScopeCount: 5,
+        latestSuccessfulSyncAt: "2026-04-20T23:00:00.000Z",
+      },
+    ]);
+
+    const result = await resolveTickBusinessesForAdapter({
+      providerScope: "google_ads",
+      businesses,
+    });
+
+    expect(result).toEqual([
+      { id: "biz-incomplete", name: "Incomplete" },
+      { id: "biz-complete", name: "Complete" },
+    ]);
     process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
   });
 });

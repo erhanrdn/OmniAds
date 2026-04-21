@@ -224,4 +224,40 @@ describe("google ads sync progress ux", () => {
     expect(shouldRenderGoogleAdsSyncProgress(status, "inline")).toBe(false);
     expect(getGoogleAdsStatusRefetchInterval(status)).toBe(false);
   });
+
+  it("keeps neutral backfill progress visible when control-plane is closed but historical work remains", () => {
+    const status: GoogleAdsStatusResponse = {
+      ...baseStatus,
+      state: "ready",
+      blockerClass: "none",
+      backgroundBackfill: {
+        state: "waiting",
+        percent: 11,
+        incomplete: true,
+        pendingScopes: ["account_daily", "campaign_daily"],
+        readyThroughDate: "2026-01-14",
+        latestProgressAt: null,
+        reason: "waiting for worker",
+      },
+      controlPlanePersistence: {
+        exactRowsPresent: true,
+      },
+      releaseGate: {
+        verdict: "pass",
+      },
+      repairPlan: {
+        recommendations: [],
+      },
+    } as never;
+
+    expect(resolveGoogleAdsSyncProgress(status, "inline")).toEqual({
+      kind: "historical",
+      percent: 11,
+      title: "Background backfill",
+      description: "Google Ads background coverage is ready through 2026-01-14.",
+      tone: "secondary",
+    });
+    expect(shouldRenderGoogleAdsSyncProgress(status, "inline")).toBe(true);
+    expect(getGoogleAdsStatusRefetchInterval(status)).toBe(30_000);
+  });
 });

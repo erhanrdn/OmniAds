@@ -279,6 +279,7 @@ const schemaReadiness = await import("@/lib/db-schema-readiness");
 const integrations = await import("@/lib/integrations");
 const snapshots = await import("@/lib/provider-account-snapshots");
 const assignments = await import("@/lib/provider-account-assignments");
+const coreReadiness = await import("@/lib/google-ads/core-readiness");
 const warehouse = await import("@/lib/google-ads/warehouse");
 const advisorSnapshots = await import("@/lib/google-ads/advisor-snapshots");
 const warehouseRetention = await import("@/lib/google-ads/warehouse-retention");
@@ -286,6 +287,7 @@ const searchIntelligenceStorage = await import("@/lib/google-ads/search-intellig
 const migrations = await import("@/lib/migrations");
 const statusMachine = await import("@/lib/google-ads/status-machine");
 const requestGovernance = await import("@/lib/provider-request-governance");
+const googleAdsSync = await import("@/lib/sync/google-ads-sync");
 const releaseGates = await import("@/lib/sync/release-gates");
 const repairPlanner = await import("@/lib/sync/repair-planner");
 const controlPlanePersistence = await import("@/lib/sync/control-plane-persistence");
@@ -739,6 +741,174 @@ describe("GET /api/google-ads/status", () => {
       recommendations: [],
     });
     expect(migrations.runMigrations).not.toHaveBeenCalled();
+  });
+
+  it("classifies heartbeat-only Google backfill as stalled runtime progress", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-21T12:00:00.000Z"));
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(coreReadiness.buildGoogleAdsCoreReadiness).mockReturnValueOnce({
+      effectiveHistoricalTotalDays: 90,
+      overallCompletedDays: 10,
+      overallAccountCompletedDays: 10,
+      historicalReadyThroughDate: "2026-01-14",
+      productPendingSurfaces: [],
+      needsBootstrap: false,
+      historicalProgressPercent: 11,
+      coreUsable: true,
+    } as never);
+    vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
+    vi.mocked(googleAdsSync.getGoogleAdsWorkerSchedulingState).mockResolvedValueOnce({
+      healthy: true,
+      heartbeatAgeMs: 1_000,
+      hasFreshHeartbeat: true,
+      runnerLeaseActive: true,
+      lastHeartbeatAt: "2026-04-21T11:59:59.000Z",
+      latestLeaseUpdatedAt: "2026-04-21T11:59:59.000Z",
+      ownerWorkerId: "worker-1",
+      workerFreshnessState: "online",
+      currentBusinessId: "biz",
+      lastConsumedBusinessId: "biz",
+      consumeStage: "idle",
+      batchBusinessIds: ["biz"],
+      workerMeta: null,
+    });
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: {
+        id: "dg-1",
+        gateKind: "deploy_gate",
+        gateScope: "service_liveness",
+        buildId: "runtime-build",
+        environment: "production",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "deploy ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-21T11:55:00.000Z",
+      },
+      releaseGate: {
+        id: "rg-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "runtime-build",
+        environment: "production",
+        mode: "block",
+        baseResult: "pass",
+        verdict: "pass",
+        blockerClass: null,
+        summary: "release ok",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-21T11:55:00.000Z",
+      },
+    } as never);
+    vi.mocked(repairPlanner.getLatestSyncRepairPlan).mockResolvedValue({
+      id: "rp-1",
+      buildId: "runtime-build",
+      environment: "production",
+      providerScope: "google_ads",
+      planMode: "dry_run",
+      eligible: true,
+      blockedReason: null,
+      breakGlass: false,
+      summary: "Google repair dry-run proposed 0 recommendation(s).",
+      recommendations: [],
+      emittedAt: "2026-04-21T11:55:00.000Z",
+    } as never);
+    vi.mocked(controlPlanePersistence.getSyncControlPlanePersistenceStatus).mockResolvedValue({
+      identity: {
+        buildId: "runtime-build",
+        environment: "production",
+        providerScope: "google_ads",
+      },
+      exact: {
+        deployGate: {
+          id: "dg-1",
+          buildId: "runtime-build",
+          environment: "production",
+          gateKind: "deploy_gate",
+          verdict: "pass",
+          emittedAt: "2026-04-21T11:55:00.000Z",
+        },
+        releaseGate: {
+          id: "rg-1",
+          buildId: "runtime-build",
+          environment: "production",
+          gateKind: "release_gate",
+          verdict: "pass",
+          emittedAt: "2026-04-21T11:55:00.000Z",
+        },
+        repairPlan: {
+          id: "rp-1",
+          buildId: "runtime-build",
+          environment: "production",
+          providerScope: "google_ads",
+          eligible: true,
+          emittedAt: "2026-04-21T11:55:00.000Z",
+        },
+      },
+      fallbackByBuild: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      latest: {
+        deployGate: null,
+        releaseGate: null,
+        repairPlan: null,
+      },
+      missingExact: [],
+      exactRowsPresent: true,
+    } as never);
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.backgroundBackfill).toMatchObject({
+      state: "stalled",
+      incomplete: true,
+      percent: 11,
+      pendingScopes: ["account_daily", "campaign_daily"],
+      readyThroughDate: "2026-01-14",
+    });
+    expect(payload.runtimeProgress).toMatchObject({
+      meaningfulProgressRecent: false,
+      heartbeatOnly: true,
+      observationWindowMinutes: 30,
+    });
+    expect(payload.operations.stallFingerprints).toEqual(
+      expect.arrayContaining(["historical_starvation", "checkpoint_not_advancing"]),
+    );
+    expect(payload.userVisibleSyncState).toMatchObject({
+      kind: "refreshing_in_background",
+      suppressRecoverableAttention: true,
+    });
+    vi.useRealTimers();
   });
 
   it("surfaces advisor action-contract posture and retention runtime truth when available", async () => {

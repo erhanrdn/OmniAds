@@ -31,7 +31,9 @@ export function getGoogleAdsStatusRefetchInterval(
   status: GoogleAdsStatusResponse | undefined | null,
 ) {
   if (!status) return false;
-  if (isGoogleAdsControlPlaneClosed(status)) return false;
+  if (isGoogleAdsControlPlaneClosed(status)) {
+    return status.backgroundBackfill?.incomplete === true ? 30_000 : false;
+  }
 
   const state = status.state;
   const queueDepth = status.jobHealth?.queueDepth ?? 0;
@@ -67,7 +69,32 @@ export function resolveGoogleAdsSyncProgress(
 ): GoogleAdsResolvedSyncProgress | null {
   if (!status || !status.connected) return null;
   if ((status.assignedAccountIds?.length ?? 0) === 0) return null;
-  if (isGoogleAdsControlPlaneClosed(status)) return null;
+  if (
+    isGoogleAdsControlPlaneClosed(status) &&
+    status.backgroundBackfill?.incomplete !== true
+  ) {
+    return null;
+  }
+
+  if (status.backgroundBackfill?.incomplete === true) {
+    return {
+      kind: "historical",
+      percent: Math.max(
+        0,
+        Math.min(99, Math.round(status.backgroundBackfill.percent)),
+      ),
+      title:
+        variant === "inline"
+          ? "Background backfill"
+          : "Historical backfill continues in the background",
+      description:
+        status.backgroundBackfill.readyThroughDate != null
+          ? `Google Ads background coverage is ready through ${status.backgroundBackfill.readyThroughDate}.`
+          : status.backgroundBackfill.reason ??
+            "Google Ads background coverage is still preparing.",
+      tone: "secondary",
+    };
+  }
 
   if (
     status.requiredScopeCompletion &&
