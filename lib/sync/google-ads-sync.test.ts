@@ -29,6 +29,7 @@ import {
   getGoogleAdsCoveredRecentMaintenanceDatesToCancel,
   getGoogleAdsD1FinalizeScopesToQueue,
   resolveGoogleAdsCoveredD1FinalizeResolution,
+  resolveGoogleAdsWorkerRequestedLimit,
 } from "@/lib/sync/google-ads-sync";
 
 afterEach(() => {
@@ -117,7 +118,7 @@ describe("buildGoogleAdsLaneAdmissionPolicy", () => {
     expect(policy.lanePolicy.core).toBe("admit");
   });
 
-  it("suspends extended lanes when backlog exceeds the hard limit", () => {
+  it("keeps extended lanes eligible to drain when backlog exceeds the hard limit", () => {
     const policy = buildGoogleAdsLaneAdmissionPolicy({
       safeModeEnabled: false,
       workerHealthy: true,
@@ -127,7 +128,8 @@ describe("buildGoogleAdsLaneAdmissionPolicy", () => {
       extendedQueueDepth: 1500,
     });
 
-    expect(policy.lanePolicy.extended).toBe("suspended");
+    expect(policy.lanePolicy.extended).toBe("admit");
+    expect(policy.lanePolicy.extendedHistorical).toBe("admit");
   });
 
   it("keeps extended suspended when global reopen is not allowed", () => {
@@ -1056,6 +1058,53 @@ describe("buildGoogleAdsPrimaryLeasePlan", () => {
     expect(plan.historicalFairnessLimit).toBeGreaterThan(0);
     expect(plan.recentRepairLimit).toBeGreaterThan(0);
     expect(plan.fullSyncPriorityLimit).toBeGreaterThan(0);
+  });
+});
+
+describe("resolveGoogleAdsWorkerRequestedLimit", () => {
+  it("expands the lifecycle lease budget when Google has productive backlog", () => {
+    expect(
+      resolveGoogleAdsWorkerRequestedLimit({
+        leaseLimit: 1,
+        fullSyncPriorityRequired: true,
+        queueHealth: {
+          queueDepth: 1200,
+          coreQueueDepth: 300,
+          extendedHistoricalQueueDepth: 900,
+          deadLetterPartitions: 0,
+          latestCoreActivityAt: "2026-04-02T09:29:00.000Z",
+          latestExtendedActivityAt: null,
+          latestMaintenanceActivityAt: null,
+        } as never,
+        progressEvidence: {
+          core: {
+            lastCheckpointAdvancedAt: null,
+            lastReadyThroughAdvancedAt: null,
+            lastCompletedAt: "2026-04-02T09:29:00.000Z",
+            backlogDelta: null,
+            completedPartitionDelta: null,
+            lastReplayAt: null,
+            lastReclaimAt: null,
+            recentActivityWindowMinutes: 20,
+          },
+        },
+        nowMs: new Date("2026-04-02T09:30:00.000Z").getTime(),
+      }),
+    ).toBeGreaterThan(1);
+  });
+
+  it("does not expand the lifecycle lease budget while dead letters are present", () => {
+    expect(
+      resolveGoogleAdsWorkerRequestedLimit({
+        leaseLimit: 1,
+        queueHealth: {
+          queueDepth: 10,
+          coreQueueDepth: 10,
+          extendedHistoricalQueueDepth: 0,
+          deadLetterPartitions: 1,
+        } as never,
+      }),
+    ).toBe(1);
   });
 });
 

@@ -332,7 +332,7 @@ async function leaseGoogleAdsPartitionsWithPlan(input: {
   }
 
   const leased: GoogleAdsSyncPartitionRecord[] = [];
-  let remaining = Math.max(1, input.limit);
+  let remaining = Math.max(1, plan.requestedLimit ?? input.limit);
   for (const step of plan.steps) {
     if (remaining <= 0) break;
     if (step.onlyIfNoLease && leased.length > 0) continue;

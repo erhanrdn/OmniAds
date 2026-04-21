@@ -29,7 +29,49 @@ describe("resolveGoogleAdsControlPlaneSyncTruth", () => {
     ).toMatchObject({
       effectiveLatestSyncStatus: "succeeded",
       hasRecentSuccessfulScopeSync: true,
+      coreServingReady: false,
       fullyReady: true,
+    });
+  });
+
+  it("separates core serving readiness from unfinished background queue", () => {
+    expect(
+      resolveGoogleAdsControlPlaneSyncTruth({
+        latestSyncStatus: "succeeded",
+        queueDepth: 42,
+        deadLetterPartitions: 0,
+        nowMs: now,
+        scopeStates: [
+          {
+            businessId: "biz-1",
+            providerAccountId: "acct-1",
+            scope: "account_daily",
+            historicalTargetStart: "2026-04-01",
+            historicalTargetEnd: "2026-04-19",
+            effectiveTargetStart: "2026-04-13",
+            effectiveTargetEnd: "2026-04-19",
+            latestSuccessfulSyncAt: "2026-04-20T07:16:00.000Z",
+            completedDays: 7,
+            deadLetterCount: 0,
+          },
+          {
+            businessId: "biz-1",
+            providerAccountId: "acct-1",
+            scope: "campaign_daily",
+            historicalTargetStart: "2026-04-01",
+            historicalTargetEnd: "2026-04-19",
+            effectiveTargetStart: "2026-04-13",
+            effectiveTargetEnd: "2026-04-19",
+            latestSuccessfulSyncAt: "2026-04-20T07:17:00.000Z",
+            completedDays: 7,
+            deadLetterCount: 0,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      coreServingReady: true,
+      servingReady: true,
+      fullyReady: false,
     });
   });
 

@@ -25,6 +25,7 @@ export interface GoogleAdsReleaseCandidateInput {
   deadLetterPartitions: number;
   staleLeasePartitions: number;
   syncTruthState: SyncTruthState;
+  truthReady?: boolean;
   stallFingerprints: ProviderStallFingerprint[];
 }
 
@@ -41,7 +42,7 @@ export function buildGoogleAdsReleaseReadinessCandidate(
     workerOnline: input.workerOnline,
     queueDepth: input.queueDepth,
     leasedPartitions: input.leasedPartitions,
-    truthReady: input.syncTruthState === "ready",
+    truthReady: input.truthReady ?? input.syncTruthState === "ready",
     retryableFailedPartitions: input.retryableFailedPartitions,
     deadLetterPartitions: input.deadLetterPartitions,
     staleLeasePartitions: input.staleLeasePartitions,

@@ -192,19 +192,29 @@ export function deriveGoogleUserVisibleSyncState(
     status?.backgroundBackfill?.incomplete === true ||
     (status?.requiredScopeCompletion != null &&
       status.requiredScopeCompletion.complete === false);
+  const recoverableBackfillRecommendation =
+    recommendationCount === 0 ||
+    (hasUsableGoogleCore &&
+      (status?.repairPlan?.recommendations ?? []).every(
+        (row) =>
+          typeof row.safetyClassification === "string" &&
+          row.safetyClassification !== "blocked",
+      ));
   const backfillOnlyReleaseGate =
     hasUsableGoogleCore &&
     status?.controlPlanePersistence?.exactRowsPresent === true &&
     status?.releaseGate?.verdict != null &&
     status.releaseGate.verdict !== "pass" &&
-    recommendationCount === 0 &&
+    recoverableBackfillRecommendation &&
     backfillIncomplete &&
     (statusBlocker == null ||
       statusBlocker === "none" ||
-      statusBlocker === "not_release_ready") &&
+      statusBlocker === "not_release_ready" ||
+      statusBlocker === "stalled") &&
     (releaseBlocker == null ||
       releaseBlocker === "none" ||
-      releaseBlocker === "not_release_ready");
+      releaseBlocker === "not_release_ready" ||
+      releaseBlocker === "stalled");
 
   if (backfillOnlyReleaseGate) {
     return {

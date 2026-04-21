@@ -186,6 +186,18 @@ const GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD = envNumber(
   "GOOGLE_ADS_EXTENDED_CORE_BACKLOG_THRESHOLD",
   2,
 );
+const GOOGLE_ADS_PRIORITY_BACKLOG_LEASE_LIMIT = envNumber(
+  "GOOGLE_ADS_PRIORITY_BACKLOG_LEASE_LIMIT",
+  6,
+);
+const GOOGLE_ADS_FORWARD_PROGRESS_LEASE_LIMIT = envNumber(
+  "GOOGLE_ADS_FORWARD_PROGRESS_LEASE_LIMIT",
+  4,
+);
+const GOOGLE_ADS_PRODUCTIVE_LEASE_LIMIT = envNumber(
+  "GOOGLE_ADS_PRODUCTIVE_LEASE_LIMIT",
+  8,
+);
 
 export function getGoogleAdsGapPlannerBlockingStatuses() {
   return getActivePartitionBlockingStatuses();
@@ -940,9 +952,7 @@ export function buildGoogleAdsLaneAdmissionPolicy(input: {
     !workerCapacityAvailable ||
     input.breakerOpen ||
     !extendedBudgetAllowed ||
-    !extendedCanaryEligible ||
-    input.extendedQueueDepth >= GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT ||
-    input.queueDepth >= GOOGLE_ADS_EXTENDED_BACKLOG_HARD_LIMIT * 2;
+    !extendedCanaryEligible;
   const suspendExtendedHistorical =
     suspendExtendedRecent ||
     (input.recoveryMode ?? (input.breakerOpen ? "open" : "closed")) !==
@@ -1225,6 +1235,65 @@ export function buildGoogleAdsFallbackExtendedLeasePlan(input: {
   };
 }
 
+export function resolveGoogleAdsWorkerRequestedLimit(input: {
+  leaseLimit: number;
+  queueHealth?: Awaited<ReturnType<typeof getGoogleAdsQueueHealth>> | null;
+  fullSyncPriorityRequired?: boolean;
+  progressEvidence?: Partial<GoogleAdsLaneEvidence> | null;
+  nowMs?: number;
+}) {
+  const baseLimit = Math.max(1, input.leaseLimit);
+  const queueHealth = input.queueHealth ?? null;
+  if (!queueHealth || (queueHealth.queueDepth ?? 0) <= 0) return baseLimit;
+  if ((queueHealth.deadLetterPartitions ?? 0) > 0) return baseLimit;
+
+  const hasPriorityBacklog =
+    Boolean(input.fullSyncPriorityRequired) ||
+    (queueHealth.coreQueueDepth ?? 0) > 0 ||
+    (queueHealth.extendedHistoricalQueueDepth ?? 0) > 0;
+  const hasForwardProgress =
+    hasRecentProviderAdvancement({
+      progressEvidence: input.progressEvidence?.core ?? null,
+      fallbackLatestPartitionActivityAt: queueHealth.latestCoreActivityAt ?? null,
+      nowMs: input.nowMs,
+    }) ||
+    hasRecentProviderAdvancement({
+      progressEvidence: input.progressEvidence?.extended_historical ?? null,
+      fallbackLatestPartitionActivityAt:
+        queueHealth.latestExtendedActivityAt ?? null,
+      nowMs: input.nowMs,
+    }) ||
+    hasRecentProviderAdvancement({
+      progressEvidence: input.progressEvidence?.maintenance ?? null,
+      fallbackLatestPartitionActivityAt:
+        queueHealth.latestMaintenanceActivityAt ?? null,
+      nowMs: input.nowMs,
+    });
+
+  if (hasPriorityBacklog && hasForwardProgress) {
+    return Math.max(baseLimit, GOOGLE_ADS_PRODUCTIVE_LEASE_LIMIT);
+  }
+  if (hasPriorityBacklog) {
+    return Math.max(
+      baseLimit,
+      Math.min(
+        GOOGLE_ADS_PRODUCTIVE_LEASE_LIMIT,
+        GOOGLE_ADS_PRIORITY_BACKLOG_LEASE_LIMIT,
+      ),
+    );
+  }
+  if (hasForwardProgress) {
+    return Math.max(
+      baseLimit,
+      Math.min(
+        GOOGLE_ADS_PRODUCTIVE_LEASE_LIMIT,
+        GOOGLE_ADS_FORWARD_PROGRESS_LEASE_LIMIT,
+      ),
+    );
+  }
+  return baseLimit;
+}
+
 export async function buildGoogleAdsWorkerLeasePlan(input: {
   businessId: string;
   leaseLimit: number;
@@ -1352,7 +1421,12 @@ export async function buildGoogleAdsWorkerLeasePlan(input: {
 
   return {
     kind: "google_ads_policy_lease_plan",
-    requestedLimit: Math.max(1, input.leaseLimit),
+    requestedLimit: resolveGoogleAdsWorkerRequestedLimit({
+      leaseLimit: input.leaseLimit,
+      queueHealth,
+      fullSyncPriorityRequired: fullSyncPriority.required,
+      progressEvidence: laneProgressEvidence,
+    }),
     steps,
     maintenancePlan: {
       autoHealEnabled: true,

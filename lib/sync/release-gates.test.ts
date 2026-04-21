@@ -152,6 +152,22 @@ function makeReadySnapshot(): MetaSyncBenchmarkSnapshot {
 }
 
 describe("sync release gates", () => {
+  it("passes release truth when serving data is ready and background backfill is progressing", () => {
+    expect(
+      releaseGates.classifyProviderReleaseTruth({
+        activityState: "busy",
+        progressState: "partial_progressing",
+        workerOnline: true,
+        queueDepth: 1400,
+        leasedPartitions: 0,
+        truthReady: true,
+      }),
+    ).toMatchObject({
+      pass: true,
+      blockerClass: "none",
+    });
+  });
+
   const originalEnv = { ...process.env };
 
   beforeEach(() => {

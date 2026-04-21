@@ -132,6 +132,42 @@ describe("user-visible sync state", () => {
     });
   });
 
+  it("suppresses Google recoverable stalled backfill attention when core data is usable", () => {
+    const state = deriveGoogleUserVisibleSyncState({
+      connected: true,
+      assignedAccountIds: ["acc_1"],
+      controlPlanePersistence: {
+        exactRowsPresent: true,
+      },
+      releaseGate: {
+        verdict: "blocked",
+        blockerClass: "stalled",
+      },
+      repairPlan: {
+        recommendations: [
+          {
+            safetyClassification: "safe_idempotent",
+          },
+        ],
+      },
+      blockerClass: "stalled",
+      syncTruthState: "stalled",
+      panel: {
+        coreUsable: true,
+      },
+      backgroundBackfill: {
+        incomplete: true,
+        percent: 36,
+      },
+    } as never);
+
+    expect(state).toMatchObject({
+      kind: "refreshing_in_background",
+      suppressRecoverableAttention: true,
+      degradedServing: true,
+    });
+  });
+
   it("does not suppress Google queue blockers as background backfill", () => {
     const state = deriveGoogleUserVisibleSyncState({
       connected: true,

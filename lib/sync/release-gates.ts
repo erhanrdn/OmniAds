@@ -400,7 +400,12 @@ export function classifyReleaseSnapshot(snapshot: MetaSyncBenchmarkSnapshot) {
 
 export function classifyProviderReleaseTruth(input: ProviderReleaseTruthInput) {
   const healthyActivity = input.activityState === "ready" || input.activityState === "busy";
-  const draining = input.queueDepth === 0 || input.leasedPartitions > 0;
+  const backgroundBackfillProgressing =
+    input.truthReady && input.progressState === "partial_progressing";
+  const draining =
+    input.queueDepth === 0 ||
+    input.leasedPartitions > 0 ||
+    backgroundBackfillProgressing;
   const blocked =
     input.progressState === "blocked" || input.activityState === "blocked";
   const workerUnavailable =

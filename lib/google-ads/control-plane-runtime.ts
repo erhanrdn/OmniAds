@@ -42,6 +42,14 @@ export function resolveGoogleAdsControlPlaneSyncTruth(input: {
   const hasRecentSuccessfulScopeSync =
     latestSuccessfulScopeSyncAt != null &&
     nowMs - latestSuccessfulScopeSyncAt <= recentWindowMinutes * 60_000;
+  const coreServingReady = ["account_daily", "campaign_daily"].every((scope) =>
+    input.scopeStates.some(
+      (row) =>
+        row.scope === scope &&
+        (row.completedDays ?? 0) > 0 &&
+        Boolean(row.latestSuccessfulSyncAt),
+    ),
+  );
   const effectiveLatestSyncStatus =
     input.latestSyncStatus === "failed"
       ? "failed"
@@ -54,6 +62,11 @@ export function resolveGoogleAdsControlPlaneSyncTruth(input: {
   return {
     effectiveLatestSyncStatus,
     hasRecentSuccessfulScopeSync,
+    coreServingReady,
+    servingReady:
+      input.deadLetterPartitions === 0 &&
+      effectiveLatestSyncStatus !== "failed" &&
+      coreServingReady,
     fullyReady:
       input.queueDepth === 0 &&
       input.deadLetterPartitions === 0 &&
@@ -193,7 +206,10 @@ export async function buildGoogleAdsReleaseGateCanaries(
       const progressState = deriveProviderProgressState({
         queueDepth: queueHealth.queueDepth,
         leasedPartitions: queueHealth.leasedPartitions,
-        checkpointLagMinutes: checkpointHealth?.checkpointLagMinutes ?? null,
+        checkpointLagMinutes:
+          controlPlaneSyncTruth.hasRecentSuccessfulScopeSync
+            ? null
+            : checkpointHealth?.checkpointLagMinutes ?? null,
         latestPartitionActivityAt: latestGoogleActivityAt,
         blocked,
         fullyReady: controlPlaneSyncTruth.fullyReady,
@@ -242,6 +258,7 @@ export async function buildGoogleAdsReleaseGateCanaries(
         deadLetterPartitions: queueHealth.deadLetterPartitions,
         staleLeasePartitions: 0,
         syncTruthState: unifiedTruth.syncTruthState,
+        truthReady: controlPlaneSyncTruth.servingReady,
         stallFingerprints,
       });
 
