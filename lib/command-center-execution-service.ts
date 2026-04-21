@@ -4,6 +4,7 @@ import type {
   CommandCenterJournalEntry,
   CommandCenterPermissions,
 } from "@/lib/command-center";
+import { buildOperatorDecisionPushEligibility } from "@/lib/operator-decision-provenance";
 import {
   getCommandCenterMutationReceipt,
   listCommandCenterJournal,
@@ -953,6 +954,52 @@ async function resolveMetaExecutionPreview(input: {
       safeSubset: options.safeSubset,
       alreadyAtTarget: options.alreadyAtTarget,
     });
+
+  const provenanceEligibility = buildOperatorDecisionPushEligibility({
+    provenance: input.action.provenance ?? null,
+    queueEligible:
+      Boolean(input.action.provenance?.actionFingerprint) &&
+      input.action.surfaceLane === "action_core" &&
+      !input.action.watchlistOnly,
+    canApply: false,
+    canRollback: false,
+  });
+
+  if (provenanceEligibility.level === "blocked_from_push") {
+    return buildManualOnlyPreview({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      approval,
+      latestState,
+      auditTrail,
+      currentState: null,
+      requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: false,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
+      canaryPreflight,
+      supportMatrix,
+      prerequisites: [],
+      risks: [
+        "Missing upstream decision provenance keeps this row out of the push path.",
+      ],
+      manualInstructions: [
+        "Refresh the source Decision OS surface before applying any change.",
+      ],
+      supportMode: "manual_only",
+      applyReason:
+        provenanceEligibility.blockedReason ??
+        "Missing upstream decision provenance keeps this row out of the push path.",
+      rollbackReason: "Missing upstream decision provenance keeps this row out of the push path.",
+    });
+  }
 
   if (input.action.sourceSystem !== "meta") {
     return buildManualOnlyPreview({

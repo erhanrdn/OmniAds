@@ -2,6 +2,7 @@ import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
 import type { getMetaAdSetsForRange } from "@/lib/meta/adsets-source";
 import type { getMetaBreakdownsForRange } from "@/lib/meta/breakdowns-source";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
 import {
   buildDecisionFreshness,
 } from "@/lib/decision-trust/kernel";
@@ -23,6 +24,7 @@ import { resolveCreativePreviewManifest } from "@/lib/meta/creatives-preview";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
+  OperatorDecisionProvenance,
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
@@ -364,6 +366,9 @@ export interface CreativeRuleReportPayload {
 
 export interface CreativeDecisionOsCreative {
   creativeId: string;
+  provenance: OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
   familyId: string;
   familyLabel: string;
   familySource: CreativeDecisionFamilySource;
@@ -2535,19 +2540,101 @@ function buildCreativeOpportunityBoard(input: {
   );
 }
 
+function buildCreativeActionProvenance(input: {
+  businessId: string;
+  decisionAsOf: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  reportingRange: {
+    startDate: string;
+    endDate: string;
+  };
+  sourceWindow: OperatorDecisionWindows["primary30d"];
+  creativeId: string;
+  familyId: string;
+  familySource: CreativeDecisionFamilySource;
+  primaryAction: CreativeDecisionPrimaryAction;
+  lifecycleState: CreativeDecisionLifecycleState;
+  legacyAction: CreativeDecisionAction;
+  score: number;
+  confidence: number;
+  benchmark: CreativeDecisionBenchmark;
+  fatigue: CreativeDecisionFatigue;
+  economics: CreativeDecisionEconomics;
+  deployment: CreativeDecisionDeploymentRecommendation;
+  trust: DecisionTrustMetadata;
+}) {
+  return buildOperatorDecisionProvenance({
+    businessId: input.businessId,
+    decisionAsOf: input.decisionAsOf,
+    analyticsWindow: input.analyticsWindow,
+    reportingRange: input.reportingRange,
+    sourceWindow: input.sourceWindow,
+    sourceRowScope: {
+      system: "creative",
+      entityType: "creative",
+      entityId: input.creativeId,
+    },
+    sourceDecisionId: `creative:${input.creativeId}`,
+    recommendedAction: input.primaryAction,
+    evidence: {
+      creativeId: input.creativeId,
+      familyId: input.familyId,
+      familySource: input.familySource,
+      lifecycleState: input.lifecycleState,
+      primaryAction: input.primaryAction,
+      legacyAction: input.legacyAction,
+      score: input.score,
+      confidence: input.confidence,
+      benchmark: {
+        selectedCohort: input.benchmark.selectedCohort,
+        sampleSize: input.benchmark.sampleSize,
+        roasStatus: input.benchmark.metrics.roas.status,
+        cpaStatus: input.benchmark.metrics.cpa.status,
+        ctrStatus: input.benchmark.metrics.ctr.status,
+        clickToPurchaseStatus: input.benchmark.metrics.clickToPurchase.status,
+      },
+      fatigue: {
+        status: input.fatigue.status,
+        confidence: input.fatigue.confidence,
+      },
+      economics: {
+        status: input.economics.status,
+        absoluteSpendFloor: input.economics.absoluteSpendFloor,
+        absolutePurchaseFloor: input.economics.absolutePurchaseFloor,
+        roasFloor: input.economics.roasFloor,
+        cpaCeiling: input.economics.cpaCeiling,
+      },
+      deployment: {
+        status: input.deployment.compatibility.status,
+        targetLane: input.deployment.targetLane,
+        targetAdSetRole: input.deployment.targetAdSetRole,
+        queueVerdict: input.deployment.queueVerdict,
+        geoContext: input.deployment.geoContext,
+      },
+      trust: {
+        surfaceLane: input.trust.surfaceLane,
+        truthState: input.trust.truthState,
+        operatorDisposition: input.trust.operatorDisposition,
+        entityState: input.trust.evidence?.entityState ?? null,
+        materiality: input.trust.evidence?.materiality ?? null,
+      },
+    },
+  });
+}
+
 export function buildCreativeDecisionOs(
   input: BuildCreativeDecisionOsInput,
 ): CreativeDecisionOsV1Response {
+  const builtDecisionMetadata = buildOperatorDecisionMetadata({
+    analyticsStartDate: input.startDate,
+    analyticsEndDate: input.endDate,
+    decisionAsOf: input.decisionAsOf ?? input.endDate,
+  });
   const decisionMetadata = {
-    ...buildOperatorDecisionMetadata({
-      analyticsStartDate: input.startDate,
-      analyticsEndDate: input.endDate,
-      decisionAsOf: input.decisionAsOf ?? input.endDate,
-    }),
-    ...(input.analyticsWindow ? { analyticsWindow: input.analyticsWindow } : {}),
-    ...(input.decisionWindows ? { decisionWindows: input.decisionWindows } : {}),
-    ...(input.historicalMemory ? { historicalMemory: input.historicalMemory } : {}),
-    ...(input.decisionAsOf ? { decisionAsOf: input.decisionAsOf } : {}),
+    analyticsWindow: input.analyticsWindow ?? builtDecisionMetadata.analyticsWindow,
+    decisionWindows: input.decisionWindows ?? builtDecisionMetadata.decisionWindows,
+    historicalMemory: input.historicalMemory ?? builtDecisionMetadata.historicalMemory,
+    decisionAsOf: input.decisionAsOf ?? builtDecisionMetadata.decisionAsOf,
   };
   const rows = input.rows
     .map((row) => ({
@@ -2807,6 +2894,29 @@ export function buildCreativeDecisionOs(
       summary,
       deployment,
     });
+    const provenance = buildCreativeActionProvenance({
+      businessId: input.businessId,
+      decisionAsOf: decisionMetadata.decisionAsOf,
+      analyticsWindow: decisionMetadata.analyticsWindow,
+      reportingRange: {
+        startDate: input.startDate,
+        endDate: input.endDate,
+      },
+      sourceWindow: decisionMetadata.decisionWindows.primary30d,
+      creativeId: row.creativeId,
+      familyId: familySeed.familyId,
+      familySource: familySeed.familySource,
+      primaryAction: resolvedPrimaryAction,
+      lifecycleState,
+      legacyAction,
+      score,
+      confidence,
+      benchmark,
+      fatigue,
+      economics,
+      deployment,
+      trust,
+    });
     const report: CreativeRuleReportPayload = {
       creativeId: row.creativeId,
       creativeName: row.name,
@@ -2902,6 +3012,9 @@ export function buildCreativeDecisionOs(
 
     return {
       creativeId: row.creativeId,
+      provenance,
+      evidenceHash: provenance.evidenceHash,
+      actionFingerprint: provenance.actionFingerprint,
       familyId: familySeed.familyId,
       familyLabel,
       familySource: familySeed.familySource,

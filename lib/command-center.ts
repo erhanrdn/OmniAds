@@ -1,5 +1,9 @@
-import { createHash } from "crypto";
 import type { MembershipRole } from "@/lib/auth";
+import {
+  buildOperatorActionFingerprint,
+  buildOperatorDecisionPushEligibility,
+  type OperatorDecisionProvenance,
+} from "@/lib/operator-decision-provenance";
 import type {
   CreativeDecisionOsCreative,
   CreativeOpportunityBoardItem,
@@ -40,9 +44,6 @@ import {
 } from "@/src/types/decision-trust";
 
 export const COMMAND_CENTER_CONTRACT_VERSION = "command-center.v1" as const;
-export const COMMAND_CENTER_ACTION_FINGERPRINT_VERSION =
-  "command-center-action-fingerprint.v1" as const;
-
 export const COMMAND_CENTER_ACTION_STATUSES = [
   "pending",
   "approved",
@@ -206,6 +207,7 @@ export interface CommandCenterActionThroughput {
 
 export interface CommandCenterAction {
   actionFingerprint: string;
+  provenance?: OperatorDecisionProvenance | null;
   sourceSystem: CommandCenterSourceSystem;
   sourceType: CommandCenterSourceType;
   surfaceLane: DecisionSurfaceLane;
@@ -544,15 +546,6 @@ export interface CommandCenterResponse {
   handoffs: CommandCenterHandoff[];
   feedback: CommandCenterFeedbackEntry[];
   assignableUsers: CommandCenterAssignableUser[];
-}
-
-interface CommandCenterActionBase {
-  sourceSystem: CommandCenterSourceSystem;
-  sourceType: CommandCenterSourceType;
-  entityType: string;
-  entityId: string;
-  sourceDecisionId: string;
-  recommendedAction: string;
 }
 
 export interface CommandCenterActionStateRecord {
@@ -1016,18 +1009,39 @@ function resolveCommandCenterBatchReviewClass(input: {
   return null;
 }
 
-function createActionFingerprint(base: CommandCenterActionBase) {
-  const signature = JSON.stringify({
-    version: COMMAND_CENTER_ACTION_FINGERPRINT_VERSION,
+function createActionFingerprint(base: {
+  sourceSystem: CommandCenterSourceSystem;
+  sourceType: CommandCenterSourceType;
+  entityType: string;
+  entityId: string;
+  sourceDecisionId: string;
+  recommendedAction: string;
+  decisionAsOf: string;
+}) {
+  return buildOperatorActionFingerprint({
+    version: "command-center-action-fingerprint.v1",
+    decisionAsOf: base.decisionAsOf,
     sourceSystem: base.sourceSystem,
     sourceType: base.sourceType,
     entityType: base.entityType,
     entityId: base.entityId,
     sourceDecisionId: base.sourceDecisionId,
     recommendedAction: base.recommendedAction,
-  });
+  }).replace(/^od_/, "cc_");
+}
 
-  return `cc_${createHash("sha256").update(signature).digest("hex").slice(0, 24)}`;
+function buildCommandCenterActionPushEligibility(input: {
+  provenance: OperatorDecisionProvenance | null;
+  actionable: boolean;
+  blockedReason?: string | null;
+}) {
+  return buildOperatorDecisionPushEligibility({
+    provenance: input.provenance,
+    queueEligible: input.actionable && Boolean(input.provenance?.actionFingerprint),
+    canApply: input.actionable,
+    canRollback: false,
+    blockedReason: input.blockedReason ?? null,
+  });
 }
 
 function buildMetaSourceDeepLink(input: {
@@ -1068,6 +1082,8 @@ function buildMetaAction(
   > & {
     entityType: string;
     entityId: string;
+    provenance: OperatorDecisionProvenance | null;
+    decisionAsOf: string;
   },
 ): CommandCenterAction {
   const workloadClass = classifyCommandCenterWorkload({
@@ -1087,14 +1103,18 @@ function buildMetaAction(
 
   return {
     ...input,
-    actionFingerprint: createActionFingerprint({
-      sourceSystem: input.sourceSystem,
-      sourceType: input.sourceType,
-      entityType: input.entityType,
-      entityId: input.entityId,
-      sourceDecisionId: input.sourceContext.sourceDecisionId,
-      recommendedAction: input.recommendedAction,
-    }),
+    actionFingerprint:
+      input.provenance?.actionFingerprint ??
+      createActionFingerprint({
+        sourceSystem: input.sourceSystem,
+        sourceType: input.sourceType,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        sourceDecisionId: input.sourceContext.sourceDecisionId,
+        recommendedAction: input.recommendedAction,
+        decisionAsOf: input.decisionAsOf,
+      }),
+    provenance: input.provenance,
     queueSection: "history_context",
     workloadClass,
     batchReviewClass,
@@ -1304,9 +1324,10 @@ export function aggregateCommandCenterActions(input: {
   const actions: CommandCenterAction[] = [];
 
   if (input.metaDecisionOs) {
-    const operatingMode = input.metaDecisionOs.summary.operatingMode?.recommendedMode ?? null;
+    const metaDecisionOs = input.metaDecisionOs;
+    const operatingMode = metaDecisionOs.summary.operatingMode?.recommendedMode ?? null;
 
-    input.metaDecisionOs.adSets.forEach((decision) => {
+    metaDecisionOs.adSets.forEach((decision) => {
       actions.push(
         buildMetaAction({
           sourceSystem: "meta",
@@ -1365,11 +1386,15 @@ export function aggregateCommandCenterActions(input: {
             }),
             sourceDecisionId: decision.decisionId,
           },
+          provenance:
+            (decision as { provenance?: OperatorDecisionProvenance | null })
+              .provenance ?? null,
+          decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );
     });
 
-    input.metaDecisionOs.budgetShifts.forEach((shift) => {
+    metaDecisionOs.budgetShifts.forEach((shift) => {
       actions.push(
         buildMetaAction({
           sourceSystem: "meta",
@@ -1426,11 +1451,15 @@ export function aggregateCommandCenterActions(input: {
             }),
             sourceDecisionId: `${shift.fromCampaignId}:${shift.toCampaignId}`,
           },
+          provenance:
+            (shift as { provenance?: OperatorDecisionProvenance | null })
+              .provenance ?? null,
+          decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );
     });
 
-    input.metaDecisionOs.geoDecisions
+    metaDecisionOs.geoDecisions
       .filter((decision) => decision.queueEligible)
       .forEach((decision) => {
       actions.push(
@@ -1479,11 +1508,15 @@ export function aggregateCommandCenterActions(input: {
             }),
             sourceDecisionId: decision.geoKey,
           },
+          provenance:
+            (decision as { provenance?: OperatorDecisionProvenance | null })
+              .provenance ?? null,
+          decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );
       });
 
-    input.metaDecisionOs.placementAnomalies.forEach((anomaly) => {
+    metaDecisionOs.placementAnomalies.forEach((anomaly) => {
       actions.push(
         buildMetaAction({
           sourceSystem: "meta",
@@ -1525,11 +1558,15 @@ export function aggregateCommandCenterActions(input: {
             }),
             sourceDecisionId: anomaly.placementKey,
           },
+          provenance:
+            (anomaly as { provenance?: OperatorDecisionProvenance | null })
+              .provenance ?? null,
+          decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );
     });
 
-    input.metaDecisionOs.noTouchList.forEach((item) => {
+    metaDecisionOs.noTouchList.forEach((item) => {
       actions.push(
         metaNoTouchAction({
           businessId: input.businessId,
@@ -1538,14 +1575,19 @@ export function aggregateCommandCenterActions(input: {
           operatingMode,
           item,
           generatedAt,
+          provenance:
+            (item as { provenance?: OperatorDecisionProvenance | null })
+              .provenance ?? null,
+          decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );
     });
   }
 
   if (input.creativeDecisionOs) {
-    const operatingMode = input.creativeDecisionOs.summary.operatingMode ?? null;
-    input.creativeDecisionOs.creatives.forEach((creative) => {
+    const creativeDecisionOs = input.creativeDecisionOs;
+    const operatingMode = creativeDecisionOs.summary.operatingMode ?? null;
+    creativeDecisionOs.creatives.forEach((creative) => {
       const watchlistOnly = creative.primaryAction === "hold_no_touch";
       actions.push(
         buildMetaAction({
@@ -1616,6 +1658,10 @@ export function aggregateCommandCenterActions(input: {
             )}&creative=${encodeURIComponent(creative.creativeId)}`,
             sourceDecisionId: creative.creativeId,
           },
+          provenance:
+            (creative as { provenance?: OperatorDecisionProvenance | null })
+              .provenance ?? null,
+          decisionAsOf: creativeDecisionOs.decisionAsOf,
         }),
       );
     });
@@ -1648,16 +1694,22 @@ function metaNoTouchAction(input: {
   operatingMode: string | null;
   item: MetaNoTouchItem;
   generatedAt: string;
+  provenance: OperatorDecisionProvenance | null;
+  decisionAsOf: string;
 }) {
   return {
-    actionFingerprint: createActionFingerprint({
-      sourceSystem: "meta",
-      sourceType: "meta_no_touch_item",
-      entityType: input.item.entityType,
-      entityId: input.item.entityId,
-      sourceDecisionId: input.item.entityId,
-      recommendedAction: "hold_no_touch",
-    }),
+    actionFingerprint:
+      input.provenance?.actionFingerprint ??
+      createActionFingerprint({
+        sourceSystem: "meta",
+        sourceType: "meta_no_touch_item",
+        entityType: input.item.entityType,
+        entityId: input.item.entityId,
+        sourceDecisionId: input.item.entityId,
+        recommendedAction: "hold_no_touch",
+        decisionAsOf: input.decisionAsOf,
+      }),
+    provenance: input.provenance,
     sourceSystem: "meta",
     sourceType: "meta_no_touch_item",
     surfaceLane: "watchlist",
@@ -1779,6 +1831,15 @@ export function decorateCommandCenterActionsWithThroughput(input: {
     );
     const actionable = isCommandCenterActionActionable(action);
     const priorityScore = calculateCommandCenterPriorityScore(action);
+    const pushEligibility = buildCommandCenterActionPushEligibility({
+      provenance: action.provenance ?? null,
+      actionable,
+      blockedReason: action.provenance
+        ? action.watchlistOnly || action.surfaceLane !== "action_core"
+          ? "Decision is contextual only."
+          : null
+        : "Missing decision provenance.",
+    });
     const slaTargetHours = actionable
       ? COMMAND_CENTER_SLA_TARGET_HOURS[action.priority]
       : null;
@@ -1796,7 +1857,7 @@ export function decorateCommandCenterActionsWithThroughput(input: {
       throughput: {
         priorityScore,
         actionable,
-        defaultQueueEligible: actionable,
+        defaultQueueEligible: pushEligibility.queueEligible,
         selectedInDefaultQueue: false,
         ageHours,
         ageLabel: formatAgeLabel(ageHours),

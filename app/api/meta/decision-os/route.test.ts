@@ -216,18 +216,26 @@ describe("GET /api/meta/decision-os", () => {
   it("builds the decision payload from campaigns, ad sets, breakdowns, and commercial truth", async () => {
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05",
+        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=2026-04-10",
       ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     assertMetaDecisionOsPageContract(payload);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: "2026-04-10",
+    });
     expect(decisionOs.buildMetaDecisionOs).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
         startDate: "2026-04-01",
         endDate: "2026-04-05",
+        analyticsStartDate: "2026-03-01",
+        analyticsEndDate: "2026-03-31",
         decisionAsOf: "2026-04-10",
         campaigns: expect.arrayContaining([
           expect.objectContaining({ id: "cmp-1", name: "Campaign One" }),

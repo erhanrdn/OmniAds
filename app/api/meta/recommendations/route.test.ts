@@ -177,6 +177,7 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.endDate).toBe("2026-03-31");
     expect(campaignsSource.getMetaCampaignsForRange).toHaveBeenCalled();
     expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalled();
+    expect(decisionOsSource.getMetaDecisionOsForRange).not.toHaveBeenCalled();
   });
 
   it("labels Decision OS recommendations when the unified path succeeds", async () => {
@@ -190,7 +191,7 @@ describe("GET /api/meta/recommendations", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28&decisionAsOf=2026-04-10"
       )
     );
     const payload = await response.json();
@@ -204,6 +205,14 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.businessId).toBe("biz");
     expect(payload.startDate).toBe("2026-03-01");
     expect(payload.endDate).toBe("2026-03-31");
+    expect(decisionOsSource.getMetaDecisionOsForRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      analyticsStartDate: "2026-02-01",
+      analyticsEndDate: "2026-02-28",
+      decisionAsOf: "2026-04-10",
+    });
     expect(metaRecommendations.buildMetaRecommendationsFromDecisionOs).toHaveBeenCalled();
     expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
   });

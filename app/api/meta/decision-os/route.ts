@@ -47,14 +47,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const analyticsStartDateParam = request.nextUrl.searchParams.get("analyticsStartDate");
+  const analyticsEndDateParam = request.nextUrl.searchParams.get("analyticsEndDate");
   const startDate =
-    request.nextUrl.searchParams.get("startDate") ?? toISODate(daysAgo(29));
+    request.nextUrl.searchParams.get("startDate") ??
+    analyticsStartDateParam ??
+    toISODate(daysAgo(29));
   const endDate =
-    request.nextUrl.searchParams.get("endDate") ?? toISODate(new Date());
+    request.nextUrl.searchParams.get("endDate") ??
+    analyticsEndDateParam ??
+    toISODate(new Date());
+  const analyticsStartDate = analyticsStartDateParam ?? startDate;
+  const analyticsEndDate = analyticsEndDateParam ?? endDate;
+  const decisionAsOf = request.nextUrl.searchParams.get("decisionAsOf");
   const payload = await getMetaDecisionOsForRange({
     businessId,
     startDate,
     endDate,
+    analyticsStartDate,
+    analyticsEndDate,
+    decisionAsOf,
   });
 
   if (!isCreativeDecisionOsV1EnabledForBusiness(businessId)) {
@@ -69,6 +81,9 @@ export async function GET(request: NextRequest) {
       businessId,
       startDate,
       endDate,
+      analyticsStartDate,
+      analyticsEndDate,
+      decisionAsOf,
     });
     const linkedPayload = attachCreativeLinkage(
       payload,

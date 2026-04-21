@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { CommandCenterAction, CommandCenterPermissions } from "@/lib/command-center";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
 
 vi.mock("@/lib/command-center-store", () => ({
   getCommandCenterMutationReceipt: vi.fn(),
@@ -44,11 +45,37 @@ const permissions: CommandCenterPermissions = {
   role: "collaborator",
 };
 
+function buildActionProvenance() {
+  const metadata = buildOperatorDecisionMetadata({
+    analyticsStartDate: "2026-04-01",
+    analyticsEndDate: "2026-04-10",
+    decisionAsOf: "2026-04-10",
+  });
+  return {
+    ...buildOperatorDecisionProvenance({
+      businessId: "biz",
+      decisionAsOf: "2026-04-10",
+      analyticsWindow: metadata.analyticsWindow,
+      sourceWindow: metadata.decisionWindows.primary30d,
+      sourceRowScope: {
+        system: "meta",
+        entityType: "adset",
+        entityId: "adset_1",
+      },
+      sourceDecisionId: "decision_1",
+      recommendedAction: "scale_budget",
+      evidence: ["ROAS is beating target."],
+    }),
+    actionFingerprint: "cc_meta_1",
+  };
+}
+
 function buildActionFixture(
   overrides: Partial<CommandCenterAction> = {},
 ): CommandCenterAction {
   return {
     actionFingerprint: "cc_meta_1",
+    provenance: buildActionProvenance(),
     sourceSystem: "meta",
     sourceType: "meta_adset_decision",
     surfaceLane: "action_core",
@@ -451,6 +478,21 @@ describe("command center execution service", () => {
           entry.supportMode === "manual_only",
       ),
     ).toBe(true);
+  });
+
+  it("keeps rows without provenance out of the push path", async () => {
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture({ provenance: null }),
+      permissions,
+    });
+
+    expect(preview.supportMode).toBe("manual_only");
+    expect(preview.permission.canApply).toBe(false);
+    expect(preview.permission.reason).toContain("provenance");
   });
 
   it("degrades to manual-only for campaign-owned budgets", async () => {

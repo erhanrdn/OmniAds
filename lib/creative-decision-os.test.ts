@@ -274,11 +274,55 @@ describe("buildCreativeDecisionOs", () => {
     expect(byId.get("comeback")?.policy?.primaryDriver).toBe("comeback");
   });
 
-  it("keeps lifecycle and primary decisions stable when only the analytics window changes", () => {
+  it("keeps lifecycle, primary decisions, and fingerprints stable when only reporting dates change", () => {
+    const analyticsWindow = {
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      role: "analysis_only" as const,
+    };
+    const decisionWindows = {
+      recent7d: {
+        key: "recent7d" as const,
+        label: "recent 7d",
+        startDate: "2026-04-04",
+        endDate: "2026-04-10",
+        days: 7,
+        role: "recent_watch" as const,
+      },
+      primary30d: {
+        key: "primary30d" as const,
+        label: "primary 30d",
+        startDate: "2026-03-12",
+        endDate: "2026-04-10",
+        days: 30,
+        role: "decision_authority" as const,
+      },
+      baseline90d: {
+        key: "baseline90d" as const,
+        label: "baseline 90d",
+        startDate: "2026-01-11",
+        endDate: "2026-04-10",
+        days: 90,
+        role: "historical_memory" as const,
+      },
+    };
+    const historicalMemory = {
+      available: true,
+      source: "rolling_baseline" as const,
+      baselineWindowKey: "baseline90d" as const,
+      startDate: "2026-01-11",
+      endDate: "2026-04-10",
+      lookbackDays: 90,
+      note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
+    };
+
     const april = buildCreativeDecisionOs({
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-30",
+      analyticsWindow,
+      decisionWindows,
+      historicalMemory,
       decisionAsOf: "2026-04-10",
       rows: [buildRow()],
     });
@@ -286,15 +330,42 @@ describe("buildCreativeDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-03-01",
       endDate: "2026-03-31",
+      analyticsWindow,
+      decisionWindows,
+      historicalMemory,
       decisionAsOf: "2026-04-10",
       rows: [buildRow()],
     });
 
-    expect(april.creatives[0]?.lifecycleState).toBe(march.creatives[0]?.lifecycleState);
-    expect(april.creatives[0]?.primaryAction).toBe(march.creatives[0]?.primaryAction);
+    const aprilCreative = april.creatives[0]!;
+    const marchCreative = march.creatives[0]!;
+
+    expect(aprilCreative.lifecycleState).toBe(marchCreative.lifecycleState);
+    expect(aprilCreative.primaryAction).toBe(marchCreative.primaryAction);
+    expect(aprilCreative.actionFingerprint).toBe(marchCreative.actionFingerprint);
+    expect(aprilCreative.evidenceHash).toBe(marchCreative.evidenceHash);
+    expect(aprilCreative.provenance).toMatchObject({
+      businessId: "biz",
+      decisionAsOf: "2026-04-10",
+      analyticsWindow,
+      sourceWindow: {
+        key: "primary30d",
+        startDate: "2026-03-12",
+        endDate: "2026-04-10",
+        role: "decision_authority",
+      },
+      sourceRowScope: {
+        system: "creative",
+        entityType: "creative",
+        entityId: "creative-1",
+      },
+      sourceDecisionId: "creative:creative-1",
+    });
     expect(april.decisionWindows.primary30d).toEqual(march.decisionWindows.primary30d);
-    expect(april.analyticsWindow.startDate).toBe("2026-04-01");
-    expect(march.analyticsWindow.startDate).toBe("2026-03-01");
+    expect(april.analyticsWindow).toEqual(analyticsWindow);
+    expect(march.analyticsWindow).toEqual(analyticsWindow);
+    expect(april.historicalAnalysis.selectedWindow.startDate).toBe("2026-04-01");
+    expect(march.historicalAnalysis.selectedWindow.startDate).toBe("2026-03-01");
   });
 
   it("routes low-truth and inactive creatives into explicit surface lanes", () => {

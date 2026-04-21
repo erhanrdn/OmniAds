@@ -62,6 +62,28 @@ async function fetchCreativeRowsForWindow(input: {
   return ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow);
 }
 
+function resolveCreativeDecisionTimeline(input: {
+  startDate: string;
+  endDate: string;
+  analyticsStartDate?: string | null;
+  analyticsEndDate?: string | null;
+  decisionAsOf?: string | null;
+}) {
+  const reportingStartDate = input.startDate;
+  const reportingEndDate = input.endDate;
+  const analyticsStartDate = input.analyticsStartDate ?? reportingStartDate;
+  const analyticsEndDate = input.analyticsEndDate ?? reportingEndDate;
+  const decisionAsOf = input.decisionAsOf ?? analyticsEndDate;
+
+  return {
+    reportingStartDate,
+    reportingEndDate,
+    analyticsStartDate,
+    analyticsEndDate,
+    decisionAsOf,
+  };
+}
+
 function toHistoricalWindow(row: MetaCreativeRow) {
   return {
     spend: row.spend,
@@ -259,11 +281,22 @@ export async function getCreativeDecisionOsForRange(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsStartDate?: string | null;
+  analyticsEndDate?: string | null;
+  decisionAsOf?: string | null;
 }): Promise<CreativeDecisionOsV1Response> {
-  const decisionContext = await getMetaDecisionWindowContext({
-    businessId: input.businessId,
+  const timeline = resolveCreativeDecisionTimeline({
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsStartDate: input.analyticsStartDate,
+    analyticsEndDate: input.analyticsEndDate,
+    decisionAsOf: input.decisionAsOf,
+  });
+  const decisionContext = await getMetaDecisionWindowContext({
+    businessId: input.businessId,
+    startDate: timeline.analyticsStartDate,
+    endDate: timeline.analyticsEndDate,
+    decisionAsOf: timeline.decisionAsOf,
   });
   let decisionRows: MetaCreativeRow[] = [];
   let selectedPeriodRows: MetaCreativeRow[] | null = null;
@@ -339,8 +372,8 @@ export async function getCreativeDecisionOsForRange(input: {
       fetchCreativeRowsForWindow({
         request: input.request,
         businessId: input.businessId,
-        startDate: input.startDate,
-        endDate: input.endDate,
+        startDate: timeline.reportingStartDate,
+        endDate: timeline.reportingEndDate,
       }).catch(() => null),
     ]);
 
@@ -362,8 +395,8 @@ export async function getCreativeDecisionOsForRange(input: {
   const snapshot = await getBusinessCommercialTruthSnapshot(input.businessId);
   const operatingMode = buildAccountOperatingMode({
     businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
+    startDate: timeline.analyticsStartDate,
+    endDate: timeline.analyticsEndDate,
     analyticsWindow: decisionContext.analyticsWindow,
     decisionWindows: decisionContext.decisionWindows,
     historicalMemory: decisionContext.historicalMemory,
@@ -376,20 +409,20 @@ export async function getCreativeDecisionOsForRange(input: {
   const historicalAnalysis =
     selectedPeriodRows && selectedPeriodRows.length > 0
       ? buildCreativeHistoricalAnalysis({
-          startDate: input.startDate,
-          endDate: input.endDate,
+          startDate: timeline.reportingStartDate,
+          endDate: timeline.reportingEndDate,
           rows: selectedPeriodRows.map((row) => toDecisionInputRow(row, null)),
         })
       : buildEmptyCreativeHistoricalAnalysis({
-          startDate: input.startDate,
-          endDate: input.endDate,
+          startDate: timeline.reportingStartDate,
+          endDate: timeline.reportingEndDate,
         });
 
   return {
     ...buildCreativeDecisionOs({
       businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
+      startDate: timeline.reportingStartDate,
+      endDate: timeline.reportingEndDate,
       analyticsWindow: decisionContext.analyticsWindow,
       decisionWindows: decisionContext.decisionWindows,
       historicalMemory: decisionContext.historicalMemory,

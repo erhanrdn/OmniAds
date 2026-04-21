@@ -70,6 +70,9 @@ export async function GET(request: NextRequest) {
   const businessId = searchParams.get("businessId");
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
+  const analyticsStartDate = searchParams.get("analyticsStartDate") ?? startDate;
+  const analyticsEndDate = searchParams.get("analyticsEndDate") ?? endDate;
+  const decisionAsOf = searchParams.get("decisionAsOf");
 
   const access = await requireBusinessAccess({
     request,
@@ -129,6 +132,9 @@ export async function GET(request: NextRequest) {
         businessId,
         startDate,
         endDate,
+        analyticsStartDate: analyticsStartDate ?? undefined,
+        analyticsEndDate: analyticsEndDate ?? undefined,
+        decisionAsOf,
       });
 
       if (isCreativeDecisionOsV1EnabledForBusiness(businessId)) {
