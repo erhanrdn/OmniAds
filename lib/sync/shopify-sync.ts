@@ -110,6 +110,11 @@ function classifyShopifyHistoricalWindow(
   };
 }
 
+function shopifyHistoricalChunksPerRun() {
+  const parsed = Math.trunc(envNumber("SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN", 3));
+  return Math.max(1, Math.min(parsed, 6));
+}
+
 function addDaysToIsoDate(value: string, days: number) {
   return toIsoDate(addDays(new Date(`${value}T00:00:00Z`), days));
 }
@@ -627,28 +632,35 @@ export async function syncShopifyCommerceReports(
       returns: number;
       pages: number;
       returnPages: number;
+      chunks: number;
       chunkStartDate: string;
       chunkEndDate: string;
     } = null;
 
     if (allowHistorical && envFlag("SHOPIFY_HISTORICAL_SYNC_ENABLED", true) && hasShopifyScope(credentials.scopes, "read_all_orders")) {
       const runHistoricalReturns = hasShopifyScope(credentials.scopes, "read_returns");
-      const ordersChunk = computeHistoricalChunk({
-        targetStartDate: historical.targetStartDate,
-        targetEndDate: historical.targetEndDate,
-        chunkDays: historical.chunkDays,
-        existingCursorValue: existingHistoricalOrdersState?.cursorValue,
-      });
-      const returnsChunk = runHistoricalReturns
-        ? computeHistoricalChunk({
-            targetStartDate: historical.targetStartDate,
-            targetEndDate: historical.targetEndDate,
-            chunkDays: historical.chunkDays,
-            existingCursorValue: existingHistoricalReturnsState?.cursorValue,
-          })
-        : null;
+      let historicalOrdersCursorValue = existingHistoricalOrdersState?.cursorValue ?? null;
+      let historicalReturnsCursorValue = existingHistoricalReturnsState?.cursorValue ?? null;
+      const maxHistoricalChunksPerRun = shopifyHistoricalChunksPerRun();
 
-      if (ordersChunk || returnsChunk) {
+      for (let chunkIndex = 0; chunkIndex < maxHistoricalChunksPerRun; chunkIndex += 1) {
+        const ordersChunk = computeHistoricalChunk({
+          targetStartDate: historical.targetStartDate,
+          targetEndDate: historical.targetEndDate,
+          chunkDays: historical.chunkDays,
+          existingCursorValue: historicalOrdersCursorValue,
+        });
+        const returnsChunk = runHistoricalReturns
+          ? computeHistoricalChunk({
+              targetStartDate: historical.targetStartDate,
+              targetEndDate: historical.targetEndDate,
+              chunkDays: historical.chunkDays,
+              existingCursorValue: historicalReturnsCursorValue,
+            })
+          : null;
+
+        if (!ordersChunk && !returnsChunk) break;
+
         if (ordersChunk) {
           await upsertShopifySyncState({
             businessId,
@@ -736,6 +748,7 @@ export async function syncShopifyCommerceReports(
                 pages: historicalOrdersResult.pages,
               },
             });
+            historicalOrdersCursorValue = ordersChunk.endDate;
           }
           if (returnsChunk) {
             await upsertShopifySyncState({
@@ -758,19 +771,38 @@ export async function syncShopifyCommerceReports(
                 pages: historicalReturnsResult.pages,
               },
             });
+            historicalReturnsCursorValue = returnsChunk.endDate;
           }
 
-          historicalResult = {
-            orders: historicalOrdersResult.orders,
-            orderLines: historicalOrdersResult.orderLines,
-            refunds: historicalOrdersResult.refunds,
-            transactions: historicalOrdersResult.transactions,
-            returns: historicalReturnsResult.returns,
-            pages: historicalOrdersResult.pages,
-            returnPages: historicalReturnsResult.pages,
-            chunkStartDate: (ordersChunk ?? returnsChunk)!.startDate,
-            chunkEndDate: (ordersChunk ?? returnsChunk)!.endDate,
-          };
+          const chunkStartDate = (ordersChunk ?? returnsChunk)!.startDate;
+          const chunkEndDate = (ordersChunk ?? returnsChunk)!.endDate;
+          historicalResult = historicalResult
+            ? {
+                orders: historicalResult.orders + historicalOrdersResult.orders,
+                orderLines: historicalResult.orderLines + historicalOrdersResult.orderLines,
+                refunds: historicalResult.refunds + historicalOrdersResult.refunds,
+                transactions:
+                  historicalResult.transactions + historicalOrdersResult.transactions,
+                returns: historicalResult.returns + historicalReturnsResult.returns,
+                pages: historicalResult.pages + historicalOrdersResult.pages,
+                returnPages:
+                  historicalResult.returnPages + historicalReturnsResult.pages,
+                chunks: historicalResult.chunks + 1,
+                chunkStartDate: historicalResult.chunkStartDate,
+                chunkEndDate,
+              }
+            : {
+                orders: historicalOrdersResult.orders,
+                orderLines: historicalOrdersResult.orderLines,
+                refunds: historicalOrdersResult.refunds,
+                transactions: historicalOrdersResult.transactions,
+                returns: historicalReturnsResult.returns,
+                pages: historicalOrdersResult.pages,
+                returnPages: historicalReturnsResult.pages,
+                chunks: 1,
+                chunkStartDate,
+                chunkEndDate,
+              };
         } else {
           if (ordersChunk && !historicalOrdersResult.success) {
             await upsertShopifySyncState({
@@ -798,6 +830,7 @@ export async function syncShopifyCommerceReports(
               lastError: historicalReturnsResult.reason,
             });
           }
+          break;
         }
       }
     }

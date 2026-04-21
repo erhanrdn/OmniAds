@@ -297,6 +297,14 @@ function chunkRows<T>(rows: T[], size = 100) {
   return chunks;
 }
 
+function dedupeRowsByKey<T>(rows: T[], buildKey: (row: T) => string) {
+  const deduped = new Map<string, T>();
+  for (const row of rows) {
+    deduped.set(buildKey(row), row);
+  }
+  return Array.from(deduped.values());
+}
+
 async function resolveShopifyCanonicalReferenceContext(
   rows: Array<{
     businessId: string;
@@ -1118,8 +1126,12 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_orders");
   const sql = getDb();
   let written = 0;
+  const uniqueRows = dedupeRowsByKey(
+    rows,
+    (row) => `${row.businessId}::${row.providerAccountId}::${row.shopId}::${row.orderId}`,
+  );
 
-  for (const chunk of chunkRows(rows)) {
+  for (const chunk of chunkRows(uniqueRows)) {
     const referenceContext = await resolveShopifyCanonicalReferenceContext(
       chunk.map((row) => ({
         businessId: row.businessId,
@@ -1127,12 +1139,71 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
         shopId: row.shopId,
       })),
     );
-    for (const row of chunk) {
-      const businessRefId =
-        referenceContext.businessRefIds.get(row.businessId) ?? null;
-      const providerAccountRefId =
-        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
-      await sql`
+    await sql.query(
+      `
+        WITH input_rows AS (
+          SELECT
+            NULLIF(TRIM(record.business_id), '') AS business_id,
+            record.business_ref_id AS business_ref_id,
+            NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+            record.provider_account_ref_id AS provider_account_ref_id,
+            NULLIF(TRIM(record.shop_id), '') AS shop_id,
+            NULLIF(TRIM(record.order_id), '') AS order_id,
+            NULLIF(TRIM(record.order_name), '') AS order_name,
+            NULLIF(TRIM(record.customer_id), '') AS customer_id,
+            NULLIF(TRIM(record.currency_code), '') AS currency_code,
+            NULLIF(TRIM(record.shop_currency_code), '') AS shop_currency_code,
+            record.order_created_at AS order_created_at,
+            record.order_created_date_local AS order_created_date_local,
+            record.order_updated_at AS order_updated_at,
+            record.order_updated_date_local AS order_updated_date_local,
+            record.order_processed_at AS order_processed_at,
+            record.order_cancelled_at AS order_cancelled_at,
+            record.order_closed_at AS order_closed_at,
+            NULLIF(TRIM(record.financial_status), '') AS financial_status,
+            NULLIF(TRIM(record.fulfillment_status), '') AS fulfillment_status,
+            COALESCE(record.customer_journey_summary, '{}'::jsonb) AS customer_journey_summary,
+            COALESCE(record.subtotal_price, 0) AS subtotal_price,
+            COALESCE(record.total_discounts, 0) AS total_discounts,
+            COALESCE(record.total_shipping, 0) AS total_shipping,
+            COALESCE(record.total_tax, 0) AS total_tax,
+            COALESCE(record.total_refunded, 0) AS total_refunded,
+            COALESCE(record.total_price, 0) AS total_price,
+            COALESCE(record.original_total_price, 0) AS original_total_price,
+            COALESCE(record.current_total_price, 0) AS current_total_price,
+            record.source_snapshot_id AS source_snapshot_id
+          FROM jsonb_to_recordset($1::jsonb) AS record(
+            business_id text,
+            business_ref_id uuid,
+            provider_account_id text,
+            provider_account_ref_id uuid,
+            shop_id text,
+            order_id text,
+            order_name text,
+            customer_id text,
+            currency_code text,
+            shop_currency_code text,
+            order_created_at timestamptz,
+            order_created_date_local date,
+            order_updated_at timestamptz,
+            order_updated_date_local date,
+            order_processed_at timestamptz,
+            order_cancelled_at timestamptz,
+            order_closed_at timestamptz,
+            financial_status text,
+            fulfillment_status text,
+            customer_journey_summary jsonb,
+            subtotal_price numeric,
+            total_discounts numeric,
+            total_shipping numeric,
+            total_tax numeric,
+            total_refunded numeric,
+            total_price numeric,
+            original_total_price numeric,
+            current_total_price numeric,
+            source_snapshot_id uuid
+          )
+        )
         INSERT INTO shopify_orders (
           business_id,
           business_ref_id,
@@ -1165,38 +1236,42 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           source_snapshot_id,
           updated_at
         )
-        VALUES (
-          ${row.businessId},
-          ${businessRefId},
-          ${row.providerAccountId},
-          ${providerAccountRefId},
-          ${row.shopId},
-          ${row.orderId},
-          ${row.orderName ?? null},
-          ${row.customerId ?? null},
-          ${row.currencyCode ?? null},
-          ${row.shopCurrencyCode ?? null},
-          ${normalizeTimestamp(row.orderCreatedAt)},
-          ${normalizeDate(row.orderCreatedDateLocal)},
-          ${normalizeTimestamp(row.orderUpdatedAt)},
-          ${normalizeDate(row.orderUpdatedDateLocal)},
-          ${normalizeTimestamp(row.orderProcessedAt)},
-          ${normalizeTimestamp(row.orderCancelledAt)},
-          ${normalizeTimestamp(row.orderClosedAt)},
-          ${row.financialStatus ?? null},
-          ${row.fulfillmentStatus ?? null},
-          ${JSON.stringify(row.customerJourneySummary ?? {})}::jsonb,
-          ${toNumber(row.subtotalPrice)},
-          ${toNumber(row.totalDiscounts)},
-          ${toNumber(row.totalShipping)},
-          ${toNumber(row.totalTax)},
-          ${toNumber(row.totalRefunded)},
-          ${toNumber(row.totalPrice)},
-          ${toNumber(row.originalTotalPrice)},
-          ${toNumber(row.currentTotalPrice)},
-          ${row.sourceSnapshotId ?? null},
+        SELECT
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          shop_id,
+          order_id,
+          order_name,
+          customer_id,
+          currency_code,
+          shop_currency_code,
+          order_created_at,
+          order_created_date_local,
+          order_updated_at,
+          order_updated_date_local,
+          order_processed_at,
+          order_cancelled_at,
+          order_closed_at,
+          financial_status,
+          fulfillment_status,
+          customer_journey_summary,
+          subtotal_price,
+          total_discounts,
+          total_shipping,
+          total_tax,
+          total_refunded,
+          total_price,
+          original_total_price,
+          current_total_price,
+          source_snapshot_id,
           now()
-        )
+        FROM input_rows
+        WHERE business_id IS NOT NULL
+          AND provider_account_id IS NOT NULL
+          AND shop_id IS NOT NULL
+          AND order_id IS NOT NULL
         ON CONFLICT (business_id, provider_account_id, shop_id, order_id)
         DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_orders.business_ref_id),
@@ -1225,9 +1300,45 @@ export async function upsertShopifyOrders(rows: ShopifyOrderWarehouseRow[]) {
           current_total_price = EXCLUDED.current_total_price,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
-      `;
-      written += 1;
-    }
+      `,
+      [
+        JSON.stringify(
+          chunk.map((row) => ({
+            business_id: row.businessId,
+            business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+            provider_account_id: row.providerAccountId,
+            provider_account_ref_id:
+              referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+            shop_id: row.shopId,
+            order_id: row.orderId,
+            order_name: row.orderName ?? null,
+            customer_id: row.customerId ?? null,
+            currency_code: row.currencyCode ?? null,
+            shop_currency_code: row.shopCurrencyCode ?? null,
+            order_created_at: normalizeTimestamp(row.orderCreatedAt),
+            order_created_date_local: normalizeDate(row.orderCreatedDateLocal),
+            order_updated_at: normalizeTimestamp(row.orderUpdatedAt),
+            order_updated_date_local: normalizeDate(row.orderUpdatedDateLocal),
+            order_processed_at: normalizeTimestamp(row.orderProcessedAt),
+            order_cancelled_at: normalizeTimestamp(row.orderCancelledAt),
+            order_closed_at: normalizeTimestamp(row.orderClosedAt),
+            financial_status: row.financialStatus ?? null,
+            fulfillment_status: row.fulfillmentStatus ?? null,
+            customer_journey_summary: row.customerJourneySummary ?? {},
+            subtotal_price: toNumber(row.subtotalPrice),
+            total_discounts: toNumber(row.totalDiscounts),
+            total_shipping: toNumber(row.totalShipping),
+            total_tax: toNumber(row.totalTax),
+            total_refunded: toNumber(row.totalRefunded),
+            total_price: toNumber(row.totalPrice),
+            original_total_price: toNumber(row.originalTotalPrice),
+            current_total_price: toNumber(row.currentTotalPrice),
+            source_snapshot_id: row.sourceSnapshotId ?? null,
+          })),
+        ),
+      ],
+    );
+    written += chunk.length;
     await upsertShopifyPayloadArchives(
       chunk.flatMap((row) => {
         if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
@@ -1270,8 +1381,13 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_lines");
   const sql = getDb();
   let written = 0;
+  const uniqueRows = dedupeRowsByKey(
+    rows,
+    (row) =>
+      `${row.businessId}::${row.providerAccountId}::${row.shopId}::${row.orderId}::${row.lineItemId}`,
+  );
 
-  for (const chunk of chunkRows(rows)) {
+  for (const chunk of chunkRows(uniqueRows)) {
     const referenceContext = await resolveShopifyCanonicalReferenceContext(
       chunk.map((row) => ({
         businessId: row.businessId,
@@ -1279,12 +1395,47 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
         shopId: row.shopId,
       })),
     );
-    for (const row of chunk) {
-      const businessRefId =
-        referenceContext.businessRefIds.get(row.businessId) ?? null;
-      const providerAccountRefId =
-        referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
-      await sql`
+    await sql.query(
+      `
+        WITH input_rows AS (
+          SELECT
+            NULLIF(TRIM(record.business_id), '') AS business_id,
+            record.business_ref_id AS business_ref_id,
+            NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+            record.provider_account_ref_id AS provider_account_ref_id,
+            NULLIF(TRIM(record.shop_id), '') AS shop_id,
+            NULLIF(TRIM(record.order_id), '') AS order_id,
+            NULLIF(TRIM(record.line_item_id), '') AS line_item_id,
+            NULLIF(TRIM(record.product_id), '') AS product_id,
+            NULLIF(TRIM(record.variant_id), '') AS variant_id,
+            NULLIF(TRIM(record.sku), '') AS sku,
+            NULLIF(TRIM(record.title), '') AS title,
+            NULLIF(TRIM(record.variant_title), '') AS variant_title,
+            COALESCE(record.quantity, 0) AS quantity,
+            COALESCE(record.discounted_total, 0) AS discounted_total,
+            COALESCE(record.original_total, 0) AS original_total,
+            COALESCE(record.tax_total, 0) AS tax_total,
+            record.source_snapshot_id AS source_snapshot_id
+          FROM jsonb_to_recordset($1::jsonb) AS record(
+            business_id text,
+            business_ref_id uuid,
+            provider_account_id text,
+            provider_account_ref_id uuid,
+            shop_id text,
+            order_id text,
+            line_item_id text,
+            product_id text,
+            variant_id text,
+            sku text,
+            title text,
+            variant_title text,
+            quantity integer,
+            discounted_total numeric,
+            original_total numeric,
+            tax_total numeric,
+            source_snapshot_id uuid
+          )
+        )
         INSERT INTO shopify_order_lines (
           business_id,
           business_ref_id,
@@ -1305,26 +1456,31 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
           source_snapshot_id,
           updated_at
         )
-        VALUES (
-          ${row.businessId},
-          ${businessRefId},
-          ${row.providerAccountId},
-          ${providerAccountRefId},
-          ${row.shopId},
-          ${row.orderId},
-          ${row.lineItemId},
-          ${row.productId ?? null},
-          ${row.variantId ?? null},
-          ${row.sku ?? null},
-          ${row.title ?? null},
-          ${row.variantTitle ?? null},
-          ${Math.max(0, Math.trunc(row.quantity ?? 0))},
-          ${toNumber(row.discountedTotal)},
-          ${toNumber(row.originalTotal)},
-          ${toNumber(row.taxTotal)},
-          ${row.sourceSnapshotId ?? null},
+        SELECT
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          shop_id,
+          order_id,
+          line_item_id,
+          product_id,
+          variant_id,
+          sku,
+          title,
+          variant_title,
+          quantity,
+          discounted_total,
+          original_total,
+          tax_total,
+          source_snapshot_id,
           now()
-        )
+        FROM input_rows
+        WHERE business_id IS NOT NULL
+          AND provider_account_id IS NOT NULL
+          AND shop_id IS NOT NULL
+          AND order_id IS NOT NULL
+          AND line_item_id IS NOT NULL
         ON CONFLICT (business_id, provider_account_id, shop_id, order_id, line_item_id)
         DO UPDATE SET
           business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_order_lines.business_ref_id),
@@ -1340,9 +1496,33 @@ export async function upsertShopifyOrderLines(rows: ShopifyOrderLineWarehouseRow
           tax_total = EXCLUDED.tax_total,
           source_snapshot_id = EXCLUDED.source_snapshot_id,
           updated_at = now()
-      `;
-      written += 1;
-    }
+      `,
+      [
+        JSON.stringify(
+          chunk.map((row) => ({
+            business_id: row.businessId,
+            business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+            provider_account_id: row.providerAccountId,
+            provider_account_ref_id:
+              referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+            shop_id: row.shopId,
+            order_id: row.orderId,
+            line_item_id: row.lineItemId,
+            product_id: row.productId ?? null,
+            variant_id: row.variantId ?? null,
+            sku: row.sku ?? null,
+            title: row.title ?? null,
+            variant_title: row.variantTitle ?? null,
+            quantity: Math.max(0, Math.trunc(row.quantity ?? 0)),
+            discounted_total: toNumber(row.discountedTotal),
+            original_total: toNumber(row.originalTotal),
+            tax_total: toNumber(row.taxTotal),
+            source_snapshot_id: row.sourceSnapshotId ?? null,
+          })),
+        ),
+      ],
+    );
+    written += chunk.length;
     await upsertShopifyPayloadArchives(
       chunk.flatMap((row) => {
         if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
@@ -1384,21 +1564,53 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_refunds");
   const sql = getDb();
-  let written = 0;
+  const uniqueRows = dedupeRowsByKey(
+    rows,
+    (row) => `${row.businessId}::${row.providerAccountId}::${row.shopId}::${row.refundId}`,
+  );
   const referenceContext = await resolveShopifyCanonicalReferenceContext(
-    rows.map((row) => ({
+    uniqueRows.map((row) => ({
       businessId: row.businessId,
       providerAccountId: row.providerAccountId,
       shopId: row.shopId,
     })),
   );
 
-  for (const row of rows) {
-    const businessRefId =
-      referenceContext.businessRefIds.get(row.businessId) ?? null;
-    const providerAccountRefId =
-      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
-    await sql`
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.order_id), '') AS order_id,
+          NULLIF(TRIM(record.refund_id), '') AS refund_id,
+          record.refunded_at AS refunded_at,
+          record.refunded_date_local AS refunded_date_local,
+          COALESCE(record.refunded_sales, 0) AS refunded_sales,
+          COALESCE(record.refunded_shipping, 0) AS refunded_shipping,
+          COALESCE(record.refunded_taxes, 0) AS refunded_taxes,
+          COALESCE(record.total_refunded, 0) AS total_refunded,
+          record.source_snapshot_id AS source_snapshot_id
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          order_id text,
+          refund_id text,
+          refunded_at timestamptz,
+          refunded_date_local date,
+          refunded_sales numeric,
+          refunded_shipping numeric,
+          refunded_taxes numeric,
+          total_refunded numeric,
+          source_snapshot_id uuid
+        )
+      )
       INSERT INTO shopify_refunds (
         business_id,
         business_ref_id,
@@ -1416,23 +1628,27 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         source_snapshot_id,
         updated_at
       )
-      VALUES (
-        ${row.businessId},
-        ${businessRefId},
-        ${row.providerAccountId},
-        ${providerAccountRefId},
-        ${row.shopId},
-        ${row.orderId},
-        ${row.refundId},
-        ${normalizeTimestamp(row.refundedAt)},
-        ${normalizeDate(row.refundedDateLocal)},
-        ${toNumber(row.refundedSales)},
-        ${toNumber(row.refundedShipping)},
-        ${toNumber(row.refundedTaxes)},
-        ${toNumber(row.totalRefunded)},
-        ${row.sourceSnapshotId ?? null},
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        order_id,
+        refund_id,
+        refunded_at,
+        refunded_date_local,
+        refunded_sales,
+        refunded_shipping,
+        refunded_taxes,
+        total_refunded,
+        source_snapshot_id,
         now()
-      )
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+        AND refund_id IS NOT NULL
       ON CONFLICT (business_id, provider_account_id, shop_id, refund_id)
       DO UPDATE SET
         business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_refunds.business_ref_id),
@@ -1446,12 +1662,32 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
         total_refunded = EXCLUDED.total_refunded,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
-    `;
-    written += 1;
-  }
+    `,
+    [
+      JSON.stringify(
+        uniqueRows.map((row) => ({
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          order_id: row.orderId,
+          refund_id: row.refundId,
+          refunded_at: normalizeTimestamp(row.refundedAt),
+          refunded_date_local: normalizeDate(row.refundedDateLocal),
+          refunded_sales: toNumber(row.refundedSales),
+          refunded_shipping: toNumber(row.refundedShipping),
+          refunded_taxes: toNumber(row.refundedTaxes),
+          total_refunded: toNumber(row.totalRefunded),
+          source_snapshot_id: row.sourceSnapshotId ?? null,
+        })),
+      ),
+    ],
+  );
 
   await upsertShopifyPayloadArchives(
-    rows.flatMap((row) => {
+    uniqueRows.flatMap((row) => {
       if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
       return [
         {
@@ -1481,7 +1717,7 @@ export async function upsertShopifyRefunds(rows: ShopifyRefundWarehouseRow[]) {
     sql,
   );
 
-  return written;
+  return uniqueRows.length;
 }
 
 export async function upsertShopifyOrderTransactions(
@@ -1497,16 +1733,134 @@ export async function upsertShopifyOrderTransactions(
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_order_transactions");
   const sql = getDb();
+  const uniqueRows = dedupeRowsByKey(
+    rows,
+    (row) =>
+      `${row.businessId}::${row.providerAccountId}::${row.shopId}::${row.transactionId}`,
+  );
   let written = 0;
   const referenceContext = await resolveShopifyCanonicalReferenceContext(
-    rows.map((row) => ({
+    uniqueRows.map((row) => ({
       businessId: row.businessId,
       providerAccountId: row.providerAccountId,
       shopId: row.shopId,
     })),
   );
 
-  for (const [index, row] of rows.entries()) {
+  if (!input?.runtimeValidation) {
+    await sql.query(
+      `
+        WITH input_rows AS (
+          SELECT
+            NULLIF(TRIM(record.business_id), '') AS business_id,
+            record.business_ref_id AS business_ref_id,
+            NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+            record.provider_account_ref_id AS provider_account_ref_id,
+            NULLIF(TRIM(record.shop_id), '') AS shop_id,
+            NULLIF(TRIM(record.order_id), '') AS order_id,
+            NULLIF(TRIM(record.transaction_id), '') AS transaction_id,
+            NULLIF(TRIM(record.kind), '') AS kind,
+            NULLIF(TRIM(record.status), '') AS status,
+            NULLIF(TRIM(record.gateway), '') AS gateway,
+            record.processed_at AS processed_at,
+            COALESCE(record.amount, 0) AS amount,
+            NULLIF(TRIM(record.currency_code), '') AS currency_code,
+            record.source_snapshot_id AS source_snapshot_id
+          FROM jsonb_to_recordset($1::jsonb) AS record(
+            business_id text,
+            business_ref_id uuid,
+            provider_account_id text,
+            provider_account_ref_id uuid,
+            shop_id text,
+            order_id text,
+            transaction_id text,
+            kind text,
+            status text,
+            gateway text,
+            processed_at timestamptz,
+            amount numeric,
+            currency_code text,
+            source_snapshot_id uuid
+          )
+        )
+        INSERT INTO shopify_order_transactions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          shop_id,
+          order_id,
+          transaction_id,
+          kind,
+          status,
+          gateway,
+          processed_at,
+          amount,
+          currency_code,
+          source_snapshot_id,
+          updated_at
+        )
+        SELECT
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          shop_id,
+          order_id,
+          transaction_id,
+          kind,
+          status,
+          gateway,
+          processed_at,
+          amount,
+          currency_code,
+          source_snapshot_id,
+          now()
+        FROM input_rows
+        WHERE business_id IS NOT NULL
+          AND provider_account_id IS NOT NULL
+          AND shop_id IS NOT NULL
+          AND transaction_id IS NOT NULL
+        ON CONFLICT (business_id, provider_account_id, shop_id, transaction_id)
+        DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_order_transactions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_order_transactions.provider_account_ref_id),
+          order_id = EXCLUDED.order_id,
+          kind = EXCLUDED.kind,
+          status = EXCLUDED.status,
+          gateway = EXCLUDED.gateway,
+          processed_at = EXCLUDED.processed_at,
+          amount = EXCLUDED.amount,
+          currency_code = EXCLUDED.currency_code,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `,
+      [
+        JSON.stringify(
+          uniqueRows.map((row) => ({
+            business_id: row.businessId,
+            business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+            provider_account_id: row.providerAccountId,
+            provider_account_ref_id:
+              referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+            shop_id: row.shopId,
+            order_id: row.orderId,
+            transaction_id: row.transactionId,
+            kind: row.kind ?? null,
+            status: row.status ?? null,
+            gateway: row.gateway ?? null,
+            processed_at: normalizeTimestamp(row.processedAt),
+            amount: toNumber(row.amount),
+            currency_code: row.currencyCode ?? null,
+            source_snapshot_id: row.sourceSnapshotId ?? null,
+          })),
+        ),
+      ],
+    );
+    written = uniqueRows.length;
+  }
+
+  for (const [index, row] of input?.runtimeValidation ? uniqueRows.entries() : []) {
     const businessRefId =
       referenceContext.businessRefIds.get(row.businessId) ?? null;
     const providerAccountRefId =
@@ -1648,7 +2002,7 @@ export async function upsertShopifyOrderTransactions(
   }
 
   await upsertShopifyPayloadArchives(
-    rows.flatMap((row) => {
+    uniqueRows.flatMap((row) => {
       if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
       return [
         {
@@ -1685,21 +2039,51 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_returns");
   const sql = getDb();
-  let written = 0;
+  const uniqueRows = dedupeRowsByKey(
+    rows,
+    (row) => `${row.businessId}::${row.providerAccountId}::${row.shopId}::${row.returnId}`,
+  );
   const referenceContext = await resolveShopifyCanonicalReferenceContext(
-    rows.map((row) => ({
+    uniqueRows.map((row) => ({
       businessId: row.businessId,
       providerAccountId: row.providerAccountId,
       shopId: row.shopId,
     })),
   );
 
-  for (const row of rows) {
-    const businessRefId =
-      referenceContext.businessRefIds.get(row.businessId) ?? null;
-    const providerAccountRefId =
-      referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null;
-    await sql`
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT
+          NULLIF(TRIM(record.business_id), '') AS business_id,
+          record.business_ref_id AS business_ref_id,
+          NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+          record.provider_account_ref_id AS provider_account_ref_id,
+          NULLIF(TRIM(record.shop_id), '') AS shop_id,
+          NULLIF(TRIM(record.order_id), '') AS order_id,
+          NULLIF(TRIM(record.return_id), '') AS return_id,
+          NULLIF(TRIM(record.status), '') AS status,
+          record.created_at_provider AS created_at_provider,
+          record.created_date_local AS created_date_local,
+          record.updated_at_provider AS updated_at_provider,
+          record.updated_date_local AS updated_date_local,
+          record.source_snapshot_id AS source_snapshot_id
+        FROM jsonb_to_recordset($1::jsonb) AS record(
+          business_id text,
+          business_ref_id uuid,
+          provider_account_id text,
+          provider_account_ref_id uuid,
+          shop_id text,
+          order_id text,
+          return_id text,
+          status text,
+          created_at_provider timestamptz,
+          created_date_local date,
+          updated_at_provider timestamptz,
+          updated_date_local date,
+          source_snapshot_id uuid
+        )
+      )
       INSERT INTO shopify_returns (
         business_id,
         business_ref_id,
@@ -1716,22 +2100,26 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         source_snapshot_id,
         updated_at
       )
-      VALUES (
-        ${row.businessId},
-        ${businessRefId},
-        ${row.providerAccountId},
-        ${providerAccountRefId},
-        ${row.shopId},
-        ${row.orderId ?? null},
-        ${row.returnId},
-        ${row.status ?? null},
-        ${normalizeTimestamp(row.createdAt)},
-        ${normalizeDate(row.createdDateLocal)},
-        ${normalizeTimestamp(row.updatedAt)},
-        ${normalizeDate(row.updatedDateLocal)},
-        ${row.sourceSnapshotId ?? null},
+      SELECT
+        business_id,
+        business_ref_id,
+        provider_account_id,
+        provider_account_ref_id,
+        shop_id,
+        order_id,
+        return_id,
+        status,
+        created_at_provider,
+        created_date_local,
+        updated_at_provider,
+        updated_date_local,
+        source_snapshot_id,
         now()
-      )
+      FROM input_rows
+      WHERE business_id IS NOT NULL
+        AND provider_account_id IS NOT NULL
+        AND shop_id IS NOT NULL
+        AND return_id IS NOT NULL
       ON CONFLICT (business_id, provider_account_id, shop_id, return_id)
       DO UPDATE SET
         business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_returns.business_ref_id),
@@ -1744,12 +2132,31 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
         updated_date_local = EXCLUDED.updated_date_local,
         source_snapshot_id = EXCLUDED.source_snapshot_id,
         updated_at = now()
-    `;
-    written += 1;
-  }
+    `,
+    [
+      JSON.stringify(
+        uniqueRows.map((row) => ({
+          business_id: row.businessId,
+          business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+          provider_account_id: row.providerAccountId,
+          provider_account_ref_id:
+            referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+          shop_id: row.shopId,
+          order_id: row.orderId ?? null,
+          return_id: row.returnId,
+          status: row.status ?? null,
+          created_at_provider: normalizeTimestamp(row.createdAt),
+          created_date_local: normalizeDate(row.createdDateLocal),
+          updated_at_provider: normalizeTimestamp(row.updatedAt),
+          updated_date_local: normalizeDate(row.updatedDateLocal),
+          source_snapshot_id: row.sourceSnapshotId ?? null,
+        })),
+      ),
+    ],
+  );
 
   await upsertShopifyPayloadArchives(
-    rows.flatMap((row) => {
+    uniqueRows.flatMap((row) => {
       if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
       return [
         {
@@ -1779,7 +2186,7 @@ export async function upsertShopifyReturns(rows: ShopifyReturnWarehouseRow[]) {
     sql,
   );
 
-  return written;
+  return uniqueRows.length;
 }
 
 export async function upsertShopifySalesEvents(
@@ -1795,8 +2202,12 @@ export async function upsertShopifySalesEvents(
   if (rows.length <= 0) return 0;
   await assertShopifyWarehouseTablesReady("shopify_warehouse:upsert_sales_events");
   const sql = getDb();
+  const uniqueRows = dedupeRowsByKey(
+    rows,
+    (row) => `${row.businessId}::${row.providerAccountId}::${row.shopId}::${row.eventId}`,
+  );
   const referenceContext = await resolveShopifyCanonicalReferenceContext(
-    rows.map((row) => ({
+    uniqueRows.map((row) => ({
       businessId: row.businessId,
       providerAccountId: row.providerAccountId,
       shopId: row.shopId,
@@ -1804,7 +2215,144 @@ export async function upsertShopifySalesEvents(
   );
   let written = 0;
 
-  for (const [index, row] of rows.entries()) {
+  if (!input?.runtimeValidation) {
+    await sql.query(
+      `
+        WITH input_rows AS (
+          SELECT
+            NULLIF(TRIM(record.business_id), '') AS business_id,
+            record.business_ref_id AS business_ref_id,
+            NULLIF(TRIM(record.provider_account_id), '') AS provider_account_id,
+            record.provider_account_ref_id AS provider_account_ref_id,
+            NULLIF(TRIM(record.shop_id), '') AS shop_id,
+            NULLIF(TRIM(record.event_id), '') AS event_id,
+            NULLIF(TRIM(record.source_kind), '') AS source_kind,
+            NULLIF(TRIM(record.source_id), '') AS source_id,
+            NULLIF(TRIM(record.order_id), '') AS order_id,
+            record.occurred_at AS occurred_at,
+            record.occurred_date_local AS occurred_date_local,
+            COALESCE(record.gross_sales, 0) AS gross_sales,
+            COALESCE(record.refunded_sales, 0) AS refunded_sales,
+            COALESCE(record.refunded_shipping, 0) AS refunded_shipping,
+            COALESCE(record.refunded_taxes, 0) AS refunded_taxes,
+            COALESCE(record.net_revenue, 0) AS net_revenue,
+            NULLIF(TRIM(record.currency_code), '') AS currency_code,
+            record.source_snapshot_id AS source_snapshot_id
+          FROM jsonb_to_recordset($1::jsonb) AS record(
+            business_id text,
+            business_ref_id uuid,
+            provider_account_id text,
+            provider_account_ref_id uuid,
+            shop_id text,
+            event_id text,
+            source_kind text,
+            source_id text,
+            order_id text,
+            occurred_at timestamptz,
+            occurred_date_local date,
+            gross_sales numeric,
+            refunded_sales numeric,
+            refunded_shipping numeric,
+            refunded_taxes numeric,
+            net_revenue numeric,
+            currency_code text,
+            source_snapshot_id uuid
+          )
+        )
+        INSERT INTO shopify_sales_events (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          shop_id,
+          event_id,
+          source_kind,
+          source_id,
+          order_id,
+          occurred_at,
+          occurred_date_local,
+          gross_sales,
+          refunded_sales,
+          refunded_shipping,
+          refunded_taxes,
+          net_revenue,
+          currency_code,
+          source_snapshot_id,
+          updated_at
+        )
+        SELECT
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          shop_id,
+          event_id,
+          source_kind,
+          source_id,
+          order_id,
+          occurred_at,
+          occurred_date_local,
+          gross_sales,
+          refunded_sales,
+          refunded_shipping,
+          refunded_taxes,
+          net_revenue,
+          currency_code,
+          source_snapshot_id,
+          now()
+        FROM input_rows
+        WHERE business_id IS NOT NULL
+          AND provider_account_id IS NOT NULL
+          AND shop_id IS NOT NULL
+          AND event_id IS NOT NULL
+        ON CONFLICT (business_id, provider_account_id, shop_id, event_id)
+        DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, shopify_sales_events.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, shopify_sales_events.provider_account_ref_id),
+          source_kind = EXCLUDED.source_kind,
+          source_id = EXCLUDED.source_id,
+          order_id = EXCLUDED.order_id,
+          occurred_at = EXCLUDED.occurred_at,
+          occurred_date_local = EXCLUDED.occurred_date_local,
+          gross_sales = EXCLUDED.gross_sales,
+          refunded_sales = EXCLUDED.refunded_sales,
+          refunded_shipping = EXCLUDED.refunded_shipping,
+          refunded_taxes = EXCLUDED.refunded_taxes,
+          net_revenue = EXCLUDED.net_revenue,
+          currency_code = EXCLUDED.currency_code,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+      `,
+      [
+        JSON.stringify(
+          uniqueRows.map((row) => ({
+            business_id: row.businessId,
+            business_ref_id: referenceContext.businessRefIds.get(row.businessId) ?? null,
+            provider_account_id: row.providerAccountId,
+            provider_account_ref_id:
+              referenceContext.providerAccountRefIds.get(row.providerAccountId) ?? null,
+            shop_id: row.shopId,
+            event_id: row.eventId,
+            source_kind: row.sourceKind,
+            source_id: row.sourceId,
+            order_id: row.orderId ?? null,
+            occurred_at: normalizeTimestamp(row.occurredAt),
+            occurred_date_local: normalizeDate(row.occurredDateLocal),
+            gross_sales: toNumber(row.grossSales),
+            refunded_sales: toNumber(row.refundedSales),
+            refunded_shipping: toNumber(row.refundedShipping),
+            refunded_taxes: toNumber(row.refundedTaxes),
+            net_revenue: toNumber(row.netRevenue),
+            currency_code: row.currencyCode ?? null,
+            source_snapshot_id: row.sourceSnapshotId ?? null,
+          })),
+        ),
+      ],
+    );
+    written = uniqueRows.length;
+  }
+
+  for (const [index, row] of input?.runtimeValidation ? uniqueRows.entries() : []) {
     const businessRefId =
       referenceContext.businessRefIds.get(row.businessId) ?? null;
     const providerAccountRefId =
@@ -1966,7 +2514,7 @@ export async function upsertShopifySalesEvents(
   }
 
   await upsertShopifyPayloadArchives(
-    rows.flatMap((row) => {
+    uniqueRows.flatMap((row) => {
       if (!hasMeaningfulJsonPayload(row.payloadJson)) return [];
       return [
         {

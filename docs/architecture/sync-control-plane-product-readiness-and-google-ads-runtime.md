@@ -411,6 +411,18 @@ That future rollout is intentionally non-blocking for this task.
 - page-limit truncation now fails explicitly instead of writing false success
 - Shopify sync-state date normalization now preserves local calendar dates from
   database `date` objects, preventing ready-through drift
+- follow-up throughput pass converted order, line, refund, return,
+  transaction, and sales-event writes from per-row upserts to JSONB batch
+  upserts; runtime-validation row tracing remains available when explicitly
+  requested
+- default historical drain now processes up to 3 bounded chunks per run
+  (`SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN`, capped at 6), so one worker cycle
+  advances more than one month without requiring unsafe long unbounded loops
+- live TheSwaf validation moved a 30-day historical chunk from roughly 516s
+  before batch writes to roughly 59s after batch writes, then completed
+  historical coverage through 2026-04-20 with `status=ready`
+- live Grandmix and IwaStore validation used the same generic path and advanced
+  3 historical chunks each without business-specific overrides
 
 Expected future work:
 

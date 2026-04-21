@@ -68,9 +68,12 @@ describe("shopify warehouse canonical refs", () => {
       },
     ]);
 
-    const joined = sql.mock.calls
-      .map(([strings]) => String((strings as TemplateStringsArray).join(" ")))
-      .join("\n");
+    const joined = [
+      ...sql.mock.calls.map(([strings]) =>
+        String((strings as TemplateStringsArray).join(" ")),
+      ),
+      ...sql.query.mock.calls.map(([statement]) => String(statement)),
+    ].join("\n");
     expect(joined).toContain("shopify_raw_snapshots");
     expect(joined).toContain("shopify_sales_events");
     expect(joined).toContain("shopify_customer_events");

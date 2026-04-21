@@ -51,8 +51,8 @@ describe("shopify warehouse payload archives", () => {
       },
     ]);
 
-    const orderInsertSql = sql.mock.calls
-      .map(([strings]) => String((strings as TemplateStringsArray).join(" ")))
+    const orderInsertSql = sql.query.mock.calls
+      .map(([statement]) => String(statement))
       .find((statement) => statement.includes("INSERT INTO shopify_orders"));
     const archiveSql = sql.query.mock.calls
       .map(([statement]) => String(statement))
@@ -94,13 +94,10 @@ describe("shopify warehouse payload archives", () => {
     const querySql = sql.query.mock.calls
       .map(([statement]) => String(statement))
       .join("\n");
-    const templateSql = sql.mock.calls
-      .map(([strings]) => String((strings as TemplateStringsArray).join(" ")))
-      .join("\n");
 
     expect(querySql).toContain("shopify_entity_payload_archives");
-    expect(templateSql).toContain("INSERT INTO shopify_sales_events");
-    expect(templateSql).not.toContain("INSERT INTO shopify_sales_events (\n          business_id,\n          business_ref_id,\n          provider_account_id,\n          provider_account_ref_id,\n          shop_id,\n          event_id,\n          source_kind,\n          source_id,\n          order_id,\n          occurred_at,\n          occurred_date_local,\n          gross_sales,\n          refunded_sales,\n          refunded_shipping,\n          refunded_taxes,\n          net_revenue,\n          currency_code,\n          payload_json");
+    expect(querySql).toContain("INSERT INTO shopify_sales_events");
+    expect(querySql).not.toContain("payload_json,\n          source_snapshot_id");
   });
 
   it("moves webhook payloads and repair sync results into the archive lane", async () => {

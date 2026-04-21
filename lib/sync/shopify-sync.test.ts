@@ -78,6 +78,7 @@ describe("syncShopifyCommerceReports", () => {
     vi.resetAllMocks();
     process.env.APP_LOG_LEVEL = "info";
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "false";
+    delete process.env.SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN;
     vi.mocked(admin.resolveShopifyAdminCredentials).mockResolvedValue({
       businessId: "biz_1",
       shopId: "test-shop.myshopify.com",
@@ -315,6 +316,7 @@ describe("syncShopifyCommerceReports", () => {
 
   it("runs one historical chunk when enabled", async () => {
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    process.env.SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN = "1";
     vi.mocked(syncState.getShopifySyncState)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
@@ -354,6 +356,7 @@ describe("syncShopifyCommerceReports", () => {
 
   it("runs a bounded historical chunk by default when read_all_orders is available", async () => {
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+    delete process.env.SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN;
     vi.mocked(syncState.getShopifySyncState)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
@@ -372,8 +375,9 @@ describe("syncShopifyCommerceReports", () => {
       expect.objectContaining({
         success: true,
         historical: expect.objectContaining({
-          orders: 4,
-          returns: 2,
+          chunks: 3,
+          orders: 12,
+          returns: 6,
         }),
       })
     );
@@ -381,6 +385,7 @@ describe("syncShopifyCommerceReports", () => {
 
   it("does not block historical orders backfill when read_returns is unavailable", async () => {
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    process.env.SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN = "1";
     vi.mocked(admin.resolveShopifyAdminCredentials).mockResolvedValue({
       businessId: "biz_1",
       shopId: "test-shop.myshopify.com",
@@ -423,6 +428,7 @@ describe("syncShopifyCommerceReports", () => {
 
   it("can catch up historical returns after historical orders have reached the target", async () => {
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    process.env.SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN = "1";
     vi.mocked(syncState.getShopifySyncState)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
