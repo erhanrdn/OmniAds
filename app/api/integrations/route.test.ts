@@ -41,6 +41,7 @@ describe("GET /api/integrations", () => {
         provider_account_name: "Main",
         access_token: null,
         refresh_token: null,
+        has_refresh_token: true,
         token_expires_at: null,
         scopes: null,
         error_message: null,
@@ -60,5 +61,6 @@ describe("GET /api/integrations", () => {
     expect(response.status).toBe(200);
     expect(payload.integrations[0].access_token).toBeNull();
     expect(payload.integrations[0].refresh_token).toBeNull();
+    expect(payload.integrations[0].has_refresh_token).toBe(true);
   });
 });

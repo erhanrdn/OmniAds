@@ -171,6 +171,7 @@ interface ManifestConnectionRow {
   error_message?: string | null;
   token_expires_at?: string | null;
   refresh_token?: string | null;
+  has_refresh_token?: boolean | null;
 }
 
 interface IntegrationsStore {
@@ -255,9 +256,9 @@ interface IntegrationsStore {
 
 function providerCanAutoRefresh(
   provider: IntegrationProvider,
-  refreshToken?: string | null
+  hasRefreshToken?: boolean | null
 ) {
-  if (!refreshToken) return false;
+  if (!hasRefreshToken) return false;
   return provider === "google" || provider === "ga4" || provider === "search_console";
 }
 
@@ -381,7 +382,11 @@ export const useIntegrationsStore = create<IntegrationsStore>()(
               const nextStatus: ProviderConnectionStatus =
                 row.status === "error"
                   ? "error"
-                  : isExpired && !providerCanAutoRefresh(provider, row.refresh_token)
+                  : isExpired &&
+                      !providerCanAutoRefresh(
+                        provider,
+                        row.has_refresh_token ?? Boolean(row.refresh_token)
+                      )
                     ? "expired"
                     : row.status === "connected"
                       ? "connected"

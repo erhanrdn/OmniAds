@@ -133,11 +133,30 @@ describe("deriveProviderViewState", () => {
         status: "connected",
         id: "int_google",
         token_expires_at: "2026-03-20T10:00:00.000Z",
-        refresh_token: "refresh-token",
+        refresh_token: null,
+        has_refresh_token: true,
       },
     ]);
 
     const state = useIntegrationsStore.getState();
     expect(state.domainsByBusinessId[businessId]?.google.connection.status).toBe("connected");
+  });
+
+  it("marks Google expired when an expired access token has no refresh token marker", () => {
+    const businessId = "biz-google-no-refresh";
+    useIntegrationsStore.getState().clearAllState();
+    useIntegrationsStore.getState().setManifestConnections(businessId, [
+      {
+        provider: "google",
+        status: "connected",
+        id: "int_google",
+        token_expires_at: "2026-03-20T10:00:00.000Z",
+        refresh_token: null,
+        has_refresh_token: false,
+      },
+    ]);
+
+    const state = useIntegrationsStore.getState();
+    expect(state.domainsByBusinessId[businessId]?.google.connection.status).toBe("expired");
   });
 });

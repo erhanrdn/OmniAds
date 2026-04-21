@@ -128,6 +128,43 @@ describe("backfillIntegrationSecretsEncryption", () => {
     expect(queries.join("\n")).toContain("business_ref_id");
   });
 
+  it("exposes refresh-token presence in metadata without exposing token values", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("FROM provider_connections pc")) {
+        return [
+          {
+            id: "connection-1",
+            business_id: "biz_1",
+            provider: "google",
+            status: "connected",
+            provider_account_id: "acct_1",
+            provider_account_name: "Account 1",
+            access_token: "access-token",
+            refresh_token: "refresh-token",
+            token_expires_at: "2026-04-20T22:15:22.722Z",
+            scopes: "https://www.googleapis.com/auth/adwords",
+            error_message: null,
+            metadata: {},
+            connected_at: "2026-04-20T21:15:23.722Z",
+            disconnected_at: null,
+            created_at: "2026-04-20T21:15:23.722Z",
+            updated_at: "2026-04-20T21:15:23.722Z",
+          },
+        ];
+      }
+      return [];
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const { getIntegrationsMetadataByBusiness } = await import("@/lib/integrations");
+    const [row] = await getIntegrationsMetadataByBusiness("biz_1");
+
+    expect(row?.access_token).toBeNull();
+    expect(row?.refresh_token).toBeNull();
+    expect(row?.has_refresh_token).toBe(true);
+  });
+
   it("recomputes timezone for every business disconnected from canonical integrations", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");

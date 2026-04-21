@@ -45,6 +45,7 @@ export const INTEGRATION_REQUIRED_TABLES = [
 export type IntegrationMetadataRow = Omit<IntegrationRow, "access_token" | "refresh_token"> & {
   access_token: null;
   refresh_token: null;
+  has_refresh_token?: boolean;
 };
 
 function hydrateIntegrationRow(row: IntegrationRow): IntegrationRow {
@@ -56,12 +57,15 @@ function hydrateIntegrationRow(row: IntegrationRow): IntegrationRow {
 }
 
 function hydrateIntegrationMetadataRow(
-  row: Omit<IntegrationRow, "access_token" | "refresh_token">,
+  row: Omit<IntegrationRow, "access_token" | "refresh_token"> & {
+    has_refresh_token?: boolean;
+  },
 ): IntegrationMetadataRow {
   return {
     ...row,
     access_token: null,
     refresh_token: null,
+    has_refresh_token: row.has_refresh_token ?? false,
   };
 }
 
@@ -221,6 +225,7 @@ export async function getIntegrationsMetadataByBusiness(
       status: row.status,
       provider_account_id: row.provider_account_id,
       provider_account_name: row.provider_account_name,
+      has_refresh_token: Boolean(row.refresh_token),
       token_expires_at: row.token_expires_at,
       scopes: row.scopes,
       error_message: row.error_message,
@@ -246,6 +251,7 @@ export async function getIntegrationMetadata(
     status: row.status,
     provider_account_id: row.provider_account_id,
     provider_account_name: row.provider_account_name,
+    has_refresh_token: Boolean(row.refresh_token),
     token_expires_at: row.token_expires_at,
     scopes: row.scopes,
     error_message: row.error_message,
