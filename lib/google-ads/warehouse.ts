@@ -4901,78 +4901,68 @@ export async function getGoogleAdsDailyCoverage(input: {
   const normalizedStartDate = normalizeDate(input.startDate);
   const normalizedEndDate = normalizeDate(input.endDate);
   const providerAccountId = input.providerAccountId ?? null;
-  const [rows, partitionRows, metadataRows, partitionMetadataRows] =
+  const [coverageRows, metadataRows, partitionMetadataRows] =
     await Promise.all([
       (providerAccountId == null
         ? sql.query(
             `
+            WITH covered_dates AS (
+              SELECT DISTINCT date::date AS date
+              FROM ${table}
+              WHERE business_id = $1
+                AND date >= $2
+                AND date <= $3
+              UNION
+              SELECT DISTINCT partition_date::date AS date
+              FROM google_ads_sync_partitions
+              WHERE business_id = $1
+                AND scope = $4
+                AND partition_date >= $2
+                AND partition_date <= $3
+                AND status = 'succeeded'
+            )
             SELECT
-              COUNT(DISTINCT date) AS completed_days,
+              COUNT(*) AS completed_days,
               COALESCE(MAX(date), NULL) AS ready_through_date
-            FROM ${table}
-            WHERE business_id = $1
-              AND date >= $2
-              AND date <= $3
+            FROM covered_dates
           `,
-            [input.businessId, normalizedStartDate, normalizedEndDate],
+            [
+              input.businessId,
+              normalizedStartDate,
+              normalizedEndDate,
+              input.scope,
+            ],
           )
         : sql.query(
             `
+            WITH covered_dates AS (
+              SELECT DISTINCT date::date AS date
+              FROM ${table}
+              WHERE business_id = $1
+                AND provider_account_id = $2
+                AND date >= $3
+                AND date <= $4
+              UNION
+              SELECT DISTINCT partition_date::date AS date
+              FROM google_ads_sync_partitions
+              WHERE business_id = $1
+                AND provider_account_id = $2
+                AND scope = $5
+                AND partition_date >= $3
+                AND partition_date <= $4
+                AND status = 'succeeded'
+            )
             SELECT
-              COUNT(DISTINCT date) AS completed_days,
+              COUNT(*) AS completed_days,
               COALESCE(MAX(date), NULL) AS ready_through_date
-            FROM ${table}
-            WHERE business_id = $1
-              AND provider_account_id = $2
-              AND date >= $3
-              AND date <= $4
+            FROM covered_dates
           `,
             [
               input.businessId,
               providerAccountId,
               normalizedStartDate,
               normalizedEndDate,
-            ],
-          )) as Promise<Array<Record<string, unknown>>>,
-      (providerAccountId == null
-        ? sql.query(
-            `
-            SELECT
-              COUNT(DISTINCT partition_date) AS completed_days,
-              COALESCE(MAX(partition_date), NULL) AS ready_through_date
-            FROM google_ads_sync_partitions
-            WHERE business_id = $1
-              AND scope = $2
-              AND partition_date >= $3
-              AND partition_date <= $4
-              AND status = 'succeeded'
-          `,
-            [
-              input.businessId,
               input.scope,
-              normalizedStartDate,
-              normalizedEndDate,
-            ],
-          )
-        : sql.query(
-            `
-            SELECT
-              COUNT(DISTINCT partition_date) AS completed_days,
-              COALESCE(MAX(partition_date), NULL) AS ready_through_date
-            FROM google_ads_sync_partitions
-            WHERE business_id = $1
-              AND scope = $2
-              AND provider_account_id = $3
-              AND partition_date >= $4
-              AND partition_date <= $5
-              AND status = 'succeeded'
-          `,
-            [
-              input.businessId,
-              input.scope,
-              providerAccountId,
-              normalizedStartDate,
-              normalizedEndDate,
             ],
           )) as Promise<Array<Record<string, unknown>>>,
       input.includeMetadata
@@ -5048,21 +5038,14 @@ export async function getGoogleAdsDailyCoverage(input: {
               )) as Promise<Array<Record<string, unknown>>>)
         : Promise.resolve([] as Array<Record<string, unknown>>),
     ]);
-  const row = rows[0] ?? {};
-  const partitionRow = partitionRows[0] ?? {};
+  const coverageRow = coverageRows[0] ?? {};
   const metadataRow = metadataRows[0] ?? {};
   const partitionMetadataRow = partitionMetadataRows[0] ?? {};
   return {
-    completed_days: Math.max(
-      toNumber(row.completed_days),
-      toNumber(partitionRow.completed_days),
-    ),
-    ready_through_date:
-      partitionRow.ready_through_date || row.ready_through_date
-        ? normalizeDate(
-            partitionRow.ready_through_date ?? row.ready_through_date,
-          )
-        : null,
+    completed_days: toNumber(coverageRow.completed_days),
+    ready_through_date: coverageRow.ready_through_date
+      ? normalizeDate(coverageRow.ready_through_date)
+      : null,
     latest_updated_at: partitionMetadataRow.latest_updated_at
       ? normalizeTimestamp(partitionMetadataRow.latest_updated_at)
       : null,

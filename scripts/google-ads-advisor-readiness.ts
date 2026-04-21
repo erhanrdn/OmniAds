@@ -1,5 +1,5 @@
-import { getDb } from "@/lib/db";
 import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
+import { getGoogleAdsDailyCoverage } from "@/lib/google-ads/warehouse";
 import {
   configureOperationalScriptRuntime,
   runOperationalMigrationsIfEnabled,
@@ -20,8 +20,6 @@ async function main() {
   }
 
   await runOperationalMigrationsIfEnabled(runtime);
-  const sql = getDb();
-
   const coverage = await Promise.all(
     REQUIRED_SCOPES.map(async (scope) => {
       if (scope === "search_term_daily") {
@@ -39,27 +37,20 @@ async function main() {
         };
       }
 
-      const table =
-        scope === "campaign_daily"
-          ? "google_ads_campaign_daily"
-          : "google_ads_product_daily";
-      const rows = await sql.query(
-        `
-          SELECT COUNT(DISTINCT date)::int AS completed_days, MIN(date) AS first_date, MAX(date) AS last_date
-          FROM ${table}
-          WHERE business_id = $1
-            AND date >= $2
-            AND date <= $3
-        `,
-        [businessId, startDate, endDate]
-      ) as Array<Record<string, unknown>>;
-      const row = rows[0] ?? {};
+      const result = await getGoogleAdsDailyCoverage({
+        businessId,
+        providerAccountId: null,
+        scope,
+        startDate,
+        endDate,
+        includeMetadata: true,
+      });
       return {
         scope,
-        source: "warehouse_daily",
-        completedDays: Number(row.completed_days ?? 0),
-        firstDate: row.first_date ? String(row.first_date).slice(0, 10) : null,
-        lastDate: row.last_date ? String(row.last_date).slice(0, 10) : null,
+        source: "warehouse_or_succeeded_partition",
+        completedDays: Number(result.completed_days ?? 0),
+        firstDate: null,
+        lastDate: result.ready_through_date ? String(result.ready_through_date).slice(0, 10) : null,
       };
     })
   );

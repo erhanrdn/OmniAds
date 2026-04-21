@@ -91,6 +91,7 @@ const {
   upsertGoogleAdsDailyRows,
   createGoogleAdsSyncJob,
   createGoogleAdsSyncRun,
+  getGoogleAdsDailyCoverage,
   queueGoogleAdsSyncPartition,
   upsertGoogleAdsSyncState,
 } = await import("@/lib/google-ads/warehouse");
@@ -131,6 +132,48 @@ describe("dedupeGoogleAdsWarehouseRows", () => {
     ).toEqual({
       source: "last",
     });
+  });
+});
+
+describe("getGoogleAdsDailyCoverage", () => {
+  it("counts the union of warehouse dates and succeeded zero-row partition dates", async () => {
+    const queryMock = vi.fn(async (query: string) => {
+      if (query.includes("WITH covered_dates AS")) {
+        return [
+          {
+            completed_days: 3,
+            ready_through_date: "2026-04-03",
+          },
+        ];
+      }
+      return [];
+    });
+    const sql = Object.assign(vi.fn(), { query: queryMock });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const coverage = await getGoogleAdsDailyCoverage({
+      businessId: "biz_1",
+      providerAccountId: null,
+      scope: "campaign_daily",
+      startDate: "2026-04-01",
+      endDate: "2026-04-03",
+    });
+
+    expect(coverage).toEqual({
+      completed_days: 3,
+      ready_through_date: "2026-04-03",
+      latest_updated_at: null,
+      total_rows: 0,
+    });
+    expect(queryMock.mock.calls[0]?.[0]).toContain("UNION");
+    expect(queryMock.mock.calls[0]?.[0]).toContain("google_ads_sync_partitions");
+    const firstCall = queryMock.mock.calls[0] as unknown[] | undefined;
+    expect(firstCall?.[1]).toEqual([
+      "biz_1",
+      "2026-04-01",
+      "2026-04-03",
+      "campaign_daily",
+    ]);
   });
 });
 
