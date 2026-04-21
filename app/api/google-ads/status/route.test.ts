@@ -216,10 +216,12 @@ vi.mock("@/lib/sync/release-gates", () => ({
   classifyProviderReleaseTruth: vi.fn((input) => ({
     pass:
       (input?.activityState === "ready" || input?.activityState === "busy") &&
-      (input?.queueDepth === 0 || input?.leasedPartitions > 0) &&
       input?.truthReady === true &&
       input?.progressState !== "blocked" &&
-      input?.activityState !== "blocked",
+      input?.activityState !== "blocked" &&
+      (input?.queueDepth === 0 ||
+        input?.leasedPartitions > 0 ||
+        input?.progressState === "partial_progressing"),
     blockerClass:
       input?.workerOnline === false && input?.queueDepth > 0 && input?.leasedPartitions === 0
         ? "worker_unavailable"
@@ -228,8 +230,10 @@ vi.mock("@/lib/sync/release-gates", () => ({
           : input?.activityState === "stalled" || input?.progressState === "partial_stuck"
             ? "stalled"
             : (input?.activityState === "ready" || input?.activityState === "busy") &&
-                (input?.queueDepth === 0 || input?.leasedPartitions > 0) &&
-                input?.truthReady === true
+                input?.truthReady === true &&
+                (input?.queueDepth === 0 ||
+                  input?.leasedPartitions > 0 ||
+                  input?.progressState === "partial_progressing")
               ? "none"
               : "not_release_ready",
     evidence: {
@@ -907,6 +911,117 @@ describe("GET /api/google-ads/status", () => {
     expect(payload.userVisibleSyncState).toMatchObject({
       kind: "refreshing_in_background",
       suppressRecoverableAttention: true,
+    });
+    vi.useRealTimers();
+  });
+
+  it("treats usable core data with recent background progress as release-ready even when backfill queue remains", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-21T12:00:00.000Z"));
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      id: "int_google",
+      business_id: "biz",
+      provider: "google",
+      status: "connected",
+      provider_account_id: null,
+      provider_account_name: null,
+      access_token: null,
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: null,
+      error_message: null,
+      metadata: {},
+      connected_at: null,
+      disconnected_at: null,
+      created_at: "",
+      updated_at: "",
+    });
+    vi.mocked(coreReadiness.buildGoogleAdsCoreReadiness).mockReturnValueOnce({
+      effectiveHistoricalTotalDays: 365,
+      overallCompletedDays: 120,
+      overallAccountCompletedDays: 120,
+      historicalReadyThroughDate: "2025-07-14",
+      productPendingSurfaces: [],
+      needsBootstrap: false,
+      historicalProgressPercent: 33,
+      coreUsable: true,
+    } as never);
+    vi.mocked(statusMachine.decideGoogleAdsStatusState).mockReturnValue("ready");
+    vi.mocked(warehouse.getGoogleAdsQueueHealth).mockResolvedValueOnce({
+      queueDepth: 1409,
+      leasedPartitions: 0,
+      coreQueueDepth: 400,
+      coreLeasedPartitions: 0,
+      extendedQueueDepth: 1009,
+      extendedLeasedPartitions: 0,
+      extendedRecentQueueDepth: 0,
+      extendedRecentLeasedPartitions: 0,
+      extendedHistoricalQueueDepth: 1009,
+      extendedHistoricalLeasedPartitions: 0,
+      maintenanceQueueDepth: 0,
+      maintenanceLeasedPartitions: 0,
+      deadLetterPartitions: 0,
+      oldestQueuedPartition: "2025-02-16",
+      latestCoreActivityAt: "2026-04-21T11:58:00.000Z",
+      latestExtendedActivityAt: "2026-04-21T11:58:30.000Z",
+      latestMaintenanceActivityAt: null,
+    } as never);
+    vi.mocked(warehouse.getGoogleAdsSyncState).mockImplementation(async ({ scope }) =>
+      scope === "account_daily" || scope === "campaign_daily"
+        ? ([
+            {
+              businessId: "biz",
+              providerAccountId: "acc_1",
+              scope,
+              historicalTargetStart: "2025-04-01",
+              historicalTargetEnd: "2026-03-30",
+              effectiveTargetStart: "2025-04-01",
+              effectiveTargetEnd: "2026-03-30",
+              readyThroughDate: "2025-07-14",
+              lastSuccessfulPartitionDate: "2025-07-14",
+              latestBackgroundActivityAt: "2026-04-21T11:58:30.000Z",
+              latestSuccessfulSyncAt: "2026-04-21T11:58:30.000Z",
+              completedDays: 120,
+              deadLetterCount: 0,
+              updatedAt: "2026-04-21T11:58:30.000Z",
+            },
+          ] as never)
+        : ([] as never)
+    );
+    vi.mocked(googleAdsSync.getGoogleAdsWorkerSchedulingState).mockResolvedValueOnce({
+      healthy: true,
+      heartbeatAgeMs: 1_000,
+      hasFreshHeartbeat: true,
+      runnerLeaseActive: true,
+      lastHeartbeatAt: "2026-04-21T11:59:59.000Z",
+      latestLeaseUpdatedAt: "2026-04-21T11:59:59.000Z",
+      ownerWorkerId: "worker-1",
+      workerFreshnessState: "online",
+      currentBusinessId: "biz",
+      lastConsumedBusinessId: "biz",
+      consumeStage: "idle",
+      batchBusinessIds: ["biz"],
+      workerMeta: null,
+    });
+
+    const response = await GET(
+      new NextRequest("http://localhost/api/google-ads/status?businessId=biz")
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.releaseReadinessCandidate).toMatchObject({
+      pass: true,
+      blockerClass: "none",
+      evidence: {
+        truthReady: true,
+        queueDepth: 1409,
+        leasedPartitions: 0,
+      },
+    });
+    expect(payload.backgroundBackfill).toMatchObject({
+      incomplete: true,
+      state: "active",
     });
     vi.useRealTimers();
   });

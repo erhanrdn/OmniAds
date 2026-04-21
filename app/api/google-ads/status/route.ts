@@ -55,6 +55,7 @@ import {
   isGoogleAdsAdvisorWindowReady,
 } from "@/lib/google-ads/advisor-readiness";
 import { buildGoogleAdsReleaseReadinessCandidate } from "@/lib/google-ads/control-plane";
+import { resolveGoogleAdsControlPlaneSyncTruth } from "@/lib/google-ads/control-plane-runtime";
 import { GOOGLE_ADS_SEARCH_TERM_DAILY_RETENTION_DAYS } from "@/lib/google-ads/google-contract";
 import { readGoogleAdsSearchIntelligenceCoverage } from "@/lib/google-ads/search-intelligence-storage";
 import {
@@ -1908,6 +1909,17 @@ export async function GET(request: NextRequest) {
           queueDepth: queueHealth?.queueDepth ?? 0,
           leasedPartitions: queueHealth?.leasedPartitions ?? 0,
         });
+  const googleControlPlaneSyncTruth = resolveGoogleAdsControlPlaneSyncTruth({
+    latestSyncStatus: effectiveLatestSync?.status ? String(effectiveLatestSync.status) : null,
+    queueDepth: queueHealth?.queueDepth ?? 0,
+    deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
+    scopeStates: Object.values(statesByScope).flat(),
+  });
+  const googleStatusRouteTruthReady =
+    googleControlPlaneSyncTruth.servingReady ||
+    (coreUsable &&
+      (queueHealth?.deadLetterPartitions ?? 0) === 0 &&
+      effectiveLatestSync?.status !== "failed");
   const googleReleaseReadinessCandidate =
     buildGoogleAdsReleaseReadinessCandidate({
       connected,
@@ -1921,6 +1933,7 @@ export async function GET(request: NextRequest) {
       deadLetterPartitions: queueHealth?.deadLetterPartitions ?? 0,
       staleLeasePartitions: advisorRelevantUnhealthyLeases,
       syncTruthState: googleUnifiedTruth.syncTruthState,
+      truthReady: googleStatusRouteTruthReady,
       stallFingerprints: effectiveGoogleStallFingerprints,
     });
   const providerState = buildProviderStateContract({
