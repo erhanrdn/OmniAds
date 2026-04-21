@@ -92,6 +92,15 @@ function toInt(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function hasMeaningfulRecentProgress(row: ReleaseGateCanaryEvidence) {
+  const progressState = row.evidence.progressState;
+  const stallFingerprints = row.evidence.stallFingerprints ?? [];
+  return (
+    progressState === "partial_progressing" &&
+    stallFingerprints.length === 0
+  );
+}
+
 function normalizeCanaryRows(releaseGate: SyncGateRecord | null): ReleaseGateCanaryEvidence[] {
   const raw = Array.isArray(releaseGate?.evidence?.canaries) ? releaseGate?.evidence?.canaries : [];
   const rows: Array<ReleaseGateCanaryEvidence | null> = raw
@@ -207,7 +216,11 @@ function buildRecommendation(
     };
   }
 
-  if ((row.evidence.queueDepth ?? 0) > 0 && (row.evidence.leasedPartitions ?? 0) === 0) {
+  if (
+    (row.evidence.queueDepth ?? 0) > 0 &&
+    (row.evidence.leasedPartitions ?? 0) === 0 &&
+    !hasMeaningfulRecentProgress(row)
+  ) {
     return {
       businessId: row.businessId,
       businessName: row.businessName,
@@ -221,9 +234,10 @@ function buildRecommendation(
   }
 
   if (
-    row.blockerClass === "stalled" ||
-    row.blockerClass === "queue_blocked" ||
-    row.evidence.truthReady === false
+    !hasMeaningfulRecentProgress(row) &&
+    (row.blockerClass === "stalled" ||
+      row.blockerClass === "queue_blocked" ||
+      row.evidence.truthReady === false)
   ) {
     return {
       businessId: row.businessId,

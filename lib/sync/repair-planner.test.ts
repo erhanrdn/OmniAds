@@ -253,6 +253,44 @@ describe("sync repair planner", () => {
     expect(plan.recommendations[0]?.safetyClassification).toBe("safe_idempotent");
   });
 
+  it("does not propose reschedule for queued work that is making real progress between batches", async () => {
+    const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
+      persist: false,
+      releaseGate: {
+        ...baseReleaseGate,
+        evidence: {
+          canaries: [
+            {
+              businessId: "biz-1",
+              businessName: "TheSwaf",
+              pass: false,
+              blockerClass: "not_release_ready",
+              evidence: {
+                activityState: "busy",
+                progressState: "partial_progressing",
+                queueDepth: 534,
+                leasedPartitions: 0,
+                retryableFailedPartitions: 0,
+                deadLetterPartitions: 0,
+                staleLeasePartitions: 0,
+                reclaimCandidateCount: 0,
+                repairBacklog: 0,
+                validationFailures24h: 0,
+                d1FinalizeNonTerminalCount: 0,
+                truthReady: false,
+                stallFingerprints: [],
+              },
+            },
+          ],
+        },
+      },
+      runtimeRegistry: healthyRuntimeRegistry,
+    });
+
+    expect(plan.eligible).toBe(true);
+    expect(plan.recommendations).toHaveLength(0);
+  });
+
   it("stops recommendation generation while break-glass is active", async () => {
     const plan = await repairPlanner.evaluateAndPersistSyncRepairPlan({
       persist: false,
