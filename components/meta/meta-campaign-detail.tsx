@@ -16,6 +16,11 @@ import { cn } from "@/lib/utils";
 import { useCurrencySymbol } from "@/hooks/use-currency";
 import type { MetaCampaignTableRow } from "@/components/meta/meta-campaign-table";
 import type { MetaRecommendation, MetaRecommendationsResponse } from "@/lib/meta/recommendations";
+import {
+  getMetaRecommendationSource,
+  type MetaAnalysisStatus,
+  type MetaRecommendationSourceSystem,
+} from "@/lib/meta/analysis-state";
 import { MetaAccountRecs } from "@/components/meta/meta-account-recs";
 import type { MetaAdSetsResponse } from "@/app/api/meta/adsets/route";
 import type { MetaBreakdownsResponse } from "@/app/api/meta/breakdowns/route";
@@ -185,11 +190,23 @@ function trustTone(disposition: string) {
 function CampaignOperatorHeadline({
   recommendation,
   campaignDecision,
+  analysisStatus,
+  recommendationSource,
 }: {
   recommendation: MetaRecommendation | null;
   campaignDecision: MetaDecisionOsV1Response["campaigns"][number] | null;
+  analysisStatus?: MetaAnalysisStatus;
+  recommendationSource: MetaRecommendationSourceSystem;
 }) {
   const operatorItem = campaignDecision ? buildMetaOperatorItemFromCampaign(campaignDecision) : null;
+  const fallbackRecommendation = recommendationSource === "snapshot_fallback";
+  const decisionOsRecommendation = recommendationSource === "decision_os";
+  const shouldDemoteAggressiveRecommendation =
+    !campaignDecision &&
+    recommendation?.decisionState === "act" &&
+    analysisStatus?.presentationMode !== "decision_os_primary";
+  const shouldShowRecommendationAsContext =
+    !campaignDecision && (fallbackRecommendation || shouldDemoteAggressiveRecommendation);
 
   if (!recommendation && !campaignDecision) return null;
 
@@ -208,8 +225,12 @@ function CampaignOperatorHeadline({
           >
             {operatorItem?.primaryAction ?? campaignDecision.primaryAction.replaceAll("_", " ")}
           </span>
-        ) : recommendation ? (
+        ) : recommendation && !shouldShowRecommendationAsContext ? (
           <DecisionBadge state={recommendation.decisionState} />
+        ) : recommendation ? (
+          <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+            Context
+          </span>
         ) : null}
         {operatorItem ? (
           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
@@ -229,15 +250,38 @@ function CampaignOperatorHeadline({
         ) : null}
         <p className="text-[11px] text-slate-500">
           {campaignDecision
-            ? "Primary action owner"
-            : recommendation?.title ?? "Derived operator guidance"}
+            ? recommendation
+              ? "Decision OS takes precedence"
+              : "Primary action owner"
+            : fallbackRecommendation
+              ? "Fallback recommendation context"
+              : decisionOsRecommendation
+                ? "Decision OS recommendation context"
+                : recommendation?.title ?? "Derived operator guidance"}
         </p>
       </div>
       <p className="mt-2.5 text-base font-semibold leading-snug text-slate-950">
         {campaignDecision
           ? operatorItem?.reason ?? campaignDecision.why
+          : shouldShowRecommendationAsContext
+            ? recommendation?.summary ?? recommendation?.why ?? recommendation?.title ?? "Fallback context is available."
           : recommendation?.recommendedAction ?? "No operator headline available."}
       </p>
+      {campaignDecision && recommendation ? (
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
+          Decision OS takes precedence over recommendation context for primary action display.
+        </p>
+      ) : null}
+      {!campaignDecision && fallbackRecommendation ? (
+        <p className="mt-2 text-xs leading-relaxed text-amber-700">
+          Fallback context only. Decision OS did not produce authoritative campaign guidance.
+        </p>
+      ) : null}
+      {!campaignDecision && shouldDemoteAggressiveRecommendation && !fallbackRecommendation ? (
+        <p className="mt-2 text-xs leading-relaxed text-amber-700">
+          Recommendation is shown as context until Decision OS authority is ready for this range.
+        </p>
+      ) : null}
       {operatorItem?.secondaryLabels?.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {operatorItem.secondaryLabels.slice(0, 2).map((label) => (
@@ -287,6 +331,7 @@ interface MetaCampaignDetailProps {
   campaign: MetaCampaignTableRow | null;
   recommendationsData: MetaRecommendationsResponse | undefined;
   decisionOsData: MetaDecisionOsV1Response | null | undefined;
+  analysisStatus?: MetaAnalysisStatus;
   isDecisionOsLoading: boolean;
   isRecsLoading: boolean;
   lastAnalyzedAt: Date | null;
@@ -538,6 +583,7 @@ export function MetaCampaignDetail({
   campaign,
   recommendationsData,
   decisionOsData,
+  analysisStatus,
   isDecisionOsLoading,
   isRecsLoading,
   lastAnalyzedAt,
@@ -603,6 +649,8 @@ export function MetaCampaignDetail({
       })),
     [breakdownsQuery.data?.placement]
   );
+  const recommendationSource =
+    analysisStatus?.recommendationSource ?? getMetaRecommendationSource(recommendationsData);
 
   useEffect(() => {
     if (campaign) setSupportingContextOpen(false);
@@ -696,6 +744,8 @@ export function MetaCampaignDetail({
       <CampaignOperatorHeadline
         recommendation={rec}
         campaignDecision={campaignDecision}
+        analysisStatus={analysisStatus}
+        recommendationSource={recommendationSource}
       />
 
       {campaignDecision || campaignAdSetDecisions.length > 0 ? (

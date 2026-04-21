@@ -12,6 +12,7 @@ import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 import {
   buildMetaRecommendations,
   buildMetaRecommendationsFromDecisionOs,
+  type MetaRecommendationAnalysisSource,
   type MetaRecommendationsResponse,
 } from "@/lib/meta/recommendations";
 import { readMetaBidRegimeHistorySummaries } from "@/lib/meta/config-snapshots";
@@ -43,6 +44,26 @@ function dayDiffInclusive(startDate: string, endDate: string): number {
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
 }
 
+function attachAnalysisSource(
+  payload: MetaRecommendationsResponse,
+  input: {
+    businessId: string;
+    startDate: string;
+    endDate: string;
+    analysisSource: MetaRecommendationAnalysisSource;
+    sourceModel: MetaRecommendationsResponse["sourceModel"];
+  },
+): MetaRecommendationsResponse {
+  return {
+    ...payload,
+    businessId: input.businessId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    sourceModel: payload.sourceModel ?? input.sourceModel,
+    analysisSource: input.analysisSource,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const language = await resolveRequestLanguage(request);
@@ -68,27 +89,42 @@ export async function GET(request: NextRequest) {
     const demoCampaigns = getDemoMetaCampaigns().rows as MetaCampaignRow[];
     const demoBreakdowns = getDemoMetaBreakdowns() as MetaBreakdownsResponse;
     return NextResponse.json(
-      buildMetaRecommendations({
-        windows: {
-          selected: demoCampaigns,
-          previousSelected: demoCampaigns,
-          last3: demoCampaigns,
-          last7: demoCampaigns,
-          last14: demoCampaigns,
-          last30: demoCampaigns,
-          last90: demoCampaigns,
-          allHistory: demoCampaigns,
+      attachAnalysisSource(
+        buildMetaRecommendations({
+          windows: {
+            selected: demoCampaigns,
+            previousSelected: demoCampaigns,
+            last3: demoCampaigns,
+            last7: demoCampaigns,
+            last14: demoCampaigns,
+            last30: demoCampaigns,
+            last90: demoCampaigns,
+            allHistory: demoCampaigns,
+          },
+          breakdowns: demoBreakdowns,
+          language,
+        }),
+        {
+          businessId,
+          startDate,
+          endDate,
+          sourceModel: "snapshot_heuristics",
+          analysisSource: {
+            system: "demo",
+            decisionOsAvailable: false,
+          },
         },
-        breakdowns: demoBreakdowns,
-        language,
-      })
+      ),
     );
   }
+
+  let fallbackReason = "decision_os_feature_disabled";
 
   try {
     let unifiedDecisionOs = null as MetaDecisionOsV1Response | null;
 
     if (isMetaDecisionOsV1EnabledForBusiness(businessId)) {
+      fallbackReason = "decision_os_unavailable";
       unifiedDecisionOs = await getMetaDecisionOsForRange({
         businessId,
         startDate,
@@ -115,7 +151,19 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      buildMetaRecommendationsFromDecisionOs(unifiedDecisionOs, language),
+      attachAnalysisSource(
+        buildMetaRecommendationsFromDecisionOs(unifiedDecisionOs, language),
+        {
+          businessId,
+          startDate,
+          endDate,
+          sourceModel: "decision_os_unified",
+          analysisSource: {
+            system: "decision_os",
+            decisionOsAvailable: true,
+          },
+        },
+      ),
     );
   } catch {
     // Fall back to the snapshot-backed builder when the Decision OS route is unavailable.
@@ -209,30 +257,43 @@ export async function GET(request: NextRequest) {
     campaigns: selectedCampaigns.rows ?? [],
   });
 
-  const payload = buildMetaRecommendations({
-    windows: {
-      selected: selectedCampaigns.rows ?? [],
-      previousSelected: previousSelectedCampaigns.rows ?? [],
-      last3: last3Campaigns.rows ?? [],
-      last7: last7Campaigns.rows ?? [],
-      last14: last14Campaigns.rows ?? [],
-      last30: last30Campaigns.rows ?? [],
-      last90: last90Campaigns.rows ?? [],
-      allHistory: allHistoryCampaigns.rows ?? [],
+  const payload = attachAnalysisSource(
+    buildMetaRecommendations({
+      windows: {
+        selected: selectedCampaigns.rows ?? [],
+        previousSelected: previousSelectedCampaigns.rows ?? [],
+        last3: last3Campaigns.rows ?? [],
+        last7: last7Campaigns.rows ?? [],
+        last14: last14Campaigns.rows ?? [],
+        last30: last30Campaigns.rows ?? [],
+        last90: last90Campaigns.rows ?? [],
+        allHistory: allHistoryCampaigns.rows ?? [],
+      },
+      breakdowns,
+      creativeIntelligence,
+      historicalBidRegimes: Object.fromEntries(
+        (
+          await readMetaBidRegimeHistorySummaries({
+            businessId,
+            entityLevel: "campaign",
+            entityIds: (selectedCampaigns.rows ?? []).map((row) => row.id),
+          })
+        ).entries()
+      ),
+      language,
+    }),
+    {
+      businessId,
+      startDate,
+      endDate,
+      sourceModel: "snapshot_heuristics",
+      analysisSource: {
+        system: "snapshot_fallback",
+        decisionOsAvailable: false,
+        fallbackReason,
+      },
     },
-    breakdowns,
-    creativeIntelligence,
-    historicalBidRegimes: Object.fromEntries(
-      (
-        await readMetaBidRegimeHistorySummaries({
-          businessId,
-          entityLevel: "campaign",
-          entityIds: (selectedCampaigns.rows ?? []).map((row) => row.id),
-        })
-      ).entries()
-    ),
-    language,
-  });
+  );
 
   return NextResponse.json(payload);
 }

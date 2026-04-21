@@ -82,6 +82,30 @@ vi.mock("@/lib/meta/recommendations", () => ({
       },
     ],
   })),
+  buildMetaRecommendationsFromDecisionOs: vi.fn(() => ({
+    status: "ok",
+    summary: {
+      title: "Decision OS summary",
+      summary: "Decision OS summary",
+      primaryLens: "structure",
+      confidence: "high",
+      recommendationCount: 1,
+    },
+    recommendations: [
+      {
+        id: "decision_rec_1",
+        campaignId: "cmp_1",
+        decisionState: "act",
+        title: "Decision OS action",
+        recommendedAction: "Follow Decision OS action.",
+        why: "Decision OS authority is ready.",
+        summary: "Decision OS action context.",
+        expectedImpact: "Cleaner execution.",
+        evidence: [{ label: "Authority", value: "ready", tone: "positive" }],
+      },
+    ],
+    sourceModel: "decision_os_unified",
+  })),
 }));
 
 vi.mock("@/lib/meta/creative-intelligence", () => ({
@@ -104,6 +128,8 @@ const businessMode = await import("@/lib/business-mode.server");
 const campaignsSource = await import("@/lib/meta/campaigns-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
 const decisionOsConfig = await import("@/lib/meta/decision-os-config");
+const decisionOsSource = await import("@/lib/meta/decision-os-source");
+const metaRecommendations = await import("@/lib/meta/recommendations");
 const requestLanguage = await import("@/lib/request-language");
 const configSnapshots = await import("@/lib/meta/config-snapshots");
 
@@ -134,8 +160,39 @@ describe("GET /api/meta/recommendations", () => {
     expect(response.status).toBe(200);
     expect(payload.status).toBe("ok");
     assertMetaRecommendationsPageContract(payload);
+    expect(payload.analysisSource).toEqual({
+      system: "snapshot_fallback",
+      decisionOsAvailable: false,
+      fallbackReason: "decision_os_feature_disabled",
+    });
+    expect(payload.businessId).toBe("biz");
+    expect(payload.startDate).toBe("2026-03-01");
+    expect(payload.endDate).toBe("2026-03-31");
     expect(campaignsSource.getMetaCampaignsForRange).toHaveBeenCalled();
     expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalled();
+  });
+
+  it("labels Decision OS recommendations when the unified path succeeds", async () => {
+    vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(decisionOsSource.getMetaDecisionOsForRange).mockResolvedValue({
+      contractVersion: "meta-decision-os.v1",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.analysisSource).toEqual({
+      system: "decision_os",
+      decisionOsAvailable: true,
+    });
+    expect(payload.sourceModel).toBe("decision_os_unified");
+    expect(metaRecommendations.buildMetaRecommendationsFromDecisionOs).toHaveBeenCalled();
+    expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
   });
 
   it("keeps the intentional snapshot-backed bid regime analysis path", async () => {

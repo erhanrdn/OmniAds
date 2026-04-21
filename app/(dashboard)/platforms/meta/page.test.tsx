@@ -570,7 +570,81 @@ describe("Meta page render contract", () => {
     const html = renderToStaticMarkup(React.createElement(MetaPage));
 
     expect(observedQueryOptions["meta-decision-os"]?.enabled).toBe(false);
+    expect(observedQueryOptions["meta-recommendations-v8"]?.enabled).toBe(false);
     expect(html).toContain("Run analysis");
+    expect(html).toContain("Analysis status");
+    expect(html).toContain("Decision OS: Not run");
+  });
+
+  it("shows running analysis status while manual analysis queries are fetching", () => {
+    const status = baseStatus();
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
+    mockQueries["meta-recommendations-v8"] = baseQueryState({
+      data: undefined,
+      isFetching: true,
+    });
+    mockQueries["meta-decision-os"] = baseQueryState({
+      data: null,
+      isFetching: true,
+    });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(html).toContain("Analysis: Running");
+    expect(html).toContain("Decision OS: Running");
+    expect(html).toContain("Analysis is running for the selected range.");
+  });
+
+  it("does not say Decision OS is running when only recommendations are fetching", () => {
+    const status = baseStatus();
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
+    mockQueries["meta-recommendations-v8"] = baseQueryState({
+      data: undefined,
+      isFetching: true,
+    });
+    mockQueries["meta-decision-os"] = baseQueryState({
+      data: null,
+      isFetching: false,
+    });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(html).toContain("Analysis: Running");
+    expect(html).toContain("Decision OS: Not run");
+    expect(html).not.toContain("Decision OS: Running");
+  });
+
+  it("shows Decision OS recommendation context without marking the full surface ready", () => {
+    const status = baseStatus();
+    mockQueries["meta-page-status"] = baseQueryState({ data: status, state: { data: status } });
+    mockQueries["meta-campaigns"] = baseQueryState({ data: { status: "ok", rows: [campaignRow()] } });
+    mockQueries["meta-recommendations-v8"] = baseQueryState({
+      data: {
+        status: "ok",
+        businessId: "biz",
+        startDate: "2026-04-05",
+        endDate: "2026-04-05",
+        summary: {},
+        recommendations: [{ id: "rec_1" }],
+        analysisSource: {
+          system: "decision_os",
+          decisionOsAvailable: true,
+        },
+      },
+      isFetching: false,
+    });
+    mockQueries["meta-decision-os"] = baseQueryState({ data: null, isFetching: false });
+
+    const html = renderToStaticMarkup(React.createElement(MetaPage));
+
+    expect(html).toContain("Decision OS: Not run");
+    expect(html).toContain("Recommendation source: Decision OS");
+    expect(html).toContain("Presentation: Decision OS recommendation context");
+    expect(html).toContain("Decision OS surface is not loaded");
+    expect(html).not.toContain("Decision OS: Ready");
+    expect(html).not.toContain("Presentation: No guidance");
   });
 
   it("keeps supporting and comparison queries deferred on the initial today load", () => {

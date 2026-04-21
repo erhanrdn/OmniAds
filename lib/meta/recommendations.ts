@@ -101,12 +101,27 @@ export interface MetaDecisionSummary {
   recommendedMode?: string | null;
 }
 
+export type MetaRecommendationAnalysisSourceSystem =
+  | "decision_os"
+  | "snapshot_fallback"
+  | "demo";
+
+export interface MetaRecommendationAnalysisSource {
+  system: MetaRecommendationAnalysisSourceSystem;
+  decisionOsAvailable: boolean;
+  fallbackReason?: string;
+}
+
 export interface MetaRecommendationsResponse {
   status: "ok";
+  businessId?: string;
+  startDate?: string;
+  endDate?: string;
   summary: MetaDecisionSummary;
   recommendations: MetaRecommendation[];
   authority?: MetaDecisionOsV1Response["authority"];
   sourceModel?: "snapshot_heuristics" | "decision_os_unified";
+  analysisSource?: MetaRecommendationAnalysisSource;
 }
 
 function evidenceValue(recommendation: MetaRecommendation, label: string) {

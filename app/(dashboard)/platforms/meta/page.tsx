@@ -54,7 +54,13 @@ import { useBusinessIntegrationsBootstrap } from "@/hooks/use-business-integrati
 import { PlanGate } from "@/components/pricing/PlanGate";
 import { MetaCampaignList } from "@/components/meta/meta-campaign-list";
 import { MetaCampaignDetail } from "@/components/meta/meta-campaign-detail";
+import { MetaAnalysisStatusCard } from "@/components/meta/meta-analysis-status-card";
 import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
+import {
+  deriveMetaAnalysisStatus,
+  didMetaAnalysisRefetchProduceUsableData,
+  type MetaAnalysisRunRange,
+} from "@/lib/meta/analysis-state";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { buildMetaCampaignOperatorLookup } from "@/lib/meta/operator-surface";
 import { ProviderReadinessIndicator } from "@/components/sync/provider-readiness-indicator";
@@ -250,6 +256,9 @@ function dayDiffInclusive(startDate: string, endDate: string): number {
   const end = parseISODate(endDate).getTime();
   return Math.max(1, Math.floor((end - start) / 86_400_000) + 1);
 }
+
+const META_ANALYSIS_SAFE_ERROR_MESSAGE =
+  "Analysis could not complete safely. Run analysis again for this range.";
 
 function overlapDayCountInclusive(
   startA: string,
@@ -546,6 +555,8 @@ export default function MetaPage() {
   const [dateRange, setDateRange] = usePersistentMetaDateRange();
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
+  const [lastAnalyzedRange, setLastAnalyzedRange] =
+    useState<MetaAnalysisRunRange | null>(null);
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
@@ -726,6 +737,36 @@ export default function MetaPage() {
   });
   const isAnalysisRunning =
     recommendationsQuery.isFetching || decisionOsQuery.isFetching;
+  const analysisStatus = useMemo(
+    () =>
+      deriveMetaAnalysisStatus({
+        businessId,
+        startDate,
+        endDate,
+        recommendationsData: recommendationsQuery.data,
+        recommendationsError: recommendationsError ?? recommendationsQuery.error,
+        recommendationsIsFetching: recommendationsQuery.isFetching,
+        decisionOsData: decisionOsQuery.data,
+        decisionOsError: decisionOsQuery.error,
+        decisionOsIsFetching: decisionOsQuery.isFetching,
+        lastAnalyzedAt,
+        lastAnalyzedRange,
+      }),
+    [
+      businessId,
+      decisionOsQuery.data,
+      decisionOsQuery.error,
+      decisionOsQuery.isFetching,
+      endDate,
+      lastAnalyzedAt,
+      lastAnalyzedRange,
+      recommendationsError,
+      recommendationsQuery.data,
+      recommendationsQuery.error,
+      recommendationsQuery.isFetching,
+      startDate,
+    ],
+  );
 
   // Scroll the left panel item into view when a campaign is selected from recommendations.
   useEffect(() => {
@@ -750,27 +791,36 @@ export default function MetaPage() {
 
   useEffect(() => {
     setRecommendationsError(null);
+    setLastAnalyzedAt(null);
+    setLastAnalyzedRange(null);
+    setCheckedRecIds(new Set());
   }, [businessId, startDate, endDate]);
 
   async function handleAnalyze() {
     if (!businessId || !startDate || !endDate || !isMetaReferenceReady) return;
     setRecommendationsError(null);
-    const [recommendationsResult, decisionOsResult] = await Promise.all([
-      recommendationsQuery.refetch(),
-      decisionOsQuery.refetch(),
-    ]);
-    const error =
-      recommendationsResult.error ??
-      decisionOsResult.error;
-    if (error) {
-      setRecommendationsError(
-        error instanceof Error
-          ? error.message
-          : "Recommendations could not be completed."
-      );
+    let recommendationsResult: Awaited<ReturnType<typeof recommendationsQuery.refetch>>;
+    let decisionOsResult: Awaited<ReturnType<typeof decisionOsQuery.refetch>>;
+    try {
+      [recommendationsResult, decisionOsResult] = await Promise.all([
+        recommendationsQuery.refetch(),
+        decisionOsQuery.refetch(),
+      ]);
+    } catch {
+      setRecommendationsError(META_ANALYSIS_SAFE_ERROR_MESSAGE);
       return;
     }
-    setLastAnalyzedAt(new Date());
+    const hasUsableAnalysis = didMetaAnalysisRefetchProduceUsableData({
+      recommendationsResult,
+      decisionOsResult,
+    });
+    if (!hasUsableAnalysis) {
+      setRecommendationsError(META_ANALYSIS_SAFE_ERROR_MESSAGE);
+      return;
+    }
+    const analyzedAt = new Date();
+    setLastAnalyzedAt(analyzedAt);
+    setLastAnalyzedRange({ businessId, startDate, endDate });
     setCheckedRecIds(new Set());
   }
 
@@ -1368,10 +1418,14 @@ export default function MetaPage() {
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/60 shadow-sm">
+                  <div className="border-b border-slate-200 bg-white p-4">
+                    <MetaAnalysisStatusCard status={analysisStatus} />
+                  </div>
                   <MetaCampaignDetail
                     campaign={selectedCampaign}
                     recommendationsData={recommendationsQuery.data}
                     decisionOsData={decisionOsQuery.data}
+                    analysisStatus={analysisStatus}
                     isDecisionOsLoading={decisionOsQuery.isFetching}
                     isRecsLoading={recommendationsQuery.isFetching}
                     lastAnalyzedAt={lastAnalyzedAt}

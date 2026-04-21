@@ -278,8 +278,8 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("Campaign One");
     expect(html).toContain("Sales");
     expect(html).toContain("ACTIVE");
-    expect(html).toContain("Increase budget");
     expect(html).toContain("Winning lane");
+    expect(html).toContain("Decision OS takes precedence");
     expect(html).toContain("Winning campaign");
     expect(html).toContain("campaign-decision:Prospecting Scale");
     expect(html).toContain("Show campaign reasoning");
@@ -342,6 +342,97 @@ describe("MetaCampaignDetail render contract", () => {
     expect(html).toContain("Campaign One");
     expect(html).toContain("Ad Sets");
     expect(html).not.toContain("Raise budget");
+  });
+
+  it("labels snapshot fallback recommendations as context when no campaign Decision OS row exists", () => {
+    const fallbackRecommendations = {
+      ...recommendationsData(true),
+      analysisSource: {
+        system: "snapshot_fallback",
+        decisionOsAvailable: false,
+        fallbackReason: "decision_os_unavailable",
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaCampaignDetail
+        campaign={selectedCampaign() as any}
+        recommendationsData={fallbackRecommendations as any}
+        decisionOsData={decisionOsData(false) as any}
+        analysisStatus={
+          {
+            state: "recommendation_fallback",
+            recommendationSource: "snapshot_fallback",
+            presentationMode: "fallback_context",
+          } as any
+        }
+        isDecisionOsLoading={false}
+        isRecsLoading={false}
+        lastAnalyzedAt={null}
+        checkedRecIds={new Set()}
+        onToggleCheck={vi.fn()}
+        onAnalyze={vi.fn()}
+        onClearSelection={vi.fn()}
+        businessId="biz"
+        since="2026-04-01"
+        until="2026-04-05"
+        language="en"
+      />
+    );
+
+    expect(html).toContain("Fallback recommendation context");
+    expect(html).toContain("Fallback context only");
+    expect(html).toContain("Winning campaign");
+    expect(html).not.toContain("Increase budget");
+  });
+
+  it("keeps snapshot fallback recommendations contextual even when the decision state is not act", () => {
+    const fallbackRecommendations = {
+      ...recommendationsData(true),
+      analysisSource: {
+        system: "snapshot_fallback",
+        decisionOsAvailable: false,
+        fallbackReason: "decision_os_unavailable",
+      },
+      recommendations: [
+        {
+          ...recommendationsData(true).recommendations[0],
+          decisionState: "test",
+          recommendedAction: "Run a structural test",
+          summary: "Structural test context",
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaCampaignDetail
+        campaign={selectedCampaign() as any}
+        recommendationsData={fallbackRecommendations as any}
+        decisionOsData={decisionOsData(false) as any}
+        analysisStatus={
+          {
+            state: "recommendation_fallback",
+            recommendationSource: "snapshot_fallback",
+            presentationMode: "fallback_context",
+          } as any
+        }
+        isDecisionOsLoading={false}
+        isRecsLoading={false}
+        lastAnalyzedAt={null}
+        checkedRecIds={new Set()}
+        onToggleCheck={vi.fn()}
+        onAnalyze={vi.fn()}
+        onClearSelection={vi.fn()}
+        businessId="biz"
+        since="2026-04-01"
+        until="2026-04-05"
+        language="en"
+      />
+    );
+
+    expect(html).toContain("Fallback recommendation context");
+    expect(html).toContain("Structural test context");
+    expect(html).not.toContain("Run a structural test");
   });
 
   it("keeps ad set drilldown optional when no rows are available", () => {
