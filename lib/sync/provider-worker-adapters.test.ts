@@ -5,7 +5,7 @@ const leaseGoogleAdsSyncPartitions = vi.fn();
 const getGoogleAdsSyncCheckpoint = vi.fn();
 const upsertGoogleAdsSyncCheckpoint = vi.fn();
 const getGoogleAdsCheckpointHealth = vi.fn();
-const getAssignedGoogleAccounts = vi.fn();
+const getConnectedAssignedGoogleAccounts = vi.fn();
 const processGoogleAdsLifecyclePartition = vi.fn();
 const buildGoogleAdsWorkerLeasePlan = vi.fn();
 const syncGoogleAdsReports = vi.fn();
@@ -27,7 +27,7 @@ const runAutoSyncRepairPass = vi.fn();
 const mergeAutoRepairResult = vi.fn();
 
 vi.mock("@/lib/google-ads-gaql", () => ({
-  getAssignedGoogleAccounts,
+  getConnectedAssignedGoogleAccounts,
 }));
 
 vi.mock("@/lib/google-ads/warehouse", () => ({
@@ -90,7 +90,7 @@ describe("provider-worker-adapters", () => {
   });
 
   it("queues Google core partitions through the shared adapter plan contract", async () => {
-    getAssignedGoogleAccounts.mockResolvedValue(["acct-1"]);
+    getConnectedAssignedGoogleAccounts.mockResolvedValue(["acct-1"]);
     queueGoogleAdsSyncPartition.mockResolvedValue({ id: "queued-1", status: "queued" });
 
     const { googleAdsWorkerAdapter } = await import("@/lib/sync/provider-worker-adapters");

@@ -19,7 +19,7 @@ import {
   runNamedQuery,
 } from "@/lib/google-ads/reporting-core";
 import { readProviderAccountSnapshot } from "@/lib/provider-account-snapshots";
-import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
+import { getConnectedAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import { getDb } from "@/lib/db";
 import { assertDbSchemaReady } from "@/lib/db-schema-readiness";
 import {
@@ -1705,7 +1705,7 @@ async function enqueueExtendedRecoveryPartitions(input: {
     };
   }
 
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+  const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
     () => [],
   );
   if (accountIds.length === 0) {
@@ -1865,7 +1865,7 @@ async function enqueueGoogleAdsRecentRepairPartitions(input: {
     };
   }
 
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+  const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
     () => [],
   );
   if (accountIds.length === 0) {
@@ -3530,7 +3530,7 @@ export async function getGoogleAdsRecent90CompletionState(input: {
 }
 
 async function enqueueHistoricalCorePartitions(businessId: string) {
-  const accountIds = await getAssignedGoogleAccounts(businessId).catch(
+  const accountIds = await getConnectedAssignedGoogleAccounts(businessId).catch(
     () => [],
   );
   if (accountIds.length === 0) return 0;
@@ -3619,7 +3619,7 @@ async function enqueueHistoricalCorePartitions(businessId: string) {
 
 async function enqueueMaintenancePartitions(businessId: string) {
   const sql = getDb();
-  const accountIds = await getAssignedGoogleAccounts(businessId).catch(
+  const accountIds = await getConnectedAssignedGoogleAccounts(businessId).catch(
     () => [],
   );
   if (accountIds.length === 0) return;
@@ -3747,7 +3747,7 @@ export async function refreshGoogleAdsSyncStateForBusiness(input: {
   businessId: string;
   scopes?: GoogleAdsWarehouseScope[];
 }) {
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+  const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
     () => [],
   );
   if (accountIds.length === 0) return;
@@ -3853,7 +3853,7 @@ async function syncGoogleAdsDates(input: {
   await expireStaleGoogleAdsSyncJobs({ businessId: input.businessId }).catch(
     () => null,
   );
-  const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(
+  const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(
     () => [],
   );
   if (accountIds.length === 0 || input.dates.length === 0) {

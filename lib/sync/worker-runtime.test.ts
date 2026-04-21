@@ -208,6 +208,53 @@ describe("resolveTickBusinessesForAdapter", () => {
     process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
   });
 
+  it("keeps Google ticks scoped to connected businesses even when release canaries are blocked", async () => {
+    const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = "biz-disconnected";
+    vi.mocked(releaseGates.getLatestSyncGateRecords).mockResolvedValue({
+      deployGate: null,
+      releaseGate: {
+        id: "gate-1",
+        gateKind: "release_gate",
+        gateScope: "release_readiness",
+        buildId: "build-1",
+        environment: "test",
+        mode: "block",
+        baseResult: "fail",
+        verdict: "blocked",
+        blockerClass: "not_release_ready",
+        summary: "blocked",
+        breakGlass: false,
+        overrideReason: null,
+        evidence: {},
+        emittedAt: "2026-04-20T00:00:00.000Z",
+      },
+    });
+    vi.mocked(
+      googleControlPlaneRuntime.readConnectedGoogleAdsControlPlaneBusinesses,
+    ).mockResolvedValue([
+      {
+        businessId: "biz-connected",
+        businessName: "Connected",
+        assignedAccountCount: 1,
+        backfillIncomplete: true,
+        incompleteScopeCount: 3,
+        latestSuccessfulSyncAt: null,
+      },
+    ]);
+
+    const result = await resolveTickBusinessesForAdapter({
+      providerScope: "google_ads",
+      businesses: [
+        { id: "biz-disconnected", name: "Disconnected" },
+        { id: "biz-connected", name: "Connected" },
+      ],
+    });
+
+    expect(result).toEqual([{ id: "biz-connected", name: "Connected" }]);
+    process.env.SYNC_RELEASE_CANARY_BUSINESSES = previousCanaries;
+  });
+
   it("prioritizes incomplete Google Ads backfill businesses without business-specific ids", async () => {
     const previousCanaries = process.env.SYNC_RELEASE_CANARY_BUSINESSES;
     process.env.SYNC_RELEASE_CANARY_BUSINESSES = "";

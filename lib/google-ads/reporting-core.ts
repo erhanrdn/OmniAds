@@ -1,6 +1,6 @@
 import {
   executeGaqlForAccounts,
-  getAssignedGoogleAccounts,
+  getConnectedAssignedGoogleAccounts,
   getDateRangeForQuery,
   getGoogleAdsFailureMessage,
   type GoogleAdsAccountQueryFailure,
@@ -352,7 +352,7 @@ export async function resolveContext(params: {
   | { ok: false; payload: { rows: []; meta: GoogleAdsReportMeta; summary?: Record<string, unknown> } }
 > {
   const { businessId, accountId, dateRange, customStart, customEnd, debug } = params;
-  const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+  const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
   const accountsToQuery = accountId && accountId !== "all" ? [accountId] : assignedAccounts;
   const { startDate, endDate } = getDateRangeForQuery(
     dateRange,

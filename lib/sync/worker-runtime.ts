@@ -111,9 +111,12 @@ async function resolveProviderScopedTickBusinesses(input: {
     "@/lib/google-ads/control-plane-runtime"
   )
     .then((module) => module.readConnectedGoogleAdsControlPlaneBusinesses())
-    .catch(() => []);
-  if (connectedGoogleBusinesses.length === 0) {
+    .catch(() => null);
+  if (connectedGoogleBusinesses == null) {
     return input.businesses;
+  }
+  if (connectedGoogleBusinesses.length === 0) {
+    return [];
   }
 
   const existingNames = new Map(
@@ -165,6 +168,10 @@ export async function resolveTickBusinessesForAdapter(input: {
   providerScope: string;
   businesses: Array<{ id: string; name: string }>;
 }) {
+  if (input.providerScope === "google_ads") {
+    return resolveProviderScopedTickBusinesses(input);
+  }
+
   const prioritizedIds = getPriorityBusinessIdsForAdapter(input.providerScope);
   if (prioritizedIds.length === 0) {
     return resolveProviderScopedTickBusinesses(input);

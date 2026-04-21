@@ -1,6 +1,6 @@
 import { loadEnvConfig } from "@next/env";
 import { getDb } from "@/lib/db";
-import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
+import { getConnectedAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import { getGoogleAdsProductsReport } from "@/lib/google-ads/reporting";
 import { upsertGoogleAdsDailyRows } from "@/lib/google-ads/warehouse";
 import type { GoogleAdsWarehouseDailyRow } from "@/lib/google-ads/warehouse-types";
@@ -69,7 +69,7 @@ async function main() {
     process.exit(1);
   }
 
-  const [accountId] = await getAssignedGoogleAccounts(businessId);
+  const [accountId] = await getConnectedAssignedGoogleAccounts(businessId);
   if (!accountId) {
     throw new Error("No assigned Google Ads account found.");
   }

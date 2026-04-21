@@ -9,7 +9,7 @@ import type {
   ProviderLeasePlan,
 } from "@/lib/sync/provider-status-truth";
 import { resolveMetaCredentials } from "@/lib/api/meta";
-import { getAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
+import { getConnectedAssignedGoogleAccounts } from "@/lib/google-ads-gaql";
 import {
   getGoogleAdsCheckpointHealth,
   getGoogleAdsSyncCheckpoint,
@@ -523,7 +523,7 @@ export const metaWorkerAdapter: ProviderWorkerAdapter = {
 export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
   providerScope: "google_ads",
   async planPartitions(range) {
-    const accountIds = await getAssignedGoogleAccounts(range.businessId).catch(() => []);
+    const accountIds = await getConnectedAssignedGoogleAccounts(range.businessId).catch(() => []);
     const partitions: WorkerLifecyclePartition[] = [];
     for (const accountId of accountIds) {
       for (const partitionDate of enumerateDays(range.startDate, range.endDate)) {
@@ -634,7 +634,7 @@ export const googleAdsWorkerAdapter: ProviderWorkerAdapter = {
     return error instanceof Error ? error.message : String(error);
   },
   async getReadiness(input) {
-    const accountIds = await getAssignedGoogleAccounts(input.businessId).catch(() => []);
+    const accountIds = await getConnectedAssignedGoogleAccounts(input.businessId).catch(() => []);
     const checkpointHealth = await getGoogleAdsCheckpointHealth({
       businessId: input.businessId,
       providerAccountId: input.providerAccountId ?? null,

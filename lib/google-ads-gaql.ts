@@ -251,7 +251,7 @@ export async function executeGaqlQuery(params: {
 }): Promise<GaqlSearchResult> {
   let integration = await getIntegration(params.businessId, "google");
 
-  if (!integration || !integration.access_token) {
+  if (!integration || integration.status !== "connected" || !integration.access_token) {
     throw new Error("Google Ads integration not found or not connected");
   }
 
@@ -517,6 +517,21 @@ export async function getAssignedGoogleAccounts(
   businessId: string,
 ): Promise<string[]> {
   const assignment = await getProviderAccountAssignments(businessId, "google");
+  return assignment?.account_ids || [];
+}
+
+export async function getConnectedAssignedGoogleAccounts(
+  businessId: string,
+): Promise<string[]> {
+  const [integration, assignment] = await Promise.all([
+    getIntegration(businessId, "google"),
+    getProviderAccountAssignments(businessId, "google"),
+  ]);
+
+  if (!integration || integration.status !== "connected" || !integration.access_token) {
+    return [];
+  }
+
   return assignment?.account_ids || [];
 }
 

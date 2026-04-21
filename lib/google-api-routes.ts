@@ -6,7 +6,7 @@ import {
   calculateCtr,
   calculateRoas,
   executeGaqlQuery,
-  getAssignedGoogleAccounts,
+  getConnectedAssignedGoogleAccounts,
   getDateRangeForQuery,
   normalizeChannelType,
   normalizeCostMicros,
@@ -72,7 +72,7 @@ export async function getGoogleAccountsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       logRuntimeDebug("accounts", "no_assigned_accounts_found", { businessId });
@@ -152,7 +152,7 @@ export async function getGoogleAdGroupsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json(
@@ -240,7 +240,7 @@ export async function getGoogleAdsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json(
@@ -332,7 +332,7 @@ export async function getGoogleAssetsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json({
@@ -401,7 +401,7 @@ export async function getGoogleCampaignsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json(
@@ -487,7 +487,7 @@ export async function getGoogleProductsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json({
@@ -567,7 +567,7 @@ export async function getGoogleRecommendationsRoute(request: NextRequest) {
   try {
     const language = await resolveRequestLanguage(request);
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json({ data: [], count: 0 });
@@ -677,7 +677,7 @@ export async function getGoogleSearchTermsRoute(request: NextRequest) {
 
   try {
     const dateRangeParams = getDateRangeForQuery(dateRange);
-    const assignedAccounts = await getAssignedGoogleAccounts(businessId);
+    const assignedAccounts = await getConnectedAssignedGoogleAccounts(businessId);
 
     if (assignedAccounts.length === 0) {
       return NextResponse.json({

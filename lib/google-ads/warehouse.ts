@@ -1465,6 +1465,20 @@ export async function leaseGoogleAdsSyncPartitions(input: {
         WHERE business_id = $1
           AND EXISTS (
             SELECT 1
+            FROM provider_connections connection
+            JOIN integration_credentials credential
+              ON credential.provider_connection_id = connection.id
+             AND credential.access_token IS NOT NULL
+            JOIN business_provider_accounts assignment
+              ON assignment.business_id = google_ads_sync_partitions.business_id
+             AND assignment.provider = 'google'
+             AND assignment.provider_account_id = google_ads_sync_partitions.provider_account_id
+            WHERE connection.business_id = google_ads_sync_partitions.business_id
+              AND connection.provider = 'google'
+              AND connection.status = 'connected'
+          )
+          AND EXISTS (
+            SELECT 1
             FROM sync_runner_leases lease
             WHERE lease.business_id = $1
               AND lease.provider_scope = 'google_ads'

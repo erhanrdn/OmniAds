@@ -292,6 +292,9 @@ describe("google ads warehouse ownership safety", () => {
       query.includes("FROM google_ads_sync_partitions"),
     );
     expect(leaseQuery).toContain("WHEN 'finalize_day' THEN 118");
+    expect(leaseQuery).toContain("FROM provider_connections connection");
+    expect(leaseQuery).toContain("connection.status = 'connected'");
+    expect(leaseQuery).toContain("credential.access_token IS NOT NULL");
     expect(leaseQuery).toContain("lease.provider_scope = 'google_ads'");
     expect(leaseQuery).toContain("lease.lease_owner = $4");
     expect(leaseQuery).toContain(
