@@ -27,6 +27,7 @@ import { usePreferencesStore } from "@/store/preferences-store";
 import { ArrowRight, CheckCircle2, Layers3, Link2, Sparkles } from "lucide-react";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import { getGoogleAdsStatusRefetchInterval } from "@/lib/google-ads/sync-progress-ux";
 import {
   formatMetaDateTime,
@@ -137,6 +138,24 @@ async function fetchGoogleAdsStatus(
   return payload as GoogleAdsStatusResponse;
 }
 
+async function fetchShopifyStatus(
+  businessId: string
+): Promise<ShopifyStatusResponse> {
+  const params = new URLSearchParams({ businessId });
+  const response = await fetch(`/api/shopify/status?${params.toString()}`, {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      (payload as { message?: string } | null)?.message ??
+        `Shopify status request failed (${response.status})`
+    );
+  }
+  return payload as ShopifyStatusResponse;
+}
+
 function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
   const state = status?.state;
   const priorityWindowReady =
@@ -185,6 +204,15 @@ function getMetaStatusRefetchInterval(status: MetaStatusResponse | undefined) {
     return 10_000;
   }
   return false;
+}
+
+function getShopifyStatusRefetchInterval(status: ShopifyStatusResponse | undefined) {
+  if (!status?.connected) return false;
+  if (status.state === "ready") return 60_000;
+  if (status.state === "partial" || status.state === "syncing" || status.state === "stale") {
+    return 15_000;
+  }
+  return 30_000;
 }
 
 function hasRenderableProviderViews(
@@ -277,6 +305,16 @@ export default function IntegrationsPage() {
         query.state.data as GoogleAdsStatusResponse | undefined
       ),
     queryFn: () => fetchGoogleAdsStatus(businessId!),
+  });
+  const shopifyStatusQuery = useQuery({
+    queryKey: ["shopify-sync-status", businessId],
+    enabled: Boolean(businessId),
+    staleTime: 30 * 1000,
+    refetchInterval: (query) =>
+      getShopifyStatusRefetchInterval(
+        query.state.data as ShopifyStatusResponse | undefined
+      ),
+    queryFn: () => fetchShopifyStatus(businessId!),
   });
 
   const closeSearchConsoleSelector = useCallback(() => {
@@ -510,6 +548,8 @@ export default function IntegrationsPage() {
     let metaSyncLoading = false;
     let googleSyncStatus: GoogleAdsStatusResponse | null = null;
     let googleSyncLoading = false;
+    let shopifySyncStatus: ShopifyStatusResponse | null = null;
+    let shopifySyncLoading = false;
     if (provider === "meta") {
       const status = metaStatusQuery.data;
       metaSyncLoading = metaStatusQuery.isLoading && !status;
@@ -544,6 +584,10 @@ export default function IntegrationsPage() {
       ) {
         syncNotice = status.domainReadiness.summary;
       }
+    } else if (provider === "shopify") {
+      const status = shopifyStatusQuery.data;
+      shopifySyncLoading = Boolean(view?.isConnected) && shopifyStatusQuery.isLoading && !status;
+      shopifySyncStatus = status ?? null;
     }
     return {
       provider,
@@ -555,6 +599,8 @@ export default function IntegrationsPage() {
       metaSyncLoading,
       googleSyncStatus,
       googleSyncLoading,
+      shopifySyncStatus,
+      shopifySyncLoading,
     };
   }).filter(
     (item): item is typeof item & { view: NonNullable<typeof item.view> } => Boolean(item.view)
@@ -683,6 +729,8 @@ export default function IntegrationsPage() {
                     metaSyncLoading={item.metaSyncLoading}
                     googleSyncStatus={item.googleSyncStatus}
                     googleSyncLoading={item.googleSyncLoading}
+                    shopifySyncStatus={item.shopifySyncStatus}
+                    shopifySyncLoading={item.shopifySyncLoading}
                     onConnect={handleConnect}
                     onReconnect={(p) => setActiveProvider(p)}
                     onRetry={handleRetry}

@@ -5,6 +5,7 @@ import { IntegrationsCard } from "@/components/integrations/integrations-card";
 import type { GoogleAdsStatusResponse } from "@/lib/google-ads/status-types";
 import type { ProviderViewState } from "@/store/integrations-store";
 import type { MetaStatusResponse } from "@/lib/meta/status-types";
+import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 
 vi.mock("next/image", () => ({
   default: (props: React.ImgHTMLAttributes<HTMLImageElement>) =>
@@ -250,6 +251,58 @@ function buildGoogleStatus(): GoogleAdsStatusResponse {
   };
 }
 
+function buildShopifyStatus(
+  overrides: Partial<ShopifyStatusResponse> = {},
+): ShopifyStatusResponse {
+  const syncState = {
+    businessId: "biz_1",
+    providerAccountId: "test-shop.myshopify.com",
+    syncTarget: "commerce_orders_recent",
+    historicalTargetStart: null,
+    historicalTargetEnd: null,
+    readyThroughDate: null,
+    cursorTimestamp: null,
+    cursorValue: null,
+    latestSyncStartedAt: null,
+    latestSuccessfulSyncAt: "2026-04-21T08:00:00.000Z",
+    latestSyncStatus: "succeeded",
+    latestSyncWindowStart: null,
+    latestSyncWindowEnd: null,
+    lastError: null,
+    lastResultSummary: null,
+  };
+  return {
+    state: "partial",
+    connected: true,
+    shopId: "test-shop.myshopify.com",
+    warehouse: {
+      orderRowCount: 9017,
+      refundRowCount: 11,
+      returnRowCount: 2,
+      firstOrderDate: "2025-01-01",
+      lastOrderDate: "2026-04-20",
+    },
+    sync: {
+      ordersRecent: {
+        ...syncState,
+        syncTarget: "commerce_orders_recent",
+      },
+      returnsRecent: null,
+      ordersHistorical: {
+        ...syncState,
+        syncTarget: "commerce_orders_historical",
+        historicalTargetEnd: "2026-04-20",
+        readyThroughDate: "2026-03-15",
+      },
+      returnsHistorical: null,
+    },
+    serving: null,
+    reconciliation: null,
+    issues: ["Historical Shopify backfill is not complete yet."],
+    ...overrides,
+  };
+}
+
 describe("IntegrationsCard", () => {
   it("renders the compact Meta progress block in English without removing the existing pill and notice", () => {
     const html = renderToStaticMarkup(
@@ -342,5 +395,39 @@ describe("IntegrationsCard", () => {
     expect(html).toContain("Active");
     expect(html).not.toContain("Attention / recovery");
     expect(html).not.toContain("attention needed");
+  });
+
+  it("renders a compact Shopify status block without the Meta/Google staged breakdown", () => {
+    const html = renderToStaticMarkup(
+      <IntegrationsCard
+        provider="shopify"
+        language="en"
+        description="Sync storefront events and conversion data for attribution."
+        view={{
+          ...baseView,
+          provider: "shopify",
+          detailLabel: "Store",
+          detailValue: "test-shop.myshopify.com",
+          primaryActionLabel: "Connected",
+          canManageAssignments: false,
+        }}
+        shopifySyncStatus={buildShopifyStatus()}
+        shopifySyncLoading={false}
+        onConnect={() => undefined}
+        onReconnect={() => undefined}
+        onRetry={() => undefined}
+        onCancel={() => undefined}
+        onDisconnect={() => undefined}
+        onOpenAssignments={() => undefined}
+      />
+    );
+
+    expect(html).toContain("Shopify sync");
+    expect(html).toContain("Backfilling");
+    expect(html).toContain("Recent Shopify commerce data is usable");
+    expect(html).toContain("Ready through 2026-03-15");
+    expect(html).not.toContain("Queue / worker");
+    expect(html).not.toContain("Core data");
+    expect(html).not.toContain("Analysis / advisor");
   });
 });

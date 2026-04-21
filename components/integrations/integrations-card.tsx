@@ -16,6 +16,7 @@ import {
   resolveGoogleAdsSyncStatusPill,
   resolveMetaSyncStatusPill,
 } from "@/lib/sync/sync-status-pill";
+import type { ShopifyStatusResponse } from "@/lib/shopify/status";
 import { cn } from "@/lib/utils";
 import {
   IntegrationProvider,
@@ -35,6 +36,8 @@ interface IntegrationsCardProps {
   metaSyncLoading?: boolean;
   googleSyncStatus?: GoogleAdsStatusResponse | null;
   googleSyncLoading?: boolean;
+  shopifySyncStatus?: ShopifyStatusResponse | null;
+  shopifySyncLoading?: boolean;
   onConnect: (provider: IntegrationProvider) => void;
   onReconnect: (provider: IntegrationProvider) => void;
   onRetry: (provider: IntegrationProvider) => void;
@@ -54,6 +57,8 @@ export function IntegrationsCard({
   metaSyncLoading = false,
   googleSyncStatus,
   googleSyncLoading = false,
+  shopifySyncStatus,
+  shopifySyncLoading = false,
   onConnect,
   onReconnect,
   onRetry,
@@ -78,7 +83,8 @@ export function IntegrationsCard({
         : null;
   const showSyncSkeleton =
     (provider === "meta" && metaSyncLoading) ||
-    (provider === "google" && googleSyncLoading);
+    (provider === "google" && googleSyncLoading) ||
+    (provider === "shopify" && shopifySyncLoading);
   const syncNoticeClasses =
     syncNoticeTone === "warning"
       ? "border-amber-300/40 bg-amber-50 text-amber-800"
@@ -148,6 +154,10 @@ export function IntegrationsCard({
 
       {provider === "google" && !showSyncSkeleton ? (
         <GoogleIntegrationProgress status={googleSyncStatus} language={language} />
+      ) : null}
+
+      {provider === "shopify" && !showSyncSkeleton ? (
+        <ShopifyIntegrationStatus status={shopifySyncStatus} />
       ) : null}
 
       {syncNotice ? (
@@ -278,6 +288,83 @@ function CompactMetaRow({
 function formatDisplayValue(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+}
+
+function ShopifyIntegrationStatus({
+  status,
+}: {
+  status?: ShopifyStatusResponse | null;
+}) {
+  if (!status || !status.connected) return null;
+
+  const summary = resolveShopifyStatusSummary(status);
+  const readyThrough =
+    status.sync?.ordersHistorical?.readyThroughDate ??
+    status.sync?.returnsHistorical?.readyThroughDate ??
+    null;
+  const latestSync =
+    status.sync?.ordersRecent?.latestSuccessfulSyncAt ??
+    status.sync?.returnsRecent?.latestSuccessfulSyncAt ??
+    null;
+  const orderCount = status.warehouse?.orderRowCount ?? null;
+
+  return (
+    <div className="mt-2 rounded-lg border border-border/70 bg-white/70 px-2.5 py-2 text-[11px] leading-4 dark:bg-muted/30">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="tracking-[0.18em] text-[10px] font-semibold uppercase text-muted-foreground">
+            Shopify sync
+          </p>
+          <p className="mt-1 text-foreground">{summary.message}</p>
+        </div>
+        <Badge className={cn("shrink-0 border text-[10px]", summary.badgeClass)}>
+          {summary.label}
+        </Badge>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+        {readyThrough ? <span>Ready through {readyThrough}</span> : null}
+        {latestSync ? <span>Last sync {new Date(latestSync).toLocaleDateString()}</span> : null}
+        {orderCount !== null ? <span>{orderCount.toLocaleString()} orders</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function resolveShopifyStatusSummary(status: ShopifyStatusResponse) {
+  if (status.state === "ready") {
+    return {
+      label: "Ready",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      message: "Shopify commerce data and historical backfill are ready.",
+    };
+  }
+  if (status.state === "partial") {
+    return {
+      label: "Backfilling",
+      badgeClass: "border-sky-200 bg-sky-50 text-sky-700",
+      message:
+        "Recent Shopify commerce data is usable while historical coverage continues in the background.",
+    };
+  }
+  if (status.state === "syncing") {
+    return {
+      label: "Syncing",
+      badgeClass: "border-sky-200 bg-sky-50 text-sky-700",
+      message: "Shopify commerce data is syncing.",
+    };
+  }
+  if (status.state === "stale") {
+    return {
+      label: "Refreshing",
+      badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
+      message: "Shopify data is being refreshed from the latest available sync state.",
+    };
+  }
+  return {
+    label: "Needs attention",
+    badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
+    message: status.issues[0] ?? "Shopify sync needs attention before data can be trusted.",
+  };
 }
 
 function getProviderLogo(provider: IntegrationProvider): string | null {
