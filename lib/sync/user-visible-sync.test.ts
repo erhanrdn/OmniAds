@@ -94,6 +94,74 @@ describe("user-visible sync state", () => {
     });
   });
 
+  it("suppresses Google release-gate attention when only background backfill is incomplete", () => {
+    const state = deriveGoogleUserVisibleSyncState({
+      connected: true,
+      assignedAccountIds: ["acc_1"],
+      controlPlanePersistence: {
+        exactRowsPresent: true,
+      },
+      releaseGate: {
+        verdict: "blocked",
+        blockerClass: "not_release_ready",
+      },
+      repairPlan: {
+        recommendations: [],
+      },
+      blockerClass: "not_release_ready",
+      syncTruthState: "partial",
+      panel: {
+        coreUsable: true,
+      },
+      domains: {
+        core: {
+          state: "ready",
+        },
+      },
+      backgroundBackfill: {
+        incomplete: true,
+        percent: 18,
+      },
+    } as never);
+
+    expect(state).toMatchObject({
+      kind: "refreshing_in_background",
+      label: "Refreshing in background",
+      suppressRecoverableAttention: true,
+      degradedServing: true,
+    });
+  });
+
+  it("does not suppress Google queue blockers as background backfill", () => {
+    const state = deriveGoogleUserVisibleSyncState({
+      connected: true,
+      assignedAccountIds: ["acc_1"],
+      controlPlanePersistence: {
+        exactRowsPresent: true,
+      },
+      releaseGate: {
+        verdict: "blocked",
+        blockerClass: "queue_blocked",
+      },
+      repairPlan: {
+        recommendations: [],
+      },
+      blockerClass: "queue_blocked",
+      panel: {
+        coreUsable: true,
+      },
+      backgroundBackfill: {
+        incomplete: true,
+        percent: 18,
+      },
+    } as never);
+
+    expect(state).toMatchObject({
+      kind: "using_latest_available_data",
+      suppressRecoverableAttention: false,
+    });
+  });
+
   it("marks disconnected providers as reconnect required", () => {
     const state = deriveGoogleUserVisibleSyncState({
       connected: false,

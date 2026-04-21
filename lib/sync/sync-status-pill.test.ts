@@ -420,6 +420,47 @@ describe("sync status pill resolver", () => {
     });
   });
 
+  it("shows background refresh instead of attention when Google release gate only reflects incomplete backfill", () => {
+    expect(
+      resolveGoogleAdsSyncStatusPill({
+        connected: true,
+        assignedAccountIds: ["acc_1"],
+        state: "partial",
+        blockerClass: "not_release_ready",
+        panel: {
+          coreUsable: true,
+          extendedLimited: true,
+          headline: "Core metrics are live.",
+          detail: "Historical backfill continues.",
+          surfaceStates: [],
+        },
+        backgroundBackfill: {
+          state: "waiting",
+          percent: 18,
+          incomplete: true,
+          pendingScopes: ["account_daily", "campaign_daily"],
+          readyThroughDate: "2025-11-27",
+          latestProgressAt: null,
+          reason: "waiting",
+        },
+        controlPlanePersistence: {
+          exactRowsPresent: true,
+        },
+        releaseGate: {
+          verdict: "blocked",
+          blockerClass: "not_release_ready",
+        },
+        repairPlan: {
+          recommendations: [],
+        },
+      } as never)
+    ).toMatchObject({
+      label: "Refreshing in background",
+      tone: "info",
+      state: "syncing",
+    });
+  });
+
   it("renders an attention pill for stale Google Ads status", () => {
     expect(
       resolveGoogleAdsSyncStatusPill({

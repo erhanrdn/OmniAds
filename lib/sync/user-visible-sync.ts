@@ -162,12 +162,13 @@ export function deriveMetaUserVisibleSyncState(
 export function deriveGoogleUserVisibleSyncState(
   status: GoogleAdsStatusResponse | null | undefined,
 ) {
+  const hasUsableGoogleCore =
+    status?.panel?.coreUsable === true ||
+    status?.domains?.core?.state === "ready";
   const state = deriveUserVisibleSyncState({
     connected: Boolean(status?.connected),
     hasAssignment: (status?.assignedAccountIds?.length ?? 0) > 0,
-    hasUsableSnapshot:
-      status?.panel?.coreUsable === true ||
-      status?.domains?.core?.state === "ready",
+    hasUsableSnapshot: hasUsableGoogleCore,
     controlPlaneExact: status?.controlPlanePersistence?.exactRowsPresent === true,
     releaseGateVerdict:
       typeof status?.releaseGate?.verdict === "string"
@@ -179,10 +180,45 @@ export function deriveGoogleUserVisibleSyncState(
       typeof status?.syncTruthState === "string" ? status.syncTruthState : null,
     recommendations: status?.repairPlan?.recommendations,
   });
+
+  const recommendationCount = status?.repairPlan?.recommendations?.length ?? 0;
+  const statusBlocker =
+    typeof status?.blockerClass === "string" ? status.blockerClass : null;
+  const releaseBlocker =
+    typeof status?.releaseGate?.blockerClass === "string"
+      ? status.releaseGate.blockerClass
+      : null;
+  const backfillIncomplete =
+    status?.backgroundBackfill?.incomplete === true ||
+    (status?.requiredScopeCompletion != null &&
+      status.requiredScopeCompletion.complete === false);
+  const backfillOnlyReleaseGate =
+    hasUsableGoogleCore &&
+    status?.controlPlanePersistence?.exactRowsPresent === true &&
+    status?.releaseGate?.verdict != null &&
+    status.releaseGate.verdict !== "pass" &&
+    recommendationCount === 0 &&
+    backfillIncomplete &&
+    (statusBlocker == null ||
+      statusBlocker === "none" ||
+      statusBlocker === "not_release_ready") &&
+    (releaseBlocker == null ||
+      releaseBlocker === "none" ||
+      releaseBlocker === "not_release_ready");
+
+  if (backfillOnlyReleaseGate) {
+    return {
+      kind: "refreshing_in_background" as const,
+      label: "Refreshing in background",
+      suppressRecoverableAttention: true,
+      degradedServing: true,
+    };
+  }
+
   if (
     state.kind === "healthy" &&
     status?.backgroundBackfill?.incomplete === true &&
-    (status.panel?.coreUsable === true || status.domains?.core?.state === "ready")
+    hasUsableGoogleCore
   ) {
     return {
       kind: "refreshing_in_background" as const,

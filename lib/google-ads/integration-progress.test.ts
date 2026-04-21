@@ -190,6 +190,69 @@ describe("resolveGoogleIntegrationProgress", () => {
     });
   });
 
+  it("suppresses attention stage when release gate only reflects background backfill", () => {
+    const model = resolveGoogleIntegrationProgress(
+      buildGoogleStatus({
+        state: "partial",
+        blockerClass: "not_release_ready",
+        releaseGate: {
+          id: "gate-2",
+          gateKind: "release_gate",
+          gateScope: "release_readiness",
+          buildId: "build-1",
+          environment: "production",
+          mode: "block",
+          baseResult: "fail",
+          verdict: "blocked",
+          blockerClass: "not_release_ready",
+          summary: "Google Ads release gate snapshot failed for TheSwaf.",
+          breakGlass: false,
+          overrideReason: null,
+          evidence: {},
+          emittedAt: "2026-04-20T07:22:20.362Z",
+        },
+        backgroundBackfill: {
+          state: "waiting",
+          percent: 18,
+          incomplete: true,
+          pendingScopes: ["account_daily", "campaign_daily"],
+          readyThroughDate: "2025-11-27",
+          latestProgressAt: null,
+          reason: "waiting",
+        },
+        requiredScopeCompletion: {
+          completedDays: 16,
+          totalDays: 90,
+          percent: 18,
+          readyThroughDate: "2025-11-27",
+          complete: false,
+        },
+        warehouse: {
+          rowCount: 700,
+          firstDate: "2025-11-27",
+          lastDate: "2026-04-20",
+          coverage: {
+            historical: {
+              completedDays: 16,
+              totalDays: 90,
+              readyThroughDate: "2025-11-27",
+            },
+          },
+        },
+      }),
+      "en",
+    );
+
+    expect(model?.attentionNeeded).toBe(false);
+    expect(model?.stages.some((stage) => stage.key === "attention")).toBe(false);
+    expect(model?.stages.find((stage) => stage.key === "selected_range")).toMatchObject({
+      title: "Historical backfill",
+      state: "working",
+      label: "background",
+      percent: 18,
+    });
+  });
+
   it("renders the attention stage when release truth is actually blocked", () => {
     const model = resolveGoogleIntegrationProgress(
       buildGoogleStatus({
