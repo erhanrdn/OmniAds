@@ -379,4 +379,60 @@ describe("overview-service canonical orchestration", () => {
     expect(result.aggregate?.revenue).toBe(75);
     expect(result.aggregate?.purchases).toBe(5);
   });
+
+  it("serves Shopify warehouse shadow data when exact serving trust is unavailable", async () => {
+    vi.mocked(shopifyReadAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue(
+      buildReadCandidate({
+        preferredSource: "warehouse_shadow",
+        warehouse: {
+          revenue: 36445.99,
+          grossRevenue: 37827.13,
+          refundedRevenue: 1381.14,
+          purchases: 158,
+          returnEvents: 0,
+          averageOrderValue: 239.41,
+          daily: [
+            {
+              date: "2026-04-01",
+              orderRevenue: 2487.4,
+              refundedRevenue: 0,
+              netRevenue: 2487.4,
+              orders: 11,
+              returnEvents: 0,
+            },
+          ],
+        },
+        servingMetadata: {
+          source: "warehouse",
+          provider: "shopify",
+          trustState: "live_fallback",
+          fallbackReason: "range_serving_state_unavailable",
+          lastSyncedAt: null,
+          coverageStatus: "unknown",
+          productionMode: "auto",
+          pendingRepair: false,
+          pendingRepairStartedAt: null,
+          pendingRepairLastTopic: null,
+          pendingRepairLastReceivedAt: null,
+          selectedRevenueTruthBasis: null,
+          basisSelectionReason: null,
+          transactionCoverageOrderRate: null,
+          transactionCoverageAmountRate: null,
+          explainedAdjustmentRevenue: null,
+          unexplainedAdjustmentRevenue: null,
+        },
+      }) as never,
+    );
+
+    const result = await getShopifyOverviewServingData({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-18",
+    });
+
+    expect(result.aggregate?.revenue).toBe(36445.99);
+    expect(result.aggregate?.purchases).toBe(158);
+    expect(result.serving.source).toBe("warehouse");
+    expect(result.serving.trustState).toBe("live_fallback");
+  });
 });

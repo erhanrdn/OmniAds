@@ -397,6 +397,47 @@ async function resolveShopifyOverviewAggregateForRead(input: {
     };
   }
 
+  if (candidate.preferredSource === "warehouse_shadow" && candidate.warehouse) {
+    logRuntimeDebug("overview", "shopify_warehouse_shadow_read_selected", {
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      status: candidate.status.state,
+      fallbackReason: candidate.servingMetadata.fallbackReason,
+    });
+
+    return {
+      aggregate: {
+        revenue: candidate.warehouse.revenue,
+        purchases: candidate.warehouse.purchases,
+        averageOrderValue: candidate.warehouse.averageOrderValue,
+        grossRevenue: candidate.warehouse.grossRevenue,
+        refundedRevenue: candidate.warehouse.refundedRevenue,
+        returnEvents: candidate.warehouse.returnEvents,
+        sessions: candidate.live?.sessions ?? null,
+        conversionRate: candidate.live?.conversionRate ?? null,
+        newCustomers: candidate.live?.newCustomers ?? null,
+        returningCustomers: candidate.live?.returningCustomers ?? null,
+        dailyTrends: candidate.warehouse.daily.map((row) => {
+          const liveRow = liveDailyByDate.get(row.date);
+          return {
+            date: row.date,
+            revenue: row.netRevenue,
+            grossRevenue: row.orderRevenue,
+            refundedRevenue: row.refundedRevenue,
+            returnEvents: row.returnEvents,
+            purchases: row.orders,
+            sessions: liveRow?.sessions ?? null,
+            conversionRate: liveRow?.conversionRate ?? null,
+            newCustomers: liveRow?.newCustomers ?? null,
+            returningCustomers: liveRow?.returningCustomers ?? null,
+          };
+        }),
+      },
+      serving: candidate.servingMetadata,
+    };
+  }
+
   if (candidate.preferredSource === "ledger" && candidate.ledger) {
     logRuntimeDebug("overview", "shopify_ledger_read_canary_selected", {
       businessId: input.businessId,

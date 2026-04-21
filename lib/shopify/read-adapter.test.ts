@@ -205,6 +205,46 @@ describe("getShopifyOverviewReadCandidate", () => {
     expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
   });
 
+  it("serves warehouse shadow data for connected shops when exact range trust is missing", async () => {
+    vi.mocked(warehouseState.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouseState.listShopifyReconciliationRuns).mockResolvedValue([] as never);
+    vi.mocked(warehouse.getShopifyWarehouseOverviewAggregate).mockResolvedValue({
+      revenue: 36445.99,
+      grossRevenue: 37827.13,
+      refundedRevenue: 1381.14,
+      purchases: 158,
+      returnEvents: 0,
+      averageOrderValue: 239.41,
+      daily: [
+        {
+          date: "2026-04-01",
+          orderRevenue: 2487.4,
+          refundedRevenue: 0,
+          netRevenue: 2487.4,
+          orders: 11,
+          returnEvents: 0,
+        },
+      ],
+    } as never);
+
+    const result = await getShopifyOverviewSummaryReadCandidate({
+      businessId: "biz_1",
+      startDate: "2026-04-01",
+      endDate: "2026-04-18",
+    });
+
+    expect(result.preferredSource).toBe("warehouse_shadow");
+    expect(result.warehouse?.revenue).toBe(36445.99);
+    expect(result.canServeWarehouse).toBe(false);
+    expect(result.servingMetadata.source).toBe("warehouse");
+    expect(result.servingMetadata.trustState).toBe("live_fallback");
+    expect(result.servingMetadata.fallbackReason).toBe("range_serving_state_unavailable");
+    expect(result.servingMetadata.productionMode).toBe("auto");
+    expect(status.getShopifyStatus).not.toHaveBeenCalled();
+    expect(overview.getShopifyOverviewAggregate).not.toHaveBeenCalled();
+    expect(revenueLedger.getShopifyRevenueLedgerAggregate).not.toHaveBeenCalled();
+  });
+
   it("trusts ledger reads when live divergence is explained by carryover refund semantics", async () => {
     vi.mocked(status.getShopifyStatus).mockResolvedValue({
       state: "ready",

@@ -604,7 +604,9 @@ function DataStatusRow({
     ? shopifyServing.source === "ledger"
       ? { label: "Trusted ledger", tone: "default" as const }
       : shopifyServing.source === "warehouse"
-      ? { label: "Warehouse serving", tone: "default" as const }
+      ? shopifyServing.trustState === "trusted"
+        ? { label: "Warehouse serving", tone: "default" as const }
+        : { label: "Shopify data available", tone: "secondary" as const }
       : shopifyServing.source === "live"
         ? { label: "Live fallback", tone: "secondary" as const }
         : shopifyServing.trustState === "disabled"

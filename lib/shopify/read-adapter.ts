@@ -190,6 +190,18 @@ function pickLatestTrustedReconciliationRun(
   );
 }
 
+function hasWarehouseOverviewData(warehouse: ShopifyWarehouseOverviewAggregate | null) {
+  if (!warehouse) return false;
+  return (
+    warehouse.daily.length > 0 ||
+    warehouse.purchases > 0 ||
+    warehouse.revenue !== 0 ||
+    warehouse.grossRevenue !== 0 ||
+    warehouse.refundedRevenue !== 0 ||
+    warehouse.returnEvents > 0
+  );
+}
+
 function buildServingMetadata(input: {
   persistedServing: Awaited<ReturnType<typeof getShopifyServingState>> | null;
   preferredSource: ShopifyPreferredOverviewSource;
@@ -209,7 +221,7 @@ function buildServingMetadata(input: {
     source:
       input.preferredSource === "ledger"
         ? "ledger"
-        : input.preferredSource === "warehouse"
+        : input.preferredSource === "warehouse" || input.preferredSource === "warehouse_shadow"
           ? "warehouse"
           : input.preferredSource === "none"
             ? "none"
@@ -260,10 +272,14 @@ function buildServingMetadata(input: {
 function buildServingMetadataFromPersisted(input: {
   persistedServing: Awaited<ReturnType<typeof getShopifyServingState>> | null;
   preferredSource: ShopifyPreferredOverviewSource;
+  productionMode?: ShopifyProductionServingMode;
+  fallbackReason?: string | null;
 }) {
   return buildServingMetadata({
     persistedServing: input.persistedServing,
     preferredSource: input.preferredSource,
+    productionMode: input.productionMode,
+    fallbackReason: input.fallbackReason,
   });
 }
 
@@ -352,13 +368,13 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
       persistedServing?.trustState === "disabled";
     if (persistedExplicitLiveFallback) {
       preferredSource = "live";
-    } else if (!warehouse && persistedPreferredSource === "warehouse") {
+    } else if (!warehouse && (persistedPreferredSource === "warehouse" || productionMode !== "disabled")) {
       warehouse = await getShopifyWarehouseOverviewAggregate({
         businessId: input.businessId,
         startDate: input.startDate,
         endDate: input.endDate,
       }).catch(() => null);
-      preferredSource = warehouse ? "warehouse_shadow" : "none";
+      preferredSource = hasWarehouseOverviewData(warehouse) ? "warehouse_shadow" : "none";
     } else {
       preferredSource = "none";
     }
@@ -406,6 +422,11 @@ export async function getShopifyOverviewSummaryReadCandidate(input: {
         : buildServingMetadataFromPersisted({
             persistedServing,
             preferredSource,
+            productionMode,
+            fallbackReason:
+              preferredSource === "warehouse_shadow" && !persistedServing
+                ? "range_serving_state_unavailable"
+                : null,
           }),
   } as const;
 }
@@ -637,7 +658,7 @@ export async function getShopifyOverviewReadCandidate(input: {
       source:
         preferredSource === "ledger"
           ? "ledger"
-          : preferredSource === "warehouse"
+          : preferredSource === "warehouse" || preferredSource === "warehouse_shadow"
             ? "warehouse"
             : preferredSource === "none"
               ? "none"
