@@ -289,6 +289,25 @@ export function logGoogleAdsPhaseTelemetry(input: GoogleAdsPhaseTelemetry) {
   logRuntimeInfo("google-ads-sync", "google_ads_scope_phase_metrics", input);
 }
 
+function logGoogleAdsPersistChunkTelemetry(input: {
+  businessId: string;
+  providerAccountId: string;
+  date: string;
+  scope: GoogleAdsWarehouseScope;
+  partitionId?: string | null;
+  pageIndex: number;
+  rowCount: number;
+  hashMs: number;
+  checkpointMs: number;
+  rawSnapshotMs: number;
+  transformMs: number;
+  warehouseUpsertMs: number;
+  totalMs: number;
+}) {
+  if (input.scope !== "product_daily" && input.totalMs < 5_000) return;
+  logRuntimeInfo("google-ads-sync", "google_ads_persist_chunk_metrics", input);
+}
+
 type GoogleAdsLeaseStepLog = {
   businessId: string;
   step:
@@ -2254,6 +2273,18 @@ async function persistScopeRows(input: {
 
     for (let pageIndex = 0; pageIndex < rowChunks.length; pageIndex += 1) {
       const chunk = rowChunks[pageIndex] ?? [];
+      const chunkStartedAtMs = Date.now();
+      const hashStartedAtMs = Date.now();
+      const payloadHash = buildGoogleAdsRawSnapshotHash({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        endpointName: input.endpointName,
+        startDate: input.date,
+        endDate: input.date,
+        payload: chunk,
+      });
+      const hashMs = Date.now() - hashStartedAtMs;
+      const rawSnapshotStartedAtMs = Date.now();
       latestSnapshotId = await persistGoogleAdsRawSnapshot({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
@@ -2266,14 +2297,7 @@ async function persistScopeRows(input: {
         accountTimezone: input.accountTimezone,
         accountCurrency: input.accountCurrency,
         payloadJson: chunk,
-        payloadHash: buildGoogleAdsRawSnapshotHash({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          endpointName: input.endpointName,
-          startDate: input.date,
-          endDate: input.date,
-          payload: chunk,
-        }),
+        payloadHash,
         requestContext: {
           ...input.requestContext,
           pageIndex,
@@ -2286,11 +2310,31 @@ async function persistScopeRows(input: {
         },
         status: "fetched",
       });
+      const rawSnapshotMs = Date.now() - rawSnapshotStartedAtMs;
 
+      const transformStartedAtMs = Date.now();
       const warehouseRows = chunk
         .map((row) => input.mapRow(row, latestSnapshotId))
         .filter((row): row is GoogleAdsWarehouseDailyRow => Boolean(row));
+      const transformMs = Date.now() - transformStartedAtMs;
+      const warehouseUpsertStartedAtMs = Date.now();
       await upsertGoogleAdsDailyRows(input.scope, warehouseRows);
+      const warehouseUpsertMs = Date.now() - warehouseUpsertStartedAtMs;
+      logGoogleAdsPersistChunkTelemetry({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        date: input.date,
+        scope: input.scope,
+        partitionId: null,
+        pageIndex,
+        rowCount: warehouseRows.length,
+        hashMs,
+        checkpointMs: 0,
+        rawSnapshotMs,
+        transformMs,
+        warehouseUpsertMs,
+        totalMs: Date.now() - chunkStartedAtMs,
+      });
       rowCount += warehouseRows.length;
     }
 
@@ -2338,6 +2382,10 @@ async function persistScopeRows(input: {
     pageIndex += 1
   ) {
     const checkpointChunk = rowChunks[pageIndex] ?? [];
+    const chunkStartedAtMs = Date.now();
+    let checkpointMs = 0;
+    let hashMs = 0;
+    let rawSnapshotMs = 0;
     if (input.workerId) {
       const leaseHealthy = await heartbeatGoogleAdsPartitionLease({
         partitionId: input.partitionId,
@@ -2350,6 +2398,7 @@ async function persistScopeRows(input: {
       }
     }
 
+    const fetchCheckpointStartedAtMs = Date.now();
     const checkpointId = await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
@@ -2374,10 +2423,22 @@ async function persistScopeRows(input: {
       leaseEpoch: input.leaseEpoch ?? null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
     });
+    checkpointMs += Date.now() - fetchCheckpointStartedAtMs;
 
     const existingSnapshot = existingSnapshotPages.get(pageIndex);
     latestSnapshotId = existingSnapshot?.id ?? null;
     if (!latestSnapshotId) {
+      const hashStartedAtMs = Date.now();
+      const payloadHash = buildGoogleAdsRawSnapshotHash({
+        businessId: input.businessId,
+        providerAccountId: input.providerAccountId,
+        endpointName: input.endpointName,
+        startDate: input.date,
+        endDate: input.date,
+        payload: checkpointChunk,
+      });
+      hashMs = Date.now() - hashStartedAtMs;
+      const rawSnapshotStartedAtMs = Date.now();
       latestSnapshotId = await persistGoogleAdsRawSnapshot({
         businessId: input.businessId,
         providerAccountId: input.providerAccountId,
@@ -2392,14 +2453,7 @@ async function persistScopeRows(input: {
         accountTimezone: input.accountTimezone,
         accountCurrency: input.accountCurrency,
         payloadJson: checkpointChunk,
-        payloadHash: buildGoogleAdsRawSnapshotHash({
-          businessId: input.businessId,
-          providerAccountId: input.providerAccountId,
-          endpointName: input.endpointName,
-          startDate: input.date,
-          endDate: input.date,
-          payload: checkpointChunk,
-        }),
+        payloadHash,
         requestContext: {
           ...input.requestContext,
           partitionId: input.partitionId,
@@ -2414,6 +2468,7 @@ async function persistScopeRows(input: {
         providerHttpStatus: 200,
         status: "fetched",
       });
+      rawSnapshotMs = Date.now() - rawSnapshotStartedAtMs;
     } else if (replayDecision.replayReasonCode) {
       replayedSnapshotCount += 1;
     }
@@ -2445,6 +2500,7 @@ async function persistScopeRows(input: {
     });
     rowsFetched += shouldCountChunkAsFetched ? sourceChunk.length : 0;
 
+    const transformCheckpointStartedAtMs = Date.now();
     await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
@@ -2472,11 +2528,15 @@ async function persistScopeRows(input: {
       leaseEpoch: input.leaseEpoch ?? null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
     });
+    checkpointMs += Date.now() - transformCheckpointStartedAtMs;
 
+    const transformStartedAtMs = Date.now();
     const warehouseRows = sourceChunk
       .map((row) => input.mapRow(row, latestSnapshotId))
       .filter((row): row is GoogleAdsWarehouseDailyRow => Boolean(row));
+    const transformMs = Date.now() - transformStartedAtMs;
 
+    const bulkCheckpointStartedAtMs = Date.now();
     await upsertGoogleAdsCheckpointOrThrow({
       partitionId: input.partitionId,
       businessId: input.businessId,
@@ -2505,8 +2565,26 @@ async function persistScopeRows(input: {
           : null,
       startedAt: existingCheckpoint?.startedAt ?? new Date().toISOString(),
     });
+    checkpointMs += Date.now() - bulkCheckpointStartedAtMs;
 
+    const warehouseUpsertStartedAtMs = Date.now();
     await upsertGoogleAdsDailyRows(input.scope, warehouseRows);
+    const warehouseUpsertMs = Date.now() - warehouseUpsertStartedAtMs;
+    logGoogleAdsPersistChunkTelemetry({
+      businessId: input.businessId,
+      providerAccountId: input.providerAccountId,
+      date: input.date,
+      scope: input.scope,
+      partitionId: input.partitionId,
+      pageIndex,
+      rowCount: warehouseRows.length,
+      hashMs,
+      checkpointMs,
+      rawSnapshotMs,
+      transformMs,
+      warehouseUpsertMs,
+      totalMs: Date.now() - chunkStartedAtMs,
+    });
     rowsWritten += warehouseRows.length;
   }
 

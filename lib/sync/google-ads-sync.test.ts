@@ -265,7 +265,7 @@ describe("Google Ads throughput telemetry", () => {
     );
   });
 
-  it("uses a larger product checkpoint chunk to avoid DB-bound backfill serialization", () => {
+  it("uses the measured product checkpoint chunk for DB-bound backfill", () => {
     expect(getGoogleAdsScopeCheckpointChunkSize("product_daily")).toBeGreaterThan(
       getGoogleAdsScopeCheckpointChunkSize("account_daily"),
     );

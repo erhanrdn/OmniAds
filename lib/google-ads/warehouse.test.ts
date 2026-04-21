@@ -1444,6 +1444,40 @@ describe("google ads typed dimension dual-write", () => {
 
     warnSpy.mockRestore();
   });
+
+  it("uses JSONB recordset writes for product facts and dimensions", async () => {
+    const queries: string[] = [];
+    const params: unknown[][] = [];
+    const sql = Object.assign(vi.fn(), {
+      query: vi.fn(async (query: string, values?: unknown[]) => {
+        queries.push(query);
+        params.push(values ?? []);
+        return [];
+      }),
+    });
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    await upsertGoogleAdsDailyRows("product_daily", [
+      buildRow({
+        entityKey: "product_1",
+        entityLabel: "Product One",
+        payloadJson: { productTitle: "Product One" },
+      }),
+      buildRow({
+        entityKey: "product_2",
+        entityLabel: "Product Two",
+        payloadJson: { productTitle: "Product Two" },
+      }),
+    ]);
+
+    const joined = queries.join("\n");
+    expect(joined).toContain("INSERT INTO google_ads_product_daily");
+    expect(joined).toContain("INSERT INTO google_ads_product_dimensions");
+    expect(joined).toContain("jsonb_to_recordset($1::jsonb)");
+    expect(joined).not.toContain("VALUES ($1,$2,$3,$4,$5,$6,$7,$8");
+    expect(params).toHaveLength(1);
+    expect(params.every((value) => value.length === 1)).toBe(true);
+  });
 });
 
 describe("google ads control-plane ref writes", () => {

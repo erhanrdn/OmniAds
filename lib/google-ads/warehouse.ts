@@ -3388,6 +3388,265 @@ function getGoogleAdsWarehouseUpsertBatchSize(scope: GoogleAdsWarehouseScope) {
   return 250;
 }
 
+function serializeGoogleAdsProductDailyRow(
+  row: GoogleAdsWarehouseDailyRow,
+  businessRefIds: Map<string, string>,
+  providerAccountRefIds: Map<string, string>,
+) {
+  const projection = normalizeGoogleAdsProjectionJson(row);
+  const date = normalizeDate(row.date);
+  return {
+    business_id: row.businessId,
+    business_ref_id: businessRefIds.get(row.businessId) ?? null,
+    provider_account_id: row.providerAccountId,
+    provider_account_ref_id:
+      providerAccountRefIds.get(row.providerAccountId) ?? null,
+    date,
+    account_timezone: row.accountTimezone,
+    account_currency: row.accountCurrency,
+    entity_key: row.entityKey,
+    entity_label: row.entityLabel,
+    campaign_id: row.campaignId,
+    campaign_name: row.campaignName,
+    ad_group_id: row.adGroupId,
+    ad_group_name: row.adGroupName,
+    status: row.status,
+    channel: row.channel,
+    classification: row.classification,
+    payload_json: row.payloadJson ?? {},
+    spend: row.spend,
+    revenue: row.revenue,
+    conversions: row.conversions,
+    impressions: row.impressions,
+    clicks: row.clicks,
+    ctr: row.ctr,
+    cpc: row.cpc,
+    cpa: row.cpa,
+    roas: row.roas,
+    conversion_rate: row.conversionRate,
+    interaction_rate: row.interactionRate,
+    source_snapshot_id: row.sourceSnapshotId,
+    product_key: row.entityKey,
+    product_title: String(
+      projection["productTitle"] ??
+        projection["title"] ??
+        row.entityLabel ??
+        row.entityKey,
+    ),
+    normalized_status: row.status,
+    projection_json: projection,
+    first_seen_at: `${date}T00:00:00.000Z`,
+    last_seen_at: `${date}T00:00:00.000Z`,
+    source_updated_at: buildGoogleAdsHistoryCapturedAt(row),
+  };
+}
+
+async function upsertGoogleAdsProductDailyRowsFromJson(input: {
+  rows: GoogleAdsWarehouseDailyRow[];
+  businessRefIds: Map<string, string>;
+  providerAccountRefIds: Map<string, string>;
+}) {
+  if (input.rows.length === 0) return;
+  const sql = getDb();
+  const payload = JSON.stringify(
+    input.rows.map((row) =>
+      serializeGoogleAdsProductDailyRow(
+        row,
+        input.businessRefIds,
+        input.providerAccountRefIds,
+      ),
+    ),
+  );
+
+  await sql.query(
+    `
+      WITH input_rows AS (
+        SELECT *
+        FROM jsonb_to_recordset($1::jsonb) AS row (
+          business_id text,
+          business_ref_id text,
+          provider_account_id text,
+          provider_account_ref_id text,
+          date text,
+          account_timezone text,
+          account_currency text,
+          entity_key text,
+          entity_label text,
+          campaign_id text,
+          campaign_name text,
+          ad_group_id text,
+          ad_group_name text,
+          status text,
+          channel text,
+          classification text,
+          payload_json jsonb,
+          spend numeric,
+          revenue numeric,
+          conversions numeric,
+          impressions bigint,
+          clicks bigint,
+          ctr numeric,
+          cpc numeric,
+          cpa numeric,
+          roas numeric,
+          conversion_rate numeric,
+          interaction_rate numeric,
+          source_snapshot_id text,
+          product_key text,
+          product_title text,
+          normalized_status text,
+          projection_json jsonb,
+          first_seen_at text,
+          last_seen_at text,
+          source_updated_at text
+        )
+      ),
+      daily_upsert AS (
+        INSERT INTO google_ads_product_daily (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          date,
+          account_timezone,
+          account_currency,
+          entity_key,
+          entity_label,
+          campaign_id,
+          campaign_name,
+          ad_group_id,
+          ad_group_name,
+          status,
+          channel,
+          classification,
+          payload_json,
+          spend,
+          revenue,
+          conversions,
+          impressions,
+          clicks,
+          ctr,
+          cpc,
+          cpa,
+          roas,
+          conversion_rate,
+          interaction_rate,
+          source_snapshot_id,
+          updated_at
+        )
+        SELECT
+          business_id,
+          NULLIF(business_ref_id, '')::uuid,
+          provider_account_id,
+          NULLIF(provider_account_ref_id, '')::uuid,
+          date::date,
+          account_timezone,
+          account_currency,
+          entity_key,
+          entity_label,
+          campaign_id,
+          campaign_name,
+          ad_group_id,
+          ad_group_name,
+          status,
+          channel,
+          classification,
+          COALESCE(payload_json, '{}'::jsonb),
+          COALESCE(spend, 0),
+          COALESCE(revenue, 0),
+          COALESCE(conversions, 0),
+          COALESCE(impressions, 0),
+          COALESCE(clicks, 0),
+          ctr,
+          cpc,
+          cpa,
+          COALESCE(roas, 0),
+          conversion_rate,
+          interaction_rate,
+          NULLIF(source_snapshot_id, '')::uuid,
+          now()
+        FROM input_rows
+        ON CONFLICT (business_id, provider_account_id, date, entity_key) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_product_daily.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_product_daily.provider_account_ref_id),
+          entity_label = EXCLUDED.entity_label,
+          campaign_id = EXCLUDED.campaign_id,
+          campaign_name = EXCLUDED.campaign_name,
+          ad_group_id = EXCLUDED.ad_group_id,
+          ad_group_name = EXCLUDED.ad_group_name,
+          status = EXCLUDED.status,
+          channel = EXCLUDED.channel,
+          classification = EXCLUDED.classification,
+          payload_json = EXCLUDED.payload_json,
+          spend = EXCLUDED.spend,
+          revenue = EXCLUDED.revenue,
+          conversions = EXCLUDED.conversions,
+          impressions = EXCLUDED.impressions,
+          clicks = EXCLUDED.clicks,
+          ctr = EXCLUDED.ctr,
+          cpc = EXCLUDED.cpc,
+          cpa = EXCLUDED.cpa,
+          roas = EXCLUDED.roas,
+          conversion_rate = EXCLUDED.conversion_rate,
+          interaction_rate = EXCLUDED.interaction_rate,
+          source_snapshot_id = EXCLUDED.source_snapshot_id,
+          updated_at = now()
+        RETURNING 1
+      ),
+      dimension_upsert AS (
+        INSERT INTO google_ads_product_dimensions (
+          business_id,
+          business_ref_id,
+          provider_account_id,
+          provider_account_ref_id,
+          campaign_id,
+          product_key,
+          product_title,
+          normalized_status,
+          projection_json,
+          first_seen_at,
+          last_seen_at,
+          source_updated_at,
+          created_at,
+          updated_at
+        )
+        SELECT
+          business_id,
+          NULLIF(business_ref_id, '')::uuid,
+          provider_account_id,
+          NULLIF(provider_account_ref_id, '')::uuid,
+          campaign_id,
+          product_key,
+          product_title,
+          normalized_status,
+          COALESCE(projection_json, '{}'::jsonb),
+          first_seen_at::timestamptz,
+          last_seen_at::timestamptz,
+          source_updated_at::timestamptz,
+          now(),
+          now()
+        FROM input_rows
+        ON CONFLICT (business_id, provider_account_id, product_key) DO UPDATE SET
+          business_ref_id = COALESCE(EXCLUDED.business_ref_id, google_ads_product_dimensions.business_ref_id),
+          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, google_ads_product_dimensions.provider_account_ref_id),
+          campaign_id = EXCLUDED.campaign_id,
+          product_title = EXCLUDED.product_title,
+          normalized_status = EXCLUDED.normalized_status,
+          projection_json = EXCLUDED.projection_json,
+          first_seen_at = LEAST(COALESCE(google_ads_product_dimensions.first_seen_at, EXCLUDED.first_seen_at), EXCLUDED.first_seen_at),
+          last_seen_at = GREATEST(COALESCE(google_ads_product_dimensions.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+          source_updated_at = GREATEST(COALESCE(google_ads_product_dimensions.source_updated_at, EXCLUDED.source_updated_at), EXCLUDED.source_updated_at),
+          updated_at = now()
+        RETURNING 1
+      )
+      SELECT
+        (SELECT COUNT(*) FROM daily_upsert) AS daily_count,
+        (SELECT COUNT(*) FROM dimension_upsert) AS dimension_count
+    `,
+    [payload],
+  );
+}
+
 async function upsertGoogleAdsScopeDimensionRows(input: {
   scope: GoogleAdsWarehouseScope;
   rows: GoogleAdsWarehouseDailyRow[];
@@ -3904,113 +4163,121 @@ export async function upsertGoogleAdsDailyRows(
         timezone: row.accountTimezone,
       })),
     });
-    const values: unknown[] = [];
-    const tuples = dedupedBatch.map((row, index) => {
-      const offset = index * 29;
-      values.push(
-        row.businessId,
-        businessRefIds.get(row.businessId) ?? null,
-        row.providerAccountId,
-        providerAccountRefIds.get(row.providerAccountId) ?? null,
-        normalizeDate(row.date),
-        row.accountTimezone,
-        row.accountCurrency,
-        row.entityKey,
-        row.entityLabel,
-        row.campaignId,
-        row.campaignName,
-        row.adGroupId,
-        row.adGroupName,
-        row.status,
-        row.channel,
-        row.classification,
-        JSON.stringify(row.payloadJson ?? {}),
-        row.spend,
-        row.revenue,
-        row.conversions,
-        row.impressions,
-        row.clicks,
-        row.ctr,
-        row.cpc,
-        row.cpa,
-        row.roas,
-        row.conversionRate,
-        row.interactionRate,
-        row.sourceSnapshotId,
+    if (scope === "product_daily") {
+      await upsertGoogleAdsProductDailyRowsFromJson({
+        rows: dedupedBatch,
+        businessRefIds,
+        providerAccountRefIds,
+      });
+    } else {
+      const values: unknown[] = [];
+      const tuples = dedupedBatch.map((row, index) => {
+        const offset = index * 29;
+        values.push(
+          row.businessId,
+          businessRefIds.get(row.businessId) ?? null,
+          row.providerAccountId,
+          providerAccountRefIds.get(row.providerAccountId) ?? null,
+          normalizeDate(row.date),
+          row.accountTimezone,
+          row.accountCurrency,
+          row.entityKey,
+          row.entityLabel,
+          row.campaignId,
+          row.campaignName,
+          row.adGroupId,
+          row.adGroupName,
+          row.status,
+          row.channel,
+          row.classification,
+          JSON.stringify(row.payloadJson ?? {}),
+          row.spend,
+          row.revenue,
+          row.conversions,
+          row.impressions,
+          row.clicks,
+          row.ctr,
+          row.cpc,
+          row.cpa,
+          row.roas,
+          row.conversionRate,
+          row.interactionRate,
+          row.sourceSnapshotId,
+        );
+        return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17}::jsonb,$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},now())`;
+      });
+
+      await sql.query(
+        `
+          INSERT INTO ${table} (
+            business_id,
+            business_ref_id,
+            provider_account_id,
+            provider_account_ref_id,
+            date,
+            account_timezone,
+            account_currency,
+            entity_key,
+            entity_label,
+            campaign_id,
+            campaign_name,
+            ad_group_id,
+            ad_group_name,
+            status,
+            channel,
+            classification,
+            payload_json,
+            spend,
+            revenue,
+            conversions,
+            impressions,
+            clicks,
+            ctr,
+            cpc,
+            cpa,
+            roas,
+            conversion_rate,
+            interaction_rate,
+            source_snapshot_id,
+            updated_at
+          )
+          VALUES ${tuples.join(",")}
+          ON CONFLICT (business_id, provider_account_id, date, entity_key) DO UPDATE SET
+            business_ref_id = COALESCE(EXCLUDED.business_ref_id, ${table}.business_ref_id),
+            provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, ${table}.provider_account_ref_id),
+            entity_label = EXCLUDED.entity_label,
+            campaign_id = EXCLUDED.campaign_id,
+            campaign_name = EXCLUDED.campaign_name,
+            ad_group_id = EXCLUDED.ad_group_id,
+            ad_group_name = EXCLUDED.ad_group_name,
+            status = EXCLUDED.status,
+            channel = EXCLUDED.channel,
+            classification = EXCLUDED.classification,
+            payload_json = EXCLUDED.payload_json,
+            spend = EXCLUDED.spend,
+            revenue = EXCLUDED.revenue,
+            conversions = EXCLUDED.conversions,
+            impressions = EXCLUDED.impressions,
+            clicks = EXCLUDED.clicks,
+            ctr = EXCLUDED.ctr,
+            cpc = EXCLUDED.cpc,
+            cpa = EXCLUDED.cpa,
+            roas = EXCLUDED.roas,
+            conversion_rate = EXCLUDED.conversion_rate,
+            interaction_rate = EXCLUDED.interaction_rate,
+            source_snapshot_id = EXCLUDED.source_snapshot_id,
+            updated_at = now()
+        `,
+        values,
       );
-      return `($${offset + 1},$${offset + 2},$${offset + 3},$${offset + 4},$${offset + 5},$${offset + 6},$${offset + 7},$${offset + 8},$${offset + 9},$${offset + 10},$${offset + 11},$${offset + 12},$${offset + 13},$${offset + 14},$${offset + 15},$${offset + 16},$${offset + 17}::jsonb,$${offset + 18},$${offset + 19},$${offset + 20},$${offset + 21},$${offset + 22},$${offset + 23},$${offset + 24},$${offset + 25},$${offset + 26},$${offset + 27},$${offset + 28},$${offset + 29},now())`;
-    });
 
-    await sql.query(
-      `
-        INSERT INTO ${table} (
-          business_id,
-          business_ref_id,
-          provider_account_id,
-          provider_account_ref_id,
-          date,
-          account_timezone,
-          account_currency,
-          entity_key,
-          entity_label,
-          campaign_id,
-          campaign_name,
-          ad_group_id,
-          ad_group_name,
-          status,
-          channel,
-          classification,
-          payload_json,
-          spend,
-          revenue,
-          conversions,
-          impressions,
-          clicks,
-          ctr,
-          cpc,
-          cpa,
-          roas,
-          conversion_rate,
-          interaction_rate,
-          source_snapshot_id,
-          updated_at
-        )
-        VALUES ${tuples.join(",")}
-        ON CONFLICT (business_id, provider_account_id, date, entity_key) DO UPDATE SET
-          business_ref_id = COALESCE(EXCLUDED.business_ref_id, ${table}.business_ref_id),
-          provider_account_ref_id = COALESCE(EXCLUDED.provider_account_ref_id, ${table}.provider_account_ref_id),
-          entity_label = EXCLUDED.entity_label,
-          campaign_id = EXCLUDED.campaign_id,
-          campaign_name = EXCLUDED.campaign_name,
-          ad_group_id = EXCLUDED.ad_group_id,
-          ad_group_name = EXCLUDED.ad_group_name,
-          status = EXCLUDED.status,
-          channel = EXCLUDED.channel,
-          classification = EXCLUDED.classification,
-          payload_json = EXCLUDED.payload_json,
-          spend = EXCLUDED.spend,
-          revenue = EXCLUDED.revenue,
-          conversions = EXCLUDED.conversions,
-          impressions = EXCLUDED.impressions,
-          clicks = EXCLUDED.clicks,
-          ctr = EXCLUDED.ctr,
-          cpc = EXCLUDED.cpc,
-          cpa = EXCLUDED.cpa,
-          roas = EXCLUDED.roas,
-          conversion_rate = EXCLUDED.conversion_rate,
-          interaction_rate = EXCLUDED.interaction_rate,
-          source_snapshot_id = EXCLUDED.source_snapshot_id,
-          updated_at = now()
-      `,
-      values,
-    );
-
-    await upsertGoogleAdsScopeDimensionRows({
-      scope,
-      rows: dedupedBatch,
-      businessRefIds,
-      providerAccountRefIds,
-    });
+      await upsertGoogleAdsScopeDimensionRows({
+        scope,
+        rows: dedupedBatch,
+        businessRefIds,
+        providerAccountRefIds,
+      });
+    }
     await appendGoogleAdsStateHistoryRows({
       scope,
       rows: dedupedBatch,
