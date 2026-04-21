@@ -77,12 +77,12 @@ describe("syncShopifyCommerceReports", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     process.env.APP_LOG_LEVEL = "info";
-    delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+    process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "false";
     vi.mocked(admin.resolveShopifyAdminCredentials).mockResolvedValue({
       businessId: "biz_1",
       shopId: "test-shop.myshopify.com",
       accessToken: "shpat_test",
-      scopes: "read_orders,read_all_orders",
+      scopes: "read_orders,read_all_orders,read_returns",
       metadata: { iana_timezone: "America/New_York" },
     });
     vi.mocked(syncState.getShopifySyncState).mockResolvedValue(null);
@@ -350,6 +350,110 @@ describe("syncShopifyCommerceReports", () => {
       })
     );
     delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+  });
+
+  it("runs a bounded historical chunk by default when read_all_orders is available", async () => {
+    delete process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED;
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    const result = await syncShopifyCommerceReports("biz_1");
+
+    expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        businessId: "biz_1",
+      })
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        historical: expect.objectContaining({
+          orders: 4,
+          returns: 2,
+        }),
+      })
+    );
+  });
+
+  it("does not block historical orders backfill when read_returns is unavailable", async () => {
+    process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    vi.mocked(admin.resolveShopifyAdminCredentials).mockResolvedValue({
+      businessId: "biz_1",
+      shopId: "test-shop.myshopify.com",
+      accessToken: "shpat_test",
+      scopes: "read_orders,read_all_orders",
+      metadata: { iana_timezone: "America/New_York" },
+    });
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    const result = await syncShopifyCommerceReports("biz_1");
+
+    expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        queryField: "created_at",
+      })
+    );
+    expect(commerceSync.syncShopifyReturnsWindow).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        historical: expect.objectContaining({
+          orders: 4,
+          returns: 0,
+          returnPages: 0,
+        }),
+      })
+    );
+    expect(syncState.upsertShopifySyncState).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        syncTarget: "commerce_returns_historical",
+        latestSyncStatus: "running",
+      })
+    );
+  });
+
+  it("can catch up historical returns after historical orders have reached the target", async () => {
+    process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        cursorValue: "2026-04-20",
+        readyThroughDate: "2026-04-20",
+        historicalTargetEnd: "2026-04-20",
+      } as never)
+      .mockResolvedValueOnce(null);
+
+    const result = await syncShopifyCommerceReports("biz_1");
+
+    expect(commerceSync.syncShopifyOrdersWindow).toHaveBeenCalledTimes(1);
+    expect(commerceSync.syncShopifyReturnsWindow).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        historical: expect.objectContaining({
+          orders: 0,
+          returns: 2,
+          pages: 0,
+          returnPages: 1,
+        }),
+      })
+    );
+    expect(syncState.upsertShopifySyncState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        syncTarget: "commerce_returns_historical",
+        latestSyncStatus: "running",
+      })
+    );
   });
 
   it("can skip overview materialization for call sites that must stay lightweight", async () => {

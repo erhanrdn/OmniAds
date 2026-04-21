@@ -106,6 +106,25 @@ function shouldIgnoreReturnsBasis(
   return syncState == null || syncState.lastError === "returns_api_unavailable";
 }
 
+function hasScope(scopes: unknown, scope: string) {
+  if (typeof scopes !== "string" || scopes.trim().length === 0) {
+    return null;
+  }
+  return scopes
+    .split(/[,\s]+/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .includes(scope);
+}
+
+function syncStateCoversTarget(
+  syncState: Awaited<ReturnType<typeof getShopifySyncState>> | null
+) {
+  if (syncState?.latestSyncStatus === "ready") return true;
+  if (!syncState?.readyThroughDate || !syncState.historicalTargetEnd) return false;
+  return syncState.readyThroughDate >= syncState.historicalTargetEnd;
+}
+
 function summarizeReconciliationRuns(
   runs: Array<{
     recordedAt?: string | null;
@@ -358,6 +377,10 @@ export async function getShopifyStatus(
 
   const issues: string[] = [];
   const sync = { ordersRecent, returnsRecent, ordersHistorical, returnsHistorical };
+  const hasReadAllOrdersScope = hasScope(integration.scopes, "read_all_orders");
+  const hasReadReturnsScope = hasScope(integration.scopes, "read_returns");
+  const requiresHistoricalOrders = hasReadAllOrdersScope !== false;
+  const requiresHistoricalReturns = hasReadReturnsScope !== false;
 
   const recentHealthy =
     ordersRecent?.latestSyncStatus === "succeeded" &&
@@ -373,15 +396,13 @@ export async function getShopifyStatus(
       )
     );
 
-  const historicalReady =
-    (ordersHistorical?.latestSyncStatus === "ready" ||
-      ordersHistorical?.readyThroughDate === ordersHistorical?.historicalTargetEnd) &&
-    (
-      returnsHistorical == null ||
-      returnsHistorical?.latestSyncStatus === "ready" ||
-      returnsHistorical?.readyThroughDate === returnsHistorical?.historicalTargetEnd ||
-      returnsHistorical?.lastError === "returns_api_unavailable"
-    );
+  const ordersHistoricalReady =
+    !requiresHistoricalOrders || syncStateCoversTarget(ordersHistorical);
+  const returnsHistoricalReady =
+    !requiresHistoricalReturns ||
+    returnsHistorical?.lastError === "returns_api_unavailable" ||
+    syncStateCoversTarget(returnsHistorical);
+  const historicalReady = ordersHistoricalReady && returnsHistoricalReady;
   const ignoreServingTrust =
     typeof input !== "string" && input.ignoreServingTrust === true;
   const reconciliationTrustReady = hasFreshStableReconciliationTrust(reconciliation);
@@ -415,6 +436,20 @@ export async function getShopifyStatus(
   }
   if (!recentHealthy && warehouse.orderRowCount > 0) {
     issues.push("Recent Shopify sync is stale or incomplete.");
+  }
+  if (requiresHistoricalOrders && !ordersHistorical) {
+    issues.push("Historical Shopify orders backfill has not produced state yet.");
+  } else if (!ordersHistoricalReady) {
+    issues.push("Historical Shopify orders backfill is not complete yet.");
+  }
+  if (
+    requiresHistoricalReturns &&
+    !returnsHistorical &&
+    returnsRecent?.lastError !== "returns_api_unavailable"
+  ) {
+    issues.push("Historical Shopify returns backfill has not produced state yet.");
+  } else if (!returnsHistoricalReady) {
+    issues.push("Historical Shopify returns backfill is not complete yet.");
   }
   if (!historicalReady) {
     issues.push("Historical Shopify backfill is not complete yet.");

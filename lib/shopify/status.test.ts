@@ -94,6 +94,45 @@ describe("getShopifyStatus", () => {
     expect(status.issues).toContain("Historical Shopify backfill is not complete yet.");
   });
 
+  it("does not mark scoped historical backfill ready when historical sync state is missing", async () => {
+    const now = new Date().toISOString();
+    vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
+      status: "connected",
+      provider_account_id: "test-shop.myshopify.com",
+      scopes: "read_orders,read_all_orders,read_returns",
+    } as never);
+    vi.mocked(syncState.getShopifySyncState)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now,
+      } as never)
+      .mockResolvedValueOnce({
+        latestSyncStatus: "succeeded",
+        latestSuccessfulSyncAt: now,
+      } as never)
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(null as never);
+    vi.mocked(warehouse.getShopifyServingState).mockResolvedValue(null as never);
+    vi.mocked(warehouse.listShopifyReconciliationRuns).mockResolvedValue([] as never);
+    const sql = vi
+      .fn()
+      .mockResolvedValueOnce([{ row_count: "10", first_date: "2026-03-01", last_date: "2026-03-31" }])
+      .mockResolvedValueOnce([{ row_count: "2" }])
+      .mockResolvedValueOnce([{ row_count: "1" }]);
+    vi.mocked(db.getDb).mockReturnValue(sql as never);
+
+    const status = await getShopifyStatus({
+      businessId: "biz_1",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+    });
+
+    expect(status.state).toBe("partial");
+    expect(status.issues).toContain("Historical Shopify orders backfill has not produced state yet.");
+    expect(status.issues).toContain("Historical Shopify returns backfill has not produced state yet.");
+    expect(status.issues).toContain("Historical Shopify backfill is not complete yet.");
+  });
+
   it("blocks ready state when canary trust is failing", async () => {
     vi.mocked(integrations.getIntegrationMetadata).mockResolvedValue({
       status: "connected",

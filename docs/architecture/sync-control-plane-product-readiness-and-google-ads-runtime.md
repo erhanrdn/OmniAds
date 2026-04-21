@@ -399,6 +399,19 @@ The same product-readiness standard should later be extended to:
 
 That future rollout is intentionally non-blocking for this task.
 
+2026-04-21 Shopify kickoff update:
+
+- Shopify rollout has started with a bounded compatibility-path hardening pass
+- initial fixes made Shopify status historical-readiness checks null-safe and
+  scope-aware so missing historical state cannot report as fully ready
+- Shopify historical backfill now defaults on for stores with `read_all_orders`,
+  while `SHOPIFY_HISTORICAL_SYNC_ENABLED=false` remains an explicit opt-out
+- historical chunking moved from a conservative 14-day default to 30 days and
+  GraphQL root page size moved to a bounded 250 to reduce API round-trips
+- page-limit truncation now fails explicitly instead of writing false success
+- Shopify sync-state date normalization now preserves local calendar dates from
+  database `date` objects, preventing ready-through drift
+
 Expected future work:
 
 - move those adapters onto the same incident-canonical control-plane standard

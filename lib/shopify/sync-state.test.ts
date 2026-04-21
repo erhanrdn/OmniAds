@@ -36,6 +36,44 @@ describe("shopify sync state canonical refs", () => {
     sql.mockResolvedValue([]);
   });
 
+  it("normalizes database date objects without shifting local calendar days", async () => {
+    sql.mockResolvedValueOnce([
+      {
+        business_id: "biz-1",
+        provider_account_id: "shop-1",
+        sync_target: "commerce_orders_historical",
+        historical_target_start: new Date(2025, 3, 20),
+        historical_target_end: new Date(2026, 3, 19),
+        ready_through_date: new Date(2025, 4, 4),
+        cursor_timestamp: null,
+        cursor_value: "2025-05-04",
+        latest_sync_started_at: null,
+        latest_successful_sync_at: null,
+        latest_sync_status: "succeeded",
+        latest_sync_window_start: new Date(2025, 3, 20),
+        latest_sync_window_end: new Date(2025, 4, 4),
+        last_error: null,
+        archived_payload_json: null,
+      },
+    ]);
+
+    const result = await syncState.getShopifySyncState({
+      businessId: "biz-1",
+      providerAccountId: "shop-1",
+      syncTarget: "commerce_orders_historical",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        historicalTargetStart: "2025-04-20",
+        historicalTargetEnd: "2026-04-19",
+        readyThroughDate: "2025-05-04",
+        latestSyncWindowStart: "2025-04-20",
+        latestSyncWindowEnd: "2025-05-04",
+      })
+    );
+  });
+
   it("writes canonical ref ids during upsert", async () => {
     await syncState.upsertShopifySyncState({
       businessId: "biz-1",

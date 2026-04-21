@@ -27,6 +27,31 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getPositiveIntegerEnv(name: string, fallback: number) {
+  const parsed = Number(process.env[name] ?? fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+}
+
+function shopifyOrdersMaxPagesPerWindow() {
+  return getPositiveIntegerEnv("SHOPIFY_ORDERS_MAX_PAGES_PER_WINDOW", 20);
+}
+
+function shopifyReturnsMaxPagesPerWindow() {
+  return getPositiveIntegerEnv("SHOPIFY_RETURNS_MAX_PAGES_PER_WINDOW", 20);
+}
+
+function boundedPositiveIntegerEnv(name: string, fallback: number, max: number) {
+  return Math.min(getPositiveIntegerEnv(name, fallback), max);
+}
+
+function shopifyOrdersPageSize() {
+  return boundedPositiveIntegerEnv("SHOPIFY_ORDERS_PAGE_SIZE", 250, 250);
+}
+
+function shopifyReturnsPageSize() {
+  return boundedPositiveIntegerEnv("SHOPIFY_RETURNS_PAGE_SIZE", 250, 250);
+}
+
 type MoneyBag = {
   shopMoney?: {
     amount?: string | null;
@@ -169,8 +194,8 @@ interface ShopifyReturnsPagePayload {
 }
 
 const ORDERS_QUERY = `
-  query ShopifyCommerceOrders($query: String!, $cursor: String) {
-    orders(first: 100, after: $cursor, sortKey: UPDATED_AT, query: $query) {
+  query ShopifyCommerceOrders($query: String!, $cursor: String, $pageSize: Int!) {
+    orders(first: $pageSize, after: $cursor, sortKey: UPDATED_AT, query: $query) {
       pageInfo {
         hasNextPage
         endCursor
@@ -248,8 +273,8 @@ const ORDERS_QUERY = `
 `;
 
 const RETURNS_QUERY = `
-  query ShopifyCommerceReturns($query: String!, $cursor: String) {
-    returns(first: 100, after: $cursor, sortKey: UPDATED_AT, query: $query) {
+  query ShopifyCommerceReturns($query: String!, $cursor: String, $pageSize: Int!) {
+    returns(first: $pageSize, after: $cursor, sortKey: UPDATED_AT, query: $query) {
       pageInfo {
         hasNextPage
         endCursor
@@ -628,6 +653,9 @@ export async function syncShopifyOrdersWindow(input: {
   let refundsWritten = 0;
   let transactionsWritten = 0;
   let maxUpdatedAt: string | null = null;
+  let truncatedByPageLimit = false;
+  const maxPagesPerWindow = shopifyOrdersMaxPagesPerWindow();
+  const pageSize = shopifyOrdersPageSize();
   const timeZone =
     typeof credentials.metadata?.iana_timezone === "string"
       ? credentials.metadata.iana_timezone
@@ -635,7 +663,7 @@ export async function syncShopifyOrdersWindow(input: {
   const queryField = input.queryField ?? "created_at";
   const query = `${queryField}:>=${input.startDate}T00:00:00Z ${queryField}:<=${input.endDate}T23:59:59Z status:any test:false`;
 
-  while (pageCount < 20) {
+  while (pageCount < maxPagesPerWindow) {
     pageCount += 1;
     logRuntimeValidation("recent_orders_page_loop_started", {
       pageCount,
@@ -657,6 +685,7 @@ export async function syncShopifyOrdersWindow(input: {
         variables: {
           query,
           cursor,
+          pageSize,
         },
       });
     } catch (error) {
@@ -842,7 +871,29 @@ export async function syncShopifyOrdersWindow(input: {
     if (!payload.orders?.pageInfo?.hasNextPage || !payload.orders?.pageInfo?.endCursor) {
       break;
     }
+    if (pageCount >= maxPagesPerWindow) {
+      truncatedByPageLimit = true;
+      logRuntimeValidation("recent_orders_page_limit_exceeded", {
+        pageCount,
+        maxPagesPerWindow,
+        endCursorPresent: true,
+      });
+      break;
+    }
     cursor = payload.orders.pageInfo.endCursor;
+  }
+
+  if (truncatedByPageLimit) {
+    return {
+      success: false,
+      reason: "orders_page_limit_exceeded" as const,
+      orders: ordersWritten,
+      orderLines: orderLinesWritten,
+      refunds: refundsWritten,
+      transactions: transactionsWritten,
+      pages: pageCount,
+      maxUpdatedAt,
+    };
   }
 
   return {
@@ -887,13 +938,16 @@ export async function syncShopifyReturnsWindow(input: {
   let pageCount = 0;
   let returnsWritten = 0;
   let maxUpdatedAt: string | null = null;
+  let truncatedByPageLimit = false;
+  const maxPagesPerWindow = shopifyReturnsMaxPagesPerWindow();
+  const pageSize = shopifyReturnsPageSize();
   const timeZone =
     typeof credentials.metadata?.iana_timezone === "string"
       ? credentials.metadata.iana_timezone
       : null;
   const query = `updated_at:>=${input.startDate}T00:00:00Z updated_at:<=${input.endDate}T23:59:59Z`;
 
-  while (pageCount < 20) {
+  while (pageCount < maxPagesPerWindow) {
     pageCount += 1;
     let payload: ShopifyReturnsPagePayload;
     try {
@@ -904,6 +958,7 @@ export async function syncShopifyReturnsWindow(input: {
         variables: {
           query,
           cursor,
+          pageSize,
         },
       });
     } catch (error) {
@@ -979,7 +1034,21 @@ export async function syncShopifyReturnsWindow(input: {
     if (!payload.returns?.pageInfo?.hasNextPage || !payload.returns?.pageInfo?.endCursor) {
       break;
     }
+    if (pageCount >= maxPagesPerWindow) {
+      truncatedByPageLimit = true;
+      break;
+    }
     cursor = payload.returns.pageInfo.endCursor;
+  }
+
+  if (truncatedByPageLimit) {
+    return {
+      success: false,
+      reason: "returns_page_limit_exceeded" as const,
+      returns: returnsWritten,
+      pages: pageCount,
+      maxUpdatedAt,
+    };
   }
 
   return {
