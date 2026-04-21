@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveMetaAnalysisStatus,
   didMetaAnalysisRefetchProduceUsableData,
+  metaAnalysisRunRangeMatches,
 } from "@/lib/meta/analysis-state";
 
 const range = {
@@ -367,5 +368,44 @@ describe("deriveMetaAnalysisStatus", () => {
         expectedRange: range,
       }),
     ).toBe(true);
+  });
+
+  it("matches the active analysis range with normalized dates", () => {
+    expect(
+      metaAnalysisRunRangeMatches(
+        {
+          businessId: "biz",
+          startDate: "2026-04-01T00:00:00.000Z",
+          endDate: "2026-04-21T23:59:59.999Z",
+        },
+        range,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects stale analyze completions after the active range changes", () => {
+    expect(
+      metaAnalysisRunRangeMatches(
+        {
+          businessId: "biz",
+          startDate: "2026-04-08",
+          endDate: "2026-04-21",
+        },
+        range,
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects stale analyze completions after the active business changes", () => {
+    expect(
+      metaAnalysisRunRangeMatches(
+        {
+          businessId: "other-biz",
+          startDate: "2026-04-01",
+          endDate: "2026-04-21",
+        },
+        range,
+      ),
+    ).toBe(false);
   });
 });

@@ -121,6 +121,18 @@ function responseRangeMismatch(
   return false;
 }
 
+export function metaAnalysisRunRangeMatches(
+  current: MetaAnalysisRunRange | null | undefined,
+  expected: MetaAnalysisRunRange | null | undefined,
+) {
+  if (!current || !expected) return false;
+  return (
+    current.businessId === expected.businessId &&
+    normalizeDateOnly(current.startDate) === normalizeDateOnly(expected.startDate) &&
+    normalizeDateOnly(current.endDate) === normalizeDateOnly(expected.endDate)
+  );
+}
+
 function responseMatchesRunRange(
   response: unknown,
   expected: MetaAnalysisRunRange | null,

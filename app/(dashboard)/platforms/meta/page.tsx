@@ -16,7 +16,7 @@
  *  └─────────────────────────────┴───────────────────┘
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   DollarSign,
@@ -59,6 +59,7 @@ import type { MetaRecommendationsResponse } from "@/lib/meta/recommendations";
 import {
   deriveMetaAnalysisStatus,
   didMetaAnalysisRefetchProduceUsableData,
+  metaAnalysisRunRangeMatches,
   type MetaAnalysisRunRange,
 } from "@/lib/meta/analysis-state";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
@@ -557,6 +558,7 @@ export default function MetaPage() {
   const [lastAnalyzedAt, setLastAnalyzedAt] = useState<Date | null>(null);
   const [lastAnalyzedRange, setLastAnalyzedRange] =
     useState<MetaAnalysisRunRange | null>(null);
+  const activeAnalysisRangeRef = useRef<MetaAnalysisRunRange | null>(null);
   const [checkedRecIds, setCheckedRecIds] = useState<Set<string>>(new Set());
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [isManualRefreshRunning, setIsManualRefreshRunning] = useState(false);
@@ -626,6 +628,10 @@ export default function MetaPage() {
     : null;
   const startDate = resolvedMetaRange?.start ?? null;
   const endDate = resolvedMetaRange?.end ?? null;
+  activeAnalysisRangeRef.current =
+    businessId && startDate && endDate
+      ? { businessId, startDate, endDate }
+      : null;
 
   useEffect(() => {
     if (allowedHistoryDays === null && previousYearAllowed) return;
@@ -798,6 +804,7 @@ export default function MetaPage() {
 
   async function handleAnalyze() {
     if (!businessId || !startDate || !endDate || !isMetaReferenceReady) return;
+    const runRange = { businessId, startDate, endDate };
     setRecommendationsError(null);
     let recommendationsResult: Awaited<ReturnType<typeof recommendationsQuery.refetch>>;
     let decisionOsResult: Awaited<ReturnType<typeof decisionOsQuery.refetch>>;
@@ -813,15 +820,18 @@ export default function MetaPage() {
     const hasUsableAnalysis = didMetaAnalysisRefetchProduceUsableData({
       recommendationsResult,
       decisionOsResult,
-      expectedRange: { businessId, startDate, endDate },
+      expectedRange: runRange,
     });
     if (!hasUsableAnalysis) {
       setRecommendationsError(META_ANALYSIS_SAFE_ERROR_MESSAGE);
       return;
     }
+    if (!metaAnalysisRunRangeMatches(activeAnalysisRangeRef.current, runRange)) {
+      return;
+    }
     const analyzedAt = new Date();
     setLastAnalyzedAt(analyzedAt);
-    setLastAnalyzedRange({ businessId, startDate, endDate });
+    setLastAnalyzedRange(runRange);
     setCheckedRecIds(new Set());
   }
 
