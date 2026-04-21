@@ -121,6 +121,19 @@ function responseRangeMismatch(
   return false;
 }
 
+function responseMatchesRunRange(
+  response: unknown,
+  expected: MetaAnalysisRunRange | null,
+) {
+  return (
+    Boolean(expected) &&
+    hasOwnString(response, "businessId") &&
+    hasOwnString(response, "startDate") &&
+    hasOwnString(response, "endDate") &&
+    !responseRangeMismatch(response, expected)
+  );
+}
+
 export function getMetaRecommendationSource(
   recommendationsData?: MetaRecommendationsResponse | null,
 ): MetaRecommendationSourceSystem {
@@ -441,13 +454,41 @@ export function isUsableMetaDecisionOsResponse(
 export function didMetaAnalysisRefetchProduceUsableData(input: {
   recommendationsResult: MetaAnalysisQueryRefetchResult<MetaRecommendationsResponse>;
   decisionOsResult: MetaAnalysisQueryRefetchResult<MetaDecisionOsV1Response | null>;
+  expectedRange: {
+    businessId: string | null | undefined;
+    startDate: string;
+    endDate: string;
+  };
 }) {
+  const expectedRange =
+    input.expectedRange.businessId &&
+    input.expectedRange.startDate &&
+    input.expectedRange.endDate
+      ? {
+          businessId: input.expectedRange.businessId,
+          startDate: input.expectedRange.startDate,
+          endDate: input.expectedRange.endDate,
+        }
+      : null;
   const recommendationsUsable =
     refetchResultSucceeded(input.recommendationsResult) &&
     isUsableMetaRecommendationsResponse(input.recommendationsResult.data);
   const decisionOsUsable =
     refetchResultSucceeded(input.decisionOsResult) &&
     isUsableMetaDecisionOsResponse(input.decisionOsResult.data);
+  const recommendationsMatches =
+    recommendationsUsable &&
+    responseMatchesRunRange(input.recommendationsResult.data, expectedRange);
+  const decisionOsMatches =
+    decisionOsUsable &&
+    responseMatchesRunRange(input.decisionOsResult.data, expectedRange);
 
-  return recommendationsUsable || decisionOsUsable;
+  if (
+    (recommendationsUsable && !recommendationsMatches) ||
+    (decisionOsUsable && !decisionOsMatches)
+  ) {
+    return false;
+  }
+
+  return recommendationsMatches || decisionOsMatches;
 }

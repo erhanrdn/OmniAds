@@ -813,6 +813,7 @@ export default function MetaPage() {
     const hasUsableAnalysis = didMetaAnalysisRefetchProduceUsableData({
       recommendationsResult,
       decisionOsResult,
+      expectedRange: { businessId, startDate, endDate },
     });
     if (!hasUsableAnalysis) {
       setRecommendationsError(META_ANALYSIS_SAFE_ERROR_MESSAGE);

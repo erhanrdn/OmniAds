@@ -251,6 +251,7 @@ describe("deriveMetaAnalysisStatus", () => {
           status: "success",
           data: null,
         },
+        expectedRange: range,
       }),
     ).toBe(false);
   });
@@ -267,6 +268,103 @@ describe("deriveMetaAnalysisStatus", () => {
           error: new Error("failed"),
           data: null,
         },
+        expectedRange: range,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat usable recommendations from a previous date range as successful analysis", () => {
+    expect(
+      didMetaAnalysisRefetchProduceUsableData({
+        recommendationsResult: {
+          status: "success",
+          data: recommendations("decision_os", {
+            startDate: "2026-03-01",
+            endDate: "2026-03-21",
+          }),
+        },
+        decisionOsResult: {
+          status: "success",
+          data: null,
+        },
+        expectedRange: range,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat usable Decision OS data from a previous business as successful analysis", () => {
+    expect(
+      didMetaAnalysisRefetchProduceUsableData({
+        recommendationsResult: {
+          status: "success",
+          data: null,
+        },
+        decisionOsResult: {
+          status: "success",
+          data: decisionOs({
+            businessId: "previous-biz",
+          }),
+        },
+        expectedRange: range,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not stamp success when a usable same-run refetch payload is mismatched", () => {
+    expect(
+      didMetaAnalysisRefetchProduceUsableData({
+        recommendationsResult: {
+          status: "success",
+          data: recommendations("decision_os", {
+            startDate: "2026-04-02",
+          }),
+        },
+        decisionOsResult: {
+          status: "success",
+          data: decisionOs(),
+        },
+        expectedRange: range,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat usable refetch data with missing range fields as successful analysis", () => {
+    const dataWithoutBusinessId = Object.fromEntries(
+      Object.entries(
+        recommendations("decision_os") as Record<string, unknown>,
+      ).filter(([key]) => key !== "businessId"),
+    );
+
+    expect(
+      didMetaAnalysisRefetchProduceUsableData({
+        recommendationsResult: {
+          status: "success",
+          data: dataWithoutBusinessId as never,
+        },
+        decisionOsResult: {
+          status: "success",
+          data: null,
+        },
+        expectedRange: range,
+      }),
+    ).toBe(false);
+  });
+
+  it("normalizes refetch response dates before comparing the active range", () => {
+    expect(
+      didMetaAnalysisRefetchProduceUsableData({
+        recommendationsResult: {
+          status: "success",
+          data: null,
+        },
+        decisionOsResult: {
+          status: "success",
+          data: decisionOs({
+            startDate: "2026-04-01T00:00:00.000Z",
+            endDate: "2026-04-21T23:59:59.999Z",
+          }),
+        },
+        expectedRange: range,
       }),
     ).toBe(true);
   });
