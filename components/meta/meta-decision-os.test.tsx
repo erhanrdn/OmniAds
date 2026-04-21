@@ -549,23 +549,295 @@ function payload() {
 }
 
 describe("MetaDecisionOsOverview", () => {
-  it("renders the structured operator sections", () => {
+  it("renders an explicit loading state", () => {
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={null} isLoading />,
+    );
+
+    expect(html).toContain("Loading Decision OS surface");
+    expect(html).toContain("meta-decision-os-loading");
+  });
+
+  it("renders an explicit no-data state", () => {
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={null} isLoading={false} />,
+    );
+
+    expect(html).toContain("No Decision OS surface loaded.");
+    expect(html).toContain("Run analysis to generate account-level authority");
+  });
+
+  it("renders ready authority with command-ready action core", () => {
+    const data = payload();
+    data.authority = {
+      ...data.authority,
+      truthState: "live_confident",
+      completeness: "complete",
+      freshness: {
+        status: "fresh",
+        updatedAt: "2026-04-10T06:30:00.000Z",
+        reason: null,
+      },
+      missingInputs: [],
+      reasons: [],
+      note: "Meta Decision OS has complete authority for this range.",
+      readReliability: {
+        status: "stable",
+        detail: "Warehouse reads are stable.",
+        determinism: "stable",
+      },
+      readiness: {
+        daysReady: 5,
+        daysExpected: 5,
+        missingInputs: [],
+        suppressedActionClasses: [],
+        previewCoverage: {
+          readyCount: 2,
+          degradedCount: 0,
+          missingCount: 0,
+        },
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Authority &amp; readiness");
+    expect(html).toContain("Operator Plan Summary");
+    expect(html).toContain("Highlighted Action Core");
+    expect(html).toContain("Increase budget");
+    expect(html).toContain("Winning lane");
+    expect(html).toContain("Action core");
+    expect(html).not.toContain("No command-ready Decision OS action core item is available.");
+  });
+
+  it("does not treat missing authority as command-ready", () => {
+    const data = payload();
+    data.authority = undefined;
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Highlighted Action Core");
+    expect(html).toContain("No command-ready Decision OS action core item is available.");
+    expect(html).toContain("Watchlist / Degraded Reads");
+    expect(html).toContain("context");
+    expect(html).not.toContain("Increase budget");
+  });
+
+  it("does not treat missing row trust as command-ready", () => {
+    const data = payload();
+    data.authority = {
+      ...data.authority,
+      truthState: "live_confident",
+      completeness: "complete",
+      freshness: {
+        status: "fresh",
+        updatedAt: "2026-04-10T06:30:00.000Z",
+        reason: null,
+      },
+      missingInputs: [],
+      reasons: [],
+      note: "Meta Decision OS has complete authority for this range.",
+      readReliability: {
+        status: "stable",
+        detail: "Warehouse reads are stable.",
+        determinism: "stable",
+      },
+    };
+    data.campaigns = [];
+    data.geoDecisions = [];
+    (data.adSets[0] as any).trust = undefined;
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("No command-ready Decision OS action core item is available.");
+    expect(html).toContain("trust unavailable");
+    expect(html).toContain("Decision OS trust metadata is not available for this row.");
+    expect(html).not.toContain("Increase budget");
+  });
+
+  it("does not treat inactive or immaterial trust as command-ready", () => {
+    const data = payload();
+    data.authority = {
+      ...data.authority,
+      truthState: "live_confident",
+      completeness: "complete",
+      freshness: {
+        status: "fresh",
+        updatedAt: "2026-04-10T06:30:00.000Z",
+        reason: null,
+      },
+      missingInputs: [],
+      reasons: [],
+      note: "Meta Decision OS has complete authority for this range.",
+      readReliability: {
+        status: "stable",
+        detail: "Warehouse reads are stable.",
+        determinism: "stable",
+      },
+    };
+    data.campaigns = [];
+    data.geoDecisions = [];
+    data.adSets = [
+      {
+        ...data.adSets[0],
+        trust: {
+          ...data.adSets[0].trust,
+          truthState: "inactive_or_immaterial",
+        },
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("No command-ready Decision OS action core item is available.");
+    expect(html).toContain("inactive or immaterial");
+    expect(html).toContain("context");
+    expect(html).not.toContain("Increase budget");
+  });
+
+  it("keeps degraded or missing-truth action core out of primary command display", () => {
     const html = renderToStaticMarkup(
       <MetaDecisionOsOverview decisionOs={payload()} isLoading={false} />,
     );
 
-    expect(html).toContain("Meta Daily Operator Surface");
-    expect(html).toContain("Show why");
-    expect(html).toContain("Act now");
-    expect(html).toContain("Increase budget");
-    expect(html).toContain("Policy Review");
-    expect(html).toContain("Meta detail authority");
-    expect(html).toContain("Secondary Workflow Context");
-    expect(html).toContain("Budget Shift Detail");
-    expect(html).toContain("Winner Scale Detail");
-    expect(html).toContain("Meta Detail Context");
-    expect(html).toContain("Protected Context");
+    expect(html).toContain("degraded missing truth");
+    expect(html).toContain("Missing truth: target_pack, country_economics");
+    expect(html).toContain("No command-ready Decision OS action core item is available.");
+    expect(html).toContain("Watchlist / Degraded Reads");
+    expect(html).toContain("context");
     expect(html).toContain("trust-capped by missing commercial truth");
+  });
+
+  it("renders watchlist rows when no action core is command-ready", () => {
+    const data = payload();
+    data.campaigns = [];
+    data.adSets = [];
+    data.geoDecisions = [
+      {
+        ...data.geoDecisions[1],
+        trust: {
+          ...data.geoDecisions[1].trust,
+          surfaceLane: "watchlist",
+          operatorDisposition: "monitor_low_truth",
+        },
+      },
+    ];
+    data.summary.surfaceSummary = {
+      ...data.summary.surfaceSummary,
+      actionCoreCount: 0,
+      watchlistCount: 1,
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Highlighted Action Core");
+    expect(html).toContain("No command-ready Decision OS action core item is available.");
+    expect(html).toContain("Watchlist / Degraded Reads");
+    expect(html).toContain("Thin-signal GEOs should validate in a pooled cluster.");
+  });
+
+  it("renders protected no-touch items with their reason", () => {
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={payload()} isLoading={false} />,
+    );
+
+    expect(html).toContain("Protected / No-Touch");
+    expect(html).toContain("Campaign One");
+    expect(html).toContain("Protect winner");
+    expect(html).toContain("no-touch");
+  });
+
+  it("renders opportunity board empty state", () => {
+    const data = payload();
+    data.opportunityBoard = [];
+    data.summary.opportunitySummary = {
+      totalCount: 0,
+      queueEligibleCount: 0,
+      geoCount: 0,
+      winnerScaleCount: 0,
+      protectedCount: 0,
+      headline: "Opportunity board is empty.",
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Opportunity Board");
+    expect(html).toContain("Queue eligible 0");
+    expect(html).toContain("Opportunity board is empty.");
+  });
+
+  it("uses only queue metadata when opportunity eligibilityTrace is missing", () => {
+    const data = payload();
+    data.opportunityBoard = [
+      {
+        ...data.opportunityBoard[0],
+        queue: {
+          eligible: false,
+          blockedReasons: ["Queue blocker from response"],
+          watchReasons: ["Queue watch from response"],
+        },
+        eligibilityTrace: undefined,
+      } as any,
+    ];
+    data.summary.opportunitySummary = {
+      totalCount: 1,
+      queueEligibleCount: 0,
+      geoCount: 0,
+      winnerScaleCount: 1,
+      protectedCount: 0,
+      headline: "One opportunity-board item is blocked by queue metadata.",
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Main blockers: Queue blocker from response · Queue watch from response");
+    expect(html).toContain("Queue blocker from response");
+    expect(html).not.toContain("Protected winners stay visible as guardrail context");
+  });
+
+  it("keeps policy details collapsible while showing the main reason outside details", () => {
+    const data = payload();
+    data.authority = {
+      ...data.authority,
+      truthState: "live_confident",
+      completeness: "complete",
+      freshness: {
+        status: "fresh",
+        updatedAt: "2026-04-10T06:30:00.000Z",
+        reason: null,
+      },
+      missingInputs: [],
+      reasons: [],
+      note: "Meta Decision OS has complete authority for this range.",
+      readReliability: {
+        status: "stable",
+        detail: "Warehouse reads are stable.",
+        determinism: "stable",
+      },
+    };
+
+    const html = renderToStaticMarkup(
+      <MetaDecisionOsOverview decisionOs={data} isLoading={false} />,
+    );
+
+    expect(html).toContain("Winning ad set");
+    expect(html).toContain("Policy and evidence details");
+    expect(html).toContain("Shared policy ladder kept scale budget active");
+    expect(html).not.toContain("Show why");
   });
 
   it("renders the selected campaign decision panel", () => {
