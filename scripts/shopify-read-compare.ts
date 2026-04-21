@@ -200,7 +200,9 @@ export function buildExpectedShopifyOverviewServingData(
   candidate: ShopifyOverviewReadCandidate,
 ) {
   const aggregate =
-    candidate.preferredSource === "warehouse" && candidate.warehouse
+    (candidate.preferredSource === "warehouse" ||
+      candidate.preferredSource === "warehouse_shadow") &&
+    candidate.warehouse
       ? buildWarehouseBackedAggregate({
           source: candidate.warehouse,
           live: candidate.live,

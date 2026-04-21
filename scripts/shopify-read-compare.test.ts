@@ -151,6 +151,72 @@ describe("shopify read compare", () => {
     );
   });
 
+  it("builds the expected warehouse-shadow serving aggregate", () => {
+    const expected = buildExpectedShopifyOverviewServingData({
+      preferredSource: "warehouse_shadow",
+      live: null,
+      warehouse: {
+        revenue: 36445.99,
+        grossRevenue: 37827.13,
+        refundedRevenue: 1381.14,
+        purchases: 158,
+        returnEvents: 0,
+        averageOrderValue: 239.41,
+        daily: [
+          {
+            date: "2026-04-01",
+            orderRevenue: 2487.4,
+            refundedRevenue: 0,
+            netRevenue: 2487.4,
+            orders: 11,
+            returnEvents: 0,
+          },
+        ],
+      },
+      ledger: null,
+      canaryEnabled: false,
+      canServeWarehouse: false,
+      decisionReasons: [],
+      divergence: null,
+      ledgerConsistency: null,
+      override: null,
+      servingMetadata: {
+        source: "warehouse",
+        provider: "shopify",
+        trustState: "live_fallback",
+        fallbackReason: "range_serving_state_unavailable",
+        lastSyncedAt: null,
+        coverageStatus: "unknown",
+        productionMode: "auto",
+        pendingRepair: false,
+        pendingRepairStartedAt: null,
+        pendingRepairLastTopic: null,
+        pendingRepairLastReceivedAt: null,
+        selectedRevenueTruthBasis: null,
+        basisSelectionReason: null,
+        transactionCoverageOrderRate: null,
+        transactionCoverageAmountRate: null,
+        explainedAdjustmentRevenue: null,
+        unexplainedAdjustmentRevenue: null,
+      },
+      status: {
+        state: "ready",
+        connected: true,
+        shopId: "shop-1",
+        warehouse: null,
+        sync: null,
+        serving: null,
+        reconciliation: null,
+        issues: [],
+      },
+    } as never);
+
+    expect(expected.aggregate?.revenue).toBe(36445.99);
+    expect(expected.aggregate?.purchases).toBe(158);
+    expect(expected.serving.source).toBe("warehouse");
+    expect(expected.serving.trustState).toBe("live_fallback");
+  });
+
   it("reports no diffs when actual serving matches the selected source", async () => {
     vi.mocked(readAdapter.getShopifyOverviewSummaryReadCandidate).mockResolvedValue({
       preferredSource: "live",
