@@ -2728,6 +2728,9 @@ export function buildMetaRecommendationsFromDecisionOs(
 
   return {
     status: "ok",
+    businessId: decisionOs.businessId,
+    startDate: decisionOs.startDate,
+    endDate: decisionOs.endDate,
     summary: {
       title: language === "tr" ? "Birleşik Meta operator bağlamı" : "Unified Meta operator context",
       summary:

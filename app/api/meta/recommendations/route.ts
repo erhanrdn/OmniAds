@@ -56,9 +56,9 @@ function attachAnalysisSource(
 ): MetaRecommendationsResponse {
   return {
     ...payload,
-    businessId: input.businessId,
-    startDate: input.startDate,
-    endDate: input.endDate,
+    businessId: payload.businessId ?? input.businessId,
+    startDate: payload.startDate ?? input.startDate,
+    endDate: payload.endDate ?? input.endDate,
     sourceModel: payload.sourceModel ?? input.sourceModel,
     analysisSource: input.analysisSource,
   };

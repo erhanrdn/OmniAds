@@ -82,8 +82,15 @@ vi.mock("@/lib/meta/recommendations", () => ({
       },
     ],
   })),
-  buildMetaRecommendationsFromDecisionOs: vi.fn(() => ({
+  buildMetaRecommendationsFromDecisionOs: vi.fn((decisionOs?: {
+    businessId?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => ({
     status: "ok",
+    businessId: decisionOs?.businessId,
+    startDate: decisionOs?.startDate,
+    endDate: decisionOs?.endDate,
     summary: {
       title: "Decision OS summary",
       summary: "Decision OS summary",
@@ -176,6 +183,9 @@ describe("GET /api/meta/recommendations", () => {
     vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
     vi.mocked(decisionOsSource.getMetaDecisionOsForRange).mockResolvedValue({
       contractVersion: "meta-decision-os.v1",
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
     } as never);
 
     const response = await GET(
@@ -191,8 +201,37 @@ describe("GET /api/meta/recommendations", () => {
       decisionOsAvailable: true,
     });
     expect(payload.sourceModel).toBe("decision_os_unified");
+    expect(payload.businessId).toBe("biz");
+    expect(payload.startDate).toBe("2026-03-01");
+    expect(payload.endDate).toBe("2026-03-31");
     expect(metaRecommendations.buildMetaRecommendationsFromDecisionOs).toHaveBeenCalled();
     expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
+  });
+
+  it("preserves upstream Decision OS range metadata instead of relabeling stale recommendations", async () => {
+    vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(decisionOsSource.getMetaDecisionOsForRange).mockResolvedValue({
+      contractVersion: "meta-decision-os.v1",
+      businessId: "previous-biz",
+      startDate: "2026-02-01",
+      endDate: "2026-02-28",
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
+      )
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.analysisSource).toEqual({
+      system: "decision_os",
+      decisionOsAvailable: true,
+    });
+    expect(payload.businessId).toBe("previous-biz");
+    expect(payload.startDate).toBe("2026-02-01");
+    expect(payload.endDate).toBe("2026-02-28");
   });
 
   it("keeps the intentional snapshot-backed bid regime analysis path", async () => {
