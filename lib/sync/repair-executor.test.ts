@@ -69,6 +69,7 @@ vi.mock("@/lib/sync/worker-health", () => ({
 const repairExecutor = await import("@/lib/sync/repair-executor");
 const incidents = await import("@/lib/sync/incidents");
 const remediationExecutions = await import("@/lib/sync/remediation-executions");
+const providerJobLock = await import("@/lib/sync/provider-job-lock");
 
 function buildExecution(
   overrides: Partial<SyncRepairExecutionRecord> = {},
@@ -215,6 +216,8 @@ describe("resolveSyncRepairExecutionWindowState", () => {
 
 describe("executeAutoSyncRepairRecommendation", () => {
   it("quarantines repeated terminal failures before running another repair", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-20T13:00:00.000Z"));
     vi.mocked(incidents.buildSyncRepairExecutionSignature).mockReturnValue("sig-1");
     vi.mocked(remediationExecutions.finalizeStaleRunningSyncRepairExecutions).mockResolvedValue([]);
     vi.mocked(remediationExecutions.getLatestSyncRepairExecution).mockResolvedValue(null);
@@ -241,12 +244,18 @@ describe("executeAutoSyncRepairRecommendation", () => {
       }),
     ]);
     vi.mocked(incidents.transitionSyncIncident).mockResolvedValue(null as never);
+    vi.mocked(providerJobLock.releaseExpiredProviderJobLock).mockResolvedValue({
+      released: false,
+      state: null,
+    });
 
     const result = await repairExecutor.executeAutoSyncRepairRecommendation({
-      providerScope: "meta",
-      recommendation: buildRecommendation(),
-      source: "worker",
-    });
+        providerScope: "meta",
+        recommendation: buildRecommendation(),
+        source: "worker",
+      }).finally(() => {
+        vi.useRealTimers();
+      });
 
     expect(result.skippedReason).toBe("quarantined");
     expect(result.execution).toBeNull();
