@@ -67,4 +67,19 @@ describe("GET /api/oauth/shopify/start", () => {
       "https://adsecute.com/shopify/connect",
     );
   });
+
+  it("does not redirect browsers back to a bind-all dev host", async () => {
+    vi.mocked(hmac.verifyShopifyQueryHmac).mockReturnValue(false);
+
+    const response = await GET(
+      new NextRequest(
+        "http://0.0.0.0:3000/api/oauth/shopify/start?shop=test-shop.myshopify.com&hmac=bad&timestamp=1711939200",
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3000/shopify/connect",
+    );
+  });
 });

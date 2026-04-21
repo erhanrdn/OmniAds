@@ -5,6 +5,7 @@ import { getSessionFromRequest } from "@/lib/auth";
 import { verifyShopifyQueryHmac } from "@/lib/shopify/oauth-hmac";
 import { createShopifyOAuthState } from "@/lib/shopify/oauth-state";
 import { normalizeShopifyShopDomain } from "@/lib/shopify/shop-domain";
+import { normalizeBindAllHostForBrowser } from "@/lib/public-url";
 
 function hasValidInstallSignature(request: NextRequest): boolean {
   return verifyShopifyQueryHmac({
@@ -20,12 +21,14 @@ export async function GET(request: NextRequest) {
   const returnTo = sanitizeNextPath(searchParams.get("returnTo"));
   const businessId = searchParams.get("businessId")?.trim() ?? "";
   const signedInstallRequest = searchParams.has("hmac");
+  const connectUrl = () =>
+    new URL("/shopify/connect", normalizeBindAllHostForBrowser(request.url));
 
   if (!shop) {
-    return NextResponse.redirect(new URL("/shopify/connect", request.url));
+    return NextResponse.redirect(connectUrl());
   }
   if (signedInstallRequest && !hasValidInstallSignature(request)) {
-    return NextResponse.redirect(new URL("/shopify/connect", request.url));
+    return NextResponse.redirect(connectUrl());
   }
 
   const session = await getSessionFromRequest(request);

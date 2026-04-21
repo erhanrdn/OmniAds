@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/store/app-store";
 import { applyAuthenticatedWorkspace } from "@/lib/client-auth-state";
 import { sanitizeNextPath } from "@/lib/auth-routing";
+import { normalizeBindAllOriginForBrowser } from "@/lib/public-url";
 
 const SHOPIFY_APP_STORE_URL = "https://apps.shopify.com/adsecute";
 
@@ -217,7 +218,10 @@ export function ShopifyConnectClientPage() {
     }
 
     await refreshWorkspaceState();
-    const callbackUrl = new URL("/integrations/callback/shopify", window.location.origin);
+    const callbackUrl = new URL(
+      "/integrations/callback/shopify",
+      normalizeBindAllOriginForBrowser(window.location.origin),
+    );
     callbackUrl.searchParams.set("status", "success");
     callbackUrl.searchParams.set("businessId", payload.businessId);
     if (payload.integration?.id) {

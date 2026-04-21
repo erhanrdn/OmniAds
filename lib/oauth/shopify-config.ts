@@ -1,4 +1,8 @@
 import { logStartupError, logStartupEvent } from "@/lib/startup-diagnostics";
+import {
+  isBindAllHostname,
+  normalizeBindAllHostForBrowser,
+} from "@/lib/public-url";
 
 let hasLoggedShopifyConfig = false;
 
@@ -7,8 +11,16 @@ function isUnsafePublicHostname(hostname: string) {
   return (
     normalized === "localhost" ||
     normalized === "127.0.0.1" ||
-    normalized === "0.0.0.0"
+    isBindAllHostname(normalized)
   );
+}
+
+function normalizeConfiguredShopifyUrl(value: string) {
+  const url = new URL(value);
+  if (isBindAllHostname(url.hostname) && process.env.NODE_ENV !== "production") {
+    return normalizeBindAllHostForBrowser(value);
+  }
+  return value;
 }
 
 function validatePublicShopifyUrl(input: {
@@ -132,13 +144,18 @@ export const SHOPIFY_CONFIG = {
       process.env.SHOPIFY_APP_URL?.trim() ||
       process.env.NEXT_PUBLIC_APP_URL?.trim() ||
       "http://localhost:3000";
-    return v;
+    return normalizeConfiguredShopifyUrl(v);
   },
   get redirectUri() {
     const v = process.env.SHOPIFY_REDIRECT_URI?.trim();
-    const redirectUri = v || `${this.appUrl}/api/oauth/shopify/callback`;
+    const redirectUri = normalizeConfiguredShopifyUrl(
+      v || new URL("/api/oauth/shopify/callback", this.appUrl).toString(),
+    );
     logShopifyConfigDiagnostics(this.appUrl, redirectUri);
-    return redirectUri;
+    return validatePublicShopifyUrl({
+      label: "SHOPIFY_REDIRECT_URI",
+      value: redirectUri,
+    }).toString();
   },
   get validatedAppUrl() {
     const url = validatePublicShopifyUrl({

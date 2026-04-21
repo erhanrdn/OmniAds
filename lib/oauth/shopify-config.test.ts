@@ -76,4 +76,32 @@ describe("SHOPIFY_CONFIG", () => {
 
     expect(SHOPIFY_CONFIG.validatedAppUrl).toBe("http://localhost:3000/");
   });
+
+  it("normalizes bind-all dev URLs before using them in Shopify OAuth redirects", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SHOPIFY_APP_URL", "http://0.0.0.0:3000");
+    vi.stubEnv(
+      "SHOPIFY_REDIRECT_URI",
+      "http://0.0.0.0:3000/api/oauth/shopify/callback",
+    );
+
+    const { SHOPIFY_CONFIG } = await loadConfig();
+
+    expect(SHOPIFY_CONFIG.validatedAppUrl).toBe("http://localhost:3000/");
+    expect(SHOPIFY_CONFIG.redirectUri).toBe(
+      "http://localhost:3000/api/oauth/shopify/callback",
+    );
+  });
+
+  it("builds the default Shopify redirect URI from the normalized app URL", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("SHOPIFY_APP_URL", "http://0.0.0.0:3000");
+    vi.stubEnv("SHOPIFY_REDIRECT_URI", "");
+
+    const { SHOPIFY_CONFIG } = await loadConfig();
+
+    expect(SHOPIFY_CONFIG.redirectUri).toBe(
+      "http://localhost:3000/api/oauth/shopify/callback",
+    );
+  });
 });

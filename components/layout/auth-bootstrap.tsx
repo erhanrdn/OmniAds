@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAppStore } from "@/store/app-store";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { logClientAuthEvent } from "@/lib/auth-diagnostics";
+import { normalizeBindAllOriginForBrowser } from "@/lib/public-url";
 import { applyAuthenticatedWorkspace, clearAuthScopedClientState } from "@/lib/client-auth-state";
 import type { AppLanguage } from "@/lib/i18n";
 
@@ -231,7 +232,10 @@ export function AuthBootstrap() {
       const token = payload?.context?.token;
       if (!token || cancelled) return;
 
-      const nextUrl = new URL("/shopify/connect", window.location.origin);
+      const nextUrl = new URL(
+        "/shopify/connect",
+        normalizeBindAllOriginForBrowser(window.location.origin),
+      );
       nextUrl.searchParams.set("context", token);
       if (payload?.context?.returnTo) {
         nextUrl.searchParams.set("returnTo", payload.context.returnTo);
