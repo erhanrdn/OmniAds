@@ -1,7 +1,7 @@
 # Meta Policy Architecture and Data Contract Audit
 
-Role: Meta Policy Architect + Data Contract Auditor  
-Repo/app name: Adsecute  
+Role: Meta Policy Architect + Data Contract Auditor
+Repo/app name: Adsecute
 Scope: Phase 3 Meta operator foundation only. No app code was changed.
 
 ## Executive Summary

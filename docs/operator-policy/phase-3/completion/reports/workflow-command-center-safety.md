@@ -1,8 +1,8 @@
 # Workflow / Command Center Safety Review
 
-Role: Workflow / Command Center Safety Reviewer  
-Phase: Adsecute Phase 3 Completion  
-Branch reviewed: `feature/adsecute-decision-range-firewall`  
+Role: Workflow / Command Center Safety Reviewer
+Phase: Adsecute Phase 3 Completion
+Branch reviewed: `feature/adsecute-decision-range-firewall`
 Scope: inspection only. No app code changes.
 
 ## Files Inspected

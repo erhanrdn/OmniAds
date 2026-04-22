@@ -1,8 +1,8 @@
 # Phase 3 Completion Final Report
 
-Repo/app name: Adsecute  
-GitHub repo: `erhanrdn/OmniAds`  
-Current branch: `feature/adsecute-decision-range-firewall`  
+Repo/app name: Adsecute
+GitHub repo: `erhanrdn/OmniAds`
+Current branch: `feature/adsecute-decision-range-firewall`
 Current PR: https://github.com/erhanrdn/OmniAds/pull/16
 
 ## 1. Branch Status

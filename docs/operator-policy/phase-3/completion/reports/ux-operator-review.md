@@ -1,6 +1,6 @@
 # UX Operator Review - Phase 3 Meta Completion
 
-Role: UX Operator Reviewer  
+Role: UX Operator Reviewer
 Scope: Meta Decision OS/operator output only. No app code changed.
 
 ## Current UI Inventory

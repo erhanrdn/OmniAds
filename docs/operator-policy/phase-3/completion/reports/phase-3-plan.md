@@ -1,7 +1,7 @@
 # Phase 3 Completion Plan
 
-Role: Phase 3 Planner / Final Reviewer  
-Repo/app name: Adsecute  
+Role: Phase 3 Planner / Final Reviewer
+Repo/app name: Adsecute
 Scope: planning only. No app code changes.
 
 ## Planning Position
