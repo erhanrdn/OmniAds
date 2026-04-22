@@ -1457,6 +1457,9 @@ describe("command center domain", () => {
     expect(metaAction?.provenance).toBeNull();
     expect(metaAction?.throughput.defaultQueueEligible).toBe(false);
     expect(metaAction?.throughput.selectedInDefaultQueue).toBe(false);
+    expect(metaAction?.operatorInstruction?.invalidActions.join(" ")).toContain(
+      "Missing decision provenance.",
+    );
   });
 
   it("keeps policy-blocked Meta actions out of default queue and overflow backlog", () => {
@@ -1512,6 +1515,9 @@ describe("command center domain", () => {
 
     expect(creativeAction?.operatorPolicy).toBeNull();
     expect(creativeAction?.operatorInstruction?.operatorVerb).toBe("Use as context");
+    expect(creativeAction?.operatorInstruction?.invalidActions.join(" ")).toContain(
+      "Creative operator policy is missing",
+    );
     expect(creativeAction?.throughput.actionable).toBe(false);
     expect(creativeAction?.throughput.defaultQueueEligible).toBe(false);
   });
@@ -1547,6 +1553,9 @@ describe("command center domain", () => {
 
     expect(creativeAction?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
     expect(creativeAction?.operatorInstruction?.primaryMove).toContain("context only");
+    expect(creativeAction?.operatorInstruction?.invalidActions.join(" ")).toContain(
+      "snapshot evidence is contextual",
+    );
     expect(creativeAction?.throughput.defaultQueueEligible).toBe(false);
   });
 
@@ -2112,6 +2121,66 @@ describe("command center domain", () => {
       "budget_shift",
     );
     expect(budgetShiftAction?.throughput.defaultQueueEligible).toBe(true);
+    expect(budgetShiftAction?.operatorPolicy).toBeNull();
+    expect(budgetShiftAction?.operatorInstruction?.queueEligible).toBe(true);
+    expect(budgetShiftAction?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
+      "Do not promote this Command Center card into queue work",
+    );
+  });
+
+  it("does not show false queue warnings for final-eligible Meta cards without policy objects", () => {
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions: aggregateCommandCenterActions({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: metaFixture(),
+        creativeDecisionOs: creativeFixture(),
+      }),
+      decisionAsOf: "2026-04-10",
+    });
+    const metaBudgetShift = decorated.find(
+      (action) => action.sourceType === "meta_budget_shift",
+    );
+
+    expect(metaBudgetShift?.operatorPolicy).toBeNull();
+    expect(metaBudgetShift?.throughput.defaultQueueEligible).toBe(true);
+    expect(metaBudgetShift?.operatorInstruction?.queueEligible).toBe(true);
+    expect(metaBudgetShift?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
+      "Do not promote this Command Center card into queue work",
+    );
+  });
+
+  it("keeps valid safe-to-queue Creative instruction free of false queue warnings", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.creatives[0]!.trust = {
+      surfaceLane: "action_core",
+      truthState: "live_confident",
+      operatorDisposition: "standard",
+      reasons: ["Creative policy allows manual queue work."],
+    };
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions: aggregateCommandCenterActions({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: null,
+        creativeDecisionOs: payload,
+      }),
+      decisionAsOf: "2026-04-10",
+    });
+    const creativeAction = decorated.find(
+      (action) =>
+        action.sourceType === "creative_primary_decision" &&
+        action.title === "Promo Hook A",
+    );
+
+    expect(creativeAction?.operatorPolicy?.queueEligible).toBe(true);
+    expect(creativeAction?.operatorInstruction?.queueEligible).toBe(true);
+    expect(creativeAction?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
+      "Do not promote this Command Center card into queue work",
+    );
   });
 
   it("keeps placement anomaly actions queue-eligible when upstream provenance is present", () => {

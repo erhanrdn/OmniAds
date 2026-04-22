@@ -80,17 +80,11 @@ function defaultEvidenceStrength(input: {
 function defaultAmountGuidance(
   kind: OperatorInstructionKind,
   actionLabel: string,
+  policy: OperatorPolicyAssessment | null,
   override?: OperatorInstructionAmountGuidance | null,
 ): OperatorInstructionAmountGuidance {
   if (override) return override;
-  const lowerAction = actionLabel.toLowerCase();
-  if (
-    kind === "do_now" &&
-    (lowerAction.includes("scale") ||
-      lowerAction.includes("budget") ||
-      lowerAction.includes("increase") ||
-      lowerAction.includes("reduce"))
-  ) {
+  if (kind === "do_now" && isAmountSensitiveAction(actionLabel, policy)) {
     return {
       status: "unavailable",
       label: "No safe amount calculated",
@@ -98,11 +92,18 @@ function defaultAmountGuidance(
         "The deterministic policy authorizes the class of work, but this layer does not calculate a safe budget or bid amount.",
     };
   }
-  if (kind === "do_not_touch" || kind === "contextual_only" || kind === "blocked") {
+  if (
+    kind === "do_now" ||
+    kind === "do_not_touch" ||
+    kind === "watch" ||
+    kind === "investigate" ||
+    kind === "contextual_only" ||
+    kind === "blocked"
+  ) {
     return {
       status: "not_applicable",
-      label: "No amount",
-      reason: "No executable amount applies while the instruction is protected, contextual, or blocked.",
+      label: "No amount needed",
+      reason: "This instruction does not require a deterministic budget, bid, or spend amount.",
     };
   }
   return {
@@ -112,15 +113,39 @@ function defaultAmountGuidance(
   };
 }
 
+function isAmountSensitiveAction(
+  actionLabel: string,
+  policy: OperatorPolicyAssessment | null,
+) {
+  const actionClass = policy?.actionClass.toLowerCase() ?? "";
+  const lowerAction = actionLabel.toLowerCase();
+  return (
+    actionClass === "scale" ||
+    actionClass === "budget" ||
+    actionClass === "bid" ||
+    actionClass === "cost_control" ||
+    actionClass === "budget_shift" ||
+    lowerAction.includes("scale") ||
+    lowerAction.includes("budget") ||
+    lowerAction.includes("bid") ||
+    lowerAction.includes("cost control") ||
+    lowerAction.includes("cost cap") ||
+    lowerAction.includes("spend amount") ||
+    lowerAction.includes("increase budget") ||
+    lowerAction.includes("reduce budget")
+  );
+}
+
 function defaultInvalidActions(input: {
   kind: OperatorInstructionKind;
   actionLabel: string;
   policy?: OperatorPolicyAssessment | null;
   amountGuidance: OperatorInstructionAmountGuidance;
+  requiresPolicyForQueue: boolean;
   extra?: string[];
 }) {
   const values = [...(input.extra ?? [])];
-  if (!input.policy) {
+  if (!input.policy && input.requiresPolicyForQueue) {
     values.push("Do not queue or push without deterministic operator policy.");
   }
   if (input.policy?.pushReadiness === "blocked_from_push") {
@@ -199,10 +224,19 @@ export function buildOperatorInstruction(input: {
   invalidActions?: string[];
   amountGuidance?: OperatorInstructionAmountGuidance | null;
   urgency?: OperatorInstructionUrgency;
+  requiresPolicyForQueue?: boolean;
+  pushReadinessOverride?: OperatorInstruction["pushReadiness"] | null;
+  queueEligibleOverride?: boolean | null;
+  canApplyOverride?: boolean | null;
 }): OperatorInstruction {
   const policy = input.policy ?? null;
   const kind = instructionKind(policy);
-  const amountGuidance = defaultAmountGuidance(kind, input.actionLabel, input.amountGuidance);
+  const amountGuidance = defaultAmountGuidance(
+    kind,
+    input.actionLabel,
+    policy,
+    input.amountGuidance,
+  );
   const missingEvidence = uniqueText(policy?.missingEvidence ?? []);
   const nextObservation = uniqueText([
     ...(input.nextObservation ?? []),
@@ -219,6 +253,7 @@ export function buildOperatorInstruction(input: {
     actionLabel: input.actionLabel,
     policy,
     amountGuidance,
+    requiresPolicyForQueue: input.requiresPolicyForQueue ?? true,
     extra: input.invalidActions,
   });
   const evidenceStrength = defaultEvidenceStrength({
@@ -254,9 +289,10 @@ export function buildOperatorInstruction(input: {
     nextObservation,
     invalidActions,
     amountGuidance,
-    pushReadiness: policy?.pushReadiness ?? "blocked_from_push",
-    queueEligible: policy?.queueEligible === true,
-    canApply: policy?.canApply === true,
+    pushReadiness:
+      input.pushReadinessOverride ?? policy?.pushReadiness ?? "blocked_from_push",
+    queueEligible: input.queueEligibleOverride ?? policy?.queueEligible === true,
+    canApply: input.canApplyOverride ?? policy?.canApply === true,
     urgency: input.urgency ?? defaultUrgency(kind),
     confidenceScore: input.confidenceScore ?? null,
     confidenceLabel: confidenceLabel(input.confidenceScore),
