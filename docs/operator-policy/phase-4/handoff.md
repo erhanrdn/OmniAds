@@ -1,6 +1,6 @@
 # Phase 4 Creative Operator Policy Handoff
 
-Phase 4 must not start until Phase 3 Meta operator foundation is merged into `main`.
+Phase 4 may start from updated `main` after the Phase 3 Meta operator foundation merge.
 
 ## What Phase 3 Completed
 
