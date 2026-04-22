@@ -25,6 +25,10 @@ import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { buildAccountOperatingMode } from "@/lib/business-operating-mode";
 import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
+import {
+  assessMetaOperatorPolicy,
+  inferMetaBudgetConstraint,
+} from "@/lib/meta/operator-policy";
 import type {
   AccountOperatingModePayload,
   BusinessCommercialTruthSnapshot,
@@ -36,6 +40,7 @@ import type {
   OperatorDecisionSourceWindow,
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
+  OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
 import type {
   DecisionEvidenceFloor,
@@ -233,6 +238,7 @@ export interface MetaCampaignDecision {
   laneLabel: "Scaling" | "Validation" | "Test" | null;
   policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
+  operatorPolicy?: OperatorPolicyAssessment;
   provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
   evidenceHash: string;
   actionFingerprint: string;
@@ -271,11 +277,13 @@ export interface MetaAdSetDecision {
     optimizationGoal: string | null;
     dailyBudget: number | null;
     lifetimeBudget: number | null;
+    budgetLevel?: "campaign" | "adset" | null;
   };
   whatWouldChangeThisDecision: string[];
   noTouch: boolean;
   policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
+  operatorPolicy?: OperatorPolicyAssessment;
   provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
   evidenceHash: string;
   actionFingerprint: string;
@@ -1005,6 +1013,13 @@ function isRecentIso(input: string | null | undefined, referenceIso: string, day
   const reference = new Date(`${referenceIso}T23:59:59.999Z`).getTime();
   if (!Number.isFinite(timestamp) || !Number.isFinite(reference)) return false;
   return reference - timestamp <= days * 86_400_000;
+}
+
+function inclusiveWindowDays(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00.000Z`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 1;
+  return Math.max(1, Math.round((end - start) / 86_400_000) + 1);
 }
 
 function isPromoActiveOnDate(
@@ -2286,6 +2301,35 @@ function buildAdSetDecision(input: {
       optimizationGoal: input.adSet.optimizationGoal,
     },
   });
+  const operatorPolicy = assessMetaOperatorPolicy({
+    entityType: "adset",
+    action: actionType,
+    trust,
+    authority: input.operatingMode?.authority ?? null,
+    provenance,
+    noTouch,
+    commercialTruthMode: input.geoCoverageMode,
+    commercialMissingInputs: input.operatingMode?.missingInputs ?? [],
+    budgetOwner: input.adSet.budgetLevel ?? "unknown",
+    budgetConstraint: inferMetaBudgetConstraint({
+      spend: input.adSet.spend,
+      dailyBudget: input.adSet.dailyBudget,
+      lifetimeBudget: input.adSet.lifetimeBudget,
+      windowDays: inclusiveWindowDays(
+        input.provenanceContext.sourceWindow.startDate,
+        input.provenanceContext.sourceWindow.endDate,
+      ),
+    }),
+    supportingMetrics: {
+      spend: input.adSet.spend,
+      purchases: input.adSet.purchases,
+      impressions: input.adSet.impressions,
+      dailyBudget: input.adSet.dailyBudget,
+      lifetimeBudget: input.adSet.lifetimeBudget,
+      bidStrategyLabel: input.adSet.bidStrategyLabel,
+      optimizationGoal: input.adSet.optimizationGoal,
+    },
+  });
 
   return {
     decisionId,
@@ -2322,6 +2366,7 @@ function buildAdSetDecision(input: {
       optimizationGoal: input.adSet.optimizationGoal ?? null,
       dailyBudget: input.adSet.dailyBudget ?? null,
       lifetimeBudget: input.adSet.lifetimeBudget ?? null,
+      budgetLevel: input.adSet.budgetLevel ?? null,
     },
     whatWouldChangeThisDecision: [
       noTouch
@@ -2330,6 +2375,7 @@ function buildAdSetDecision(input: {
     ],
     noTouch,
     policy,
+    operatorPolicy,
     provenance,
     evidenceHash: provenance.evidenceHash,
     actionFingerprint: provenance.actionFingerprint,
@@ -2516,6 +2562,30 @@ function buildCampaignDecision(input: {
       adSetDecisionIds: input.adSetDecisions.map((decision) => decision.decisionId),
     },
   });
+  const operatorPolicy = assessMetaOperatorPolicy({
+    entityType: "campaign",
+    action: primaryAction,
+    trust,
+    authority: input.operatingMode?.authority ?? null,
+    provenance,
+    noTouch,
+    commercialTruthMode: input.thresholds.mode,
+    commercialMissingInputs: input.operatingMode?.missingInputs ?? [],
+    budgetOwner: "campaign",
+    budgetConstraint:
+      topAdSetDecision?.operatorPolicy?.blockers.some((reason) =>
+        reason.toLowerCase().includes("budget is not the binding constraint"),
+      )
+        ? "not_binding"
+        : "unknown",
+    supportingMetrics: {
+      spend: input.campaign.spend,
+      purchases: input.campaign.purchases,
+      impressions: input.campaign.impressions,
+      dailyBudget: input.campaign.dailyBudget ?? null,
+      lifetimeBudget: input.campaign.lifetimeBudget ?? null,
+    },
+  });
 
   return {
     campaignId: input.campaign.id,
@@ -2566,6 +2636,7 @@ function buildCampaignDecision(input: {
         : undefined,
     },
     trust,
+    operatorPolicy,
     provenance,
     evidenceHash: provenance.evidenceHash,
     actionFingerprint: provenance.actionFingerprint,

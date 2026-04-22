@@ -24,6 +24,7 @@ import type {
   OperatorAnalyticsWindow,
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
+  OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
 import type {
   BusinessDecisionBidRegime,
@@ -242,6 +243,7 @@ export interface CommandCenterAction {
   createdAt: string;
   sourceContext: CommandCenterActionSourceContext;
   throughput: CommandCenterActionThroughput;
+  operatorPolicy?: OperatorPolicyAssessment | null;
 }
 
 export interface CommandCenterOpportunityItem {
@@ -1084,6 +1086,7 @@ function buildMetaAction(
     entityId: string;
     provenance: OperatorDecisionProvenance | null;
     decisionAsOf: string;
+    operatorPolicy?: OperatorPolicyAssessment | null;
   },
 ): CommandCenterAction {
   const workloadClass = classifyCommandCenterWorkload({
@@ -1126,6 +1129,7 @@ function buildMetaAction(
     lastMutatedAt: null,
     lastMutationId: null,
     createdAt: new Date().toISOString(),
+    operatorPolicy: input.operatorPolicy ?? null,
     throughput: {
       priorityScore: 0,
       actionable: false,
@@ -1388,6 +1392,7 @@ export function aggregateCommandCenterActions(input: {
             (decision as { provenance?: OperatorDecisionProvenance | null })
               .provenance ?? null,
           decisionAsOf: metaDecisionOs.decisionAsOf,
+          operatorPolicy: decision.operatorPolicy ?? null,
         }),
       );
     });
@@ -1821,15 +1826,21 @@ export function decorateCommandCenterActionsWithThroughput(input: {
       0,
       Number(((decisionAsOfTimestamp - ageAnchorTimestamp) / 3_600_000).toFixed(1)),
     );
-    const actionable = isCommandCenterActionActionable(action);
+    const policy = action.operatorPolicy ?? null;
+    const policyBlocksQueue = policy ? !policy.queueEligible : false;
+    const actionable = isCommandCenterActionActionable(action) && !policyBlocksQueue;
     const priorityScore = calculateCommandCenterPriorityScore(action);
     const pushEligibility = buildCommandCenterActionPushEligibility({
       provenance: action.provenance ?? null,
       actionable,
       blockedReason: action.provenance
-        ? action.watchlistOnly || action.surfaceLane !== "action_core"
+        ? policy?.blockers[0] ??
+          (policyBlocksQueue
+            ? policy?.explanation ?? "Operator policy blocks queue eligibility."
+            : null) ??
+          (action.watchlistOnly || action.surfaceLane !== "action_core"
           ? "Decision is contextual only."
-          : null
+            : null)
         : "Missing decision provenance.",
     });
     const slaTargetHours = actionable

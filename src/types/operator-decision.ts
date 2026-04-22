@@ -88,6 +88,31 @@ export interface OperatorDecisionPushEligibility {
     | "operator_review_required"
     | "safe_to_queue"
     | "eligible_for_push_when_enabled"
-    | "blocked_from_push";
+      | "blocked_from_push";
   blockedReason: string | null;
+}
+
+export const OPERATOR_POLICY_STATES = [
+  "do_now",
+  "do_not_touch",
+  "watch",
+  "investigate",
+  "blocked",
+  "contextual_only",
+] as const;
+
+export type OperatorPolicyState = (typeof OPERATOR_POLICY_STATES)[number];
+
+export interface OperatorPolicyAssessment {
+  contractVersion: "operator-policy.v1";
+  state: OperatorPolicyState;
+  actionClass: string;
+  pushReadiness: OperatorDecisionPushEligibility["level"];
+  queueEligible: boolean;
+  canApply: boolean;
+  reasons: string[];
+  blockers: string[];
+  missingEvidence: string[];
+  requiredEvidence: string[];
+  explanation: string;
 }

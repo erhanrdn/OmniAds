@@ -925,6 +925,70 @@ describe("buildMetaDecisionOs", () => {
     );
   });
 
+  it("attaches deterministic operator policy to Meta campaign and ad set rows", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          budgetLevel: "adset",
+          dailyBudget: 30,
+          spend: 900,
+          purchases: 30,
+          revenue: 3600,
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.adSets[0]?.operatorPolicy).toMatchObject({
+      contractVersion: "operator-policy.v1",
+      state: "do_now",
+      actionClass: "scale",
+      pushReadiness: "eligible_for_push_when_enabled",
+      queueEligible: true,
+    });
+    expect(result.campaigns[0]?.operatorPolicy).toMatchObject({
+      contractVersion: "operator-policy.v1",
+    });
+  });
+
+  it("blocks primary ad set scale when the source says campaign budget owns allocation", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          budgetLevel: "campaign",
+          dailyBudget: 30,
+          spend: 900,
+          purchases: 30,
+          revenue: 3600,
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.adSets[0]?.actionType).toBe("scale_budget");
+    expect(result.adSets[0]?.operatorPolicy?.state).toBe("blocked");
+    expect(result.adSets[0]?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
+    expect(result.adSets[0]?.operatorPolicy?.blockers.join(" ")).toContain(
+      "campaign-owned",
+    );
+  });
+
   it("keeps provenance hashes stable when display evidence formatting changes by locale", () => {
     const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
     snapshot.targetPack = {

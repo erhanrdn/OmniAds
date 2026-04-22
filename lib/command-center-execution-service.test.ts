@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import type { CommandCenterAction, CommandCenterPermissions } from "@/lib/command-center";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
+import type { OperatorPolicyAssessment } from "@/src/types/operator-decision";
 
 vi.mock("@/lib/command-center-store", () => ({
   getCommandCenterMutationReceipt: vi.fn(),
@@ -139,6 +140,38 @@ function buildActionFixture(
   };
 }
 
+function blockedOperatorPolicy(): OperatorPolicyAssessment {
+  return {
+    contractVersion: "operator-policy.v1",
+    state: "blocked",
+    actionClass: "scale",
+    pushReadiness: "blocked_from_push",
+    queueEligible: false,
+    canApply: false,
+    reasons: ["Policy blocks this action."],
+    blockers: ["Budget is not the binding constraint."],
+    missingEvidence: ["budget_binding_evidence"],
+    requiredEvidence: ["budget_binding_evidence"],
+    explanation: "Budget is not the binding constraint.",
+  };
+}
+
+function eligibleOperatorPolicy(): OperatorPolicyAssessment {
+  return {
+    contractVersion: "operator-policy.v1",
+    state: "do_now",
+    actionClass: "scale",
+    pushReadiness: "eligible_for_push_when_enabled",
+    queueEligible: true,
+    canApply: true,
+    reasons: ["Policy allows this action."],
+    blockers: [],
+    missingEvidence: [],
+    requiredEvidence: ["row_provenance", "commercial_truth"],
+    explanation: "Deterministic Meta policy allows this action.",
+  };
+}
+
 function buildMetaDecisionResponse() {
   const metadata = buildOperatorDecisionMetadata({
     analyticsStartDate: "2026-04-01",
@@ -224,6 +257,7 @@ function buildMetaDecisionResponse() {
           operatorDisposition: "standard",
           reasons: ["ROAS is beating target."],
         },
+        operatorPolicy: eligibleOperatorPolicy(),
       },
     ],
     budgetShifts: [],
@@ -493,6 +527,42 @@ describe("command center execution service", () => {
     expect(preview.supportMode).toBe("manual_only");
     expect(preview.permission.canApply).toBe(false);
     expect(preview.permission.reason).toContain("provenance");
+  });
+
+  it("keeps operator-policy-blocked rows out of provider apply", async () => {
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture({ operatorPolicy: blockedOperatorPolicy() }),
+      permissions,
+    });
+
+    expect(preview.supportMode).toBe("manual_only");
+    expect(preview.permission.canApply).toBe(false);
+    expect(preview.permission.reason).toContain("Budget is not the binding constraint");
+  });
+
+  it("rechecks the resolved source decision operator policy before provider apply", async () => {
+    const response = buildMetaDecisionResponse() as any;
+    response.adSets[0].operatorPolicy = blockedOperatorPolicy();
+    vi.mocked(decisionSource.getMetaDecisionOsForRange).mockResolvedValueOnce(
+      response as never,
+    );
+
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+
+    expect(preview.supportMode).toBe("manual_only");
+    expect(preview.permission.canApply).toBe(false);
+    expect(preview.permission.reason).toContain("Budget is not the binding constraint");
   });
 
   it("degrades to manual-only for campaign-owned budgets", async () => {
