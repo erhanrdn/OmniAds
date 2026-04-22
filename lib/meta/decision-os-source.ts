@@ -22,6 +22,10 @@ function normalizeOptionalDecisionAsOf(value: string | null | undefined) {
   return value?.trim() || null;
 }
 
+function normalizeOptionalDateParam(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
 export async function getMetaDecisionOsForRange(input: {
   businessId: string;
   startDate: string;
@@ -30,8 +34,10 @@ export async function getMetaDecisionOsForRange(input: {
   analyticsEndDate?: string;
   decisionAsOf?: string | null;
 }): Promise<MetaDecisionOsV1Response> {
-  const analyticsStartDate = input.analyticsStartDate ?? input.startDate;
-  const analyticsEndDate = input.analyticsEndDate ?? input.endDate;
+  const analyticsStartDate =
+    normalizeOptionalDateParam(input.analyticsStartDate) ?? input.startDate;
+  const analyticsEndDate =
+    normalizeOptionalDateParam(input.analyticsEndDate) ?? input.endDate;
   const [snapshot, decisionContext] = await Promise.all([
     getBusinessCommercialTruthSnapshot(input.businessId),
     getMetaDecisionWindowContext({

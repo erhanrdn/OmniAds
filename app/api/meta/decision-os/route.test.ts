@@ -268,6 +268,28 @@ describe("GET /api/meta/decision-os", () => {
     });
   });
 
+  it("falls back to reporting dates when analytics dates are blank", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05&analyticsStartDate=&analyticsEndDate=",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildMetaDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analyticsStartDate: "2026-04-01",
+        analyticsEndDate: "2026-04-05",
+      }),
+    );
+  });
+
   it("returns 404 when the feature gate is disabled for the workspace", async () => {
     vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(false);
 

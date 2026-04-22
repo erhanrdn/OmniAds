@@ -548,6 +548,31 @@ describe("GET /api/creatives/decision-os", () => {
     });
   });
 
+  it("falls back to reporting dates when analytics dates are blank", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=&analyticsEndDate=",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analyticsWindow: {
+          startDate: "2026-04-01",
+          endDate: "2026-04-10",
+          role: "analysis_only",
+        },
+      }),
+    );
+  });
+
   it("returns 404 when the feature gate is disabled", async () => {
     vi.mocked(config.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(false);
 
