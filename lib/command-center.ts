@@ -1247,38 +1247,42 @@ function mapCreativeOpportunityToCommandCenter(input: {
       (candidate) => candidate.creativeId === creativeId,
     ),
   );
-  const creativePolicyEligible = input.item.creativeIds.some((creativeId) => {
-    const creative = relatedCreatives.find(
-      (candidate) => candidate?.creativeId === creativeId,
-    );
-    const policy = creative?.operatorPolicy ?? null;
-    return (
-      policy?.queueEligible === true && policy.pushReadiness === "safe_to_queue"
-    );
-  });
-  const queueEligible = input.item.queue.eligible && creativePolicyEligible;
   const missingCreativeRows = relatedCreatives.some((creative) => !creative);
   const missingOperatorPolicy = relatedCreatives.some(
     (creative) => creative && !creative.operatorPolicy,
   );
+  const missingProvenance = relatedCreatives.some((creative) =>
+    creative ? !hasCreativeCommandCenterProvenance(creative) : false,
+  );
+  const nonLiveEvidence = relatedCreatives.some((creative) =>
+    creative ? !hasLiveCreativeCommandCenterEvidence(creative) : false,
+  );
+  const allCreativePoliciesEligible =
+    relatedCreatives.length > 0 &&
+    relatedCreatives.every(hasCreativeOpportunityQueueAuthority);
+  const queueEligible = input.item.queue.eligible && allCreativePoliciesEligible;
   const policyBlockReason = missingCreativeRows
     ? "Creative opportunity is not queue eligible because a referenced creative row is missing."
     : missingOperatorPolicy
       ? "Creative opportunity is not queue eligible because a referenced creative row is missing operator policy."
-      : "Creative opportunity is not queue eligible without a matching safe-to-queue row policy.";
+      : missingProvenance
+        ? "Creative opportunity is not queue eligible because a referenced creative row is missing required provenance."
+        : nonLiveEvidence
+          ? "Creative opportunity is not queue eligible because referenced creative evidence is not live."
+          : "Creative opportunity is not queue eligible without a matching safe-to-queue row policy.";
   const policyFloor: DecisionEvidenceFloor = {
     key: "creative_operator_policy",
     label: "Creative operator policy",
-    status: creativePolicyEligible ? "met" : "blocked",
-    current: creativePolicyEligible ? "safe to queue" : "not queue eligible",
+    status: allCreativePoliciesEligible ? "met" : "blocked",
+    current: allCreativePoliciesEligible ? "safe to queue" : "not queue eligible",
     required: "safe to queue",
-    reason: creativePolicyEligible ? null : policyBlockReason,
+    reason: allCreativePoliciesEligible ? null : policyBlockReason,
   };
   const eligibilityTrace = queueEligible
     ? input.item.eligibilityTrace
     : normalizeBlockedCreativeOpportunityTrace({
         trace: input.item.eligibilityTrace,
-        reason: creativePolicyEligible
+        reason: allCreativePoliciesEligible
           ? "Creative opportunity queue eligibility is blocked by upstream queue policy."
           : policyBlockReason,
       });
@@ -1309,6 +1313,41 @@ function mapCreativeOpportunityToCommandCenter(input: {
       sourceDecisionId: input.item.opportunityId,
     },
   };
+}
+
+function hasCreativeCommandCenterProvenance(
+  creative: CreativeDecisionOsCreative,
+): boolean {
+  return (
+    creative.provenance?.sourceRowScope?.system === "creative" &&
+    creative.provenance.sourceRowScope?.entityType === "creative" &&
+    Boolean(creative.provenance.actionFingerprint) &&
+    Boolean(creative.provenance.evidenceHash) &&
+    creative.provenance.actionFingerprint === creative.actionFingerprint &&
+    creative.provenance.evidenceHash === creative.evidenceHash
+  );
+}
+
+function hasLiveCreativeCommandCenterEvidence(
+  creative: CreativeDecisionOsCreative,
+): boolean {
+  return (
+    creative.evidenceSource === "live" &&
+    creative.operatorPolicy?.evidenceSource === "live"
+  );
+}
+
+function hasCreativeOpportunityQueueAuthority(
+  creative: CreativeDecisionOsCreative | undefined,
+): boolean {
+  if (!creative) return false;
+  const policy = creative.operatorPolicy ?? null;
+  return (
+    hasCreativeCommandCenterProvenance(creative) &&
+    hasLiveCreativeCommandCenterEvidence(creative) &&
+    policy?.queueEligible === true &&
+    policy.pushReadiness === "safe_to_queue"
+  );
 }
 
 function normalizeBlockedCreativeOpportunityTrace(input: {
