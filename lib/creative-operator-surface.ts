@@ -252,9 +252,13 @@ function creativeActionLabel(creative: CreativeDecisionOsCreative, state: Operat
         return "Protect";
       case "false_winner_low_evidence":
         return "Do not scale";
+      case "hold_monitor":
+        return "Hold and watch";
       case "promising_under_sampled":
       case "creative_learning_incomplete":
         return "Collect signal";
+      case "investigate":
+        return "Investigate";
       case "contextual_only":
         return "Context only";
       case "blocked":
@@ -488,18 +492,24 @@ export function buildCreativeQuickFilters(
 
   const visibleIds = options?.visibleIds ?? null;
   const includeZeroCounts = options?.includeZeroCounts ?? false;
+  const creativeIdsByFilter = new Map<CreativeQuickFilterKey, string[]>();
+  for (const key of CREATIVE_QUICK_FILTER_ORDER) {
+    creativeIdsByFilter.set(key, []);
+  }
+
+  for (const creative of decisionOs.creatives) {
+    if (visibleIds && !visibleIds.has(creative.creativeId)) continue;
+    creativeIdsByFilter.get(resolveCreativeQuickFilterKey(creative))?.push(creative.creativeId);
+  }
 
   return CREATIVE_QUICK_FILTER_ORDER
     .map((key) => {
-      const matchingCreatives = decisionOs.creatives.filter((creative) => {
-        if (visibleIds && !visibleIds.has(creative.creativeId)) return false;
-        return resolveCreativeQuickFilterKey(creative) === key;
-      });
+      const creativeIds = creativeIdsByFilter.get(key) ?? [];
 
       return {
         ...CREATIVE_QUICK_FILTER_DEFS[key],
-        count: matchingCreatives.length,
-        creativeIds: matchingCreatives.map((creative) => creative.creativeId),
+        count: creativeIds.length,
+        creativeIds,
       } satisfies CreativeQuickFilter;
     })
     .filter((filter) => includeZeroCounts || filter.count > 0);

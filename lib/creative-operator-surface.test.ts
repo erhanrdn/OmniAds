@@ -296,6 +296,7 @@ describe("creative operator surface", () => {
     const watch = buildCreativeOperatorItem(fixture.creatives[3]);
 
     expect(scale.instruction?.headline).toContain("Scale");
+    expect(scale.instruction?.primaryMove).toContain("Scale Ad Set");
     expect(scale.instruction?.amountGuidance.status).toBe("unavailable");
     expect(scale.instruction?.targetContext.status).toBe("available");
     expect(scale.instruction?.targetContext.label).toContain("Scale Ad Set");
@@ -332,6 +333,34 @@ describe("creative operator surface", () => {
     expect(scale.instruction?.targetContext.status).toBe("unavailable");
     expect(scale.instruction?.targetContext.label).toBe("Target ad set unavailable");
     expect(scale.instruction?.targetContext.reason).toContain("review deployment context");
+    expect(scale.instruction?.primaryMove).toContain("target ad set unavailable");
+  });
+
+  it("labels hold-monitor rows as monitor work instead of a generic hold bucket", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].evidenceSource = "live";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "watch",
+      segment: "hold_monitor",
+      actionClass: "monitor",
+      evidenceSource: "live",
+      pushReadiness: "read_only_insight",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Continue monitoring without creating a new command."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["stable_next_window"],
+      explanation: "This is a monitor hold, not a stop or truth block.",
+    };
+
+    const hold = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(hold.primaryAction).toBe("Hold and watch");
+    expect(hold.instruction?.primaryMove).toContain("Keep watching");
+    expect(hold.instruction?.nextObservation.join(" ")).toContain("stable next window");
   });
 
   it("uses frequency pressure to raise fatigued winner urgency without changing safety gates", () => {

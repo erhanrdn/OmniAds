@@ -458,7 +458,7 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Decisions use live windows");
     expect(html).toContain("Scale");
     expect(html).toContain("Test");
-    expect(html).toContain("Hold");
+    expect(html).toContain("Blocked review");
     expect(html).toContain("Opportunity Board");
     expect(html).toContain("queue-ready");
     expect(html).toContain("Lifecycle Board");

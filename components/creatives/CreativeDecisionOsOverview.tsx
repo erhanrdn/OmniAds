@@ -30,6 +30,7 @@ function formatLifecycleLabel(value: string) {
     block_deploy: "On hold",
     hold_no_touch: "Evergreen",
     protected_winner: "Evergreen winner",
+    hold_monitor: "Monitor hold",
     false_winner_low_evidence: "False winner",
     promising_under_sampled: "Under-sampled",
     kill_candidate: "Kill candidate",
@@ -237,7 +238,7 @@ export function CreativeDecisionOsOverview({
           ["Scale", decisionOs.summary.scaleReadyCount],
           ["Test", decisionOs.summary.keepTestingCount],
           ["Needs refresh", decisionOs.summary.fatiguedCount],
-          ["Hold", decisionOs.summary.blockedCount],
+          ["Blocked review", decisionOs.summary.blockedCount],
           ["Retest", decisionOs.summary.comebackCount],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
