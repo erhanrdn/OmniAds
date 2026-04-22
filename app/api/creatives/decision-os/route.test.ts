@@ -530,6 +530,22 @@ describe("GET /api/creatives/decision-os", () => {
         decisionAsOf: "2026-04-10",
       }),
     );
+
+    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockClear();
+
+    const responseC = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=%20%20%20",
+      ),
+    );
+
+    expect(responseC.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: null,
+    });
   });
 
   it("returns 404 when the feature gate is disabled", async () => {

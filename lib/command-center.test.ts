@@ -17,6 +17,7 @@ import {
 } from "@/lib/command-center";
 import type {
   CommandCenterAction,
+  CommandCenterActionStateRecord,
   CommandCenterFeedbackEntry,
   CommandCenterSavedView,
 } from "@/lib/command-center";
@@ -1220,6 +1221,61 @@ describe("command center domain", () => {
     });
 
     expect(rangeA[0]?.actionFingerprint).toBe(rangeB[0]?.actionFingerprint);
+  });
+
+  it("preserves legacy Command Center fingerprints while retaining upstream provenance", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+    const metaAction = actions.find(
+      (action) => action.sourceType === "meta_adset_decision",
+    );
+
+    expect(metaAction?.provenance?.actionFingerprint).toMatch(/^od_/);
+    expect(metaAction?.actionFingerprint).toMatch(/^cc_/);
+    expect(metaAction?.actionFingerprint).not.toBe(
+      metaAction?.provenance?.actionFingerprint,
+    );
+
+    const stateByFingerprint = new Map<string, CommandCenterActionStateRecord>([
+      [
+        metaAction!.actionFingerprint,
+        {
+          businessId: "biz",
+          actionFingerprint: metaAction!.actionFingerprint,
+          sourceSystem: "meta",
+          sourceType: "meta_adset_decision",
+          actionTitle: metaAction!.title,
+          recommendedAction: metaAction!.recommendedAction,
+          workflowStatus: "approved",
+          assigneeUserId: "user_1",
+          assigneeName: "Operator",
+          snoozeUntil: null,
+          latestNoteExcerpt: "Legacy state still joins.",
+          noteCount: 1,
+          lastMutationId: "mutation_1",
+          lastMutatedAt: "2026-04-10T09:00:00.000Z",
+          createdAt: "2026-04-10T08:00:00.000Z",
+          updatedAt: "2026-04-10T09:00:00.000Z",
+        },
+      ],
+    ]);
+
+    const merged = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+      stateByFingerprint,
+    }).find((action) => action.actionFingerprint === metaAction?.actionFingerprint);
+
+    expect(merged?.status).toBe("approved");
+    expect(merged?.assigneeUserId).toBe("user_1");
   });
 
   it("keeps source decisions stable across analytics ranges", () => {

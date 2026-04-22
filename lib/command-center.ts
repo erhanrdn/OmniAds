@@ -1103,17 +1103,15 @@ function buildMetaAction(
 
   return {
     ...input,
-    actionFingerprint:
-      input.provenance?.actionFingerprint ??
-      createActionFingerprint({
-        sourceSystem: input.sourceSystem,
-        sourceType: input.sourceType,
-        entityType: input.entityType,
-        entityId: input.entityId,
-        sourceDecisionId: input.sourceContext.sourceDecisionId,
-        recommendedAction: input.recommendedAction,
-        decisionAsOf: input.decisionAsOf,
-      }),
+    actionFingerprint: createActionFingerprint({
+      sourceSystem: input.sourceSystem,
+      sourceType: input.sourceType,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      sourceDecisionId: input.sourceContext.sourceDecisionId,
+      recommendedAction: input.recommendedAction,
+      decisionAsOf: input.decisionAsOf,
+    }),
     provenance: input.provenance,
     queueSection: "history_context",
     workloadClass,
@@ -1694,17 +1692,15 @@ function metaNoTouchAction(input: {
   decisionAsOf: string;
 }) {
   return {
-    actionFingerprint:
-      input.provenance?.actionFingerprint ??
-      createActionFingerprint({
-        sourceSystem: "meta",
-        sourceType: "meta_no_touch_item",
-        entityType: input.item.entityType,
-        entityId: input.item.entityId,
-        sourceDecisionId: input.item.entityId,
-        recommendedAction: "hold_no_touch",
-        decisionAsOf: input.decisionAsOf,
-      }),
+    actionFingerprint: createActionFingerprint({
+      sourceSystem: "meta",
+      sourceType: "meta_no_touch_item",
+      entityType: input.item.entityType,
+      entityId: input.item.entityId,
+      sourceDecisionId: input.item.entityId,
+      recommendedAction: "hold_no_touch",
+      decisionAsOf: input.decisionAsOf,
+    }),
     provenance: input.provenance,
     sourceSystem: "meta",
     sourceType: "meta_no_touch_item",

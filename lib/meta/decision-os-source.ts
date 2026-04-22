@@ -18,6 +18,10 @@ function normalizeGeoFreshnessState(
   return "syncing";
 }
 
+function normalizeOptionalDecisionAsOf(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
 export async function getMetaDecisionOsForRange(input: {
   businessId: string;
   startDate: string;
@@ -34,7 +38,7 @@ export async function getMetaDecisionOsForRange(input: {
       businessId: input.businessId,
       startDate: analyticsStartDate,
       endDate: analyticsEndDate,
-      decisionAsOf: input.decisionAsOf,
+      decisionAsOf: normalizeOptionalDecisionAsOf(input.decisionAsOf),
     }),
   ]);
   const { campaigns, breakdowns, geoBreakdown, adSets } = await getMetaDecisionSourceSnapshot({
