@@ -1289,6 +1289,7 @@ function buildMetaDecisionProvenance(input: {
   sourceDecisionId: string;
   recommendedAction: string;
   evidence: MetaDecisionEvidence[];
+  hashEvidence?: unknown;
 }) {
   return buildOperatorDecisionProvenance({
     businessId: input.businessId,
@@ -1300,6 +1301,7 @@ function buildMetaDecisionProvenance(input: {
     sourceDecisionId: input.sourceDecisionId,
     recommendedAction: input.recommendedAction,
     evidence: input.evidence,
+    hashEvidence: input.hashEvidence,
   });
 }
 
@@ -1526,6 +1528,28 @@ function buildGeoAction(input: {
     sourceDecisionId: `${countryCode}:${action}`,
     recommendedAction: action,
     evidence,
+    hashEvidence: {
+      spend: input.row.spend,
+      revenue: input.row.revenue,
+      roas,
+      accountRoas: input.accountRoas,
+      targetRoas: input.thresholds.targetRoas,
+      breakEvenRoas: input.thresholds.breakEvenRoas,
+      purchases: input.row.purchases,
+      clicks: input.row.clicks,
+      impressions: input.row.impressions,
+      action,
+      constraint: constraint
+        ? {
+            countryCode: constraint.countryCode,
+            serviceability: constraint.serviceability,
+            scaleOverride: constraint.scaleOverride,
+            priorityTier: constraint.priorityTier,
+            economicsMultiplier: constraint.economicsMultiplier,
+            marginModifier: constraint.marginModifier,
+          }
+        : null,
+    },
   });
 
   return {
@@ -1648,6 +1672,14 @@ function buildPlacementAnomalies(input: {
         sourceDecisionId,
         recommendedAction: action,
         evidence,
+        hashEvidence: {
+          spend: row.spend,
+          revenue: row.revenue,
+          spendShare,
+          roas,
+          accountRoas: input.accountRoas,
+          action,
+        },
       });
       return {
         placementKey: row.key,
@@ -2235,6 +2267,24 @@ function buildAdSetDecision(input: {
     sourceDecisionId: decisionId,
     recommendedAction: actionType,
     evidence,
+    hashEvidence: {
+      spend: input.adSet.spend,
+      revenue: input.adSet.revenue,
+      roas,
+      cpa,
+      purchases: input.adSet.purchases,
+      impressions: input.adSet.impressions,
+      clicks: input.adSet.clicks,
+      targetRoas: input.thresholds.targetRoas,
+      breakEvenRoas: input.thresholds.breakEvenRoas,
+      targetCpa: input.thresholds.targetCpa,
+      breakEvenCpa: input.thresholds.breakEvenCpa,
+      actionType,
+      actionSize,
+      confidence: clampConfidence(confidence),
+      bidStrategyLabel: input.adSet.bidStrategyLabel,
+      optimizationGoal: input.adSet.optimizationGoal,
+    },
   });
 
   return {
@@ -2453,6 +2503,18 @@ function buildCampaignDecision(input: {
     sourceDecisionId: decisionId,
     recommendedAction: primaryAction,
     evidence,
+    hashEvidence: {
+      spend: input.campaign.spend,
+      revenue: input.campaign.revenue,
+      roas,
+      purchases: input.campaign.purchases,
+      impressions: input.campaign.impressions,
+      role: input.roleDecision.role,
+      roleConfidence: input.roleDecision.confidence,
+      primaryAction,
+      topAdSetDecisionId: topAdSetDecision?.decisionId ?? null,
+      adSetDecisionIds: input.adSetDecisions.map((decision) => decision.decisionId),
+    },
   });
 
   return {
@@ -3083,6 +3145,15 @@ function buildBudgetShifts(input: {
       sourceDecisionId,
       recommendedAction: "budget_shift",
       evidence,
+      hashEvidence: {
+        fromCampaignId: donor.campaignId,
+        toCampaignId: recipient.campaignId,
+        donorAction: donor.primaryAction,
+        donorConfidence: donor.confidence,
+        recipientRole: recipient.role,
+        recipientConfidence: recipient.confidence,
+        suggestedMoveBand,
+      },
     });
     shifts.push({
       fromCampaignId: donor.campaignId,

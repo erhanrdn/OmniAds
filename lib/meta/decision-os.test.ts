@@ -924,4 +924,66 @@ describe("buildMetaDecisionOs", () => {
       (result.adSets[0] as any)?.provenance.evidenceHash,
     );
   });
+
+  it("keeps provenance hashes stable when display evidence formatting changes by locale", () => {
+    const snapshot = createEmptyBusinessCommercialTruthSnapshot("biz");
+    snapshot.targetPack = {
+      targetCpa: 40,
+      targetRoas: 2.5,
+      breakEvenCpa: 55,
+      breakEvenRoas: 1.7,
+      contributionMarginAssumption: null,
+      aovAssumption: null,
+      newCustomerWeight: null,
+      defaultRiskPosture: "balanced",
+      sourceLabel: "manual",
+      updatedAt: null,
+      updatedByUserId: null,
+    };
+    const originalToLocaleString = Number.prototype.toLocaleString;
+
+    try {
+      Number.prototype.toLocaleString = function fakeLocaleA() {
+        return `locale-a:${Number(this).toFixed(2)}`;
+      };
+      const localeA = buildMetaDecisionOs({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        decisionAsOf: "2026-04-10",
+        campaigns: [campaign()],
+        adSets: [adSet()],
+        breakdowns: { location: [], placement: [] },
+        commercialTruth: snapshot,
+      });
+
+      Number.prototype.toLocaleString = function fakeLocaleB() {
+        return `locale-b:${Number(this).toFixed(2)}`;
+      };
+      const localeB = buildMetaDecisionOs({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        decisionAsOf: "2026-04-10",
+        campaigns: [campaign()],
+        adSets: [adSet()],
+        breakdowns: { location: [], placement: [] },
+        commercialTruth: snapshot,
+      });
+
+      expect(localeA.campaigns[0]?.evidence).not.toEqual(localeB.campaigns[0]?.evidence);
+      expect(localeA.adSets[0]?.evidenceHash).toBe(localeB.adSets[0]?.evidenceHash);
+      expect(localeA.adSets[0]?.actionFingerprint).toBe(
+        localeB.adSets[0]?.actionFingerprint,
+      );
+      expect(localeA.campaigns[0]?.evidenceHash).toBe(
+        localeB.campaigns[0]?.evidenceHash,
+      );
+      expect(localeA.campaigns[0]?.actionFingerprint).toBe(
+        localeB.campaigns[0]?.actionFingerprint,
+      );
+    } finally {
+      Number.prototype.toLocaleString = originalToLocaleString;
+    }
+  });
 });

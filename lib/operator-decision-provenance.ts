@@ -56,6 +56,7 @@ export function buildOperatorDecisionProvenance(input: {
   sourceDecisionId: string;
   recommendedAction: string;
   evidence: unknown;
+  hashEvidence?: unknown;
 }): OperatorDecisionProvenance {
   const evidenceInput = {
     businessId: input.businessId,
@@ -64,7 +65,7 @@ export function buildOperatorDecisionProvenance(input: {
     sourceRowScope: input.sourceRowScope,
     sourceDecisionId: input.sourceDecisionId,
     recommendedAction: input.recommendedAction,
-    evidence: input.evidence,
+    evidence: input.hashEvidence ?? input.evidence,
   };
   const actionFingerprintInput = {
     businessId: input.businessId,
