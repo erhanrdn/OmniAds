@@ -21,6 +21,11 @@ import {
 import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { resolveCreativePreviewManifest } from "@/lib/meta/creatives-preview";
+import {
+  assessCreativeOperatorPolicy,
+  type CreativeEvidenceSource,
+  type CreativeOperatorPolicyAssessment,
+} from "@/lib/creative-operator-policy";
 import type { AccountOperatingModePayload, BusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
@@ -369,6 +374,8 @@ export interface CreativeDecisionOsCreative {
   provenance: OperatorDecisionProvenance;
   evidenceHash: string;
   actionFingerprint: string;
+  evidenceSource: CreativeEvidenceSource;
+  operatorPolicy: CreativeOperatorPolicyAssessment;
   familyId: string;
   familyLabel: string;
   familySource: CreativeDecisionFamilySource;
@@ -604,6 +611,7 @@ interface BuildCreativeDecisionOsInput {
   businessId: string;
   startDate: string;
   endDate: string;
+  evidenceSource?: CreativeEvidenceSource;
   analyticsWindow?: OperatorAnalyticsWindow;
   decisionWindows?: OperatorDecisionWindows;
   historicalMemory?: OperatorHistoricalMemory;
@@ -2189,15 +2197,18 @@ function buildLifecycleBoard(creatives: CreativeDecisionOsCreative[]) {
 }
 
 function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
-  const actionCoreCreatives = creatives.filter(
-    (creative) => creative.trust.surfaceLane === "action_core",
+  const queueSourceCreatives = creatives.filter(
+    (creative) =>
+      creative.operatorPolicy.state !== "contextual_only" &&
+      creative.operatorPolicy.state !== "blocked",
   );
   const definitions = [
     {
       key: "promotion" as const,
       label: "Queue-ready",
       summary: "Scale-ready creatives with compatible deployment lanes.",
-      match: (creative: CreativeDecisionOsCreative) => creative.primaryAction === "promote_to_scaling",
+      match: (creative: CreativeDecisionOsCreative) =>
+        creative.operatorPolicy.segment === "scale_ready",
     },
     {
       key: "keep_testing" as const,
@@ -2210,7 +2221,9 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
       label: "Watch-only / blocked",
       summary: "Creatives that should be refreshed or held out of deployment.",
       match: (creative: CreativeDecisionOsCreative) =>
-        creative.primaryAction === "refresh_replace" || creative.primaryAction === "block_deploy",
+        creative.operatorPolicy.segment === "fatigued_winner" ||
+        creative.operatorPolicy.segment === "kill_candidate" ||
+        creative.operatorPolicy.segment === "spend_waste",
     },
     {
       key: "comeback" as const,
@@ -2221,7 +2234,7 @@ function buildOperatorQueues(creatives: CreativeDecisionOsCreative[]) {
   ];
 
   return definitions.map((definition) => {
-    const matched = actionCoreCreatives.filter(definition.match);
+    const matched = queueSourceCreatives.filter(definition.match);
     return {
       key: definition.key,
       label: definition.label,
@@ -2382,7 +2395,7 @@ function buildCreativeOpportunityBoard(input: {
       (creative) => creative.familyId === family.familyId,
     );
     const bestPromotionCreative = familyCreatives
-      .filter((creative) => creative.primaryAction === "promote_to_scaling")
+      .filter((creative) => creative.operatorPolicy.segment === "scale_ready")
       .sort((left, right) => right.confidence - left.confidence)[0];
     if (!bestPromotionCreative) continue;
     const baseTrust = bestPromotionCreative.trust;
@@ -2435,6 +2448,17 @@ function buildCreativeOpportunityBoard(input: {
         met: baseTrust.truthState === "live_confident",
         reason:
           "Shared authority still caps this family out of the default queue.",
+      }),
+      buildDecisionEvidenceFloor({
+        key: "creative_operator_policy",
+        label: "Creative operator policy",
+        current: bestPromotionCreative.operatorPolicy.pushReadiness.replaceAll("_", " "),
+        required: "safe to queue",
+        met: bestPromotionCreative.operatorPolicy.pushReadiness === "safe_to_queue",
+        reason:
+          bestPromotionCreative.operatorPolicy.pushReadiness === "safe_to_queue"
+            ? null
+            : bestPromotionCreative.operatorPolicy.explanation,
       }),
     ];
     const queue = evaluateDecisionOpportunityQueue({
@@ -2801,6 +2825,12 @@ export function buildCreativeDecisionOs(
     familyRowsById.set(seed.familyId, [...(familyRowsById.get(seed.familyId) ?? []), row]);
   }
 
+  const commercialTruthCoverage = buildCommercialTruthCoverage(
+    input.commercialTruth,
+    input.operatingMode,
+  );
+  const evidenceSource = input.evidenceSource ?? "unknown";
+
   const creatives: CreativeDecisionOsCreative[] = rows.map((row) => {
     const familySeed = familySeeds.get(row.creativeId)!;
     const familyRows = familyRowsById.get(familySeed.familyId) ?? [row];
@@ -2917,6 +2947,30 @@ export function buildCreativeDecisionOs(
       deployment,
       trust,
     });
+    const operatorPolicy = assessCreativeOperatorPolicy({
+      lifecycleState,
+      primaryAction: resolvedPrimaryAction,
+      trust,
+      provenance,
+      evidenceSource,
+      commercialTruthConfigured:
+        commercialTruthCoverage.configuredSections.targetPack,
+      commercialMissingInputs: commercialTruthCoverage.missingInputs,
+      benchmark,
+      fatigue,
+      economics,
+      deployment,
+      previewStatus,
+      supportingMetrics: {
+        spend: row.spend,
+        purchases: row.purchases,
+        impressions: row.impressions,
+        roas: row.roas,
+        cpa: row.cpa,
+        frequency: row.frequency,
+        creativeAgeDays: row.creativeAgeDays,
+      },
+    });
     const report: CreativeRuleReportPayload = {
       creativeId: row.creativeId,
       creativeName: row.name,
@@ -3015,6 +3069,8 @@ export function buildCreativeDecisionOs(
       provenance,
       evidenceHash: provenance.evidenceHash,
       actionFingerprint: provenance.actionFingerprint,
+      evidenceSource,
+      operatorPolicy,
       familyId: familySeed.familyId,
       familyLabel,
       familySource: familySeed.familySource,
@@ -3127,10 +3183,6 @@ export function buildCreativeDecisionOs(
   });
   const lifecycleBoard = buildLifecycleBoard(creatives);
   const operatorQueues = buildOperatorQueues(creatives);
-  const commercialTruthCoverage = buildCommercialTruthCoverage(
-    input.commercialTruth,
-    input.operatingMode,
-  );
   const creativeHistoryCoverage =
     creatives.length === 0
       ? 0
@@ -3142,11 +3194,16 @@ export function buildCreativeDecisionOs(
                 creative.report?.fatigue?.evidence.length,
             ),
         ).length / creatives.length;
+  const nonLiveEvidence = evidenceSource !== "live";
   const sourceHealth: DecisionSourceHealthEntry[] = [
     {
       source: "Creative source",
       status:
-        creatives.length === 0
+        nonLiveEvidence
+          ? evidenceSource === "unknown"
+            ? "degraded"
+            : "stale"
+        : creatives.length === 0
           ? "degraded"
           : creativeHistoryCoverage >= 0.9
             ? "healthy"
@@ -3154,13 +3211,17 @@ export function buildCreativeDecisionOs(
               ? "stale"
               : "degraded",
       detail:
-        creatives.length === 0
+        nonLiveEvidence
+          ? `Creative decisions are ${evidenceSource} evidence and remain contextual until live evidence is available.`
+        : creatives.length === 0
           ? "No creative rows were available for the current decision window."
           : creativeHistoryCoverage >= 0.9
             ? "Creative rows and benchmark context resolved for the current decision window."
             : "Some creative rows are missing historical or benchmark context, so fallback posture stays labeled.",
       fallbackLabel:
-        creativeHistoryCoverage >= 0.9 ? null : "benchmark fallback",
+        nonLiveEvidence
+          ? `${evidenceSource} evidence`
+          : creativeHistoryCoverage >= 0.9 ? null : "benchmark fallback",
     },
     {
       source: "Commercial truth",
@@ -3180,7 +3241,14 @@ export function buildCreativeDecisionOs(
     },
   ];
   const readReliability: DecisionReadReliability =
-    creatives.length > 0 &&
+    nonLiveEvidence
+      ? {
+          status: evidenceSource === "unknown" ? "degraded" : "fallback",
+          determinism: "watch",
+          detail:
+            "Creative surface remains deterministic, but non-live evidence is context-only and cannot authorize primary actions.",
+        }
+      : creatives.length > 0 &&
     creativeHistoryCoverage >= 0.9 &&
     (commercialTruthCoverage.summary?.freshness.status ?? "missing") === "fresh"
       ? {
@@ -3204,16 +3272,23 @@ export function buildCreativeDecisionOs(
           };
   const surfaceSummary = {
     actionCoreCount: creatives.filter(
-      (creative) => creative.trust.surfaceLane === "action_core",
+      (creative) => creative.operatorPolicy.state === "do_now",
     ).length,
     watchlistCount: creatives.filter(
-      (creative) => creative.trust.surfaceLane === "watchlist",
+      (creative) =>
+        creative.operatorPolicy.state === "watch" ||
+        creative.operatorPolicy.state === "investigate" ||
+        creative.operatorPolicy.state === "do_not_touch",
     ).length,
     archiveCount: creatives.filter(
-      (creative) => creative.trust.surfaceLane === "archive_context",
+      (creative) =>
+        creative.operatorPolicy.state === "contextual_only" ||
+        creative.trust.surfaceLane === "archive_context",
     ).length,
     degradedCount: creatives.filter(
-      (creative) => creative.trust.truthState === "degraded_missing_truth",
+      (creative) =>
+        creative.operatorPolicy.pushReadiness === "blocked_from_push" &&
+        creative.operatorPolicy.state !== "do_not_touch",
     ).length,
     profitableTruthCappedCount: creatives.filter(
       (creative) => creative.trust.operatorDisposition === "profitable_truth_capped",
@@ -3295,13 +3370,25 @@ export function buildCreativeDecisionOs(
       totalCreatives: creatives.length,
       scaleReadyCount: creatives.filter(
         (creative) =>
-          creative.lifecycleState === "scale_ready" || creative.lifecycleState === "stable_winner",
+          creative.operatorPolicy.segment === "scale_ready",
       ).length,
-      keepTestingCount: creatives.filter((creative) => creative.primaryAction === "keep_in_test").length,
-      fatiguedCount: creatives.filter((creative) => creative.lifecycleState === "fatigued_winner").length,
+      keepTestingCount: creatives.filter(
+        (creative) =>
+          creative.operatorPolicy.segment === "promising_under_sampled" ||
+          creative.operatorPolicy.segment === "creative_learning_incomplete" ||
+          creative.operatorPolicy.segment === "hold_monitor" ||
+          creative.operatorPolicy.segment === "false_winner_low_evidence",
+      ).length,
+      fatiguedCount: creatives.filter(
+        (creative) =>
+          creative.operatorPolicy.segment === "fatigued_winner" ||
+          creative.operatorPolicy.segment === "needs_new_variant",
+      ).length,
       blockedCount: creatives.filter(
         (creative) =>
-          creative.lifecycleState === "blocked" || creative.lifecycleState === "retired",
+          creative.operatorPolicy.segment === "kill_candidate" ||
+          creative.operatorPolicy.segment === "spend_waste" ||
+          creative.operatorPolicy.segment === "blocked",
       ).length,
       comebackCount: creatives.filter((creative) => creative.lifecycleState === "comeback_candidate").length,
       protectedWinnerCount: protectedWinners.length,

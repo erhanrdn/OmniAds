@@ -25,6 +25,26 @@ import {
 import { mapApiRowToUiRow } from "@/app/(dashboard)/creatives/page-support";
 import type { MetaCreativeApiRow } from "@/app/api/meta/creatives/route";
 import type { MetaCreativeRow } from "@/components/creatives/metricConfig";
+import type { CreativeEvidenceSource } from "@/lib/creative-operator-policy";
+
+function combineCreativeEvidenceSource(
+  sources: CreativeEvidenceSource[],
+): CreativeEvidenceSource {
+  if (sources.includes("unknown")) return "unknown";
+  if (sources.includes("fallback")) return "fallback";
+  if (sources.includes("snapshot")) return "snapshot";
+  if (sources.includes("demo")) return "demo";
+  if (sources.every((source) => source === "live")) return "live";
+  return "unknown";
+}
+
+function mapMetaCreativesSnapshotSource(
+  value: unknown,
+): CreativeEvidenceSource {
+  if (value === "live" || value === "refresh") return "live";
+  if (value === "persisted") return "snapshot";
+  return "unknown";
+}
 
 async function fetchCreativeRowsForWindow(input: {
   request: NextRequest;
@@ -59,7 +79,12 @@ async function fetchCreativeRowsForWindow(input: {
     perAccountSampleLimit: 10,
   });
 
-  return ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow);
+  return {
+    rows: ((payload.rows ?? []) as MetaCreativeApiRow[]).map(mapApiRowToUiRow),
+    evidenceSource: mapMetaCreativesSnapshotSource(
+      (payload as { snapshot_source?: unknown }).snapshot_source,
+    ),
+  };
 }
 
 function resolveCreativeDecisionTimeline(input: {
@@ -302,6 +327,7 @@ export async function getCreativeDecisionOsForRange(input: {
   });
   let decisionRows: MetaCreativeRow[] = [];
   let selectedPeriodRows: MetaCreativeRow[] | null = null;
+  let evidenceSource: CreativeEvidenceSource = "unknown";
   let historyById = new Map<string, CreativeDecisionOsHistoricalWindows>();
   let campaigns: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["campaigns"]["rows"] = [];
   let adSets: Awaited<ReturnType<typeof getMetaDecisionSourceSnapshot>>["adSets"]["rows"] = [];
@@ -319,6 +345,7 @@ export async function getCreativeDecisionOsForRange(input: {
       mapApiRowToUiRow,
     );
     selectedPeriodRows = decisionRows;
+    evidenceSource = "demo";
     historyById = buildDemoHistoryById(decisionRows);
     campaigns = getDemoMetaCampaigns().rows as Awaited<
       ReturnType<typeof getMetaDecisionSourceSnapshot>
@@ -379,15 +406,26 @@ export async function getCreativeDecisionOsForRange(input: {
       }).catch(() => null),
     ]);
 
-    decisionRows = primary;
-    selectedPeriodRows = selectedPeriod;
+    decisionRows = primary.rows;
+    selectedPeriodRows = selectedPeriod?.rows ?? null;
+    evidenceSource = combineCreativeEvidenceSource([
+      primary.evidenceSource,
+      last3.evidenceSource,
+      last7.evidenceSource,
+      last14.evidenceSource,
+      last30.evidenceSource,
+      last90.evidenceSource,
+      allHistory.evidenceSource,
+      decisionSnapshot.campaigns.evidenceSource,
+      decisionSnapshot.adSets.evidenceSource,
+    ]);
     historyById = buildHistoryById({
-      last3,
-      last7,
-      last14,
-      last30,
-      last90,
-      allHistory,
+      last3: last3.rows,
+      last7: last7.rows,
+      last14: last14.rows,
+      last30: last30.rows,
+      last90: last90.rows,
+      allHistory: allHistory.rows,
     });
     campaigns = decisionSnapshot.campaigns.rows ?? [];
     adSets = decisionSnapshot.adSets.rows ?? [];
@@ -429,6 +467,7 @@ export async function getCreativeDecisionOsForRange(input: {
       decisionWindows: decisionContext.decisionWindows,
       historicalMemory: decisionContext.historicalMemory,
       decisionAsOf: decisionContext.decisionAsOf,
+      evidenceSource,
       rows: decisionRows.map((row) => toDecisionInputRow(row, historyById.get(row.id) ?? null)),
       campaigns,
       adSets,

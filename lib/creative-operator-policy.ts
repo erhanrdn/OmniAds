@@ -1,0 +1,445 @@
+import type {
+  CreativeDecisionBenchmark,
+  CreativeDecisionDeploymentRecommendation,
+  CreativeDecisionEconomics,
+  CreativeDecisionFatigue,
+  CreativeDecisionLifecycleState,
+  CreativeDecisionPreviewStatus,
+  CreativeDecisionPrimaryAction,
+} from "@/lib/creative-decision-os";
+import type { DecisionTrustMetadata } from "@/src/types/decision-trust";
+import type {
+  OperatorDecisionProvenance,
+  OperatorPolicyAssessment,
+  OperatorPolicyState,
+} from "@/src/types/operator-decision";
+
+export const CREATIVE_OPERATOR_POLICY_VERSION = "creative-operator-policy.v1";
+
+export const CREATIVE_OPERATOR_SEGMENTS = [
+  "scale_ready",
+  "promising_under_sampled",
+  "false_winner_low_evidence",
+  "fatigued_winner",
+  "kill_candidate",
+  "protected_winner",
+  "hold_monitor",
+  "needs_new_variant",
+  "creative_learning_incomplete",
+  "spend_waste",
+  "no_touch",
+  "investigate",
+  "contextual_only",
+  "blocked",
+] as const;
+
+export type CreativeOperatorSegment =
+  (typeof CREATIVE_OPERATOR_SEGMENTS)[number];
+
+export type CreativeEvidenceSource =
+  | "live"
+  | "demo"
+  | "snapshot"
+  | "fallback"
+  | "unknown";
+
+export type CreativeOperatorActionClass =
+  | "scale"
+  | "kill"
+  | "refresh"
+  | "protect"
+  | "test"
+  | "variant"
+  | "monitor"
+  | "contextual"
+  | "unknown";
+
+export interface CreativeOperatorPolicyAssessment
+  extends OperatorPolicyAssessment {
+  policyVersion: typeof CREATIVE_OPERATOR_POLICY_VERSION;
+  segment: CreativeOperatorSegment;
+  actionClass: CreativeOperatorActionClass;
+  evidenceSource: CreativeEvidenceSource;
+}
+
+export interface CreativeOperatorPolicyInput {
+  lifecycleState: CreativeDecisionLifecycleState;
+  primaryAction: CreativeDecisionPrimaryAction;
+  trust?: DecisionTrustMetadata | null;
+  provenance?: OperatorDecisionProvenance | null;
+  evidenceSource?: CreativeEvidenceSource;
+  commercialTruthConfigured?: boolean;
+  commercialMissingInputs?: string[];
+  benchmark?: Pick<CreativeDecisionBenchmark, "sampleSize" | "missingContext"> | null;
+  fatigue?: Pick<CreativeDecisionFatigue, "status" | "confidence" | "evidence"> | null;
+  economics?: Pick<CreativeDecisionEconomics, "status" | "reasons"> | null;
+  deployment?: {
+    compatibility: Pick<
+      CreativeDecisionDeploymentRecommendation["compatibility"],
+      "status" | "reasons"
+    >;
+    constraints: CreativeDecisionDeploymentRecommendation["constraints"];
+    targetLane: string | null;
+    queueVerdict?: CreativeDecisionDeploymentRecommendation["queueVerdict"];
+  } | null;
+  previewStatus?: CreativeDecisionPreviewStatus | null;
+  supportingMetrics?: {
+    spend?: number | null;
+    purchases?: number | null;
+    impressions?: number | null;
+    roas?: number | null;
+    cpa?: number | null;
+    frequency?: number | null;
+    creativeAgeDays?: number | null;
+  } | null;
+}
+
+const SCALE_ACTIONS = new Set<CreativeDecisionPrimaryAction>([
+  "promote_to_scaling",
+]);
+const KILL_OR_REFRESH_ACTIONS = new Set<CreativeDecisionPrimaryAction>([
+  "block_deploy",
+  "refresh_replace",
+]);
+const AGGRESSIVE_ACTIONS = new Set<CreativeDecisionPrimaryAction>([
+  "promote_to_scaling",
+  "block_deploy",
+  "refresh_replace",
+]);
+
+function unique(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(values.filter((value): value is string => Boolean(value?.trim()))),
+  );
+}
+
+function hasNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function classifyActionClass(
+  action: CreativeDecisionPrimaryAction,
+): CreativeOperatorActionClass {
+  if (action === "promote_to_scaling") return "scale";
+  if (action === "block_deploy") return "kill";
+  if (action === "refresh_replace") return "refresh";
+  if (action === "hold_no_touch") return "protect";
+  if (action === "keep_in_test") return "test";
+  if (action === "retest_comeback") return "variant";
+  return "unknown";
+}
+
+function hasScaleEvidence(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  return (
+    hasNumber(metrics.spend) &&
+    metrics.spend >= 250 &&
+    hasNumber(metrics.purchases) &&
+    metrics.purchases >= 5 &&
+    input.economics?.status === "eligible"
+  );
+}
+
+function hasKillEvidence(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const spend = metrics.spend ?? null;
+  const purchases = metrics.purchases ?? null;
+  const impressions = metrics.impressions ?? null;
+  return (
+    hasNumber(spend) &&
+    spend >= 250 &&
+    ((hasNumber(purchases) && purchases >= 4) ||
+      (hasNumber(impressions) && impressions >= 8_000))
+  );
+}
+
+function isUnderSampled(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  return (
+    (hasNumber(metrics.spend) && metrics.spend < 120) ||
+    (hasNumber(metrics.purchases) && metrics.purchases < 2) ||
+    (hasNumber(metrics.impressions) && metrics.impressions < 5_000) ||
+    (hasNumber(metrics.creativeAgeDays) && metrics.creativeAgeDays <= 10)
+  );
+}
+
+function hasRoasOnlyPositiveSignal(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  return (
+    hasNumber(metrics.roas) &&
+    metrics.roas >= 2 &&
+    ((hasNumber(metrics.spend) && metrics.spend < 120) ||
+      (hasNumber(metrics.purchases) && metrics.purchases < 2))
+  );
+}
+
+function hasWeakCampaignContext(input: CreativeOperatorPolicyInput) {
+  return (
+    input.deployment?.compatibility.status === "limited" ||
+    input.deployment?.compatibility.status === "blocked"
+  );
+}
+
+function resolveSegment(params: {
+  policyInput: CreativeOperatorPolicyInput;
+  evidenceSource: CreativeEvidenceSource;
+  blockers: string[];
+  missingEvidence: string[];
+  aggressive: boolean;
+}): CreativeOperatorSegment {
+  const { policyInput: input } = params;
+  const trust = input.trust ?? null;
+
+  if (!input.provenance) return "blocked";
+  if (input.evidenceSource !== "live") return "contextual_only";
+  if (input.previewStatus?.liveDecisionWindow === "missing") return "blocked";
+  if (
+    input.previewStatus?.liveDecisionWindow === "metrics_only_degraded" &&
+    params.aggressive
+  ) {
+    return "investigate";
+  }
+  if (trust?.truthState === "inactive_or_immaterial") return "contextual_only";
+  if (trust?.operatorDisposition === "archive_only") return "contextual_only";
+  if (input.primaryAction === "hold_no_touch") return "protected_winner";
+  if (trust?.operatorDisposition === "protected_watchlist") return "protected_winner";
+  if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
+  if (isUnderSampled(input)) {
+    if ((input.supportingMetrics?.purchases ?? 0) <= 0 || (input.supportingMetrics?.roas ?? 0) <= 0) {
+      return "creative_learning_incomplete";
+    }
+    return hasRoasOnlyPositiveSignal(input)
+      ? "false_winner_low_evidence"
+      : input.lifecycleState === "incubating"
+        ? "creative_learning_incomplete"
+        : "promising_under_sampled";
+  }
+  if (
+    input.primaryAction === "promote_to_scaling" &&
+    (!input.commercialTruthConfigured || !hasScaleEvidence(input))
+  ) {
+    return input.commercialTruthConfigured ? "promising_under_sampled" : "blocked";
+  }
+  if (input.primaryAction === "promote_to_scaling") {
+    return hasWeakCampaignContext(input) ? "investigate" : "scale_ready";
+  }
+  if (input.lifecycleState === "fatigued_winner" || input.fatigue?.status === "fatigued") {
+    return input.primaryAction === "refresh_replace"
+      ? "fatigued_winner"
+      : "needs_new_variant";
+  }
+  if (input.primaryAction === "block_deploy") {
+    return hasKillEvidence(input) && input.commercialTruthConfigured
+      ? "kill_candidate"
+      : hasNumber(input.supportingMetrics?.spend) && input.supportingMetrics!.spend! >= 250
+        ? "spend_waste"
+        : "creative_learning_incomplete";
+  }
+  if (input.primaryAction === "retest_comeback") return "needs_new_variant";
+  if (params.blockers.length > 0) return params.aggressive ? "blocked" : "investigate";
+  if (input.primaryAction === "keep_in_test") return "hold_monitor";
+  return "investigate";
+}
+
+function resolveState(input: {
+  segment: CreativeOperatorSegment;
+  primaryAction: CreativeDecisionPrimaryAction;
+  blockers: string[];
+  evidenceSource: CreativeEvidenceSource;
+  aggressive: boolean;
+}): OperatorPolicyState {
+  if (input.evidenceSource !== "live") return "contextual_only";
+  if (input.segment === "blocked") return "blocked";
+  if (input.segment === "contextual_only") return "contextual_only";
+  if (input.segment === "protected_winner" || input.segment === "no_touch") {
+    return "do_not_touch";
+  }
+  if (
+    input.segment === "false_winner_low_evidence" ||
+    input.segment === "promising_under_sampled" ||
+    input.segment === "creative_learning_incomplete" ||
+    input.segment === "hold_monitor"
+  ) {
+    return "watch";
+  }
+  if (input.blockers.length > 0) {
+    return input.aggressive ? "blocked" : "investigate";
+  }
+  if (input.segment === "scale_ready" || input.segment === "kill_candidate") {
+    return "do_now";
+  }
+  if (
+    input.segment === "fatigued_winner" ||
+    input.segment === "needs_new_variant" ||
+    input.segment === "spend_waste" ||
+    input.segment === "investigate"
+  ) {
+    return "investigate";
+  }
+  return "investigate";
+}
+
+function resolvePushReadiness(input: {
+  state: OperatorPolicyState;
+  segment: CreativeOperatorSegment;
+  actionClass: CreativeOperatorActionClass;
+  provenance: OperatorDecisionProvenance | null;
+  blockers: string[];
+}) {
+  if (!input.provenance || input.blockers.length > 0 || input.state === "blocked") {
+    return "blocked_from_push" as const;
+  }
+  if (input.state === "contextual_only" || input.state === "do_not_touch") {
+    return "blocked_from_push" as const;
+  }
+  if (input.state === "watch") return "read_only_insight" as const;
+  if (input.actionClass === "kill" || input.actionClass === "refresh") {
+    return "operator_review_required" as const;
+  }
+  if (input.state === "do_now" && input.segment === "scale_ready") {
+    return "safe_to_queue" as const;
+  }
+  return "operator_review_required" as const;
+}
+
+export function assessCreativeOperatorPolicy(
+  input: CreativeOperatorPolicyInput,
+): CreativeOperatorPolicyAssessment {
+  const trust = input.trust ?? null;
+  const provenance = input.provenance ?? null;
+  const evidenceSource = input.evidenceSource ?? "unknown";
+  const actionClass = classifyActionClass(input.primaryAction);
+  const aggressive = AGGRESSIVE_ACTIONS.has(input.primaryAction);
+  const commercialTruthConfigured = Boolean(input.commercialTruthConfigured);
+  const previewState = input.previewStatus?.liveDecisionWindow ?? "missing";
+  const weakCampaignContext = hasWeakCampaignContext(input);
+  const lowEvidence = isUnderSampled(input);
+  const roasOnly = hasRoasOnlyPositiveSignal(input);
+  const scaleAction = SCALE_ACTIONS.has(input.primaryAction);
+  const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
+
+  const requiredEvidence = unique([
+    "stable_operator_decision_context",
+    "evidence_source",
+    "row_provenance",
+    "row_trust",
+    "preview_truth",
+    aggressive ? "commercial_truth" : null,
+    scaleAction || killOrRefreshAction ? "evidence_floor" : null,
+    scaleAction ? "campaign_or_adset_context" : null,
+    killOrRefreshAction ? "sufficient_negative_evidence" : null,
+  ]);
+
+  const missingEvidence = unique([
+    !provenance ? "row_provenance" : null,
+    evidenceSource === "unknown" ? "evidence_source" : null,
+    !trust ? "row_trust" : null,
+    previewState === "missing" ? "preview_truth" : null,
+    aggressive && !commercialTruthConfigured ? "commercial_truth" : null,
+    (scaleAction || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
+    roasOnly ? "non_roas_evidence" : null,
+    scaleAction && weakCampaignContext ? "campaign_or_adset_context" : null,
+    input.benchmark?.sampleSize === 0 ? "benchmark_context" : null,
+  ]);
+
+  const blockers = unique([
+    !provenance ? "Missing decision provenance." : null,
+    evidenceSource === "unknown"
+      ? "Evidence source is missing, so Creative action remains contextual."
+      : null,
+    evidenceSource !== "live" && evidenceSource !== "unknown"
+      ? `${evidenceSource} evidence is contextual and cannot authorize primary Creative action.`
+      : null,
+    !trust ? "Decision trust metadata is missing." : null,
+    trust?.truthState === "degraded_missing_truth" && aggressive
+      ? "Commercial truth is degraded or missing, so aggressive Creative action is blocked."
+      : null,
+    trust?.truthState === "inactive_or_immaterial"
+      ? "Creative is inactive or immaterial for primary action."
+      : null,
+    trust?.evidence?.aggressiveActionBlocked && aggressive
+      ? trust.evidence.aggressiveActionBlockReasons[0] ??
+        "Aggressive Creative action is blocked by trust metadata."
+      : null,
+    trust?.evidence?.suppressed
+      ? trust.evidence.suppressionReasons[0] ??
+        "Creative decision is suppressed from primary action."
+      : null,
+    previewState === "missing"
+      ? "Preview truth is missing, so queue and push eligibility are blocked."
+      : null,
+    previewState === "metrics_only_degraded" && aggressive
+      ? "Preview truth is degraded, so aggressive Creative action requires review."
+      : null,
+    aggressive && !commercialTruthConfigured
+      ? "Configured commercial truth is required before Creative scale, kill, or refresh decisions."
+      : null,
+    scaleAction && !hasScaleEvidence(input)
+      ? "Scale evidence floor is not met; ROAS alone is not enough."
+      : null,
+    killOrRefreshAction && !hasKillEvidence(input)
+      ? "Kill or refresh evidence floor is not met."
+      : null,
+    scaleAction && weakCampaignContext
+      ? "Campaign or ad set context limits this creative interpretation."
+      : null,
+  ]);
+
+  const segment = resolveSegment({
+    policyInput: input,
+    evidenceSource,
+    blockers,
+    missingEvidence,
+    aggressive,
+  });
+  const state = resolveState({
+    segment,
+    primaryAction: input.primaryAction,
+    blockers,
+    evidenceSource,
+    aggressive,
+  });
+  const pushReadiness = resolvePushReadiness({
+    state,
+    segment,
+    actionClass,
+    provenance,
+    blockers,
+  });
+  const queueEligible = pushReadiness === "safe_to_queue";
+  const reasons = unique([
+    trust?.reasons[0],
+    input.fatigue?.evidence?.[0],
+    input.economics?.reasons?.[0],
+    input.deployment?.constraints?.[0],
+    ...(input.commercialMissingInputs ?? []).map((field) => `Missing commercial input: ${field}`),
+    blockers[0],
+    missingEvidence.length > 0
+      ? `Missing evidence: ${missingEvidence.join(", ")}.`
+      : null,
+  ]);
+
+  return {
+    contractVersion: "operator-policy.v1",
+    policyVersion: CREATIVE_OPERATOR_POLICY_VERSION,
+    state,
+    segment,
+    actionClass,
+    evidenceSource,
+    pushReadiness,
+    queueEligible,
+    canApply: false,
+    reasons: reasons.length > 0 ? reasons : ["Creative operator policy check completed."],
+    blockers,
+    missingEvidence,
+    requiredEvidence,
+    explanation:
+      blockers.length > 0
+        ? blockers[0]
+        : state === "do_now"
+          ? "Deterministic Creative policy allows this as operator work, but provider push remains disabled."
+          : state === "do_not_touch"
+            ? "Deterministic Creative policy marks this creative as protected."
+            : "Deterministic Creative policy keeps this as review, watch, or context.",
+  };
+}

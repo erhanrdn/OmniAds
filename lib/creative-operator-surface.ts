@@ -154,6 +154,35 @@ function isCreativeMuted(creative: CreativeDecisionOsCreative) {
 }
 
 export function resolveCreativeAuthorityState(creative: CreativeDecisionOsCreative) {
+  if (creative.operatorPolicy) {
+    if (
+      creative.operatorPolicy.segment === "protected_winner" ||
+      creative.operatorPolicy.segment === "no_touch" ||
+      creative.operatorPolicy.state === "do_not_touch"
+    ) {
+      return "no_action" satisfies OperatorAuthorityState;
+    }
+    if (
+      creative.operatorPolicy.segment === "fatigued_winner" ||
+      creative.operatorPolicy.segment === "kill_candidate" ||
+      creative.operatorPolicy.segment === "needs_new_variant" ||
+      creative.operatorPolicy.segment === "spend_waste"
+    ) {
+      return "blocked" satisfies OperatorAuthorityState;
+    }
+    if (
+      creative.operatorPolicy.state === "blocked" ||
+      creative.operatorPolicy.state === "contextual_only"
+    ) {
+      return "needs_truth" satisfies OperatorAuthorityState;
+    }
+    if (creative.operatorPolicy.state === "watch" || creative.operatorPolicy.state === "investigate") {
+      return "watch" satisfies OperatorAuthorityState;
+    }
+    if (creative.operatorPolicy.state === "do_now") {
+      return "act_now" satisfies OperatorAuthorityState;
+    }
+  }
   if (creative.primaryAction === "hold_no_touch") {
     return "no_action" satisfies OperatorAuthorityState;
   }
@@ -175,6 +204,9 @@ export function resolveCreativeAuthorityState(creative: CreativeDecisionOsCreati
 }
 
 function creativeBlocker(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState) {
+  if (creative.operatorPolicy?.blockers?.[0]) {
+    return creative.operatorPolicy.blockers[0];
+  }
   if (creative.previewStatus?.liveDecisionWindow === "missing") {
     return creative.previewStatus.reason ?? "Preview truth is missing for this creative.";
   }
@@ -201,6 +233,31 @@ function creativeBlocker(creative: CreativeDecisionOsCreative, state: OperatorAu
 }
 
 function creativeActionLabel(creative: CreativeDecisionOsCreative, state: OperatorAuthorityState) {
+  if (creative.operatorPolicy) {
+    switch (creative.operatorPolicy.segment) {
+      case "scale_ready":
+        return "Scale";
+      case "kill_candidate":
+        return "Kill review";
+      case "fatigued_winner":
+      case "needs_new_variant":
+        return "Refresh";
+      case "protected_winner":
+      case "no_touch":
+        return "Protect";
+      case "false_winner_low_evidence":
+        return "Do not scale";
+      case "promising_under_sampled":
+      case "creative_learning_incomplete":
+        return "Collect signal";
+      case "contextual_only":
+        return "Context only";
+      case "blocked":
+        return "Blocked";
+      default:
+        break;
+    }
+  }
   if (creative.previewStatus?.liveDecisionWindow === "missing") return "Needs preview";
   if (creative.previewStatus?.liveDecisionWindow === "metrics_only_degraded") return "Review-only";
   if (state === "needs_truth" && creative.trust.operatorDisposition === "profitable_truth_capped") {
@@ -260,6 +317,8 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     blocker,
     confidence: operatorConfidenceBand(creative.confidence),
     secondaryLabels: [
+      creative.operatorPolicy?.segment.replaceAll("_", " ") ?? null,
+      creative.operatorPolicy?.pushReadiness.replaceAll("_", " ") ?? null,
       previewLabel(creative),
       lifecycleLabel(creative.lifecycleState),
       creative.deployment.targetLane ?? null,

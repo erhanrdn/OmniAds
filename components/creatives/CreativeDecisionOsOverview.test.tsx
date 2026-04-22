@@ -100,6 +100,24 @@ function payload() {
         roas: 3.95,
         purchases: 18,
         ctr: 2.1,
+        evidenceSource: "live",
+        operatorPolicy: {
+          contractVersion: "operator-policy.v1",
+          policyVersion: "creative-operator-policy.v1",
+          state: "do_now",
+          segment: "scale_ready",
+          actionClass: "scale",
+          evidenceSource: "live",
+          pushReadiness: "safe_to_queue",
+          queueEligible: true,
+          canApply: false,
+          reasons: ["Creative evidence is material."],
+          blockers: [],
+          missingEvidence: [],
+          requiredEvidence: ["row_provenance", "commercial_truth"],
+          explanation:
+            "Deterministic Creative policy allows this as operator work, but provider push remains disabled.",
+        },
         previewStatus: {
           liveDecisionWindow: "ready",
           reason: null,
@@ -429,6 +447,9 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Preview truth is ready across this review scope.");
     expect(html).toContain("1 ready · 0 degraded · 0 missing.");
     expect(html).toContain("Creative Authority");
+    expect(html).toContain("Operator Policy");
+    expect(html).toContain("safe to queue");
+    expect(html).toContain("live evidence");
     expect(html).toContain("Policy Review");
     expect(html).toContain("candidate active");
     expect(html).toContain("Target ROAS 2.5x");

@@ -29,8 +29,19 @@ function formatLifecycleLabel(value: string) {
     block_deploy: "On hold",
     hold_no_touch: "Evergreen",
     protected_winner: "Evergreen winner",
+    false_winner_low_evidence: "False winner",
+    promising_under_sampled: "Under-sampled",
+    kill_candidate: "Kill candidate",
+    needs_new_variant: "Needs variant",
+    creative_learning_incomplete: "Learning incomplete",
+    spend_waste: "Spend waste",
+    contextual_only: "Context only",
   };
   if (labels[value]) return labels[value];
+  return value.replaceAll("_", " ");
+}
+
+function pushReadinessLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
@@ -170,6 +181,17 @@ export function CreativeDecisionOsOverview({
   const policyCreatives = decisionOs.creatives
     .filter((creative) => creative.policy?.explanation)
     .slice(0, 4);
+  const operatorPolicyCreatives = decisionOs.creatives
+    .filter((creative) => creative.operatorPolicy)
+    .slice(0, 6);
+  const operatorPolicyCounts = decisionOs.creatives.reduce(
+    (acc, creative) => {
+      const state = creative.operatorPolicy?.state ?? "contextual_only";
+      acc[state] = (acc[state] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   return (
     <>
@@ -241,6 +263,60 @@ export function CreativeDecisionOsOverview({
           </div>
         ))}
       </div>
+
+      {operatorPolicyCreatives.length > 0 ? (
+        <section
+          className="rounded-2xl border border-slate-200 bg-white p-4"
+          data-testid="creative-operator-policy-summary"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">Operator Policy</h3>
+              <p className="mt-1 text-xs text-slate-600">
+                Deterministic Creative policy classifies scale, protect, watch,
+                investigate, and context-only work before any queue handoff.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+              <span>Do now {operatorPolicyCounts.do_now ?? 0}</span>
+              <span>Protect {operatorPolicyCounts.do_not_touch ?? 0}</span>
+              <span>Watch {operatorPolicyCounts.watch ?? 0}</span>
+              <span>Investigate {operatorPolicyCounts.investigate ?? 0}</span>
+              <span>Blocked/context {((operatorPolicyCounts.blocked ?? 0) + (operatorPolicyCounts.contextual_only ?? 0))}</span>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            {operatorPolicyCreatives.map((creative) => (
+              <div
+                key={`creative-operator-policy:${creative.creativeId}`}
+                className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{creative.name}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {creative.operatorPolicy.explanation}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                    {formatLifecycleLabel(creative.operatorPolicy.segment)}
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                  <span>{creative.operatorPolicy.state.replaceAll("_", " ")}</span>
+                  <span>{pushReadinessLabel(creative.operatorPolicy.pushReadiness)}</span>
+                  <span>{creative.operatorPolicy.evidenceSource} evidence</span>
+                </div>
+                {creative.operatorPolicy.missingEvidence.length > 0 ? (
+                  <p className="mt-2 text-xs text-amber-700">
+                    Missing: {creative.operatorPolicy.missingEvidence.slice(0, 3).join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {readiness ? (
         <div className="grid gap-3 md:grid-cols-3">
