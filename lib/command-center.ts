@@ -26,6 +26,7 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
   OperatorInstruction,
+  OperatorDecisionPushEligibility,
   OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
 import type {
@@ -1050,6 +1051,29 @@ function buildCommandCenterActionPushEligibility(input: {
   });
 }
 
+function commandCenterInstructionQueueWarnings(input: {
+  pushEligibility: OperatorDecisionPushEligibility;
+  missingCreativePolicy: boolean;
+  policyBlocksQueue: boolean;
+  watchlistOnly: boolean;
+  surfaceLane: DecisionSurfaceLane;
+  policy: OperatorPolicyAssessment | null;
+}) {
+  if (input.pushEligibility.queueEligible) return [];
+  const reason =
+    input.pushEligibility.blockedReason ??
+    (input.missingCreativePolicy
+      ? "Creative operator policy is missing."
+      : input.policyBlocksQueue
+        ? input.policy?.blockers[0] ??
+          input.policy?.explanation ??
+          "Operator policy blocks queue eligibility."
+        : input.watchlistOnly || input.surfaceLane !== "action_core"
+          ? "Decision is contextual only."
+          : "Final queue eligibility is blocked.");
+  return [`Do not promote this Command Center card into queue work: ${reason}`];
+}
+
 function buildMetaSourceDeepLink(input: {
   businessId: string;
   startDate: string;
@@ -1154,8 +1178,12 @@ function buildMetaAction(
           ?.evidenceSource ?? null,
       provenance: input.provenance,
       nextObservation: [...input.guardrails, ...input.decisionSignals],
+      requiresPolicyForQueue: input.sourceSystem === "creative",
       invalidActions:
-        input.watchlistOnly || input.operatorPolicy?.queueEligible !== true
+        input.watchlistOnly ||
+        (input.operatorPolicy
+          ? input.operatorPolicy.queueEligible !== true
+          : input.sourceSystem === "creative")
           ? ["Do not promote this Command Center card into queue work unless policy readiness allows it."]
           : [],
     }),
@@ -2020,10 +2048,18 @@ export function decorateCommandCenterActionsWithThroughput(input: {
           ?.evidenceSource ?? null,
       provenance: action.provenance ?? null,
       nextObservation: [...action.guardrails, ...action.decisionSignals],
-      invalidActions:
-        action.watchlistOnly || policy?.queueEligible !== true
-          ? ["Do not promote this Command Center card into queue work unless policy readiness allows it."]
-          : [],
+      requiresPolicyForQueue: action.sourceSystem === "creative",
+      pushReadinessOverride: pushEligibility.level,
+      queueEligibleOverride: pushEligibility.queueEligible,
+      canApplyOverride: pushEligibility.canApply,
+      invalidActions: commandCenterInstructionQueueWarnings({
+        pushEligibility,
+        missingCreativePolicy,
+        policyBlocksQueue,
+        watchlistOnly: action.watchlistOnly,
+        surfaceLane: action.surfaceLane,
+        policy,
+      }),
     });
 
     return {

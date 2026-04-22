@@ -43,6 +43,121 @@ describe("operator prescription adapter", () => {
     expect(instruction.pushReadiness).toBe("safe_to_queue");
   });
 
+  it("marks bid and cost-control moves as amount-sensitive when no deterministic amount exists", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "meta",
+      sourceLabel: "Meta Decision OS",
+      policy: policy({ actionClass: "bid" }),
+      targetScope: "adset",
+      targetEntity: "Cost Cap Prospecting",
+      actionLabel: "Adjust bid cap",
+      reason: "Delivery is constrained by the current control.",
+      confidenceScore: 0.84,
+      evidenceSource: "live",
+    });
+
+    expect(instruction.amountGuidance.status).toBe("unavailable");
+    expect(instruction.primaryMove).toContain("do not invent a budget or bid amount");
+    expect(instruction.invalidActions).toContain("Do not invent a budget, bid, or spend amount.");
+  });
+
+  it("does not show budget or bid amount warnings for pause-style actions", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({ actionClass: "pause" }),
+      targetScope: "creative",
+      targetEntity: "Spent Out Loser",
+      actionLabel: "Pause",
+      reason: "Evidence floor is met and performance is below target.",
+      confidenceScore: 0.86,
+      evidenceSource: "live",
+    });
+
+    expect(instruction.amountGuidance.status).toBe("not_applicable");
+    expect(instruction.amountGuidance.label).toBe("No amount needed");
+    expect(instruction.primaryMove).not.toContain("do not invent");
+    expect(instruction.invalidActions.join(" ")).not.toContain("budget, bid, or spend amount");
+  });
+
+  it("does not show budget or bid amount warnings for refresh or variant instructions", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({ actionClass: "refresh" }),
+      targetScope: "creative",
+      targetEntity: "Fatigued Winner",
+      actionLabel: "Request variant",
+      reason: "Frequency pressure is visible but the winner is still protected.",
+      confidenceScore: 0.78,
+      evidenceSource: "live",
+    });
+
+    expect(instruction.amountGuidance.status).toBe("not_applicable");
+    expect(instruction.primaryMove).toBe("Request variant Fatigued Winner.");
+    expect(instruction.invalidActions.join(" ")).not.toContain("budget, bid, or spend amount");
+  });
+
+  it("does not show amount warnings for watch, investigate, or protect instructions", () => {
+    const watchInstruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "watch",
+        actionClass: "test",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+      }),
+      targetScope: "creative",
+      targetEntity: "Promising New Hook",
+      actionLabel: "Collect signal",
+      reason: "Evidence is promising but under-sampled.",
+      confidenceScore: 0.64,
+      evidenceSource: "live",
+    });
+    const investigateInstruction = buildOperatorInstruction({
+      sourceSystem: "meta",
+      sourceLabel: "Meta Decision OS",
+      policy: policy({
+        state: "investigate",
+        actionClass: "diagnose",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+      }),
+      targetScope: "campaign",
+      targetEntity: "Delivery Limited Campaign",
+      actionLabel: "Investigate delivery",
+      reason: "Delivery constraint is not resolved.",
+      confidenceScore: 0.66,
+      evidenceSource: "live",
+    });
+    const protectInstruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "do_not_touch",
+        actionClass: "protect",
+        pushReadiness: "blocked_from_push",
+        queueEligible: false,
+      }),
+      targetScope: "creative",
+      targetEntity: "Protected Winner",
+      actionLabel: "Protect",
+      reason: "Short-term volatility is not a kill signal.",
+      confidenceScore: 0.82,
+      evidenceSource: "live",
+    });
+
+    for (const instruction of [
+      watchInstruction,
+      investigateInstruction,
+      protectInstruction,
+    ]) {
+      expect(instruction.amountGuidance.status).toBe("not_applicable");
+      expect(instruction.invalidActions.join(" ")).not.toContain("budget, bid, or spend amount");
+    }
+  });
+
   it("makes under-sampled watch reads observational instead of command-ready", () => {
     const instruction = buildOperatorInstruction({
       sourceSystem: "creative",
