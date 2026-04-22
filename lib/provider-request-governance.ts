@@ -208,11 +208,11 @@ function classifyError(error: unknown): "quota" | "auth" | "permission" | "gener
   if (status === 429) {
     return "quota";
   }
-  if (hasQuotaErrorSignature(message)) {
-    return "quota";
-  }
   if (status === 401) {
     return "auth";
+  }
+  if (hasQuotaErrorSignature(message)) {
+    return "quota";
   }
   if (status === 403) {
     return "permission";

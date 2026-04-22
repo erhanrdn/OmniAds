@@ -241,6 +241,31 @@ describe("provider request governance", () => {
     },
   );
 
+  it.each([
+    ["QUOTA", "Quota exhausted while refreshing token"],
+    ["RATE LIMIT", "Rate limit hit by authenticated user"],
+    ["RESOURCE_EXHAUSTED", "RESOURCE_EXHAUSTED while authenticating"],
+  ])(
+    "keeps explicit 401 %s provider errors classified as auth",
+    async (label, message) => {
+      const { auditQuery, cooldownQuery } = await runRejectedGovernedRequest({
+        message,
+        status: 401,
+        businessId: `biz_auth_401_${label.replaceAll(" ", "_").toLowerCase()}`,
+        requestType: `meta_auth_401_${label.replaceAll(" ", "_").toLowerCase()}`,
+      });
+
+      expect(auditQuery).toBeTruthy();
+      expect(auditQuery?.[9]).toBe(0);
+      expect(auditQuery?.[10]).toBe(1);
+      expect(auditQuery?.[11]).toBe(0);
+      expect(auditQuery?.[16]).toBe("provider_request_failed:auth");
+      expect(cooldownQuery).toBeTruthy();
+      expect(cooldownQuery?.[7]).toBe("provider_request_failed:auth:status_401");
+      expect(cooldownQuery?.[8]).toBe(401);
+    },
+  );
+
   it("keeps true 403 permission errors classified as permission", async () => {
     const { auditQuery, cooldownQuery } = await runRejectedGovernedRequest({
       message: "Permission denied for this account scope",
@@ -254,6 +279,22 @@ describe("provider request governance", () => {
     expect(auditQuery?.[11]).toBe(1);
     expect(auditQuery?.[16]).toBe("provider_request_failed:permission");
     expect(cooldownQuery?.[7]).toBe("provider_request_failed:permission:status_403");
+  });
+
+  it("keeps 429 provider errors classified as quota", async () => {
+    const { auditQuery, cooldownQuery } = await runRejectedGovernedRequest({
+      message: "Permission wording should not override 429 quota status",
+      status: 429,
+      businessId: "biz_true_quota_429",
+      requestType: "meta_true_quota_429",
+    });
+
+    expect(auditQuery).toBeTruthy();
+    expect(auditQuery?.[9]).toBe(1);
+    expect(auditQuery?.[10]).toBe(0);
+    expect(auditQuery?.[11]).toBe(0);
+    expect(auditQuery?.[16]).toBe("provider_request_failed:quota");
+    expect(cooldownQuery?.[7]).toBe("provider_request_failed:quota:status_429");
   });
 
   it("continues to classify non-403 quota and permission messages correctly", async () => {
