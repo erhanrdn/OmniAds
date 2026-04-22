@@ -340,6 +340,15 @@ export function applyCreativeFilters(
       if (rule.field === "primaryAction") {
         return evaluate([decision?.primaryAction ?? null]);
       }
+      if (rule.field === "operatorSegment") {
+        return evaluate([decision?.operatorPolicy?.segment ?? null]);
+      }
+      if (rule.field === "operatorState") {
+        return evaluate([decision?.operatorPolicy?.state ?? null]);
+      }
+      if (rule.field === "pushReadiness") {
+        return evaluate([decision?.operatorPolicy?.pushReadiness ?? null]);
+      }
       if (rule.field === "surfaceLane") {
         return evaluate([decision?.trust.surfaceLane ?? null]);
       }
@@ -500,6 +509,9 @@ export function prettyFieldLabel(field: CreativeFilterField): string {
     isCatalog: "Is catalog",
     lifecycleState: "Lifecycle",
     primaryAction: "Primary action",
+    operatorSegment: "Operator segment",
+    operatorState: "Operator state",
+    pushReadiness: "Push readiness",
     surfaceLane: "Surface lane",
     familySource: "Family source",
     deploymentTargetLane: "Deployment lane",

@@ -320,6 +320,7 @@ describe("buildCreativeDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-30",
+      evidenceSource: "live",
       analyticsWindow,
       decisionWindows,
       historicalMemory,
@@ -330,6 +331,7 @@ describe("buildCreativeDecisionOs", () => {
       businessId: "biz",
       startDate: "2026-03-01",
       endDate: "2026-03-31",
+      evidenceSource: "live",
       analyticsWindow,
       decisionWindows,
       historicalMemory,
@@ -344,6 +346,8 @@ describe("buildCreativeDecisionOs", () => {
     expect(aprilCreative.primaryAction).toBe(marchCreative.primaryAction);
     expect(aprilCreative.actionFingerprint).toBe(marchCreative.actionFingerprint);
     expect(aprilCreative.evidenceHash).toBe(marchCreative.evidenceHash);
+    expect(aprilCreative.operatorPolicy.segment).toBe(marchCreative.operatorPolicy.segment);
+    expect(aprilCreative.operatorPolicy.pushReadiness).toBe(marchCreative.operatorPolicy.pushReadiness);
     expect(aprilCreative.provenance).toMatchObject({
       businessId: "biz",
       decisionAsOf: "2026-04-10",
@@ -368,11 +372,41 @@ describe("buildCreativeDecisionOs", () => {
     expect(march.historicalAnalysis.selectedWindow.startDate).toBe("2026-03-01");
   });
 
+  it("marks missing or non-live Creative evidence as contextual instead of queue-ready", () => {
+    const unknown = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      rows: [buildRow()],
+    });
+    const snapshot = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "snapshot",
+      rows: [buildRow()],
+    });
+
+    expect(unknown.creatives[0]?.operatorPolicy).toMatchObject({
+      evidenceSource: "unknown",
+      state: "contextual_only",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+    });
+    expect(snapshot.creatives[0]?.operatorPolicy).toMatchObject({
+      evidenceSource: "snapshot",
+      state: "contextual_only",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+    });
+  });
+
   it("routes low-truth and inactive creatives into explicit surface lanes", () => {
     const payload = buildCreativeDecisionOs({
       businessId: "biz",
       startDate: "2026-04-01",
       endDate: "2026-04-10",
+      evidenceSource: "live",
       operatingMode: {
         businessId: "biz",
         startDate: "2026-04-01",
@@ -477,7 +511,7 @@ describe("buildCreativeDecisionOs", () => {
     });
     expect(byId.get("hold")?.trust.truthState).toBe("degraded_missing_truth");
     expect(byId.get("retired")?.trust.surfaceLane).toBe("archive_context");
-    expect(payload.summary.surfaceSummary.watchlistCount).toBeGreaterThan(0);
+    expect(payload.summary.surfaceSummary.degradedCount).toBeGreaterThan(0);
     expect(payload.summary.surfaceSummary.archiveCount).toBeGreaterThan(0);
     expect(payload.authority).toMatchObject({
       scope: "Creative Decision OS",

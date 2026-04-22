@@ -22,6 +22,7 @@ import type {
   CommandCenterSavedView,
 } from "@/lib/command-center";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import type { CreativeOperatorPolicyAssessment } from "@/lib/creative-operator-policy";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
@@ -138,6 +139,29 @@ function blockedOperatorPolicy(
     missingEvidence: ["budget_binding_evidence"],
     requiredEvidence: ["budget_binding_evidence"],
     explanation: "Budget is not the binding constraint.",
+    ...overrides,
+  };
+}
+
+function creativeOperatorPolicy(
+  overrides: Partial<CreativeOperatorPolicyAssessment> = {},
+): CreativeOperatorPolicyAssessment {
+  return {
+    contractVersion: "operator-policy.v1",
+    policyVersion: "creative-operator-policy.v1",
+    state: "do_now",
+    segment: "scale_ready",
+    actionClass: "scale",
+    evidenceSource: "live",
+    pushReadiness: "safe_to_queue",
+    queueEligible: true,
+    canApply: false,
+    reasons: ["Creative policy allows manual queue work."],
+    blockers: [],
+    missingEvidence: [],
+    requiredEvidence: ["row_provenance", "commercial_truth"],
+    explanation:
+      "Deterministic Creative policy allows this as operator work, but provider push remains disabled.",
     ...overrides,
   };
 }
@@ -683,6 +707,17 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         },
         evidenceHash: "ev_creative_1",
         actionFingerprint: "od_creative_1",
+        evidenceSource: "live",
+        operatorPolicy: creativeOperatorPolicy({
+          state: "blocked",
+          segment: "blocked",
+          pushReadiness: "blocked_from_push",
+          queueEligible: false,
+          blockers: ["Commercial truth is incomplete."],
+          missingEvidence: ["commercial_truth"],
+          explanation:
+            "Commercial truth is incomplete, so this creative stays out of the queue.",
+        }),
         familyId: "family_1",
         familyLabel: "Promo UGC",
         familySource: "copy_signature",
@@ -842,6 +877,17 @@ function creativeFixture(): CreativeDecisionOsV1Response {
         },
         evidenceHash: "ev_creative_2",
         actionFingerprint: "od_creative_2",
+        evidenceSource: "live",
+        operatorPolicy: creativeOperatorPolicy({
+          state: "do_not_touch",
+          segment: "protected_winner",
+          actionClass: "protect",
+          pushReadiness: "blocked_from_push",
+          queueEligible: false,
+          blockers: ["Protected winner stays out of queue work."],
+          explanation:
+            "Deterministic Creative policy marks this creative as protected.",
+        }),
         familyId: "family_2",
         familyLabel: "Holdout",
         familySource: "singleton",
@@ -1444,6 +1490,64 @@ describe("command center domain", () => {
     expect(metaAction?.queueSection).toBe("history_context");
   });
 
+  it("keeps Creative rows without operator policy out of queue and push surfaces", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions: actions.map((action) =>
+        action.sourceType === "creative_primary_decision"
+          ? { ...action, operatorPolicy: null }
+          : action,
+      ),
+      decisionAsOf: "2026-04-10",
+    });
+    const creativeAction = decorated.find(
+      (action) => action.sourceType === "creative_primary_decision",
+    );
+
+    expect(creativeAction?.operatorPolicy).toBeNull();
+    expect(creativeAction?.throughput.actionable).toBe(false);
+    expect(creativeAction?.throughput.defaultQueueEligible).toBe(false);
+  });
+
+  it("keeps snapshot Creative policy context out of the default queue", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy({
+      state: "contextual_only",
+      segment: "contextual_only",
+      evidenceSource: "snapshot",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      blockers: ["snapshot evidence is contextual and cannot authorize primary Creative action."],
+      explanation:
+        "snapshot evidence is contextual and cannot authorize primary Creative action.",
+    });
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: payload,
+    });
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions,
+      decisionAsOf: "2026-04-10",
+    });
+    const creativeAction = decorated.find(
+      (action) =>
+        action.sourceType === "creative_primary_decision" &&
+        action.title === "Promo Hook A",
+    );
+
+    expect(creativeAction?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
+    expect(creativeAction?.throughput.defaultQueueEligible).toBe(false);
+  });
+
   it("marks no-touch surfaces as watchlist-only and keeps them out of primary views", () => {
     const actions = aggregateCommandCenterActions({
       businessId: "biz",
@@ -1593,6 +1697,13 @@ describe("command center domain", () => {
     expect(opportunities.some((item) => item.sourceSystem === "meta")).toBe(true);
     expect(opportunities.some((item) => item.sourceSystem === "creative")).toBe(true);
     expect(opportunities.some((item) => item.queueEligible)).toBe(true);
+    expect(
+      opportunities.find(
+        (item) =>
+          item.sourceSystem === "creative" &&
+          item.kind === "creative_family_winner_scale",
+      )?.queueEligible,
+    ).toBe(false);
     expect(
       opportunities.some(
         (item) => item.kind.includes("protected") && !item.queueEligible,

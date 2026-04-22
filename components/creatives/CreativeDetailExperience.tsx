@@ -749,6 +749,18 @@ export function CreativeDetailExperience({
                     label="Primary decision"
                     value={decisionOsCreative.primaryAction.replaceAll("_", " ")}
                   />
+                  {decisionOsCreative.operatorPolicy ? (
+                    <>
+                      <CompactMetricCell
+                        label="Operator segment"
+                        value={decisionOsCreative.operatorPolicy.segment.replaceAll("_", " ")}
+                      />
+                      <CompactMetricCell
+                        label="Push readiness"
+                        value={decisionOsCreative.operatorPolicy.pushReadiness.replaceAll("_", " ")}
+                      />
+                    </>
+                  ) : null}
                   <CompactMetricCell label="Family" value={decisionOsCreative.familyLabel} />
                   <CompactMetricCell
                     label="Target lane"
@@ -823,7 +835,7 @@ export function CreativeDetailExperience({
                     </h4>
                   </div>
                   <a
-                    href={`/command-center?startDate=${encodeURIComponent(standardRange.customStart)}&endDate=${encodeURIComponent(standardRange.customEnd)}${commandCenterAction ? `&action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
+                    href={`/command-center${commandCenterAction ? `?action=${encodeURIComponent(commandCenterAction.actionFingerprint)}` : ""}`}
                     className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                   >
                     Open in Command Center

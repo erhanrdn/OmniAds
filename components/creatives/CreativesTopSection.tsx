@@ -110,6 +110,9 @@ export type CreativeFilterField =
   | "isCatalog"
   | "lifecycleState"
   | "primaryAction"
+  | "operatorSegment"
+  | "operatorState"
+  | "pushReadiness"
   | "surfaceLane"
   | "familySource"
   | "deploymentTargetLane"
@@ -263,6 +266,9 @@ const FILTER_TREE: Array<{ label: string; children: Array<{ label: string; value
     children: [
       { label: "Lifecycle state", value: "lifecycleState" },
       { label: "Primary action", value: "primaryAction" },
+      { label: "Operator segment", value: "operatorSegment" },
+      { label: "Operator state", value: "operatorState" },
+      { label: "Push readiness", value: "pushReadiness" },
       { label: "Surface lane", value: "surfaceLane" },
       { label: "Family source", value: "familySource" },
       { label: "Deployment lane", value: "deploymentTargetLane" },
@@ -817,6 +823,12 @@ function AddFilterDropdown({
         return collect(decisionOs?.creatives.map((creative) => creative.lifecycleState) ?? []);
       case "primaryAction":
         return collect(decisionOs?.creatives.map((creative) => creative.primaryAction) ?? []);
+      case "operatorSegment":
+        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.segment ?? null) ?? []);
+      case "operatorState":
+        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.state ?? null) ?? []);
+      case "pushReadiness":
+        return collect(decisionOs?.creatives.map((creative) => creative.operatorPolicy?.pushReadiness ?? null) ?? []);
       case "surfaceLane":
         return collect(decisionOs?.creatives.map((creative) => creative.trust.surfaceLane) ?? []);
       case "familySource":

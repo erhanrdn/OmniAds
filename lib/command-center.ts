@@ -1035,12 +1035,13 @@ function createActionFingerprint(base: {
 function buildCommandCenterActionPushEligibility(input: {
   provenance: OperatorDecisionProvenance | null;
   actionable: boolean;
+  sourceSystem: CommandCenterSourceSystem;
   blockedReason?: string | null;
 }) {
   return buildOperatorDecisionPushEligibility({
     provenance: input.provenance,
     queueEligible: input.actionable && Boolean(input.provenance?.actionFingerprint),
-    canApply: input.actionable,
+    canApply: input.sourceSystem === "meta" && input.actionable,
     canRollback: false,
     blockedReason: input.blockedReason ?? null,
   });
@@ -1239,7 +1240,29 @@ function mapCreativeOpportunityToCommandCenter(input: {
   endDate: string;
   operatingMode: string | null;
   item: CreativeOpportunityBoardItem;
+  creativeDecisionOs: CreativeDecisionOsV1Response;
 }): CommandCenterOpportunityItem {
+  const creativePolicyEligible = input.item.creativeIds.some((creativeId) => {
+    const creative = input.creativeDecisionOs.creatives.find(
+      (candidate) => candidate.creativeId === creativeId,
+    );
+    return (
+      creative?.operatorPolicy.queueEligible === true &&
+      creative.operatorPolicy.pushReadiness === "safe_to_queue"
+    );
+  });
+  const queueEligible = input.item.queue.eligible && creativePolicyEligible;
+  const policyFloor: DecisionEvidenceFloor = {
+    key: "creative_operator_policy",
+    label: "Creative operator policy",
+    status: creativePolicyEligible ? "met" : "blocked",
+    current: creativePolicyEligible ? "safe to queue" : "not queue eligible",
+    required: "safe to queue",
+    reason: creativePolicyEligible
+      ? null
+      : "Creative opportunity is not queue eligible without a matching row policy.",
+  };
+
   return {
     opportunityId: input.item.opportunityId,
     sourceSystem: "creative",
@@ -1248,9 +1271,12 @@ function mapCreativeOpportunityToCommandCenter(input: {
     summary: input.item.summary,
     recommendedAction: input.item.recommendedAction,
     confidence: input.item.confidence,
-    queueEligible: input.item.queue.eligible,
+    queueEligible,
     eligibilityTrace: input.item.eligibilityTrace,
-    evidenceFloors: input.item.evidenceFloors,
+    evidenceFloors: [
+      ...input.item.evidenceFloors.filter((floor) => floor.key !== policyFloor.key),
+      policyFloor,
+    ],
     tags: input.item.tags,
     sourceContext: {
       sourceLabel: "Creative Decision OS",
@@ -1300,6 +1326,7 @@ export function buildCommandCenterOpportunities(input: {
           endDate: input.endDate,
           operatingMode,
           item,
+          creativeDecisionOs: input.creativeDecisionOs,
         }),
       );
     }
@@ -1661,6 +1688,7 @@ export function aggregateCommandCenterActions(input: {
             (creative as { provenance?: OperatorDecisionProvenance | null })
               .provenance ?? null,
           decisionAsOf: creativeDecisionOs.decisionAsOf,
+          operatorPolicy: creative.operatorPolicy ?? null,
         }),
       );
     });
@@ -1827,14 +1855,19 @@ export function decorateCommandCenterActionsWithThroughput(input: {
       Number(((decisionAsOfTimestamp - ageAnchorTimestamp) / 3_600_000).toFixed(1)),
     );
     const policy = action.operatorPolicy ?? null;
-    const policyBlocksQueue = policy ? !policy.queueEligible : false;
+    const missingCreativePolicy =
+      action.sourceSystem === "creative" && !policy;
+    const policyBlocksQueue = policy ? !policy.queueEligible : missingCreativePolicy;
     const actionable = isCommandCenterActionActionable(action) && !policyBlocksQueue;
     const priorityScore = calculateCommandCenterPriorityScore(action);
     const pushEligibility = buildCommandCenterActionPushEligibility({
       provenance: action.provenance ?? null,
       actionable,
+      sourceSystem: action.sourceSystem,
       blockedReason: action.provenance
-        ? policy?.blockers[0] ??
+        ? missingCreativePolicy
+          ? "Creative operator policy is missing, so queue and push eligibility are blocked."
+          : policy?.blockers[0] ??
           (policyBlocksQueue
             ? policy?.explanation ?? "Operator policy blocks queue eligibility."
             : null) ??
