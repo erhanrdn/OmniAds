@@ -57,8 +57,7 @@ export async function GET(request: NextRequest) {
     analyticsStartDateParam ?? startDate;
   const analyticsEndDate =
     analyticsEndDateParam ?? endDate;
-  const decisionAsOf =
-    request.nextUrl.searchParams.get("decisionAsOf") ?? analyticsEndDate;
+  const decisionAsOf = request.nextUrl.searchParams.get("decisionAsOf");
 
   const payload = await getCreativeDecisionOsForRange({
     request,

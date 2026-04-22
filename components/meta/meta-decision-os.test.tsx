@@ -2,6 +2,7 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
 import { createEmptyBusinessCommercialCoverageSummary } from "@/src/types/business-commercial";
 import {
   MetaCampaignDecisionPanel,
@@ -53,6 +54,20 @@ function payload() {
         "Shared policy ladder stayed in compare mode because the candidate branch would have been more aggressive than the current baseline.",
     },
   } as const;
+  const budgetShiftProvenance = buildOperatorDecisionProvenance({
+    businessId: "biz",
+    decisionAsOf: metadata.decisionAsOf,
+    analyticsWindow: metadata.analyticsWindow,
+    sourceWindow: metadata.decisionWindows.primary30d,
+    sourceRowScope: {
+      system: "meta",
+      entityType: "budget_shift",
+      entityId: "cmp_2:cmp_1",
+    },
+    sourceDecisionId: "cmp_2:cmp_1:budget_shift",
+    recommendedAction: "budget_shift",
+    evidence: ["10-15% of current budget load"],
+  });
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
@@ -202,6 +217,9 @@ function payload() {
         suggestedMoveBand: "10-15% of current budget load",
         confidence: 0.78,
         guardrails: [],
+        provenance: budgetShiftProvenance,
+        evidenceHash: budgetShiftProvenance.evidenceHash,
+        actionFingerprint: budgetShiftProvenance.actionFingerprint,
       },
     ],
     geoDecisions: [

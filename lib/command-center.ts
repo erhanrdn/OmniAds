@@ -1449,11 +1449,9 @@ export function aggregateCommandCenterActions(input: {
               endDate: input.endDate,
               campaignId: shift.toCampaignId,
             }),
-            sourceDecisionId: `${shift.fromCampaignId}:${shift.toCampaignId}`,
+            sourceDecisionId: `${shift.fromCampaignId}:${shift.toCampaignId}:budget_shift`,
           },
-          provenance:
-            (shift as { provenance?: OperatorDecisionProvenance | null })
-              .provenance ?? null,
+          provenance: shift.provenance,
           decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );

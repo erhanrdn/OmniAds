@@ -94,7 +94,7 @@ function queueEligibilityFixture(input?: {
 
 function rowProvenanceFixture(input: {
   system: "meta" | "creative";
-  entityType: "campaign" | "adset" | "geo" | "creative";
+  entityType: "campaign" | "adset" | "geo" | "creative" | "budget_shift";
   entityId: string;
   sourceDecisionId: string;
   recommendedAction: string;
@@ -283,6 +283,13 @@ function metaFixture(): MetaDecisionOsV1Response {
         suggestedMoveBand: "$250-$400",
         confidence: 0.77,
         guardrails: ["Keep donor alive."],
+        ...rowProvenanceFixture({
+          system: "meta",
+          entityType: "budget_shift",
+          entityId: "cmp_2:cmp_1",
+          sourceDecisionId: "cmp_2:cmp_1:budget_shift",
+          recommendedAction: "budget_shift",
+        }),
       },
     ],
     geoDecisions: [
@@ -1554,6 +1561,10 @@ describe("command center domain", () => {
     expect(budgetShiftAction?.sourceContext.sourceDeepLink).toContain(
       "campaignId=cmp_1",
     );
+    expect(budgetShiftAction?.provenance?.sourceRowScope.entityType).toBe(
+      "budget_shift",
+    );
+    expect(budgetShiftAction?.throughput.defaultQueueEligible).toBe(true);
   });
 
   it("builds a bounded default queue, owner workload, and shift digest from throughput metadata", () => {

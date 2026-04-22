@@ -295,6 +295,9 @@ export interface MetaBudgetShift {
   suggestedMoveBand: string;
   confidence: number;
   guardrails: string[];
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
 }
 
 export interface MetaGeoDecision {
@@ -565,7 +568,7 @@ function average(values: number[]) {
 
 function formatCurrency(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "Unavailable";
-  return `$${round(value).toLocaleString(undefined, {
+  return `$${round(value).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -2189,7 +2192,7 @@ function buildAdSetDecision(input: {
     },
     {
       label: "Signal depth",
-      value: `${input.adSet.spend.toLocaleString()} spend / ${input.adSet.purchases} purchases`,
+      value: `${input.adSet.spend.toLocaleString("en-US")} spend / ${input.adSet.purchases.toLocaleString("en-US")} purchases`,
       impact: hasStrongSignal ? "positive" : "neutral",
     },
   ];
@@ -2977,6 +2980,7 @@ function buildBudgetShifts(input: {
   campaigns: MetaCampaignDecision[];
   campaignRows: MetaCampaignRow[];
   winnerScaleCandidates: MetaWinnerScaleCandidate[];
+  provenanceContext: MetaDecisionProvenanceContext;
 }) {
   const byId = new Map(input.campaignRows.map((campaign) => [campaign.id, campaign]));
   const eligibleCampaigns = input.campaigns.filter(
@@ -3021,6 +3025,40 @@ function buildBudgetShifts(input: {
     const recipientRow = recipient ? byId.get(recipient.campaignId) : null;
     if (!donor || !recipient || !donorRow || !recipientRow) continue;
     const movePct = donor.primaryAction === "pause" ? "20-30%" : "10-15%";
+    const suggestedMoveBand = `${movePct} of current budget load`;
+    const sourceDecisionId = `${donor.campaignId}:${recipient.campaignId}:budget_shift`;
+    const evidence: MetaDecisionEvidence[] = [
+      {
+        label: "Move band",
+        value: suggestedMoveBand,
+        impact: "neutral",
+      },
+      {
+        label: "Donor action",
+        value: donor.primaryAction,
+        impact: donor.primaryAction === "pause" ? "negative" : "mixed",
+      },
+      {
+        label: "Recipient role",
+        value: recipient.role,
+        impact: "positive",
+      },
+    ];
+    const provenance = buildMetaDecisionProvenance({
+      businessId: input.provenanceContext.businessId,
+      decisionAsOf: input.provenanceContext.decisionAsOf,
+      analyticsWindow: input.provenanceContext.analyticsWindow,
+      reportingRange: input.provenanceContext.reportingRange,
+      sourceWindow: input.provenanceContext.sourceWindow,
+      sourceRowScope: {
+        system: "meta",
+        entityType: "budget_shift",
+        entityId: `${donor.campaignId}:${recipient.campaignId}`,
+      },
+      sourceDecisionId,
+      recommendedAction: "budget_shift",
+      evidence,
+    });
     shifts.push({
       fromCampaignId: donor.campaignId,
       fromCampaignName: donor.campaignName,
@@ -3034,12 +3072,15 @@ function buildBudgetShifts(input: {
           : "The donor is below target while the recipient has the stronger case for controlled growth.",
       riskLevel: donor.primaryAction === "pause" ? "medium" : "low",
       expectedBenefit: `${recipient.role} can absorb cleaner spend than ${donor.role} right now.`,
-      suggestedMoveBand: `${movePct} of current budget load`,
+      suggestedMoveBand,
       confidence: clampConfidence((donor.confidence + recipient.confidence) / 2),
       guardrails: [
         "Treat this as a read-only budget board, not an automatic write-back plan.",
         "Re-check the winner/loser pair after the first move band is absorbed.",
       ],
+      provenance,
+      evidenceHash: provenance.evidenceHash,
+      actionFingerprint: provenance.actionFingerprint,
     });
   }
 
@@ -3461,6 +3502,7 @@ export function buildMetaDecisionOs(
     campaigns: campaignDecisions,
     campaignRows: input.campaigns,
     winnerScaleCandidates,
+    provenanceContext,
   });
   const summary = buildSummary({
     campaignDecisions,

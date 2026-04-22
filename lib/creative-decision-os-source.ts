@@ -73,7 +73,7 @@ function resolveCreativeDecisionTimeline(input: {
   const reportingEndDate = input.endDate;
   const analyticsStartDate = input.analyticsStartDate ?? reportingStartDate;
   const analyticsEndDate = input.analyticsEndDate ?? reportingEndDate;
-  const decisionAsOf = input.decisionAsOf ?? analyticsEndDate;
+  const decisionAsOf = input.decisionAsOf ?? null;
 
   return {
     reportingStartDate,

@@ -161,7 +161,7 @@ describe("GET /api/creatives/decision-os", () => {
         endDate: string;
         decisionAsOf?: string | null;
       }) => {
-      const decisionAsOf = input.decisionAsOf ?? input.endDate;
+      const decisionAsOf = input.decisionAsOf ?? "2026-04-10";
       return {
         analyticsWindow: {
           startDate: input.startDate,
@@ -480,6 +480,32 @@ describe("GET /api/creatives/decision-os", () => {
       expect.objectContaining({
         start: "2026-03-12",
         end: "2026-04-10",
+      }),
+    );
+  });
+
+  it("lets provider decision timing resolve decisionAsOf when the request omits it", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-02-01",
+      endDate: "2026-02-28",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisionAsOf: "2026-04-10",
+        analyticsWindow: {
+          startDate: "2026-02-01",
+          endDate: "2026-02-28",
+          role: "analysis_only",
+        },
       }),
     );
   });

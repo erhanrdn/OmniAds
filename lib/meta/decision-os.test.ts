@@ -581,6 +581,19 @@ describe("buildMetaDecisionOs", () => {
       fromCampaignId: "cmp_loser",
       toCampaignId: "cmp_winner",
     });
+    expect(result.budgetShifts[0]?.provenance).toMatchObject({
+      businessId: "biz",
+      decisionAsOf: "2026-04-10",
+      sourceRowScope: {
+        system: "meta",
+        entityType: "budget_shift",
+        entityId: "cmp_loser:cmp_winner",
+      },
+      sourceDecisionId: "cmp_loser:cmp_winner:budget_shift",
+    });
+    expect(result.budgetShifts[0]?.actionFingerprint).toBe(
+      result.budgetShifts[0]?.provenance.actionFingerprint,
+    );
   });
 
   it("turns blocked geos into cut decisions and flags placement anomalies", () => {

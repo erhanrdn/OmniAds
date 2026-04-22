@@ -144,6 +144,9 @@ export async function GET(request: NextRequest) {
             businessId,
             startDate,
             endDate,
+            analyticsStartDate: analyticsStartDate ?? undefined,
+            analyticsEndDate: analyticsEndDate ?? undefined,
+            decisionAsOf,
           });
           unifiedDecisionOs = attachCreativeLinkage(unifiedDecisionOs, creativeDecisionOs);
         } catch {
