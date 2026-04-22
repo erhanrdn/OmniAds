@@ -46,6 +46,7 @@ function baseInput(overrides: Partial<MetaOperatorPolicyInput> = {}): MetaOperat
     action: "scale_budget",
     trust: liveTrust(),
     provenance: provenance(),
+    evidenceSource: "live",
     commercialTruthMode: "configured_targets",
     commercialMissingInputs: [],
     budgetOwner: "adset",
@@ -192,6 +193,19 @@ describe("assessMetaOperatorPolicy", () => {
     expect(result.pushReadiness).toBe("blocked_from_push");
     expect(result.queueEligible).toBe(false);
     expect(result.missingEvidence).toContain("row_provenance");
+  });
+
+  it("fails closed when evidence source is missing instead of assuming live", () => {
+    const result = assessMetaOperatorPolicy({
+      ...baseInput(),
+      evidenceSource: undefined,
+    });
+
+    expect(result.state).toBe("contextual_only");
+    expect(result.pushReadiness).toBe("blocked_from_push");
+    expect(result.queueEligible).toBe(false);
+    expect(result.missingEvidence).toContain("evidence_source");
+    expect(result.blockers.join(" ")).toContain("Evidence source is missing");
   });
 
   it("keeps demo, snapshot, and fallback evidence contextual only", () => {

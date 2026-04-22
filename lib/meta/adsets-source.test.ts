@@ -79,6 +79,7 @@ describe("meta adsets source", () => {
       rows: [],
       isPartial: true,
       notReadyReason: "Current-day live Meta ad set data is still being prepared.",
+      evidenceSource: "unknown",
     });
     expect(serving.getMetaWarehouseAdSets).not.toHaveBeenCalled();
   });

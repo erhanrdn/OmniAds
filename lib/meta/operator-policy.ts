@@ -172,7 +172,7 @@ export function assessMetaOperatorPolicy(
   const provenance = input.provenance ?? null;
   const actionClass = classifyActionClass(input.action);
   const aggressive = AGGRESSIVE_ACTIONS.has(input.action);
-  const evidenceSource = input.evidenceSource ?? "live";
+  const evidenceSource = input.evidenceSource ?? "unknown";
   const budgetOwner = input.budgetOwner ?? "unknown";
   const budgetConstraint = input.budgetConstraint ?? "unknown";
   const supportingMetrics = input.supportingMetrics ?? {};
@@ -184,6 +184,7 @@ export function assessMetaOperatorPolicy(
       (hasMetric(purchases) && purchases < 8));
   const requiredEvidence = unique([
     "stable_operator_decision_context",
+    "evidence_source",
     "row_trust",
     "row_provenance",
     aggressive ? "commercial_truth" : null,
@@ -196,6 +197,7 @@ export function assessMetaOperatorPolicy(
 
   const missingEvidence = unique([
     !provenance ? "row_provenance" : null,
+    evidenceSource === "unknown" ? "evidence_source" : null,
     !trust ? "row_trust" : null,
     input.commercialTruthMode !== "configured_targets" && aggressive
       ? "commercial_truth"
@@ -224,7 +226,10 @@ export function assessMetaOperatorPolicy(
 
   const blockers = unique([
     !provenance ? "Missing decision provenance." : null,
-    evidenceSource !== "live"
+    evidenceSource === "unknown"
+      ? "Evidence source is missing, so primary action is blocked."
+      : null,
+    evidenceSource !== "live" && evidenceSource !== "unknown"
       ? `${evidenceSource} evidence is contextual and cannot authorize primary action.`
       : null,
     !trust ? "Decision trust metadata is missing." : null,

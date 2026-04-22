@@ -285,12 +285,14 @@ describe("GET /api/creatives/decision-os", () => {
       rows: [{ id: "cmp_1", name: "Campaign 1", status: "ACTIVE", spend: 300, revenue: 900, purchases: 25, roas: 3, cpa: 12, optimizationGoal: "Purchase", objective: "OUTCOME_SALES" } as never],
       isPartial: false,
       notReadyReason: null,
+      evidenceSource: "live",
     });
     vi.mocked(adsetsSource.getMetaAdSetsForRange).mockResolvedValue({
       status: "ok",
       rows: [{ id: "adset_1", name: "Ad Set 1", campaignId: "cmp_1", status: "ACTIVE", spend: 100, revenue: 250, purchases: 10, cpa: 10, ctr: 1.5, impressions: 1000, clicks: 50, dailyBudget: 100, lifetimeBudget: null, optimizationGoal: "Purchase", bidStrategyType: null, bidStrategyLabel: null, manualBidAmount: null, bidValue: null, bidValueFormat: null, isBudgetMixed: false, isConfigMixed: false } as never],
       isPartial: false,
       notReadyReason: null,
+      evidenceSource: "live",
     });
     vi.mocked(breakdownsSource.getMetaBreakdownsForRange).mockResolvedValue({
       status: "ok",

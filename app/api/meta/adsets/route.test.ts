@@ -71,6 +71,7 @@ describe("GET /api/meta/adsets", () => {
       ],
       isPartial: false,
       notReadyReason: null,
+      evidenceSource: "live",
     });
 
     const response = await GET(
@@ -134,6 +135,7 @@ describe("GET /api/meta/adsets", () => {
       ],
       isPartial: false,
       notReadyReason: null,
+      evidenceSource: "live",
     });
 
     const response = await GET(

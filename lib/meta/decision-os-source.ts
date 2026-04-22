@@ -7,6 +7,7 @@ import {
   getMetaDecisionSourceSnapshot,
   getMetaDecisionWindowContext,
 } from "@/lib/meta/operator-decision-source";
+import type { MetaEvidenceSource } from "@/lib/meta/operator-policy";
 
 function normalizeGeoFreshnessState(
   value: string | null | undefined,
@@ -24,6 +25,17 @@ function normalizeOptionalDecisionAsOf(value: string | null | undefined) {
 
 function normalizeOptionalDateParam(value: string | null | undefined) {
   return value?.trim() || null;
+}
+
+function combineMetaEvidenceSource(
+  sources: MetaEvidenceSource[],
+): MetaEvidenceSource {
+  if (sources.includes("unknown")) return "unknown";
+  if (sources.includes("fallback")) return "fallback";
+  if (sources.includes("snapshot")) return "snapshot";
+  if (sources.includes("demo")) return "demo";
+  if (sources.every((source) => source === "live")) return "live";
+  return "unknown";
 }
 
 export async function getMetaDecisionOsForRange(input: {
@@ -62,6 +74,10 @@ export async function getMetaDecisionOsForRange(input: {
     decisionWindows: decisionContext.decisionWindows,
     historicalMemory: decisionContext.historicalMemory,
     decisionAsOf: decisionContext.decisionAsOf,
+    evidenceSource: combineMetaEvidenceSource([
+      campaigns.evidenceSource,
+      adSets.evidenceSource,
+    ]),
     campaigns: campaigns.rows ?? [],
     adSets: adSets.rows ?? [],
     geoSource: {
