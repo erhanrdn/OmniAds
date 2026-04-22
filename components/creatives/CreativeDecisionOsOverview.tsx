@@ -304,6 +304,11 @@ export function CreativeDecisionOsOverview({
                       <p className="mt-1 text-xs text-slate-600">
                         Why now: {instruction?.reasonSummary ?? creative.operatorPolicy.explanation}
                       </p>
+                      {instruction ? (
+                        <p className="mt-1 text-xs text-slate-600">
+                          Target: {instruction.targetContext.label}
+                        </p>
+                      ) : null}
                     </div>
                     <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
                       {formatLifecycleLabel(creative.operatorPolicy.segment)}
@@ -311,10 +316,16 @@ export function CreativeDecisionOsOverview({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                     <span>{creative.operatorPolicy.state.replaceAll("_", " ")}</span>
+                    {instruction ? <span>Urgency {instruction.urgency}</span> : null}
                     <span>{pushReadinessLabel(creative.operatorPolicy.pushReadiness)}</span>
                     <span>{creative.operatorPolicy.evidenceSource} evidence</span>
                     {instruction ? <span>{instruction.amountGuidance.label}</span> : null}
                   </div>
+                  {instruction?.urgencyReason ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      Urgency basis: {instruction.urgencyReason}
+                    </p>
+                  ) : null}
                   {instruction?.nextObservation[0] ? (
                     <p className="mt-2 text-xs text-slate-600">
                       Watch next: {instruction.nextObservation[0]}

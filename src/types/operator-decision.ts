@@ -142,6 +142,38 @@ export interface OperatorInstructionAmountGuidance {
   status: "not_applicable" | "unavailable" | "bounded_estimate";
   label: string;
   reason: string;
+  assumptions?: string[];
+}
+
+export interface OperatorInstructionTargetContext {
+  status: "available" | "review_required" | "unavailable";
+  label: string;
+  reason: string;
+  targetScope?: string | null;
+  targetEntity?: string | null;
+  parentEntity?: string | null;
+}
+
+export interface OperatorDecisionTelemetry {
+  contractVersion: "operator-decision-telemetry.v1";
+  policyVersion: string | null;
+  sourceSystem: "meta" | "creative" | "command_center";
+  sourceSurface: string;
+  instructionKind: OperatorInstructionKind;
+  pushReadiness: OperatorDecisionPushEligibility["level"];
+  queueEligible: boolean;
+  canApply: boolean;
+  evidenceStrength: OperatorInstructionEvidenceStrength;
+  urgency: OperatorInstructionUrgency;
+  amountGuidanceStatus: OperatorInstructionAmountGuidance["status"];
+  targetContextStatus: OperatorInstructionTargetContext["status"];
+  missingEvidence: string[];
+  missingEvidenceCount: number;
+  invalidActionCount: number;
+  nextObservationCount: number;
+  blockedReason: string | null;
+  actionFingerprint: string | null;
+  evidenceHash: string | null;
 }
 
 export interface OperatorInstruction {
@@ -153,6 +185,7 @@ export interface OperatorInstruction {
   targetScope: string;
   targetEntity: string;
   parentEntity?: string | null;
+  targetContext: OperatorInstructionTargetContext;
   reasonSummary: string;
   evidenceStrength: OperatorInstructionEvidenceStrength;
   missingEvidence: string[];
@@ -176,6 +209,8 @@ export interface OperatorInstruction {
     policyContract: "operator-policy.v1";
     policyVersion?: string | null;
   };
+  urgencyReason: string;
+  telemetry: OperatorDecisionTelemetry;
   provenance?: OperatorDecisionProvenance | null;
   evidenceHash?: string | null;
   actionFingerprint?: string | null;

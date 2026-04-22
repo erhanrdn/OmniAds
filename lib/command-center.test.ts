@@ -2131,6 +2131,23 @@ describe("command center domain", () => {
     expect(budgetShiftAction?.operatorInstruction?.queueEligible).toBe(true);
     expect(budgetShiftAction?.operatorInstruction?.pushReadiness).toBe("safe_to_queue");
     expect(budgetShiftAction?.operatorInstruction?.canApply).toBe(false);
+    expect(budgetShiftAction?.operatorInstruction?.amountGuidance.status).toBe(
+      "bounded_estimate",
+    );
+    expect(budgetShiftAction?.operatorInstruction?.amountGuidance.label).toContain(
+      "Move band:",
+    );
+    expect(budgetShiftAction?.operatorInstruction?.telemetry).toMatchObject({
+      contractVersion: "operator-decision-telemetry.v1",
+      sourceSystem: "meta",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      amountGuidanceStatus: "bounded_estimate",
+    });
+    expect(JSON.stringify(budgetShiftAction?.operatorInstruction?.telemetry)).not.toContain(
+      "biz",
+    );
     expect(budgetShiftAction?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
       "Do not promote this Command Center card into queue work",
     );

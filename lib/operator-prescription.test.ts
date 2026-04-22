@@ -260,4 +260,98 @@ describe("operator prescription adapter", () => {
     expect(instruction.primaryMove).toContain("live and protected");
     expect(instruction.invalidActions.join(" ")).toContain("Do not pause, refresh, resize, or reset");
   });
+
+  it("clamps queue and apply overrides so instructions cannot loosen policy", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "meta",
+      sourceLabel: "Meta Decision OS",
+      policy: policy({
+        state: "blocked",
+        pushReadiness: "blocked_from_push",
+        queueEligible: false,
+        canApply: false,
+        blockers: ["Policy blocks this action."],
+      }),
+      targetScope: "adset",
+      targetEntity: "Blocked Ad Set",
+      actionLabel: "Increase budget",
+      reason: "Policy blocks this action.",
+      confidenceScore: 0.9,
+      evidenceSource: "live",
+      pushReadinessOverride: "eligible_for_push_when_enabled",
+      queueEligibleOverride: true,
+      canApplyOverride: true,
+    });
+
+    expect(instruction.pushReadiness).toBe("blocked_from_push");
+    expect(instruction.queueEligible).toBe(false);
+    expect(instruction.canApply).toBe(false);
+    expect(instruction.telemetry.pushReadiness).toBe("blocked_from_push");
+  });
+
+  it("exposes target context, urgency basis, and sanitized telemetry", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "watch",
+        actionClass: "test",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        missingEvidence: ["conversion volume", "target CPA"],
+      }),
+      targetScope: "creative",
+      targetEntity: "Hook Winner",
+      parentEntity: "Prospecting Family",
+      actionLabel: "Collect signal",
+      reason: "Creative is promising but still under-sampled.",
+      confidenceScore: 0.61,
+      evidenceSource: "live",
+      evidenceHash: "eh_123",
+      actionFingerprint: "af_123",
+    });
+
+    expect(instruction.targetContext.label).toContain("Creative: Hook Winner");
+    expect(instruction.targetContext.label).toContain("Prospecting Family");
+    expect(instruction.urgency).toBe("watch");
+    expect(instruction.urgencyReason).toContain("more observation");
+    expect(instruction.telemetry).toMatchObject({
+      contractVersion: "operator-decision-telemetry.v1",
+      sourceSystem: "creative",
+      instructionKind: "watch",
+      pushReadiness: "read_only_insight",
+      amountGuidanceStatus: "not_applicable",
+      targetContextStatus: "available",
+      actionFingerprint: "af_123",
+      evidenceHash: "eh_123",
+    });
+    expect(instruction.telemetry.missingEvidence).toEqual([
+      "conversion_volume",
+      "target_cpa",
+    ]);
+    expect(JSON.stringify(instruction.telemetry)).not.toContain("Hook Winner");
+  });
+
+  it("does not make every do-now instruction high urgency when evidence is limited", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "do_now",
+        actionClass: "refresh",
+        pushReadiness: "operator_review_required",
+        queueEligible: false,
+      }),
+      targetScope: "creative",
+      targetEntity: "Fatigue Review",
+      actionLabel: "Refresh",
+      reason: "Frequency pressure is visible but review is required.",
+      confidenceScore: 0.68,
+      evidenceSource: "live",
+    });
+
+    expect(instruction.instructionKind).toBe("do_now");
+    expect(instruction.urgency).toBe("medium");
+    expect(instruction.urgencyReason).toContain("bounded");
+  });
 });

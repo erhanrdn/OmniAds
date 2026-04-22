@@ -14,6 +14,7 @@ import {
   type OperatorSurfaceModel,
 } from "@/lib/operator-surface";
 import type {
+  OperatorInstructionAmountGuidance,
   OperatorDecisionProvenance,
   OperatorPolicyAssessment,
   OperatorPolicyState,
@@ -44,6 +45,10 @@ function formatMoney(value: number | null | undefined) {
     minimumFractionDigits: value >= 100 ? 0 : 2,
     maximumFractionDigits: value >= 100 ? 0 : 2,
   })}`;
+}
+
+function formatMoneyCanonical(value: number) {
+  return `$${value.toFixed(value >= 100 ? 0 : 2)}`;
 }
 
 function formatRatio(value: number | null | undefined) {
@@ -175,6 +180,49 @@ function uniqueText(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value?.trim()))));
 }
 
+function metaBudgetAmountGuidance(input: {
+  decision: MetaAdSetDecision;
+  policy: OperatorPolicyAssessment | null;
+  authorityState: OperatorAuthorityState;
+}): OperatorInstructionAmountGuidance | null {
+  if (input.authorityState !== "act_now" || input.policy?.state !== "do_now") {
+    return null;
+  }
+  const action = input.decision.actionType;
+  if (action !== "scale_budget" && action !== "recover" && action !== "reduce_budget") {
+    return null;
+  }
+  const dailyBudgetCents = input.decision.supportingMetrics.dailyBudget;
+  if (!dailyBudgetCents || !Number.isFinite(dailyBudgetCents) || dailyBudgetCents <= 0) {
+    return {
+      status: "unavailable",
+      label: "Budget amount unavailable",
+      reason:
+        "Current daily budget is not available, so the system cannot calculate a bounded budget band.",
+    };
+  }
+
+  const currentDailyBudget = dailyBudgetCents / 100;
+  const increase = action === "scale_budget" || action === "recover";
+  const lower = increase ? currentDailyBudget * 1.1 : currentDailyBudget * 0.8;
+  const upper = increase ? currentDailyBudget * 1.2 : currentDailyBudget * 0.9;
+  const label = increase
+    ? `Review +10-20% budget band: ${formatMoneyCanonical(lower)}-${formatMoneyCanonical(upper)}/day`
+    : `Review -10-20% budget band: ${formatMoneyCanonical(lower)}-${formatMoneyCanonical(upper)}/day`;
+
+  return {
+    status: "bounded_estimate",
+    label,
+    reason:
+      "Bounded from the current daily budget only; execution preview or operator review must confirm the final account change.",
+    assumptions: [
+      "Current daily budget is present on the source row.",
+      "No budget utilization or pacing ratio is available in this contract.",
+      "The band does not override policy, queue, or apply gates.",
+    ],
+  };
+}
+
 function instructionPolicyForMetaAuthority(input: {
   policy: OperatorPolicyAssessment | null | undefined;
   authorityState: OperatorAuthorityState;
@@ -220,6 +268,11 @@ export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): Ope
   });
   const provenance =
     (decision as { provenance?: OperatorDecisionProvenance | null }).provenance ?? null;
+  const instructionPolicy = instructionPolicyForMetaAuthority({
+    policy: decision.operatorPolicy ?? null,
+    authorityState,
+    blocker,
+  });
 
   return {
     id: `adset:${decision.decisionId}`,
@@ -245,11 +298,7 @@ export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): Ope
     instruction: buildOperatorInstruction({
       sourceSystem: "meta",
       sourceLabel: "Meta Decision OS",
-      policy: instructionPolicyForMetaAuthority({
-        policy: decision.operatorPolicy ?? null,
-        authorityState,
-        blocker,
-      }),
+      policy: instructionPolicy,
       targetScope: "adset",
       targetEntity: decision.adSetName,
       parentEntity: decision.campaignName,
@@ -260,6 +309,11 @@ export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): Ope
       trustState: decision.trust.truthState,
       operatorDisposition: decision.trust.operatorDisposition,
       provenance,
+      amountGuidance: metaBudgetAmountGuidance({
+        decision,
+        policy: instructionPolicy,
+        authorityState,
+      }),
       nextObservation: [
         ...(decision.whatWouldChangeThisDecision ?? []),
         ...decision.guardrails,

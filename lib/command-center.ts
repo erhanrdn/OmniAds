@@ -26,6 +26,7 @@ import type {
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
   OperatorInstruction,
+  OperatorInstructionAmountGuidance,
   OperatorDecisionPushEligibility,
   OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
@@ -1113,6 +1114,25 @@ function commandCenterInstructionQueueWarnings(input: {
   return [`Do not promote this Command Center card into queue work: ${reason}`];
 }
 
+function commandCenterAmountGuidance(
+  action: Pick<CommandCenterAction, "sourceType" | "recommendedAction" | "evidence">,
+): OperatorInstructionAmountGuidance | null {
+  const moveBand = action.evidence.find((item) => item.label === "Move band")?.value;
+  if (action.sourceType === "meta_budget_shift" && moveBand) {
+    return {
+      status: "bounded_estimate",
+      label: `Move band: ${moveBand}`,
+      reason:
+        "The Meta Decision OS supplied a bounded move band; operator review must confirm the final account edit.",
+      assumptions: [
+        "The move band comes from the deterministic Meta budget-shift row.",
+        "This does not grant apply capability by itself.",
+      ],
+    };
+  }
+  return null;
+}
+
 function buildMetaSourceDeepLink(input: {
   businessId: string;
   startDate: string;
@@ -1218,6 +1238,7 @@ function buildMetaAction(
       provenance: input.provenance,
       nextObservation: [...input.guardrails, ...input.decisionSignals],
       requiresPolicyForQueue: input.sourceSystem === "creative",
+      amountGuidance: commandCenterAmountGuidance(input),
       invalidActions:
         input.watchlistOnly ||
         (input.operatorPolicy
@@ -2093,6 +2114,7 @@ export function decorateCommandCenterActionsWithThroughput(input: {
       provenance: action.provenance ?? null,
       nextObservation: [...action.guardrails, ...action.decisionSignals],
       requiresPolicyForQueue: action.sourceSystem === "creative",
+      amountGuidance: commandCenterAmountGuidance(action),
       pushReadinessOverride: mostRestrictivePushReadiness(
         policy?.pushReadiness,
         pushEligibility.level,

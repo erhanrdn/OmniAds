@@ -757,11 +757,18 @@ export function CreativeDetailExperience({
                     <p className="mt-1">
                       Why now: {operatorItem.instruction.reasonSummary}
                     </p>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Target: {operatorItem.instruction.targetContext.label}
+                    </p>
                     <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                       <span>Evidence {operatorItem.instruction.evidenceStrength}</span>
+                      <span>Urgency {operatorItem.instruction.urgency}</span>
                       <span>{operatorItem.instruction.amountGuidance.label}</span>
                       <span>{operatorItem.instruction.pushReadiness.replaceAll("_", " ")}</span>
                     </div>
+                    <p className="mt-1 text-[11px] text-slate-600">
+                      Urgency basis: {operatorItem.instruction.urgencyReason}
+                    </p>
                     {operatorItem.instruction.nextObservation[0] ? (
                       <p className="mt-2 text-[11px] text-slate-600">
                         Watch next: {operatorItem.instruction.nextObservation[0]}

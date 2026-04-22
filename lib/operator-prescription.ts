@@ -1,9 +1,12 @@
 import type {
+  OperatorDecisionPushEligibility,
   OperatorDecisionProvenance,
+  OperatorDecisionTelemetry,
   OperatorInstruction,
   OperatorInstructionAmountGuidance,
   OperatorInstructionEvidenceStrength,
   OperatorInstructionKind,
+  OperatorInstructionTargetContext,
   OperatorInstructionUrgency,
   OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
@@ -53,12 +56,119 @@ function operatorVerb(kind: OperatorInstructionKind) {
   }
 }
 
-function defaultUrgency(kind: OperatorInstructionKind): OperatorInstructionUrgency {
-  if (kind === "do_now") return "high";
-  if (kind === "blocked") return "medium";
-  if (kind === "investigate") return "medium";
-  if (kind === "watch") return "watch";
-  return "low";
+const PUSH_READINESS_RESTRICTIVENESS: Record<
+  OperatorDecisionPushEligibility["level"],
+  number
+> = {
+  blocked_from_push: 0,
+  read_only_insight: 1,
+  operator_review_required: 2,
+  safe_to_queue: 3,
+  eligible_for_push_when_enabled: 4,
+};
+
+function mostRestrictivePushReadiness(
+  left: OperatorDecisionPushEligibility["level"],
+  right: OperatorDecisionPushEligibility["level"],
+) {
+  return PUSH_READINESS_RESTRICTIVENESS[left] <= PUSH_READINESS_RESTRICTIVENESS[right]
+    ? left
+    : right;
+}
+
+function resolvePolicyReadiness(input: {
+  policy: OperatorPolicyAssessment | null;
+  requiresPolicyForQueue: boolean;
+  pushReadinessOverride?: OperatorInstruction["pushReadiness"] | null;
+  queueEligibleOverride?: boolean | null;
+  canApplyOverride?: boolean | null;
+}) {
+  if (!input.policy && input.requiresPolicyForQueue) {
+    return {
+      pushReadiness: "blocked_from_push" as const,
+      queueEligible: false,
+      canApply: false,
+    };
+  }
+
+  if (!input.policy) {
+    return {
+      pushReadiness: input.pushReadinessOverride ?? "blocked_from_push",
+      queueEligible: input.queueEligibleOverride === true,
+      canApply: false,
+    };
+  }
+
+  const pushReadiness = mostRestrictivePushReadiness(
+    input.policy.pushReadiness,
+    input.pushReadinessOverride ?? input.policy.pushReadiness,
+  );
+
+  return {
+    pushReadiness,
+    queueEligible:
+      input.policy.queueEligible === true &&
+      (input.queueEligibleOverride ?? input.policy.queueEligible) === true,
+    canApply:
+      input.policy.canApply === true &&
+      (input.canApplyOverride ?? input.policy.canApply) === true,
+  };
+}
+
+function defaultUrgency(input: {
+  kind: OperatorInstructionKind;
+  evidenceStrength: OperatorInstructionEvidenceStrength;
+  pushReadiness: OperatorInstruction["pushReadiness"];
+  confidence: number | null | undefined;
+  missingEvidence: string[];
+  invalidActions: string[];
+}): { urgency: OperatorInstructionUrgency; reason: string } {
+  if (input.kind === "do_now") {
+    if (
+      input.evidenceStrength === "strong" &&
+      (input.pushReadiness === "safe_to_queue" ||
+        input.pushReadiness === "eligible_for_push_when_enabled")
+    ) {
+      return {
+        urgency: "high",
+        reason: "Strong evidence and queue-ready policy make this a near-term operator move.",
+      };
+    }
+    return {
+      urgency: "medium",
+      reason: "The move is active, but evidence, review readiness, or missing context keeps urgency bounded.",
+    };
+  }
+  if (input.kind === "blocked") {
+    return {
+      urgency: "medium",
+      reason: input.missingEvidence.length
+        ? "A blocker is active; resolve the missing evidence before acting."
+        : "A blocker is active, so the next work is removal or review rather than execution.",
+    };
+  }
+  if (input.kind === "investigate") {
+    return {
+      urgency: "medium",
+      reason: "The policy needs diagnosis before this can become command-ready.",
+    };
+  }
+  if (input.kind === "watch") {
+    return {
+      urgency: "watch",
+      reason: "The row needs more observation before a stronger action is safe.",
+    };
+  }
+  if (input.kind === "do_not_touch") {
+    return {
+      urgency: "low",
+      reason: "Protection is the instruction; do not create urgency from short-term movement.",
+    };
+  }
+  return {
+    urgency: "low",
+    reason: "This is context, not primary operator work.",
+  };
 }
 
 function defaultEvidenceStrength(input: {
@@ -172,6 +282,96 @@ function defaultInvalidActions(input: {
   return uniqueText(values);
 }
 
+function targetScopeLabel(value: string) {
+  return normalizeLabel(value || "target");
+}
+
+function defaultTargetContext(input: {
+  targetScope: string;
+  targetEntity: string;
+  parentEntity?: string | null;
+  override?: OperatorInstructionTargetContext | null;
+}): OperatorInstructionTargetContext {
+  if (input.override) return input.override;
+  const scope = targetScopeLabel(input.targetScope);
+  const parent = input.parentEntity ? ` · ${input.parentEntity}` : "";
+  return {
+    status: input.targetEntity ? "available" : "unavailable",
+    label: input.targetEntity
+      ? `${scope}: ${input.targetEntity}${parent}`
+      : `${scope}: target unavailable`,
+    reason: input.targetEntity
+      ? "Target comes from the deterministic source row."
+      : "The source row did not expose a stable target.",
+    targetScope: input.targetScope,
+    targetEntity: input.targetEntity || null,
+    parentEntity: input.parentEntity ?? null,
+  };
+}
+
+function telemetrySafeToken(value: string | null | undefined) {
+  const normalized = (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  return normalized || null;
+}
+
+function buildOperatorDecisionTelemetry(input: {
+  instructionKind: OperatorInstructionKind;
+  pushReadiness: OperatorInstruction["pushReadiness"];
+  queueEligible: boolean;
+  canApply: boolean;
+  evidenceStrength: OperatorInstructionEvidenceStrength;
+  urgency: OperatorInstructionUrgency;
+  amountGuidance: OperatorInstructionAmountGuidance;
+  targetContext: OperatorInstructionTargetContext;
+  missingEvidence: string[];
+  invalidActions: string[];
+  nextObservation: string[];
+  policy: OperatorPolicyAssessment | null;
+  sourceSystem: PrescriptionSourceSystem;
+  sourceLabel: string;
+  policyVersion?: string | null;
+  evidenceHash?: string | null;
+  actionFingerprint?: string | null;
+}): OperatorDecisionTelemetry {
+  const blockedReason =
+    input.policy?.blockers[0]
+      ? "policy_blocker"
+      : input.missingEvidence[0]
+        ? `missing_${telemetrySafeToken(input.missingEvidence[0])}`
+        : input.pushReadiness === "blocked_from_push"
+          ? "push_blocked"
+          : null;
+
+  return {
+    contractVersion: "operator-decision-telemetry.v1",
+    policyVersion: input.policyVersion ?? null,
+    sourceSystem: input.sourceSystem,
+    sourceSurface: input.sourceLabel,
+    instructionKind: input.instructionKind,
+    pushReadiness: input.pushReadiness,
+    queueEligible: input.queueEligible,
+    canApply: input.canApply,
+    evidenceStrength: input.evidenceStrength,
+    urgency: input.urgency,
+    amountGuidanceStatus: input.amountGuidance.status,
+    targetContextStatus: input.targetContext.status,
+    missingEvidence: input.missingEvidence
+      .map(telemetrySafeToken)
+      .filter((value): value is string => Boolean(value)),
+    missingEvidenceCount: input.missingEvidence.length,
+    invalidActionCount: input.invalidActions.length,
+    nextObservationCount: input.nextObservation.length,
+    blockedReason,
+    actionFingerprint: input.actionFingerprint ?? null,
+    evidenceHash: input.evidenceHash ?? null,
+  };
+}
+
 function defaultPrimaryMove(input: {
   kind: OperatorInstructionKind;
   actionLabel: string;
@@ -223,7 +423,9 @@ export function buildOperatorInstruction(input: {
   nextObservation?: string[];
   invalidActions?: string[];
   amountGuidance?: OperatorInstructionAmountGuidance | null;
+  targetContext?: OperatorInstructionTargetContext | null;
   urgency?: OperatorInstructionUrgency;
+  urgencyReason?: string;
   requiresPolicyForQueue?: boolean;
   pushReadinessOverride?: OperatorInstruction["pushReadiness"] | null;
   queueEligibleOverride?: boolean | null;
@@ -238,6 +440,13 @@ export function buildOperatorInstruction(input: {
     input.amountGuidance,
   );
   const missingEvidence = uniqueText(policy?.missingEvidence ?? []);
+  const readiness = resolvePolicyReadiness({
+    policy,
+    requiresPolicyForQueue: input.requiresPolicyForQueue ?? true,
+    pushReadinessOverride: input.pushReadinessOverride,
+    queueEligibleOverride: input.queueEligibleOverride,
+    canApplyOverride: input.canApplyOverride,
+  });
   const nextObservation = uniqueText([
     ...(input.nextObservation ?? []),
     ...(policy?.requiredEvidence ?? []).map((item) => `Confirm ${normalizeLabel(item).toLowerCase()}.`),
@@ -262,6 +471,45 @@ export function buildOperatorInstruction(input: {
     evidenceSource: input.evidenceSource,
     policy,
   });
+  const targetContext = defaultTargetContext({
+    targetScope: input.targetScope,
+    targetEntity: input.targetEntity,
+    parentEntity: input.parentEntity,
+    override: input.targetContext,
+  });
+  const urgency = input.urgency
+    ? { urgency: input.urgency, reason: input.urgencyReason ?? "Urgency was provided by the source surface." }
+    : defaultUrgency({
+        kind,
+        evidenceStrength,
+        pushReadiness: readiness.pushReadiness,
+        confidence: input.confidenceScore,
+        missingEvidence,
+        invalidActions,
+      });
+  const evidenceHash = input.evidenceHash ?? input.provenance?.evidenceHash ?? null;
+  const actionFingerprint =
+    input.actionFingerprint ?? input.provenance?.actionFingerprint ?? null;
+  const policyVersion = input.policyVersion ?? null;
+  const telemetry = buildOperatorDecisionTelemetry({
+    instructionKind: kind,
+    pushReadiness: readiness.pushReadiness,
+    queueEligible: readiness.queueEligible,
+    canApply: readiness.canApply,
+    evidenceStrength,
+    urgency: urgency.urgency,
+    amountGuidance,
+    targetContext,
+    missingEvidence,
+    invalidActions,
+    nextObservation,
+    policy,
+    sourceSystem: input.sourceSystem,
+    sourceLabel: input.sourceLabel,
+    policyVersion,
+    evidenceHash,
+    actionFingerprint,
+  });
 
   return {
     contractVersion: "operator-instruction.v1",
@@ -283,17 +531,17 @@ export function buildOperatorInstruction(input: {
     targetScope: input.targetScope,
     targetEntity: input.targetEntity,
     parentEntity: input.parentEntity ?? null,
+    targetContext,
     reasonSummary,
     evidenceStrength,
     missingEvidence,
     nextObservation,
     invalidActions,
     amountGuidance,
-    pushReadiness:
-      input.pushReadinessOverride ?? policy?.pushReadiness ?? "blocked_from_push",
-    queueEligible: input.queueEligibleOverride ?? policy?.queueEligible === true,
-    canApply: input.canApplyOverride ?? policy?.canApply === true,
-    urgency: input.urgency ?? defaultUrgency(kind),
+    pushReadiness: readiness.pushReadiness,
+    queueEligible: readiness.queueEligible,
+    canApply: readiness.canApply,
+    urgency: urgency.urgency,
     confidenceScore: input.confidenceScore ?? null,
     confidenceLabel: confidenceLabel(input.confidenceScore),
     reliability: {
@@ -305,11 +553,12 @@ export function buildOperatorInstruction(input: {
       sourceSystem: input.sourceSystem,
       sourceLabel: input.sourceLabel,
       policyContract: "operator-policy.v1",
-      policyVersion: input.policyVersion ?? null,
+      policyVersion,
     },
+    urgencyReason: urgency.reason,
+    telemetry,
     provenance: input.provenance ?? null,
-    evidenceHash: input.evidenceHash ?? input.provenance?.evidenceHash ?? null,
-    actionFingerprint:
-      input.actionFingerprint ?? input.provenance?.actionFingerprint ?? null,
+    evidenceHash,
+    actionFingerprint,
   };
 }

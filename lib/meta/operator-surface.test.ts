@@ -250,6 +250,35 @@ describe("buildMetaOperatorSurfaceModel", () => {
     expect(row?.instruction?.pushReadiness).toBe("blocked_from_push");
   });
 
+  it("adds bounded budget guidance only when current daily budget is available", () => {
+    const fixture = metaDecisionOsFixture();
+    fixture.adSets[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      state: "do_now",
+      actionClass: "scale",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: ["Budget scale is approved for operator review."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance", "commercial_truth"],
+      explanation: "Budget scale is approved for operator review.",
+    };
+
+    const model = buildMetaOperatorSurfaceModel(fixture);
+    const row = model?.buckets
+      .flatMap((bucket) => bucket.rows)
+      .find((item) => item.id === "adset:adset_scale");
+
+    expect(row?.instruction?.amountGuidance.status).toBe("bounded_estimate");
+    expect(row?.instruction?.amountGuidance.label).toContain("+10-20% budget band");
+    expect(row?.instruction?.amountGuidance.label).toContain("$165-$180/day");
+    expect(row?.instruction?.amountGuidance.assumptions?.join(" ")).toContain(
+      "does not override policy",
+    );
+  });
+
   it("builds a campaign drilldown lookup from the highest-priority visible action owner", () => {
     const lookup = buildMetaCampaignOperatorLookup(metaDecisionOsFixture());
     const scaleSummary = lookup.get("cmp_scale");
