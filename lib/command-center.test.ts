@@ -1705,10 +1705,146 @@ describe("command center domain", () => {
       )?.queueEligible,
     ).toBe(false);
     expect(
+      opportunities.find(
+        (item) =>
+          item.sourceSystem === "creative" &&
+          item.kind === "creative_family_winner_scale",
+      )?.eligibilityTrace.verdict,
+    ).toBe("blocked");
+    expect(
       opportunities.some(
         (item) => item.kind.includes("protected") && !item.queueEligible,
       ),
     ).toBe(true);
+  });
+
+  it("fails closed instead of throwing when Creative opportunity policy is missing", () => {
+    const payload = creativeFixture();
+    delete (
+      payload.creatives[0] as Partial<CreativeDecisionOsV1Response["creatives"][number]>
+    ).operatorPolicy;
+
+    expect(() =>
+      buildCommandCenterOpportunities({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: null,
+        creativeDecisionOs: payload,
+      }),
+    ).not.toThrow();
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible because a referenced creative row is missing operator policy.",
+    );
+    expect(
+      creativeOpportunity?.evidenceFloors.find(
+        (floor) => floor.key === "creative_operator_policy",
+      )?.status,
+    ).toBe("blocked");
+  });
+
+  it("overrides stale queue-ready Creative opportunity traces when policy blocks eligibility", () => {
+    const payload = creativeFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture({ verdict: "queue_ready" }).eligibilityTrace;
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy({
+      state: "contextual_only",
+      segment: "contextual_only",
+      evidenceSource: "snapshot",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      blockers: ["Snapshot evidence is contextual."],
+      explanation: "Snapshot evidence is contextual.",
+    });
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible without a matching safe-to-queue row policy.",
+    );
+  });
+
+  it.each(["demo", "snapshot", "fallback", "unknown"] as const)(
+    "keeps %s Creative opportunities out of queue and push surfaces",
+    (evidenceSource) => {
+      const payload = creativeFixture();
+      payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy({
+        state: "contextual_only",
+        segment: "contextual_only",
+        evidenceSource,
+        pushReadiness: "blocked_from_push",
+        queueEligible: false,
+        blockers: [`${evidenceSource} evidence is contextual.`],
+        explanation: `${evidenceSource} evidence is contextual.`,
+      });
+
+      const opportunities = buildCommandCenterOpportunities({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: null,
+        creativeDecisionOs: payload,
+      });
+      const creativeOpportunity = opportunities.find(
+        (item) => item.kind === "creative_family_winner_scale",
+      );
+
+      expect(creativeOpportunity?.queueEligible).toBe(false);
+      expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    },
+  );
+
+  it("keeps a valid Creative safe-to-queue opportunity eligible", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture().eligibilityTrace;
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(true);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("queue_ready");
+    expect(
+      creativeOpportunity?.evidenceFloors.find(
+        (floor) => floor.key === "creative_operator_policy",
+      )?.status,
+    ).toBe("met");
   });
 
   it("enforces workflow transition guards", () => {

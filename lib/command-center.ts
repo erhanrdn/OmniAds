@@ -1242,26 +1242,46 @@ function mapCreativeOpportunityToCommandCenter(input: {
   item: CreativeOpportunityBoardItem;
   creativeDecisionOs: CreativeDecisionOsV1Response;
 }): CommandCenterOpportunityItem {
-  const creativePolicyEligible = input.item.creativeIds.some((creativeId) => {
-    const creative = input.creativeDecisionOs.creatives.find(
+  const relatedCreatives = input.item.creativeIds.map((creativeId) =>
+    input.creativeDecisionOs.creatives.find(
       (candidate) => candidate.creativeId === creativeId,
+    ),
+  );
+  const creativePolicyEligible = input.item.creativeIds.some((creativeId) => {
+    const creative = relatedCreatives.find(
+      (candidate) => candidate?.creativeId === creativeId,
     );
+    const policy = creative?.operatorPolicy ?? null;
     return (
-      creative?.operatorPolicy.queueEligible === true &&
-      creative.operatorPolicy.pushReadiness === "safe_to_queue"
+      policy?.queueEligible === true && policy.pushReadiness === "safe_to_queue"
     );
   });
   const queueEligible = input.item.queue.eligible && creativePolicyEligible;
+  const missingCreativeRows = relatedCreatives.some((creative) => !creative);
+  const missingOperatorPolicy = relatedCreatives.some(
+    (creative) => creative && !creative.operatorPolicy,
+  );
+  const policyBlockReason = missingCreativeRows
+    ? "Creative opportunity is not queue eligible because a referenced creative row is missing."
+    : missingOperatorPolicy
+      ? "Creative opportunity is not queue eligible because a referenced creative row is missing operator policy."
+      : "Creative opportunity is not queue eligible without a matching safe-to-queue row policy.";
   const policyFloor: DecisionEvidenceFloor = {
     key: "creative_operator_policy",
     label: "Creative operator policy",
     status: creativePolicyEligible ? "met" : "blocked",
     current: creativePolicyEligible ? "safe to queue" : "not queue eligible",
     required: "safe to queue",
-    reason: creativePolicyEligible
-      ? null
-      : "Creative opportunity is not queue eligible without a matching row policy.",
+    reason: creativePolicyEligible ? null : policyBlockReason,
   };
+  const eligibilityTrace = queueEligible
+    ? input.item.eligibilityTrace
+    : normalizeBlockedCreativeOpportunityTrace({
+        trace: input.item.eligibilityTrace,
+        reason: creativePolicyEligible
+          ? "Creative opportunity queue eligibility is blocked by upstream queue policy."
+          : policyBlockReason,
+      });
 
   return {
     opportunityId: input.item.opportunityId,
@@ -1272,7 +1292,7 @@ function mapCreativeOpportunityToCommandCenter(input: {
     recommendedAction: input.item.recommendedAction,
     confidence: input.item.confidence,
     queueEligible,
-    eligibilityTrace: input.item.eligibilityTrace,
+    eligibilityTrace,
     evidenceFloors: [
       ...input.item.evidenceFloors.filter((floor) => floor.key !== policyFloor.key),
       policyFloor,
@@ -1288,6 +1308,33 @@ function mapCreativeOpportunityToCommandCenter(input: {
       )}&family=${encodeURIComponent(input.item.familyId)}`,
       sourceDecisionId: input.item.opportunityId,
     },
+  };
+}
+
+function normalizeBlockedCreativeOpportunityTrace(input: {
+  trace: CreativeOpportunityBoardItem["eligibilityTrace"];
+  reason: string;
+}): CreativeOpportunityBoardItem["eligibilityTrace"] {
+  const blockedReasons = Array.from(
+    new Set([...input.trace.blockedReasons, input.reason]),
+  );
+  const blockedEvidenceFloors = Array.from(
+    new Set([...input.trace.evidenceFloors.blocked, input.reason]),
+  );
+  const verdict = input.trace.verdict === "protected" ? "protected" : "blocked";
+
+  return {
+    ...input.trace,
+    verdict,
+    evidenceFloors: {
+      ...input.trace.evidenceFloors,
+      blocked: blockedEvidenceFloors,
+    },
+    queueCompilerDecision:
+      input.trace.queueCompilerDecision.includes(input.reason)
+        ? input.trace.queueCompilerDecision
+        : `${input.trace.queueCompilerDecision} ${input.reason}`,
+    blockedReasons,
   };
 }
 
