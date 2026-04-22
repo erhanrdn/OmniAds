@@ -376,6 +376,7 @@ function defaultPrimaryMove(input: {
   kind: OperatorInstructionKind;
   actionLabel: string;
   targetEntity: string;
+  targetContext: OperatorInstructionTargetContext;
   reason: string;
   nextObservation: string[];
   missingEvidence: string[];
@@ -383,9 +384,14 @@ function defaultPrimaryMove(input: {
 }) {
   const action = input.actionLabel.toLowerCase();
   if (input.kind === "do_now") {
+    const baseMove = buildDoNowPrimaryMove({
+      actionLabel: input.actionLabel,
+      targetEntity: input.targetEntity,
+      targetContext: input.targetContext,
+    });
     return input.amountGuidance.status === "unavailable"
-      ? `${input.actionLabel} ${input.targetEntity}, but do not invent a budget or bid amount.`
-      : `${input.actionLabel} ${input.targetEntity}.`;
+      ? `${baseMove.replace(/\.$/, "")}, but do not invent a budget or bid amount.`
+      : baseMove;
   }
   if (input.kind === "do_not_touch") {
     return `Keep ${input.targetEntity} live and protected; do not force a new action from short-term movement.`;
@@ -400,6 +406,44 @@ function defaultPrimaryMove(input: {
     return `Do not act on ${input.targetEntity}; resolve ${input.missingEvidence[0] ?? input.reason} first.`;
   }
   return `Use ${input.targetEntity} as context only; it is not a primary operator command.`;
+}
+
+function buildDoNowPrimaryMove(input: {
+  actionLabel: string;
+  targetEntity: string;
+  targetContext: OperatorInstructionTargetContext;
+}) {
+  if (isScaleActionLabel(input.actionLabel)) {
+    if (
+      input.targetContext.status === "available" &&
+      input.targetContext.targetScope === "adset" &&
+      input.targetContext.targetEntity &&
+      !sameOperatorTarget(input.targetEntity, input.targetContext.targetEntity)
+    ) {
+      return `${input.actionLabel} ${input.targetEntity} into ${input.targetContext.targetEntity}.`;
+    }
+    if (
+      input.targetContext.status === "review_required" ||
+      input.targetContext.status === "unavailable"
+    ) {
+      return `${input.actionLabel} ${input.targetEntity}, but review target placement first; ${input.targetContext.label.toLowerCase()}.`;
+    }
+  }
+  return `${input.actionLabel} ${input.targetEntity}.`;
+}
+
+function sameOperatorTarget(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function isScaleActionLabel(actionLabel: string) {
+  const normalized = actionLabel.trim().toLowerCase();
+  return (
+    normalized === "scale" ||
+    normalized.includes("scale ") ||
+    normalized.includes("promote") ||
+    normalized.includes("increase budget")
+  );
 }
 
 export function buildOperatorInstruction(input: {
@@ -523,6 +567,7 @@ export function buildOperatorInstruction(input: {
       kind,
       actionLabel: input.actionLabel,
       targetEntity: input.targetEntity,
+      targetContext,
       reason: reasonSummary,
       nextObservation,
       missingEvidence,

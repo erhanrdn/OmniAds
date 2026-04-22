@@ -43,6 +43,56 @@ describe("operator prescription adapter", () => {
     expect(instruction.pushReadiness).toBe("safe_to_queue");
   });
 
+  it("names the preferred scale target in the primary move when target context is available", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy(),
+      targetScope: "creative",
+      targetEntity: "Travel Hook Winner",
+      actionLabel: "Scale",
+      reason: "Creative evidence is material.",
+      confidenceScore: 0.88,
+      evidenceSource: "live",
+      targetContext: {
+        status: "available",
+        label: "Target ad set: Prospecting Scale",
+        reason: "Deployment data names the target.",
+        targetScope: "adset",
+        targetEntity: "Prospecting Scale",
+      },
+    });
+
+    expect(instruction.primaryMove).toContain("Travel Hook Winner");
+    expect(instruction.primaryMove).toContain("Prospecting Scale");
+    expect(instruction.primaryMove).toContain("do not invent a budget or bid amount");
+  });
+
+  it("does not duplicate the same ad set target in Meta amount-sensitive copy", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "meta",
+      sourceLabel: "Meta Decision OS",
+      policy: policy({ actionClass: "budget" }),
+      targetScope: "adset",
+      targetEntity: "Prospecting Scale",
+      actionLabel: "Increase budget",
+      reason: "Budget is the binding constraint.",
+      confidenceScore: 0.88,
+      evidenceSource: "live",
+      targetContext: {
+        status: "available",
+        label: "Adset: Prospecting Scale",
+        reason: "Target comes from the deterministic source row.",
+        targetScope: "adset",
+        targetEntity: "Prospecting Scale",
+      },
+    });
+
+    expect(instruction.primaryMove).toBe(
+      "Increase budget Prospecting Scale, but do not invent a budget or bid amount.",
+    );
+  });
+
   it("marks bid and cost-control moves as amount-sensitive when no deterministic amount exists", () => {
     const instruction = buildOperatorInstruction({
       sourceSystem: "meta",
