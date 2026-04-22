@@ -25,6 +25,50 @@ function collectQueryText(strings: TemplateStringsArray) {
   return strings.join(" ");
 }
 
+function latestSqlCallContaining(text: string) {
+  return [...sql.mock.calls]
+    .reverse()
+    .find(([strings]) =>
+      collectQueryText(strings as TemplateStringsArray).includes(text),
+    );
+}
+
+async function runRejectedGovernedRequest(input: {
+  message: string;
+  status?: number;
+  businessId: string;
+  requestType: string;
+}) {
+  const execute = vi
+    .fn<() => Promise<string>>()
+    .mockRejectedValueOnce(
+      Object.assign(new Error(input.message), {
+        status: input.status,
+      }),
+    );
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  await expect(
+    requestGovernance.runProviderRequestWithGovernance({
+      provider: "meta",
+      businessId: input.businessId,
+      requestType: input.requestType,
+      requestSource: "live_report",
+      requestPath: "/api/meta/provider-governance-test",
+      execute,
+    }),
+  ).rejects.toMatchObject(input.status != null ? { status: input.status } : {});
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const auditQuery = latestSqlCallContaining("INSERT INTO provider_request_audit_daily");
+  const cooldownQuery = latestSqlCallContaining("INSERT INTO provider_cooldown_state");
+
+  errorSpy.mockRestore();
+
+  return { auditQuery, cooldownQuery };
+}
+
 describe("provider request governance", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -165,5 +209,68 @@ describe("provider request governance", () => {
     expect(JSON.stringify(consolePayload)).not.toContain("act_1234567890");
     expect(JSON.stringify(consolePayload)).not.toContain("biz_sensitive");
     errorSpy.mockRestore();
+  });
+
+  it.each([
+    ["RESOURCE_EXHAUSTED", "RESOURCE_EXHAUSTED: transient pressure"],
+    ["QUOTA", "Quota exhausted for this provider"],
+    ["RATE LIMIT", "Rate limit exceeded by provider"],
+    ["TOO MANY REQUESTS", "Too many requests for this provider"],
+  ])(
+    "classifies 403 %s provider errors as quota before generic permission handling",
+    async (label, message) => {
+      const { auditQuery, cooldownQuery } = await runRejectedGovernedRequest({
+        message,
+        status: 403,
+        businessId: `biz_quota_403_${label.replaceAll(" ", "_").toLowerCase()}`,
+        requestType: `meta_quota_403_${label.replaceAll(" ", "_").toLowerCase()}`,
+      });
+
+      expect(auditQuery).toBeTruthy();
+      expect(auditQuery?.[9]).toBe(1);
+      expect(auditQuery?.[11]).toBe(0);
+      expect(auditQuery?.[16]).toBe("provider_request_failed:quota");
+      expect(cooldownQuery).toBeTruthy();
+      expect(cooldownQuery?.[7]).toBe("provider_request_failed:quota:status_403");
+      expect(cooldownQuery?.[8]).toBe(403);
+
+      const failedAt = new Date(String(cooldownQuery?.[5])).getTime();
+      const cooldownUntil = new Date(String(cooldownQuery?.[9])).getTime();
+      expect(cooldownUntil - failedAt).toBeGreaterThanOrEqual(4.5 * 60_000);
+      expect(cooldownUntil - failedAt).toBeLessThan(6 * 60_000);
+    },
+  );
+
+  it("keeps true 403 permission errors classified as permission", async () => {
+    const { auditQuery, cooldownQuery } = await runRejectedGovernedRequest({
+      message: "Permission denied for this account scope",
+      status: 403,
+      businessId: "biz_true_permission_403",
+      requestType: "meta_true_permission_403",
+    });
+
+    expect(auditQuery).toBeTruthy();
+    expect(auditQuery?.[9]).toBe(0);
+    expect(auditQuery?.[11]).toBe(1);
+    expect(auditQuery?.[16]).toBe("provider_request_failed:permission");
+    expect(cooldownQuery?.[7]).toBe("provider_request_failed:permission:status_403");
+  });
+
+  it("continues to classify non-403 quota and permission messages correctly", async () => {
+    const quotaResult = await runRejectedGovernedRequest({
+      message: "RESOURCE_EXHAUSTED without explicit HTTP status",
+      businessId: "biz_quota_without_status",
+      requestType: "meta_quota_without_status",
+    });
+    expect(quotaResult.auditQuery?.[9]).toBe(1);
+    expect(quotaResult.auditQuery?.[16]).toBe("provider_request_failed:quota");
+
+    const permissionResult = await runRejectedGovernedRequest({
+      message: "Permission denied without HTTP status",
+      businessId: "biz_permission_without_status",
+      requestType: "meta_permission_without_status",
+    });
+    expect(permissionResult.auditQuery?.[11]).toBe(1);
+    expect(permissionResult.auditQuery?.[16]).toBe("provider_request_failed:permission");
   });
 });
