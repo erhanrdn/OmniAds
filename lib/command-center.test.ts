@@ -94,7 +94,7 @@ function queueEligibilityFixture(input?: {
 
 function rowProvenanceFixture(input: {
   system: "meta" | "creative";
-  entityType: "campaign" | "adset" | "geo" | "creative" | "budget_shift";
+  entityType: "campaign" | "adset" | "geo" | "creative" | "budget_shift" | "placement";
   entityId: string;
   sourceDecisionId: string;
   recommendedAction: string;
@@ -1565,6 +1565,48 @@ describe("command center domain", () => {
       "budget_shift",
     );
     expect(budgetShiftAction?.throughput.defaultQueueEligible).toBe(true);
+  });
+
+  it("keeps placement anomaly actions queue-eligible when upstream provenance is present", () => {
+    const meta = metaFixture();
+    meta.placementAnomalies = [
+      {
+        placementKey: "feed",
+        label: "Feed",
+        action: "exception_review",
+        confidence: 0.8,
+        note: "Spend concentration is underperforming.",
+        evidence: [{ label: "Placement ROAS", value: "0.8x", impact: "negative" }],
+        whatWouldChangeThisDecision: ["Recovery toward account average."],
+        ...rowProvenanceFixture({
+          system: "meta",
+          entityType: "placement",
+          entityId: "feed",
+          sourceDecisionId: "feed:exception_review",
+          recommendedAction: "exception_review",
+        }),
+      },
+    ];
+
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      decisionAsOf: "2026-04-10",
+      actions: aggregateCommandCenterActions({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: meta,
+        creativeDecisionOs: creativeFixture(),
+      }),
+    });
+    const placementAction = decorated.find(
+      (action) => action.sourceType === "meta_placement_anomaly",
+    );
+
+    expect(placementAction?.provenance?.sourceRowScope.entityType).toBe("placement");
+    expect(placementAction?.sourceContext.sourceDecisionId).toBe(
+      "feed:exception_review",
+    );
+    expect(placementAction?.throughput.defaultQueueEligible).toBe(true);
   });
 
   it("builds a bounded default queue, owner workload, and shift digest from throughput metadata", () => {

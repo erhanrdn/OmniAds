@@ -1554,11 +1554,9 @@ export function aggregateCommandCenterActions(input: {
               startDate: input.startDate,
               endDate: input.endDate,
             }),
-            sourceDecisionId: anomaly.placementKey,
+            sourceDecisionId: `${anomaly.placementKey}:${anomaly.action}`,
           },
-          provenance:
-            (anomaly as { provenance?: OperatorDecisionProvenance | null })
-              .provenance ?? null,
+          provenance: anomaly.provenance,
           decisionAsOf: metaDecisionOs.decisionAsOf,
         }),
       );

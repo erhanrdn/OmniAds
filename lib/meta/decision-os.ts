@@ -334,6 +334,9 @@ export interface MetaPlacementAnomaly {
   note: string;
   evidence: MetaDecisionEvidence[];
   whatWouldChangeThisDecision: string[];
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
 }
 
 export interface MetaNoTouchItem {
@@ -1615,6 +1618,7 @@ function hydrateGeoClusters(geoDecisions: MetaGeoDecision[]) {
 function buildPlacementAnomalies(input: {
   rows: Array<{ key: string; label: string; spend: number; revenue: number }>;
   accountRoas: number;
+  provenanceContext: MetaDecisionProvenanceContext;
 }) {
   const totalSpend = input.rows.reduce((sum, row) => sum + row.spend, 0);
   return input.rows
@@ -1623,21 +1627,42 @@ function buildPlacementAnomalies(input: {
       const spendShare = totalSpend > 0 ? row.spend / totalSpend : 0;
       if (row.spend < 150 || spendShare < 0.12) return null;
       if (roas >= input.accountRoas * 0.8) return null;
+      const action = "exception_review" as const;
+      const evidence: MetaDecisionEvidence[] = [
+        { label: "Spend share", value: formatPercent(spendShare * 100), impact: "negative" as const },
+        { label: "Placement ROAS", value: formatRatio(roas), impact: "negative" as const },
+        { label: "Account ROAS", value: formatRatio(input.accountRoas), impact: "neutral" as const },
+      ];
+      const sourceDecisionId = `${row.key}:${action}`;
+      const provenance = buildMetaDecisionProvenance({
+        businessId: input.provenanceContext.businessId,
+        decisionAsOf: input.provenanceContext.decisionAsOf,
+        analyticsWindow: input.provenanceContext.analyticsWindow,
+        reportingRange: input.provenanceContext.reportingRange,
+        sourceWindow: input.provenanceContext.sourceWindow,
+        sourceRowScope: {
+          system: "meta",
+          entityType: "placement",
+          entityId: row.key,
+        },
+        sourceDecisionId,
+        recommendedAction: action,
+        evidence,
+      });
       return {
         placementKey: row.key,
         label: row.label,
-        action: "exception_review" as const,
+        action,
         confidence: clampConfidence(spendShare >= 0.2 ? 0.8 : 0.68),
         note:
           "Advantage+ placements should stay on by default. Review this only because spend concentration is paired with persistent underperformance.",
-        evidence: [
-          { label: "Spend share", value: formatPercent(spendShare * 100), impact: "negative" as const },
-          { label: "Placement ROAS", value: formatRatio(roas), impact: "negative" as const },
-          { label: "Account ROAS", value: formatRatio(input.accountRoas), impact: "neutral" as const },
-        ],
+        evidence,
         whatWouldChangeThisDecision: [
           "If this placement recovers closer to account average or loses spend share concentration, keep automation untouched.",
         ],
+        provenance,
+        evidenceHash: provenance.evidenceHash,
+        actionFingerprint: provenance.actionFingerprint,
       };
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
@@ -3468,6 +3493,7 @@ export function buildMetaDecisionOs(
   const placementAnomalies = buildPlacementAnomalies({
     rows: input.breakdowns?.placement ?? [],
     accountRoas: Number.isFinite(accountRoas) ? accountRoas : 0,
+    provenanceContext,
   });
   const noTouchList = buildNoTouchList({
     campaigns: campaignDecisions,

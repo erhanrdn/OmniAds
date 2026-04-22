@@ -647,6 +647,19 @@ describe("buildMetaDecisionOs", () => {
 
     expect(result.geoDecisions[0]?.action).toBe("cut");
     expect(result.placementAnomalies[0]?.action).toBe("exception_review");
+    expect(result.placementAnomalies[0]?.provenance).toMatchObject({
+      businessId: "biz",
+      decisionAsOf: "2026-04-10",
+      sourceRowScope: {
+        system: "meta",
+        entityType: "placement",
+        entityId: "feed",
+      },
+      sourceDecisionId: "feed:exception_review",
+    });
+    expect(result.placementAnomalies[0]?.actionFingerprint).toBe(
+      result.placementAnomalies[0]?.provenance.actionFingerprint,
+    );
   });
 
   it("builds pooled GEO watchlist clusters from the dedicated country source", () => {

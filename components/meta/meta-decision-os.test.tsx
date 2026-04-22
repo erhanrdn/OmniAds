@@ -68,6 +68,20 @@ function payload() {
     recommendedAction: "budget_shift",
     evidence: ["10-15% of current budget load"],
   });
+  const placementProvenance = buildOperatorDecisionProvenance({
+    businessId: "biz",
+    decisionAsOf: metadata.decisionAsOf,
+    analyticsWindow: metadata.analyticsWindow,
+    sourceWindow: metadata.decisionWindows.primary30d,
+    sourceRowScope: {
+      system: "meta",
+      entityType: "placement",
+      entityId: "feed",
+    },
+    sourceDecisionId: "feed:exception_review",
+    recommendedAction: "exception_review",
+    evidence: ["Spend is too concentrated."],
+  });
   return {
     contractVersion: "meta-decision-os.v1",
     generatedAt: "2026-04-10T00:00:00.000Z",
@@ -341,6 +355,9 @@ function payload() {
         note: "Spend is too concentrated.",
         evidence: [],
         whatWouldChangeThisDecision: [],
+        provenance: placementProvenance,
+        evidenceHash: placementProvenance.evidenceHash,
+        actionFingerprint: placementProvenance.actionFingerprint,
       },
     ],
     noTouchList: [
