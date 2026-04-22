@@ -1880,6 +1880,45 @@ describe("command center domain", () => {
     );
   });
 
+  it("fails closed instead of throwing when Creative provenance is partially populated", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.creatives[0]!.provenance = {
+      ...payload.creatives[0]!.provenance,
+      sourceRowScope: undefined as never,
+    };
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture({ verdict: "queue_ready" }).eligibilityTrace;
+
+    expect(() =>
+      buildCommandCenterOpportunities({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: null,
+        creativeDecisionOs: payload,
+      }),
+    ).not.toThrow();
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible because a referenced creative row is missing required provenance.",
+    );
+  });
+
   it("overrides stale queue-ready Creative opportunity traces when policy blocks eligibility", () => {
     const payload = creativeFixture();
     payload.opportunityBoard[0]!.eligibilityTrace =

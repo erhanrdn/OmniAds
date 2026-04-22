@@ -1319,8 +1319,8 @@ function hasCreativeCommandCenterProvenance(
   creative: CreativeDecisionOsCreative,
 ): boolean {
   return (
-    creative.provenance?.sourceRowScope.system === "creative" &&
-    creative.provenance.sourceRowScope.entityType === "creative" &&
+    creative.provenance?.sourceRowScope?.system === "creative" &&
+    creative.provenance.sourceRowScope?.entityType === "creative" &&
     Boolean(creative.provenance.actionFingerprint) &&
     Boolean(creative.provenance.evidenceHash) &&
     creative.provenance.actionFingerprint === creative.actionFingerprint &&
