@@ -1511,6 +1511,7 @@ describe("command center domain", () => {
     );
 
     expect(creativeAction?.operatorPolicy).toBeNull();
+    expect(creativeAction?.operatorInstruction?.operatorVerb).toBe("Use as context");
     expect(creativeAction?.throughput.actionable).toBe(false);
     expect(creativeAction?.throughput.defaultQueueEligible).toBe(false);
   });
@@ -1545,6 +1546,7 @@ describe("command center domain", () => {
     );
 
     expect(creativeAction?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
+    expect(creativeAction?.operatorInstruction?.primaryMove).toContain("context only");
     expect(creativeAction?.throughput.defaultQueueEligible).toBe(false);
   });
 

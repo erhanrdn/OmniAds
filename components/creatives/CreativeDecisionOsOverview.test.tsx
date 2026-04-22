@@ -447,8 +447,10 @@ describe("CreativeDecisionOsOverview", () => {
     expect(html).toContain("Preview truth is ready across this review scope.");
     expect(html).toContain("1 ready · 0 degraded · 0 missing.");
     expect(html).toContain("Creative Authority");
-    expect(html).toContain("Operator Policy");
+    expect(html).toContain("Operator Instructions");
+    expect(html).toContain("do not invent a budget or bid amount");
     expect(html).toContain("safe to queue");
+    expect(html).toContain("No safe amount calculated");
     expect(html).toContain("live evidence");
     expect(html).toContain("Policy Review");
     expect(html).toContain("candidate active");
