@@ -258,6 +258,48 @@ describe("creative operator surface", () => {
     expect(filters.find((filter) => filter.key === "blocked")?.summary).toContain("Fatigued winners");
   });
 
+  it("adds operator instructions that distinguish watch from scale commands", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].evidenceSource = "live";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "scale_ready",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: ["Creative evidence is material."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance", "commercial_truth"],
+      explanation: "Deterministic Creative policy allows this as operator work.",
+    };
+    fixture.creatives[3].evidenceSource = "live";
+    fixture.creatives[3].operatorPolicy = {
+      ...fixture.creatives[0].operatorPolicy,
+      state: "watch",
+      segment: "promising_under_sampled",
+      actionClass: "test",
+      pushReadiness: "read_only_insight",
+      queueEligible: false,
+      missingEvidence: ["evidence_floor"],
+      requiredEvidence: ["conversion_volume"],
+      explanation: "Creative is promising but under-sampled.",
+    };
+
+    const scale = buildCreativeOperatorItem(fixture.creatives[0]);
+    const watch = buildCreativeOperatorItem(fixture.creatives[3]);
+
+    expect(scale.instruction?.headline).toContain("Scale");
+    expect(scale.instruction?.amountGuidance.status).toBe("unavailable");
+    expect(watch.instruction?.instructionKind).toBe("watch");
+    expect(watch.instruction?.primaryMove).toContain("Keep watching");
+    expect(watch.instruction?.invalidActions.join(" ")).toContain("Do not convert this watch read");
+  });
+
   it("builds explicit preview truth summaries for the current review scope", () => {
     const fixture = creativeDecisionOsFixture();
 

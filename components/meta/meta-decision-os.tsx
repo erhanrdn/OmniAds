@@ -18,6 +18,7 @@ import type {
   MetaPlacementAnomaly,
   MetaWinnerScaleCandidate,
 } from "@/lib/meta/decision-os";
+import type { OperatorInstruction } from "@/src/types/operator-decision";
 
 function formatActionLabel(value: string) {
   return value.replaceAll("_", " ");
@@ -166,6 +167,37 @@ function DecisionListCard({
   );
 }
 
+function OperatorInstructionBlock({
+  instruction,
+}: {
+  instruction: OperatorInstruction | null | undefined;
+}) {
+  if (!instruction) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-slate-100 bg-white px-3 py-2 text-xs text-slate-600">
+      <p className="font-semibold text-slate-900">{instruction.primaryMove}</p>
+      <p className="mt-1">
+        Why now: {instruction.reasonSummary}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+        <span>Evidence {instruction.evidenceStrength}</span>
+        <span>{pushReadinessLabel(instruction.pushReadiness)}</span>
+        <span>{instruction.amountGuidance.label}</span>
+      </div>
+      {instruction.nextObservation[0] ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Watch next: {instruction.nextObservation[0]}
+        </p>
+      ) : null}
+      {instruction.invalidActions[0] ? (
+        <p className="mt-1 text-[11px] text-slate-500">
+          Do not: {instruction.invalidActions[0]}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
   const operatorItem = buildMetaOperatorItemFromAdSet(decision);
   const policy = decision.operatorPolicy ?? null;
@@ -212,6 +244,7 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{operatorItem.reason}</p>
+      <OperatorInstructionBlock instruction={operatorItem.instruction} />
       <PolicyChips policy={decision.policy} />
       <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
         <span>ROAS {decision.supportingMetrics.roas.toFixed(2)}x</span>
@@ -289,6 +322,7 @@ function CampaignDecisionRow({
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{operatorItem.reason}</p>
+      <OperatorInstructionBlock instruction={operatorItem.instruction} />
       <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-slate-500">
         <span className={confidenceTone(decision.confidence)}>
           Confidence {(decision.confidence * 100).toFixed(0)}%
@@ -583,6 +617,7 @@ interface MetaOverviewWorkItem {
   priorityScore: number;
   operatorState: string | null;
   pushReadiness: string | null;
+  instruction: OperatorInstruction | null;
 }
 
 function uniqueText(values: Array<string | null | undefined>) {
@@ -674,6 +709,7 @@ function buildOverviewWorkItems(decisionOs: MetaDecisionOsV1Response) {
       priorityScore: 1,
       operatorState: decision.operatorPolicy?.state ?? null,
       pushReadiness: decision.operatorPolicy?.pushReadiness ?? null,
+      instruction: operatorItem?.instruction ?? null,
     } satisfies MetaOverviewWorkItem;
   });
   const adSetItems = decisionOs.adSets.map((decision) => {
@@ -701,6 +737,7 @@ function buildOverviewWorkItems(decisionOs: MetaDecisionOsV1Response) {
       priorityScore: adSetPriorityScore(decision.priority),
       operatorState: decision.operatorPolicy?.state ?? null,
       pushReadiness: decision.operatorPolicy?.pushReadiness ?? null,
+      instruction: operatorItem?.instruction ?? null,
     } satisfies MetaOverviewWorkItem;
   });
   const geoItems = decisionOs.geoDecisions.map((decision) => {
@@ -724,6 +761,7 @@ function buildOverviewWorkItems(decisionOs: MetaDecisionOsV1Response) {
       priorityScore: decision.queueEligible ? 1 : 3,
       operatorState: null,
       pushReadiness: null,
+      instruction: null,
     } satisfies MetaOverviewWorkItem;
   });
 
@@ -737,6 +775,8 @@ function WorkItemRow({
   item: MetaOverviewWorkItem;
   contextual?: boolean;
 }) {
+  const showContextualSafetyCopy =
+    contextual && item.instruction?.instructionKind === "do_now";
   const laneLabel = item.trust
     ? formatActionLabel(item.trust.surfaceLane)
     : "trust unavailable";
@@ -794,6 +834,19 @@ function WorkItemRow({
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{item.reason}</p>
+      {showContextualSafetyCopy ? (
+        <div className="mt-3 rounded-xl border border-slate-100 bg-white px-3 py-2 text-xs text-slate-600">
+          <p className="font-semibold text-slate-900">
+            Review as context; this row is not command-ready.
+          </p>
+          <p className="mt-1">
+            Do not execute the primary move until authority, trust, and policy
+            readiness all allow it.
+          </p>
+        </div>
+      ) : (
+        <OperatorInstructionBlock instruction={item.instruction} />
+      )}
       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
         <span>Confidence {formatConfidence(item.confidence)}</span>
         <span>Truth {truthLabel}</span>
@@ -1284,6 +1337,7 @@ export function MetaCampaignDecisionPanel({
         <div className="mt-3 text-[11px] text-slate-500">
           Confidence {(campaignDecision.confidence * 100).toFixed(0)}%
         </div>
+        <OperatorInstructionBlock instruction={operatorItem.instruction} />
         {operatorItem.blocker ? (
           <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
             Blocker: {operatorItem.blocker}

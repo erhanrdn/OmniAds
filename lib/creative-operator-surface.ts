@@ -2,6 +2,7 @@ import type {
   CreativeDecisionOsCreative,
   CreativeDecisionOsV1Response,
 } from "@/lib/creative-decision-os";
+import { buildOperatorInstruction } from "@/lib/operator-prescription";
 import {
   buildOperatorBuckets,
   operatorConfidenceBand,
@@ -305,15 +306,20 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
   const authorityState = resolveCreativeAuthorityState(creative);
   const muted = isCreativeMuted(creative);
   const blocker = creativeBlocker(creative, authorityState);
+  const primaryAction = creativeActionLabel(creative, authorityState);
+  const reason = creativeReason(creative, authorityState, muted, blocker);
+  const campaignContextLimited =
+    creative.deployment.compatibility.status === "limited" ||
+    creative.deployment.compatibility.status === "blocked";
 
   return {
     id: creative.creativeId,
     title: creative.name,
     subtitle: creative.familyLabel,
-    primaryAction: creativeActionLabel(creative, authorityState),
+    primaryAction,
     authorityState,
     authorityLabel: creativeAuthorityStateLabel(authorityState),
-    reason: creativeReason(creative, authorityState, muted, blocker),
+    reason,
     blocker,
     confidence: operatorConfidenceBand(creative.confidence),
     secondaryLabels: [
@@ -331,6 +337,46 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     ]),
     muted,
     mutedReason: muted ? "Thin-signal or inactive creatives stay out of the headline action surface." : null,
+    instruction: buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: creative.operatorPolicy ?? null,
+      policyVersion: creative.operatorPolicy?.policyVersion ?? null,
+      targetScope: "creative",
+      targetEntity: creative.name,
+      parentEntity: creative.familyLabel,
+      actionLabel: primaryAction,
+      reason,
+      blocker,
+      confidenceScore: creative.confidence,
+      evidenceSource: creative.evidenceSource,
+      trustState: creative.trust.truthState,
+      operatorDisposition: creative.trust.operatorDisposition,
+      provenance:
+        (creative as { provenance?: CreativeDecisionOsCreative["provenance"] | null })
+          .provenance ?? null,
+      evidenceHash: (creative as { evidenceHash?: string | null }).evidenceHash ?? null,
+      actionFingerprint:
+        (creative as { actionFingerprint?: string | null }).actionFingerprint ?? null,
+      nextObservation: [
+        ...(creative.deployment.whatWouldChangeThisDecision ?? []),
+        ...creative.deployment.constraints,
+        ...creative.deployment.compatibility.reasons,
+        ...(creative.fatigue?.missingContext ?? []),
+        ...(creative.benchmark?.missingContext ?? []),
+      ],
+      invalidActions: [
+        campaignContextLimited
+          ? "Do not blame the creative before the limiting campaign or ad set context is reviewed."
+          : null,
+        creative.operatorPolicy?.segment === "false_winner_low_evidence"
+          ? "Do not scale from ROAS alone."
+          : null,
+        creative.operatorPolicy?.segment === "protected_winner"
+          ? "Do not kill a protected winner because of short-term volatility."
+          : null,
+      ].filter(Boolean) as string[],
+    }),
   };
 }
 

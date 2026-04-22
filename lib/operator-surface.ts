@@ -1,3 +1,5 @@
+import type { OperatorInstruction } from "@/src/types/operator-decision";
+
 export const OPERATOR_AUTHORITY_STATES = [
   "act_now",
   "needs_truth",
@@ -29,6 +31,7 @@ export interface OperatorSurfaceItem {
   metrics: OperatorSurfaceMetric[];
   muted?: boolean;
   mutedReason?: string | null;
+  instruction?: OperatorInstruction | null;
 }
 
 export interface OperatorSurfaceBucket {

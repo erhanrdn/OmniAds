@@ -224,6 +224,32 @@ describe("buildMetaOperatorSurfaceModel", () => {
     expect(actNow?.rows.map((row) => row.primaryAction)).toContain("Review cost cap");
   });
 
+  it("adds instructions that make blocked budget actions explicit", () => {
+    const fixture = metaDecisionOsFixture();
+    fixture.adSets[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      state: "blocked",
+      actionClass: "scale",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Budget is not binding."],
+      blockers: ["Budget is not the binding constraint."],
+      missingEvidence: ["budget_binding_evidence"],
+      requiredEvidence: ["budget_binding_evidence"],
+      explanation: "Budget is not the binding constraint.",
+    };
+
+    const model = buildMetaOperatorSurfaceModel(fixture);
+    const row = model?.buckets
+      .flatMap((bucket) => bucket.rows)
+      .find((item) => item.id === "adset:adset_scale");
+
+    expect(row?.instruction?.operatorVerb).toBe("Do not act");
+    expect(row?.instruction?.primaryMove).toContain("Do not act");
+    expect(row?.instruction?.pushReadiness).toBe("blocked_from_push");
+  });
+
   it("builds a campaign drilldown lookup from the highest-priority visible action owner", () => {
     const lookup = buildMetaCampaignOperatorLookup(metaDecisionOsFixture());
     const scaleSummary = lookup.get("cmp_scale");

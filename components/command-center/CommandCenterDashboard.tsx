@@ -1874,7 +1874,8 @@ export function CommandCenterDashboard() {
                 </div>
                 <SheetTitle className="mt-2 text-xl">{selectedAction.title}</SheetTitle>
                 <SheetDescription className="text-sm">
-                  {formatActionLabel(selectedAction.recommendedAction)} · {selectedAction.summary}
+                  {selectedAction.operatorInstruction?.headline ??
+                    `${formatActionLabel(selectedAction.recommendedAction)} · ${selectedAction.summary}`}
                 </SheetDescription>
                 {payload ? (
                   <p className="text-xs text-slate-500">
@@ -1888,10 +1889,11 @@ export function CommandCenterDashboard() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Recommendation
+                        Operator instruction
                       </p>
                       <p className="mt-1 text-sm font-semibold text-slate-950">
-                        {formatActionLabel(selectedAction.recommendedAction)}
+                        {selectedAction.operatorInstruction?.primaryMove ??
+                          formatActionLabel(selectedAction.recommendedAction)}
                       </p>
                     </div>
                     <div className="text-right text-xs text-slate-500">
@@ -1903,6 +1905,24 @@ export function CommandCenterDashboard() {
                     <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                       Commercial truth is incomplete, so this recommendation is
                       limited to a review-safe disposition.
+                    </div>
+                  ) : null}
+                  {selectedAction.operatorInstruction ? (
+                    <div className="mt-3 grid gap-2 text-xs text-slate-600 md:grid-cols-2">
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Why now
+                        </p>
+                        <p className="mt-1">{selectedAction.operatorInstruction.reasonSummary}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          How much
+                        </p>
+                        <p className="mt-1">
+                          {selectedAction.operatorInstruction.amountGuidance.label}
+                        </p>
+                      </div>
                     </div>
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">

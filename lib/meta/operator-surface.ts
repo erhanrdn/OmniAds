@@ -3,6 +3,7 @@ import type {
   MetaCampaignDecision,
   MetaDecisionOsV1Response,
 } from "@/lib/meta/decision-os";
+import { buildOperatorInstruction } from "@/lib/operator-prescription";
 import {
   buildOperatorBuckets,
   operatorConfidenceBand,
@@ -12,6 +13,11 @@ import {
   type OperatorSurfaceMetric,
   type OperatorSurfaceModel,
 } from "@/lib/operator-surface";
+import type {
+  OperatorDecisionProvenance,
+  OperatorPolicyAssessment,
+  OperatorPolicyState,
+} from "@/src/types/operator-decision";
 
 type MetaOperatorItem = OperatorSurfaceItem & {
   campaignId: string;
@@ -165,24 +171,61 @@ function compactMetrics(metrics: OperatorSurfaceMetric[]) {
   return metrics.filter((metric) => Boolean(metric.value) && metric.value !== "n/a").slice(0, 5);
 }
 
+function uniqueText(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value?.trim()))));
+}
+
+function instructionPolicyForMetaAuthority(input: {
+  policy: OperatorPolicyAssessment | null | undefined;
+  authorityState: OperatorAuthorityState;
+  blocker: string | null;
+}) {
+  const policy = input.policy ?? null;
+  if (!policy || input.authorityState === "act_now") return policy;
+
+  const state: OperatorPolicyState =
+    input.authorityState === "no_action"
+      ? "do_not_touch"
+      : input.authorityState === "watch"
+        ? "watch"
+        : input.authorityState === "needs_truth" || input.authorityState === "blocked"
+          ? "blocked"
+          : "contextual_only";
+
+  return {
+    ...policy,
+    state,
+    pushReadiness:
+      state === "watch"
+        ? "operator_review_required"
+        : "blocked_from_push",
+    queueEligible: false,
+    canApply: false,
+    blockers: uniqueText([input.blocker, ...policy.blockers]),
+  } satisfies OperatorPolicyAssessment;
+}
+
 export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): OperatorSurfaceItem {
   const authorityState = metaAuthorityState(decision);
   const muted = isMetaMuted(decision);
   const blocker = metaBlockerFromTrust(decision.trust, decision.guardrails[0], authorityState);
   const reason = metaReasonOverride(decision.reasons[0] ?? "Operator review required.", authorityState, muted, blocker);
+  const actionLabel = metaActionLabel({
+    state: authorityState,
+    action: decision.actionType,
+    bidRegime: decision.policy.bidRegime,
+    noTouch: decision.noTouch,
+    missingCreativeAsk: decision.missingCreativeAsk,
+    primaryDriver: decision.policy.primaryDriver,
+  });
+  const provenance =
+    (decision as { provenance?: OperatorDecisionProvenance | null }).provenance ?? null;
 
   return {
     id: `adset:${decision.decisionId}`,
     title: decision.adSetName,
     subtitle: decision.campaignName,
-    primaryAction: metaActionLabel({
-      state: authorityState,
-      action: decision.actionType,
-      bidRegime: decision.policy.bidRegime,
-      noTouch: decision.noTouch,
-      missingCreativeAsk: decision.missingCreativeAsk,
-      primaryDriver: decision.policy.primaryDriver,
-    }),
+    primaryAction: actionLabel,
     authorityState,
     reason,
     blocker,
@@ -199,6 +242,34 @@ export function buildMetaOperatorItemFromAdSet(decision: MetaAdSetDecision): Ope
     ]),
     muted,
     mutedReason: muted ? "Thin-signal or inactive ad sets stay out of the headline action stack." : null,
+    instruction: buildOperatorInstruction({
+      sourceSystem: "meta",
+      sourceLabel: "Meta Decision OS",
+      policy: instructionPolicyForMetaAuthority({
+        policy: decision.operatorPolicy ?? null,
+        authorityState,
+        blocker,
+      }),
+      targetScope: "adset",
+      targetEntity: decision.adSetName,
+      parentEntity: decision.campaignName,
+      actionLabel,
+      reason,
+      blocker,
+      confidenceScore: decision.confidence,
+      trustState: decision.trust.truthState,
+      operatorDisposition: decision.trust.operatorDisposition,
+      provenance,
+      nextObservation: [
+        ...(decision.whatWouldChangeThisDecision ?? []),
+        ...decision.guardrails,
+        ...(decision.missingCreativeAsk ?? []),
+      ],
+      invalidActions:
+        decision.policy.primaryDriver === "creative_fatigue"
+          ? ["Do not increase budget before the creative bottleneck is reviewed."]
+          : [],
+    }),
   };
 }
 
@@ -211,19 +282,22 @@ export function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision
     authorityState,
   );
   const reason = metaReasonOverride(decision.why, authorityState, muted, blocker);
+  const actionLabel = metaActionLabel({
+    state: authorityState,
+    action: decision.primaryAction,
+    bidRegime: decision.policy.bidRegime,
+    noTouch: decision.noTouch,
+    missingCreativeAsk: decision.missingCreativeAsk,
+    primaryDriver: decision.policy.primaryDriver,
+  });
+  const provenance =
+    (decision as { provenance?: OperatorDecisionProvenance | null }).provenance ?? null;
 
   return {
     id: `campaign:${decision.campaignId}`,
     title: decision.campaignName,
     subtitle: decision.role,
-    primaryAction: metaActionLabel({
-      state: authorityState,
-      action: decision.primaryAction,
-      bidRegime: decision.policy.bidRegime,
-      noTouch: decision.noTouch,
-      missingCreativeAsk: decision.missingCreativeAsk,
-      primaryDriver: decision.policy.primaryDriver,
-    }),
+    primaryAction: actionLabel,
     authorityState,
     reason,
     blocker,
@@ -236,6 +310,34 @@ export function buildMetaOperatorItemFromCampaign(decision: MetaCampaignDecision
     ),
     muted,
     mutedReason: muted ? "Thin-signal or inactive campaigns stay out of the headline action stack." : null,
+    instruction: buildOperatorInstruction({
+      sourceSystem: "meta",
+      sourceLabel: "Meta Decision OS",
+      policy: instructionPolicyForMetaAuthority({
+        policy: decision.operatorPolicy ?? null,
+        authorityState,
+        blocker,
+      }),
+      targetScope: "campaign",
+      targetEntity: decision.campaignName,
+      parentEntity: decision.role,
+      actionLabel,
+      reason,
+      blocker,
+      confidenceScore: decision.confidence,
+      trustState: decision.trust.truthState,
+      operatorDisposition: decision.trust.operatorDisposition,
+      provenance,
+      nextObservation: [
+        ...(decision.whatWouldChangeThisDecision ?? []),
+        ...decision.guardrails,
+        ...(decision.missingCreativeAsk ?? []),
+      ],
+      invalidActions:
+        decision.policy.primaryDriver === "creative_fatigue"
+          ? ["Do not treat this as a budget problem until creative fatigue is reviewed."]
+          : [],
+    }),
   };
 }
 

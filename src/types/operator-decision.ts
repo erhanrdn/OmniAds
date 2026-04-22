@@ -116,3 +116,67 @@ export interface OperatorPolicyAssessment {
   requiredEvidence: string[];
   explanation: string;
 }
+
+export type OperatorInstructionKind =
+  | "do_now"
+  | "do_not_touch"
+  | "watch"
+  | "investigate"
+  | "blocked"
+  | "contextual_only";
+
+export type OperatorInstructionEvidenceStrength =
+  | "strong"
+  | "medium"
+  | "limited"
+  | "blocked";
+
+export type OperatorInstructionUrgency =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low"
+  | "watch";
+
+export interface OperatorInstructionAmountGuidance {
+  status: "not_applicable" | "unavailable" | "bounded_estimate";
+  label: string;
+  reason: string;
+}
+
+export interface OperatorInstruction {
+  contractVersion: "operator-instruction.v1";
+  instructionKind: OperatorInstructionKind;
+  operatorVerb: string;
+  headline: string;
+  primaryMove: string;
+  targetScope: string;
+  targetEntity: string;
+  parentEntity?: string | null;
+  reasonSummary: string;
+  evidenceStrength: OperatorInstructionEvidenceStrength;
+  missingEvidence: string[];
+  nextObservation: string[];
+  invalidActions: string[];
+  amountGuidance: OperatorInstructionAmountGuidance;
+  pushReadiness: OperatorDecisionPushEligibility["level"];
+  queueEligible: boolean;
+  canApply: boolean;
+  urgency: OperatorInstructionUrgency;
+  confidenceScore: number | null;
+  confidenceLabel: "High" | "Medium" | "Limited";
+  reliability: {
+    evidenceSource?: string | null;
+    trustState?: string | null;
+    operatorDisposition?: string | null;
+  };
+  policySource: {
+    sourceSystem: "meta" | "creative" | "command_center";
+    sourceLabel: string;
+    policyContract: "operator-policy.v1";
+    policyVersion?: string | null;
+  };
+  provenance?: OperatorDecisionProvenance | null;
+  evidenceHash?: string | null;
+  actionFingerprint?: string | null;
+}

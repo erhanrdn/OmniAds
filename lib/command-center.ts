@@ -4,6 +4,7 @@ import {
   buildOperatorDecisionPushEligibility,
   type OperatorDecisionProvenance,
 } from "@/lib/operator-decision-provenance";
+import { buildOperatorInstruction } from "@/lib/operator-prescription";
 import type {
   CreativeDecisionOsCreative,
   CreativeOpportunityBoardItem,
@@ -24,6 +25,7 @@ import type {
   OperatorAnalyticsWindow,
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
+  OperatorInstruction,
   OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
 import type {
@@ -244,6 +246,7 @@ export interface CommandCenterAction {
   sourceContext: CommandCenterActionSourceContext;
   throughput: CommandCenterActionThroughput;
   operatorPolicy?: OperatorPolicyAssessment | null;
+  operatorInstruction?: OperatorInstruction | null;
 }
 
 export interface CommandCenterOpportunityItem {
@@ -1082,6 +1085,7 @@ function buildMetaAction(
     | "lastMutationId"
     | "createdAt"
     | "throughput"
+    | "operatorInstruction"
   > & {
     entityType: string;
     entityId: string;
@@ -1131,6 +1135,30 @@ function buildMetaAction(
     lastMutationId: null,
     createdAt: new Date().toISOString(),
     operatorPolicy: input.operatorPolicy ?? null,
+    operatorInstruction: buildOperatorInstruction({
+      sourceSystem: input.sourceSystem,
+      sourceLabel: input.sourceContext.sourceLabel,
+      policy: input.operatorPolicy ?? null,
+      policyVersion:
+        (input.operatorPolicy as { policyVersion?: string | null } | null | undefined)
+          ?.policyVersion ?? null,
+      targetScope: input.entityType,
+      targetEntity: input.title,
+      actionLabel: input.recommendedAction.replaceAll("_", " "),
+      reason: input.summary,
+      confidenceScore: input.confidence,
+      trustState: input.truthState,
+      operatorDisposition: input.operatorDisposition,
+      evidenceSource:
+        (input.operatorPolicy as { evidenceSource?: string | null } | null | undefined)
+          ?.evidenceSource ?? null,
+      provenance: input.provenance,
+      nextObservation: [...input.guardrails, ...input.decisionSignals],
+      invalidActions:
+        input.watchlistOnly || input.operatorPolicy?.queueEligible !== true
+          ? ["Do not promote this Command Center card into queue work unless policy readiness allows it."]
+          : [],
+    }),
     throughput: {
       priorityScore: 0,
       actionable: false,
@@ -1973,9 +2001,34 @@ export function decorateCommandCenterActionsWithThroughput(input: {
           : ageHours >= slaTargetHours * 0.7
             ? "due_soon"
             : "on_track";
+    const operatorInstruction = buildOperatorInstruction({
+      sourceSystem: action.sourceSystem,
+      sourceLabel: action.sourceContext.sourceLabel,
+      policy,
+      policyVersion:
+        (policy as { policyVersion?: string | null } | null | undefined)
+          ?.policyVersion ?? null,
+      targetScope: action.sourceType,
+      targetEntity: action.title,
+      actionLabel: action.recommendedAction.replaceAll("_", " "),
+      reason: action.summary,
+      confidenceScore: action.confidence,
+      trustState: action.truthState,
+      operatorDisposition: action.operatorDisposition,
+      evidenceSource:
+        (policy as { evidenceSource?: string | null } | null | undefined)
+          ?.evidenceSource ?? null,
+      provenance: action.provenance ?? null,
+      nextObservation: [...action.guardrails, ...action.decisionSignals],
+      invalidActions:
+        action.watchlistOnly || policy?.queueEligible !== true
+          ? ["Do not promote this Command Center card into queue work unless policy readiness allows it."]
+          : [],
+    });
 
     return {
       ...action,
+      operatorInstruction,
       throughput: {
         priorityScore,
         actionable,

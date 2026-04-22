@@ -3,6 +3,7 @@
 import { DecisionAuthorityPanel } from "@/components/decision-trust/DecisionAuthorityPanel";
 import { DecisionPolicyExplanationPanel } from "@/components/decision-trust/DecisionPolicyExplanationPanel";
 import {
+  buildCreativeOperatorItem,
   buildCreativePreviewTruthSummary,
   type CreativeQuickFilter,
   type CreativeQuickFilterKey,
@@ -271,10 +272,10 @@ export function CreativeDecisionOsOverview({
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold text-slate-950">Operator Policy</h3>
+              <h3 className="text-sm font-semibold text-slate-950">Operator Instructions</h3>
               <p className="mt-1 text-xs text-slate-600">
-                Deterministic Creative policy classifies scale, protect, watch,
-                investigate, and context-only work before any queue handoff.
+                Deterministic Creative policy turns each segment into the next
+                safe operator move before any queue handoff.
               </p>
             </div>
             <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
@@ -286,34 +287,52 @@ export function CreativeDecisionOsOverview({
             </div>
           </div>
           <div className="mt-3 grid gap-3 xl:grid-cols-2">
-            {operatorPolicyCreatives.map((creative) => (
-              <div
-                key={`creative-operator-policy:${creative.creativeId}`}
-                className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">{creative.name}</p>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {creative.operatorPolicy.explanation}
-                    </p>
+            {operatorPolicyCreatives.map((creative) => {
+              const operatorItem = buildCreativeOperatorItem(creative);
+              const instruction = operatorItem.instruction;
+              return (
+                <div
+                  key={`creative-operator-policy:${creative.creativeId}`}
+                  className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{creative.name}</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-800">
+                        {instruction?.primaryMove ?? creative.operatorPolicy.explanation}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Why now: {instruction?.reasonSummary ?? creative.operatorPolicy.explanation}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
+                      {formatLifecycleLabel(creative.operatorPolicy.segment)}
+                    </span>
                   </div>
-                  <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
-                    {formatLifecycleLabel(creative.operatorPolicy.segment)}
-                  </span>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                    <span>{creative.operatorPolicy.state.replaceAll("_", " ")}</span>
+                    <span>{pushReadinessLabel(creative.operatorPolicy.pushReadiness)}</span>
+                    <span>{creative.operatorPolicy.evidenceSource} evidence</span>
+                    {instruction ? <span>{instruction.amountGuidance.label}</span> : null}
+                  </div>
+                  {instruction?.nextObservation[0] ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      Watch next: {instruction.nextObservation[0]}
+                    </p>
+                  ) : null}
+                  {instruction?.invalidActions[0] ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      Do not: {instruction.invalidActions[0]}
+                    </p>
+                  ) : null}
+                  {creative.operatorPolicy.missingEvidence.length > 0 ? (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Missing: {creative.operatorPolicy.missingEvidence.slice(0, 3).join(", ")}
+                    </p>
+                  ) : null}
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                  <span>{creative.operatorPolicy.state.replaceAll("_", " ")}</span>
-                  <span>{pushReadinessLabel(creative.operatorPolicy.pushReadiness)}</span>
-                  <span>{creative.operatorPolicy.evidenceSource} evidence</span>
-                </div>
-                {creative.operatorPolicy.missingEvidence.length > 0 ? (
-                  <p className="mt-2 text-xs text-amber-700">
-                    Missing: {creative.operatorPolicy.missingEvidence.slice(0, 3).join(", ")}
-                  </p>
-                ) : null}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       ) : null}

@@ -28,6 +28,7 @@ import { getCreativeDisplayPills } from "@/lib/meta/creative-taxonomy";
 import { getTranslations } from "@/lib/i18n";
 import { usePreferencesStore } from "@/store/preferences-store";
 import { CreativeCommercialContextCard } from "@/components/creatives/creative-commercial-context-card";
+import { buildCreativeOperatorItem } from "@/lib/creative-operator-surface";
 
 interface CreativeDetailExperienceProps {
   businessId: string;
@@ -296,6 +297,10 @@ export function CreativeDetailExperience({
   const decisionOsCreative = useMemo(
     () => (row ? decisionOs?.creatives.find((creative) => creative.creativeId === row.id) ?? null : null),
     [decisionOs, row]
+  );
+  const operatorItem = useMemo(
+    () => (decisionOsCreative ? buildCreativeOperatorItem(decisionOsCreative) : null),
+    [decisionOsCreative],
   );
   const standardRange = useMemo(
     () => creativeDateRangeToStandard(dateRange),
@@ -740,6 +745,30 @@ export function CreativeDetailExperience({
                   <DecisionBadge action={decision.action} />
                 </div>
                 <p className="mt-2 text-xs leading-5 text-slate-700">{decisionOsCreative.summary}</p>
+
+                {operatorItem?.instruction ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-700">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Operator instruction
+                    </p>
+                    <p className="mt-1 font-semibold text-slate-950">
+                      {operatorItem.instruction.primaryMove}
+                    </p>
+                    <p className="mt-1">
+                      Why now: {operatorItem.instruction.reasonSummary}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                      <span>Evidence {operatorItem.instruction.evidenceStrength}</span>
+                      <span>{operatorItem.instruction.amountGuidance.label}</span>
+                      <span>{operatorItem.instruction.pushReadiness.replaceAll("_", " ")}</span>
+                    </div>
+                    {operatorItem.instruction.nextObservation[0] ? (
+                      <p className="mt-2 text-[11px] text-slate-600">
+                        Watch next: {operatorItem.instruction.nextObservation[0]}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="mt-2.5 grid grid-cols-2 gap-1.5 md:grid-cols-3">
                   <CompactMetricCell label="Decision score" value={`${decision.score}/100`} />
