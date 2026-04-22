@@ -1757,6 +1757,129 @@ describe("command center domain", () => {
     ).toBe("blocked");
   });
 
+  it("fails closed when one Creative family opportunity row is safe but another referenced row is missing", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.opportunityBoard[0]!.creativeIds = ["creative_1", "creative_missing"];
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture({ verdict: "queue_ready" }).eligibilityTrace;
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible because a referenced creative row is missing.",
+    );
+    expect(
+      creativeOpportunity?.evidenceFloors.find(
+        (floor) => floor.key === "creative_operator_policy",
+      )?.status,
+    ).toBe("blocked");
+  });
+
+  it("fails closed when one Creative family opportunity row is safe but another policy is missing", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.creatives[1]!.operatorPolicy = creativeOperatorPolicy();
+    delete (
+      payload.creatives[1] as Partial<CreativeDecisionOsV1Response["creatives"][number]>
+    ).operatorPolicy;
+    payload.opportunityBoard[0]!.creativeIds = ["creative_1", "creative_2"];
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture({ verdict: "queue_ready" }).eligibilityTrace;
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible because a referenced creative row is missing operator policy.",
+    );
+  });
+
+  it("fails closed when one Creative family opportunity row has unsafe policy", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.creatives[1]!.operatorPolicy = creativeOperatorPolicy({
+      state: "blocked",
+      segment: "blocked",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+      blockers: ["Creative row policy blocks queue work."],
+      explanation: "Creative row policy blocks queue work.",
+    });
+    payload.opportunityBoard[0]!.creativeIds = ["creative_1", "creative_2"];
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture({ verdict: "queue_ready" }).eligibilityTrace;
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible without a matching safe-to-queue row policy.",
+    );
+  });
+
+  it("fails closed when a Creative opportunity row is missing required provenance", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    delete (
+      payload.creatives[0] as Partial<CreativeDecisionOsV1Response["creatives"][number]>
+    ).provenance;
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture({ verdict: "queue_ready" }).eligibilityTrace;
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(false);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
+    expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
+      "Creative opportunity is not queue eligible because a referenced creative row is missing required provenance.",
+    );
+  });
+
   it("overrides stale queue-ready Creative opportunity traces when policy blocks eligibility", () => {
     const payload = creativeFixture();
     payload.opportunityBoard[0]!.eligibilityTrace =
@@ -1786,7 +1909,7 @@ describe("command center domain", () => {
     expect(creativeOpportunity?.queueEligible).toBe(false);
     expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("blocked");
     expect(creativeOpportunity?.eligibilityTrace.blockedReasons).toContain(
-      "Creative opportunity is not queue eligible without a matching safe-to-queue row policy.",
+      "Creative opportunity is not queue eligible because referenced creative evidence is not live.",
     );
   });
 
@@ -1823,6 +1946,35 @@ describe("command center domain", () => {
   it("keeps a valid Creative safe-to-queue opportunity eligible", () => {
     const payload = creativeFixture();
     payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
+    payload.opportunityBoard[0]!.eligibilityTrace =
+      queueEligibilityFixture().eligibilityTrace;
+
+    const opportunities = buildCommandCenterOpportunities({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: null,
+      creativeDecisionOs: payload,
+    });
+    const creativeOpportunity = opportunities.find(
+      (item) => item.kind === "creative_family_winner_scale",
+    );
+
+    expect(creativeOpportunity?.queueEligible).toBe(true);
+    expect(creativeOpportunity?.eligibilityTrace.verdict).toBe("queue_ready");
+    expect(
+      creativeOpportunity?.evidenceFloors.find(
+        (floor) => floor.key === "creative_operator_policy",
+      )?.status,
+    ).toBe("met");
+  });
+
+  it("keeps a valid multi-creative live safe-to-queue opportunity eligible", () => {
+    const payload = creativeFixture();
+    payload.creatives[0]!.operatorPolicy = creativeOperatorPolicy();
+    payload.creatives[1]!.operatorPolicy = creativeOperatorPolicy();
+    payload.opportunityBoard[0]!.creativeIds = ["creative_1", "creative_2"];
     payload.opportunityBoard[0]!.queue = queueEligibilityFixture();
     payload.opportunityBoard[0]!.eligibilityTrace =
       queueEligibilityFixture().eligibilityTrace;
