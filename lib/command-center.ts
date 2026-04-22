@@ -29,6 +29,7 @@ import type {
   OperatorDecisionPushEligibility,
   OperatorPolicyAssessment,
 } from "@/src/types/operator-decision";
+import { META_EXECUTION_SUPPORTED_ACTIONS } from "@/lib/command-center-execution-allowlist";
 import type {
   BusinessDecisionBidRegime,
   BusinessDecisionCalibrationChannel,
@@ -1039,16 +1040,54 @@ function createActionFingerprint(base: {
 function buildCommandCenterActionPushEligibility(input: {
   provenance: OperatorDecisionProvenance | null;
   actionable: boolean;
-  sourceSystem: CommandCenterSourceSystem;
+  canApply: boolean;
   blockedReason?: string | null;
 }) {
   return buildOperatorDecisionPushEligibility({
     provenance: input.provenance,
     queueEligible: input.actionable && Boolean(input.provenance?.actionFingerprint),
-    canApply: input.sourceSystem === "meta" && input.actionable,
+    canApply: input.canApply,
     canRollback: false,
     blockedReason: input.blockedReason ?? null,
   });
+}
+
+const PUSH_READINESS_RESTRICTIVENESS: Record<
+  OperatorInstruction["pushReadiness"],
+  number
+> = {
+  blocked_from_push: 0,
+  read_only_insight: 1,
+  operator_review_required: 2,
+  safe_to_queue: 3,
+  eligible_for_push_when_enabled: 4,
+};
+
+function mostRestrictivePushReadiness(
+  left: OperatorInstruction["pushReadiness"] | null | undefined,
+  right: OperatorInstruction["pushReadiness"],
+) {
+  if (!left) return right;
+  return PUSH_READINESS_RESTRICTIVENESS[left] <= PUSH_READINESS_RESTRICTIVENESS[right]
+    ? left
+    : right;
+}
+
+function canCommandCenterActionUseProviderApply(input: {
+  action: CommandCenterAction;
+  policy: OperatorPolicyAssessment | null;
+  actionable: boolean;
+}) {
+  if (!input.actionable) return false;
+  if (!input.action.provenance?.actionFingerprint) return false;
+  if (input.policy?.pushReadiness !== "eligible_for_push_when_enabled") return false;
+  return (
+    input.action.sourceSystem === "meta" &&
+    input.action.sourceType === "meta_adset_decision" &&
+    META_EXECUTION_SUPPORTED_ACTIONS.includes(
+      input.action.recommendedAction as (typeof META_EXECUTION_SUPPORTED_ACTIONS)[number],
+    )
+  );
 }
 
 function commandCenterInstructionQueueWarnings(input: {
@@ -2002,10 +2041,15 @@ export function decorateCommandCenterActionsWithThroughput(input: {
     const policyBlocksQueue = policy ? !policy.queueEligible : missingCreativePolicy;
     const actionable = isCommandCenterActionActionable(action) && !policyBlocksQueue;
     const priorityScore = calculateCommandCenterPriorityScore(action);
+    const canApply = canCommandCenterActionUseProviderApply({
+      action,
+      policy,
+      actionable,
+    });
     const pushEligibility = buildCommandCenterActionPushEligibility({
       provenance: action.provenance ?? null,
       actionable,
-      sourceSystem: action.sourceSystem,
+      canApply,
       blockedReason: action.provenance
         ? missingCreativePolicy
           ? "Creative operator policy is missing, so queue and push eligibility are blocked."
@@ -2049,9 +2093,12 @@ export function decorateCommandCenterActionsWithThroughput(input: {
       provenance: action.provenance ?? null,
       nextObservation: [...action.guardrails, ...action.decisionSignals],
       requiresPolicyForQueue: action.sourceSystem === "creative",
-      pushReadinessOverride: pushEligibility.level,
+      pushReadinessOverride: mostRestrictivePushReadiness(
+        policy?.pushReadiness,
+        pushEligibility.level,
+      ),
       queueEligibleOverride: pushEligibility.queueEligible,
-      canApplyOverride: pushEligibility.canApply,
+      canApplyOverride: canApply && pushEligibility.canApply,
       invalidActions: commandCenterInstructionQueueWarnings({
         pushEligibility,
         missingCreativePolicy,

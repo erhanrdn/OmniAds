@@ -4,6 +4,11 @@ import type {
   CommandCenterSourceSystem,
   CommandCenterSourceType,
 } from "@/lib/command-center";
+import type { MetaExecutionSupportedAction } from "@/lib/command-center-execution-allowlist";
+export {
+  META_EXECUTION_SUPPORTED_ACTIONS,
+  type MetaExecutionSupportedAction,
+} from "@/lib/command-center-execution-allowlist";
 
 export const COMMAND_CENTER_EXECUTION_CONTRACT_VERSION =
   "command-center-execution.v1" as const;
@@ -40,16 +45,6 @@ export const COMMAND_CENTER_EXECUTION_APPLY_GATE_POSTURES = [
 
 export type CommandCenterExecutionApplyGatePosture =
   (typeof COMMAND_CENTER_EXECUTION_APPLY_GATE_POSTURES)[number];
-
-export const META_EXECUTION_SUPPORTED_ACTIONS = [
-  "pause",
-  "recover",
-  "scale_budget",
-  "reduce_budget",
-] as const;
-
-export type MetaExecutionSupportedAction =
-  (typeof META_EXECUTION_SUPPORTED_ACTIONS)[number];
 
 export const META_EXECUTION_ROLLBACK_KINDS = [
   "provider_rollback",

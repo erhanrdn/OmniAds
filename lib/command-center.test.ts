@@ -1491,6 +1491,11 @@ describe("command center domain", () => {
     expect(metaAction?.throughput.actionable).toBe(false);
     expect(metaAction?.throughput.defaultQueueEligible).toBe(false);
     expect(metaAction?.queueSection).toBe("history_context");
+    expect(metaAction?.operatorInstruction?.pushReadiness).toBe("blocked_from_push");
+    expect(metaAction?.operatorInstruction?.canApply).toBe(false);
+    expect(metaAction?.operatorInstruction?.invalidActions.join(" ")).toContain(
+      "Do not queue, apply, or push",
+    );
   });
 
   it("keeps Creative rows without operator policy out of queue and push surfaces", () => {
@@ -1553,6 +1558,7 @@ describe("command center domain", () => {
 
     expect(creativeAction?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
     expect(creativeAction?.operatorInstruction?.primaryMove).toContain("context only");
+    expect(creativeAction?.operatorInstruction?.pushReadiness).toBe("blocked_from_push");
     expect(creativeAction?.operatorInstruction?.invalidActions.join(" ")).toContain(
       "snapshot evidence is contextual",
     );
@@ -2123,6 +2129,8 @@ describe("command center domain", () => {
     expect(budgetShiftAction?.throughput.defaultQueueEligible).toBe(true);
     expect(budgetShiftAction?.operatorPolicy).toBeNull();
     expect(budgetShiftAction?.operatorInstruction?.queueEligible).toBe(true);
+    expect(budgetShiftAction?.operatorInstruction?.pushReadiness).toBe("safe_to_queue");
+    expect(budgetShiftAction?.operatorInstruction?.canApply).toBe(false);
     expect(budgetShiftAction?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
       "Do not promote this Command Center card into queue work",
     );
@@ -2146,9 +2154,116 @@ describe("command center domain", () => {
     expect(metaBudgetShift?.operatorPolicy).toBeNull();
     expect(metaBudgetShift?.throughput.defaultQueueEligible).toBe(true);
     expect(metaBudgetShift?.operatorInstruction?.queueEligible).toBe(true);
+    expect(metaBudgetShift?.operatorInstruction?.canApply).toBe(false);
     expect(metaBudgetShift?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
       "Do not promote this Command Center card into queue work",
     );
+  });
+
+  it("keeps explicitly blocked policy push readiness more restrictive than queue-ineligible provenance state", () => {
+    const [decorated] = decorateCommandCenterActionsWithThroughput({
+      actions: [
+        buildActionFixture({
+          operatorPolicy: blockedOperatorPolicy(),
+        }),
+      ],
+      decisionAsOf: "2026-04-10",
+    });
+
+    expect(decorated?.provenance).toBeTruthy();
+    expect(decorated?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
+    expect(decorated?.throughput.defaultQueueEligible).toBe(false);
+    expect(decorated?.operatorInstruction?.pushReadiness).toBe("blocked_from_push");
+    expect(decorated?.operatorInstruction?.invalidActions.join(" ")).toContain(
+      "Do not queue, apply, or push",
+    );
+  });
+
+  it("marks supported Meta ad set actions apply-capable only when policy and provenance allow it", () => {
+    const [decorated] = decorateCommandCenterActionsWithThroughput({
+      actions: [
+        buildActionFixture({
+          sourceType: "meta_adset_decision",
+          recommendedAction: "scale_budget",
+          operatorPolicy: blockedOperatorPolicy({
+            state: "do_now",
+            actionClass: "scale",
+            pushReadiness: "eligible_for_push_when_enabled",
+            queueEligible: true,
+            canApply: true,
+            reasons: ["Supported ad set apply path is policy approved."],
+            blockers: [],
+            missingEvidence: [],
+            requiredEvidence: ["row_provenance", "commercial_truth"],
+            explanation: "Supported ad set apply path is policy approved.",
+          }),
+        }),
+      ],
+      decisionAsOf: "2026-04-10",
+    });
+
+    expect(decorated?.throughput.defaultQueueEligible).toBe(true);
+    expect(decorated?.operatorInstruction?.pushReadiness).toBe(
+      "eligible_for_push_when_enabled",
+    );
+    expect(decorated?.operatorInstruction?.canApply).toBe(true);
+  });
+
+  it("keeps unsupported Meta action families manual-only even when they are queue eligible", () => {
+    const [geoAction] = decorateCommandCenterActionsWithThroughput({
+      actions: [
+        buildActionFixture({
+          sourceType: "meta_geo_decision",
+          recommendedAction: "cut",
+          title: "United States",
+        }),
+      ],
+      decisionAsOf: "2026-04-10",
+    });
+    const [placementAction] = decorateCommandCenterActionsWithThroughput({
+      actions: [
+        buildActionFixture({
+          sourceType: "meta_placement_anomaly",
+          recommendedAction: "exception_review",
+          title: "Feed",
+        }),
+      ],
+      decisionAsOf: "2026-04-10",
+    });
+
+    for (const action of [geoAction, placementAction]) {
+      expect(action?.throughput.defaultQueueEligible).toBe(true);
+      expect(action?.operatorInstruction?.queueEligible).toBe(true);
+      expect(action?.operatorInstruction?.pushReadiness).toBe("safe_to_queue");
+      expect(action?.operatorInstruction?.canApply).toBe(false);
+    }
+  });
+
+  it("keeps missing-provenance rows non-applyable even when action type is supported", () => {
+    const [decorated] = decorateCommandCenterActionsWithThroughput({
+      actions: [
+        buildActionFixture({
+          sourceType: "meta_adset_decision",
+          recommendedAction: "scale_budget",
+          provenance: null,
+          operatorPolicy: blockedOperatorPolicy({
+            state: "do_now",
+            actionClass: "scale",
+            pushReadiness: "eligible_for_push_when_enabled",
+            queueEligible: true,
+            canApply: true,
+            blockers: [],
+            missingEvidence: [],
+            explanation: "Supported ad set apply path is policy approved.",
+          }),
+        }),
+      ],
+      decisionAsOf: "2026-04-10",
+    });
+
+    expect(decorated?.throughput.defaultQueueEligible).toBe(false);
+    expect(decorated?.operatorInstruction?.pushReadiness).toBe("blocked_from_push");
+    expect(decorated?.operatorInstruction?.canApply).toBe(false);
   });
 
   it("keeps valid safe-to-queue Creative instruction free of false queue warnings", () => {
@@ -2178,6 +2293,7 @@ describe("command center domain", () => {
 
     expect(creativeAction?.operatorPolicy?.queueEligible).toBe(true);
     expect(creativeAction?.operatorInstruction?.queueEligible).toBe(true);
+    expect(creativeAction?.operatorInstruction?.canApply).toBe(false);
     expect(creativeAction?.operatorInstruction?.invalidActions.join(" ")).not.toContain(
       "Do not promote this Command Center card into queue work",
     );
@@ -2223,6 +2339,7 @@ describe("command center domain", () => {
       "feed:exception_review",
     );
     expect(placementAction?.throughput.defaultQueueEligible).toBe(true);
+    expect(placementAction?.operatorInstruction?.canApply).toBe(false);
   });
 
   it("builds a bounded default queue, owner workload, and shift digest from throughput metadata", () => {
