@@ -1917,12 +1917,35 @@ export function CommandCenterDashboard() {
                       </div>
                       <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          How much
+                          Amount
                         </p>
                         <p className="mt-1">
                           {selectedAction.operatorInstruction.amountGuidance.label}
                         </p>
                       </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Target
+                        </p>
+                        <p className="mt-1">{selectedAction.operatorInstruction.targetContext.label}</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Urgency
+                        </p>
+                        <p className="mt-1 capitalize">{selectedAction.operatorInstruction.urgency}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {selectedAction.operatorInstruction.urgencyReason}
+                        </p>
+                      </div>
+                      {selectedAction.operatorInstruction.nextObservation[0] ? (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 md:col-span-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                            Watch next
+                          </p>
+                          <p className="mt-1">{selectedAction.operatorInstruction.nextObservation[0]}</p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">

@@ -12,6 +12,10 @@ import {
   type OperatorSurfaceMetric,
   type OperatorSurfaceModel,
 } from "@/lib/operator-surface";
+import type {
+  OperatorInstructionTargetContext,
+  OperatorInstructionUrgency,
+} from "@/src/types/operator-decision";
 
 export const CREATIVE_QUICK_FILTER_ORDER = [
   "act_now",
@@ -56,7 +60,7 @@ const CREATIVE_QUICK_FILTER_DEFS: Record<
   },
   needs_truth: {
     key: "needs_truth",
-    label: "HOLD",
+    label: "HOLD: VERIFY",
     summary: "Creatives held back by truth, preview, deployment, or stop-level constraints.",
     tone: "needs_truth",
   },
@@ -99,7 +103,7 @@ export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
   if (state === "watch") return "Test";
   if (state === "no_action") return "Evergreen";
   if (state === "act_now") return "Scale";
-  if (state === "needs_truth") return "Hold";
+  if (state === "needs_truth") return "Hold: verify";
   return "Refresh";
 }
 
@@ -298,6 +302,85 @@ function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAut
   return creative.summary;
 }
 
+function creativeTargetContext(
+  creative: CreativeDecisionOsCreative,
+): OperatorInstructionTargetContext {
+  const preferredAdSet = creative.deployment.preferredAdSetNames?.[0] ?? null;
+  const preferredCampaign = creative.deployment.preferredCampaignNames?.[0] ?? null;
+  if (creative.operatorPolicy?.segment === "scale_ready") {
+    if (preferredAdSet) {
+      return {
+        status: "available",
+        label: `Target ad set: ${preferredAdSet}${preferredCampaign ? ` · ${preferredCampaign}` : ""}`,
+        reason: "Creative deployment data names a preferred ad set for the scale review.",
+        targetScope: "adset",
+        targetEntity: preferredAdSet,
+        parentEntity: preferredCampaign,
+      };
+    }
+    if (preferredCampaign) {
+      return {
+        status: "review_required",
+        label: `Campaign context: ${preferredCampaign}`,
+        reason:
+          "A campaign context is available, but no preferred ad set is exposed for this creative.",
+        targetScope: "campaign",
+        targetEntity: preferredCampaign,
+        parentEntity: creative.familyLabel,
+      };
+    }
+    return {
+      status: "unavailable",
+      label: "Target ad set unavailable",
+      reason:
+        "The source row does not expose a preferred ad set; review deployment context before scaling.",
+      targetScope: "adset",
+      targetEntity: null,
+      parentEntity: creative.familyLabel,
+    };
+  }
+
+  const lane = creative.deployment.targetLane ?? creative.deployment.metaFamilyLabel ?? null;
+  return {
+    status: lane ? "available" : "review_required",
+    label: lane ? `Context: ${lane}` : "Deployment context requires review",
+    reason: lane
+      ? "Target context comes from the deterministic deployment recommendation."
+      : "No stable deployment lane is exposed for this creative.",
+    targetScope: "creative",
+    targetEntity: creative.name,
+    parentEntity: creative.familyLabel,
+  };
+}
+
+function creativeUrgencyOverride(
+  creative: CreativeDecisionOsCreative,
+): { urgency?: OperatorInstructionUrgency; reason?: string } {
+  if (
+    creative.operatorPolicy?.segment === "fatigued_winner" &&
+    creative.fatigue?.frequencyPressure != null &&
+    creative.fatigue.frequencyPressure >= 3
+  ) {
+    return {
+      urgency: "high",
+      reason: "Frequency pressure supports prioritizing a refresh review.",
+    };
+  }
+  if (creative.operatorPolicy?.segment === "promising_under_sampled") {
+    return {
+      urgency: "watch",
+      reason: "The creative is promising but under-sampled, so urgency stays observational.",
+    };
+  }
+  if (creative.operatorPolicy?.segment === "protected_winner") {
+    return {
+      urgency: "low",
+      reason: "Protected winners should stay stable unless sustained fatigue appears.",
+    };
+  }
+  return {};
+}
+
 function compactMetrics(metrics: OperatorSurfaceMetric[]) {
   return metrics.filter((metric) => Boolean(metric.value) && metric.value !== "n/a").slice(0, 5);
 }
@@ -311,6 +394,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
   const campaignContextLimited =
     creative.deployment.compatibility.status === "limited" ||
     creative.deployment.compatibility.status === "blocked";
+  const urgencyOverride = creativeUrgencyOverride(creative);
 
   return {
     id: creative.creativeId,
@@ -358,6 +442,13 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
       evidenceHash: (creative as { evidenceHash?: string | null }).evidenceHash ?? null,
       actionFingerprint:
         (creative as { actionFingerprint?: string | null }).actionFingerprint ?? null,
+      targetContext: creativeTargetContext(creative),
+      ...(urgencyOverride.urgency
+        ? { urgency: urgencyOverride.urgency }
+        : {}),
+      ...(urgencyOverride.reason
+        ? { urgencyReason: urgencyOverride.reason }
+        : {}),
       nextObservation: [
         ...(creative.deployment.whatWouldChangeThisDecision ?? []),
         ...creative.deployment.constraints,
@@ -434,14 +525,14 @@ export function buildCreativeOperatorSurfaceModel(
     labels: {
       watch: "Test",
       blocked: "Refresh",
-      needs_truth: "Hold",
+      needs_truth: "Hold: verify",
       no_action: "Evergreen",
     },
     summaries: {
       act_now: "Winner signals are strong enough for the next decisive move.",
       watch: "Challengers are still collecting evidence before they earn winner budget.",
       blocked: "Fatigued winners need a new cut, angle, or replacement before more spend.",
-      needs_truth: "Creatives are held back by truth, preview, deployment, or stop-level constraints.",
+      needs_truth: "Creatives are held back by preview, commercial truth, deployment fit, or stop-level constraints.",
       no_action: "Stable winners to keep live without forcing them back into churn.",
     },
     order: ["act_now", "watch", "blocked", "needs_truth", "no_action"],
@@ -490,7 +581,7 @@ export function buildCreativeOperatorSurfaceModel(
       act_now: "Scale",
       watch: "Test",
       blocked: "Refresh",
-      needs_truth: "Hold",
+      needs_truth: "Hold: verify",
       no_action: "Evergreen",
     },
     blocker:

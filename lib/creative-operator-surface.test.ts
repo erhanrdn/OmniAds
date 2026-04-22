@@ -160,7 +160,7 @@ describe("creative operator surface", () => {
       authorityState: "act_now",
       authorityLabel: "Scale",
     });
-    expect(hold?.label).toBe("Hold");
+    expect(hold?.label).toBe("Hold: verify");
     expect(hold?.rows[0]).toMatchObject({
       id: "truth",
       primaryAction: "Validate",
@@ -277,6 +277,8 @@ describe("creative operator surface", () => {
       requiredEvidence: ["row_provenance", "commercial_truth"],
       explanation: "Deterministic Creative policy allows this as operator work.",
     };
+    fixture.creatives[0].deployment.preferredAdSetNames = ["Scale Ad Set"];
+    fixture.creatives[0].deployment.preferredCampaignNames = ["Prospecting Scale"];
     fixture.creatives[3].evidenceSource = "live";
     fixture.creatives[3].operatorPolicy = {
       ...fixture.creatives[0].operatorPolicy,
@@ -295,9 +297,81 @@ describe("creative operator surface", () => {
 
     expect(scale.instruction?.headline).toContain("Scale");
     expect(scale.instruction?.amountGuidance.status).toBe("unavailable");
+    expect(scale.instruction?.targetContext.status).toBe("available");
+    expect(scale.instruction?.targetContext.label).toContain("Scale Ad Set");
     expect(watch.instruction?.instructionKind).toBe("watch");
     expect(watch.instruction?.primaryMove).toContain("Keep watching");
+    expect(watch.instruction?.urgency).toBe("watch");
     expect(watch.instruction?.invalidActions.join(" ")).toContain("Do not convert this watch read");
+  });
+
+  it("marks Creative scale targets unavailable when deployment lacks a preferred ad set", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].evidenceSource = "live";
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "scale_ready",
+      actionClass: "scale",
+      evidenceSource: "live",
+      pushReadiness: "safe_to_queue",
+      queueEligible: true,
+      canApply: false,
+      reasons: ["Creative evidence is material."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance", "commercial_truth"],
+      explanation: "Deterministic Creative policy allows this as operator work.",
+    };
+    fixture.creatives[0].deployment.preferredAdSetNames = [];
+    fixture.creatives[0].deployment.preferredCampaignNames = [];
+
+    const scale = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(scale.instruction?.targetContext.status).toBe("unavailable");
+    expect(scale.instruction?.targetContext.label).toBe("Target ad set unavailable");
+    expect(scale.instruction?.targetContext.reason).toContain("review deployment context");
+  });
+
+  it("uses frequency pressure to raise fatigued winner urgency without changing safety gates", () => {
+    const fixture = creativeDecisionOsFixture();
+    fixture.creatives[0].primaryAction = "refresh_replace";
+    fixture.creatives[0].lifecycleState = "fatigued_winner";
+    fixture.creatives[0].fatigue = {
+      status: "fatigued",
+      confidence: 0.84,
+      ctrDecay: null,
+      clickToPurchaseDecay: null,
+      roasDecay: null,
+      spendConcentration: null,
+      frequencyPressure: 3.4,
+      winnerMemory: true,
+      evidence: ["Frequency pressure is high."],
+      missingContext: [],
+    };
+    fixture.creatives[0].operatorPolicy = {
+      contractVersion: "operator-policy.v1",
+      policyVersion: "creative-operator-policy.v1",
+      state: "do_now",
+      segment: "fatigued_winner",
+      actionClass: "refresh",
+      evidenceSource: "live",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      canApply: false,
+      reasons: ["Frequency pressure is high."],
+      blockers: [],
+      missingEvidence: [],
+      requiredEvidence: ["row_provenance"],
+      explanation: "Request a creative refresh review.",
+    };
+
+    const refresh = buildCreativeOperatorItem(fixture.creatives[0]);
+
+    expect(refresh.instruction?.urgency).toBe("high");
+    expect(refresh.instruction?.urgencyReason).toContain("Frequency pressure");
+    expect(refresh.instruction?.queueEligible).toBe(false);
   });
 
   it("builds explicit preview truth summaries for the current review scope", () => {
@@ -319,7 +393,7 @@ describe("creative operator surface", () => {
     });
     expect(creativeAuthorityStateLabel("watch")).toBe("Test");
     expect(creativeAuthorityStateLabel("no_action")).toBe("Evergreen");
-    expect(creativeAuthorityStateLabel("needs_truth")).toBe("Hold");
+    expect(creativeAuthorityStateLabel("needs_truth")).toBe("Hold: verify");
     expect(creativeAuthorityStateLabel("blocked")).toBe("Refresh");
   });
 

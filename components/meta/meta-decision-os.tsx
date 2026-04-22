@@ -179,11 +179,18 @@ function OperatorInstructionBlock({
       <p className="mt-1">
         Why now: {instruction.reasonSummary}
       </p>
+      <p className="mt-1 text-[11px] text-slate-500">
+        Target: {instruction.targetContext.label}
+      </p>
       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
         <span>Evidence {instruction.evidenceStrength}</span>
+        <span>Urgency {instruction.urgency}</span>
         <span>{pushReadinessLabel(instruction.pushReadiness)}</span>
         <span>{instruction.amountGuidance.label}</span>
       </div>
+      <p className="mt-1 text-[11px] text-slate-500">
+        Urgency basis: {instruction.urgencyReason}
+      </p>
       {instruction.nextObservation[0] ? (
         <p className="mt-2 text-[11px] text-slate-500">
           Watch next: {instruction.nextObservation[0]}
