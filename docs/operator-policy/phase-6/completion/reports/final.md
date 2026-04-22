@@ -8,7 +8,7 @@ Scope: bounded operator parameters, Creative target context, evidence-based urge
 
 - Working branch: `feature/adsecute-operator-parameters-observability`
 - Base branch: `main`
-- PR: to be opened from this branch after this report is committed.
+- PR: [#27 Add Phase 6 operator parameters and observability](https://github.com/erhanrdn/OmniAds/pull/27)
 - PRs merged at report time: none for Phase 6 yet.
 
 ## Files Changed
