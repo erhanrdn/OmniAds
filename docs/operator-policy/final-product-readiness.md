@@ -1,6 +1,6 @@
 # Adsecute Final Product Readiness
 
-Status: Phase 8 branch readiness draft.
+Status: Phase 8 product readiness report.
 
 ## What Adsecute Can Safely Do Now
 
@@ -64,7 +64,7 @@ Even these are not automatic. They require:
 
 ## Runtime Validation Summary
 
-Phase 8 must pass automated checks and localhost/server smoke before merge. Runtime smoke should verify:
+Phase 8 local runtime smoke passed through the owner-provided localhost DB tunnel path. The smoke covered:
 
 - `/platforms/meta` loads.
 - `/creatives` loads.
