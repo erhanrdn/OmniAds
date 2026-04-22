@@ -154,49 +154,59 @@ describe("GET /api/creatives/decision-os", () => {
       membership: {} as never,
     });
     vi.mocked(config.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
-    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockResolvedValue({
-      analyticsWindow: {
-        startDate: "2026-04-01",
-        endDate: "2026-04-10",
-        role: "analysis_only",
-      },
-      decisionWindows: {
-        recent7d: {
-          key: "recent7d",
-          label: "recent 7d",
-          startDate: "2026-04-04",
-          endDate: "2026-04-10",
-          days: 7,
-          role: "recent_watch",
+    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockImplementation(
+      async (input: {
+        businessId: string;
+        startDate: string;
+        endDate: string;
+        decisionAsOf?: string | null;
+      }) => {
+      const decisionAsOf = input.decisionAsOf ?? "2026-04-10";
+      return {
+        analyticsWindow: {
+          startDate: input.startDate,
+          endDate: input.endDate,
+          role: "analysis_only",
         },
-        primary30d: {
-          key: "primary30d",
-          label: "primary 30d",
-          startDate: "2026-03-12",
-          endDate: "2026-04-10",
-          days: 30,
-          role: "decision_authority",
+        decisionWindows: {
+          recent7d: {
+            key: "recent7d",
+            label: "recent 7d",
+            startDate: "2026-04-04",
+            endDate: decisionAsOf,
+            days: 7,
+            role: "recent_watch",
+          },
+          primary30d: {
+            key: "primary30d",
+            label: "primary 30d",
+            startDate: "2026-03-12",
+            endDate: decisionAsOf,
+            days: 30,
+            role: "decision_authority",
+          },
+          baseline90d: {
+            key: "baseline90d",
+            label: "baseline 90d",
+            startDate: "2026-01-11",
+            endDate: decisionAsOf,
+            days: 90,
+            role: "historical_memory",
+          },
         },
-        baseline90d: {
-          key: "baseline90d",
-          label: "baseline 90d",
+        historicalMemory: {
+          available: true,
+          source: "rolling_baseline",
+          baselineWindowKey: "baseline90d",
           startDate: "2026-01-11",
-          endDate: "2026-04-10",
-          days: 90,
-          role: "historical_memory",
+          endDate: decisionAsOf,
+          lookbackDays: 90,
+          note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
         },
+        decisionAsOf,
+      } as never;
       },
-      historicalMemory: {
-        available: true,
-        source: "rolling_baseline",
-        baselineWindowKey: "baseline90d",
-        startDate: "2026-01-11",
-        endDate: "2026-04-10",
-        lookbackDays: 90,
-        note: "Decisions use live rolling windows with baseline memory instead of the selected period.",
-      },
-      decisionAsOf: "2026-04-10",
-    } as never);
+    );
     vi.mocked(commercial.getBusinessCommercialTruthSnapshot).mockResolvedValue({
       businessId: "biz",
       targetPack: null,
@@ -425,7 +435,7 @@ describe("GET /api/creatives/decision-os", () => {
   it("returns the typed creative decision os payload with no-store caching", async () => {
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10",
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=2026-04-10",
       ),
     );
     const payload = await response.json();
@@ -434,11 +444,22 @@ describe("GET /api/creatives/decision-os", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(payload.contractVersion).toBe("creative-decision-os.v1");
     expect(payload.historicalAnalysis.selectedWindow.startDate).toBe("2026-04-01");
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: "2026-04-10",
+    });
     expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
         startDate: "2026-04-01",
         endDate: "2026-04-10",
+        analyticsWindow: {
+          startDate: "2026-03-01",
+          endDate: "2026-03-31",
+          role: "analysis_only",
+        },
         decisionAsOf: "2026-04-10",
         rows: expect.arrayContaining([
           expect.objectContaining({
@@ -459,6 +480,95 @@ describe("GET /api/creatives/decision-os", () => {
       expect.objectContaining({
         start: "2026-03-12",
         end: "2026-04-10",
+      }),
+    );
+  });
+
+  it("lets provider decision timing resolve decisionAsOf when the request omits it", async () => {
+    const responseA = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28",
+      ),
+    );
+
+    expect(responseA.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-02-01",
+      endDate: "2026-02-28",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisionAsOf: "2026-04-10",
+        analyticsWindow: {
+          startDate: "2026-02-01",
+          endDate: "2026-02-28",
+          role: "analysis_only",
+        },
+      }),
+    );
+
+    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockClear();
+    vi.mocked(decisionOs.buildCreativeDecisionOs).mockClear();
+
+    const responseB = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31",
+      ),
+    );
+
+    expect(responseB.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisionAsOf: "2026-04-10",
+      }),
+    );
+
+    vi.mocked(decisionWindowSource.getMetaDecisionWindowContext).mockClear();
+
+    const responseC = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=%20%20%20",
+      ),
+    );
+
+    expect(responseC.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: null,
+    });
+  });
+
+  it("falls back to reporting dates when analytics dates are blank", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&analyticsStartDate=&analyticsEndDate=",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analyticsWindow: {
+          startDate: "2026-04-01",
+          endDate: "2026-04-10",
+          role: "analysis_only",
+        },
       }),
     );
   });

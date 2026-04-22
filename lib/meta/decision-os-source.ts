@@ -18,17 +18,33 @@ function normalizeGeoFreshnessState(
   return "syncing";
 }
 
+function normalizeOptionalDecisionAsOf(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
+function normalizeOptionalDateParam(value: string | null | undefined) {
+  return value?.trim() || null;
+}
+
 export async function getMetaDecisionOsForRange(input: {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsStartDate?: string;
+  analyticsEndDate?: string;
+  decisionAsOf?: string | null;
 }): Promise<MetaDecisionOsV1Response> {
+  const analyticsStartDate =
+    normalizeOptionalDateParam(input.analyticsStartDate) ?? input.startDate;
+  const analyticsEndDate =
+    normalizeOptionalDateParam(input.analyticsEndDate) ?? input.endDate;
   const [snapshot, decisionContext] = await Promise.all([
     getBusinessCommercialTruthSnapshot(input.businessId),
     getMetaDecisionWindowContext({
       businessId: input.businessId,
-      startDate: input.startDate,
-      endDate: input.endDate,
+      startDate: analyticsStartDate,
+      endDate: analyticsEndDate,
+      decisionAsOf: normalizeOptionalDecisionAsOf(input.decisionAsOf),
     }),
   ]);
   const { campaigns, breakdowns, geoBreakdown, adSets } = await getMetaDecisionSourceSnapshot({
@@ -40,6 +56,8 @@ export async function getMetaDecisionOsForRange(input: {
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
+    analyticsStartDate,
+    analyticsEndDate,
     analyticsWindow: decisionContext.analyticsWindow,
     decisionWindows: decisionContext.decisionWindows,
     historicalMemory: decisionContext.historicalMemory,

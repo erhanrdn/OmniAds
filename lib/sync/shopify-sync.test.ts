@@ -225,6 +225,7 @@ describe("syncShopifyCommerceReports", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (originalAppLogLevel === undefined) {
       delete process.env.APP_LOG_LEVEL;
       return;
@@ -427,6 +428,8 @@ describe("syncShopifyCommerceReports", () => {
   });
 
   it("can catch up historical returns after historical orders have reached the target", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-21T12:00:00.000Z"));
     process.env.SHOPIFY_HISTORICAL_SYNC_ENABLED = "true";
     process.env.SHOPIFY_HISTORICAL_SYNC_CHUNKS_PER_RUN = "1";
     vi.mocked(syncState.getShopifySyncState)

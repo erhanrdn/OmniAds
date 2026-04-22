@@ -17,12 +17,14 @@ import {
 } from "@/lib/command-center";
 import type {
   CommandCenterAction,
+  CommandCenterActionStateRecord,
   CommandCenterFeedbackEntry,
   CommandCenterSavedView,
 } from "@/lib/command-center";
 import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
 import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
+import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
 import type { DecisionPolicyExplanation } from "@/src/types/decision-trust";
 
 function decisionMetadata() {
@@ -88,6 +90,35 @@ function queueEligibilityFixture(input?: {
       blockedReasons,
       watchReasons,
     },
+  };
+}
+
+function rowProvenanceFixture(input: {
+  system: "meta" | "creative";
+  entityType: "campaign" | "adset" | "geo" | "creative" | "budget_shift" | "placement";
+  entityId: string;
+  sourceDecisionId: string;
+  recommendedAction: string;
+}) {
+  const metadata = decisionMetadata();
+  const provenance = buildOperatorDecisionProvenance({
+    businessId: "biz",
+    decisionAsOf: metadata.decisionAsOf,
+    analyticsWindow: metadata.analyticsWindow,
+    sourceWindow: metadata.decisionWindows.primary30d,
+    sourceRowScope: {
+      system: input.system,
+      entityType: input.entityType,
+      entityId: input.entityId,
+    },
+    sourceDecisionId: input.sourceDecisionId,
+    recommendedAction: input.recommendedAction,
+    evidence: [`${input.entityId}:${input.recommendedAction}`],
+  });
+  return {
+    provenance,
+    evidenceHash: provenance.evidenceHash,
+    actionFingerprint: provenance.actionFingerprint,
   };
 }
 
@@ -230,6 +261,13 @@ function metaFixture(): MetaDecisionOsV1Response {
           operatorDisposition: "degraded_no_scale",
           reasons: ["Commercial truth is incomplete."],
         },
+        ...rowProvenanceFixture({
+          system: "meta",
+          entityType: "adset",
+          entityId: "adset_1",
+          sourceDecisionId: "adset:1",
+          recommendedAction: "scale_budget",
+        }),
       },
     ],
     budgetShifts: [
@@ -246,6 +284,13 @@ function metaFixture(): MetaDecisionOsV1Response {
         suggestedMoveBand: "$250-$400",
         confidence: 0.77,
         guardrails: ["Keep donor alive."],
+        ...rowProvenanceFixture({
+          system: "meta",
+          entityType: "budget_shift",
+          entityId: "cmp_2:cmp_1",
+          sourceDecisionId: "cmp_2:cmp_1:budget_shift",
+          recommendedAction: "budget_shift",
+        }),
       },
     ],
     geoDecisions: [
@@ -302,6 +347,13 @@ function metaFixture(): MetaDecisionOsV1Response {
           operatorDisposition: "standard",
           reasons: ["US is outperforming."],
         },
+        ...rowProvenanceFixture({
+          system: "meta",
+          entityType: "geo",
+          entityId: "geo:us",
+          sourceDecisionId: "geo:us",
+          recommendedAction: "scale",
+        }),
       },
     ],
     placementAnomalies: [],
@@ -589,6 +641,28 @@ function creativeFixture(): CreativeDecisionOsV1Response {
     creatives: [
       {
         creativeId: "creative_1",
+        provenance: {
+          contractVersion: "operator-decision-provenance.v1",
+          businessId: "biz",
+          decisionAsOf: "2026-04-10",
+          analyticsWindow: metadata.analyticsWindow,
+          reportingRange: {
+            startDate: metadata.analyticsWindow.startDate,
+            endDate: metadata.analyticsWindow.endDate,
+            role: "reporting_context",
+          },
+          sourceWindow: metadata.decisionWindows.primary30d,
+          sourceRowScope: {
+            system: "creative",
+            entityType: "creative",
+            entityId: "creative_1",
+          },
+          sourceDecisionId: "creative:creative_1",
+          evidenceHash: "ev_creative_1",
+          actionFingerprint: "od_creative_1",
+        },
+        evidenceHash: "ev_creative_1",
+        actionFingerprint: "od_creative_1",
         familyId: "family_1",
         familyLabel: "Promo UGC",
         familySource: "copy_signature",
@@ -726,6 +800,28 @@ function creativeFixture(): CreativeDecisionOsV1Response {
       },
       {
         creativeId: "creative_2",
+        provenance: {
+          contractVersion: "operator-decision-provenance.v1",
+          businessId: "biz",
+          decisionAsOf: "2026-04-10",
+          analyticsWindow: metadata.analyticsWindow,
+          reportingRange: {
+            startDate: metadata.analyticsWindow.startDate,
+            endDate: metadata.analyticsWindow.endDate,
+            role: "reporting_context",
+          },
+          sourceWindow: metadata.decisionWindows.primary30d,
+          sourceRowScope: {
+            system: "creative",
+            entityType: "creative",
+            entityId: "creative_2",
+          },
+          sourceDecisionId: "creative:creative_2",
+          evidenceHash: "ev_creative_2",
+          actionFingerprint: "od_creative_2",
+        },
+        evidenceHash: "ev_creative_2",
+        actionFingerprint: "od_creative_2",
         familyId: "family_2",
         familyLabel: "Holdout",
         familySource: "singleton",
@@ -995,8 +1091,30 @@ function buildActionFixture(
   overrides: Partial<CommandCenterAction> = {},
 ): CommandCenterAction {
   const fingerprint = overrides.actionFingerprint ?? `cc_${Math.random().toString(36).slice(2, 10)}`;
+  const metadata = buildOperatorDecisionMetadata({
+    analyticsStartDate: "2026-04-01",
+    analyticsEndDate: "2026-04-10",
+    decisionAsOf: "2026-04-10",
+  });
   return {
     actionFingerprint: fingerprint,
+    provenance: {
+      ...buildOperatorDecisionProvenance({
+        businessId: "biz",
+        decisionAsOf: "2026-04-10",
+        analyticsWindow: metadata.analyticsWindow,
+        sourceWindow: metadata.decisionWindows.primary30d,
+        sourceRowScope: {
+          system: "meta",
+          entityType: "adset",
+          entityId: "adset_fixture",
+        },
+        sourceDecisionId: fingerprint,
+        recommendedAction: "scale_budget",
+        evidence: ["Stable queue fixture."],
+      }),
+      actionFingerprint: fingerprint,
+    },
     sourceSystem: "meta",
     sourceType: "meta_adset_decision",
     surfaceLane: "action_core",
@@ -1105,6 +1223,61 @@ describe("command center domain", () => {
     expect(rangeA[0]?.actionFingerprint).toBe(rangeB[0]?.actionFingerprint);
   });
 
+  it("preserves legacy Command Center fingerprints while retaining upstream provenance", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+    const metaAction = actions.find(
+      (action) => action.sourceType === "meta_adset_decision",
+    );
+
+    expect(metaAction?.provenance?.actionFingerprint).toMatch(/^od_/);
+    expect(metaAction?.actionFingerprint).toMatch(/^cc_/);
+    expect(metaAction?.actionFingerprint).not.toBe(
+      metaAction?.provenance?.actionFingerprint,
+    );
+
+    const stateByFingerprint = new Map<string, CommandCenterActionStateRecord>([
+      [
+        metaAction!.actionFingerprint,
+        {
+          businessId: "biz",
+          actionFingerprint: metaAction!.actionFingerprint,
+          sourceSystem: "meta",
+          sourceType: "meta_adset_decision",
+          actionTitle: metaAction!.title,
+          recommendedAction: metaAction!.recommendedAction,
+          workflowStatus: "approved",
+          assigneeUserId: "user_1",
+          assigneeName: "Operator",
+          snoozeUntil: null,
+          latestNoteExcerpt: "Legacy state still joins.",
+          noteCount: 1,
+          lastMutationId: "mutation_1",
+          lastMutatedAt: "2026-04-10T09:00:00.000Z",
+          createdAt: "2026-04-10T08:00:00.000Z",
+          updatedAt: "2026-04-10T09:00:00.000Z",
+        },
+      ],
+    ]);
+
+    const merged = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+      stateByFingerprint,
+    }).find((action) => action.actionFingerprint === metaAction?.actionFingerprint);
+
+    expect(merged?.status).toBe("approved");
+    expect(merged?.assigneeUserId).toBe("user_1");
+  });
+
   it("keeps source decisions stable across analytics ranges", () => {
     const april = aggregateCommandCenterActions({
       businessId: "biz",
@@ -1150,6 +1323,74 @@ describe("command center domain", () => {
         recommendedAction: action.recommendedAction,
       })),
     );
+  });
+
+  it("changes primary action fingerprints when decisionAsOf changes even if the analytics window stays fixed", () => {
+    const april = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+
+    const shiftedMeta = metaFixture();
+    shiftedMeta.decisionAsOf = "2026-04-11";
+    shiftedMeta.generatedAt = "2026-04-11T00:00:00.000Z";
+    const shiftedCreative = creativeFixture();
+    shiftedCreative.decisionAsOf = "2026-04-11";
+    shiftedCreative.generatedAt = "2026-04-11T00:00:00.000Z";
+    const shifted = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: shiftedMeta,
+      creativeDecisionOs: shiftedCreative,
+    });
+
+    expect(
+      shifted.map((action) => ({
+        fingerprint: action.actionFingerprint,
+        title: action.title,
+        recommendedAction: action.recommendedAction,
+      })),
+    ).not.toEqual(
+      april.map((action) => ({
+        fingerprint: action.actionFingerprint,
+        title: action.title,
+        recommendedAction: action.recommendedAction,
+      })),
+    );
+  });
+
+  it("blocks queue eligibility when upstream provenance is missing from Meta action rows", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions: actions.map((action) =>
+        action.sourceType === "meta_adset_decision"
+          ? { ...action, provenance: null }
+          : action,
+      ),
+      decisionAsOf: "2026-04-10",
+    });
+    const throughput = buildCommandCenterDefaultQueueSummary(decorated);
+    const selected = applyCommandCenterQueueSelection({
+      actions: decorated,
+      throughput,
+    });
+    const metaAction = selected.find(
+      (action) => action.sourceType === "meta_adset_decision",
+    ) as any;
+
+    expect(metaAction?.provenance).toBeNull();
+    expect(metaAction?.throughput.defaultQueueEligible).toBe(false);
+    expect(metaAction?.throughput.selectedInDefaultQueue).toBe(false);
   });
 
   it("marks no-touch surfaces as watchlist-only and keeps them out of primary views", () => {
@@ -1265,6 +1506,13 @@ describe("command center domain", () => {
         operatorDisposition: "monitor_low_truth",
         reasons: ["Signal is still thin, so keep this in pooled validation."],
       },
+      ...rowProvenanceFixture({
+        system: "meta",
+        entityType: "geo",
+        entityId: "geo:de",
+        sourceDecisionId: "geo:de",
+        recommendedAction: "pool",
+      }),
     });
 
     const actions = aggregateCommandCenterActions({
@@ -1346,7 +1594,7 @@ describe("command center domain", () => {
         metaDecisionOs: metaFixture(),
         creativeDecisionOs: creativeFixture(),
       }).map((action) =>
-        action.actionFingerprint.includes("cc_")
+        action.sourceType === "meta_adset_decision"
           ? {
               ...action,
               createdAt: "2026-04-08T00:00:00.000Z",
@@ -1369,6 +1617,52 @@ describe("command center domain", () => {
     expect(budgetShiftAction?.sourceContext.sourceDeepLink).toContain(
       "campaignId=cmp_1",
     );
+    expect(budgetShiftAction?.provenance?.sourceRowScope.entityType).toBe(
+      "budget_shift",
+    );
+    expect(budgetShiftAction?.throughput.defaultQueueEligible).toBe(true);
+  });
+
+  it("keeps placement anomaly actions queue-eligible when upstream provenance is present", () => {
+    const meta = metaFixture();
+    meta.placementAnomalies = [
+      {
+        placementKey: "feed",
+        label: "Feed",
+        action: "exception_review",
+        confidence: 0.8,
+        note: "Spend concentration is underperforming.",
+        evidence: [{ label: "Placement ROAS", value: "0.8x", impact: "negative" }],
+        whatWouldChangeThisDecision: ["Recovery toward account average."],
+        ...rowProvenanceFixture({
+          system: "meta",
+          entityType: "placement",
+          entityId: "feed",
+          sourceDecisionId: "feed:exception_review",
+          recommendedAction: "exception_review",
+        }),
+      },
+    ];
+
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      decisionAsOf: "2026-04-10",
+      actions: aggregateCommandCenterActions({
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        metaDecisionOs: meta,
+        creativeDecisionOs: creativeFixture(),
+      }),
+    });
+    const placementAction = decorated.find(
+      (action) => action.sourceType === "meta_placement_anomaly",
+    );
+
+    expect(placementAction?.provenance?.sourceRowScope.entityType).toBe("placement");
+    expect(placementAction?.sourceContext.sourceDecisionId).toBe(
+      "feed:exception_review",
+    );
+    expect(placementAction?.throughput.defaultQueueEligible).toBe(true);
   });
 
   it("builds a bounded default queue, owner workload, and shift digest from throughput metadata", () => {

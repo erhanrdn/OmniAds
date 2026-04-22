@@ -104,8 +104,9 @@ export async function getMetaOperatorDecisionMetadata(input: {
   analyticsEndDate: string;
   decisionAsOf?: string | null;
 }) {
+  const requestedDecisionAsOf = input.decisionAsOf?.trim() || null;
   const decisionAsOf =
-    input.decisionAsOf ??
+    requestedDecisionAsOf ??
     (await getProviderPlatformPreviousDate({
       provider: "meta",
       businessId: input.businessId,

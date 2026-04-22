@@ -24,6 +24,7 @@ import { compileDecisionTrust } from "@/lib/decision-trust/compiler";
 import { buildDecisionSurfaceAuthority } from "@/lib/decision-trust/surface";
 import { buildMetaCampaignLaneSignals } from "@/lib/meta/campaign-lanes";
 import { buildAccountOperatingMode } from "@/lib/business-operating-mode";
+import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
 import type {
   AccountOperatingModePayload,
   BusinessCommercialTruthSnapshot,
@@ -31,6 +32,8 @@ import type {
 } from "@/src/types/business-commercial";
 import type {
   OperatorAnalyticsWindow,
+  OperatorDecisionSourceRowScope,
+  OperatorDecisionSourceWindow,
   OperatorDecisionWindows,
   OperatorHistoricalMemory,
 } from "@/src/types/operator-decision";
@@ -230,6 +233,9 @@ export interface MetaCampaignDecision {
   laneLabel: "Scaling" | "Validation" | "Test" | null;
   policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
   creativeCandidates?: {
     count: number;
     labels: string[];
@@ -270,6 +276,9 @@ export interface MetaAdSetDecision {
   noTouch: boolean;
   policy: MetaDecisionPolicy;
   trust: DecisionTrustMetadata;
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
   missingCreativeAsk?: string[];
 }
 
@@ -286,6 +295,9 @@ export interface MetaBudgetShift {
   suggestedMoveBand: string;
   confidence: number;
   guardrails: string[];
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
 }
 
 export interface MetaGeoDecision {
@@ -309,6 +321,9 @@ export interface MetaGeoDecision {
   freshness: MetaGeoSourceFreshness;
   commercialContext: MetaGeoCommercialContext;
   trust: DecisionTrustMetadata;
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
 }
 
 export interface MetaPlacementAnomaly {
@@ -319,6 +334,9 @@ export interface MetaPlacementAnomaly {
   note: string;
   evidence: MetaDecisionEvidence[];
   whatWouldChangeThisDecision: string[];
+  provenance: import("@/src/types/operator-decision").OperatorDecisionProvenance;
+  evidenceHash: string;
+  actionFingerprint: string;
 }
 
 export interface MetaNoTouchItem {
@@ -474,6 +492,8 @@ export interface BuildMetaDecisionOsInput {
   businessId: string;
   startDate: string;
   endDate: string;
+  analyticsStartDate?: string;
+  analyticsEndDate?: string;
   analyticsWindow?: OperatorAnalyticsWindow;
   decisionWindows?: OperatorDecisionWindows;
   historicalMemory?: OperatorHistoricalMemory;
@@ -508,6 +528,17 @@ interface GeoConstraint {
   scaleOverride: BusinessCountryEconomicsRow["scaleOverride"];
 }
 
+interface MetaDecisionProvenanceContext {
+  businessId: string;
+  decisionAsOf: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  reportingRange: {
+    startDate: string;
+    endDate: string;
+  };
+  sourceWindow: OperatorDecisionSourceWindow;
+}
+
 const ACTION_PRIORITY: Record<MetaAdSetActionType, number> = {
   pause: 0,
   recover: 1,
@@ -540,7 +571,7 @@ function average(values: number[]) {
 
 function formatCurrency(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "Unavailable";
-  return `$${round(value).toLocaleString(undefined, {
+  return `$${round(value).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -1245,6 +1276,35 @@ function resolveDefaultGeoSourceFreshness(
   };
 }
 
+function buildMetaDecisionProvenance(input: {
+  businessId: string;
+  decisionAsOf: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  reportingRange: {
+    startDate: string;
+    endDate: string;
+  };
+  sourceWindow: OperatorDecisionSourceWindow;
+  sourceRowScope: OperatorDecisionSourceRowScope;
+  sourceDecisionId: string;
+  recommendedAction: string;
+  evidence: MetaDecisionEvidence[];
+  hashEvidence?: unknown;
+}) {
+  return buildOperatorDecisionProvenance({
+    businessId: input.businessId,
+    decisionAsOf: input.decisionAsOf,
+    analyticsWindow: input.analyticsWindow,
+    reportingRange: input.reportingRange,
+    sourceWindow: input.sourceWindow,
+    sourceRowScope: input.sourceRowScope,
+    sourceDecisionId: input.sourceDecisionId,
+    recommendedAction: input.recommendedAction,
+    evidence: input.evidence,
+    hashEvidence: input.hashEvidence,
+  });
+}
+
 function buildGeoAction(input: {
   row: MetaGeoSourceRow;
   accountRoas: number;
@@ -1252,6 +1312,7 @@ function buildGeoAction(input: {
   thresholds: TargetThresholds;
   geoFreshness: MetaGeoSourceFreshness;
   totalGeoSpend: number;
+  provenanceContext: MetaDecisionProvenanceContext;
 }): MetaGeoDecision {
   const countryCode = toCountryCode(input.row.label) ?? input.row.key.toUpperCase();
   const roas = input.row.spend > 0 ? input.row.revenue / input.row.spend : 0;
@@ -1430,6 +1491,66 @@ function buildGeoAction(input: {
           serviceability: constraint?.serviceability ?? null,
         })
       : null;
+  const evidence: MetaDecisionEvidence[] = [
+    { label: "Spend", value: formatCurrency(input.row.spend), impact: "neutral" },
+    {
+      label: "ROAS",
+      value: formatRatio(roas),
+      impact:
+        roas >= input.thresholds.targetRoas
+          ? "positive"
+          : roas < input.thresholds.breakEvenRoas
+            ? "negative"
+            : "mixed",
+    },
+    {
+      label: "Commercial override",
+      value: constraint ? `${constraint.serviceability} / ${constraint.scaleOverride}` : "None",
+      impact:
+        constraint?.scaleOverride === "prefer_scale"
+          ? "positive"
+          : constraint?.scaleOverride === "deprioritize"
+            ? "negative"
+            : "neutral",
+    },
+  ];
+  const provenance = buildMetaDecisionProvenance({
+    businessId: input.provenanceContext.businessId,
+    decisionAsOf: input.provenanceContext.decisionAsOf,
+    analyticsWindow: input.provenanceContext.analyticsWindow,
+    reportingRange: input.provenanceContext.reportingRange,
+    sourceWindow: input.provenanceContext.sourceWindow,
+    sourceRowScope: {
+      system: "meta",
+      entityType: "geo",
+      entityId: `${countryCode}:${action}`,
+    },
+    sourceDecisionId: `${countryCode}:${action}`,
+    recommendedAction: action,
+    evidence,
+    hashEvidence: {
+      spend: input.row.spend,
+      revenue: input.row.revenue,
+      roas,
+      accountRoas: input.accountRoas,
+      targetRoas: input.thresholds.targetRoas,
+      breakEvenRoas: input.thresholds.breakEvenRoas,
+      purchases: input.row.purchases,
+      clicks: input.row.clicks,
+      impressions: input.row.impressions,
+      action,
+      constraint: constraint
+        ? {
+            countryCode: constraint.countryCode,
+            serviceability: constraint.serviceability,
+            scaleOverride: constraint.scaleOverride,
+            priorityTier: constraint.priorityTier,
+            economicsMultiplier: constraint.economicsMultiplier,
+            marginModifier: constraint.marginModifier,
+          }
+        : null,
+    },
+  });
 
   return {
     geoKey: `${countryCode}:${action}`,
@@ -1439,15 +1560,7 @@ function buildGeoAction(input: {
     queueEligible,
     confidence: clampConfidence(confidence),
     why,
-    evidence: [
-      { label: "Spend", value: formatCurrency(input.row.spend), impact: "neutral" },
-      { label: "ROAS", value: formatRatio(roas), impact: roas >= input.thresholds.targetRoas ? "positive" : roas < input.thresholds.breakEvenRoas ? "negative" : "mixed" },
-      {
-        label: "Commercial override",
-        value: constraint ? `${constraint.serviceability} / ${constraint.scaleOverride}` : "None",
-        impact: constraint?.scaleOverride === "prefer_scale" ? "positive" : constraint?.scaleOverride === "deprioritize" ? "negative" : "neutral",
-      },
-    ],
+    evidence,
     guardrails: [
       action === "scale" || action === "isolate"
         ? "Scale only while serviceability and margin assumptions stay intact."
@@ -1492,6 +1605,9 @@ function buildGeoAction(input: {
       countryEconomicsSourceLabel:
         input.snapshot.sectionMeta.countryEconomics.sourceLabel,
     },
+    provenance,
+    evidenceHash: provenance.evidenceHash,
+    actionFingerprint: provenance.actionFingerprint,
     trust,
   };
 }
@@ -1526,6 +1642,7 @@ function hydrateGeoClusters(geoDecisions: MetaGeoDecision[]) {
 function buildPlacementAnomalies(input: {
   rows: Array<{ key: string; label: string; spend: number; revenue: number }>;
   accountRoas: number;
+  provenanceContext: MetaDecisionProvenanceContext;
 }) {
   const totalSpend = input.rows.reduce((sum, row) => sum + row.spend, 0);
   return input.rows
@@ -1534,21 +1651,50 @@ function buildPlacementAnomalies(input: {
       const spendShare = totalSpend > 0 ? row.spend / totalSpend : 0;
       if (row.spend < 150 || spendShare < 0.12) return null;
       if (roas >= input.accountRoas * 0.8) return null;
+      const action = "exception_review" as const;
+      const evidence: MetaDecisionEvidence[] = [
+        { label: "Spend share", value: formatPercent(spendShare * 100), impact: "negative" as const },
+        { label: "Placement ROAS", value: formatRatio(roas), impact: "negative" as const },
+        { label: "Account ROAS", value: formatRatio(input.accountRoas), impact: "neutral" as const },
+      ];
+      const sourceDecisionId = `${row.key}:${action}`;
+      const provenance = buildMetaDecisionProvenance({
+        businessId: input.provenanceContext.businessId,
+        decisionAsOf: input.provenanceContext.decisionAsOf,
+        analyticsWindow: input.provenanceContext.analyticsWindow,
+        reportingRange: input.provenanceContext.reportingRange,
+        sourceWindow: input.provenanceContext.sourceWindow,
+        sourceRowScope: {
+          system: "meta",
+          entityType: "placement",
+          entityId: row.key,
+        },
+        sourceDecisionId,
+        recommendedAction: action,
+        evidence,
+        hashEvidence: {
+          spend: row.spend,
+          revenue: row.revenue,
+          spendShare,
+          roas,
+          accountRoas: input.accountRoas,
+          action,
+        },
+      });
       return {
         placementKey: row.key,
         label: row.label,
-        action: "exception_review" as const,
+        action,
         confidence: clampConfidence(spendShare >= 0.2 ? 0.8 : 0.68),
         note:
           "Advantage+ placements should stay on by default. Review this only because spend concentration is paired with persistent underperformance.",
-        evidence: [
-          { label: "Spend share", value: formatPercent(spendShare * 100), impact: "negative" as const },
-          { label: "Placement ROAS", value: formatRatio(roas), impact: "negative" as const },
-          { label: "Account ROAS", value: formatRatio(input.accountRoas), impact: "neutral" as const },
-        ],
+        evidence,
         whatWouldChangeThisDecision: [
           "If this placement recovers closer to account average or loses spend share concentration, keep automation untouched.",
         ],
+        provenance,
+        evidenceHash: provenance.evidenceHash,
+        actionFingerprint: provenance.actionFingerprint,
       };
     })
     .filter((row): row is NonNullable<typeof row> => Boolean(row));
@@ -1585,6 +1731,7 @@ function buildAdSetDecision(input: {
   geoCoverageMode: MetaCommercialFallbackMode;
   operatingMode: AccountOperatingModePayload | null;
   decisionAsOf: string;
+  provenanceContext: MetaDecisionProvenanceContext;
 }): MetaAdSetDecision {
   const roas = input.adSet.spend > 0 ? input.adSet.revenue / input.adSet.spend : 0;
   const cpa = input.adSet.cpa ?? (input.adSet.purchases > 0 ? input.adSet.spend / input.adSet.purchases : null);
@@ -2078,9 +2225,70 @@ function buildAdSetDecision(input: {
     explanation: policyLadder.explanation,
   };
   const priority = determinePriorityFromAction(actionType, strategyClass, confidence);
+  const decisionId = `${input.adSet.id}:${actionType}`;
+  const evidence: MetaDecisionEvidence[] = [
+    {
+      label: "ROAS",
+      value: formatRatio(roas),
+      impact:
+        roas >= input.thresholds.targetRoas
+          ? "positive"
+          : roas < input.thresholds.breakEvenRoas
+            ? "negative"
+            : "mixed",
+    },
+    {
+      label: "CPA",
+      value: formatCurrency(cpa),
+      impact:
+        cpa != null && cpa <= input.thresholds.targetCpa
+          ? "positive"
+          : cpa != null && cpa > input.thresholds.breakEvenCpa
+            ? "negative"
+            : "neutral",
+    },
+    {
+      label: "Signal depth",
+      value: `${input.adSet.spend.toLocaleString("en-US")} spend / ${input.adSet.purchases.toLocaleString("en-US")} purchases`,
+      impact: hasStrongSignal ? "positive" : "neutral",
+    },
+  ];
+  const provenance = buildMetaDecisionProvenance({
+    businessId: input.provenanceContext.businessId,
+    decisionAsOf: input.provenanceContext.decisionAsOf,
+    analyticsWindow: input.provenanceContext.analyticsWindow,
+    reportingRange: input.provenanceContext.reportingRange,
+    sourceWindow: input.provenanceContext.sourceWindow,
+    sourceRowScope: {
+      system: "meta",
+      entityType: "adset",
+      entityId: input.adSet.id,
+    },
+    sourceDecisionId: decisionId,
+    recommendedAction: actionType,
+    evidence,
+    hashEvidence: {
+      spend: input.adSet.spend,
+      revenue: input.adSet.revenue,
+      roas,
+      cpa,
+      purchases: input.adSet.purchases,
+      impressions: input.adSet.impressions,
+      clicks: input.adSet.clicks,
+      targetRoas: input.thresholds.targetRoas,
+      breakEvenRoas: input.thresholds.breakEvenRoas,
+      targetCpa: input.thresholds.targetCpa,
+      breakEvenCpa: input.thresholds.breakEvenCpa,
+      actionType,
+      actionSize,
+      confidence: clampConfidence(confidence),
+      bidStrategyLabel: input.adSet.bidStrategyLabel,
+      optimizationGoal: input.adSet.optimizationGoal,
+    },
+  });
 
   return {
-    decisionId: `${input.adSet.id}:${actionType}`,
+    decisionId,
     adSetId: input.adSet.id,
     adSetName: input.adSet.name,
     campaignId: input.adSet.campaignId,
@@ -2122,6 +2330,9 @@ function buildAdSetDecision(input: {
     ],
     noTouch,
     policy,
+    provenance,
+    evidenceHash: provenance.evidenceHash,
+    actionFingerprint: provenance.actionFingerprint,
     trust,
   };
 }
@@ -2133,6 +2344,7 @@ function buildCampaignDecision(input: {
   adSetDecisions: MetaAdSetDecision[];
   thresholds: TargetThresholds;
   operatingMode: AccountOperatingModePayload | null;
+  provenanceContext: MetaDecisionProvenanceContext;
 }): MetaCampaignDecision {
   const topAdSetDecision =
     [...input.adSetDecisions].sort(
@@ -2185,6 +2397,7 @@ function buildCampaignDecision(input: {
   const why = noTouch
     ? "This campaign contains a stable winner that should be protected before making broader changes."
     : topAdSetDecision?.reasons[0] ?? input.roleDecision.why;
+  const decisionId = `${input.campaign.id}:${primaryAction}`;
   const degradedFromAdSets = input.adSetDecisions.some(
     (decision) => decision.trust.truthState === "degraded_missing_truth",
   );
@@ -2257,11 +2470,11 @@ function buildCampaignDecision(input: {
             freshness: input.operatingMode?.authority?.freshness,
             reasons: [why],
           })
-        : watchlistAction
-          ? compileDecisionTrust({
-              surfaceLane: "watchlist",
-              truthState: "live_confident",
-              operatorDisposition: "review_hold",
+      : watchlistAction
+        ? compileDecisionTrust({
+            surfaceLane: "watchlist",
+            truthState: "live_confident",
+            operatorDisposition: "review_hold",
               entityState,
               materiality,
               freshness: input.operatingMode?.authority?.freshness,
@@ -2276,6 +2489,33 @@ function buildCampaignDecision(input: {
               freshness: input.operatingMode?.authority?.freshness,
               reasons: [why],
             });
+  const provenance = buildMetaDecisionProvenance({
+    businessId: input.provenanceContext.businessId,
+    decisionAsOf: input.provenanceContext.decisionAsOf,
+    analyticsWindow: input.provenanceContext.analyticsWindow,
+    reportingRange: input.provenanceContext.reportingRange,
+    sourceWindow: input.provenanceContext.sourceWindow,
+    sourceRowScope: {
+      system: "meta",
+      entityType: "campaign",
+      entityId: input.campaign.id,
+    },
+    sourceDecisionId: decisionId,
+    recommendedAction: primaryAction,
+    evidence,
+    hashEvidence: {
+      spend: input.campaign.spend,
+      revenue: input.campaign.revenue,
+      roas,
+      purchases: input.campaign.purchases,
+      impressions: input.campaign.impressions,
+      role: input.roleDecision.role,
+      roleConfidence: input.roleDecision.confidence,
+      primaryAction,
+      topAdSetDecisionId: topAdSetDecision?.decisionId ?? null,
+      adSetDecisionIds: input.adSetDecisions.map((decision) => decision.decisionId),
+    },
+  });
 
   return {
     campaignId: input.campaign.id,
@@ -2326,6 +2566,9 @@ function buildCampaignDecision(input: {
         : undefined,
     },
     trust,
+    provenance,
+    evidenceHash: provenance.evidenceHash,
+    actionFingerprint: provenance.actionFingerprint,
     creativeCandidates: null,
     missingCreativeAsk: [],
   };
@@ -2824,6 +3067,7 @@ function buildBudgetShifts(input: {
   campaigns: MetaCampaignDecision[];
   campaignRows: MetaCampaignRow[];
   winnerScaleCandidates: MetaWinnerScaleCandidate[];
+  provenanceContext: MetaDecisionProvenanceContext;
 }) {
   const byId = new Map(input.campaignRows.map((campaign) => [campaign.id, campaign]));
   const eligibleCampaigns = input.campaigns.filter(
@@ -2868,6 +3112,49 @@ function buildBudgetShifts(input: {
     const recipientRow = recipient ? byId.get(recipient.campaignId) : null;
     if (!donor || !recipient || !donorRow || !recipientRow) continue;
     const movePct = donor.primaryAction === "pause" ? "20-30%" : "10-15%";
+    const suggestedMoveBand = `${movePct} of current budget load`;
+    const sourceDecisionId = `${donor.campaignId}:${recipient.campaignId}:budget_shift`;
+    const evidence: MetaDecisionEvidence[] = [
+      {
+        label: "Move band",
+        value: suggestedMoveBand,
+        impact: "neutral",
+      },
+      {
+        label: "Donor action",
+        value: donor.primaryAction,
+        impact: donor.primaryAction === "pause" ? "negative" : "mixed",
+      },
+      {
+        label: "Recipient role",
+        value: recipient.role,
+        impact: "positive",
+      },
+    ];
+    const provenance = buildMetaDecisionProvenance({
+      businessId: input.provenanceContext.businessId,
+      decisionAsOf: input.provenanceContext.decisionAsOf,
+      analyticsWindow: input.provenanceContext.analyticsWindow,
+      reportingRange: input.provenanceContext.reportingRange,
+      sourceWindow: input.provenanceContext.sourceWindow,
+      sourceRowScope: {
+        system: "meta",
+        entityType: "budget_shift",
+        entityId: `${donor.campaignId}:${recipient.campaignId}`,
+      },
+      sourceDecisionId,
+      recommendedAction: "budget_shift",
+      evidence,
+      hashEvidence: {
+        fromCampaignId: donor.campaignId,
+        toCampaignId: recipient.campaignId,
+        donorAction: donor.primaryAction,
+        donorConfidence: donor.confidence,
+        recipientRole: recipient.role,
+        recipientConfidence: recipient.confidence,
+        suggestedMoveBand,
+      },
+    });
     shifts.push({
       fromCampaignId: donor.campaignId,
       fromCampaignName: donor.campaignName,
@@ -2881,12 +3168,15 @@ function buildBudgetShifts(input: {
           : "The donor is below target while the recipient has the stronger case for controlled growth.",
       riskLevel: donor.primaryAction === "pause" ? "medium" : "low",
       expectedBenefit: `${recipient.role} can absorb cleaner spend than ${donor.role} right now.`,
-      suggestedMoveBand: `${movePct} of current budget load`,
+      suggestedMoveBand,
       confidence: clampConfidence((donor.confidence + recipient.confidence) / 2),
       guardrails: [
         "Treat this as a read-only budget board, not an automatic write-back plan.",
         "Re-check the winner/loser pair after the first move band is absorbed.",
       ],
+      provenance,
+      evidenceHash: provenance.evidenceHash,
+      actionFingerprint: provenance.actionFingerprint,
     });
   }
 
@@ -3158,16 +3448,29 @@ function buildSummary(input: {
 export function buildMetaDecisionOs(
   input: BuildMetaDecisionOsInput,
 ): MetaDecisionOsV1Response {
+  const analyticsStartDate = input.analyticsStartDate ?? input.startDate;
+  const analyticsEndDate = input.analyticsEndDate ?? input.endDate;
+  const decisionAsOf = input.decisionAsOf ?? input.endDate;
   const decisionMetadata = {
     ...buildOperatorDecisionMetadata({
-      analyticsStartDate: input.startDate,
-      analyticsEndDate: input.endDate,
-      decisionAsOf: input.decisionAsOf ?? input.endDate,
+      analyticsStartDate,
+      analyticsEndDate,
+      decisionAsOf,
     }),
     ...(input.analyticsWindow ? { analyticsWindow: input.analyticsWindow } : {}),
     ...(input.decisionWindows ? { decisionWindows: input.decisionWindows } : {}),
     ...(input.historicalMemory ? { historicalMemory: input.historicalMemory } : {}),
     ...(input.decisionAsOf ? { decisionAsOf: input.decisionAsOf } : {}),
+  };
+  const provenanceContext: MetaDecisionProvenanceContext = {
+    businessId: input.businessId,
+    decisionAsOf: decisionMetadata.decisionAsOf,
+    analyticsWindow: decisionMetadata.analyticsWindow,
+    reportingRange: {
+      startDate: input.startDate,
+      endDate: input.endDate,
+    },
+    sourceWindow: decisionMetadata.decisionWindows.primary30d,
   };
   const thresholds = determineThresholds(input.commercialTruth);
   const commercialTruthCoverage = collectCommercialTruthCoverage(input.commercialTruth);
@@ -3182,7 +3485,11 @@ export function buildMetaDecisionOs(
     )
     .map((promo) => normalizeText(`${promo.title} ${promo.affectedScope ?? ""}`))
     .filter(Boolean);
-  const operatingMode = buildOperatingModeSummary(input);
+  const operatingMode = buildOperatingModeSummary({
+    ...input,
+    analyticsWindow: decisionMetadata.analyticsWindow,
+    decisionAsOf: decisionMetadata.decisionAsOf,
+  });
   const geoFreshness =
     input.geoSource?.freshness ?? resolveDefaultGeoSourceFreshness(input);
   const geoRows = input.geoSource?.rows ?? input.breakdowns?.location ?? [];
@@ -3214,6 +3521,7 @@ export function buildMetaDecisionOs(
       geoCoverageMode: commercialTruthCoverage.mode,
       operatingMode,
       decisionAsOf: decisionMetadata.decisionAsOf,
+      provenanceContext,
     }),
   );
 
@@ -3231,6 +3539,7 @@ export function buildMetaDecisionOs(
       adSetDecisions: relatedAdSets,
       thresholds,
       operatingMode,
+      provenanceContext,
     });
   });
 
@@ -3247,6 +3556,7 @@ export function buildMetaDecisionOs(
         thresholds,
         geoFreshness,
         totalGeoSpend,
+        provenanceContext,
       }),
     )
     .sort((left, right) => right.confidence - left.confidence),
@@ -3254,6 +3564,7 @@ export function buildMetaDecisionOs(
   const placementAnomalies = buildPlacementAnomalies({
     rows: input.breakdowns?.placement ?? [],
     accountRoas: Number.isFinite(accountRoas) ? accountRoas : 0,
+    provenanceContext,
   });
   const noTouchList = buildNoTouchList({
     campaigns: campaignDecisions,
@@ -3288,6 +3599,7 @@ export function buildMetaDecisionOs(
     campaigns: campaignDecisions,
     campaignRows: input.campaigns,
     winnerScaleCandidates,
+    provenanceContext,
   });
   const summary = buildSummary({
     campaignDecisions,

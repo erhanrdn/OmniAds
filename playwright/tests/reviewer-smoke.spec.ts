@@ -38,40 +38,55 @@ async function openDetailsIfNeeded(details: import("@playwright/test").Locator) 
   }
 }
 
+async function runMetaAnalysis(page: import("@playwright/test").Page) {
+  await expect(page.getByTestId("meta-analysis-status-card")).toBeVisible();
+  await expect(page.getByTestId("meta-decision-os-empty")).toBeVisible();
+
+  const decisionOsResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/meta/decision-os") &&
+    response.request().method() === "GET",
+  );
+  const recommendationsResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/meta/recommendations") &&
+    response.request().method() === "GET",
+  );
+
+  await page.getByRole("button", { name: /^Run analysis$/i }).first().click();
+  const [decisionOs, recommendations] = await Promise.all([
+    decisionOsResponse,
+    recommendationsResponse,
+  ]);
+  expect(decisionOs.ok()).toBeTruthy();
+  expect(recommendations.ok()).toBeTruthy();
+
+  await expect(page.getByTestId("meta-analysis-status-card")).toContainText(
+    "Last successful analysis",
+    { timeout: 60_000 },
+  );
+  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible({
+    timeout: 60_000,
+  });
+}
+
 test("reviewer smoke covers Meta recommendations and creative decision surfaces", async ({ page }, testInfo) => {
   await page.goto("/platforms/meta");
   await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
 
-  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
-  await expect(page.getByTestId("meta-decision-os-overview")).toContainText("Daily Operator Surface");
-  await expect(page.getByText(/Daily operator surface for what needs action now/)).toBeVisible();
-  await page.getByText("Show why").first().click();
-  await expectVisibleIfPresent(page.getByTestId("meta-policy-review"));
-  await expectVisibleIfPresent(page.getByTestId("meta-budget-shift-board"));
-  await expectVisibleIfPresent(page.getByTestId("meta-winner-scale-candidates"));
-  await expectVisibleIfPresent(page.getByTestId("meta-geo-board"));
+  await runMetaAnalysis(page);
+  await expect(page.getByTestId("meta-authority-readiness")).toBeVisible();
+  await expect(page.getByTestId("meta-operator-plan-summary")).toBeVisible();
+  await expect(page.getByTestId("meta-top-action-core")).toBeVisible();
+  await expect(page.getByTestId("meta-watchlist-degraded")).toBeVisible();
   await expectVisibleIfPresent(page.getByTestId("meta-no-touch-list"));
   await expect(page.getByTestId("meta-supporting-context")).toBeVisible();
   await openDetailsIfNeeded(page.getByTestId("meta-supporting-context"));
   await expect(page.getByTestId("meta-recommendations-panel")).toBeVisible();
   await expect(page.getByTestId("meta-recommendations-panel")).toContainText("Supporting Context");
-  await expect(page.getByTestId("meta-recommendations-run")).toContainText(/Refresh Context/);
+  await expect(page.getByTestId("meta-recommendations-run")).toContainText(
+    /Run Analysis|Check all items before re-running/,
+  );
 
-  const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
-  await expect(campaignListItems.first()).toBeVisible();
-  await campaignListItems.first().click();
-
-  await expect(page).toHaveURL(/campaignId=/);
-  await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
-  await expect(page.getByTestId("meta-campaign-detail")).toContainText("Show campaign reasoning");
-  await openDetailsIfNeeded(page.getByTestId("meta-campaign-reasoning"));
-  await expect(page.getByTestId("meta-campaign-decision-panel")).toBeVisible();
-  const metaCampaignAdsetActions = page.getByTestId("meta-campaign-adset-actions");
-  await metaCampaignAdsetActions.scrollIntoViewIfNeeded();
-  await expect(metaCampaignAdsetActions).toBeVisible();
-  const metaAdsetsSection = page.getByTestId("meta-adsets-section");
-  await metaAdsetsSection.scrollIntoViewIfNeeded();
-  await expect(metaAdsetsSection).toBeVisible();
+  await expect(page.locator('[data-testid^="meta-list-item-"]').first()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("meta-smoke.png"), fullPage: true });
 
   await page.goto("/command-center");

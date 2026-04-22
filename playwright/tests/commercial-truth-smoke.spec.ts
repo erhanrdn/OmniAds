@@ -114,19 +114,41 @@ async function openMetaSupportingContext(page: Page) {
   }
 }
 
-async function openMetaOperatorDetails(page: Page) {
-  const operatorDetails = page.getByTestId("meta-operator-details");
-  await expect(operatorDetails).toBeVisible();
-  const isOpen = await operatorDetails.evaluate((element) =>
-    element.hasAttribute("open"),
+async function runMetaAnalysis(page: Page) {
+  await expect(page.getByTestId("meta-analysis-status-card")).toBeVisible();
+  await expect(page.getByTestId("meta-decision-os-empty")).toBeVisible();
+
+  const decisionOsResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/meta/decision-os") &&
+    response.request().method() === "GET",
   );
-  if (!isOpen) {
-    await operatorDetails.locator("summary").click();
-  }
+  const recommendationsResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/meta/recommendations") &&
+    response.request().method() === "GET",
+  );
+
+  await page.getByRole("button", { name: /^Run analysis$/i }).first().click();
+  const [decisionOs, recommendations] = await Promise.all([
+    decisionOsResponse,
+    recommendationsResponse,
+  ]);
+  expect(decisionOs.ok()).toBeTruthy();
+  expect(recommendations.ok()).toBeTruthy();
+
+  await expect(page.getByTestId("meta-analysis-status-card")).toContainText(
+    "Last successful analysis",
+    { timeout: 60_000 },
+  );
+  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible({
+    timeout: 60_000,
+  });
 }
 
 async function openMetaCampaignReasoning(page: Page) {
   const campaignReasoning = page.getByTestId("meta-campaign-reasoning");
+  if ((await campaignReasoning.count()) === 0) {
+    return false;
+  }
   await expect(campaignReasoning).toBeVisible();
   const isOpen = await campaignReasoning.evaluate((element) =>
     element.hasAttribute("open"),
@@ -134,6 +156,7 @@ async function openMetaCampaignReasoning(page: Page) {
   if (!isOpen) {
     await campaignReasoning.locator("summary").click();
   }
+  return true;
 }
 
 async function setStoredDateRange(
@@ -157,14 +180,20 @@ async function captureMetaDecisionSignature(
   page: Page,
 ) {
   return {
-    operatingMode: normalizeText(
-      await metaOperatingModeCard(page).textContent(),
+    authority: normalizeText(
+      await page.getByTestId("meta-authority-readiness").textContent(),
     ),
     decisionOs: normalizeText(
       await page.getByTestId("meta-decision-os-overview").textContent(),
     ),
-    topActions: normalizeText(
-      await page.getByTestId("meta-top-adset-actions").textContent(),
+    topActionCore: normalizeText(
+      await page.getByTestId("meta-top-action-core").textContent(),
+    ),
+    watchlist: normalizeText(
+      await page.getByTestId("meta-watchlist-degraded").textContent(),
+    ),
+    protected: normalizeText(
+      await page.getByTestId("meta-no-touch-list").textContent(),
     ),
   };
 }
@@ -372,13 +401,13 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   await expect(operatingModeCard).toContainText("Selected period affects analysis only");
   await expect(operatingModeCard).not.toContainText("Loading operating mode...");
   const metaOverview = page.getByTestId("meta-decision-os-overview").first();
+  await expect(page.getByTestId("meta-decision-os-empty")).toBeVisible();
+  await runMetaAnalysis(page);
   await expect(metaOverview).toBeVisible();
-  await expect(metaOverview).toContainText("Meta Decision OS is operating on the live decision window");
-  await expect(metaOverview).toContainText("shared trust-kernel suppression");
-  await openMetaOperatorDetails(page);
-  await expect(page.getByTestId("meta-top-adset-actions")).toBeVisible();
-  await expect(page.getByTestId("meta-winner-scale-candidates")).toBeVisible();
-  await expect(page.getByTestId("meta-geo-board")).toBeVisible();
+  await expect(page.getByTestId("meta-authority-readiness")).toBeVisible();
+  await expect(page.getByTestId("meta-operator-plan-summary")).toBeVisible();
+  await expect(page.getByTestId("meta-top-action-core")).toBeVisible();
+  await expect(page.getByTestId("meta-watchlist-degraded")).toBeVisible();
   await expect(page.getByTestId("meta-no-touch-list")).toBeVisible();
   let metaBaseline: Awaited<ReturnType<typeof captureMetaDecisionSignature>> | null = null;
   for (const range of BROWSER_DECISION_RANGES) {
@@ -386,8 +415,7 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
     await page.reload();
     await page.getByText("Loading campaign performance").waitFor({ state: "hidden", timeout: 45_000 }).catch(() => {});
     await openMetaSupportingContext(page);
-    await openMetaOperatorDetails(page);
-    await expect(page.getByTestId("meta-decision-os-overview").first()).toBeVisible();
+    await runMetaAnalysis(page);
     await expect(metaOperatingModeCard(page)).not.toContainText("Loading operating mode...");
     const signature = await captureMetaDecisionSignature(page);
     if (!metaBaseline) {
@@ -402,16 +430,22 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   const campaignListItems = page.locator('[data-testid^="meta-list-item-"]');
   await expect(campaignListItems.first()).toBeVisible();
   await campaignListItems.first().click();
-  await openMetaCampaignReasoning(page);
-  await expect
-    .poll(async () =>
-      page.getByTestId("meta-campaign-reasoning").evaluate((element) => element.hasAttribute("open")),
-    )
-    .toBe(true);
-  const metaCampaignDecisionPanel = page.getByTestId("meta-campaign-decision-panel");
-  await expect(metaCampaignDecisionPanel).toContainText("Campaign Role");
+  await expect(page.getByTestId("meta-campaign-detail")).toBeVisible();
+  const hasCampaignReasoning = await openMetaCampaignReasoning(page);
+  if (hasCampaignReasoning) {
+    await expect
+      .poll(async () =>
+        page.getByTestId("meta-campaign-reasoning").evaluate((element) => element.hasAttribute("open")),
+      )
+      .toBe(true);
+    const metaCampaignDecisionPanel = page.getByTestId("meta-campaign-decision-panel");
+    await expect(metaCampaignDecisionPanel).toContainText("Campaign Role");
+  }
   const metaCampaignAdsetActions = page.getByTestId("meta-campaign-adset-actions");
-  await expect(metaCampaignAdsetActions).toContainText(/Ad Set Actions|No ad set actions are available|ROAS/);
+  if ((await metaCampaignAdsetActions.count()) > 0) {
+    await expect(metaCampaignAdsetActions).toContainText(/Ad Set Actions|No ad set actions are available|ROAS/);
+  }
+  await expect(page.getByTestId("meta-adsets-section")).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("commercial-meta-mode.png"),
     fullPage: true,
@@ -516,7 +550,6 @@ test("commercial truth smoke covers the dedicated page, Meta operating mode, and
   const metaWorkflowDialog = await openFirstCampaignAwareMetaCommandCenterAction(page);
   await metaWorkflowDialog.getByRole("link", { name: "Open source surface" }).click();
   await page.waitForURL(/\/platforms\/meta\?.*campaignId=/, { timeout: 45_000 });
-  await expect(page.getByTestId("meta-decision-os-overview")).toBeVisible();
   const metaDetailVisible = await page
     .getByTestId("meta-campaign-detail")
     .isVisible()

@@ -216,18 +216,26 @@ describe("GET /api/meta/decision-os", () => {
   it("builds the decision payload from campaigns, ad sets, breakdowns, and commercial truth", async () => {
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05",
+        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=2026-04-10",
       ),
     );
     const payload = await response.json();
 
     expect(response.status).toBe(200);
     assertMetaDecisionOsPageContract(payload);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: "2026-04-10",
+    });
     expect(decisionOs.buildMetaDecisionOs).toHaveBeenCalledWith(
       expect.objectContaining({
         businessId: "biz",
         startDate: "2026-04-01",
         endDate: "2026-04-05",
+        analyticsStartDate: "2026-03-01",
+        analyticsEndDate: "2026-03-31",
         decisionAsOf: "2026-04-10",
         campaigns: expect.arrayContaining([
           expect.objectContaining({ id: "cmp-1", name: "Campaign One" }),
@@ -240,6 +248,44 @@ describe("GET /api/meta/decision-os", () => {
             expect.objectContaining({ label: "US" }),
           ]),
         }),
+      }),
+    );
+  });
+
+  it("falls back to provider decision timing when decisionAsOf is blank", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05&analyticsStartDate=2026-03-01&analyticsEndDate=2026-03-31&decisionAsOf=",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      decisionAsOf: null,
+    });
+  });
+
+  it("falls back to reporting dates when analytics dates are blank", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-05&analyticsStartDate=&analyticsEndDate=",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionWindowSource.getMetaDecisionWindowContext).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-05",
+      decisionAsOf: null,
+    });
+    expect(decisionOs.buildMetaDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analyticsStartDate: "2026-04-01",
+        analyticsEndDate: "2026-04-05",
       }),
     );
   });

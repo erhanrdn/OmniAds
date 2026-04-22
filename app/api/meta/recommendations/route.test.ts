@@ -134,6 +134,8 @@ const access = await import("@/lib/access");
 const businessMode = await import("@/lib/business-mode.server");
 const campaignsSource = await import("@/lib/meta/campaigns-source");
 const breakdownsSource = await import("@/lib/meta/breakdowns-source");
+const creativeDecisionOsConfig = await import("@/lib/creative-decision-os-config");
+const creativeDecisionOsSource = await import("@/lib/creative-decision-os-source");
 const decisionOsConfig = await import("@/lib/meta/decision-os-config");
 const decisionOsSource = await import("@/lib/meta/decision-os-source");
 const metaRecommendations = await import("@/lib/meta/recommendations");
@@ -150,6 +152,7 @@ describe("GET /api/meta/recommendations", () => {
     vi.mocked(businessMode.isDemoBusiness).mockResolvedValue(false);
     vi.mocked(requestLanguage.resolveRequestLanguage).mockResolvedValue("en");
     vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(false);
+    vi.mocked(creativeDecisionOsConfig.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(false);
     vi.mocked(configSnapshots.readMetaBidRegimeHistorySummaries).mockResolvedValue(new Map());
   });
 
@@ -177,6 +180,7 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.endDate).toBe("2026-03-31");
     expect(campaignsSource.getMetaCampaignsForRange).toHaveBeenCalled();
     expect(breakdownsSource.getMetaBreakdownsForRange).toHaveBeenCalled();
+    expect(decisionOsSource.getMetaDecisionOsForRange).not.toHaveBeenCalled();
   });
 
   it("labels Decision OS recommendations when the unified path succeeds", async () => {
@@ -190,7 +194,7 @@ describe("GET /api/meta/recommendations", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31"
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28&decisionAsOf=2026-04-10"
       )
     );
     const payload = await response.json();
@@ -204,8 +208,51 @@ describe("GET /api/meta/recommendations", () => {
     expect(payload.businessId).toBe("biz");
     expect(payload.startDate).toBe("2026-03-01");
     expect(payload.endDate).toBe("2026-03-31");
+    expect(decisionOsSource.getMetaDecisionOsForRange).toHaveBeenCalledWith({
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      analyticsStartDate: "2026-02-01",
+      analyticsEndDate: "2026-02-28",
+      decisionAsOf: "2026-04-10",
+    });
     expect(metaRecommendations.buildMetaRecommendationsFromDecisionOs).toHaveBeenCalled();
     expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
+  });
+
+  it("passes decision timing params into Creative linkage when enabled", async () => {
+    vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(creativeDecisionOsConfig.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
+    vi.mocked(decisionOsSource.getMetaDecisionOsForRange).mockResolvedValue({
+      contractVersion: "meta-decision-os.v1",
+      businessId: "biz",
+      startDate: "2026-03-01",
+      endDate: "2026-03-31",
+      campaigns: [],
+      opportunityBoard: [],
+    } as never);
+    vi.mocked(creativeDecisionOsSource.getCreativeDecisionOsForRange).mockResolvedValue({
+      contractVersion: "creative-decision-os.v1",
+      creatives: [],
+    } as never);
+
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28&decisionAsOf=2026-04-10",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(creativeDecisionOsSource.getCreativeDecisionOsForRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessId: "biz",
+        startDate: "2026-03-01",
+        endDate: "2026-03-31",
+        analyticsStartDate: "2026-02-01",
+        analyticsEndDate: "2026-02-28",
+        decisionAsOf: "2026-04-10",
+      }),
+    );
   });
 
   it("preserves upstream Decision OS range metadata instead of relabeling stale recommendations", async () => {

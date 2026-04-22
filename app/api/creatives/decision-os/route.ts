@@ -43,16 +43,30 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const analyticsStartDateParam = request.nextUrl.searchParams.get("analyticsStartDate");
+  const analyticsEndDateParam = request.nextUrl.searchParams.get("analyticsEndDate");
   const startDate =
-    request.nextUrl.searchParams.get("startDate") ?? toISODate(daysAgo(29));
+    request.nextUrl.searchParams.get("startDate") ??
+    analyticsStartDateParam ??
+    toISODate(daysAgo(29));
   const endDate =
-    request.nextUrl.searchParams.get("endDate") ?? toISODate(new Date());
+    request.nextUrl.searchParams.get("endDate") ??
+    analyticsEndDateParam ??
+    toISODate(new Date());
+  const analyticsStartDate =
+    analyticsStartDateParam ?? startDate;
+  const analyticsEndDate =
+    analyticsEndDateParam ?? endDate;
+  const decisionAsOf = request.nextUrl.searchParams.get("decisionAsOf");
 
   const payload = await getCreativeDecisionOsForRange({
     request,
     businessId,
     startDate,
     endDate,
+    analyticsStartDate,
+    analyticsEndDate,
+    decisionAsOf,
   });
 
   return NextResponse.json(payload satisfies CreativeDecisionOsV1Response, {

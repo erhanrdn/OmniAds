@@ -37,3 +37,57 @@ export interface OperatorHistoricalMemory {
   lookbackDays: number;
   note: string;
 }
+
+export interface OperatorDecisionReportingRange {
+  startDate: string;
+  endDate: string;
+  role: "reporting_context";
+}
+
+export interface OperatorDecisionSourceWindow {
+  key: OperatorDecisionWindowKey;
+  startDate: string;
+  endDate: string;
+  role: OperatorDecisionWindow["role"];
+}
+
+export interface OperatorDecisionSourceRowScope {
+  system: "meta" | "creative" | "command_center";
+  entityType:
+    | "campaign"
+    | "adset"
+    | "geo"
+    | "placement"
+    | "creative"
+    | "family"
+    | "opportunity"
+    | "budget_shift"
+    | "unknown";
+  entityId: string;
+}
+
+export interface OperatorDecisionProvenance {
+  contractVersion: "operator-decision-provenance.v1";
+  businessId: string;
+  decisionAsOf: string;
+  analyticsWindow: OperatorAnalyticsWindow;
+  reportingRange: OperatorDecisionReportingRange;
+  sourceWindow: OperatorDecisionSourceWindow;
+  sourceRowScope: OperatorDecisionSourceRowScope;
+  sourceDecisionId: string;
+  evidenceHash: string;
+  actionFingerprint: string;
+}
+
+export interface OperatorDecisionPushEligibility {
+  queueEligible: boolean;
+  canApply: boolean;
+  canRollback: boolean;
+  level:
+    | "read_only_insight"
+    | "operator_review_required"
+    | "safe_to_queue"
+    | "eligible_for_push_when_enabled"
+    | "blocked_from_push";
+  blockedReason: string | null;
+}
