@@ -376,7 +376,6 @@ export async function getCreativeDecisionOsForRange(input: {
       last3,
       last7,
       last14,
-      last30,
       last90,
       allHistory,
       decisionSnapshot,
@@ -391,7 +390,6 @@ export async function getCreativeDecisionOsForRange(input: {
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last3 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last7 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last14 }),
-      fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last30 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.last90 }),
       fetchCreativeRowsForWindow({ request: input.request, businessId: input.businessId, ...windowDefs.allHistory }),
       getMetaDecisionSourceSnapshot({
@@ -405,6 +403,7 @@ export async function getCreativeDecisionOsForRange(input: {
         endDate: timeline.reportingEndDate,
       }).catch(() => null),
     ]);
+    const last30 = primary;
 
     decisionRows = primary.rows;
     selectedPeriodRows = selectedPeriod?.rows ?? null;

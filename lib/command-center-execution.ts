@@ -284,6 +284,25 @@ export interface CommandCenterExecutionAuditEntry {
   createdAt: string;
 }
 
+export interface CommandCenterExecutionSafeAuditEntry {
+  id: string;
+  actionFingerprint: string;
+  operation: CommandCenterExecutionOperation;
+  executionStatus: CommandCenterExecutionStatus;
+  supportMode: CommandCenterExecutionSupportMode;
+  approvalStatus: "approved" | "missing";
+  previewHash: string | null;
+  capabilityKey: string | null;
+  rollbackKind: MetaExecutionRollbackKind;
+  rollbackNote: string | null;
+  preflightReadyForApply: boolean | null;
+  preflightBlockingChecks: string[];
+  validationStatus: CommandCenterExecutionValidationStatus | null;
+  matchedRequestedState: boolean | null;
+  blockedReason: string | null;
+  createdAt: string;
+}
+
 export interface CommandCenterExecutionStateRecord {
   businessId: string;
   actionFingerprint: string;
@@ -352,7 +371,7 @@ export interface CommandCenterExecutionPreview {
   manualInstructions: string[];
   latestValidation: CommandCenterExecutionValidationReport | null;
   providerDiffEvidence: CommandCenterExecutionProviderDiffEvidence | null;
-  auditTrail: CommandCenterExecutionAuditEntry[];
+  auditTrail: CommandCenterExecutionSafeAuditEntry[];
   latestState: CommandCenterExecutionStateRecord | null;
   plan: MetaExecutionMutationPlan | null;
   rollback: {
@@ -371,6 +390,7 @@ export function buildCommandCenterExecutionPreviewHash(input: {
   requestedState: CommandCenterExecutionStateSummary | null;
   plan: MetaExecutionMutationPlan | null;
   diff: CommandCenterExecutionDiffItem[];
+  preflight?: CommandCenterExecutionPreflightReport | null;
 }) {
   return createHash("sha256")
     .update(
@@ -385,6 +405,18 @@ export function buildCommandCenterExecutionPreviewHash(input: {
         requestedState: input.requestedState,
         plan: input.plan,
         diff: input.diff,
+        preflight:
+          input.preflight == null
+            ? null
+            : {
+                readyForApply: input.preflight.readyForApply,
+                blockingChecks: input.preflight.blockingChecks,
+                checks: input.preflight.checks.map((check) => ({
+                  key: check.key,
+                  required: check.required,
+                  status: check.status,
+                })),
+              },
       }),
     )
     .digest("hex");

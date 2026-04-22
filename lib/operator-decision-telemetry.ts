@@ -8,6 +8,8 @@ export const OPERATOR_DECISION_TELEMETRY_EVENT_VERSION =
 
 export const OPERATOR_DECISION_TELEMETRY_STDOUT_ENV =
   "OPERATOR_DECISION_TELEMETRY_STDOUT" as const;
+export const OPERATOR_DECISION_TELEMETRY_SINK_ENV =
+  "OPERATOR_DECISION_TELEMETRY_SINK" as const;
 
 export type OperatorDecisionTelemetryEventName =
   | "instruction_rendered"
@@ -64,9 +66,40 @@ export interface OperatorDecisionTelemetryAggregate {
   blockedReasonCounts: Record<string, number>;
 }
 
+export interface OperatorDecisionTelemetrySinkPosture {
+  contractVersion: "operator-decision-telemetry-sink.v1";
+  sink: "disabled" | "stdout_staged";
+  productionReady: boolean;
+  retention: "not_configured" | "external_sink";
+  alerts: "not_configured" | "external_sink";
+  note: string;
+}
+
 function incrementCount(bucket: Record<string, number>, key: string | null | undefined) {
   const safeKey = key?.trim() || "none";
   bucket[safeKey] = (bucket[safeKey] ?? 0) + 1;
+}
+
+function telemetrySafeToken(value: string | null | undefined) {
+  const raw = String(value ?? "");
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!normalized) return null;
+  if (!/^[A-Za-z0-9_:-]+$/.test(raw.trim())) return "redacted";
+  if (normalized.includes("token") || normalized.includes("cookie")) return "redacted";
+  if (raw.includes("@")) return "redacted";
+  if (/\d{5,}/.test(normalized)) return "redacted";
+  if (normalized.length > 64) return "redacted";
+  return normalized;
+}
+
+function sanitizeTelemetryTokenList(values: string[]) {
+  return values
+    .map(telemetrySafeToken)
+    .filter((value): value is string => Boolean(value));
 }
 
 function normalizeSourceSurface(
@@ -117,6 +150,7 @@ export function buildOperatorDecisionTelemetryEvent(input: {
   emittedAt?: string | null;
 }): OperatorDecisionTelemetryEvent {
   const telemetry = input.instruction.telemetry;
+  const missingEvidence = sanitizeTelemetryTokenList(telemetry.missingEvidence);
   return {
     contractVersion: OPERATOR_DECISION_TELEMETRY_EVENT_VERSION,
     telemetryContractVersion: telemetry.contractVersion,
@@ -134,9 +168,9 @@ export function buildOperatorDecisionTelemetryEvent(input: {
     amountGuidanceStatus: telemetry.amountGuidanceStatus,
     targetContextStatus: telemetry.targetContextStatus,
     evidenceSource: normalizeEvidenceSource(input.instruction.reliability.evidenceSource),
-    blockedReason: telemetry.blockedReason,
-    missingEvidence: [...telemetry.missingEvidence],
-    missingEvidenceCount: telemetry.missingEvidenceCount,
+    blockedReason: telemetrySafeToken(telemetry.blockedReason),
+    missingEvidence,
+    missingEvidenceCount: missingEvidence.length,
     invalidActionCount: telemetry.invalidActionCount,
     nextObservationCount: telemetry.nextObservationCount,
     actionFingerprint: telemetry.actionFingerprint,
@@ -174,12 +208,47 @@ export function emitOperatorDecisionTelemetryEvent(input: {
   instruction: OperatorInstruction;
   eventName?: OperatorDecisionTelemetryEventName;
   emittedAt?: string | null;
-  env?: Pick<NodeJS.ProcessEnv, typeof OPERATOR_DECISION_TELEMETRY_STDOUT_ENV>;
+  env?: Partial<
+    Pick<
+      NodeJS.ProcessEnv,
+      | typeof OPERATOR_DECISION_TELEMETRY_STDOUT_ENV
+      | typeof OPERATOR_DECISION_TELEMETRY_SINK_ENV
+    >
+  >;
 }) {
   const event = buildOperatorDecisionTelemetryEvent(input);
   const env = input.env ?? process.env;
-  if (env[OPERATOR_DECISION_TELEMETRY_STDOUT_ENV] === "1") {
+  if (
+    env[OPERATOR_DECISION_TELEMETRY_STDOUT_ENV] === "1" ||
+    env[OPERATOR_DECISION_TELEMETRY_SINK_ENV] === "stdout"
+  ) {
     console.info("[operator-decision-telemetry]", event);
   }
   return event;
+}
+
+export function getOperatorDecisionTelemetrySinkPosture(input?: {
+  env?: Partial<Pick<NodeJS.ProcessEnv, typeof OPERATOR_DECISION_TELEMETRY_SINK_ENV>>;
+}): OperatorDecisionTelemetrySinkPosture {
+  const env = input?.env ?? process.env;
+  if (env[OPERATOR_DECISION_TELEMETRY_SINK_ENV] === "stdout") {
+    return {
+      contractVersion: "operator-decision-telemetry-sink.v1",
+      sink: "stdout_staged",
+      productionReady: false,
+      retention: "not_configured",
+      alerts: "not_configured",
+      note:
+        "Operator telemetry is staged to stdout only; wire a retained metrics/log sink and alerts before live push rollout.",
+    };
+  }
+  return {
+    contractVersion: "operator-decision-telemetry-sink.v1",
+    sink: "disabled",
+    productionReady: false,
+    retention: "not_configured",
+    alerts: "not_configured",
+    note:
+      "Operator telemetry emission is disabled until OPERATOR_DECISION_TELEMETRY_SINK is configured.",
+  };
 }

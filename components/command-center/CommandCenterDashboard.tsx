@@ -2526,22 +2526,22 @@ export function CommandCenterDashboard() {
                                     {formatActionLabel(entry.executionStatus)}
                                   </p>
                                   <Badge variant="outline">
-                                    {entry.actorName ?? entry.actorEmail ?? "Operator"}
+                                    {formatActionLabel(entry.approvalStatus)}
                                   </Badge>
                                 </div>
-                                {entry.failureReason ? (
+                                {entry.blockedReason ? (
                                   <p className="mt-1 text-xs text-rose-700">
-                                    {entry.failureReason}
+                                    {entry.blockedReason}
                                   </p>
                                 ) : null}
-                                {entry.validation ? (
+                                {entry.validationStatus ? (
                                   <p className="mt-1 text-xs text-slate-600">
-                                    Validation: {formatActionLabel(entry.validation.status)}
+                                    Validation: {formatActionLabel(entry.validationStatus)}
                                   </p>
                                 ) : null}
-                                {entry.providerDiffEvidence?.mismatchReasons?.length ? (
-                                  <p className="mt-1 text-xs text-rose-700">
-                                    {entry.providerDiffEvidence.mismatchReasons[0]}
+                                {entry.preflightBlockingChecks.length > 0 ? (
+                                  <p className="mt-1 text-xs text-amber-700">
+                                    Blocked: {entry.preflightBlockingChecks[0]}
                                   </p>
                                 ) : null}
                                 <p className="mt-1 text-xs text-slate-500">

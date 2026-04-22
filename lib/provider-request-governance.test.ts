@@ -125,9 +125,45 @@ describe("provider request governance", () => {
     expect(auditQuery?.[3]).toBe("ga4");
     expect(auditQuery?.[5]).toBe("live_report");
     expect(auditQuery?.[6]).toBe("/api/analytics/overview");
+    expect(auditQuery?.[16]).toBe("provider_request_failed:quota");
     expect(cooldownQuery).toBeTruthy();
     expect(collectQueryText(cooldownQuery?.[0] as TemplateStringsArray)).toContain("business_ref_id");
     expect(quotaQuery).toBeTruthy();
     expect(collectQueryText(quotaQuery?.[0] as TemplateStringsArray)).toContain("business_ref_id");
+  });
+
+  it("sanitizes provider audit paths and failure messages", async () => {
+    const error = Object.assign(
+      new Error("token abc123 for account act_1234567890"),
+      { status: 403 },
+    );
+    const execute = vi.fn<() => Promise<string>>().mockRejectedValueOnce(error);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      requestGovernance.runProviderRequestWithGovernance({
+        provider: "meta",
+        businessId: "biz_sensitive",
+        requestType: "meta_sensitive_read",
+        requestSource: "live_report",
+        requestPath:
+          "/api/meta/accounts/act_1234567890?access_token=secret_token&businessId=biz_sensitive",
+        execute,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const auditQuery = sql.mock.calls.find(([strings]) =>
+      collectQueryText(strings as TemplateStringsArray).includes("INSERT INTO provider_request_audit_daily"),
+    );
+    const consolePayload = errorSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+
+    expect(auditQuery?.[6]).toBe("/api/meta/accounts/:id");
+    expect(auditQuery?.[16]).toBe("provider_request_failed:permission");
+    expect(JSON.stringify(consolePayload)).not.toContain("secret_token");
+    expect(JSON.stringify(consolePayload)).not.toContain("act_1234567890");
+    expect(JSON.stringify(consolePayload)).not.toContain("biz_sensitive");
+    errorSpy.mockRestore();
   });
 });

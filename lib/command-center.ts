@@ -1039,17 +1039,20 @@ function createActionFingerprint(base: {
 }
 
 function buildCommandCenterActionPushEligibility(input: {
-  provenance: OperatorDecisionProvenance | null;
+  action: CommandCenterAction;
   actionable: boolean;
   canApply: boolean;
   blockedReason?: string | null;
 }) {
+  const hasValidProvenance = hasValidCommandCenterExecutionProvenance(input.action);
   return buildOperatorDecisionPushEligibility({
-    provenance: input.provenance,
-    queueEligible: input.actionable && Boolean(input.provenance?.actionFingerprint),
+    provenance: hasValidProvenance ? input.action.provenance : null,
+    queueEligible: input.actionable && hasValidProvenance,
     canApply: input.canApply,
     canRollback: false,
-    blockedReason: input.blockedReason ?? null,
+    blockedReason: hasValidProvenance
+      ? input.blockedReason ?? null
+      : "Missing complete decision provenance.",
   });
 }
 
@@ -1080,7 +1083,7 @@ function canCommandCenterActionUseProviderApply(input: {
   actionable: boolean;
 }) {
   if (!input.actionable) return false;
-  if (!input.action.provenance?.actionFingerprint) return false;
+  if (!hasValidCommandCenterExecutionProvenance(input.action)) return false;
   if (input.policy?.pushReadiness !== "eligible_for_push_when_enabled") return false;
   return (
     input.action.sourceSystem === "meta" &&
@@ -1088,6 +1091,57 @@ function canCommandCenterActionUseProviderApply(input: {
     META_EXECUTION_SUPPORTED_ACTIONS.includes(
       input.action.recommendedAction as (typeof META_EXECUTION_SUPPORTED_ACTIONS)[number],
     )
+  );
+}
+
+function expectedProvenanceEntityTypeForAction(
+  action: Pick<CommandCenterAction, "sourceType">,
+) {
+  if (action.sourceType === "meta_adset_decision") return "adset";
+  if (action.sourceType === "meta_budget_shift") return "budget_shift";
+  if (action.sourceType === "meta_geo_decision") return "geo";
+  if (action.sourceType === "meta_placement_anomaly") return "placement";
+  if (action.sourceType === "meta_no_touch_item") return "campaign";
+  if (action.sourceType === "creative_primary_decision") return "creative";
+  return null;
+}
+
+export function hasValidCommandCenterExecutionProvenance(
+  action: Pick<
+    CommandCenterAction,
+    "sourceContext" | "sourceSystem" | "sourceType" | "provenance"
+  >,
+) {
+  const provenance = action.provenance ?? null;
+  if (!provenance) return false;
+  if (provenance.contractVersion !== "operator-decision-provenance.v1") return false;
+  if (!provenance.actionFingerprint || !provenance.evidenceHash) return false;
+  if (
+    action.sourceType !== "creative_primary_decision" &&
+    provenance.sourceDecisionId !== action.sourceContext.sourceDecisionId
+  ) {
+    return false;
+  }
+  if (provenance.sourceRowScope.system !== action.sourceSystem) return false;
+  if (action.sourceType === "creative_primary_decision") {
+    return (
+      provenance.sourceRowScope.entityType === "creative" ||
+      provenance.sourceRowScope.entityType === "family" ||
+      provenance.sourceRowScope.entityType === "opportunity"
+    );
+  }
+  const expectedEntityType = expectedProvenanceEntityTypeForAction(action);
+  if (
+    expectedEntityType &&
+    provenance.sourceRowScope.entityType !== expectedEntityType
+  ) {
+    return false;
+  }
+  return Boolean(
+    provenance.decisionAsOf &&
+      provenance.sourceWindow?.key &&
+      provenance.sourceWindow?.startDate &&
+      provenance.sourceWindow?.endDate,
   );
 }
 
@@ -2068,7 +2122,7 @@ export function decorateCommandCenterActionsWithThroughput(input: {
       actionable,
     });
     const pushEligibility = buildCommandCenterActionPushEligibility({
-      provenance: action.provenance ?? null,
+      action,
       actionable,
       canApply,
       blockedReason: action.provenance
