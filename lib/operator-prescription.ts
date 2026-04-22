@@ -417,7 +417,8 @@ function buildDoNowPrimaryMove(input: {
     if (
       input.targetContext.status === "available" &&
       input.targetContext.targetScope === "adset" &&
-      input.targetContext.targetEntity
+      input.targetContext.targetEntity &&
+      !sameOperatorTarget(input.targetEntity, input.targetContext.targetEntity)
     ) {
       return `${input.actionLabel} ${input.targetEntity} into ${input.targetContext.targetEntity}.`;
     }
@@ -429,6 +430,10 @@ function buildDoNowPrimaryMove(input: {
     }
   }
   return `${input.actionLabel} ${input.targetEntity}.`;
+}
+
+function sameOperatorTarget(left: string, right: string) {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
 function isScaleActionLabel(actionLabel: string) {
