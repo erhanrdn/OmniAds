@@ -189,6 +189,17 @@ async function isProviderRequestAuditSchemaReady() {
   return Boolean(readiness?.ready);
 }
 
+const QUOTA_ERROR_SIGNATURES = [
+  "QUOTA",
+  "RESOURCE_EXHAUSTED",
+  "RATE LIMIT",
+  "TOO MANY REQUESTS",
+];
+
+function hasQuotaErrorSignature(message: string) {
+  return QUOTA_ERROR_SIGNATURES.some((signature) => message.includes(signature));
+}
+
 // Hata tipini ayrıştır: quota, auth, permission veya generic
 function classifyError(error: unknown): "quota" | "auth" | "permission" | "generic" | null {
   const status = getErrorStatus(error);
@@ -197,14 +208,14 @@ function classifyError(error: unknown): "quota" | "auth" | "permission" | "gener
   if (status === 429) {
     return "quota";
   }
+  if (hasQuotaErrorSignature(message)) {
+    return "quota";
+  }
   if (status === 401) {
     return "auth";
   }
   if (status === 403) {
     return "permission";
-  }
-  if (message.includes("QUOTA") || message.includes("RESOURCE_EXHAUSTED") || message.includes("RATE LIMIT") || message.includes("TOO MANY REQUESTS")) {
-    return "quota";
   }
   if (message.includes("UNAUTHENTICATED") || message.includes("AUTHENTICATION") || message.includes("TOKEN") || message.includes("DEVELOPER_TOKEN")) {
     return "auth";
