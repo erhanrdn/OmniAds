@@ -194,13 +194,22 @@ function classifyError(error: unknown): "quota" | "auth" | "permission" | "gener
   const status = getErrorStatus(error);
   const message = getErrorMessage(error).toUpperCase();
 
-  if (status === 429 || message.includes("QUOTA") || message.includes("RESOURCE_EXHAUSTED") || message.includes("RATE LIMIT") || message.includes("TOO MANY REQUESTS")) {
+  if (status === 429) {
     return "quota";
   }
-  if (status === 401 || message.includes("UNAUTHENTICATED") || message.includes("AUTHENTICATION") || message.includes("TOKEN") || message.includes("DEVELOPER_TOKEN")) {
+  if (status === 401) {
     return "auth";
   }
-  if (status === 403 || message.includes("PERMISSION") || message.includes("SCOPE")) {
+  if (status === 403) {
+    return "permission";
+  }
+  if (message.includes("QUOTA") || message.includes("RESOURCE_EXHAUSTED") || message.includes("RATE LIMIT") || message.includes("TOO MANY REQUESTS")) {
+    return "quota";
+  }
+  if (message.includes("UNAUTHENTICATED") || message.includes("AUTHENTICATION") || message.includes("TOKEN") || message.includes("DEVELOPER_TOKEN")) {
+    return "auth";
+  }
+  if (message.includes("PERMISSION") || message.includes("SCOPE")) {
     return "permission";
   }
   if (message.includes("DISCONNECTED") || message.includes("NOT CONNECTED")) {
@@ -224,7 +233,38 @@ function shouldEnterCooldown(error: unknown): boolean {
 
 function normalizeRequestAuditPath(value: string | null | undefined) {
   const normalized = (value ?? "").trim();
-  return normalized.length > 0 ? normalized.slice(0, 200) : "";
+  if (!normalized) return "";
+  try {
+    const url = normalized.startsWith("http")
+      ? new URL(normalized)
+      : new URL(normalized, "https://adsecute.local");
+    return url.pathname
+      .split("/")
+      .map((segment) =>
+        /^[A-Za-z0-9_-]{12,}$/.test(segment) && /\d/.test(segment)
+          ? ":id"
+          : segment,
+      )
+      .join("/")
+      .slice(0, 200);
+  } catch {
+    return normalized.split("?")[0]?.slice(0, 200) ?? "";
+  }
+}
+
+function sanitizeProviderFailureMessage(input: {
+  error: unknown;
+  failureClass?: "quota" | "auth" | "permission" | "generic" | null;
+}) {
+  const status = getErrorStatus(input.error);
+  const failureClass = input.failureClass ?? classifyError(input.error) ?? "generic";
+  return [
+    "provider_request_failed",
+    failureClass,
+    status != null ? `status_${status}` : null,
+  ]
+    .filter(Boolean)
+    .join(":");
 }
 
 function logProviderRequestAudit(delta: ProviderRequestAuditDelta): void {
@@ -272,7 +312,16 @@ function logProviderRequestAudit(delta: ProviderRequestAuditDelta): void {
           ${Math.max(0, delta.cooldownHitCount ?? 0)},
           ${Math.max(0, delta.dedupedCount ?? 0)},
           ${delta.errorCount ? new Date().toISOString() : null},
-          ${delta.errorCount ? delta.errorMessage ?? null : null},
+          ${delta.errorCount
+            ? delta.errorMessage
+              ? sanitizeProviderFailureMessage({
+                  error: new Error(delta.errorMessage),
+                  failureClass,
+                })
+              : failureClass
+                ? `provider_request_failed:${failureClass}`
+                : "provider_request_failed"
+            : null},
           now()
         )
         ON CONFLICT (business_id, provider, audit_date, request_type, audit_source, audit_path)
@@ -346,7 +395,9 @@ async function hydrateFromDbIfNeeded(
         status: row.http_status ?? undefined,
       });
       logRuntimeDebug("provider-request", "hydrated_from_db", {
-        provider, businessId, requestType,
+        provider,
+        businessScope: "redacted",
+        requestType,
         cooldownUntil: row.cooldown_until,
       });
     }
@@ -851,7 +902,7 @@ export async function runProviderRequestWithGovernance<T>(
     if (retryAfterMs > 0) {
       console.warn("[provider-request] cooldown_hit", {
         provider: input.provider,
-        businessId: input.businessId,
+        businessScope: "redacted",
         requestType: input.requestType,
         retryAfterMs,
         failureCount: existingFailure.count,
@@ -884,7 +935,7 @@ export async function runProviderRequestWithGovernance<T>(
   if (existingRequest) {
     logRuntimeDebug("provider-request", "deduped", {
       provider: input.provider,
-      businessId: input.businessId,
+      businessScope: "redacted",
       requestType: input.requestType,
     });
     logProviderRequestAudit({
@@ -900,7 +951,7 @@ export async function runProviderRequestWithGovernance<T>(
 
   logRuntimeDebug("provider-request", "start", {
     provider: input.provider,
-    businessId: input.businessId,
+    businessScope: "redacted",
     requestType: input.requestType,
     bypassCooldown: input.bypassCooldown === true,
   });
@@ -918,7 +969,7 @@ export async function runProviderRequestWithGovernance<T>(
       clearCooldownFromDb(input.provider, input.businessId, input.requestType);
       logRuntimeDebug("provider-request", "success", {
         provider: input.provider,
-        businessId: input.businessId,
+        businessScope: "redacted",
         requestType: input.requestType,
       });
       logProviderRequestAudit({
@@ -934,11 +985,15 @@ export async function runProviderRequestWithGovernance<T>(
     })
     .catch((error: unknown) => {
       const errorType = classifyError(error);
+      const safeErrorMessage = sanitizeProviderFailureMessage({
+        error,
+        failureClass: errorType,
+      });
       if (errorType !== null) {
         const previousCount = failures.get(key)?.count ?? 0;
         const newState: FailureState = {
           failedAt: Date.now(),
-          message: getErrorMessage(error),
+          message: safeErrorMessage,
           count: previousCount + 1,
           status: getErrorStatus(error),
         };
@@ -954,7 +1009,7 @@ export async function runProviderRequestWithGovernance<T>(
           void openProviderGlobalCircuitBreaker({
             provider: input.provider,
             businessId: input.businessId,
-            message: newState.message,
+            message: safeErrorMessage,
             status: newState.status,
             cooldownMs: input.cooldownMs ?? getCooldownMsForErrorType(errorType),
           }).catch(() => null);
@@ -962,11 +1017,11 @@ export async function runProviderRequestWithGovernance<T>(
       }
       console.error("[provider-request] failure", {
         provider: input.provider,
-        businessId: input.businessId,
+        businessScope: "redacted",
         requestType: input.requestType,
         status: getErrorStatus(error) ?? null,
         errorType: errorType ?? "not_governed",
-        message: getErrorMessage(error),
+        message: safeErrorMessage,
       });
       logProviderRequestAudit({
         provider: input.provider,
@@ -977,7 +1032,7 @@ export async function runProviderRequestWithGovernance<T>(
         requestCount: 1,
         errorCount: 1,
         failureClass: errorType ?? "generic",
-        errorMessage: getErrorMessage(error),
+        errorMessage: safeErrorMessage,
       });
       logQuotaUsage(input.provider, input.businessId, true);
       throw error;

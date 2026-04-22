@@ -15,6 +15,7 @@ import {
   buildCommandCenterExecutionPreviewHash,
   COMMAND_CENTER_EXECUTION_CONTRACT_VERSION,
   type CommandCenterExecutionApprovalSnapshot,
+  type CommandCenterExecutionAuditEntry,
   type CommandCenterExecutionCapability,
   type CommandCenterExecutionCanaryPreflight,
   type CommandCenterExecutionDiffItem,
@@ -23,6 +24,7 @@ import {
   type CommandCenterExecutionPreflightReport,
   type CommandCenterExecutionPreview,
   type CommandCenterExecutionProviderDiffEvidence,
+  type CommandCenterExecutionSafeAuditEntry,
   type CommandCenterExecutionStateSummary,
   type CommandCenterExecutionSupportMatrix,
   type CommandCenterExecutionSupportMode,
@@ -46,6 +48,7 @@ import {
   getMetaExecutionApplyBoundaryState,
   isCommandCenterExecutionV1Enabled,
 } from "@/lib/command-center-execution-config";
+import { hasValidCommandCenterExecutionProvenance } from "@/lib/command-center";
 import { getMetaDecisionOsForRange } from "@/lib/meta/decision-os-source";
 import type { MetaAdSetDecision } from "@/lib/meta/decision-os";
 import {
@@ -332,6 +335,51 @@ function buildValidationReport(input: {
   } satisfies CommandCenterExecutionValidationReport;
 }
 
+function summarizeSafeAuditBlockedReason(
+  entry: CommandCenterExecutionAuditEntry,
+) {
+  if (entry.failureReason) {
+    return "Execution failed; inspect privileged provider logs if deeper detail is required.";
+  }
+  if (entry.validation?.status === "failed") {
+    return "Post-execution validation did not observe the requested provider state.";
+  }
+  const blockingCheck =
+    entry.preflight?.checks.find(
+      (check) => check.required && check.status !== "pass",
+    ) ?? null;
+  return blockingCheck?.label ?? null;
+}
+
+function sanitizeCommandCenterExecutionAuditEntry(
+  entry: CommandCenterExecutionAuditEntry,
+): CommandCenterExecutionSafeAuditEntry {
+  return {
+    id: entry.id,
+    actionFingerprint: entry.actionFingerprint,
+    operation: entry.operation,
+    executionStatus: entry.executionStatus,
+    supportMode: entry.supportMode,
+    approvalStatus: entry.approvedAt ? "approved" : "missing",
+    previewHash: entry.previewHash,
+    capabilityKey: entry.capabilityKey,
+    rollbackKind: entry.rollbackKind,
+    rollbackNote: entry.rollbackNote,
+    preflightReadyForApply: entry.preflight?.readyForApply ?? null,
+    preflightBlockingChecks: entry.preflight?.blockingChecks ?? [],
+    validationStatus: entry.validation?.status ?? null,
+    matchedRequestedState: entry.validation?.matchedRequestedState ?? null,
+    blockedReason: summarizeSafeAuditBlockedReason(entry),
+    createdAt: entry.createdAt,
+  };
+}
+
+function sanitizeCommandCenterExecutionAuditTrail(
+  entries: CommandCenterExecutionAuditEntry[],
+) {
+  return entries.map(sanitizeCommandCenterExecutionAuditEntry);
+}
+
 function buildPreflightCheck(input: {
   key: string;
   label: string;
@@ -360,6 +408,7 @@ function buildPreflightReport(input: {
   safeSubset: boolean;
   alreadyAtTarget: boolean;
 }) {
+  const approvalEvidencePresent = hasApprovalEvidence(input.approval);
   const checks = [
     buildPreflightCheck({
       key: "capability_supported",
@@ -384,10 +433,13 @@ function buildPreflightReport(input: {
       key: "workflow_approved",
       label: "Workflow approval",
       required: true,
-      passing: input.approval.workflowStatus === "approved",
+      passing:
+        input.approval.workflowStatus === "approved" && approvalEvidencePresent,
       detail:
-        input.approval.workflowStatus === "approved"
-          ? "Workflow approval is present."
+        input.approval.workflowStatus === "approved" && approvalEvidencePresent
+          ? "Workflow approval is present with a recorded approval event."
+          : input.approval.workflowStatus === "approved"
+            ? "Workflow status is approved, but no approval event is recorded."
           : "Approve the workflow action before apply.",
     }),
     buildPreflightCheck({
@@ -589,6 +641,13 @@ function buildApprovalSnapshot(
   };
 }
 
+function hasApprovalEvidence(approval: CommandCenterExecutionApprovalSnapshot) {
+  return Boolean(
+    approval.approvedAt &&
+      (approval.approvedByUserId || approval.approvedByEmail || approval.approvedByName),
+  );
+}
+
 function getBudgetMultiplier(decision: MetaAdSetDecision) {
   if (decision.actionType === "scale_budget") {
     if (decision.actionSize === "medium") return 1.15;
@@ -649,6 +708,7 @@ function buildManualOnlyPreview(input: {
     requestedState: input.requestedState,
     plan: null,
     diff,
+    preflight: input.preflight,
   });
 
   return {
@@ -701,7 +761,7 @@ function buildManualOnlyPreview(input: {
     manualInstructions: input.manualInstructions,
     latestValidation: input.latestState?.latestValidation ?? null,
     providerDiffEvidence: input.latestState?.providerDiffEvidence ?? null,
-    auditTrail: input.auditTrail,
+    auditTrail: sanitizeCommandCenterExecutionAuditTrail(input.auditTrail),
     latestState: input.latestState,
     plan: null,
     rollback: {
@@ -715,7 +775,7 @@ function buildManualOnlyPreview(input: {
 
 function getExecutionStatusFromState(input: {
   supportMode: CommandCenterExecutionSupportMode;
-  approvalWorkflowStatus: CommandCenterAction["status"];
+  approval: CommandCenterExecutionApprovalSnapshot;
   latestState: Awaited<ReturnType<typeof getCommandCenterExecutionState>>;
 }) {
   if (input.supportMode === "manual_only") return "manual_only" as const;
@@ -728,7 +788,8 @@ function getExecutionStatusFromState(input: {
   ) {
     return input.latestState.executionStatus;
   }
-  return input.approvalWorkflowStatus === "approved"
+  return input.approval.workflowStatus === "approved" &&
+    hasApprovalEvidence(input.approval)
     ? ("ready_for_apply" as const)
     : ("draft" as const);
 }
@@ -955,10 +1016,11 @@ async function resolveMetaExecutionPreview(input: {
       alreadyAtTarget: options.alreadyAtTarget,
     });
 
+  const provenanceIsValid = hasValidCommandCenterExecutionProvenance(input.action);
   const provenanceEligibility = buildOperatorDecisionPushEligibility({
-    provenance: input.action.provenance ?? null,
+    provenance: provenanceIsValid ? input.action.provenance : null,
     queueEligible:
-      Boolean(input.action.provenance?.actionFingerprint) &&
+      provenanceIsValid &&
       input.action.surfaceLane === "action_core" &&
       !input.action.watchlistOnly,
     canApply: false,
@@ -1530,6 +1592,13 @@ async function resolveMetaExecutionPreview(input: {
   };
 
   const diff = buildDiff({ currentState, requestedState });
+  const preflight = buildPreviewPreflight({
+    decisionResolved: true,
+    liveStateResolved: true,
+    providerAccessible: true,
+    safeSubset: true,
+    alreadyAtTarget: false,
+  });
   const previewHash = buildCommandCenterExecutionPreviewHash({
     businessId: input.businessId,
     actionFingerprint: input.action.actionFingerprint,
@@ -1540,19 +1609,13 @@ async function resolveMetaExecutionPreview(input: {
     requestedState,
     plan,
     diff,
+    preflight,
   });
 
   const status = getExecutionStatusFromState({
     supportMode: "supported",
-    approvalWorkflowStatus: approval.workflowStatus,
+    approval,
     latestState,
-  });
-  const preflight = buildPreviewPreflight({
-    decisionResolved: true,
-    liveStateResolved: true,
-    providerAccessible: true,
-    safeSubset: true,
-    alreadyAtTarget: false,
   });
   const canApply = preflight.readyForApply;
   const canRollback =
@@ -1616,7 +1679,7 @@ async function resolveMetaExecutionPreview(input: {
     manualInstructions: [],
     latestValidation: latestState?.latestValidation ?? null,
     providerDiffEvidence: latestState?.providerDiffEvidence ?? null,
-    auditTrail,
+    auditTrail: sanitizeCommandCenterExecutionAuditTrail(auditTrail),
     latestState,
     plan,
     rollback: {

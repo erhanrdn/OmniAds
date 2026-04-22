@@ -270,16 +270,54 @@ export async function findCommandCenterActionForRange(input: {
   actionFingerprint: string;
   permissions: CommandCenterPermissions;
 }) {
-  const snapshot = await getCommandCenterSnapshot({
-    request: input.request,
+  const [commercialTruth, decisionContext, metaDecisionOs, creativeDecisionOs, actionStates] =
+    await Promise.all([
+      getBusinessCommercialTruthSnapshot(input.businessId).catch(() => null),
+      getMetaDecisionWindowContext({
+        businessId: input.businessId,
+        startDate: input.startDate,
+        endDate: input.endDate,
+      }),
+      isMetaDecisionOsV1EnabledForBusiness(input.businessId)
+        ? getMetaDecisionOsForRange({
+            businessId: input.businessId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+          })
+        : Promise.resolve(null),
+      isCreativeDecisionOsV1EnabledForBusiness(input.businessId)
+        ? getCreativeDecisionOsForRange({
+            request: input.request,
+            businessId: input.businessId,
+            startDate: input.startDate,
+            endDate: input.endDate,
+          })
+        : Promise.resolve(null),
+      listCommandCenterActionStates(input.businessId),
+    ]);
+  const aggregatedActions = aggregateCommandCenterActions({
     businessId: input.businessId,
     startDate: input.startDate,
     endDate: input.endDate,
-    permissions: input.permissions,
+    metaDecisionOs,
+    creativeDecisionOs,
+    stateByFingerprint: actionStates,
+    calibrationProfiles: commercialTruth?.calibrationProfiles,
   });
+  const throughputDecoratedActions = decorateCommandCenterActionsWithThroughput({
+    actions: aggregatedActions,
+    decisionAsOf: decisionContext.decisionAsOf,
+  }).sort(compareCommandCenterActions);
+  const throughput = buildCommandCenterDefaultQueueSummary(
+    throughputDecoratedActions,
+  );
+  const allActions = applyCommandCenterQueueSelection({
+    actions: throughputDecoratedActions,
+    throughput,
+  }).sort(compareCommandCenterActions);
+
   return (
-    snapshot.actions.find(
-      (action) => action.actionFingerprint === input.actionFingerprint,
-    ) ?? null
+    allActions.find((action) => action.actionFingerprint === input.actionFingerprint) ??
+    null
   );
 }

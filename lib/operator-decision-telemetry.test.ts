@@ -3,6 +3,8 @@ import {
   buildOperatorDecisionTelemetryAggregate,
   buildOperatorDecisionTelemetryEvent,
   emitOperatorDecisionTelemetryEvent,
+  getOperatorDecisionTelemetrySinkPosture,
+  OPERATOR_DECISION_TELEMETRY_SINK_ENV,
   OPERATOR_DECISION_TELEMETRY_STDOUT_ENV,
 } from "@/lib/operator-decision-telemetry";
 import { buildOperatorInstruction } from "@/lib/operator-prescription";
@@ -134,7 +136,29 @@ describe("operator decision telemetry staging", () => {
       env: { [OPERATOR_DECISION_TELEMETRY_STDOUT_ENV]: "1" },
     });
     expect(infoSpy).toHaveBeenCalledTimes(1);
+    emitOperatorDecisionTelemetryEvent({
+      instruction,
+      env: {
+        [OPERATOR_DECISION_TELEMETRY_STDOUT_ENV]: "0",
+        [OPERATOR_DECISION_TELEMETRY_SINK_ENV]: "stdout",
+      },
+    });
+    expect(infoSpy).toHaveBeenCalledTimes(2);
     infoSpy.mockRestore();
+  });
+
+  it("reports telemetry sink posture as staged until retention and alerts exist", () => {
+    expect(
+      getOperatorDecisionTelemetrySinkPosture({
+        env: { [OPERATOR_DECISION_TELEMETRY_SINK_ENV]: "stdout" },
+      }),
+    ).toMatchObject({
+      contractVersion: "operator-decision-telemetry-sink.v1",
+      sink: "stdout_staged",
+      productionReady: false,
+      retention: "not_configured",
+      alerts: "not_configured",
+    });
   });
 
   it("normalizes unknown evidence source strings before export", () => {
@@ -154,5 +178,33 @@ describe("operator decision telemetry staging", () => {
 
     expect(event.evidenceSource).toBe("unknown");
     expect(JSON.stringify(event)).not.toContain("provider-account-123");
+  });
+
+  it("defensively sanitizes hand-built telemetry strings before export", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy(),
+      targetScope: "creative",
+      targetEntity: "Sensitive Hook Winner",
+      actionLabel: "Context only",
+      reason: "Blocked.",
+      confidenceScore: 0.5,
+      evidenceSource: "live",
+    });
+    instruction.telemetry.blockedReason =
+      "Sensitive Hook Winner blocked for operator@example.com";
+    instruction.telemetry.missingEvidence = [
+      "target_cpa",
+      "Sensitive Family 123456789",
+    ];
+
+    const event = buildOperatorDecisionTelemetryEvent({ instruction });
+
+    expect(event.blockedReason).toBe("redacted");
+    expect(event.missingEvidence).toEqual(["target_cpa", "redacted"]);
+    expect(JSON.stringify(event)).not.toContain("Sensitive Hook Winner");
+    expect(JSON.stringify(event)).not.toContain("operator@example.com");
+    expect(JSON.stringify(event)).not.toContain("123456789");
   });
 });

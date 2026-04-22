@@ -1458,7 +1458,7 @@ describe("command center domain", () => {
     expect(metaAction?.throughput.defaultQueueEligible).toBe(false);
     expect(metaAction?.throughput.selectedInDefaultQueue).toBe(false);
     expect(metaAction?.operatorInstruction?.invalidActions.join(" ")).toContain(
-      "Missing decision provenance.",
+      "Missing complete decision provenance.",
     );
   });
 
@@ -2230,9 +2230,17 @@ describe("command center domain", () => {
     const [geoAction] = decorateCommandCenterActionsWithThroughput({
       actions: [
         buildActionFixture({
+          actionFingerprint: "cc_geo",
           sourceType: "meta_geo_decision",
           recommendedAction: "cut",
           title: "United States",
+          provenance: rowProvenanceFixture({
+            system: "meta",
+            entityType: "geo",
+            entityId: "geo_us",
+            sourceDecisionId: "cc_geo",
+            recommendedAction: "cut",
+          }).provenance,
         }),
       ],
       decisionAsOf: "2026-04-10",
@@ -2240,9 +2248,17 @@ describe("command center domain", () => {
     const [placementAction] = decorateCommandCenterActionsWithThroughput({
       actions: [
         buildActionFixture({
+          actionFingerprint: "cc_placement",
           sourceType: "meta_placement_anomaly",
           recommendedAction: "exception_review",
           title: "Feed",
+          provenance: rowProvenanceFixture({
+            system: "meta",
+            entityType: "placement",
+            entityId: "placement_feed",
+            sourceDecisionId: "cc_placement",
+            recommendedAction: "exception_review",
+          }).provenance,
         }),
       ],
       decisionAsOf: "2026-04-10",
@@ -2281,6 +2297,45 @@ describe("command center domain", () => {
     expect(decorated?.throughput.defaultQueueEligible).toBe(false);
     expect(decorated?.operatorInstruction?.pushReadiness).toBe("blocked_from_push");
     expect(decorated?.operatorInstruction?.canApply).toBe(false);
+  });
+
+  it("keeps malformed provenance rows non-applyable even with copied fingerprints", () => {
+    const action = buildActionFixture({
+      sourceType: "meta_adset_decision",
+      recommendedAction: "scale_budget",
+      operatorPolicy: blockedOperatorPolicy({
+        state: "do_now",
+        actionClass: "scale",
+        pushReadiness: "eligible_for_push_when_enabled",
+        queueEligible: true,
+        canApply: true,
+        blockers: [],
+        missingEvidence: [],
+        explanation: "Supported ad set apply path is policy approved.",
+      }),
+    });
+    const [decorated] = decorateCommandCenterActionsWithThroughput({
+      actions: [
+        {
+          ...action,
+          provenance: action.provenance
+            ? {
+                ...action.provenance,
+                evidenceHash: "",
+                actionFingerprint: action.actionFingerprint,
+              }
+            : null,
+        },
+      ],
+      decisionAsOf: "2026-04-10",
+    });
+
+    expect(decorated?.throughput.defaultQueueEligible).toBe(false);
+    expect(decorated?.operatorInstruction?.pushReadiness).toBe("blocked_from_push");
+    expect(decorated?.operatorInstruction?.canApply).toBe(false);
+    expect(decorated?.operatorInstruction?.invalidActions.join(" ")).toContain(
+      "Missing complete decision provenance.",
+    );
   });
 
   it("keeps valid safe-to-queue Creative instruction free of false queue warnings", () => {

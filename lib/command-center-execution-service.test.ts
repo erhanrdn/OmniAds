@@ -514,6 +514,75 @@ describe("command center execution service", () => {
     ).toBe(true);
   });
 
+  it("requires recorded approval evidence before apply can become ready", async () => {
+    vi.mocked(commandCenterStore.listCommandCenterJournal).mockResolvedValue([]);
+
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+
+    expect(preview.status).toBe("draft");
+    expect(preview.permission.canApply).toBe(false);
+    expect(
+      preview.preflight.checks.find((check) => check.key === "workflow_approved")
+        ?.status,
+    ).toBe("fail");
+    expect(preview.permission.reason).toContain("no approval event");
+  });
+
+  it("binds preview hash to current apply boundary state", async () => {
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+    vi.mocked(executionConfig.getMetaExecutionApplyBoundaryState).mockReturnValue({
+      executionPreviewEnabled: true,
+      applyEnabled: false,
+      killSwitchActive: false,
+      canaryScoped: true,
+      businessAllowlisted: true,
+      eligible: false,
+      blockedReasons: ["Meta execution apply is disabled."],
+    });
+
+    const blockedPreview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+
+    expect(blockedPreview.previewHash).not.toBe(preview.previewHash);
+    await expect(
+      executionService.applyCommandCenterExecution({
+        request: new NextRequest("http://localhost/api/command-center/execution/apply", {
+          method: "POST",
+        }),
+        businessId: "biz",
+        startDate: "2026-04-01",
+        endDate: "2026-04-10",
+        action: buildActionFixture(),
+        permissions,
+        actorUserId: "user_1",
+        actorName: "Operator",
+        actorEmail: "operator@adsecute.com",
+        clientMutationId: "apply_1",
+        previewHash: preview.previewHash,
+      }),
+    ).rejects.toThrow("Execution preview is stale");
+  });
+
   it("keeps rows without provenance out of the push path", async () => {
     const preview = await executionService.getCommandCenterExecutionPreview({
       request: new NextRequest("http://localhost/api/command-center/execution"),
@@ -527,6 +596,103 @@ describe("command center execution service", () => {
     expect(preview.supportMode).toBe("manual_only");
     expect(preview.permission.canApply).toBe(false);
     expect(preview.permission.reason).toContain("provenance");
+  });
+
+  it("keeps malformed provenance out of the provider apply path", async () => {
+    const action = buildActionFixture({
+      provenance: {
+        ...buildActionProvenance(),
+        evidenceHash: "",
+      },
+    });
+
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action,
+      permissions,
+    });
+
+    expect(preview.supportMode).toBe("manual_only");
+    expect(preview.permission.canApply).toBe(false);
+    expect(preview.permission.reason).toContain("provenance");
+  });
+
+  it("returns only a safe execution audit summary in previews", async () => {
+    vi.mocked(executionStore.listCommandCenterExecutionAudit).mockResolvedValue([
+      {
+        id: "audit_1",
+        businessId: "biz_sensitive",
+        actionFingerprint: "cc_meta_1",
+        operation: "apply",
+        executionStatus: "failed",
+        supportMode: "supported",
+        actorUserId: "user_secret",
+        actorName: "Sensitive Operator",
+        actorEmail: "operator@example.com",
+        approvalActorUserId: "approver_secret",
+        approvalActorName: "Approver Name",
+        approvalActorEmail: "approver@example.com",
+        approvedAt: "2026-04-11T10:00:00.000Z",
+        previewHash: "preview_hash",
+        capabilityKey: "meta_adset_decision:scale_budget",
+        rollbackKind: "provider_rollback",
+        rollbackNote: "Rollback restores captured state.",
+        currentState: null,
+        requestedState: null,
+        capturedPreApplyState: null,
+        preflight: {
+          generatedAt: "2026-04-11T10:00:00.000Z",
+          readyForApply: false,
+          blockingChecks: ["Live provider state"],
+          checks: [],
+        },
+        validation: {
+          operation: "apply",
+          status: "failed",
+          checkedAt: "2026-04-11T10:01:00.000Z",
+          matchedRequestedState: false,
+          mismatchReasons: ["Sensitive account act_123 did not match."],
+        },
+        providerDiffEvidence: null,
+        providerResponse: { body: { access_token: "secret_token" } },
+        failureReason: "Provider failed for operator@example.com and act_123.",
+        externalRefs: {
+          provider: "meta",
+          providerAccountId: "act_123",
+          providerAccountName: null,
+          campaignId: "cmp_123",
+          campaignName: "Sensitive Campaign",
+          adSetId: "adset_123",
+          adSetName: "Sensitive Ad Set",
+        },
+        createdAt: "2026-04-11T10:01:00.000Z",
+      },
+    ] as never);
+
+    const preview = await executionService.getCommandCenterExecutionPreview({
+      request: new NextRequest("http://localhost/api/command-center/execution"),
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      action: buildActionFixture(),
+      permissions,
+    });
+
+    expect(preview.auditTrail[0]).toMatchObject({
+      id: "audit_1",
+      approvalStatus: "approved",
+      validationStatus: "failed",
+      blockedReason:
+        "Execution failed; inspect privileged provider logs if deeper detail is required.",
+    });
+    const serialized = JSON.stringify(preview.auditTrail);
+    expect(serialized).not.toContain("operator@example.com");
+    expect(serialized).not.toContain("secret_token");
+    expect(serialized).not.toContain("act_123");
+    expect(serialized).not.toContain("Sensitive Campaign");
   });
 
   it("keeps operator-policy-blocked rows out of provider apply", async () => {
