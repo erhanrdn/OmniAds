@@ -49,6 +49,33 @@ function actionTone(action: string) {
   return "bg-slate-500/10 text-slate-700";
 }
 
+function operatorStateTone(state: string | null | undefined) {
+  if (state === "do_now") return "bg-emerald-500/10 text-emerald-700";
+  if (state === "do_not_touch") return "bg-blue-500/10 text-blue-700";
+  if (state === "blocked") return "bg-rose-500/10 text-rose-700";
+  if (state === "investigate") return "bg-amber-500/10 text-amber-700";
+  if (state === "watch") return "bg-sky-500/10 text-sky-700";
+  return "bg-slate-500/10 text-slate-700";
+}
+
+function pushReadinessLabel(value: string | null | undefined) {
+  if (!value) return "push readiness unavailable";
+  return formatActionLabel(value);
+}
+
+function operatorPolicyActionLabel(
+  policy: MetaAdSetDecision["operatorPolicy"] | MetaCampaignDecision["operatorPolicy"] | null,
+  fallback: string,
+) {
+  if (!policy) return fallback;
+  if (policy.state === "do_now") return fallback;
+  if (policy.state === "do_not_touch") return "Do not touch";
+  if (policy.state === "blocked") return "Blocked";
+  if (policy.state === "investigate") return "Investigate";
+  if (policy.state === "watch") return "Watch";
+  return "Context";
+}
+
 function trustTone(
   disposition: MetaAdSetDecision["trust"]["operatorDisposition"],
 ) {
@@ -141,6 +168,7 @@ function DecisionListCard({
 
 function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
   const operatorItem = buildMetaOperatorItemFromAdSet(decision);
+  const policy = decision.operatorPolicy ?? null;
 
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
@@ -153,16 +181,24 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
           <span
             className={cn(
               "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
-              actionTone(decision.actionType),
+              policy?.state === "blocked" ? operatorStateTone(policy.state) : actionTone(decision.actionType),
             )}
           >
-            {operatorItem.primaryAction}
+            {operatorPolicyActionLabel(policy, operatorItem.primaryAction)}
           </span>
           {decision.noTouch ? (
             <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
               no-touch
             </span>
           ) : null}
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              operatorStateTone(policy?.state),
+            )}
+          >
+            {policy ? formatActionLabel(policy.state) : "policy missing"}
+          </span>
           {decision.trust.operatorDisposition !== "standard" ? (
             <span
               className={cn(
@@ -198,6 +234,12 @@ function AdSetDecisionRow({ decision }: { decision: MetaAdSetDecision }) {
       {operatorItem.blocker ? (
         <p className="mt-2 text-[11px] text-slate-500">Blocker: {operatorItem.blocker}</p>
       ) : null}
+      {policy ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Push readiness: {pushReadinessLabel(policy.pushReadiness)}
+          {policy.blockers[0] ? ` · ${policy.blockers[0]}` : ""}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -208,6 +250,7 @@ function CampaignDecisionRow({
   decision: MetaCampaignDecision;
 }) {
   const operatorItem = buildMetaOperatorItemFromCampaign(decision);
+  const policy = decision.operatorPolicy ?? null;
 
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
@@ -220,10 +263,10 @@ function CampaignDecisionRow({
           <span
             className={cn(
               "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
-              actionTone(decision.primaryAction),
+              policy?.state === "blocked" ? operatorStateTone(policy.state) : actionTone(decision.primaryAction),
             )}
           >
-            {operatorItem.primaryAction}
+            {operatorPolicyActionLabel(policy, operatorItem.primaryAction)}
           </span>
           {decision.trust.operatorDisposition !== "standard" ? (
             <span
@@ -235,6 +278,14 @@ function CampaignDecisionRow({
               {formatActionLabel(decision.trust.operatorDisposition)}
             </span>
           ) : null}
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              operatorStateTone(policy?.state),
+            )}
+          >
+            {policy ? formatActionLabel(policy.state) : "policy missing"}
+          </span>
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{operatorItem.reason}</p>
@@ -250,6 +301,12 @@ function CampaignDecisionRow({
       ) : null}
       {operatorItem.blocker ? (
         <p className="mt-2 text-[11px] text-slate-500">Blocker: {operatorItem.blocker}</p>
+      ) : null}
+      {policy ? (
+        <p className="mt-2 text-[11px] text-slate-500">
+          Push readiness: {pushReadinessLabel(policy.pushReadiness)}
+          {policy.blockers[0] ? ` · ${policy.blockers[0]}` : ""}
+        </p>
       ) : null}
     </div>
   );
@@ -524,6 +581,8 @@ interface MetaOverviewWorkItem {
   blocker: string | null;
   commandReady: boolean;
   priorityScore: number;
+  operatorState: string | null;
+  pushReadiness: string | null;
 }
 
 function uniqueText(values: Array<string | null | undefined>) {
@@ -607,9 +666,14 @@ function buildOverviewWorkItems(decisionOs: MetaDecisionOsV1Response) {
       guardrails: decision.guardrails,
       blocker: operatorItem?.blocker ?? trustBlocker(trust, decision.guardrails, decision.whatWouldChangeThisDecision),
       commandReady:
+        decision.operatorPolicy?.state === "do_now" &&
+        (decision.operatorPolicy.pushReadiness === "safe_to_queue" ||
+          decision.operatorPolicy.pushReadiness === "eligible_for_push_when_enabled") &&
         authorityAllowsPrimaryAction(decisionOs, decision.primaryAction) &&
         trustAllowsPrimaryAction(trust, decision.noTouch),
       priorityScore: 1,
+      operatorState: decision.operatorPolicy?.state ?? null,
+      pushReadiness: decision.operatorPolicy?.pushReadiness ?? null,
     } satisfies MetaOverviewWorkItem;
   });
   const adSetItems = decisionOs.adSets.map((decision) => {
@@ -629,9 +693,14 @@ function buildOverviewWorkItems(decisionOs: MetaDecisionOsV1Response) {
       guardrails: decision.guardrails,
       blocker: operatorItem?.blocker ?? trustBlocker(trust, decision.guardrails, decision.whatWouldChangeThisDecision),
       commandReady:
+        decision.operatorPolicy?.state === "do_now" &&
+        (decision.operatorPolicy.pushReadiness === "safe_to_queue" ||
+          decision.operatorPolicy.pushReadiness === "eligible_for_push_when_enabled") &&
         authorityAllowsPrimaryAction(decisionOs, decision.actionType) &&
         trustAllowsPrimaryAction(trust, decision.noTouch),
       priorityScore: adSetPriorityScore(decision.priority),
+      operatorState: decision.operatorPolicy?.state ?? null,
+      pushReadiness: decision.operatorPolicy?.pushReadiness ?? null,
     } satisfies MetaOverviewWorkItem;
   });
   const geoItems = decisionOs.geoDecisions.map((decision) => {
@@ -653,6 +722,8 @@ function buildOverviewWorkItems(decisionOs: MetaDecisionOsV1Response) {
         authorityAllowsPrimaryAction(decisionOs, decision.action) &&
         trustAllowsPrimaryAction(trust, false),
       priorityScore: decision.queueEligible ? 1 : 3,
+      operatorState: null,
+      pushReadiness: null,
     } satisfies MetaOverviewWorkItem;
   });
 
@@ -712,12 +783,21 @@ function WorkItemRow({
               {formatActionLabel(item.trust.operatorDisposition)}
             </span>
           ) : null}
+          <span
+            className={cn(
+              "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              operatorStateTone(item.operatorState),
+            )}
+          >
+            {item.operatorState ? formatActionLabel(item.operatorState) : "policy context"}
+          </span>
         </div>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-600">{item.reason}</p>
       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
         <span>Confidence {formatConfidence(item.confidence)}</span>
         <span>Truth {truthLabel}</span>
+        <span>{pushReadinessLabel(item.pushReadiness)}</span>
         {item.noTouch ? <span>No-touch</span> : null}
       </div>
       {item.blocker ? (
@@ -948,6 +1028,26 @@ export function MetaDecisionOsOverview({
     protected: decisionOs.opportunityBoard.filter((item) => opportunityVerdict(item) === "protected").length,
     boardOnly: decisionOs.opportunityBoard.filter((item) => opportunityVerdict(item) === "board_only").length,
   };
+  const operatorPolicies = [
+    ...decisionOs.campaigns.map((decision) => decision.operatorPolicy ?? null),
+    ...decisionOs.adSets.map((decision) => decision.operatorPolicy ?? null),
+  ].filter(
+    (
+      policy,
+    ): policy is NonNullable<
+      MetaCampaignDecision["operatorPolicy"] | MetaAdSetDecision["operatorPolicy"]
+    > => Boolean(policy),
+  );
+  const operatorPolicyCounts = {
+    doNow: operatorPolicies.filter((policy) => policy.state === "do_now").length,
+    doNotTouch: operatorPolicies.filter((policy) => policy.state === "do_not_touch").length,
+    watchInvestigate: operatorPolicies.filter(
+      (policy) => policy.state === "watch" || policy.state === "investigate",
+    ).length,
+    blockedContextual: operatorPolicies.filter(
+      (policy) => policy.state === "blocked" || policy.state === "contextual_only",
+    ).length,
+  };
   const mainOpportunityBlockers = uniqueText(
     decisionOs.opportunityBoard.flatMap((item) => opportunityBlockers(item)),
   ).slice(0, 4);
@@ -991,6 +1091,9 @@ export function MetaDecisionOsOverview({
           <SummaryMetric label="Opportunity board" value={decisionOs.summary.opportunitySummary.totalCount} detail={`${decisionOs.summary.opportunitySummary.queueEligibleCount} queue eligible`} />
           <SummaryMetric label="Protected / no-touch" value={decisionOs.noTouchList.length} detail={decisionOs.summary.noTouchSummary} />
           <SummaryMetric label="GEO / placement" value={decisionOs.placementAnomalies.length} detail={geoAnomalyLabel} />
+          <SummaryMetric label="Do now" value={operatorPolicyCounts.doNow} detail="Policy-approved primary actions" />
+          <SummaryMetric label="Watch / investigate" value={operatorPolicyCounts.watchInvestigate} detail="Review before action" />
+          <SummaryMetric label="Blocked / context" value={operatorPolicyCounts.blockedContextual} detail={`${operatorPolicyCounts.doNotTouch} protected`} />
         </div>
       </section>
 
@@ -1137,6 +1240,7 @@ export function MetaCampaignDecisionPanel({
 }) {
   if (!campaignDecision) return null;
   const operatorItem = buildMetaOperatorItemFromCampaign(campaignDecision);
+  const operatorPolicy = campaignDecision.operatorPolicy ?? null;
 
   return (
     <div className="space-y-4" data-testid="meta-campaign-decision-panel">
@@ -1153,10 +1257,12 @@ export function MetaCampaignDecisionPanel({
             <span
               className={cn(
                 "rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                actionTone(campaignDecision.primaryAction),
+                operatorPolicy?.state === "blocked"
+                  ? operatorStateTone(operatorPolicy.state)
+                  : actionTone(campaignDecision.primaryAction),
               )}
             >
-              {operatorItem.primaryAction}
+              {operatorPolicyActionLabel(operatorPolicy, operatorItem.primaryAction)}
             </span>
             {campaignDecision.noTouch ? (
               <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
@@ -1181,6 +1287,12 @@ export function MetaCampaignDecisionPanel({
         {operatorItem.blocker ? (
           <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
             Blocker: {operatorItem.blocker}
+          </div>
+        ) : null}
+        {operatorPolicy ? (
+          <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-xs text-slate-600">
+            Operator policy: {formatActionLabel(operatorPolicy.state)} · {pushReadinessLabel(operatorPolicy.pushReadiness)}
+            {operatorPolicy.blockers[0] ? ` · ${operatorPolicy.blockers[0]}` : ""}
           </div>
         ) : null}
         <PolicyChips policy={campaignDecision.policy} />

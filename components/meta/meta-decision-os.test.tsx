@@ -167,6 +167,19 @@ function payload() {
           operatorDisposition: "standard",
           reasons: ["Winning lane"],
         },
+        operatorPolicy: {
+          contractVersion: "operator-policy.v1",
+          state: "do_now",
+          actionClass: "scale",
+          pushReadiness: "eligible_for_push_when_enabled",
+          queueEligible: true,
+          canApply: true,
+          reasons: ["Fixture policy allows this action."],
+          blockers: [],
+          missingEvidence: [],
+          requiredEvidence: ["row_provenance"],
+          explanation: "Fixture policy allows this action.",
+        },
       },
     ],
     adSets: [
@@ -214,6 +227,19 @@ function payload() {
           truthState: "live_confident",
           operatorDisposition: "standard",
           reasons: ["Winning ad set"],
+        },
+        operatorPolicy: {
+          contractVersion: "operator-policy.v1",
+          state: "do_now",
+          actionClass: "scale",
+          pushReadiness: "eligible_for_push_when_enabled",
+          queueEligible: true,
+          canApply: true,
+          reasons: ["Fixture policy allows this action."],
+          blockers: [],
+          missingEvidence: [],
+          requiredEvidence: ["row_provenance"],
+          explanation: "Fixture policy allows this action.",
         },
       },
     ],
@@ -644,6 +670,8 @@ describe("MetaDecisionOsOverview", () => {
     expect(html).toContain("Increase budget");
     expect(html).toContain("Winning lane");
     expect(html).toContain("Action core");
+    expect(html).toContain("Do now");
+    expect(html).toContain("eligible for push when enabled");
     expect(html).not.toContain("No command-ready Decision OS action core item is available.");
   });
 

@@ -1001,6 +1001,48 @@ async function resolveMetaExecutionPreview(input: {
     });
   }
 
+  if (
+    input.action.operatorPolicy &&
+    input.action.operatorPolicy.pushReadiness !== "eligible_for_push_when_enabled"
+  ) {
+    return buildManualOnlyPreview({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      approval,
+      latestState,
+      auditTrail,
+      currentState: null,
+      requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: false,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
+      canaryPreflight,
+      supportMatrix,
+      prerequisites: [],
+      risks: [
+        input.action.operatorPolicy.explanation,
+        ...input.action.operatorPolicy.blockers,
+      ],
+      manualInstructions: [
+        "Resolve the deterministic operator policy blockers before using provider-backed apply.",
+      ],
+      supportMode: "manual_only",
+      applyReason:
+        input.action.operatorPolicy.blockers[0] ??
+        input.action.operatorPolicy.explanation,
+      rollbackReason:
+        input.action.operatorPolicy.blockers[0] ??
+        input.action.operatorPolicy.explanation,
+    });
+  }
+
   if (input.action.sourceSystem !== "meta") {
     return buildManualOnlyPreview({
       businessId: input.businessId,
@@ -1103,6 +1145,42 @@ async function resolveMetaExecutionPreview(input: {
       supportMode: "manual_only",
       applyReason:
         "The source decision could not be matched to a live Meta ad set decision. Refresh before attempting apply.",
+    });
+  }
+
+  if (decision.operatorPolicy?.pushReadiness !== "eligible_for_push_when_enabled") {
+    const policyReason =
+      decision.operatorPolicy?.blockers[0] ??
+      decision.operatorPolicy?.explanation ??
+      "A deterministic Meta operator policy assessment is required before provider-backed apply.";
+    return buildManualOnlyPreview({
+      businessId: input.businessId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      action: input.action,
+      approval,
+      latestState,
+      auditTrail,
+      currentState: null,
+      requestedState: null,
+      capability,
+      preflight: buildPreviewPreflight({
+        decisionResolved: true,
+        liveStateResolved: false,
+        providerAccessible: false,
+        safeSubset: false,
+        alreadyAtTarget: false,
+      }),
+      canaryPreflight,
+      supportMatrix,
+      prerequisites: [],
+      risks: [policyReason],
+      manualInstructions: [
+        "Refresh the source Decision OS surface and resolve the operator policy blockers before provider-backed apply.",
+      ],
+      supportMode: "manual_only",
+      applyReason: policyReason,
+      rollbackReason: policyReason,
     });
   }
 

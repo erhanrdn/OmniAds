@@ -26,6 +26,7 @@ import type { MetaDecisionOsV1Response } from "@/lib/meta/decision-os";
 import { buildOperatorDecisionMetadata } from "@/lib/operator-decision-metadata";
 import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provenance";
 import type { DecisionPolicyExplanation } from "@/src/types/decision-trust";
+import type { OperatorPolicyAssessment } from "@/src/types/operator-decision";
 
 function decisionMetadata() {
   return buildOperatorDecisionMetadata({
@@ -119,6 +120,25 @@ function rowProvenanceFixture(input: {
     provenance,
     evidenceHash: provenance.evidenceHash,
     actionFingerprint: provenance.actionFingerprint,
+  };
+}
+
+function blockedOperatorPolicy(
+  overrides: Partial<OperatorPolicyAssessment> = {},
+): OperatorPolicyAssessment {
+  return {
+    contractVersion: "operator-policy.v1",
+    state: "blocked",
+    actionClass: "scale",
+    pushReadiness: "blocked_from_push",
+    queueEligible: false,
+    canApply: false,
+    reasons: ["Policy blocks this action."],
+    blockers: ["Budget is not the binding constraint."],
+    missingEvidence: ["budget_binding_evidence"],
+    requiredEvidence: ["budget_binding_evidence"],
+    explanation: "Budget is not the binding constraint.",
+    ...overrides,
   };
 }
 
@@ -1391,6 +1411,37 @@ describe("command center domain", () => {
     expect(metaAction?.provenance).toBeNull();
     expect(metaAction?.throughput.defaultQueueEligible).toBe(false);
     expect(metaAction?.throughput.selectedInDefaultQueue).toBe(false);
+  });
+
+  it("keeps policy-blocked Meta actions out of default queue and overflow backlog", () => {
+    const actions = aggregateCommandCenterActions({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      metaDecisionOs: metaFixture(),
+      creativeDecisionOs: creativeFixture(),
+    });
+    const decorated = decorateCommandCenterActionsWithThroughput({
+      actions: actions.map((action) =>
+        action.sourceType === "meta_adset_decision"
+          ? { ...action, operatorPolicy: blockedOperatorPolicy() }
+          : action,
+      ),
+      decisionAsOf: "2026-04-10",
+    });
+    const throughput = buildCommandCenterDefaultQueueSummary(decorated);
+    const selected = applyCommandCenterQueueSelection({
+      actions: decorated,
+      throughput,
+    });
+    const metaAction = selected.find(
+      (action) => action.sourceType === "meta_adset_decision",
+    );
+
+    expect(metaAction?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
+    expect(metaAction?.throughput.actionable).toBe(false);
+    expect(metaAction?.throughput.defaultQueueEligible).toBe(false);
+    expect(metaAction?.queueSection).toBe("history_context");
   });
 
   it("marks no-touch surfaces as watchlist-only and keeps them out of primary views", () => {
