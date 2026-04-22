@@ -28,6 +28,7 @@ import { buildOperatorDecisionProvenance } from "@/lib/operator-decision-provena
 import {
   assessMetaOperatorPolicy,
   inferMetaBudgetConstraint,
+  type MetaEvidenceSource,
 } from "@/lib/meta/operator-policy";
 import type {
   AccountOperatingModePayload,
@@ -506,6 +507,7 @@ export interface BuildMetaDecisionOsInput {
   decisionWindows?: OperatorDecisionWindows;
   historicalMemory?: OperatorHistoricalMemory;
   decisionAsOf?: string;
+  evidenceSource?: MetaEvidenceSource;
   campaigns: MetaCampaignRow[];
   adSets: MetaAdSetData[];
   breakdowns: Pick<MetaBreakdownsResponse, "location" | "placement"> | null;
@@ -545,6 +547,7 @@ interface MetaDecisionProvenanceContext {
     endDate: string;
   };
   sourceWindow: OperatorDecisionSourceWindow;
+  evidenceSource: MetaEvidenceSource;
 }
 
 const ACTION_PRIORITY: Record<MetaAdSetActionType, number> = {
@@ -2307,6 +2310,7 @@ function buildAdSetDecision(input: {
     trust,
     authority: input.operatingMode?.authority ?? null,
     provenance,
+    evidenceSource: input.provenanceContext.evidenceSource,
     noTouch,
     commercialTruthMode: input.geoCoverageMode,
     commercialMissingInputs: input.operatingMode?.missingInputs ?? [],
@@ -2568,6 +2572,7 @@ function buildCampaignDecision(input: {
     trust,
     authority: input.operatingMode?.authority ?? null,
     provenance,
+    evidenceSource: input.provenanceContext.evidenceSource,
     noTouch,
     commercialTruthMode: input.thresholds.mode,
     commercialMissingInputs: input.operatingMode?.missingInputs ?? [],
@@ -3542,6 +3547,7 @@ export function buildMetaDecisionOs(
       endDate: input.endDate,
     },
     sourceWindow: decisionMetadata.decisionWindows.primary30d,
+    evidenceSource: input.evidenceSource ?? "unknown",
   };
   const thresholds = determineThresholds(input.commercialTruth);
   const commercialTruthCoverage = collectCommercialTruthCoverage(input.commercialTruth);

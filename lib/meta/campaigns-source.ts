@@ -12,12 +12,14 @@ import { getMetaPartialReason, getMetaRangePreparationContext } from "@/lib/meta
 import { getMetaWarehouseCampaignTable } from "@/lib/meta/serving";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import type { MetaCampaignRow } from "@/app/api/meta/campaigns/route";
+import type { MetaEvidenceSource } from "@/lib/meta/operator-policy";
 
 export interface MetaCampaignsSourceResult {
   status?: "ok" | "no_accounts_assigned" | "account_not_assigned" | "not_connected";
   rows: MetaCampaignRow[];
   isPartial?: boolean;
   notReadyReason?: string | null;
+  evidenceSource: MetaEvidenceSource;
 }
 
 function toISODate(date: Date) {
@@ -57,6 +59,7 @@ export async function getMetaCampaignsForRange(input: {
       rows: getDemoMetaCampaigns().rows as MetaCampaignRow[],
       isPartial: false,
       notReadyReason: null,
+      evidenceSource: "demo",
     };
   }
 
@@ -69,6 +72,7 @@ export async function getMetaCampaignsForRange(input: {
       rows: [],
       isPartial: false,
       notReadyReason: "No Meta ad account is assigned to this workspace.",
+      evidenceSource: "unknown",
     };
   }
 
@@ -83,6 +87,7 @@ export async function getMetaCampaignsForRange(input: {
       isPartial: false,
       notReadyReason:
         "The requested Meta ad account is not assigned to this workspace.",
+      evidenceSource: "unknown",
     };
   }
 
@@ -120,6 +125,7 @@ export async function getMetaCampaignsForRange(input: {
           isPartial: true,
           notReadyReason:
             "Meta integration is not connected. Historical live fallback is unavailable.",
+          evidenceSource: "unknown",
         };
       }
       rows = await getMetaLiveCampaignRows({
@@ -137,6 +143,7 @@ export async function getMetaCampaignsForRange(input: {
         rows,
         isPartial: false,
         notReadyReason: null,
+        evidenceSource: "live",
       };
     }
 
@@ -148,6 +155,7 @@ export async function getMetaCampaignsForRange(input: {
           isPartial: true,
           notReadyReason:
             "Meta integration is not connected. Current-day campaign data is only available from the live provider.",
+          evidenceSource: "unknown",
         };
       }
       rows = await getMetaLiveCampaignRows({
@@ -174,6 +182,7 @@ export async function getMetaCampaignsForRange(input: {
                   "Current-day live Meta campaign data is still being prepared.",
               })
             : null,
+        evidenceSource: rows.length > 0 ? "live" : "unknown",
       };
     }
 
@@ -201,6 +210,7 @@ export async function getMetaCampaignsForRange(input: {
         notReadyReason: connected
           ? "Historical live Meta campaign data is temporarily unavailable for the selected range."
           : "Meta integration is not connected. Historical live fallback is unavailable.",
+        evidenceSource: "unknown",
       };
     }
     if (rangeContext.isSelectedCurrentDay) {
@@ -217,6 +227,7 @@ export async function getMetaCampaignsForRange(input: {
                 "Current-day live Meta campaign data is still being prepared.",
             })
           : "Meta integration is not connected. Current-day campaign data is only available from the live provider.",
+        evidenceSource: "unknown",
       };
     }
     try {
@@ -269,5 +280,9 @@ export async function getMetaCampaignsForRange(input: {
               })
             : "Meta integration is not connected. Historical warehouse data will appear here once available."
           : null,
+    evidenceSource:
+      rows.length > 0 && (!historicalTruth || historicalTruth.truthReady)
+        ? "live"
+        : "unknown",
   };
 }

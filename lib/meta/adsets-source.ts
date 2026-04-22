@@ -8,12 +8,14 @@ import { getMetaLiveAdSets } from "@/lib/meta/live";
 import { getMetaSelectedRangeTruthReadiness } from "@/lib/sync/meta-sync";
 import type { MetaAdSetData } from "@/lib/api/meta";
 import { getDemoMetaAdSets } from "@/lib/demo-business";
+import type { MetaEvidenceSource } from "@/lib/meta/operator-policy";
 
 export interface MetaAdSetsSourceResult {
   status?: "ok" | "not_connected";
   rows: MetaAdSetData[];
   isPartial?: boolean;
   notReadyReason?: string | null;
+  evidenceSource: MetaEvidenceSource;
 }
 
 export async function getMetaAdSetsForRange(input: {
@@ -34,6 +36,7 @@ export async function getMetaAdSetsForRange(input: {
       rows: getDemoMetaAdSets(input.campaignId ?? null),
       isPartial: false,
       notReadyReason: null,
+      evidenceSource: "demo",
     };
   }
 
@@ -66,6 +69,7 @@ export async function getMetaAdSetsForRange(input: {
           isPartial: true,
           notReadyReason:
             "Meta integration is not connected. Historical live fallback is unavailable.",
+          evidenceSource: "unknown",
         };
       }
       const liveRows = await getMetaLiveAdSets({
@@ -80,6 +84,7 @@ export async function getMetaAdSetsForRange(input: {
         rows: liveRows,
         isPartial: false,
         notReadyReason: null,
+        evidenceSource: "live",
       };
     }
 
@@ -91,6 +96,7 @@ export async function getMetaAdSetsForRange(input: {
           isPartial: true,
           notReadyReason:
             "Meta integration is not connected. Current-day ad set data is only available from the live provider.",
+          evidenceSource: "unknown",
         };
       }
       const liveRows = await getMetaLiveAdSets({
@@ -112,8 +118,9 @@ export async function getMetaAdSetsForRange(input: {
                 primaryAccountTimezone: rangeContext.primaryAccountTimezone,
                 defaultReason:
                   "Current-day live Meta ad set data is still being prepared.",
-              })
+            })
             : null,
+        evidenceSource: liveRows.length > 0 ? "live" : "unknown",
       };
     }
 
@@ -137,6 +144,8 @@ export async function getMetaAdSetsForRange(input: {
                 fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
               })
             : null,
+        evidenceSource:
+          !historicalTruth || historicalTruth.truthReady ? "live" : "unknown",
       };
     }
   } catch (error) {
@@ -154,6 +163,7 @@ export async function getMetaAdSetsForRange(input: {
         notReadyReason: connected
           ? "Historical live Meta ad set data is temporarily unavailable for the selected range."
           : "Meta integration is not connected. Historical live fallback is unavailable.",
+        evidenceSource: "unknown",
       };
     }
     if (rangeContext.isSelectedCurrentDay) {
@@ -170,6 +180,7 @@ export async function getMetaAdSetsForRange(input: {
                 "Current-day live Meta ad set data is still being prepared.",
             })
           : "Meta integration is not connected. Current-day ad set data is only available from the live provider.",
+        evidenceSource: "unknown",
       };
     }
     try {
@@ -193,6 +204,8 @@ export async function getMetaAdSetsForRange(input: {
                   fallbackReason: "Ad set warehouse data is still being prepared for the requested range.",
                 })
               : null,
+          evidenceSource:
+            !historicalTruth || historicalTruth.truthReady ? "live" : "unknown",
         };
       }
     } catch {
@@ -228,5 +241,6 @@ export async function getMetaAdSetsForRange(input: {
             defaultReason: "Ad set warehouse data is still being prepared for the requested range.",
           })
         : "Meta integration is not connected. Historical warehouse data will appear here once available.",
+    evidenceSource: "unknown",
   };
 }

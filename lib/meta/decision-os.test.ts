@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildMetaDecisionOs } from "@/lib/meta/decision-os";
+import { buildMetaDecisionOs as buildMetaDecisionOsBase } from "@/lib/meta/decision-os";
 import { createEmptyBusinessCommercialTruthSnapshot } from "@/src/types/business-commercial";
+
+function buildMetaDecisionOs(
+  input: Parameters<typeof buildMetaDecisionOsBase>[0],
+) {
+  return buildMetaDecisionOsBase({
+    evidenceSource: "live",
+    ...input,
+  });
+}
 
 function campaign(overrides: Record<string, unknown> = {}) {
   return {
@@ -986,6 +995,41 @@ describe("buildMetaDecisionOs", () => {
     expect(result.adSets[0]?.operatorPolicy?.pushReadiness).toBe("blocked_from_push");
     expect(result.adSets[0]?.operatorPolicy?.blockers.join(" ")).toContain(
       "campaign-owned",
+    );
+  });
+
+  it("keeps Meta operator policy contextual when evidence source is missing", () => {
+    const snapshot = configuredTruthSnapshot();
+
+    const result = buildMetaDecisionOsBase({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      decisionAsOf: "2026-04-10",
+      campaigns: [campaign()],
+      adSets: [
+        adSet({
+          budgetLevel: "adset",
+          dailyBudget: 30,
+          spend: 900,
+          purchases: 30,
+          revenue: 3600,
+        }),
+      ],
+      breakdowns: { location: [], placement: [] },
+      commercialTruth: snapshot,
+    });
+
+    expect(result.adSets[0]?.operatorPolicy).toMatchObject({
+      state: "contextual_only",
+      pushReadiness: "blocked_from_push",
+      queueEligible: false,
+    });
+    expect(result.adSets[0]?.operatorPolicy?.missingEvidence).toContain(
+      "evidence_source",
+    );
+    expect(result.adSets[0]?.operatorPolicy?.blockers.join(" ")).toContain(
+      "Evidence source is missing",
     );
   });
 
