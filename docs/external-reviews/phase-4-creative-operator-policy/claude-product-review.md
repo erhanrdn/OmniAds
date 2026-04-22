@@ -180,3 +180,53 @@ Phase 5's stated goal is cross-page consistency and conflict detection. That is 
 Phase 4 builds the right foundation. The classification is expert-grade. The safety gates prevent the most common expensive mistakes. Protected winners are protected.
 
 What Phase 4 does not yet do is tell the operator exactly what to do with the classification — which ad set, what action verb, what to watch, why act today rather than tomorrow. That is the difference between an expert analysis tool and an expert operator system. Phase 5 must close that gap, not add more layers above it.
+
+---
+
+## Phase 4 Final Hardening Addendum
+
+Updated: 2026-04-22 post-PR #22 merge
+
+### Was the PR #21 review issue real?
+
+**Yes.** The issue was real and non-trivial.
+
+`mapCreativeOpportunityToCommandCenter` used `some` (OR logic) to check `creativePolicyEligible`: a family opportunity with multiple creativeIds would pass if *any one* row had a safe-to-queue policy, even if other referenced rows were missing entirely or lacked `operatorPolicy`. That means a partially-configured Creative family opportunity could enter the Command Center queue as eligible, with incomplete or non-live evidence on the other referenced creatives.
+
+### What was fixed (PR #22)
+
+The OR `some` check was replaced with a comprehensive AND gate: `allCreativePoliciesEligible` requires `relatedCreatives.every(hasCreativeOpportunityQueueAuthority)`. Queue authority is granted to a creative row only if ALL of the following pass:
+
+1. `hasCreativeCommandCenterProvenance` — provenance present, fingerprints match, scope is `creative/creative`
+2. `hasLiveCreativeCommandCenterEvidence` — both `creative.evidenceSource` and `policy.evidenceSource` are `"live"`
+3. `policy.queueEligible === true`
+4. `policy.pushReadiness === "safe_to_queue"`
+
+Additionally, four explicit failure signals were added with specific block reasons: `missingCreativeRows`, `missingOperatorPolicy`, `missingProvenance`, `nonLiveEvidence`. The `eligibilityTrace` is now normalized to `blocked` verdict whenever `queueEligible` is false, preventing stale `queue_ready` verdicts from surviving downstream.
+
+A follow-up guard (290a4fd) also fixed a latent crash: `creative.provenance?.sourceRowScope.system` had a missing optional chain on `sourceRowScope` that would throw on partially-populated provenance objects.
+
+### Tests added
+
+6 new targeted scenarios in `lib/command-center.test.ts`:
+
+1. One safe row + one missing creative row → `queueEligible: false`
+2. One safe row + one row missing `operatorPolicy` → `queueEligible: false`
+3. One safe row + one row with non-queue-eligible policy → `queueEligible: false`
+4. One row missing required provenance → `queueEligible: false`
+5. Partially populated provenance (would previously throw) → `queueEligible: false`, no exception
+6. Multi-creative opportunity with all rows live, safe-to-queue, valid provenance → `queueEligible: true`
+
+### Test and build results (post-PR #22)
+
+- Full suite: **290 files / 1954 tests — PASS**
+- TypeScript: **PASS (no output)**
+- Working tree: clean
+
+### Phase 4 hardening status
+
+**Phase 4 is fully hardened.** The Creative Command Center queue eligibility now fails closed on any partial data condition. Demo/snapshot/fallback/unknown evidence cannot reach queue-eligible status. Missing rows, missing policy, missing provenance, and non-live evidence all produce explicit block reasons and a normalized blocked trace.
+
+### Phase 5 clearance
+
+**Phase 5 may start.** The open product items from this review (HOLD bucket conflation, dead code in `resolveSegment`, action instruction completeness) are correctly scoped as Phase 5 work, not blockers. The safety foundation is sound.
