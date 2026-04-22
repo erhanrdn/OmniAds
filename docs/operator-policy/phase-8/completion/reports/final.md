@@ -1,6 +1,6 @@
 # Phase 8 Completion Report
 
-Status: PR validation report.
+Status: PR #29 completion report.
 
 ## 1. Phase 8 Branches And PRs
 
@@ -10,7 +10,7 @@ Status: PR validation report.
 
 ## 2. PRs Merged
 
-- Pending. Phase 8 must merge through normal PR flow after checks and PR review pass.
+- PR #29 is the Phase 8 completion PR. After this PR is merged through normal PR flow, main contains Phase 8.
 
 ## 3. Files Changed
 
@@ -93,11 +93,11 @@ Status: PR validation report.
 
 ## 13. Phase 8 Status
 
-- Code status: in progress on feature branch.
-- Merge status: not merged.
-- Phase 8 complete: no, until PR review, CI, and merge pass.
+- Code status: complete on feature branch.
+- Merge status: represented by PR #29 state.
+- Phase 8 complete: yes after PR #29 merges with passing gates.
 
 ## 14. Full Program Status
 
-- The 8-phase operator-system program is code-ready only after Phase 8 merges through PR.
+- The 8-phase operator-system program is complete after PR #29 merges through PR.
 - Live account mutation still requires owner approval, canary configuration, telemetry activation, and supervised rollout.
