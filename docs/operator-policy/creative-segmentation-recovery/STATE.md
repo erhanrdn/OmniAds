@@ -4,7 +4,7 @@ Last updated: 2026-04-23 by Codex
 
 ## Current Goal
 
-Harden the Creative Segmentation Recovery foundation so the Calibration Lab can start from explicit baselines, safe `scale_review` behavior, readable operator labels, and a non-authoritative legacy challenger. This is not the Calibration Lab and not the full Creative policy rewrite.
+Creative Segmentation Calibration Lab started from merged foundation and foundation hardening. The lab is currently blocked at the Data Accuracy Gate. Do not proceed to media-buyer-agent judgment or policy-threshold implementation until source data correctness is verified.
 
 ## Product Doctrine
 
@@ -23,7 +23,7 @@ Adsecute is not a dashboard. The Creative page should behave like an expert Meta
 - Campaign Check
 - Not Enough Data
 
-Internal policy segments may remain technical, but production UI labels must use media-buyer language and must not expose labels such as `blocked`, `contextual_only`, `hold_monitor`, `false_winner_low_evidence`, or `creative_learning_incomplete`. Policy/system ineligible rows may use the system note "Not eligible for evaluation" instead of masquerading as a creative-quality segment.
+Internal policy segments may remain technical, but production UI labels must use media-buyer language and must not expose labels such as `blocked`, `contextual_only`, `hold_monitor`, `false_winner_low_evidence`, or `creative_learning_incomplete`. Policy/system ineligible rows may use the system note "Not eligible for evaluation" instead of masquerading as evidence-thin "Not Enough Data."
 
 ## Commercial Truth Guidance
 
@@ -33,74 +33,97 @@ Commercial Truth must not make the system blind to relative creative quality. Wi
 
 ## Scale Review Current Behavior
 
-`scale_review` is a relative creative-quality signal, not push approval. It can become `operator_review_required` only when the blocker is missing Commercial Truth / absolute business validation and the row otherwise has live evidence, provenance, trust metadata, preview truth, reliable relative baseline, and usable campaign/ad set context.
+`scale_review` exists and is push-safe. It is a relative creative-quality signal, not push approval. It can become `operator_review_required` only when the blocker is missing Commercial Truth / absolute business validation and the row otherwise has live evidence, provenance, trust metadata, preview truth, reliable relative baseline, and usable campaign/ad set context.
 
 Hard blockers still force `blocked_from_push`: missing provenance, missing trust metadata, non-live/demo/snapshot/fallback/unknown evidence, missing or degraded preview truth, suppressed rows, inactive/archive rows, and weak campaign/ad set context. `scale_review` is never queue-eligible and `canApply` remains false.
 
-## Benchmark Guidance
+## Baseline And Benchmark Status
 
-Default benchmark direction is account-wide. Campaign-level benchmark must be explicit and cannot be a silent side effect of selecting a campaign filter. Creative Decision OS now exposes `summary.benchmarkScope` and per-row relative baseline metadata: `benchmarkScope`, `benchmarkScopeLabel`, `benchmarkSource`, `benchmarkReliability`, and `relativeBaseline`.
+Account and campaign relative baseline contracts exist. Baselines include scope, sanitized benchmark key, scope id/label, creative count, eligible creative count, spend basis, purchase basis, weighted ROAS, weighted CPA, median ROAS, median CPA, median spend, reliability, and missing context.
 
-Campaign scope is used only when `benchmarkScope: { scope: "campaign", scopeId }` is passed. Future UI should show the active scope label without making the selected reporting range an action authority.
+Default benchmark direction is account-wide. Campaign-level benchmark must be explicit and cannot be a silent side effect of selecting a campaign filter. Creative Decision OS exposes benchmark metadata, but future UI still needs an explicit benchmark scope display/control.
 
-## Baseline Computation Status
+## Old Rule Challenger Status
 
-Account and campaign baselines are computed deterministically when row data exists. Baselines include scope, sanitized benchmark key, scope id/label, creative count, eligible creative count, spend basis, purchase basis, weighted ROAS, weighted CPA, median ROAS, median CPA, median spend, reliability, and missing context.
+The recovered old-rule challenger exists at `lib/creative-old-rule-challenger.ts` for calibration comparison only. It is independent from Decision OS, emits challenger action/reason/metrics/confidence/score, and is marked non-authoritative. It must not drive UI, queue, push, apply, or policy directly.
 
-Reliability values are `strong`, `medium`, `weak`, and `unavailable`. Only `strong` or `medium` baselines can support `scale_review`. Missing or weak baselines downgrade to non-scale-review outcomes and are reported as data gaps.
+## Latest Completed Work
 
-## Old Rule Engine Guidance
+- Created a sanitized calibration helper: `scripts/creative-segmentation-calibration-lab.ts`.
+- Created calibration lab report directory and machine-readable artifact under `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/`.
+- Ran the Data Accuracy Gate against the current Creative source path using the local DB tunnel and production env values in-process.
+- Exported sanitized aliases and metrics only; no raw business/account/campaign/ad set/creative IDs, raw names, copy, URLs, tokens, or cookies are included.
+- Verified the exported rows had zero Creative table vs Decision OS metric deltas and zero identifier mismatches.
+- Stopped calibration before the 10-agent panel because the Data Accuracy Gate failed.
 
-The old rule engine is a challenger, not ground truth. Useful principles to preserve: relative account comparison, evidence sufficiency, and simple media-buyer labels. Do not copy old ROAS-only or low-purchase behavior blindly.
+## Calibration Status
 
-Current active `buildHeuristicCreativeDecisions` still delegates to `buildCreativeDecisionOs`. A recovered old-rule-style helper now exists at `lib/creative-old-rule-challenger.ts` for calibration comparison only. It emits challenger action, reason, metrics used, confidence, score, and non-authoritative flags. It must not drive UI, queue, push, apply, or policy directly.
+Blocked at Phase B - Data Accuracy Gate.
 
-## Completed Work
+Sanitized artifact:
 
-- Created shared recovery context and reports folder.
-- Added internal `scale_review` policy segment.
-- Added explicit account/campaign relative baseline computation and metadata wiring into Creative Decision OS.
-- Added benchmark scope metadata with account default and explicit campaign scope.
-- Added tests proving missing Commercial Truth does not suppress `scale_review` when a reliable explicit baseline exists, and does not create `scale_review` when baseline is missing or weak.
-- Hardened `scale_review` push readiness around provenance, trust, evidence source, preview truth, suppression/archive status, and campaign/ad set context.
-- Preserved safety: `scale_review` is not queue-eligible, cannot apply, and does not become `safe_to_queue`.
-- Removed verified unreachable `hasRoasOnlyPositiveSignal` branch inside `resolveSegment`.
-- Patched the small-account ROAS-only edge so low spend with meaningful purchase evidence is not automatically treated as ROAS-only noise.
-- Narrowly patched kill/Cut recognition so `kill_candidate` no longer requires Commercial Truth in Creative policy; push/apply remains manual-only or blocked by policy.
-- Fixed HOLD conflation in Creative surface routing so `investigate` maps toward Campaign Check instead of the Hold bucket.
-- Replaced system/policy blocked `blocked` and `contextual_only` row labels with "Not eligible for evaluation" instead of "Not Enough Data."
-- Updated the coarse blocked quick-filter label to "Check" so Campaign Check rows do not sit under a contradictory Refresh label.
-- Restored an independent old-rule challenger helper for calibration comparison only.
+`docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/artifacts/sanitized-calibration-dataset.json`
 
-## Open Risks
+Gate summary:
 
-- The explicit campaign benchmark contract exists in code, but the Creative UI still does not expose a campaign benchmark switch or persistent scope label. Do not silently bind campaign filters to benchmark authority.
-- Quick filter buckets remain coarse (`Scale`, `Test`, `Check`, `Hold`, `Evergreen`). Row-level operator labels are improved, but full 10-label production taxonomy is not complete.
-- The restored old-rule challenger is intentionally a calibration baseline only and should not drive UI or policy directly.
-- Calibration Lab should still use fixtures/live accounts to tune thresholds; this hardening does not claim the current threshold values are final.
+- Companies checked: 3
+- Sampled rows exported: 24
+- Gate passed: false
+- Blocking issue: one sampled company returned zero current Decision OS rows
+- `meta_creative_daily` was empty in the checked database, so independent warehouse-level creative fact verification was unavailable
 
-## Reports And Tests
+## Agent Panel Status
+
+Not run. The 10 media-buyer-agent panel must not run on this artifact because source correctness is not verified.
+
+## Mismatch Summary
+
+Only source-level mismatch synthesis is valid from this pass:
+
+- insufficient data / unverifiable source for one sampled company
+- account baselines can be present in exported rows, but relative-winner suppression is not policy-proven while the gate is failed
+- old-rule challenger produced scale-like labels in the sample, but those remain diagnostic and cannot be treated as policy evidence yet
+- UI label usefulness cannot be calibrated until source data is verified
+
+## Remaining Blockers
+
+- Current source path can return zero Decision OS rows for a sampled company without enough sanitized source-health detail for calibration.
+- `meta_creative_daily` is empty, so the lab cannot cross-check current creative metrics against an independent creative fact table.
+- Campaign baseline summaries in the artifact are diagnostic only; production campaign benchmark authority still requires explicit benchmark scope.
+- The media-buyer-agent panel and deterministic policy recommendations are blocked until the data gate passes.
+
+## Next Recommended Action
+
+Implement a Creative source-health hardening pass before calibration:
+
+- report why current Decision OS rows are zero for a sampled company
+- distinguish snapshot bypass, live provider failure, empty provider data, and preview/media degradation
+- preserve/verifiably expose performance metric availability separately from preview availability where safe
+- add source-health fixtures so the Calibration Lab blocks cleanly on source failure
+- rerun the Data Accuracy Gate, then run the 10-agent panel only if the gate passes
+
+Policy threshold changes, segmentation rewrites, noisy UI, old-rule authority, and queue/push/apply safety changes remain out of scope.
+
+## Reports And Validation
 
 - Audit: `docs/operator-policy/creative-segmentation-recovery/reports/current-segmentation-audit.md`
 - Foundation report: `docs/operator-policy/creative-segmentation-recovery/reports/foundation-final.md`
 - Hardening report: `docs/operator-policy/creative-segmentation-recovery/reports/foundation-hardening-final.md`
-- Targeted tests passed:
-  - `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts lib/creative-old-rule-challenger.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx`
-  - `npx vitest run lib/creative-operator-policy.test.ts lib/creative-operator-surface.test.ts lib/creative-decision-os.test.ts lib/creative-old-rule-challenger.test.ts components/creatives/CreativeDecisionOsOverview.test.tsx lib/command-center.test.ts`
-- Latest typecheck passed:
-  - `npx tsc --noEmit`
-- Full validation passed:
-  - `npm test` - passed, 293 files and 2021 tests.
-  - `npx tsc --noEmit` - passed.
-  - `npm run build` - passed.
-  - `git diff --check` - passed.
-  - hidden/bidi/control scan - passed.
+- Data gate: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/data-accuracy-gate.md`
+- Dataset summary: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/calibration-dataset-summary.md`
+- Current trace: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/current-decision-trace.md`
+- Agent panel status: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/agent-panel-judgments.md`
+- Mismatch synthesis: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/mismatch-synthesis.md`
+- Fixture plan: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/fixture-candidate-plan.md`
+- Final lab report: `docs/operator-policy/creative-segmentation-recovery/reports/calibration-lab/final.md`
+- PR: `https://github.com/erhanrdn/OmniAds/pull/34`
+
+Latest local validation:
+
+- `node --import tsx scripts/creative-segmentation-calibration-lab.ts` - completed and wrote sanitized artifact with gate failed.
+- `npm test` - passed, 293 files and 2021 tests.
+- `npx tsc --noEmit` - passed.
+- `npm run build` - passed.
+- `git diff --check` - passed.
+- hidden/bidi/control scan - passed.
 - No lint script exists in `package.json`.
-
-## Calibration Lab Readiness
-
-Calibration Lab can start after this hardening branch is merged and CI is green. Required prerequisites now exist: safe `scale_review`, explicit account/campaign baseline metadata, benchmark-scope contract, old-rule challenger output, and deterministic regression tests.
-
-## Next Recommended Action
-
-Open and merge the hardening PR when checks pass, then start the Creative Segmentation Calibration Lab. Do not ask Claude for another review in this hardening pass.
