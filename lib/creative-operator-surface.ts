@@ -151,6 +151,24 @@ export function creativeBusinessValidationNote(creative: CreativeDecisionOsCreat
   return null;
 }
 
+function isMatureZeroPurchaseWeakWatch(creative: CreativeDecisionOsCreative) {
+  return (
+    creative.operatorPolicy?.segment === "hold_monitor" &&
+    creative.primaryAction === "keep_in_test" &&
+    creative.purchases === 0 &&
+    creative.spend >= 250 &&
+    creative.impressions >= 5_000 &&
+    creative.creativeAgeDays > 10
+  );
+}
+
+function hasTestMoreFatigueCaveat(creative: CreativeDecisionOsCreative) {
+  return (
+    creative.operatorPolicy?.segment === "promising_under_sampled" &&
+    creative.fatigue?.status === "watch"
+  );
+}
+
 export function creativeOperatorSegmentLabel(creative: CreativeDecisionOsCreative) {
   const segment = creative.operatorPolicy?.segment ?? null;
   switch (segment) {
@@ -425,6 +443,15 @@ function creativeReason(creative: CreativeDecisionOsCreative, state: OperatorAut
       return `Promising creative, but the ${scopeLabel.toLowerCase()} benchmark is still too thin for a scale call.`;
     }
   }
+  if (creative.operatorPolicy?.segment === "promising_under_sampled") {
+    if (hasTestMoreFatigueCaveat(creative)) {
+      return "Promising relative signal, but the sample is still light. Keep testing while watching fatigue pressure.";
+    }
+    return "Promising relative signal, but the sample is still light. Keep testing until the evidence matures.";
+  }
+  if (isMatureZeroPurchaseWeakWatch(creative)) {
+    return "Spend is already meaningful enough to move past early learning, but there is still no purchase proof. Keep this in Watch until conversion evidence appears.";
+  }
   if (state === "needs_truth" && creative.previewStatus?.liveDecisionWindow === "missing") {
     return "Preview truth is missing, so this creative cannot headline an authoritative action yet.";
   }
@@ -536,6 +563,19 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
     creative.deployment.compatibility.status === "limited" ||
     creative.deployment.compatibility.status === "blocked";
   const urgencyOverride = creativeUrgencyOverride(creative);
+  const nextObservation = [
+    hasTestMoreFatigueCaveat(creative)
+      ? "Watch fatigue pressure while the sample is still maturing."
+      : null,
+    isMatureZeroPurchaseWeakWatch(creative)
+      ? "Confirm purchase evidence before extending this test."
+      : null,
+    ...(creative.deployment.whatWouldChangeThisDecision ?? []),
+    ...creative.deployment.constraints,
+    ...creative.deployment.compatibility.reasons,
+    ...(creative.fatigue?.missingContext ?? []),
+    ...(creative.benchmark?.missingContext ?? []),
+  ].filter(Boolean) as string[];
 
   return {
     id: creative.creativeId,
@@ -590,13 +630,7 @@ export function buildCreativeOperatorItem(creative: CreativeDecisionOsCreative):
       ...(urgencyOverride.reason
         ? { urgencyReason: urgencyOverride.reason }
         : {}),
-      nextObservation: [
-        ...(creative.deployment.whatWouldChangeThisDecision ?? []),
-        ...creative.deployment.constraints,
-        ...creative.deployment.compatibility.reasons,
-        ...(creative.fatigue?.missingContext ?? []),
-        ...(creative.benchmark?.missingContext ?? []),
-      ],
+      nextObservation,
       invalidActions: [
         campaignContextLimited
           ? "Do not blame the creative before the limiting campaign or ad set context is reviewed."

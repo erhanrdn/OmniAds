@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignStableCompanyAliases,
   buildDeterministicHoldoutSplit,
+  isReviewOnlyScaleCandidateForHoldout,
 } from "./creative-segmentation-holdout-validation";
 
 function companies(count: number) {
@@ -9,6 +10,49 @@ function companies(count: number) {
     companyAlias: `company-${String(index + 1).padStart(2, "0")}`,
     businessId: `business-${index + 1}`,
   }));
+}
+
+function reviewOnlyScaleCandidateFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    primaryAction: "keep_in_test",
+    lifecycleState: "validating",
+    spend: 979.57,
+    purchases: 30,
+    roas: 9.23,
+    cpa: 32.65,
+    impressions: 42_000,
+    creativeAgeDays: 21,
+    economics: {
+      status: "eligible",
+    },
+    relativeBaseline: {
+      reliability: "strong",
+      sampleSize: 12,
+      eligibleCreativeCount: 12,
+      spendBasis: 8_176.39,
+      purchaseBasis: 226,
+      medianRoas: 3.61,
+      medianCpa: 35.82,
+      medianSpend: 123.06,
+    },
+    fatigue: {
+      status: "watch",
+    },
+    trust: {
+      truthState: "degraded_missing_truth",
+      operatorDisposition: "standard",
+      evidence: {
+        aggressiveActionBlocked: false,
+        suppressed: false,
+      },
+    },
+    deployment: {
+      compatibility: {
+        status: "compatible",
+      },
+    },
+    ...overrides,
+  } as any;
 }
 
 describe("creative segmentation holdout validation", () => {
@@ -58,5 +102,30 @@ describe("creative segmentation holdout validation", () => {
         companyAlias: company.companyAlias,
       })),
     );
+  });
+
+  it("counts only real review-only scale candidates instead of protected winners", () => {
+    const scalableReview = isReviewOnlyScaleCandidateForHoldout({
+      creative: reviewOnlyScaleCandidateFixture(),
+      commercialTruthConfigured: false,
+    });
+    const protectedWinner = isReviewOnlyScaleCandidateForHoldout({
+      creative: reviewOnlyScaleCandidateFixture({
+        primaryAction: "hold_no_touch",
+        lifecycleState: "stable_winner",
+        trust: {
+          truthState: "degraded_missing_truth",
+          operatorDisposition: "protected_watchlist",
+          evidence: {
+            aggressiveActionBlocked: false,
+            suppressed: false,
+          },
+        },
+      }),
+      commercialTruthConfigured: false,
+    });
+
+    expect(scalableReview).toBe(true);
+    expect(protectedWinner).toBe(false);
   });
 });

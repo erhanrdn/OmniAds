@@ -746,6 +746,107 @@ describe("buildCreativeDecisionOs", () => {
     expect(winner?.report.timeframeContext?.note).toContain("review-only");
   });
 
+  it("surfaces Scale Review for keep-in-test rows when only business validation is missing", () => {
+    const payload = buildCreativeDecisionOs({
+      businessId: "biz",
+      startDate: "2026-04-01",
+      endDate: "2026-04-10",
+      evidenceSource: "live",
+      campaigns: [
+        {
+          id: "cmp-scale",
+          name: "Scaling Campaign",
+          status: "ACTIVE",
+          objective: "OUTCOME_SALES",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          spend: 1_000,
+          roas: 3.6,
+          purchases: 20,
+        },
+        {
+          id: "cmp-validate",
+          name: "Validation Campaign",
+          status: "ACTIVE",
+          objective: "OUTCOME_SALES",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          spend: 700,
+          roas: 2.5,
+          purchases: 12,
+        },
+        {
+          id: "cmp-test",
+          name: "Test Campaign",
+          status: "ACTIVE",
+          objective: "OUTCOME_SALES",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+          spend: 300,
+          roas: 1.2,
+          purchases: 3,
+        },
+      ] as any,
+      adSets: [
+        {
+          id: "adset-scale",
+          name: "Scale Ad Set",
+          campaignId: "cmp-scale",
+          status: "ACTIVE",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+        },
+        {
+          id: "adset-validate",
+          name: "Validation Ad Set",
+          campaignId: "cmp-validate",
+          status: "ACTIVE",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+        },
+        {
+          id: "adset-test",
+          name: "Test Ad Set",
+          campaignId: "cmp-test",
+          status: "ACTIVE",
+          optimizationGoal: "OFFSITE_CONVERSIONS",
+        },
+      ] as any,
+      commercialTruth: null,
+      rows: [
+        buildRow({
+          creativeId: "review-only-winner",
+          name: "Review-only Winner",
+          previewManifest: livePreviewManifest,
+          campaignId: "cmp-validate",
+          campaignName: "Validation Campaign",
+          adSetId: "adset-validate",
+          adSetName: "Validation Ad Set",
+          spend: 520,
+          purchaseValue: 4680,
+          roas: 9,
+          cpa: 21.67,
+          purchases: 24,
+          impressions: 40_000,
+          linkClicks: 8_000,
+          clickToPurchaseRate: 0.3,
+          objectStoryId: "review-only-winner",
+          effectiveObjectStoryId: "review-only-winner",
+          postId: "review-only-winner",
+        }),
+        ...strongBaselineRows(),
+      ],
+    });
+
+    const winner = payload.creatives.find((creative) => creative.creativeId === "review-only-winner");
+
+    expect(winner?.lifecycleState).toBe("validating");
+    expect(winner?.primaryAction).toBe("keep_in_test");
+    expect(winner?.operatorPolicy).toMatchObject({
+      segment: "scale_review",
+      state: "investigate",
+      pushReadiness: "operator_review_required",
+      queueEligible: false,
+      canApply: false,
+    });
+    expect(winner?.operatorPolicy.missingEvidence).toContain("commercial_truth");
+  });
+
   it("activates true Scale only when account baseline and business validation are both strong", () => {
     const payload = buildCreativeDecisionOs({
       businessId: "biz",

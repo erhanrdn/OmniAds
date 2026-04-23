@@ -383,6 +383,8 @@ function defaultPrimaryMove(input: {
   amountGuidance: OperatorInstructionAmountGuidance;
 }) {
   const action = input.actionLabel.toLowerCase();
+  const firstObservation =
+    input.nextObservation[0] ?? input.missingEvidence[0] ?? "more stable evidence";
   if (input.kind === "do_now") {
     const baseMove = buildDoNowPrimaryMove({
       actionLabel: input.actionLabel,
@@ -397,7 +399,13 @@ function defaultPrimaryMove(input: {
     return `Keep ${input.targetEntity} live and protected; do not force a new action from short-term movement.`;
   }
   if (input.kind === "watch") {
-    return `Keep watching ${input.targetEntity}; wait for ${input.nextObservation[0] ?? input.missingEvidence[0] ?? "more stable evidence"} before ${action}.`;
+    if (input.actionLabel.trim().toLowerCase() === "test more") {
+      if (findFatigueObservation(input.nextObservation)) {
+        return `Keep testing ${input.targetEntity}, but watch fatigue pressure while the evidence matures.`;
+      }
+      return `Keep testing ${input.targetEntity}; wait for ${firstObservation} before changing the recommendation.`;
+    }
+    return `Keep watching ${input.targetEntity}; wait for ${firstObservation} before changing the recommendation.`;
   }
   if (input.kind === "investigate") {
     if (isScaleReviewActionLabel(input.actionLabel)) {
@@ -446,6 +454,10 @@ function buildDoNowPrimaryMove(input: {
 
 function sameOperatorTarget(left: string, right: string) {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+function findFatigueObservation(observations: string[]) {
+  return observations.find((observation) => /fatigue|frequency/i.test(observation));
 }
 
 function isScaleReviewActionLabel(actionLabel: string) {

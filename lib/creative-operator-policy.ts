@@ -298,6 +298,21 @@ function hasTrueScaleEvidence(input: CreativeOperatorPolicyInput) {
   return true;
 }
 
+function isReviewOnlyScaleCandidate(
+  input: CreativeOperatorPolicyInput,
+  businessValidationStatus: CreativeBusinessValidationStatus,
+) {
+  return (
+    businessValidationStatus === "missing" &&
+    hasTrueScaleEvidence(input) &&
+    input.primaryAction !== "hold_no_touch" &&
+    input.primaryAction !== "refresh_replace" &&
+    input.primaryAction !== "block_deploy" &&
+    input.lifecycleState !== "fatigued_winner" &&
+    input.fatigue?.status !== "fatigued"
+  );
+}
+
 function hasKillEvidence(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const spend = metrics.spend ?? null;
@@ -344,6 +359,21 @@ function hasMeaningfulPositiveSupport(input: CreativeOperatorPolicyInput) {
   );
 }
 
+function isMatureZeroPurchaseWeakCase(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  return (
+    input.primaryAction === "keep_in_test" &&
+    hasNumber(metrics.spend) &&
+    metrics.spend >= 250 &&
+    hasNumber(metrics.purchases) &&
+    metrics.purchases === 0 &&
+    hasNumber(metrics.impressions) &&
+    metrics.impressions >= 5_000 &&
+    hasNumber(metrics.creativeAgeDays) &&
+    metrics.creativeAgeDays > 10
+  );
+}
+
 function hasWeakCampaignContext(input: CreativeOperatorPolicyInput) {
   return (
     input.deployment?.compatibility.status === "limited" ||
@@ -360,9 +390,14 @@ function resolveSegment(params: {
 }): CreativeOperatorSegment {
   const { policyInput: input } = params;
   const trust = input.trust ?? null;
-  const scaleIntent = isScaleIntent(input);
-  const relativeScaleReviewIntent = isRelativeScaleReviewIntent(input);
   const businessValidationStatus = resolveBusinessValidationStatus(input);
+  const reviewOnlyScaleCandidate = isReviewOnlyScaleCandidate(
+    input,
+    businessValidationStatus,
+  );
+  const scaleIntent = isScaleIntent(input) || reviewOnlyScaleCandidate;
+  const relativeScaleReviewIntent =
+    isRelativeScaleReviewIntent(input) || reviewOnlyScaleCandidate;
 
   if (!input.provenance) return "blocked";
   if (!trust) return "blocked";
@@ -395,6 +430,7 @@ function resolveSegment(params: {
     return "scale_review";
   }
   if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
+  if (isMatureZeroPurchaseWeakCase(input)) return "hold_monitor";
   if (isUnderSampled(input)) {
     if (
       !hasMeaningfulPositiveSupport(input) ||
@@ -517,14 +553,19 @@ export function assessCreativeOperatorPolicy(
   const actionClass = classifyActionClass(input.primaryAction);
   const aggressive = AGGRESSIVE_ACTIONS.has(input.primaryAction);
   const commercialTruthConfigured = Boolean(input.commercialTruthConfigured);
-  const scaleIntent = isScaleIntent(input);
   const businessValidationStatus = resolveBusinessValidationStatus(input);
+  const reviewOnlyScaleCandidate = isReviewOnlyScaleCandidate(
+    input,
+    businessValidationStatus,
+  );
+  const scaleIntent = isScaleIntent(input) || reviewOnlyScaleCandidate;
   const previewState = input.previewStatus?.liveDecisionWindow ?? "missing";
   const weakCampaignContext = hasWeakCampaignContext(input);
   const lowEvidence = isUnderSampled(input);
   const roasOnly = hasRoasOnlyPositiveSignal(input);
-  const scaleAction = SCALE_ACTIONS.has(input.primaryAction);
-  const relativeScaleReviewIntent = isRelativeScaleReviewIntent(input);
+  const scaleAction = SCALE_ACTIONS.has(input.primaryAction) || reviewOnlyScaleCandidate;
+  const relativeScaleReviewIntent =
+    isRelativeScaleReviewIntent(input) || reviewOnlyScaleCandidate;
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
   const requiresCommercialTruth = scaleAction;
   const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);

@@ -262,6 +262,35 @@ describe("operator prescription adapter", () => {
     expect(instruction.canApply).toBe(false);
   });
 
+  it("adds a fatigue caveat when Test More stays the main outcome", () => {
+    const instruction = buildOperatorInstruction({
+      sourceSystem: "creative",
+      sourceLabel: "Creative Decision OS",
+      policy: policy({
+        state: "watch",
+        actionClass: "test",
+        pushReadiness: "read_only_insight",
+        queueEligible: false,
+        missingEvidence: ["evidence_floor"],
+        requiredEvidence: ["conversion_volume"],
+      }),
+      targetScope: "creative",
+      targetEntity: "Promising Hook",
+      actionLabel: "Test More",
+      reason: "Promising relative signal, but the sample is still light. Keep testing while watching fatigue pressure.",
+      confidenceScore: 0.67,
+      evidenceSource: "live",
+      nextObservation: ["Watch fatigue pressure while the sample is still maturing."],
+    });
+
+    expect(instruction.instructionKind).toBe("watch");
+    expect(instruction.primaryMove).toBe(
+      "Keep testing Promising Hook, but watch fatigue pressure while the evidence matures.",
+    );
+    expect(instruction.queueEligible).toBe(false);
+    expect(instruction.canApply).toBe(false);
+  });
+
   it("keeps non-live evidence contextual and push blocked", () => {
     const instruction = buildOperatorInstruction({
       sourceSystem: "creative",
