@@ -50,6 +50,11 @@ export type CreativeRelativeBaselineReliability =
   | "weak"
   | "unavailable";
 
+type CreativeBusinessValidationStatus =
+  | "favorable"
+  | "missing"
+  | "unfavorable";
+
 export interface CreativeOperatorRelativeBaseline {
   scope: "account" | "campaign";
   benchmarkKey?: string | null;
@@ -168,6 +173,13 @@ function hasScaleEvidence(input: CreativeOperatorPolicyInput) {
   );
 }
 
+function isScaleIntent(input: CreativeOperatorPolicyInput) {
+  return (
+    input.primaryAction === "promote_to_scaling" ||
+    input.lifecycleState === "scale_ready"
+  );
+}
+
 function hasRelativeScaleReviewEvidence(input: CreativeOperatorPolicyInput) {
   const metrics = input.supportingMetrics ?? {};
   const baseline = input.relativeBaseline ?? null;
@@ -216,12 +228,74 @@ function hasRelativeBaselineContext(input: CreativeOperatorPolicyInput) {
   );
 }
 
+function hasStrongRelativeBaselineContext(input: CreativeOperatorPolicyInput) {
+  const baseline = input.relativeBaseline ?? null;
+  return (
+    hasRelativeBaselineContext(input) &&
+    baseline?.reliability === "strong" &&
+    (baseline?.sampleSize ?? 0) >= 6 &&
+    (baseline?.eligibleCreativeCount ?? 0) >= 6 &&
+    (baseline?.spendBasis ?? 0) >= 500 &&
+    (baseline?.purchaseBasis ?? 0) >= 8
+  );
+}
+
 function isRelativeScaleReviewIntent(input: CreativeOperatorPolicyInput) {
   return (
     !input.commercialTruthConfigured &&
     (input.primaryAction === "promote_to_scaling" ||
       input.lifecycleState === "scale_ready")
   );
+}
+
+function resolveBusinessValidationStatus(
+  input: CreativeOperatorPolicyInput,
+): CreativeBusinessValidationStatus {
+  if (
+    !input.commercialTruthConfigured ||
+    input.trust?.truthState === "degraded_missing_truth" ||
+    input.trust?.operatorDisposition === "profitable_truth_capped"
+  ) {
+    return "missing";
+  }
+
+  if (
+    input.economics?.status !== "eligible" ||
+    input.trust?.truthState !== "live_confident" ||
+    input.trust?.evidence?.aggressiveActionBlocked === true ||
+    input.trust?.evidence?.suppressed === true
+  ) {
+    return "unfavorable";
+  }
+
+  return "favorable";
+}
+
+function hasTrueScaleEvidence(input: CreativeOperatorPolicyInput) {
+  const metrics = input.supportingMetrics ?? {};
+  const baseline = input.relativeBaseline ?? null;
+  const medianRoas = baseline?.medianRoas ?? 0;
+  const medianCpa = baseline?.medianCpa ?? null;
+  const medianSpend = baseline?.medianSpend ?? 0;
+
+  if (!hasScaleEvidence(input)) return false;
+  if (!hasRelativeScaleReviewEvidence(input)) return false;
+  if (!hasStrongRelativeBaselineContext(input)) return false;
+  if (!hasNumber(metrics.spend) || metrics.spend < Math.max(300, medianSpend * 1.3)) {
+    return false;
+  }
+  if (!hasNumber(metrics.purchases) || metrics.purchases < 6) return false;
+  if (!hasNumber(metrics.roas) || metrics.roas < medianRoas * 1.6) return false;
+  if (
+    hasNumber(metrics.cpa) &&
+    metrics.cpa > 0 &&
+    hasNumber(medianCpa) &&
+    medianCpa > 0 &&
+    metrics.cpa > medianCpa
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function hasKillEvidence(input: CreativeOperatorPolicyInput) {
@@ -286,7 +360,9 @@ function resolveSegment(params: {
 }): CreativeOperatorSegment {
   const { policyInput: input } = params;
   const trust = input.trust ?? null;
+  const scaleIntent = isScaleIntent(input);
   const relativeScaleReviewIntent = isRelativeScaleReviewIntent(input);
+  const businessValidationStatus = resolveBusinessValidationStatus(input);
 
   if (!input.provenance) return "blocked";
   if (!trust) return "blocked";
@@ -302,10 +378,20 @@ function resolveSegment(params: {
   if (trust?.operatorDisposition === "archive_only") return "contextual_only";
   if (input.primaryAction === "hold_no_touch") return "protected_winner";
   if (trust?.operatorDisposition === "protected_watchlist") return "protected_winner";
-  if (relativeScaleReviewIntent && hasWeakCampaignContext(input)) {
+  if (scaleIntent && hasWeakCampaignContext(input)) {
     return "investigate";
   }
-  if (relativeScaleReviewIntent && hasRelativeScaleReviewEvidence(input)) {
+  if (
+    scaleIntent &&
+    businessValidationStatus === "favorable" &&
+    hasTrueScaleEvidence(input)
+  ) {
+    return "scale_ready";
+  }
+  if (scaleIntent && hasRelativeScaleReviewEvidence(input)) {
+    if (businessValidationStatus === "unfavorable") {
+      return "hold_monitor";
+    }
     return "scale_review";
   }
   if (hasRoasOnlyPositiveSignal(input)) return "false_winner_low_evidence";
@@ -318,21 +404,17 @@ function resolveSegment(params: {
     }
     return "promising_under_sampled";
   }
-  if (
-    relativeScaleReviewIntent &&
-    hasRelativeBaselineContext(input) &&
-    !hasRelativeScaleReviewEvidence(input)
-  ) {
+  if (scaleIntent && hasRelativeBaselineContext(input) && !hasRelativeScaleReviewEvidence(input)) {
     return "hold_monitor";
   }
-  if (
-    input.primaryAction === "promote_to_scaling" &&
-    (!input.commercialTruthConfigured || !hasScaleEvidence(input))
-  ) {
+  if (input.primaryAction === "promote_to_scaling" && !hasScaleEvidence(input)) {
     return input.commercialTruthConfigured ? "promising_under_sampled" : "blocked";
   }
   if (input.primaryAction === "promote_to_scaling") {
-    return hasWeakCampaignContext(input) ? "investigate" : "scale_ready";
+    if (!input.commercialTruthConfigured && !hasRelativeBaselineContext(input)) {
+      return "blocked";
+    }
+    return "hold_monitor";
   }
   if (input.lifecycleState === "fatigued_winner" || input.fatigue?.status === "fatigued") {
     return input.primaryAction === "refresh_replace"
@@ -435,6 +517,8 @@ export function assessCreativeOperatorPolicy(
   const actionClass = classifyActionClass(input.primaryAction);
   const aggressive = AGGRESSIVE_ACTIONS.has(input.primaryAction);
   const commercialTruthConfigured = Boolean(input.commercialTruthConfigured);
+  const scaleIntent = isScaleIntent(input);
+  const businessValidationStatus = resolveBusinessValidationStatus(input);
   const previewState = input.previewStatus?.liveDecisionWindow ?? "missing";
   const weakCampaignContext = hasWeakCampaignContext(input);
   const lowEvidence = isUnderSampled(input);
@@ -443,11 +527,11 @@ export function assessCreativeOperatorPolicy(
   const relativeScaleReviewIntent = isRelativeScaleReviewIntent(input);
   const killOrRefreshAction = KILL_OR_REFRESH_ACTIONS.has(input.primaryAction);
   const requiresCommercialTruth = scaleAction;
-  const needsRelativeBaseline =
-    relativeScaleReviewIntent &&
-    !commercialTruthConfigured &&
-    !hasRelativeBaselineContext(input);
-  const requiresCampaignContext = scaleAction || relativeScaleReviewIntent;
+  const needsRelativeBaseline = scaleIntent && !hasRelativeBaselineContext(input);
+  const requiresCampaignContext = scaleIntent;
+  const businessValidationMissing = scaleIntent && businessValidationStatus === "missing";
+  const businessValidationUnfavorable =
+    scaleIntent && businessValidationStatus === "unfavorable";
 
   const requiredEvidence = unique([
     "stable_operator_decision_context",
@@ -456,8 +540,9 @@ export function assessCreativeOperatorPolicy(
     "row_trust",
     "preview_truth",
     requiresCommercialTruth ? "commercial_truth" : null,
-    relativeScaleReviewIntent && !commercialTruthConfigured ? "relative_baseline" : null,
-    relativeScaleReviewIntent || killOrRefreshAction ? "evidence_floor" : null,
+    scaleIntent ? "relative_baseline" : null,
+    scaleIntent ? "business_validation" : null,
+    scaleIntent || killOrRefreshAction ? "evidence_floor" : null,
     requiresCampaignContext ? "campaign_or_adset_context" : null,
     killOrRefreshAction ? "sufficient_negative_evidence" : null,
   ]);
@@ -469,7 +554,8 @@ export function assessCreativeOperatorPolicy(
     previewState === "missing" ? "preview_truth" : null,
     requiresCommercialTruth && !commercialTruthConfigured ? "commercial_truth" : null,
     needsRelativeBaseline ? "relative_baseline" : null,
-    (scaleAction || relativeScaleReviewIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
+    businessValidationUnfavorable ? "business_validation" : null,
+    (scaleIntent || killOrRefreshAction) && lowEvidence ? "evidence_floor" : null,
     roasOnly ? "non_roas_evidence" : null,
     requiresCampaignContext && weakCampaignContext ? "campaign_or_adset_context" : null,
     input.benchmark?.sampleSize === 0 ? "benchmark_context" : null,
@@ -509,6 +595,12 @@ export function assessCreativeOperatorPolicy(
       : null,
     needsRelativeBaseline
       ? "Account or campaign relative baseline is missing, so Scale Review cannot be inferred."
+      : null,
+    businessValidationMissing && !requiresCommercialTruth
+      ? "Business validation is still missing, so this creative stays review-only."
+      : null,
+    businessValidationUnfavorable
+      ? "Business validation does not yet support a direct scale move."
       : null,
     scaleAction && !hasScaleEvidence(input)
       ? "Scale evidence floor is not met; ROAS alone is not enough."

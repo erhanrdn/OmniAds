@@ -59,6 +59,62 @@ function trust(overrides: Partial<DecisionTrustMetadata> = {}): DecisionTrustMet
   };
 }
 
+function strongBaseline(scope: "account" | "campaign" = "account") {
+  return {
+    scope,
+    benchmarkKey: scope === "campaign" ? "campaign:cmp-1" : "account:all",
+    ...(scope === "campaign"
+      ? {
+          scopeId: "cmp-1",
+          scopeLabel: "Campaign",
+          source: "explicit_campaign_scope" as const,
+        }
+      : {
+          source: "account_default" as const,
+        }),
+    reliability: "strong" as const,
+    sampleSize: 6,
+    creativeCount: 6,
+    eligibleCreativeCount: 6,
+    spendBasis: 960,
+    purchaseBasis: 30,
+    weightedRoas: 1.75,
+    weightedCpa: 32,
+    medianRoas: 1.7,
+    medianCpa: 24,
+    medianSpend: 160,
+    missingContext: [],
+  };
+}
+
+function mediumBaseline(scope: "account" | "campaign" = "account") {
+  return {
+    scope,
+    benchmarkKey: scope === "campaign" ? "campaign:cmp-1" : "account:all",
+    ...(scope === "campaign"
+      ? {
+          scopeId: "cmp-1",
+          scopeLabel: "Campaign",
+          source: "explicit_campaign_scope" as const,
+        }
+      : {
+          source: "account_default" as const,
+        }),
+    reliability: "medium" as const,
+    sampleSize: 6,
+    creativeCount: 6,
+    eligibleCreativeCount: 6,
+    spendBasis: 960,
+    purchaseBasis: 30,
+    weightedRoas: 1.75,
+    weightedCpa: 32,
+    medianRoas: 1.7,
+    medianCpa: 24,
+    medianSpend: 160,
+    missingContext: [],
+  };
+}
+
 function baseInput() {
   return {
     lifecycleState: "scale_ready" as const,
@@ -68,6 +124,7 @@ function baseInput() {
     evidenceSource: "live" as const,
     commercialTruthConfigured: true,
     commercialMissingInputs: [],
+    relativeBaseline: strongBaseline(),
     benchmark: {
       sampleSize: 4,
       missingContext: [],
@@ -191,13 +248,7 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialTruthConfigured: false,
       commercialMissingInputs: ["target_pack"],
       relativeBaseline: {
-        scope: "account",
-        benchmarkKey: "account:all",
-        source: "account_default",
-        reliability: "medium",
-        sampleSize: 6,
-        creativeCount: 6,
-        eligibleCreativeCount: 6,
+        ...mediumBaseline(),
         spendBasis: 720,
         purchaseBasis: 18,
         weightedRoas: 1.7,
@@ -205,7 +256,6 @@ describe("assessCreativeOperatorPolicy", () => {
         medianRoas: 1.7,
         medianCpa: 28,
         medianSpend: 120,
-        missingContext: [],
       },
       supportingMetrics: {
         spend: 78,
@@ -230,11 +280,7 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialTruthConfigured: false,
       commercialMissingInputs: ["target_pack"],
       relativeBaseline: {
-        scope: "campaign",
-        benchmarkKey: "campaign:cmp-1",
-        scopeId: "cmp-1",
-        source: "explicit_campaign_scope",
-        reliability: "medium",
+        ...mediumBaseline("campaign"),
         sampleSize: 5,
         creativeCount: 5,
         eligibleCreativeCount: 5,
@@ -245,7 +291,6 @@ describe("assessCreativeOperatorPolicy", () => {
         medianRoas: 1.45,
         medianCpa: 31,
         medianSpend: 120,
-        missingContext: [],
       },
       supportingMetrics: {
         spend: 96,
@@ -286,10 +331,7 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialTruthConfigured: false,
       commercialMissingInputs: ["target_pack", "site_health"],
       relativeBaseline: {
-        scope: "account",
-        benchmarkKey: "account:all",
-        source: "account_default",
-        reliability: "medium",
+        ...mediumBaseline(),
         sampleSize: 8,
         creativeCount: 8,
         eligibleCreativeCount: 8,
@@ -300,7 +342,6 @@ describe("assessCreativeOperatorPolicy", () => {
         medianRoas: 1.8,
         medianCpa: 30,
         medianSpend: 180,
-        missingContext: [],
       },
       supportingMetrics: {
         spend: 180,
@@ -351,15 +392,16 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.queueEligible).toBe(false);
   });
 
-  it("blocks aggressive creative action when commercial truth is missing", () => {
+  it("keeps strong relative winners review-only when commercial truth is missing", () => {
     const policy = assessCreativeOperatorPolicy({
       ...baseInput(),
       commercialTruthConfigured: false,
       commercialMissingInputs: ["target_pack"],
     });
 
-    expect(policy.state).toBe("blocked");
-    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
     expect(policy.missingEvidence).toContain("commercial_truth");
   });
 
@@ -369,21 +411,17 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialTruthConfigured: false,
       commercialMissingInputs: ["target_pack"],
       relativeBaseline: {
-        scope: "account",
-        benchmarkKey: "account:all",
-        source: "account_default",
-        reliability: "medium",
+        ...mediumBaseline(),
         sampleSize: 8,
         creativeCount: 8,
         eligibleCreativeCount: 8,
-        spendBasis: 1440,
+        spendBasis: 1_440,
         purchaseBasis: 48,
         weightedRoas: 1.85,
         weightedCpa: 30,
         medianRoas: 1.8,
         medianCpa: 30,
         medianSpend: 180,
-        missingContext: [],
       },
       supportingMetrics: {
         spend: 260,
@@ -494,23 +532,8 @@ describe("assessCreativeOperatorPolicy", () => {
       commercialTruthConfigured: false,
       commercialMissingInputs: ["target_pack"],
       relativeBaseline: {
-        scope: "campaign",
-        benchmarkKey: "campaign:cmp-1",
-        scopeId: "cmp-1",
-        scopeLabel: "Campaign",
-        source: "explicit_campaign_scope",
-        reliability: "medium",
-        sampleSize: 6,
-        creativeCount: 6,
-        eligibleCreativeCount: 6,
-        spendBasis: 960,
-        purchaseBasis: 30,
-        weightedRoas: 1.75,
-        weightedCpa: 32,
-        medianRoas: 1.7,
-        medianCpa: 32,
-        medianSpend: 160,
-        missingContext: [],
+        ...strongBaseline("campaign"),
+        medianCpa: 23,
       },
       supportingMetrics: {
         spend: 300,
@@ -529,6 +552,49 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(scaleReview.segment).toBe("scale_review");
     expect(scaleReview.pushReadiness).toBe("operator_review_required");
     expect(scaleReview.queueEligible).toBe(false);
+  });
+
+  it("keeps strong relative winners in Scale Review until business validation is available", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: strongBaseline(),
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+    expect(policy.canApply).toBe(false);
+    expect(policy.missingEvidence).toContain("commercial_truth");
+  });
+
+  it("keeps medium-baseline winners in Scale Review instead of promoting them straight to Scale", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      relativeBaseline: mediumBaseline(),
+    });
+
+    expect(policy.segment).toBe("scale_review");
+    expect(policy.state).toBe("investigate");
+    expect(policy.pushReadiness).toBe("operator_review_required");
+    expect(policy.queueEligible).toBe(false);
+  });
+
+  it("does not allow weak business validation to promote a relative winner into Scale", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      economics: {
+        status: "guarded",
+        reasons: ["Business targets are not cleared yet."],
+      },
+    });
+
+    expect(policy.segment).toBe("hold_monitor");
+    expect(policy.state).toBe("watch");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("business_validation");
   });
 
   it("keeps cut recognition available without commercial truth while preserving manual safety", () => {

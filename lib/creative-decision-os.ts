@@ -3221,6 +3221,22 @@ export function buildCreativeDecisionOs(
         creativeAgeDays: row.creativeAgeDays,
       },
     });
+    const benchmarkScopeVerdict = `${relativeBaseline.scopeLabel.toLowerCase()} benchmark (${relativeBaseline.reliability} reliability)`;
+    const businessValidationNote =
+      !commercialTruthConfigured
+        ? "Business validation is still missing, so relative strength stays review-only."
+        : economics.status !== "eligible" &&
+            operatorPolicy.segment !== "creative_learning_incomplete" &&
+            operatorPolicy.segment !== "promising_under_sampled"
+          ? "Business validation does not yet support a direct scale promotion."
+          : null;
+    const baselineQualityNote =
+      relativeBaseline.reliability === "weak" || relativeBaseline.reliability === "unavailable"
+        ? relativeBaseline.missingContext[0] ??
+          `Relative benchmark is ${relativeBaseline.reliability}.`
+        : relativeBaseline.reliability === "medium"
+          ? "Relative benchmark is medium-confidence, so promotion stays conservative."
+          : null;
     const report: CreativeRuleReportPayload = {
       creativeId: row.creativeId,
       creativeName: row.name,
@@ -3239,7 +3255,7 @@ export function buildCreativeDecisionOs(
         spendP80: round(metricContext.spendP80, 4),
       },
       timeframeContext: {
-        coreVerdict: `Live decision window is ${row.roas.toFixed(2)}x ROAS on ${row.purchases} purchases against the ${benchmark.selectedCohortLabel.toLowerCase()} benchmark.`,
+        coreVerdict: `Live decision window is ${row.roas.toFixed(2)}x ROAS on ${row.purchases} purchases against the ${benchmarkScopeVerdict}.`,
         selectedRangeOverlay: `Live decision window says ROAS is ${benchmark.metrics.roas.status} and click-to-purchase is ${benchmark.metrics.clickToPurchase.status}.`,
         historicalSupport:
           historical.total > 0
@@ -3248,7 +3264,10 @@ export function buildCreativeDecisionOs(
         note:
           fatigue.status === "fatigued"
             ? "Fatigue engine sees meaningful decay versus prior winner windows."
-            : benchmark.missingContext[0] ?? null,
+            : businessValidationNote ??
+              baselineQualityNote ??
+              benchmark.missingContext[0] ??
+              null,
       },
       factors: [
         {
