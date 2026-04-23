@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireBusinessAccess } from "@/lib/access";
-import type { CreativeDecisionOsV1Response } from "@/lib/creative-decision-os";
+import type {
+  CreativeDecisionBenchmarkScopeInput,
+  CreativeDecisionOsV1Response,
+} from "@/lib/creative-decision-os";
 import { getCreativeDecisionOsForRange } from "@/lib/creative-decision-os-source";
 import { isCreativeDecisionOsV1EnabledForBusiness } from "@/lib/creative-decision-os-config";
 import { attachCreativeLinkage } from "@/lib/meta/decision-os-linkage";
@@ -16,6 +19,22 @@ function daysAgo(days: number) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() - days);
   return date;
+}
+
+function parseCreativeBenchmarkScope(
+  request: NextRequest,
+): CreativeDecisionBenchmarkScopeInput | null {
+  const scope = request.nextUrl.searchParams.get("benchmarkScope");
+  if (scope !== "account" && scope !== "campaign") return null;
+
+  const scopeId = request.nextUrl.searchParams.get("benchmarkScopeId");
+  const scopeLabel = request.nextUrl.searchParams.get("benchmarkScopeLabel");
+
+  return {
+    scope,
+    ...(scopeId?.trim() ? { scopeId: scopeId.trim() } : {}),
+    ...(scopeLabel?.trim() ? { scopeLabel: scopeLabel.trim() } : {}),
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -60,6 +79,7 @@ export async function GET(request: NextRequest) {
   const analyticsStartDate = analyticsStartDateParam ?? startDate;
   const analyticsEndDate = analyticsEndDateParam ?? endDate;
   const decisionAsOf = request.nextUrl.searchParams.get("decisionAsOf");
+  const benchmarkScope = parseCreativeBenchmarkScope(request);
   const payload = await getMetaDecisionOsForRange({
     businessId,
     startDate,
@@ -84,6 +104,7 @@ export async function GET(request: NextRequest) {
       analyticsStartDate,
       analyticsEndDate,
       decisionAsOf,
+      benchmarkScope,
     });
     const linkedPayload = attachCreativeLinkage(
       payload,

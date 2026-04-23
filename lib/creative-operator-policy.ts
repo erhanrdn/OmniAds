@@ -204,6 +204,11 @@ function hasRelativeBaselineContext(input: CreativeOperatorPolicyInput) {
     Boolean(baseline) &&
     reliable &&
     (baseline?.sampleSize ?? 0) >= 3 &&
+    (baseline?.eligibleCreativeCount ?? 0) >= 3 &&
+    hasNumber(baseline?.spendBasis) &&
+    (baseline?.spendBasis ?? 0) >= 150 &&
+    hasNumber(baseline?.purchaseBasis) &&
+    (baseline?.purchaseBasis ?? 0) >= 3 &&
     hasNumber(baseline?.medianRoas) &&
     (baseline?.medianRoas ?? 0) > 0 &&
     hasNumber(baseline?.medianSpend) &&

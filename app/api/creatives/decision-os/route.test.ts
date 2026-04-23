@@ -575,6 +575,40 @@ describe("GET /api/creatives/decision-os", () => {
     );
   });
 
+  it("forwards explicit benchmark scope metadata into the creative decision build", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&benchmarkScope=campaign&benchmarkScopeId=cmp_1&benchmarkScopeLabel=Campaign%201",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        benchmarkScope: {
+          scope: "campaign",
+          scopeId: "cmp_1",
+          scopeLabel: "Campaign 1",
+        },
+      }),
+    );
+  });
+
+  it("does not silently create campaign benchmark scope from unrelated filters", async () => {
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/api/creatives/decision-os?businessId=biz&startDate=2026-04-01&endDate=2026-04-10&campaignId=cmp_1",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(decisionOs.buildCreativeDecisionOs).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        benchmarkScope: expect.anything(),
+      }),
+    );
+  });
+
   it("returns 404 when the feature gate is disabled", async () => {
     vi.mocked(config.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(false);
 

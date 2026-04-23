@@ -645,6 +645,12 @@ describe("buildCreativeDecisionOs", () => {
       weightedRoas: expect.any(Number),
       medianRoas: expect.any(Number),
     });
+    expect(winner).toMatchObject({
+      benchmarkScope: "account",
+      benchmarkScopeLabel: "Account-wide",
+      benchmarkSource: "account_default",
+      benchmarkReliability: expect.stringMatching(/medium|strong/),
+    });
     expect(winner?.operatorPolicy).toMatchObject({
       segment: "scale_review",
       pushReadiness: "operator_review_required",
@@ -714,6 +720,12 @@ describe("buildCreativeDecisionOs", () => {
       scopeId: "cmp-test",
       scopeLabel: "Test Campaign",
       reliability: expect.stringMatching(/medium|strong/),
+    });
+    expect(winner).toMatchObject({
+      benchmarkScope: "campaign",
+      benchmarkScopeLabel: "Test Campaign",
+      benchmarkSource: "explicit_campaign_scope",
+      benchmarkReliability: expect.stringMatching(/medium|strong/),
     });
     expect(winner?.operatorPolicy.segment).toBe("scale_review");
     expect(other?.relativeBaseline.reliability).toBe("unavailable");

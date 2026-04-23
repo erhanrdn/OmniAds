@@ -411,7 +411,7 @@ describe("creative operator surface", () => {
     expect(buildCreativeOperatorItem(fixture.creatives[2]).primaryAction).toBe("Not Enough Data");
   });
 
-  it("keeps Scale Review rows in the Watch bucket until review-only evidence clears", () => {
+  it("keeps Scale Review rows in the Review bucket until review-only evidence clears", () => {
     const fixture = creativeDecisionOsFixture();
     fixture.creatives[0].operatorPolicy = {
       contractVersion: "operator-policy.v1",
@@ -434,7 +434,7 @@ describe("creative operator surface", () => {
 
     expect(review.primaryAction).toBe("Scale Review");
     expect(review.authorityState).toBe("watch");
-    expect(review.authorityLabel).toBe("Watch");
+    expect(review.authorityLabel).toBe("Review");
     expect(review.instruction?.queueEligible).toBe(false);
     expect(review.instruction?.canApply).toBe(false);
     expect(resolveCreativeQuickFilterKey(fixture.creatives[0])).toBe("watch");
@@ -501,7 +501,7 @@ describe("creative operator surface", () => {
     expect(protect.authorityState).not.toBe("needs_truth");
   });
 
-  it("aligns pass-1 row labels with neutral Watch and Check buckets", () => {
+  it("aligns pass-2 row labels with neutral Review and Check buckets", () => {
     const fixture = creativeDecisionOsFixture();
     const basePolicy = {
       contractVersion: "operator-policy.v1",
@@ -620,17 +620,17 @@ describe("creative operator surface", () => {
     expect(testMore).toMatchObject({
       primaryAction: "Test More",
       authorityState: "watch",
-      authorityLabel: "Watch",
+      authorityLabel: "Review",
     });
     expect(notEnoughData).toMatchObject({
       primaryAction: "Not Enough Data",
       authorityState: "watch",
-      authorityLabel: "Watch",
+      authorityLabel: "Review",
     });
     expect(watch).toMatchObject({
       primaryAction: "Watch",
       authorityState: "watch",
-      authorityLabel: "Watch",
+      authorityLabel: "Review",
     });
     expect(refresh).toMatchObject({
       primaryAction: "Refresh",
@@ -648,7 +648,7 @@ describe("creative operator surface", () => {
       authorityLabel: "Hold: verify",
     });
     expect(model?.buckets.map((bucket) => bucket.label)).toEqual([
-      "Watch",
+      "Review",
       "Check",
       "Hold: verify",
       "Evergreen",
@@ -794,7 +794,7 @@ describe("creative operator surface", () => {
       state: "missing",
       headline: "Preview truth is missing across this review scope.",
     });
-    expect(creativeAuthorityStateLabel("watch")).toBe("Watch");
+    expect(creativeAuthorityStateLabel("watch")).toBe("Review");
     expect(creativeAuthorityStateLabel("no_action")).toBe("Evergreen");
     expect(creativeAuthorityStateLabel("needs_truth")).toBe("Hold: verify");
     expect(creativeAuthorityStateLabel("blocked")).toBe("Check");
@@ -802,7 +802,7 @@ describe("creative operator surface", () => {
 
   it("exposes concise labels for performance quick filters in the top toolbar", () => {
     expect(creativeQuickFilterShortLabel("act_now")).toBe("Scale");
-    expect(creativeQuickFilterShortLabel("watch")).toBe("Watch");
+    expect(creativeQuickFilterShortLabel("watch")).toBe("Review");
     expect(creativeQuickFilterShortLabel("blocked")).toBe("Check");
     expect(creativeQuickFilterShortLabel("needs_truth")).toBe("Hold");
     expect(creativeQuickFilterShortLabel("no_action")).toBe("Evergreen");

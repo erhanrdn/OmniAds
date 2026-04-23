@@ -48,8 +48,8 @@ const CREATIVE_QUICK_FILTER_DEFS: Record<
   },
   watch: {
     key: "watch",
-    label: "WATCH",
-    summary: "Rows worth monitoring while signal matures or confidence stays review-only.",
+    label: "REVIEW",
+    summary: "Rows that still need operator review, evidence maturation, or guarded observation.",
     tone: "watch",
   },
   blocked: {
@@ -87,7 +87,7 @@ export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
     case "act_now":
       return "Scale";
     case "watch":
-      return "Watch";
+      return "Review";
     case "blocked":
       return "Check";
     case "needs_truth":
@@ -100,7 +100,7 @@ export function creativeQuickFilterShortLabel(key: CreativeQuickFilterKey) {
 }
 
 export function creativeAuthorityStateLabel(state: OperatorAuthorityState) {
-  if (state === "watch") return "Watch";
+  if (state === "watch") return "Review";
   if (state === "no_action") return "Evergreen";
   if (state === "act_now") return "Scale";
   if (state === "needs_truth") return "Hold: verify";
@@ -587,14 +587,14 @@ export function buildCreativeOperatorSurfaceModel(
   const previewTruth = buildCreativePreviewTruthSummary({ creatives });
   const buckets = buildOperatorBuckets(items, {
     labels: {
-      watch: "Watch",
+      watch: "Review",
       blocked: "Check",
       needs_truth: "Hold: verify",
       no_action: "Evergreen",
     },
     summaries: {
       act_now: "Winner signals are strong enough for the next decisive move.",
-      watch: "Rows stay visible while evidence matures, confidence stays review-only, or upside remains observational.",
+      watch: "Rows stay in review while evidence matures, relative winners need confirmation, or guarded observation is still the right move.",
       blocked: "Rows need a campaign check, refresh review, cut review, or retest before the next move.",
       needs_truth: "Creatives are held back by preview, commercial truth, deployment fit, or stop-level constraints.",
       no_action: "Stable winners to keep live without forcing them back into churn.",
@@ -624,7 +624,7 @@ export function buildCreativeOperatorSurfaceModel(
     headline = `${counts.check} creative ${counts.check === 1 ? "needs" : "need"} a check before the next move.`;
   } else if (counts.watch > 0) {
     emphasis = "watch";
-    headline = `${counts.watch} creative ${counts.watch === 1 ? "stays" : "stay"} in watch for now.`;
+    headline = `${counts.watch} creative ${counts.watch === 1 ? "stays" : "stay"} in review for now.`;
   } else if (counts.hold > 0) {
     emphasis = "needs_truth";
     headline = `${counts.hold} creative ${counts.hold === 1 ? "is" : "are"} on hold until the next gate clears.`;
@@ -643,7 +643,7 @@ export function buildCreativeOperatorSurfaceModel(
     emphasis,
     authorityLabels: {
       act_now: "Scale",
-      watch: "Watch",
+      watch: "Review",
       blocked: "Check",
       needs_truth: "Hold: verify",
       no_action: "Evergreen",

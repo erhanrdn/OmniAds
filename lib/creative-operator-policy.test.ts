@@ -449,6 +449,44 @@ describe("assessCreativeOperatorPolicy", () => {
     expect(policy.missingEvidence).toContain("relative_baseline");
   });
 
+  it("does not use medium baselines that fail peer-spend or purchase floors for Scale Review", () => {
+    const policy = assessCreativeOperatorPolicy({
+      ...baseInput(),
+      commercialTruthConfigured: false,
+      commercialMissingInputs: ["target_pack"],
+      relativeBaseline: {
+        scope: "account",
+        benchmarkKey: "account:all",
+        source: "account_default",
+        reliability: "medium",
+        sampleSize: 4,
+        creativeCount: 4,
+        eligibleCreativeCount: 2,
+        spendBasis: 120,
+        purchaseBasis: 2,
+        weightedRoas: 1.9,
+        weightedCpa: 27,
+        medianRoas: 1.8,
+        medianCpa: 28,
+        medianSpend: 60,
+        missingContext: [],
+      },
+      supportingMetrics: {
+        spend: 220,
+        purchases: 4,
+        impressions: 16_000,
+        roas: 3.1,
+        cpa: 26,
+        frequency: 1.5,
+        creativeAgeDays: 21,
+      },
+    });
+
+    expect(policy.segment).not.toBe("scale_review");
+    expect(policy.pushReadiness).toBe("blocked_from_push");
+    expect(policy.missingEvidence).toContain("relative_baseline");
+  });
+
   it("keeps full Scale stricter than Scale Review", () => {
     const scale = assessCreativeOperatorPolicy(baseInput());
     const scaleReview = assessCreativeOperatorPolicy({

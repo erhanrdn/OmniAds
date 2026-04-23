@@ -220,7 +220,7 @@ describe("GET /api/meta/recommendations", () => {
     expect(campaignsSource.getMetaCampaignsForRange).not.toHaveBeenCalled();
   });
 
-  it("passes decision timing params into Creative linkage when enabled", async () => {
+  it("passes decision timing and explicit benchmark scope into Creative linkage when enabled", async () => {
     vi.mocked(decisionOsConfig.isMetaDecisionOsV1EnabledForBusiness).mockReturnValue(true);
     vi.mocked(creativeDecisionOsConfig.isCreativeDecisionOsV1EnabledForBusiness).mockReturnValue(true);
     vi.mocked(decisionOsSource.getMetaDecisionOsForRange).mockResolvedValue({
@@ -238,7 +238,7 @@ describe("GET /api/meta/recommendations", () => {
 
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28&decisionAsOf=2026-04-10",
+        "http://localhost/api/meta/recommendations?businessId=biz&startDate=2026-03-01&endDate=2026-03-31&analyticsStartDate=2026-02-01&analyticsEndDate=2026-02-28&decisionAsOf=2026-04-10&benchmarkScope=campaign&benchmarkScopeId=cmp_1&benchmarkScopeLabel=Campaign%201",
       ),
     );
 
@@ -251,6 +251,11 @@ describe("GET /api/meta/recommendations", () => {
         analyticsStartDate: "2026-02-01",
         analyticsEndDate: "2026-02-28",
         decisionAsOf: "2026-04-10",
+        benchmarkScope: {
+          scope: "campaign",
+          scopeId: "cmp_1",
+          scopeLabel: "Campaign 1",
+        },
       }),
     );
   });
